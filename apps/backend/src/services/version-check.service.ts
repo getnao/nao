@@ -1,7 +1,8 @@
 import { env } from '../env';
 
-const GITHUB_RELEASES_URL = 'https://api.github.com/repos/getnao/nao/releases/latest';
+const GITHUB_RELEASES_URL = 'https://api.github.com/repos/getnao/nao/releases';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const APP_RELEASE_TAG_REGEX = /^v\d+\.\d+\.\d+$/;
 
 interface VersionCheckResult {
 	currentVersion: string;
@@ -36,8 +37,9 @@ async function fetchLatestVersion(): Promise<string | null> {
 		if (!response.ok) {
 			return null;
 		}
-		const data = (await response.json()) as { tag_name?: string };
-		return data.tag_name?.replace(/^v/, '') ?? null;
+		const releases = (await response.json()) as { tag_name?: string; prerelease?: boolean }[];
+		const appRelease = releases.find((r) => !r.prerelease && r.tag_name && APP_RELEASE_TAG_REGEX.test(r.tag_name));
+		return appRelease?.tag_name?.replace(/^v/, '') ?? null;
 	} catch {
 		return null;
 	}

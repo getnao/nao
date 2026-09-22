@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeImpact, fingerprintFor, reconcile } from '../src/services/context-recommendations.reconcile';
+import {
+	collectTriggerChatIds,
+	collectTriggerTargetIds,
+	computeImpact,
+	fingerprintFor,
+	reconcile,
+	repairTriggerRefs,
+} from '../src/services/context-recommendations.reconcile';
 
 const TOTALS = { errors: 100, downvotes: 20, regenerations: 30 };
 
@@ -8,11 +15,19 @@ function finding(overrides: Partial<Parameters<typeof reconcile>[0]['recorded'][
 	return {
 		suggestedFile: 'databases/x/columns.md',
 		subjectKey: 'events_v1',
-		severity: 'medium' as const,
+		category: 'tool_error' as const,
+		rootCause: 'r',
 		title: 't',
 		summary: 's',
 		suggestedAction: 'a',
-		insights: [{ signalType: 'tool_error' as const, metric: 'errors', count: 50, exampleChatIds: ['c1', 'c2'] }],
+		insights: [
+			{
+				signalType: 'tool_error' as const,
+				metric: 'errors',
+				count: 50,
+				triggerRefs: [{ chatId: 'c1' }, { chatId: 'c2' }],
+			},
+		],
 		...overrides,
 	};
 }
@@ -27,7 +42,14 @@ describe('fingerprintFor', () => {
 describe('computeImpact', () => {
 	it('counts distinct chats and computes failure share', () => {
 		const { impact, impactScore } = computeImpact(
-			[{ signalType: 'tool_error', metric: 'errors', count: 30, exampleChatIds: ['c1', 'c2'] }],
+			[
+				{
+					signalType: 'tool_error',
+					metric: 'errors',
+					count: 30,
+					triggerRefs: [{ chatId: 'c1' }, { chatId: 'c2' }],
+				},
+			],
 			TOTALS,
 		);
 		expect(impact.affectedChats).toBe(2);
@@ -36,8 +58,46 @@ describe('computeImpact', () => {
 	});
 });
 
+describe('repairTriggerRefs', () => {
+	const item = (triggerRefs: { chatId: string; targetId?: string }[]) => ({
+		insights: [{ signalType: 'coverage_gap' as const, metric: 'm', count: 1, triggerRefs }],
+	});
+
+	it('rewrites a mis-transcribed chatId using the target that resolves to the real chat', () => {
+		const [repaired] = repairTriggerRefs(
+			[item([{ chatId: 'wrong-chat', targetId: 'msg-1' }])],
+			new Map([['msg-1', 'real-chat']]),
+			new Set(),
+		);
+		expect(repaired.insights[0].triggerRefs).toEqual([{ chatId: 'real-chat', targetId: 'msg-1' }]);
+	});
+
+	it('keeps a recorded chatId that exists even when the target does not resolve', () => {
+		const [repaired] = repairTriggerRefs(
+			[item([{ chatId: 'known-chat', targetId: 'stale-msg' }])],
+			new Map(),
+			new Set(['known-chat']),
+		);
+		expect(repaired.insights[0].triggerRefs).toEqual([{ chatId: 'known-chat', targetId: 'stale-msg' }]);
+	});
+
+	it('drops a ref that resolves to no real chat', () => {
+		const [repaired] = repairTriggerRefs([item([{ chatId: 'phantom' }])], new Map(), new Set());
+		expect(repaired.insights[0].triggerRefs).toEqual([]);
+	});
+
+	it('collects distinct target and chat ids', () => {
+		const items = [
+			item([{ chatId: 'c1', targetId: 't1' }, { chatId: 'c2' }]),
+			item([{ chatId: 'c1', targetId: 't1' }]),
+		];
+		expect(collectTriggerTargetIds(items)).toEqual(['t1']);
+		expect(collectTriggerChatIds(items)).toEqual(['c1', 'c2']);
+	});
+});
+
 describe('reconcile', () => {
-	const base = { totals: TOTALS, impactFloor: 5, now: new Date('2026-06-02T00:00:00Z') };
+	const base = { totals: TOTALS, impactFloor: 5 };
 
 	it('inserts a new finding above the floor', () => {
 		const actions = reconcile({
@@ -65,7 +125,7 @@ describe('reconcile', () => {
 
 	it('suppresses a new finding below the floor', () => {
 		const tiny = finding({
-			insights: [{ signalType: 'tool_error', metric: 'errors', count: 1, exampleChatIds: ['c1'] }],
+			insights: [{ signalType: 'tool_error', metric: 'errors', count: 1, triggerRefs: [{ chatId: 'c1' }] }],
 		});
 		const actions = reconcile({
 			...base,
@@ -92,9 +152,7 @@ describe('reconcile', () => {
 
 	it('updates an existing open rec (keeps state)', () => {
 		const fp = fingerprintFor('databases/x/columns.md', 'events_v1');
-		const existing = [
-			{ id: 'r1', fingerprint: fp, status: 'open' as const, snoozedUntil: null, occurrenceCount: 1 },
-		];
+		const existing = [{ id: 'r1', fingerprint: fp, status: 'open' as const, occurrenceCount: 1 }];
 		const actions = reconcile({
 			...base,
 			existing,
@@ -107,9 +165,7 @@ describe('reconcile', () => {
 
 	it('reopens an applied rec when the gap recurs', () => {
 		const fp = fingerprintFor('databases/x/columns.md', 'events_v1');
-		const existing = [
-			{ id: 'r1', fingerprint: fp, status: 'applied' as const, snoozedUntil: null, occurrenceCount: 3 },
-		];
+		const existing = [{ id: 'r1', fingerprint: fp, status: 'applied' as const, occurrenceCount: 3 }];
 		const actions = reconcile({
 			...base,
 			existing,
@@ -122,9 +178,7 @@ describe('reconcile', () => {
 
 	it('auto-clears an open rec the agent verified resolved', () => {
 		const fp = fingerprintFor('RULES.md', 'gone');
-		const existing = [
-			{ id: 'r2', fingerprint: fp, status: 'open' as const, snoozedUntil: null, occurrenceCount: 1 },
-		];
+		const existing = [{ id: 'r2', fingerprint: fp, status: 'open' as const, occurrenceCount: 1 }];
 		const actions = reconcile({
 			...base,
 			existing,
@@ -136,9 +190,7 @@ describe('reconcile', () => {
 	});
 
 	it('leaves an unmentioned open rec unchanged (no inferred auto-clear)', () => {
-		const existing = [
-			{ id: 'r3', fingerprint: 'other', status: 'open' as const, snoozedUntil: null, occurrenceCount: 1 },
-		];
+		const existing = [{ id: 'r3', fingerprint: 'other', status: 'open' as const, occurrenceCount: 1 }];
 		const actions = reconcile({
 			...base,
 			existing,

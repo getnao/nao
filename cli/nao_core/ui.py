@@ -72,6 +72,7 @@ class UI:
         df: pd.DataFrame,
         title: str | None = None,
         sum_columns: dict[str, str] | None = None,
+        fixed_columns: set[str] | None = None,
     ) -> None:
         """Print a DataFrame as a table.
 
@@ -79,11 +80,12 @@ class UI:
             df: DataFrame to display.
             title: Optional table title.
             sum_columns: Dict of column names to sum with their unit (e.g. {"Cost": "$", "Tokens": ""}).
+            fixed_columns: Columns to keep at full width instead of shrinking them to fit the terminal.
         """
         table = Table(title=title)
 
         for col in df.columns:
-            table.add_column(str(col))
+            table.add_column(str(col), no_wrap=col in (fixed_columns or set()))
 
         for _, row in df.iterrows():
             table.add_row(*[str(v) for v in row])

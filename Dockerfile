@@ -12,20 +12,16 @@ RUN npm install -g bun
 FROM base AS deps
 WORKDIR /app
 
-COPY package.json package-lock.json bun.lock ./
+COPY package.json package-lock.json bun.lock bunfig.toml ./
 COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/shared/package.json ./apps/shared/
 
-# Single install for all workspaces. --ignore-scripts skips prepare (husky);
-# @vscode/ripgrep needs its postinstall to download the platform binary.
-# GITHUB_TOKEN is injected via BuildKit secret to avoid baking it into layers.
+# Single install for all workspaces. --ignore-scripts skips prepare (husky).
+# @vscode/ripgrep >=1.18 ships its rg binary via platform optionalDependencies,
+# so no postinstall download (and no GITHUB_TOKEN) is needed.
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-    --mount=type=secret,id=GITHUB_TOKEN \
-    GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
-    bun install --ignore-scripts \
-    && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
-    cd node_modules/@vscode/ripgrep && npm run postinstall
+    bun install --ignore-scripts
 
 # =============================================================================
 # STAGE 3: Frontend builder
@@ -120,6 +116,13 @@ COPY --from=python-builder --chown=nao:nao /usr/local/bin/nao /usr/local/bin/nao
 COPY --from=deps --chown=nao:nao /app/package.json ./
 COPY --from=deps --chown=nao:nao /app/node_modules ./node_modules
 
+# Queries against the local DuckDB run with external access off, so extensions have to be on disk
+# before the first query rather than fetched on demand.
+# Mount under /app so Node's ESM resolver finds /app/node_modules (a /tmp mount would not).
+RUN --mount=type=bind,source=docker/install-duckdb-extensions.mjs,target=/app/install-duckdb-extensions.mjs \
+    DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions node /app/install-duckdb-extensions.mjs \
+    && chown -R nao:nao /app/.duckdb-extensions
+
 # Copy backend and shared source (no build needed — Bun runs TS directly)
 COPY --chown=nao:nao apps/backend ./apps/backend
 COPY --chown=nao:nao apps/shared ./apps/shared
@@ -154,6 +157,7 @@ ENV APP_BUILD_DATE=$APP_BUILD_DATE
 ENV NAO_DEFAULT_PROJECT_PATH=/app/example
 ENV NAO_CONTEXT_SOURCE=local
 ENV DOCKER=1
+ENV DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions
 
 EXPOSE 5005
 

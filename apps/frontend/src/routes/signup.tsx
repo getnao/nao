@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { signUp } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
+import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
 
@@ -30,6 +31,7 @@ function SignUp() {
 			setServerError(undefined);
 			await signUp.email(value, {
 				onSuccess: () => {
+					rememberSignInMethod('email');
 					if (safeRedirect) {
 						router.history.push(safeRedirect);
 					} else {

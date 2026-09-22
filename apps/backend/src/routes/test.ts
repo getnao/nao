@@ -1,13 +1,33 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
+import { NoObjectGeneratedError } from 'ai';
 import { z } from 'zod/v4';
 
 import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
-import { retrieveProjectById } from '../queries/project.queries';
+import { getEnvVars, retrieveProjectById } from '../queries/project.queries';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
+import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
+import { resolveProjectContextAccess } from '../services/user-group-context-access.service';
 import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
+import type { ToolContext } from '../types/tools';
+import { truncateMiddle } from '../utils/utils';
+
+const describeRunError = (err: unknown): string => {
+	if (!NoObjectGeneratedError.isInstance(err)) {
+		return err instanceof Error ? err.message : 'Unknown error';
+	}
+
+	const details = [
+		`finishReason=${err.finishReason ?? 'unknown'}`,
+		`outputTokens=${err.usage?.outputTokens ?? 'unknown'}`,
+		`text=${JSON.stringify(truncateMiddle(err.text ?? '', 500))}`,
+	].join(', ');
+
+	return `${err.message} (${details})`;
+};
 
 export const testRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -24,6 +44,7 @@ export const testRoutes = async (app: App) => {
 					prompt: z.string(),
 					model: llmSelectedModelSchema,
 					sql: z.string(),
+					databaseId: z.string().optional(),
 					meta: z
 						.object({
 							costs: customModelCostSchema,
@@ -35,7 +56,7 @@ export const testRoutes = async (app: App) => {
 		async (request, reply) => {
 			const projectId = request.project?.id;
 			const userId = request.user.id;
-			const { prompt, model, sql, meta } = request.body;
+			const { prompt, model, sql, databaseId, meta } = request.body;
 
 			const costs = meta?.costs;
 
@@ -45,33 +66,23 @@ export const testRoutes = async (app: App) => {
 
 			try {
 				const modelSelection = model as LlmSelectedModel | undefined;
-				const result = await testAgentService.runTest(projectId, prompt, modelSelection, costs);
-				const project = await retrieveProjectById(projectId);
+				const result = await testAgentService.runTest(projectId, userId, prompt, modelSelection, costs);
 
 				let verification;
 				if (sql) {
+					const toolContext = await buildVerificationToolContext(projectId, userId);
 					const { data: expectedData, columns: expectedColumns } = await executeQuery(
-						{ sql_query: sql },
-						{
-							projectFolder: project.path!,
-							chatId: '',
-							userId,
-							projectId: projectId,
-							supportsCustomCharts: false,
-							agentSettings: null,
-							envVars: {},
-							azureAccessToken: null,
-							queryResults: new Map(),
-							generatedArtifacts: { charts: [], stories: [] },
-						},
+						{ sql_query: sql, database_id: databaseId },
+						toolContext,
 					);
-					const { data } = await testAgentService.runVerification(
+					const verified = await testAgentService.runVerification(
 						projectId,
+						prompt,
 						result,
 						expectedColumns,
 						modelSelection,
 					);
-					verification = { data, expectedData, expectedColumns };
+					verification = { ...verified, expectedData, expectedColumns };
 				}
 
 				return reply.send({
@@ -84,9 +95,39 @@ export const testRoutes = async (app: App) => {
 					verification,
 				});
 			} catch (err) {
-				const message = err instanceof Error ? err.message : 'Unknown error';
-				return reply.status(500).send({ error: message });
+				return reply.status(500).send({ error: describeRunError(err) });
 			}
 		},
 	);
 };
+
+async function buildVerificationToolContext(projectId: string, userId: string): Promise<ToolContext> {
+	const project = await retrieveProjectById(projectId);
+	const projectFolder = project.path;
+	if (!projectFolder) {
+		throw new Error('Project path does not exist.');
+	}
+	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
+		getEnvVars(projectId),
+		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(userId) : null)),
+		resolveProjectContextAccess(projectId, userId, projectFolder),
+	]);
+	return {
+		projectFolder,
+		chatId: '',
+		userId,
+		projectId,
+		supportsCustomCharts: false,
+		agentSettings: null,
+		adminMode: false,
+		envVars,
+		azureAccessToken,
+		warehouseTableAccess: contextAccess.warehouseTableAccess,
+		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
+		docsContextAccess: contextAccess.docsContextAccess,
+		userGroupFeatures: contextAccess.userGroupFeatures,
+		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
+		queryResults: new Map(),
+		generatedArtifacts: { charts: [], maps: [], stories: [] },
+	};
+}

@@ -1,15 +1,19 @@
 import { APP_DB_VIEW_COLUMNS } from '../../db/app-db-views';
+import dbConfig, { Dialect } from '../../db/dbConfig';
 import { Block, Bold, Br, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import { ALLOWED_APP_DB_VIEWS } from '../../utils/app-db-allowlist';
 import { formatCurrentDate } from '../../utils/date';
+import { AppDbTimestamps } from './app-db-timestamps';
 
-export function renderAdminSystemPrompt(options?: { timezone?: string }): string {
-	return renderToMarkdown(<AdminSystemPrompt timezone={options?.timezone} />);
+export function renderAdminSystemPrompt(options?: { timezone?: string; dialect?: Dialect }): string {
+	return renderToMarkdown(
+		<AdminSystemPrompt timezone={options?.timezone} dialect={options?.dialect ?? dbConfig.dialect} />,
+	);
 }
 
 const VIEW_DESCRIPTIONS: Record<string, string> = {
 	v_messages:
-		'The full message history, one row per message part. Holds user prompts, assistant answers, tool calls (tool_name, tool_state, tool_input, tool_output, tool_error_text), feedback (vote, explanation), errors, the model used, and where the message came from (source). This is the richest view for adoption, tool errors, downvotes and regenerations.',
+		'The full message history, one row per message part. Holds user prompts, assistant answers, tool calls (tool_name, tool_state, tool_input, tool_output, tool_error_text), feedback (vote, explanation), errors and the model used. Three columns describe each row differently: role is who authored the part (user, assistant or system); message_source is the channel that specific message came in through (e.g. slack, teams, web, mcp) and is only set on user messages, so it is null on assistant answers and tool calls; chat_source is the channel of the whole conversation, derived from its first user message, so it is the same on every row of a chat and is the column to use when grouping or filtering a conversation by where it originated. Token totals are overall counts, detail columns split input by cache use and output by text/reasoning, and total_tokens combines both; values repeat per part, so deduplicate by message_id before summing. This is the richest view for tool errors, votes and regenerations.',
 	v_memories: 'The memories the agent has stored per user.',
 	v_llm_inference: 'One row per LLM inference call, with its type and token usage.',
 	v_mcp_call_log: 'One row per MCP tool call, with its duration and whether it succeeded.',
@@ -18,7 +22,8 @@ const VIEW_DESCRIPTIONS: Record<string, string> = {
 		'One row per asset engagement event. type is one of page_view, download, fork, favorite, refresh, view_duration; asset_type is chat or story; actor_user_id is who triggered it; chat_id/story_id/shared_chat_id/shared_story_id point to the asset; metadata holds event-specific JSON (e.g. download format, view duration). This is the view for adoption, engagement and sharing analytics.',
 };
 
-function AdminSystemPrompt({ timezone }: { timezone?: string }) {
+function AdminSystemPrompt({ timezone, dialect }: { timezone?: string; dialect: Dialect }) {
+	const dialectName = dialect === Dialect.Postgres ? 'PostgreSQL' : 'SQLite';
 	return (
 		<Block>
 			<Title>Instructions</Title>
@@ -69,7 +74,7 @@ function AdminSystemPrompt({ timezone }: { timezone?: string }) {
 						</List>
 					</Span>
 				))}
-				<Span>Dates are most of the time stored as Unix timestamps in seconds.</Span>
+				<AppDbTimestamps dialect={dialect} />
 			</Block>
 
 			<Title level={2}>SQL rules</Title>
@@ -81,8 +86,8 @@ function AdminSystemPrompt({ timezone }: { timezone?: string }) {
 					Reference only the allowlisted views above. Any other object name will be rejected by the validator.
 				</ListItem>
 				<ListItem>
-					Write standard SQL that works on both SQLite and PostgreSQL; avoid dialect-specific functions when a
-					portable expression exists.
+					The connected database is <Bold>{dialectName}</Bold>. Write SQL for {dialectName} and use its
+					dialect-specific functions where helpful.
 				</ListItem>
 				<ListItem>
 					A LIMIT clause caps how many rows are returned, not how many exist. To count rows, run a separate

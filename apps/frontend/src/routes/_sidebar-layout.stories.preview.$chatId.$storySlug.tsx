@@ -3,10 +3,10 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { SelectionData } from '@/components/highlight-bubble';
-import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
@@ -21,10 +21,12 @@ import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
@@ -67,6 +69,13 @@ function StoryPreviewPage() {
 		latestCode: story.code,
 		isAgentRunning: isChatRunning,
 	});
+	const { queryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
+		chatId,
+		storySlug,
+		versionNumber: editor.versionNav.storedVersionNumber,
+		isViewingLatest: editor.versionNav.isViewingLatest,
+		latestQueryData: story.queryData as QueryDataMap | null,
+	});
 
 	const handleSelectionAsk = useCallback(
 		(data: SelectionData) => {
@@ -99,12 +108,16 @@ function StoryPreviewPage() {
 				onOpenChat={handleOpenChat}
 				live={{
 					isLive,
+					cachedAt: story.cachedAt,
+					lastRefreshFailure: story.lastRefreshFailure,
 					isRefreshing,
+					isUpdating,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
+				canRename
 				isShared={isShared}
 				onShare={() => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
@@ -116,6 +129,8 @@ function StoryPreviewPage() {
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
 					onSave: editor.handleSave,
+					onCancel: editor.handleCancel,
+					isSaving: editor.isSaving,
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
@@ -144,9 +159,8 @@ function StoryPreviewPage() {
 			)}
 
 			<StoryPageBody
-				code={editor.code}
 				editor={editor}
-				queryData={story.queryData as QueryDataMap | null}
+				queryData={queryData}
 				preview={
 					<SelectionProvider key={storySlug}>
 						<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
@@ -155,11 +169,13 @@ function StoryPreviewPage() {
 							{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
 							<PreviewContent
 								code={editor.code}
-								queryData={story.queryData as QueryDataMap | null}
+								queryData={queryData}
 								chatId={chatId}
 								storySlug={storySlug}
 								cacheSchedule={story.cacheSchedule}
 								filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
+								isDataPending={isQueryDataPending}
+								isViewingLatest={editor.versionNav.isViewingLatest}
 							/>,
 						)}
 					</SelectionProvider>
@@ -169,6 +185,8 @@ function StoryPreviewPage() {
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
+				chatId={chatId}
+				storySlug={storySlug}
 				isLive={isLive}
 				isLiveTextDynamic={isLiveTextDynamic}
 				cacheSchedule={liveCacheSchedule}
@@ -217,7 +235,14 @@ function renderWithChartEditProvider(
 				storyTitle={params.storyTitle}
 				storyCode={params.storyCode}
 			>
-				{children}
+				<StoryMapEditProvider
+					chatId={params.chatId}
+					storySlug={params.storySlug}
+					storyTitle={params.storyTitle}
+					storyCode={params.storyCode}
+				>
+					{children}
+				</StoryMapEditProvider>
 			</StoryTableEditProvider>
 		</StoryChartEditProvider>
 	);
@@ -230,6 +255,8 @@ function PreviewContent({
 	storySlug,
 	cacheSchedule,
 	filtersEnabled,
+	isDataPending,
+	isViewingLatest,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
@@ -237,16 +264,19 @@ function PreviewContent({
 	storySlug: string;
 	cacheSchedule?: string | null;
 	filtersEnabled: boolean;
+	isDataPending: boolean;
+	isViewingLatest: boolean;
 }) {
 	const isNoCacheMode = cacheSchedule === 'no-cache';
+	const useLiveUnfiltered = isViewingLatest && isNoCacheMode;
 	const filterApi = useMemo(
 		() => (filtersEnabled ? { kind: 'owned' as const, chatId, storySlug } : null),
 		[chatId, filtersEnabled, storySlug],
 	);
 
 	const noCacheQuery = useMemo(
-		() => (isNoCacheMode ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
-		[isNoCacheMode, chatId],
+		() => (useLiveUnfiltered ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
+		[useLiveUnfiltered, chatId],
 	);
 
 	const renderChart = useCallback(
@@ -264,13 +294,14 @@ function PreviewContent({
 		) => (
 			<StoryChartEmbed
 				chart={chart}
-				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
-				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 			/>
 		),
-		[isNoCacheMode, noCacheQuery],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	const renderTable = useCallback(
@@ -284,13 +315,36 @@ function PreviewContent({
 		) => (
 			<StoryTableEmbed
 				table={table}
-				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
-				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 			/>
 		),
-		[isNoCacheMode, noCacheQuery],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
+	);
+
+	const renderMap = useCallback(
+		(
+			map: ParsedMapBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryMapEmbed
+				map={map}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
+				allowExpand
+			/>
+		),
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	return (
@@ -300,6 +354,7 @@ function PreviewContent({
 			filterApi={filterApi}
 			renderChart={renderChart}
 			renderTable={renderTable}
+			renderMap={renderMap}
 		/>
 	);
 }

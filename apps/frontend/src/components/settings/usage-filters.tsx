@@ -1,7 +1,8 @@
-import { Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
-import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
+import { useState } from 'react';
+import { CheckIcon, Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
+import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
-import type { Granularity, UsageSource } from '@nao/backend/usage';
+import type { SavedUsagePeriod, SavedUsagePeriodInput, UsagePeriodSelection, UsageSource } from '@nao/backend/usage';
 import type {
 	ChatReplayFeedbackState,
 	ChatReplayToolState,
@@ -9,44 +10,27 @@ import type {
 	ProjectChatReplayFacets,
 } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
+import { UsagePeriodFilter } from '@/components/settings/usage-period-filter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	DropdownMenu,
-	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-
-type UsagePeriod = '24h' | '15d' | '6m';
-
-const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = [
-	{ value: '24h', label: 'Last 24 hours', granularity: 'hour' },
-	{ value: '15d', label: 'Last 15 days', granularity: 'day' },
-	{ value: '6m', label: 'Last 6 months', granularity: 'month' },
-];
-
-const periodByGranularity: Record<Granularity, UsagePeriod> = {
-	hour: '24h',
-	day: '15d',
-	month: '6m',
-};
-
-export const dateFormats: Record<Granularity, string> = {
-	hour: 'MMM d, HH:00',
-	day: 'MMM d',
-	month: 'MMM yyyy',
-};
 
 interface UsageFiltersProps {
 	showUsageControls?: boolean;
 	provider: LlmProvider | 'all';
 	onProviderChange: (value: LlmProvider | 'all') => void;
-	granularity: Granularity;
-	onGranularityChange: (value: Granularity) => void;
+	periodSelection: UsagePeriodSelection;
+	onPeriodSelectionChange: (value: UsagePeriodSelection) => void | Promise<void>;
+	savedPeriods: SavedUsagePeriod[];
+	isPeriodLoading?: boolean;
+	periodError?: string;
+	onRetryPeriod?: () => void;
+	onCreateSavedPeriod: (value: SavedUsagePeriodInput) => void | Promise<void>;
+	onUpdateSavedPeriod: (value: SavedUsagePeriod) => void | Promise<void>;
+	onDeleteSavedPeriod: (id: string) => void | Promise<void>;
 	availableProviders: LlmProvider[] | undefined;
 	chatFacets: ProjectChatReplayFacets | undefined;
 	selectedUserNames: string[] | undefined;
@@ -59,8 +43,15 @@ export function UsageFilters({
 	showUsageControls = true,
 	provider,
 	onProviderChange,
-	granularity,
-	onGranularityChange,
+	periodSelection,
+	onPeriodSelectionChange,
+	savedPeriods,
+	isPeriodLoading,
+	periodError,
+	onRetryPeriod,
+	onCreateSavedPeriod,
+	onUpdateSavedPeriod,
+	onDeleteSavedPeriod,
 	availableProviders,
 	chatFacets,
 	selectedUserNames,
@@ -68,7 +59,6 @@ export function UsageFilters({
 	selectedSources,
 	onSelectedSourcesChange,
 }: UsageFiltersProps) {
-	const period = periodByGranularity[granularity];
 	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
 		value: name,
 		label: name,
@@ -91,31 +81,22 @@ export function UsageFilters({
 							<SelectItem value='all'>All providers</SelectItem>
 							{availableProviders?.map((p) => (
 								<SelectItem key={p} value={p}>
-									{providerLabels[p]}
+									{providerLabel(p)}
 								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
-					<Select
-						value={period}
-						onValueChange={(value) => {
-							const option = periodOptions.find((o) => o.value === value);
-							if (option) {
-								onGranularityChange(option.granularity);
-							}
-						}}
-					>
-						<SelectTrigger className='w-40'>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{periodOptions.map((option) => (
-								<SelectItem key={option.value} value={option.value}>
-									{option.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					<UsagePeriodFilter
+						value={periodSelection}
+						savedPeriods={savedPeriods}
+						isLoading={isPeriodLoading}
+						error={periodError}
+						onRetry={onRetryPeriod}
+						onChange={onPeriodSelectionChange}
+						onCreateSavedPeriod={onCreateSavedPeriod}
+						onUpdateSavedPeriod={onUpdateSavedPeriod}
+						onDeleteSavedPeriod={onDeleteSavedPeriod}
+					/>
 				</>
 			)}
 
@@ -213,11 +194,20 @@ const sourceLabels: Record<UsageSource, string> = {
 	slack: 'Slack',
 	teams: 'Teams',
 	telegram: 'Telegram',
+	mattermost: 'Mattermost',
 	whatsapp: 'WhatsApp',
 	admin: 'Admin mode',
 	mcp: 'MCP',
 	contextRecommendations: 'Context recommendations',
 };
+
+function sameValues<T extends string>(a: T[], b: T[]): boolean {
+	if (a.length !== b.length) {
+		return false;
+	}
+	const setA = new Set(a);
+	return b.every((value) => setA.has(value));
+}
 
 function MultiSelectFilter<T extends string>({
 	label,
@@ -227,16 +217,32 @@ function MultiSelectFilter<T extends string>({
 	onChange,
 }: MultiSelectFilterProps<T>) {
 	const allValues = options.map((option) => option.value);
-	const currentValues = selectedValues ?? allValues;
+	const committedValues = selectedValues ?? allValues;
 	const hasPartialSelection = selectedValues !== undefined && selectedValues.length < allValues.length;
 
-	const updateSelection = (next: T[]) => {
-		onChange(next.length === 0 || next.length === allValues.length ? undefined : next);
+	const [open, setOpen] = useState(false);
+	const [draft, setDraft] = useState<T[]>(committedValues);
+	const isDirty = !sameValues(draft, committedValues);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			setDraft(selectedValues ?? allValues);
+		}
+		setOpen(next);
+	};
+
+	const toggleValue = (value: T) => {
+		setDraft((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+	};
+
+	const applyDraft = () => {
+		onChange(draft.length === 0 || draft.length === allValues.length ? undefined : draft);
+		setOpen(false);
 	};
 
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
+		<Popover open={open} onOpenChange={handleOpenChange}>
+			<PopoverTrigger asChild>
 				<Button
 					variant='ghost'
 					size='sm'
@@ -247,56 +253,59 @@ function MultiSelectFilter<T extends string>({
 					{label}
 					{hasPartialSelection && (
 						<Badge variant='secondary' className='h-4 px-1 text-xs'>
-							{currentValues.length}
+							{committedValues.length}
 						</Badge>
 					)}
 				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='w-56 max-h-64 overflow-y-auto'>
-				<div className='px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide'>
-					{label}
-				</div>
-				<DropdownMenuSeparator />
-				{options.map((option) => (
-					<DropdownMenuCheckboxItem
-						key={option.value}
-						checked={currentValues.includes(option.value)}
-						onSelect={(event) => event.preventDefault()}
-						onCheckedChange={(checked) => {
-							if (!selectedValues) {
-								updateSelection([option.value]);
-								return;
-							}
-
-							const next = checked
-								? Array.from(new Set([...currentValues, option.value]))
-								: currentValues.filter((value) => value !== option.value);
-							updateSelection(next);
-						}}
-					>
-						<div className='flex w-full items-center justify-between gap-2'>
-							<span className='truncate'>{option.label}</span>
-							{typeof option.count === 'number' && (
-								<Badge variant='secondary' className='h-4 px-1 text-xs'>
-									{option.count}
-								</Badge>
-							)}
-						</div>
-					</DropdownMenuCheckboxItem>
-				))}
-				{hasPartialSelection && (
-					<>
-						<DropdownMenuSeparator />
+			</PopoverTrigger>
+			<PopoverContent align='start' className='w-56 p-0'>
+				<Command>
+					<CommandInput placeholder={`Search ${label.toLowerCase()}...`} />
+					<div className='flex items-center justify-between border-b px-2 py-1'>
 						<button
 							type='button'
-							className='w-full rounded-sm px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground'
-							onClick={() => onChange(undefined)}
+							className='text-xs text-muted-foreground hover:text-foreground'
+							onClick={() => setDraft(allValues)}
 						>
-							Show all
+							Select all
 						</button>
-					</>
-				)}
-			</DropdownMenuContent>
-		</DropdownMenu>
+						<button
+							type='button'
+							className='text-xs text-muted-foreground hover:text-foreground'
+							onClick={() => setDraft([])}
+						>
+							Deselect all
+						</button>
+					</div>
+					<CommandList className='max-h-64 overflow-y-auto'>
+						<CommandEmpty className='py-4 text-center text-xs text-muted-foreground'>
+							No matches
+						</CommandEmpty>
+						{options.map((option) => (
+							<CommandItem
+								key={option.value}
+								value={option.label}
+								onSelect={() => toggleValue(option.value)}
+							>
+								<span className='flex size-4 items-center justify-center'>
+									{draft.includes(option.value) && <CheckIcon className='size-4' />}
+								</span>
+								<span className='flex-1 truncate'>{option.label}</span>
+								{typeof option.count === 'number' && (
+									<Badge variant='secondary' className='h-4 px-1 text-xs'>
+										{option.count}
+									</Badge>
+								)}
+							</CommandItem>
+						))}
+					</CommandList>
+					<div className='flex justify-end border-t p-2'>
+						<Button size='sm' disabled={!isDirty} onClick={applyDraft}>
+							Apply
+						</Button>
+					</div>
+				</Command>
+			</PopoverContent>
+		</Popover>
 	);
 }

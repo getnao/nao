@@ -10,6 +10,7 @@ import {
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
 import { ChatListItem } from './sidebar-chat-list-item';
 import { SidebarCommunity } from './sidebar-community';
@@ -28,6 +29,8 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useIsCloud } from '@/hooks/use-nao-mode';
+import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
@@ -36,6 +39,7 @@ import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
 
 export function Sidebar() {
 	const navigate = useNavigate();
@@ -46,17 +50,22 @@ export function Sidebar() {
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const switchProject = useProjectSwitch(project.data?.id);
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const license = useQuery(trpc.license.getStatus.queryOptions());
 	const branding = useBranding();
+	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
-	const isCloud = config.data?.naoMode === 'cloud';
+	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
+	const showAutomations = !isViewer && betaAutomationsEnabled;
+	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
+	const unreadAutomationRunCount = useUnreadAutomationRunCount(showAutomations, project.data?.id).data ?? 0;
+	const hasFeedActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
-	const hasLicense = license.data?.tokenProvided === true;
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
-	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
+	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
+	const isInSettings = !!isSettingsRoute && !isViewer;
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
 
 	useEffect(() => {
@@ -110,17 +119,12 @@ export function Sidebar() {
 
 	const handleProjectChange = useCallback(
 		async (projectId: string) => {
-			if (!project.data || projectId === project.data.id) {
-				return;
-			}
-
-			setActiveProjectId(projectId);
-			await queryClient.invalidateQueries();
-			if (isMobile) {
+			const didSwitch = await switchProject(projectId);
+			if (didSwitch && isMobile) {
 				closeMobile();
 			}
 		},
-		[closeMobile, isMobile, project.data, queryClient],
+		[closeMobile, isMobile, switchProject],
 	);
 
 	const sidebarContent = (
@@ -154,47 +158,67 @@ export function Sidebar() {
 								className='h-7 w-auto max-w-[9rem] object-contain'
 							/>
 						) : (
-							<NaoLogo className='size-5' />
+							<NaoLogo
+								className={cn('size-5', customColor && '[&_stop]:[stop-color:var(--brand-logo)]')}
+								style={
+									customColor ? ({ '--brand-logo': customColor } as React.CSSProperties) : undefined
+								}
+							/>
 						)}
 					</button>
 
-					{isMobile ? (
-						<Button
-							variant='ghost'
-							size='icon-md'
-							onClick={closeMobile}
-							className='text-muted-foreground ml-auto z-10'
-						>
-							<X className='size-4' />
-						</Button>
-					) : (
-						<Tooltip open={toggleHintOpen} onOpenChange={setToggleHintOpen}>
-							<TooltipTrigger asChild>
-								<Button
-									variant='ghost'
-									size='icon-md'
-									onClick={() => toggleSidebar()}
-									className='text-muted-foreground ml-auto z-10'
-									aria-label='Toggle sidebar'
-								>
-									{effectiveIsCollapsed ? (
-										<ArrowRightToLine className='size-4' />
-									) : (
-										<ArrowLeftFromLine className='size-4' />
-									)}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent side='right'>
-								<span className='flex items-center gap-2'>
-									Toggle sidebar
-									<kbd className='text-[10px] opacity-60 font-sans'>
-										{getShortcutLabel('toggle-sidebar')}
-									</kbd>
-								</span>
-							</TooltipContent>
-						</Tooltip>
-					)}
+					<div className={cn('ml-auto z-10 flex items-center gap-1', effectiveIsCollapsed && 'flex-col')}>
+						{isMobile ? (
+							<Button
+								variant='ghost'
+								size='icon-md'
+								onClick={closeMobile}
+								className='text-muted-foreground'
+							>
+								<X className='size-4' />
+							</Button>
+						) : (
+							<Tooltip open={toggleHintOpen} onOpenChange={setToggleHintOpen}>
+								<TooltipTrigger asChild>
+									<Button
+										variant='ghost'
+										size='icon-md'
+										onClick={() => toggleSidebar()}
+										className='text-muted-foreground'
+										aria-label='Toggle sidebar'
+									>
+										{effectiveIsCollapsed ? (
+											<ArrowRightToLine className='size-4' />
+										) : (
+											<ArrowLeftFromLine className='size-4' />
+										)}
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent side='right'>
+									<span className='flex items-center gap-2'>
+										Toggle sidebar
+										<kbd className='text-[10px] opacity-60 font-sans'>
+											{getShortcutLabel('toggle-sidebar')}
+										</kbd>
+									</span>
+								</TooltipContent>
+							</Tooltip>
+						)}
+					</div>
 				</div>
+				{isInSettings && (
+					<ProjectSwitcher
+						projects={projects.data ?? []}
+						currentProjectId={project.data?.id}
+						onChange={handleProjectChange}
+						variant='sidebar'
+						className={cn(
+							'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
+							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
+							hideIf(effectiveIsCollapsed),
+						)}
+					/>
+				)}
 				{!isInSettings && (
 					<>
 						<div className='py-4'>
@@ -221,15 +245,14 @@ export function Sidebar() {
 								isCollapsed={effectiveIsCollapsed}
 								onClick={handleNavigateStories}
 							/>
-							{!isViewer && betaAutomationsEnabled && (
-								<SidebarMenuButton
-									icon={NewspaperIcon as unknown as LucideIcon}
-									label='Feed'
-									shortcut=''
-									isCollapsed={effectiveIsCollapsed}
-									onClick={handleNavigateFeed}
-								/>
-							)}
+							<SidebarMenuButton
+								icon={NewspaperIcon as unknown as LucideIcon}
+								label='Feed'
+								shortcut=''
+								isCollapsed={effectiveIsCollapsed}
+								onClick={handleNavigateFeed}
+								indicator={hasFeedActivity}
+							/>
 						</div>
 					</>
 				)}
@@ -242,17 +265,10 @@ export function Sidebar() {
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
-					hasLicense={hasLicense}
-					projects={projects.data ?? []}
-					currentProjectId={project.data?.id}
-					onProjectChange={handleProjectChange}
 				/>
 			) : (
 				<>
-					<SidebarAutomationsNav
-						isCollapsed={effectiveIsCollapsed}
-						enabled={!isViewer && betaAutomationsEnabled}
-					/>
+					<SidebarAutomationsNav isCollapsed={effectiveIsCollapsed} enabled={showAutomations} />
 					<SidebarChatHeader
 						isCollapsed={effectiveIsCollapsed}
 						groupBy={groupBy}
@@ -304,12 +320,14 @@ function SidebarMenuButton({
 	shortcut,
 	isCollapsed,
 	onClick,
+	indicator = false,
 }: {
 	icon: LucideIcon;
 	label: string;
 	shortcut: string;
 	isCollapsed: boolean;
 	onClick: () => void;
+	indicator?: boolean;
 }) {
 	return (
 		<Button
@@ -320,7 +338,15 @@ function SidebarMenuButton({
 			)}
 			onClick={onClick}
 		>
-			<Icon className='size-4' />
+			<span className='relative flex items-center'>
+				<Icon className='size-4' />
+				{indicator && (
+					<span
+						aria-hidden
+						className='absolute -right-1 -top-1 size-2 rounded-full bg-primary ring-2 ring-sidebar'
+					/>
+				)}
+			</span>
 			<div className={cn('flex items-center transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
 				<span>{label}</span>
 				<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity hidden md:inline'>

@@ -5,6 +5,7 @@ import {
 	collectStackedAxisValues,
 	computeNiceDomain,
 	niceNumber,
+	resolveBarYAxisDomain,
 	resolveYAxisDomain,
 } from '../src/chart-domain';
 
@@ -87,6 +88,16 @@ describe('chart domain helpers', () => {
 
 		it('keeps valid explicit bounds', () => {
 			expect(resolveYAxisDomain(1300, 1600, [1203, 1672], false)).toEqual([1300, 1600]);
+		});
+	});
+
+	describe('resolveBarYAxisDomain', () => {
+		it('keeps a padded bar domain ordered when the explicit minimum exceeds the data', () => {
+			const values = [500];
+			const domain = resolveBarYAxisDomain(2000, undefined, values, true);
+
+			expect(domain).toEqual(resolveYAxisDomain(2000, undefined, values, true));
+			expect(Number(domain?.[0])).toBeLessThan(Number(domain?.[1]));
 		});
 	});
 

@@ -25,7 +25,7 @@ export const getPartMcpServer = (part: GroupablePart): string | null => {
 	}
 
 	const toolName = getToolName(part);
-	if (toolName === 'mcp_call') {
+	if (toolName === 'mcp_call' || toolName === 'mcp_connect') {
 		return (part.input as { server?: string } | undefined)?.server ?? null;
 	}
 	if (toolName === 'list') {
@@ -43,7 +43,7 @@ export const isMcpPart = (part: GroupablePart): boolean => {
 	}
 
 	const toolName = getToolName(part);
-	if (toolName === 'mcp_call') {
+	if (toolName === 'mcp_call' || toolName === 'mcp_connect') {
 		return true;
 	}
 	if (toolName === 'list') {

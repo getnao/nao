@@ -1,13 +1,21 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
-import { generateText, ModelMessage, Output } from 'ai';
+import { generateText, Output } from 'ai';
 import { z } from 'zod/v4';
 
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
 import { AgentRunResult, AgentService } from './agent';
+import { runSqlOverQueryResults } from './duckdb.service';
+import { buildVerificationMessages } from './test-agent-verification';
 
-type VerificationData = Record<string, string | number | boolean | null>[] | null;
+export interface VerificationResult {
+	/** Rows the verification query returned, or null when no answer could be produced */
+	data: Record<string, unknown>[] | null;
+	/** The DuckDB query the agent wrote over its own query results */
+	sql: string | null;
+	error: string | null;
+}
 
 export interface ToolCallResult {
 	toolName: string;
@@ -16,6 +24,15 @@ export interface ToolCallResult {
 	result?: unknown;
 }
 
+/** Attempts allowed for the verification query, so a broken one can be repaired once. */
+const MAX_VERIFICATION_ATTEMPTS = 2;
+
+const verificationSchema = z.object({
+	sql: z
+		.nullable(z.string())
+		.describe('DuckDB query over the query result tables. Null if the question cannot be answered from them.'),
+});
+
 export class TestAgentService extends AgentService {
 	/**
 	 * Run a single prompt without persisting to a chat.
@@ -23,6 +40,7 @@ export class TestAgentService extends AgentService {
 	 */
 	async runTest(
 		projectId: string,
+		userId: string,
 		prompt: string,
 		modelSelection?: LlmSelectedModel,
 		costs?: ModelCosts,
@@ -35,7 +53,7 @@ export class TestAgentService extends AgentService {
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
 			messages: [userMessage],
-			userId: 'test',
+			userId,
 			projectId,
 			testMode: true,
 		};
@@ -45,33 +63,56 @@ export class TestAgentService extends AgentService {
 	}
 
 	/**
-	 * Run a verification prompt to extract structured data from the agent's response.
-	 * Uses the responseMessages directly from the agent result to avoid double transformation.
+	 * Ask the agent to express its final answer as a DuckDB query over the rows it
+	 * already fetched, then run it. Reusing the stored rows keeps the answer exact
+	 * and costs a few tokens of SQL instead of a full serialisation of the data.
 	 */
 	async runVerification(
 		projectId: string,
+		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
 		modelSelection?: LlmSelectedModel,
-	): Promise<{ data: VerificationData }> {
+	): Promise<VerificationResult> {
+		const { queryResults } = agentResult;
+		if (queryResults.size === 0) {
+			return { data: null, sql: null, error: 'The agent did not run any SQL query.' };
+		}
+
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
 
-		// Use responseMessages directly and append verification request
-		const messages: ModelMessage[] = [
-			...agentResult.responseMessages,
-			{ role: 'user', content: TestAgentService._buildVerificationPrompt(expectedColumns) },
-		];
+		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 
-		const schema = TestAgentService._buildVerificationSchema(expectedColumns);
-		const result = await generateText({
-			...modelConfig,
-			output: Output.object({ schema }),
-			messages,
-			experimental_telemetry: llmTelemetry('nao-test-verification', { projectId }),
-		});
+		let sql: string | null = null;
+		let error: string | null = null;
 
-		return { data: result.output.data ?? null };
+		for (let attempt = 0; attempt < MAX_VERIFICATION_ATTEMPTS; attempt++) {
+			const result = await generateText({
+				...modelConfig,
+				output: Output.object({ schema: verificationSchema }),
+				messages,
+				experimental_telemetry: llmTelemetry('nao-test-verification', { projectId }),
+			});
+
+			sql = result.output.sql?.trim() || null;
+			if (!sql) {
+				return { data: null, sql: null, error: 'The agent could not answer from its query results.' };
+			}
+
+			try {
+				const { data } = await runSqlOverQueryResults(queryResults, sql);
+				return { data, sql, error: null };
+			} catch (err) {
+				error = err instanceof Error ? err.message : String(err);
+				messages.push(
+					{ role: 'assistant', content: sql },
+					{ role: 'user', content: TestAgentService._buildRepairPrompt(error) },
+				);
+			}
+		}
+
+		return { data: null, sql, error };
 	}
 
 	private static _buildUserMessage(text: string): UIMessage {
@@ -82,27 +123,10 @@ export class TestAgentService extends AgentService {
 		};
 	}
 
-	private static _buildVerificationPrompt(columns: string[]): string {
-		return `Based on your previous analysis, provide the final answer to the original question.
+	private static _buildRepairPrompt(error: string): string {
+		return `That query failed with: ${error}
 
-Format the data with these columns: ${columns.join(', ')}
-
-Return the data as an array of rows, where each row is an object with the column names as keys.
-
-If you cannot answer, set data to null.`;
-	}
-
-	private static _buildVerificationSchema(columns: string[]) {
-		const valueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-		const rowSchema = z.object(
-			Object.fromEntries(columns.map((col) => [col, valueSchema.describe(`Value for column ${col}`)])),
-		);
-
-		return z.object({
-			data: z
-				.nullable(z.array(rowSchema))
-				.describe('Array of rows with the data. Return null if unable to answer.'),
-		});
+Return a corrected DuckDB query, or set sql to null if the tables cannot answer the question.`;
 	}
 
 	/**

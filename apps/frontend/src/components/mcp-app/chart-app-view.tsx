@@ -62,6 +62,7 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 					chartType={config.chartType}
 					xAxisKey={config.xAxisKey}
 					xAxisType={xAxisType}
+					xAxisLabel={config.xAxisLabel}
 					series={series}
 					title={config.title}
 					yAxisMin={config.yAxisMin}

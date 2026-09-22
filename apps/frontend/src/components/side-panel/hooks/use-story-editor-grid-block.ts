@@ -14,9 +14,10 @@ import { removeCardFromOrigin } from '../story-editor-utils';
 import {
 	GRID_COLUMN_DRAG_TYPE,
 	GridDragContext,
-	STORY_BLOCK_DRAG_TYPE,
+	setStoryBlockDragOrigin,
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
+import { resolveDragSelection } from '../story-block-selection';
 import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type {
@@ -69,6 +70,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	const storyBlockDrag = useContext(StoryBlockDragContext);
 	const gridRef = useRef<HTMLDivElement>(null);
 	const dragRef = useRef<GridResizeDrag | null>(null);
+	const handleGridDropRef = useRef<(event?: ReactDragEvent<HTMLDivElement>) => void>(() => {});
 	const [liveWidths, setLiveWidths] = useState<number[] | null>(null);
 	const [activeBoundary, setActiveBoundary] = useState<number | null>(null);
 	const [dragColumnIndex, setDragColumnIndex] = useState<number | null>(null);
@@ -104,8 +106,13 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			setBlockDropIndex(null);
 			setDropColumnIndex(null);
 			setDragColumnIndex(null);
+			return;
 		}
-	}, [storyBlockDrag?.isDragging]);
+		if (storyBlockDrag.isDropTargetSuppressed) {
+			setBlockDropIndex(null);
+			setDropColumnIndex(null);
+		}
+	}, [storyBlockDrag?.isDragging, storyBlockDrag?.isDropTargetSuppressed]);
 
 	/**
 	 * Resize handles are absolutely positioned as fractions of the full grid
@@ -170,12 +177,26 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	}, [clearBlockDrag, clearColumnDrag, gridDragSourceRef]);
 
 	const handleColumnDragStart = useCallback(
-		(columnIndex: number, event: ReactDragEvent<HTMLButtonElement>) => {
+		(columnIndex: number, event: ReactDragEvent<HTMLElement>) => {
+			const gridPos = getPos();
+			const dragOrigin =
+				typeof gridPos === 'number' ? { kind: 'gridColumn' as const, gridPos, index: columnIndex } : null;
+			const units = dragOrigin === null ? null : resolveDragSelection(editor.state, dragOrigin);
+			if (dragOrigin) {
+				setStoryBlockDragOrigin(event.dataTransfer, dragOrigin);
+			}
+			if (units && storyBlockDrag) {
+				event.stopPropagation();
+				storyBlockDrag.beginMultiSelectionDrag(units, event.nativeEvent);
+				storyBlockDrag.setDragging(true);
+				setDropColumnIndex(null);
+				setBlockDropIndex(null);
+				return;
+			}
+
 			event.stopPropagation();
 			event.dataTransfer.effectAllowed = 'move';
 			event.dataTransfer.setData(GRID_COLUMN_DRAG_TYPE, String(columnIndex));
-			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
-			const gridPos = getPos();
 			if (typeof gridPos === 'number' && gridDragSourceRef) {
 				gridDragSourceRef.current = { gridPos, columnIndex };
 			}
@@ -191,11 +212,14 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			setDropColumnIndex(null);
 			setBlockDropIndex(null);
 		},
-		[getPos, gridDragSourceRef, rawContent, storyBlockDrag],
+		[editor.state, getPos, gridDragSourceRef, rawContent, storyBlockDrag],
 	);
 
 	const handleGridDragOver = useCallback(
 		(event: ReactDragEvent<HTMLDivElement>) => {
+			if (storyBlockDrag?.isDropTargetSuppressed) {
+				return;
+			}
 			if (dragColumnIndex !== null) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -207,6 +231,16 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 				}
 
 				setDropColumnIndex(findColumnInsertionIndex(grid, event.clientX, event.clientY));
+				const gridPos = getPos();
+				if (typeof gridPos === 'number') {
+					storyBlockDrag?.setActiveDropZone((current) => {
+						const id = `grid:${gridPos}`;
+						return current === id ? current : id;
+					});
+					if (storyBlockDrag) {
+						storyBlockDrag.pendingDropRef.current = () => handleGridDropRef.current?.();
+					}
+				}
 				return;
 			}
 
@@ -226,8 +260,18 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 
 			setDropColumnIndex(null);
 			setBlockDropIndex(findColumnInsertionIndex(grid, event.clientX, event.clientY));
+			const gridPos = getPos();
+			if (typeof gridPos === 'number') {
+				storyBlockDrag?.setActiveDropZone((current) => {
+					const id = `grid:${gridPos}`;
+					return current === id ? current : id;
+				});
+				if (storyBlockDrag) {
+					storyBlockDrag.pendingDropRef.current = () => handleGridDropRef.current?.();
+				}
+			}
 		},
-		[dragColumnIndex, storyBlockDrag],
+		[dragColumnIndex, getPos, storyBlockDrag],
 	);
 
 	const insertExternalStoryBlock = useCallback(
@@ -261,11 +305,13 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	);
 
 	const handleGridDrop = useCallback(
-		(event: ReactDragEvent<HTMLDivElement>) => {
+		(event?: ReactDragEvent<HTMLDivElement>) => {
 			if (dragColumnIndex !== null) {
-				event.preventDefault();
-				event.stopPropagation();
-				event.dataTransfer.dropEffect = 'move';
+				event?.preventDefault();
+				event?.stopPropagation();
+				if (event) {
+					event.dataTransfer.dropEffect = 'move';
+				}
 				if (dropColumnIndex !== null) {
 					const targetIndex = dropColumnIndex > dragColumnIndex ? dropColumnIndex - 1 : dropColumnIndex;
 					const nextRawContent = reorderGridColumns(rawContent, dragColumnIndex, targetIndex);
@@ -284,8 +330,8 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 				return;
 			}
 
-			event.preventDefault();
-			event.stopPropagation();
+			event?.preventDefault();
+			event?.stopPropagation();
 			insertExternalStoryBlock(blockDropIndex ?? segments.length);
 		},
 		[
@@ -300,6 +346,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			updateAttributes,
 		],
 	);
+	handleGridDropRef.current = handleGridDrop;
 
 	const handleResizeStart = useCallback(
 		(boundaryIndex: number, event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -422,8 +469,10 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	}, [isSingleRow, segments, visualWidths]);
 
 	const indicatorIndex = blockDropIndex ?? dropColumnIndex;
+	const gridPos = getPos();
+	const gridDropTargetActive = typeof gridPos === 'number' && storyBlockDrag?.activeDropZone === `grid:${gridPos}`;
 	const dropIndicatorLeft =
-		indicatorIndex === null
+		indicatorIndex === null || !gridDropTargetActive
 			? null
 			: indicatorIndex === 0
 				? '0%'
@@ -431,9 +480,9 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 					? '100%'
 					: (resizeHandlePositions[indicatorIndex - 1]?.left ?? null);
 	const externalBlockSource = storyBlockDrag?.sourceRef.current;
-	const gridPos = getPos();
 	const externalBlockActive =
 		storyBlockDrag?.isDragging === true &&
+		!storyBlockDrag.isDropTargetSuppressed &&
 		externalBlockSource !== null &&
 		externalBlockSource !== undefined &&
 		!(externalBlockSource.origin.kind === 'gridColumn' && externalBlockSource.origin.gridPos === gridPos);

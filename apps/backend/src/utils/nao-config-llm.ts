@@ -1,7 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { LLM_PROVIDERS as LLM_PROVIDER_NAMES, type LlmProvider } from '@nao/shared/types';
+import {
+	BUDGET_PERIODS,
+	type BudgetPeriod,
+	LLM_PROVIDERS as LLM_PROVIDER_NAMES,
+	type LlmProvider,
+	type LlmProviderKind,
+	MAX_BUDGET_LIMIT_USD,
+	NAMED_PROVIDER_KIND,
+	providerKind,
+	toNamedProvider,
+	toProviderName,
+} from '@nao/shared/types';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
@@ -13,6 +24,12 @@ import {
 } from '../types/llm';
 import { logger } from './logger';
 
+export type ConfigProviderBudget = {
+	limitUsd: number;
+	perUserLimitUsd: number | null;
+	period: BudgetPeriod;
+};
+
 /** An `llm` provider entry of nao_config.yaml, shaped like the rows of `project_llm_config`. */
 export type ConfigLlmProvider = {
 	provider: LlmProvider;
@@ -22,6 +39,7 @@ export type ConfigLlmProvider = {
 	enabledModels: string[];
 	customModels: CustomModelMetadata[];
 	modelSettings: ModelSettingsMap;
+	budget: ConfigProviderBudget | null;
 };
 
 export type ConfigLlm = {
@@ -29,11 +47,16 @@ export type ConfigLlm = {
 	annotationModel: string | null;
 };
 
-/** nao_config.yaml keeps the `gemini` spelling that the provider SDK calls `google`. */
-const PROVIDER_ALIASES: Record<string, LlmProvider> = { gemini: 'google' };
+/** Spellings accepted in nao_config.yaml on top of the provider names nao uses internally. */
+const PROVIDER_ALIASES: Record<string, LlmProviderKind> = {
+	gemini: 'google',
+	openaicompatible: 'openaiCompatible',
+	'openai-compatible': 'openaiCompatible',
+	openai_compatible: 'openaiCompatible',
+};
 
 /** Maps the credential keys of nao_config.yaml onto the `credentials` names each provider expects. */
-const CREDENTIAL_KEYS: Partial<Record<LlmProvider, Record<string, string>>> = {
+const CREDENTIAL_KEYS: Partial<Record<LlmProviderKind, Record<string, string>>> = {
 	bedrock: { aws_region: 'region', access_key: 'accessKeyId', secret_key: 'secretAccessKey' },
 	vertex: {
 		gcp_project: 'project',
@@ -61,11 +84,19 @@ const modelSchema = z.object({
 	settings: z.record(z.string(), z.unknown()).optional(),
 });
 
+const budgetSchema = z.object({
+	limit: z.number().min(0).nullish(),
+	per_user_limit: z.number().min(0).nullish(),
+	period: z.enum(BUDGET_PERIODS).nullish(),
+});
+
 const providerSchema = z.looseObject({
 	provider: z.string(),
+	name: z.string().nullish(),
 	api_key: z.string().nullish(),
 	base_url: z.string().nullish(),
 	models: z.array(modelSchema).nullish(),
+	budget: budgetSchema.nullish(),
 });
 
 const llmSchema = z.looseObject({
@@ -150,7 +181,7 @@ function normalizeLegacyShape(llm: Record<string, unknown>): RawProvider {
 }
 
 function toConfigProvider(raw: RawProvider, extraEnv: Record<string, string>): ConfigLlmProvider | null {
-	const provider = resolveProviderName(raw.provider);
+	const provider = resolveProviderName(raw.provider, raw.name);
 	if (!provider) {
 		logger.warn(`Ignoring unknown LLM provider '${raw.provider}' in nao_config.yaml`, { source: 'system' });
 		return null;
@@ -167,7 +198,34 @@ function toConfigProvider(raw: RawProvider, extraEnv: Record<string, string>): C
 		enabledModels: ordered.map((model) => model.id),
 		customModels: ordered.flatMap((model) => toCustomModel(model)),
 		modelSettings: toModelSettings(ordered),
+		budget: toBudget(raw.budget),
 	};
+}
+
+/** Read the `budget` block of a provider, keeping only the limits that actually cap spending. */
+function toBudget(raw: RawProvider['budget']): ConfigProviderBudget | null {
+	if (!raw) {
+		return null;
+	}
+
+	const limitUsd = clampBudget(raw.limit);
+	const perUserLimitUsd = clampBudget(raw.per_user_limit);
+	if (limitUsd <= 0 && perUserLimitUsd <= 0) {
+		return null;
+	}
+
+	return {
+		limitUsd,
+		perUserLimitUsd: perUserLimitUsd > 0 ? perUserLimitUsd : null,
+		period: raw.period ?? 'month',
+	};
+}
+
+function clampBudget(value: number | null | undefined): number {
+	if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+		return 0;
+	}
+	return Math.min(value, MAX_BUDGET_LIMIT_USD);
 }
 
 function toCredentials(
@@ -177,7 +235,7 @@ function toCredentials(
 ): Record<string, string> | null {
 	const credentials: Record<string, string> = {};
 
-	for (const [configKey, credentialKey] of Object.entries(CREDENTIAL_KEYS[provider] ?? {})) {
+	for (const [configKey, credentialKey] of Object.entries(CREDENTIAL_KEYS[providerKind(provider)] ?? {})) {
 		const value = resolveSecrets(raw[configKey], extraEnv);
 		if (value) {
 			credentials[credentialKey] = value;
@@ -251,12 +309,33 @@ function resolveSecrets(value: unknown, extraEnv: Record<string, string>): strin
 	return resolvable && resolved.trim() ? resolved : null;
 }
 
-function resolveProviderName(name: string): LlmProvider | null {
-	const normalized = name?.trim().toLowerCase();
+/**
+ * Read how a provider is addressed. The name can sit on the provider field
+ * (`openai-compatible/my-vllm`) or on a sibling `name` key, matching the CLI.
+ */
+function resolveProviderName(name: string, instanceName?: string | null): LlmProvider | null {
+	const [rawKind, ...rest] = (name ?? '').trim().split('/');
+	const kind = resolveProviderKind(rawKind);
+	if (!kind || rest.length > 1) {
+		return null;
+	}
+	if (kind !== NAMED_PROVIDER_KIND && (rest.length > 0 || instanceName)) {
+		return null;
+	}
+	const rawInstance = rest[0] || instanceName?.trim();
+	if (!rawInstance) {
+		return kind;
+	}
+	const normalized = toProviderName(rawInstance);
+	return normalized ? toNamedProvider(normalized) : null;
+}
+
+function resolveProviderKind(name: string): LlmProviderKind | null {
+	const normalized = name.trim().toLowerCase();
 	if (PROVIDER_ALIASES[normalized]) {
 		return PROVIDER_ALIASES[normalized];
 	}
-	return (LLM_PROVIDER_NAMES as readonly string[]).includes(normalized) ? (normalized as LlmProvider) : null;
+	return (LLM_PROVIDER_NAMES as readonly string[]).includes(normalized) ? (normalized as LlmProviderKind) : null;
 }
 
 function camelCaseKeys(record: Record<string, unknown>): Record<string, unknown> {

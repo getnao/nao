@@ -66,15 +66,20 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boole
 	if (modPressed !== Boolean(shortcut.mod) || otherModPressed) {
 		return false;
 	}
-	if (event.shiftKey !== Boolean(shortcut.shift) || event.altKey !== Boolean(shortcut.alt)) {
+	if (event.altKey !== Boolean(shortcut.alt)) {
+		return false;
+	}
+	if (event.key.toLowerCase() !== shortcut.key.toLowerCase()) {
+		return false;
+	}
+	if (shortcut.shift) {
+		return event.shiftKey;
+	}
+	if (isLetterKey(shortcut.key) && event.shiftKey) {
 		return false;
 	}
 
-	if (shortcut.key === '/') {
-		return event.code === 'Slash' || event.key === '/';
-	}
-
-	return event.key.toLowerCase() === shortcut.key.toLowerCase();
+	return true;
 }
 
 function formatKey(key: string): string {
@@ -82,4 +87,8 @@ function formatKey(key: string): string {
 		return 'Esc';
 	}
 	return key.length === 1 ? key.toUpperCase() : key;
+}
+
+function isLetterKey(key: string): boolean {
+	return /^[a-z]$/i.test(key);
 }

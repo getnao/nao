@@ -1,6 +1,7 @@
 import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import { ArchiveIcon, ArchiveRestoreIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useContentCenteredStyle } from '@/hooks/use-sidebar-content-offset';
 import { cn } from '@/lib/utils';
 
 export function StoriesSelectionBar({
@@ -20,14 +21,17 @@ export function StoriesSelectionBar({
 	onUnarchive: () => void;
 	onCancel: () => void;
 }) {
+	const centeredStyle = useContentCenteredStyle();
+
 	if (selectedCount === 0) {
 		return null;
 	}
 
 	return (
 		<div
+			style={centeredStyle}
 			className={cn(
-				'fixed bottom-6 left-1/2 -translate-x-1/2 z-50',
+				'fixed bottom-6 -translate-x-1/2 z-50 transition-[left] duration-300',
 				'flex items-center gap-3 px-4 py-2.5 rounded-full',
 				'bg-background border shadow-lg',
 			)}

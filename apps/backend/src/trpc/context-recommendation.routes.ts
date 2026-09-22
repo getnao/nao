@@ -1,14 +1,27 @@
-import { LLM_PROVIDERS, REPO_PROVIDERS } from '@nao/shared/types';
+import { setBackgroundModelForCategory } from '@nao/shared';
+import { MAX_TRIGGER_CHATS } from '@nao/shared/context-recommendation';
+import { type LlmSelectedModel, REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { env } from '../env';
 import { ensureContextRecommendationsSchedule } from '../handlers/context-recommendations.handler';
 import * as crQueries from '../queries/context-recommendation.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
-import { createRecommendationPullRequest, resolveRecommendationRepo } from '../services/context-pr.service';
-import { runContextRecommendations } from '../services/context-recommendations.service';
+import {
+	ContextPullRequestInputError,
+	createBatchRecommendationPullRequest,
+	createRecommendationPullRequest,
+	ProviderNotConnectedError,
+	resolveRecommendationRepo,
+} from '../services/context-pr.service';
+import { buildAgentPrompt } from '../services/context-recommendation-prompt';
+import {
+	repairRecommendationTriggerRefs,
+	runContextRecommendations,
+} from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
 import {
@@ -17,6 +30,7 @@ import {
 	MAX_AUTO_PRS_PER_RUN,
 	MIN_AUTO_PRS_PER_RUN,
 } from '../types/context-recommendation';
+import { llmProviderSchema } from '../types/llm';
 import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
@@ -31,12 +45,41 @@ const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ nex
 	return next();
 });
 
+function toPullRequestTrpcError(err: unknown): TRPCError {
+	if (err instanceof ContextPullRequestInputError) {
+		return new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+	}
+	if (err instanceof ProviderNotConnectedError) {
+		return new TRPCError({ code: 'UNAUTHORIZED', message: err.message });
+	}
+	return new TRPCError({
+		code: 'INTERNAL_SERVER_ERROR',
+		message: err instanceof Error ? err.message : 'Failed to create pull request',
+	});
+}
+
 export const contextRecommendationRoutes = {
 	list: recommendationsProcedure
 		.input(z.object({ status: z.enum(CONTEXT_RECOMMENDATION_STATUSES).optional() }).optional())
-		.query(async ({ ctx, input }) => crQueries.listRecommendations(ctx.project.id, input?.status)),
+		.query(async ({ ctx, input }) => {
+			const recommendations = await crQueries.listRecommendations(ctx.project.id, input?.status);
+			const repaired = await repairRecommendationTriggerRefs(ctx.project.id, recommendations);
+			const feedbackLinks = await crQueries.listFeedbacksForRecommendations(
+				ctx.project.id,
+				repaired.map((r) => r.id),
+			);
+			const feedbacksByRecId = feedbackLinks.reduce<Record<string, typeof feedbackLinks>>((acc, link) => {
+				(acc[link.recommendationId] ??= []).push(link);
+				return acc;
+			}, {});
+			return repaired.map((rec) => ({ ...rec, feedbacks: feedbacksByRecId[rec.id] ?? [] }));
+		}),
 
 	latestRun: recommendationsProcedure.query(async ({ ctx }) => crQueries.getLatestRun(ctx.project.id)),
+
+	latestSuccessfulRun: recommendationsProcedure.query(async ({ ctx }) =>
+		crQueries.getLatestSuccessfulRun(ctx.project.id),
+	),
 
 	run: recommendationsProcedure.mutation(async ({ ctx }) => {
 		const latestRun = await crQueries.getLatestRun(ctx.project.id);
@@ -77,7 +120,7 @@ export const contextRecommendationRoutes = {
 	setConfig: recommendationsProcedure
 		.input(
 			z.object({
-				modelProvider: z.enum(LLM_PROVIDERS).optional(),
+				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
 				frequency: z.enum(CONTEXT_RECOMMENDATION_FREQUENCIES).optional(),
 				customSystemPromptInstructions: z.string().max(MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH).optional(),
@@ -91,13 +134,17 @@ export const contextRecommendationRoutes = {
 					? input.customSystemPromptInstructions?.trim() || null
 					: undefined;
 			await crQueries.updateConfig(ctx.project.id, {
-				modelProvider: input.modelProvider,
-				modelId: input.modelId,
 				frequency: input.frequency,
 				customSystemPromptInstructions,
 				autoCreatePrs: input.autoCreatePrs,
 				maxAutoPrsPerRun: input.maxAutoPrsPerRun,
 			});
+			if (input.modelProvider && input.modelId) {
+				await setContextRecommendationModel(ctx.project.id, {
+					provider: input.modelProvider,
+					modelId: input.modelId,
+				});
+			}
 			if (input.frequency) {
 				await ensureContextRecommendationsSchedule(ctx.project.id, input.frequency, { reset: true });
 			}
@@ -134,7 +181,6 @@ export const contextRecommendationRoutes = {
 			z.object({
 				id: z.string(),
 				status: z.enum(CONTEXT_RECOMMENDATION_STATUSES),
-				snoozedUntil: z.number().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -142,7 +188,6 @@ export const contextRecommendationRoutes = {
 				id: input.id,
 				projectId: ctx.project.id,
 				status: input.status,
-				snoozedUntil: input.snoozedUntil ? new Date(input.snoozedUntil) : null,
 				userId: ctx.user.id,
 			});
 		}),
@@ -200,10 +245,46 @@ export const contextRecommendationRoutes = {
 		try {
 			return await createRecommendationPullRequest(ctx.project.id, input.id, ctx.user.id);
 		} catch (err) {
-			throw new TRPCError({
-				code: 'BAD_REQUEST',
-				message: err instanceof Error ? err.message : 'Failed to create pull request',
-			});
+			throw toPullRequestTrpcError(err);
 		}
 	}),
+
+	createBatchPullRequest: recommendationsProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(20) }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				return await createBatchRecommendationPullRequest(ctx.project.id, input.ids, ctx.user.id);
+			} catch (err) {
+				throw toPullRequestTrpcError(err);
+			}
+		}),
+
+	getAgentPrompt: recommendationsProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(20) }))
+		.query(async ({ ctx, input }) => {
+			const results = await Promise.all(
+				input.ids.map((id) => crQueries.getRecommendationById(ctx.project.id, id)),
+			);
+			const recs = results.filter((r): r is NonNullable<typeof r> => r !== null);
+			if (recs.length < input.ids.length) {
+				throw new TRPCError({
+					code: 'NOT_FOUND',
+					message: `Only ${recs.length} of ${input.ids.length} selected recommendations could be found. Some may have been deleted or changed since you selected them; refresh and try again.`,
+				});
+			}
+			const repo = await resolveRecommendationRepo(ctx.project.id, ctx.user.id);
+			return buildAgentPrompt(recs, repo?.subPath ?? '');
+		}),
+
+	listRecoTriggerChatMetadata: recommendationsProcedure
+		.input(z.object({ chatIds: z.array(z.string()).max(MAX_TRIGGER_CHATS) }))
+		.query(async ({ ctx, input }) => crQueries.getRecommendationChatMetadata(ctx.project.id, input.chatIds)),
 };
+
+async function setContextRecommendationModel(projectId: string, selection: LlmSelectedModel): Promise<void> {
+	const settings = await projectQueries.getDefaultModelSettings(projectId);
+	await projectQueries.updateDefaultModelSettings(
+		projectId,
+		setBackgroundModelForCategory(settings, 'context_recommendation', selection),
+	);
+}

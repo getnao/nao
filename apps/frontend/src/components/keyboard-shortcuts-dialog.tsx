@@ -30,7 +30,18 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcut
 										className='flex items-center justify-between gap-4 py-1 text-sm'
 									>
 										<span>{entry.label}</span>
-										<Kbd shortcut={entry.shortcut} />
+										<div className='flex items-center gap-1.5'>
+											<Kbd shortcut={entry.shortcut} />
+											{entry.alternateShortcuts?.map((shortcut, index) => (
+												<span
+													key={`${entry.id}-alternate-${index}`}
+													className='flex items-center gap-1.5'
+												>
+													<span className='text-muted-foreground'>·</span>
+													<Kbd shortcut={shortcut} />
+												</span>
+											))}
+										</div>
 									</div>
 								))}
 							</div>

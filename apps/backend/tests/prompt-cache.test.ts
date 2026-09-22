@@ -2,7 +2,23 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
-import { addPromptCache, getPromptCacheProvider } from '../src/utils/prompt-cache';
+import { addPromptCache, cachedSystemInstructions, getPromptCacheProvider } from '../src/utils/prompt-cache';
+
+describe('cachedSystemInstructions', () => {
+	it('returns plain instructions for providers without prompt caching', () => {
+		expect(cachedSystemInstructions('System prompt', modelSelection('openai', 'gpt-5.2'))).toBe('System prompt');
+	});
+
+	it('adds a one-hour Anthropic cache breakpoint', () => {
+		expect(cachedSystemInstructions('System prompt', modelSelection('anthropic', 'claude-sonnet-4.5'))).toEqual({
+			role: 'system',
+			content: 'System prompt',
+			providerOptions: {
+				anthropic: { cacheControl: { type: 'ephemeral', ttl: '1h' } },
+			},
+		});
+	});
+});
 
 describe('addPromptCache', () => {
 	const messages: ModelMessage[] = [
@@ -30,6 +46,21 @@ describe('addPromptCache', () => {
 		expect(cached[1].providerOptions).toEqual({
 			anthropic: { cacheControl: { type: 'ephemeral' } },
 		});
+	});
+
+	it('uses Anthropic cache control for OpenRouter Claude models', () => {
+		const cached = addPromptCache(messages, modelSelection('openrouter', 'anthropic/claude-haiku-4.5'));
+
+		expect(cached[0].providerOptions).toEqual({
+			anthropic: { cacheControl: { type: 'ephemeral', ttl: '1h' } },
+		});
+		expect(cached[1].providerOptions).toEqual({
+			anthropic: { cacheControl: { type: 'ephemeral' } },
+		});
+	});
+
+	it('does not cache OpenRouter models that cache server-side', () => {
+		expect(addPromptCache(messages, modelSelection('openrouter', 'openai/gpt-5.2'))).toBe(messages);
 	});
 
 	it('uses Bedrock cache points for Bedrock Anthropic foundation models', () => {

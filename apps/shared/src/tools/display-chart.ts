@@ -4,6 +4,8 @@ export const BUILTIN_CHART_TYPES = [
 	'bar',
 	'stacked_bar',
 	'stacked_bar_100',
+	'horizontal_bar',
+	'horizontal_bar_100',
 	'line',
 	'area',
 	'stacked_area',
@@ -22,7 +24,7 @@ const ChartTypeNameSchema = z
 	.string()
 	.regex(/^[a-z][a-z0-9_-]*$/, 'Chart type must use lowercase letters, numbers, underscores, or hyphens.');
 const CustomChartTypeSchema = ChartTypeNameSchema.refine(
-	(type) => type !== 'table' && !(BUILTIN_CHART_TYPES as readonly string[]).includes(type),
+	(type) => !isNativeDisplayType(type),
 ).brand<'CustomChartType'>();
 const ChartTypeSchema = z.union([ChartTypeEnum, CustomChartTypeSchema]);
 
@@ -142,13 +144,17 @@ export const ColumnConditionalFormatsSchema = z
 	.record(z.string(), ConditionalFormatRuleSchema)
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
-const ChartInputObjectSchema = z.object({
+export const ChartInputObjectSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
 	chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
 	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
 	x_axis_type: XAxisTypeEnum.nullable().describe(
 		'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 	),
+	x_axis_label: z
+		.string()
+		.describe('Title displayed alongside the X-axis. Leave unset to show no axis title.')
+		.optional(),
 	series: z
 		.array(SeriesConfigSchema)
 		.min(1)
@@ -162,7 +168,7 @@ const ChartInputObjectSchema = z.object({
 	y_axis_max: z.number().describe('Fixes the left Y-axis upper bound. Leave unset to auto-scale.').optional(),
 	y_axis_label: z
 		.string()
-		.describe('Label displayed alongside the left Y-axis. Only used when chart_type is "mixed".')
+		.describe('Title displayed alongside the left Y-axis. Leave unset to show no axis title.')
 		.optional(),
 	y_axis_right_min: z
 		.number()
@@ -251,6 +257,7 @@ const BaseInputSchema = z.object({
 			'Required for charts. Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 		)
 		.optional(),
+	x_axis_label: ChartInputObjectSchema.shape.x_axis_label,
 	series: z
 		.array(SeriesConfigSchema)
 		.min(1)
@@ -311,10 +318,19 @@ export type ConditionalFormatRule = z.infer<typeof ConditionalFormatRuleSchema>;
 export type ColumnConditionalFormats = z.infer<typeof ColumnConditionalFormatsSchema>;
 export type Output = z.infer<typeof OutputSchema>;
 
-const STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar', 'stacked_bar_100', 'stacked_area', 'stacked_area_100']);
-const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'stacked_area_100']);
+const STACKED_CHART_TYPES = new Set<ChartType>([
+	'stacked_bar',
+	'stacked_bar_100',
+	'horizontal_bar',
+	'horizontal_bar_100',
+	'stacked_area',
+	'stacked_area_100',
+]);
+const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'horizontal_bar_100', 'stacked_area_100']);
 const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'bar',
+	'horizontal_bar',
+	'horizontal_bar_100',
 	'line',
 	'area',
 	'stacked_area',
@@ -329,6 +345,11 @@ export type BuiltinChartInput = Omit<ChartInput, 'chart_type'> & { chart_type: C
 
 export function isBuiltinChartType(type: string): type is ChartType {
 	return (BUILTIN_CHART_TYPES as readonly string[]).includes(type);
+}
+
+/** Display types nao renders natively (as opposed to project-defined custom charts): builtins plus `table`. */
+export function isNativeDisplayType(type: string): boolean {
+	return type === 'table' || isBuiltinChartType(type);
 }
 
 export function isTableInput(input: Input): input is TableInput {
@@ -353,6 +374,23 @@ export function chartTypeRequiresXAxisKey(type: string): boolean {
 
 export function isPieChart(chartType: string): boolean {
 	return chartType === 'pie' || chartType === 'donut';
+}
+
+const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>([
+	'pie',
+	'donut',
+	'kpi_card',
+	'radar',
+	'horizontal_bar',
+	'horizontal_bar_100',
+]);
+
+export function chartTypeSupportsAxisLabels(type: string): boolean {
+	return isBuiltinChartType(type) && !AXIS_LABEL_UNSUPPORTED_CHART_TYPES.has(type);
+}
+
+export function resolveShowDataLabels(type: string, showDataLabels?: boolean): boolean {
+	return showDataLabels ?? type === 'horizontal_bar';
 }
 
 export function chartTypeSupportsComboSeries(type: ChartType): boolean {

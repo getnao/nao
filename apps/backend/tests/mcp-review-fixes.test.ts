@@ -1,13 +1,19 @@
-import { resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
 
 import { getTools } from '../src/agents/tools';
-import { createMcpCallTool } from '../src/agents/tools/mcp-call';
+import { authRequiredOutput, createMcpCallTool } from '../src/agents/tools/mcp-call';
+import { createMcpConnectTool } from '../src/agents/tools/mcp-connect';
+import * as mcpOAuthQueries from '../src/queries/mcp-oauth.queries';
+import * as projectQueries from '../src/queries/project.queries';
 import { normalizeReturnTo, resultPage } from '../src/routes/mcp-oauth';
 import { McpArgsValidationError, McpService, mcpService } from '../src/services/mcp';
+import * as mcpOAuthService from '../src/services/mcp-oauth';
 import { extractToolsFromOpenApi } from '../src/services/mcp-openapi';
 
 afterEach(() => {
@@ -92,6 +98,142 @@ describe('MCP argument validation', () => {
 	});
 });
 
+describe('MCP first discovery', () => {
+	it('only reports servers that expose at least one tool as discovered', async () => {
+		const service = new McpService() as unknown as {
+			_projectId: string;
+			_initPromise: Promise<void>;
+			_discovered: Record<string, unknown[]>;
+			hasDiscoveredTools: (projectId: string, server: string) => Promise<boolean>;
+		};
+		service._projectId = 'project';
+		service._initPromise = Promise.resolve();
+		service._discovered = { unconnected: [], connected: [{ name: 'search' }] };
+
+		expect(await service.hasDiscoveredTools('project', 'unconnected')).toBe(false);
+		expect(await service.hasDiscoveredTools('project', 'connected')).toBe(true);
+	});
+
+	it('does not inherit the tools discovered for another project', async () => {
+		const service = new McpService() as unknown as {
+			_projectId: string;
+			_projectPath: string;
+			_initPromise: Promise<void> | null;
+			_discovered: Record<string, unknown[]>;
+			_initialize: (projectId: string) => Promise<void>;
+			hasDiscoveredTools: (projectId: string, server: string) => Promise<boolean>;
+		};
+		service._projectId = 'previous-project';
+		service._projectPath = resolve('/tmp/nao-missing-project');
+		service._initPromise = Promise.resolve();
+		service._discovered = { shared: [{ name: 'search' }] };
+		vi.spyOn(service, '_initialize').mockResolvedValue();
+
+		expect(await service.hasDiscoveredTools('current-project', 'shared')).toBe(false);
+	});
+});
+
+describe('MCP config refresh', () => {
+	it('loads project variables containing JSON control characters', async () => {
+		const projectFolder = await mkdtemp(join(tmpdir(), 'nao-mcp-config-'));
+		try {
+			const configPath = join(projectFolder, 'mcp.json');
+			const token = 'Bearer "quoted"\\path\nnext';
+			await writeFile(
+				configPath,
+				JSON.stringify({
+					mcpServers: {
+						remote: {
+							type: 'http',
+							url: 'https://mcp.example.com',
+							headers: { Authorization: '${DBTOKEN}' },
+						},
+					},
+				}),
+			);
+			vi.spyOn(projectQueries, 'getEnvVars').mockResolvedValue({ DBTOKEN: token });
+			const service = new McpService() as unknown as {
+				_projectId: string;
+				_mcpJsonFilePath: string;
+				_mcpServers: Record<string, { headers?: Record<string, string> }>;
+				_configError: string | null;
+				_loadConfig: () => Promise<void>;
+			};
+			service._projectId = 'project';
+			service._mcpJsonFilePath = configPath;
+
+			await service._loadConfig();
+
+			expect(service._configError).toBeNull();
+			expect(service._mcpServers.remote.headers?.Authorization).toBe(token);
+		} finally {
+			await rm(projectFolder, { force: true, recursive: true });
+		}
+	});
+
+	it('reloads the current project config and clears cached runtime state', async () => {
+		const service = new McpService() as unknown as {
+			_projectId: string;
+			_initPromise: Promise<void> | null;
+			_runtimePromise: Promise<unknown> | null;
+			_discovered: Record<string, unknown[]>;
+			_loadConfig: () => Promise<void>;
+			_discoverAll: () => Promise<void>;
+			refreshProjectConfig: (projectId: string) => Promise<void>;
+		};
+		service._projectId = 'project';
+		service._initPromise = Promise.resolve();
+		service._runtimePromise = Promise.resolve({});
+		service._discovered = { server: [{ name: 'search' }] };
+		const loadConfig = vi.spyOn(service, '_loadConfig').mockResolvedValue();
+		const discoverAll = vi.spyOn(service, '_discoverAll').mockResolvedValue();
+
+		await service.refreshProjectConfig('project');
+
+		expect(loadConfig).toHaveBeenCalledOnce();
+		expect(discoverAll).toHaveBeenCalledOnce();
+		expect(service._runtimePromise).toBeNull();
+		expect(service._discovered).toEqual({});
+	});
+
+	it('does nothing when another project is cached', async () => {
+		const service = new McpService() as unknown as {
+			_projectId: string;
+			_initPromise: Promise<void> | null;
+			_loadConfig: () => Promise<void>;
+			refreshProjectConfig: (projectId: string) => Promise<void>;
+		};
+		service._projectId = 'other-project';
+		service._initPromise = Promise.resolve();
+		const loadConfig = vi.spyOn(service, '_loadConfig').mockResolvedValue();
+
+		await service.refreshProjectConfig('project');
+
+		expect(loadConfig).not.toHaveBeenCalled();
+	});
+});
+
+describe('MCP discovery ownership', () => {
+	it('uses the stored discovery owner when another user already owns the server', async () => {
+		vi.spyOn(mcpOAuthService, 'getValidAccessToken').mockResolvedValue('user-token');
+		vi.spyOn(mcpOAuthQueries, 'claimMcpDiscoveryUser').mockResolvedValue(false);
+		const service = new McpService() as unknown as {
+			_claimDiscoveryForUser: (
+				projectId: string,
+				userId: string,
+				server: string,
+				config: { url: URL },
+			) => Promise<string | undefined>;
+		};
+
+		const discoveryUserId = await service._claimDiscoveryForUser('project', 'regular-user', 'server', {
+			url: new URL('https://mcp.example.com'),
+		});
+
+		expect(discoveryUserId).toBeUndefined();
+	});
+});
+
 describe('MCP auth-required tool output', () => {
 	it('does not treat colliding remote payloads as internal auth sentinels', () => {
 		const tool = createMcpCallTool(null) as unknown as {
@@ -105,13 +247,35 @@ describe('MCP auth-required tool output', () => {
 	});
 });
 
+describe('MCP connect tool', () => {
+	it('tells the model to wait for the user, then reports the tools once connected', () => {
+		const tool = createMcpConnectTool(null) as unknown as {
+			toModelOutput: (args: { output: unknown }) => { value: string };
+		};
+
+		expect(tool.toModelOutput({ output: authRequiredOutput('metabase') }).value).toContain('AUTH_REQUIRED');
+		expect(tool.toModelOutput({ output: { server: 'metabase', tools: ['search'] } }).value).toContain('search');
+	});
+
+	it('refuses servers outside the run allowlist', async () => {
+		const tool = createMcpConnectTool(['allowed']) as unknown as {
+			execute: (input: { server: string }, options: unknown) => Promise<unknown>;
+		};
+
+		await expect(tool.execute({ server: 'other' }, { experimental_context: {} })).rejects.toThrow(
+			'not available in this context',
+		);
+	});
+});
+
 describe('MCP tool registration', () => {
-	it('omits mcp_call when the requested allowlist is empty or unavailable', () => {
+	it('omits the MCP tools when the requested allowlist is empty or unavailable', () => {
 		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(['configured']);
 
 		expect(getTools(null, undefined, { mcpServers: [] })).not.toHaveProperty('mcp_call');
 		expect(getTools(null, undefined, { mcpServers: ['missing'] })).not.toHaveProperty('mcp_call');
 		expect(getTools(null, undefined, { mcpServers: ['configured'] })).toHaveProperty('mcp_call');
+		expect(getTools(null, undefined, { mcpServers: ['configured'] })).toHaveProperty('mcp_connect');
 		expect(getTools(null, undefined, {})).toHaveProperty('mcp_call');
 	});
 });

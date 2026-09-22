@@ -1,16 +1,12 @@
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
-import {
-	buildChart,
-	computeValueAxisWidth,
-	formatChartValue,
-	computeKpiComparison,
-	describePreviousPeriod,
-} from '../src/chart-builder';
+import { buildChart, computeKpiComparison, computeValueAxisWidth, describePreviousPeriod } from '../src/chart-builder';
+import { CHART_FONT_STACK } from '../src/chart-fonts';
+import { formatChartValue } from '../src/chart-values';
 
 describe('formatChartValue', () => {
-	it('uses locale formatting by default', () => {
+	it('uses en-US formatting by default', () => {
 		expect(formatChartValue(1234)).toBe('1,234');
 	});
 
@@ -54,6 +50,14 @@ describe('computeValueAxisWidth', () => {
 		expect(currencyWidth).toBeGreaterThan(plainWidth);
 		expect(currencyWidth).toBe(82);
 		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], valueFormat)).toBe(120);
+	});
+
+	it('reserves extra width for a rotated axis title when hasLabel is set', () => {
+		const currencyFormat = { d3_format: ',.0f', prefix: '$' };
+		expect(computeValueAxisWidth([1, 10], undefined, true)).toBe(76);
+		expect(computeValueAxisWidth([], undefined, true)).toBe(60);
+		expect(computeValueAxisWidth([0, 980_000], currencyFormat, true)).toBe(122);
+		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], currencyFormat, true)).toBe(160);
 	});
 });
 
@@ -160,7 +164,7 @@ describe('buildChart', () => {
 		expect(xAxis?.props.angle).toBe(-35);
 		expect(xAxis?.props.textAnchor).toBe('end');
 		expect(xAxis?.props.height).toBe(56);
-		expect(xAxis?.props.tick).toEqual({ fontSize: 9 });
+		expect(xAxis?.props.tick).toEqual({ fontSize: 9, fontFamily: CHART_FONT_STACK });
 		expect(xAxis?.props.tickFormatter('A very long category')).toBe('A very long category');
 	});
 

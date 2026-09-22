@@ -20,6 +20,7 @@ export interface MemoryExtractionOptions {
 	chatId: string;
 	messages: UIMessage[];
 	provider: LlmProvider;
+	modelId: string;
 }
 
 export type UserMemoryRecord = Omit<DBMemory, 'userId' | 'chatId'>;

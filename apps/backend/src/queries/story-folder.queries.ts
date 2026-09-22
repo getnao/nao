@@ -318,19 +318,38 @@ export async function moveFolder(
 	);
 }
 
+export async function ensureStoryPrivate(
+	storyId: string,
+	options: { storyOwnerId: string; projectId: string },
+): Promise<void> {
+	await db.transaction(
+		async (tx) => {
+			const current = await getStoryFolderItem(storyId, tx);
+			const currentVisibility = await resolveFolderVisibility(current?.folderId ?? null, tx);
+			if (currentVisibility === 'private') {
+				return;
+			}
+			const privateFolderId = await ensurePrivateRoot(options.storyOwnerId, options.projectId, tx);
+			await moveStoryToFolder(storyId, privateFolderId, options, tx);
+		},
+		{ behavior: 'immediate' },
+	);
+}
+
 export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
+	executor: DBExecutor = db,
 ): Promise<void> {
-	await db.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
+	await executor.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
 
 	if (folderId) {
-		await db.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
+		await executor.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
 	}
 
-	const newVisibility = await resolveFolderVisibility(folderId);
-	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility);
+	const newVisibility = await resolveFolderVisibility(folderId, executor);
+	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility, executor);
 }
 
 async function propagateShareChange(
@@ -383,8 +402,11 @@ async function propagateShareChange(
 	}
 }
 
-export async function getStoryFolderItem(storyId: string): Promise<{ folderId: string } | null> {
-	const [row] = await db
+export async function getStoryFolderItem(
+	storyId: string,
+	executor: DBExecutor = db,
+): Promise<{ folderId: string } | null> {
+	const [row] = await executor
 		.select({ folderId: s.storyFolderItem.folderId })
 		.from(s.storyFolderItem)
 		.where(eq(s.storyFolderItem.storyId, storyId))

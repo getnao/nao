@@ -1,10 +1,14 @@
 import { getGridClass, getGridTemplateColumns } from '@nao/shared/story-segments';
 import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { GripVertical } from 'lucide-react';
 import { Streamdown } from 'streamdown';
+import { useContext } from 'react';
 import { StoryChartEmbed } from './story-chart-embed';
+import { StoryBlockActionGrip } from './story-editor-block-drag';
+import { StoryMapEmbed } from './story-map-embed';
 import { StoryTableEmbed } from './story-table-embed';
+import { BlockSelectionContext } from './story-block-selection-context';
+import { StoryBlockDragContext } from './story-editor-drag-context';
 import { decodeFromAttr } from './story-editor-utils';
 import { useStoryEditorGridBlock } from './hooks/use-story-editor-grid-block';
 import type { Segment } from '@nao/shared/story-segments';
@@ -12,7 +16,9 @@ import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ReactNode } from 'react';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 import { markdownPlugins } from '@/lib/markdown';
+import { cn } from '@/lib/utils';
 
 const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
 
@@ -25,6 +31,8 @@ function renderColumnContent(
 	segment: Segment,
 	dragHandle: ReactNode,
 	onReplaceTag: (rawTag: string, nextTag: string) => void,
+	dragHandlePlacement: 'leading' | 'trailing' = 'trailing',
+	isSelected: boolean = false,
 ): ReactNode {
 	switch (segment.type) {
 		case 'markdown':
@@ -36,17 +44,34 @@ function renderColumnContent(
 		case 'chart':
 			return (
 				<EditorStoryChartEditProvider onReplaceTag={onReplaceTag}>
-					<StoryChartEmbed chart={segment.chart} dragHandle={dragHandle} />
+					<StoryChartEmbed
+						chart={segment.chart}
+						dragHandle={dragHandle}
+						dragHandlePlacement={dragHandlePlacement}
+						isSelected={isSelected}
+					/>
 				</EditorStoryChartEditProvider>
 			);
 		case 'table':
-			return <StoryTableEmbed table={segment.table} dragHandle={dragHandle} />;
+			return (
+				<StoryTableEmbed
+					table={segment.table}
+					dragHandle={dragHandle}
+					dragHandlePlacement={dragHandlePlacement}
+				/>
+			);
+		case 'map':
+			return (
+				<EditorStoryMapEditProvider onReplaceTag={onReplaceTag}>
+					<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
+				</EditorStoryMapEditProvider>
+			);
 		case 'grid':
 			return (
 				<div className='flex flex-col gap-4'>
 					{segment.children.map((child, index) => (
 						<div key={index} className='min-w-0'>
-							{renderColumnContent(child, null, onReplaceTag)}
+							{renderColumnContent(child, null, onReplaceTag, 'trailing', false)}
 						</div>
 					))}
 				</div>
@@ -55,6 +80,8 @@ function renderColumnContent(
 }
 
 function GridBlockView(props: ReactNodeViewProps) {
+	const selectedGridColumns = useContext(BlockSelectionContext);
+	const storyBlockDrag = useContext(StoryBlockDragContext);
 	const {
 		gridRef,
 		segments,
@@ -76,6 +103,8 @@ function GridBlockView(props: ReactNodeViewProps) {
 		handleResizeKeyDown,
 		setBlockDropIndex,
 	} = useStoryEditorGridBlock(props);
+	const resolvedGridPos = props.getPos();
+	const gridPos = typeof resolvedGridPos === 'number' ? resolvedGridPos : null;
 
 	return (
 		<NodeViewWrapper draggable data-type='grid-block'>
@@ -105,34 +134,69 @@ function GridBlockView(props: ReactNodeViewProps) {
 						// turn their markdown into literal text), so only chart/table
 						// columns get a move handle.
 						const columnGrip =
-							segments.length >= 2 && segment.type !== 'markdown' ? (
-								<button
-									type='button'
-									aria-label={`Move column ${i + 1}`}
-									contentEditable={false}
+							segments.length >= 2 && (segment.type === 'chart' || segment.type === 'table') ? (
+								<StoryBlockActionGrip
+									editor={props.editor}
+									getOrigin={() =>
+										gridPos === null ? null : { kind: 'gridColumn', gridPos, index: i }
+									}
+									ariaLabel={`Move column ${i + 1}`}
 									draggable
-									className='cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing'
-									onClick={(event) => {
-										event.stopPropagation();
-									}}
-									onPointerDown={(event) => {
-										event.stopPropagation();
-									}}
-									onDragStart={(event) => {
-										handleColumnDragStart(i, event);
-									}}
+									onDragStart={(event) => handleColumnDragStart(i, event)}
 									onDragEnd={(event) => {
 										event.stopPropagation();
 										clearDrag();
 									}}
-								>
-									<GripVertical className='size-3.5' />
-								</button>
+								/>
 							) : null;
+						const isLeftmostColumn = i === 0;
+						const canDragColumn = columnGrip !== null;
+						const isColumnSelected =
+							gridPos !== null &&
+							selectedGridColumns.some((column) => column.gridPos === gridPos && column.index === i);
 
 						return (
-							<div key={i} className='group relative min-w-0'>
-								{renderColumnContent(segment, columnGrip, handleReplaceTag)}
+							<div
+								key={i}
+								className={cn(
+									'group relative min-w-0',
+									gridPos !== null &&
+										selectedGridColumns.some(
+											(column) => column.gridPos === gridPos && column.index === i,
+										) &&
+										'nao-block-selected',
+								)}
+								draggable={canDragColumn || undefined}
+								onDragStart={canDragColumn ? (event) => handleColumnDragStart(i, event) : undefined}
+								onDragEnd={
+									canDragColumn
+										? (event) => {
+												event.stopPropagation();
+												clearDrag();
+											}
+										: undefined
+								}
+								{...(gridPos === null
+									? {}
+									: {
+											'data-grid-column': '',
+											'data-col-index': i,
+											'data-grid-pos': gridPos,
+											'data-col-type': segment.type,
+										})}
+							>
+								{isLeftmostColumn && columnGrip ? (
+									<div contentEditable={false} className='absolute -left-10 top-2 z-20'>
+										{columnGrip}
+									</div>
+								) : null}
+								{renderColumnContent(
+									segment,
+									isLeftmostColumn ? null : columnGrip,
+									handleReplaceTag,
+									'leading',
+									isColumnSelected,
+								)}
 							</div>
 						);
 					})}
@@ -147,6 +211,15 @@ function GridBlockView(props: ReactNodeViewProps) {
 								event.stopPropagation();
 								event.dataTransfer.dropEffect = 'move';
 								setBlockDropIndex(0);
+								if (gridPos !== null) {
+									storyBlockDrag?.setActiveDropZone((current) => {
+										const id = `grid:${gridPos}`;
+										return current === id ? current : id;
+									});
+								}
+								if (storyBlockDrag) {
+									storyBlockDrag.pendingDropRef.current = () => handleGridDrop();
+								}
 							}}
 							onDrop={(event) => {
 								event.preventDefault();
@@ -162,6 +235,15 @@ function GridBlockView(props: ReactNodeViewProps) {
 								event.stopPropagation();
 								event.dataTransfer.dropEffect = 'move';
 								setBlockDropIndex(segments.length);
+								if (gridPos !== null) {
+									storyBlockDrag?.setActiveDropZone((current) => {
+										const id = `grid:${gridPos}`;
+										return current === id ? current : id;
+									});
+								}
+								if (storyBlockDrag) {
+									storyBlockDrag.pendingDropRef.current = () => handleGridDrop();
+								}
 							}}
 							onDrop={(event) => {
 								event.preventDefault();
@@ -171,13 +253,15 @@ function GridBlockView(props: ReactNodeViewProps) {
 						/>
 					</>
 				)}
-				{dropIndicatorLeft !== null && (
-					<div
-						contentEditable={false}
-						className='pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-primary'
-						style={{ left: dropIndicatorLeft }}
-					/>
-				)}
+				{dropIndicatorLeft !== null &&
+					gridPos !== null &&
+					storyBlockDrag?.activeDropZone === `grid:${gridPos}` && (
+						<div
+							contentEditable={false}
+							className='pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 rounded-full bg-primary-muted'
+							style={{ left: dropIndicatorLeft }}
+						/>
+					)}
 				{resizeHandlePositions.map(({ index, left }) => (
 					<button
 						key={index}

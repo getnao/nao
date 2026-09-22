@@ -1,13 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Folder, GitFork, Globe, ScanText, TimerIcon, Upload } from 'lucide-react';
-import type { ForkMetadata } from '@nao/backend/chat';
+import { Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
+import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
+import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
+import { ChatAccessError } from '@/components/chat-access-error';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
@@ -16,11 +18,12 @@ import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { useChatQuery } from '@/queries/use-chat-query';
+import { useHeight } from '@/hooks/use-height';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ShareChatDialog } from '@/components/share-dialog.chat';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -30,7 +33,8 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
-import { isForbiddenError } from '@/lib/trpc-error';
+import { findStories } from '@/lib/story.utils';
+import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
@@ -59,10 +63,13 @@ function ChatPage() {
 	const router = useRouter();
 	const { chatId } = Route.useParams();
 	const { role, canViewChatReplay } = usePermissions();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const showAutomationLinks = role !== undefined && role !== 'viewer' && config.data?.betaAutomationsEnabled === true;
 	const chat = useChatQuery({ chatId });
 	const title = chat.data?.title;
 
 	const isForbidden = chat.isError && isForbiddenError(chat.error);
+	const shouldShowChatError = shouldShowChatAccessError(chat);
 	const shouldRedirectToReplay = isForbidden && canViewChatReplay;
 	const isResolvingReplayRedirect = isForbidden && role === undefined;
 
@@ -79,7 +86,7 @@ function ChatPage() {
 
 	const shareQuery = useQuery({
 		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
-		enabled: chat.isSuccess,
+		enabled: !!chat.data && !shouldShowChatError,
 	});
 	const isShared = !!shareQuery.data?.shareId;
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
@@ -88,8 +95,11 @@ function ChatPage() {
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
+	const inputAreaRef = useRef<HTMLDivElement>(null);
+	const inputAreaHeight = useHeight(inputAreaRef);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
+	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const chatInputCallback = useSetChatInputCallback();
@@ -114,7 +124,7 @@ function ChatPage() {
 
 	useEffect(() => {
 		const openStorySlug = router.state.location.state.openStorySlug;
-		if (chat.isError || !openStorySlug || isLoadingMessages) {
+		if (shouldShowChatError || !openStorySlug || isLoadingMessages) {
 			return;
 		}
 
@@ -127,13 +137,13 @@ function ChatPage() {
 			});
 		});
 		return () => clearTimeout(timer);
-	}, [chat.isError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [shouldShowChatError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	if (chat.isError) {
+	if (shouldShowChatError) {
 		if (shouldRedirectToReplay || isResolvingReplayRedirect) {
 			return null;
 		}
-		return <ChatNotFoundState />;
+		return <ChatAccessError error={chat.error} onRetry={() => chat.refetch()} chatId={chatId} />;
 	}
 
 	return (
@@ -147,9 +157,13 @@ function ChatPage() {
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>
-			<SelectionProvider key={chatId}>
+			<ChatStoryShortcut chatId={chatId} latestStorySlug={latestStorySlug} />
+			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
-					<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'>
+					<div
+						className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'
+						style={{ '--chat-input-height': `${inputAreaHeight}px` } as React.CSSProperties}
+					>
 						<MobileHeader chatId={chatId} title={title} automationId={automationId} />
 
 						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-10 max-md:hidden'>
@@ -167,13 +181,13 @@ function ChatPage() {
 										<span className='truncate'>{chatProject.name}</span>
 									</Badge>
 								)}
-								{isAutomationRunning && (
+								{showAutomationLinks && isAutomationRunning && (
 									<Badge variant='secondary' className='gap-1 text-muted-foreground w-fit'>
 										<Spinner className='size-3' />
 										<span>Running...</span>
 									</Badge>
 								)}
-								{automationId && (
+								{showAutomationLinks && automationId && (
 									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit' asChild>
 										<Link to='/automations/$automationId' params={{ automationId }}>
 											<TimerIcon />
@@ -212,7 +226,7 @@ function ChatPage() {
 									disabled={isRunning}
 									aria-label='Analytics'
 								>
-									<ScanText className='size-3' />
+									<Info className='size-3.5' />
 								</Button>
 								<Button
 									variant='outline'
@@ -253,8 +267,14 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
-
-						<ChatInput />
+						<div className='pointer-events-none absolute inset-x-0 md:right-4 bottom-0 z-10 pt-8'>
+							<div
+								ref={inputAreaRef}
+								className='pointer-events-auto bg-gradient-to-t from-background via-background via-70% to-transparent'
+							>
+								<ChatInput />
+							</div>
+						</div>
 					</div>
 
 					{sidePanel.content && (
@@ -280,25 +300,8 @@ function ChatPage() {
 	);
 }
 
-function ChatNotFoundState() {
-	return (
-		<div className='flex h-full flex-1 flex-col min-w-0 overflow-hidden justify-center bg-panel'>
-			<MobileHeader />
-			<div className='flex flex-1 items-center justify-center p-6'>
-				<div className='flex max-w-sm flex-col items-center gap-4 text-center'>
-					<div className='space-y-2'>
-						<h1 className='text-lg font-medium tracking-tight'>Chat not found</h1>
-						<p className='text-sm text-muted-foreground'>
-							This chat may have been deleted, moved, or you may not have access to it.
-						</p>
-					</div>
-					<Button asChild variant='secondary'>
-						<Link to='/'>Start a new chat</Link>
-					</Button>
-				</div>
-			</div>
-		</div>
-	);
+function findLatestStorySlug(messages: UIMessage[]): string | undefined {
+	return findStories(messages).at(-1)?.id;
 }
 
 function resolveStoryCitationMeta(

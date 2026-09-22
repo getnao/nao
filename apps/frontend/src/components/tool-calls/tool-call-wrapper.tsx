@@ -61,9 +61,9 @@ export const ToolCallWrapper = ({
 	const hasInitialized = useRef(false);
 
 	const hasActions = !!actions;
-	// Inside a tool group, bordered tools render without border/padding to avoid overflowing the group container.
+	// Inside a tool group, bordered tools render like their inline neighbours while keeping their actions.
 	const isBordered = hasActions && !isInToolGroup;
-	const variant = isBordered ? 'bordered' : hasActions ? 'plain' : 'inline';
+	const variant = isBordered ? 'bordered' : hasActions ? 'grouped' : 'inline';
 
 	useEffect(() => {
 		if (hasActions && !hasInitialized.current && canExpand && defaultExpanded) {
@@ -140,6 +140,7 @@ export const ToolCallWrapper = ({
 				onMouseEnter={() => setIsHovering(true)}
 				onMouseLeave={() => setIsHovering(false)}
 				className={cn(isBordered && '-mx-3')}
+				data-replay-target-id={toolPart.toolCallId}
 				{...(hasError && {
 					'data-replay-nav': 'tool-error',
 					'data-replay-bordered': isBordered ? 'true' : 'false',

@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 interface SidePanelHeaderProps {
 	title: string;
 	label?: string;
+	actions?: React.ReactNode;
 }
 
-export function SidePanelHeader({ title, label }: SidePanelHeaderProps) {
+export function SidePanelHeader({ title, label, actions }: SidePanelHeaderProps) {
 	const { close } = useSidePanel();
 
 	return (
@@ -23,11 +24,12 @@ export function SidePanelHeader({ title, label }: SidePanelHeaderProps) {
 				<X className='size-3.5' strokeWidth={2.25} />
 			</Button>
 			<div className='min-w-0 flex-1'>
-				{label && <div className='text-xs font-medium text-muted-foreground'>{label}</div>}
+				{label && <div className='truncate text-xs font-medium text-muted-foreground'>{label}</div>}
 				<div className='truncate text-sm font-semibold' title={title}>
 					{title}
 				</div>
 			</div>
+			{actions}
 		</div>
 	);
 }

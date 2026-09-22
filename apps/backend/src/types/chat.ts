@@ -1,4 +1,5 @@
-import { ALLOWED_IMAGE_MEDIA_TYPES, type CitationData } from '@nao/shared/types';
+import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
+import { type CitationData } from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -9,7 +10,7 @@ import {
 } from 'ai';
 import z from 'zod/v4';
 
-import { getTools, tools } from '../agents/tools';
+import { getTools, uiToolset } from '../agents/tools';
 import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
@@ -51,6 +52,7 @@ export const MESSAGE_SOURCES = [
 	'slack',
 	'teams',
 	'telegram',
+	'mattermost',
 	'whatsapp',
 	'web',
 	'mcp',
@@ -80,7 +82,7 @@ export interface MessageVersionInfo {
 	versionIds: string[];
 }
 
-export type UITools = InferUITools<typeof tools>;
+export type UITools = InferUITools<typeof uiToolset>;
 
 /** Additional data parts that are not part of the ai sdk data parts */
 export type MessageCustomDataParts = {
@@ -91,7 +93,7 @@ export type MessageCustomDataParts = {
 	/** Maps the client-generated user message ID to the server-generated one */
 	newUserMessage: { newId: string };
 	/** Sent when conversation compaction is triggered */
-	compactionSummaryStarted: undefined;
+	compactionSummaryStarted: null;
 	/** Sent when the conversation compaction summary is finished */
 	compaction: CompactionPart;
 };
@@ -159,8 +161,19 @@ export const MentionSchema = z.object({
 
 export const AgentRequestImageSchema = z.object({
 	mediaType: z.enum(ALLOWED_IMAGE_MEDIA_TYPES),
-	data: z.string().min(1),
+	data: z
+		.string()
+		.min(1)
+		.refine((data) => Buffer.byteLength(data, 'base64') <= MAX_IMAGE_SIZE_MB * 1024 * 1024, {
+			message: `Image exceeds the ${MAX_IMAGE_SIZE_MB} MB limit`,
+		}),
 });
+
+/**
+ * Documents are uploaded before the message is sent, so the message only names them. The
+ * server resolves each path inside the sender's own storage space before trusting it.
+ */
+const AgentRequestDocumentPathSchema = z.string().min(1).max(1024);
 
 const CitationDataSchema = z.object({
 	start: z.number(),
@@ -172,7 +185,8 @@ const CitationDataSchema = z.object({
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
 export const AgentRequestUserMessageSchema = z.object({
 	text: z.string(),
-	images: z.array(AgentRequestImageSchema).optional(),
+	images: z.array(AgentRequestImageSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
+	documents: z.array(AgentRequestDocumentPathSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
 	citation: CitationDataSchema.optional(),
 });
 

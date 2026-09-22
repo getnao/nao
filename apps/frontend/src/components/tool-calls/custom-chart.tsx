@@ -11,7 +11,13 @@ import { trpc } from '@/main';
 
 const PLUGIN_REFRESH_INTERVAL_MS = 2_000;
 
-export function CustomChart({ config, data }: { config: displayChart.ChartInput; data: Record<string, unknown>[] }) {
+export const CustomChart = React.memo(function CustomChart({
+	config,
+	data,
+}: {
+	config: displayChart.ChartInput;
+	data: Record<string, unknown>[];
+}) {
 	const containerRef = React.useRef<HTMLDivElement>(null);
 	const { theme } = useTheme();
 	const [module, setModule] = React.useState<ChartPluginModule | null>(null);
@@ -127,7 +133,7 @@ export function CustomChart({ config, data }: { config: displayChart.ChartInput;
 	}
 
 	return <div ref={containerRef} className='h-full min-h-64 w-full' />;
-}
+});
 
 function ChartPluginMessage({ children }: { children: React.ReactNode }) {
 	return <div className='flex min-h-64 items-center justify-center text-sm text-muted-foreground'>{children}</div>;

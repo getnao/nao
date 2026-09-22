@@ -1,12 +1,15 @@
+import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 
 import { BudgetLimitReached } from '../components/email/budget-limit-reached';
 import { ForgotPassword } from '../components/email/forgot-password';
+import { NotificationEmail } from '../components/email/notification-email';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { env } from '../env';
-import type { CreatedEmail } from '../types/email';
+import type { CreatedEmail, EmailAttachment } from '../types/email';
+import { emailLogoAttachment } from './email-logo';
 
 export function buildSharedItemEmail(
 	user: { name: string },
@@ -14,10 +17,12 @@ export function buildSharedItemEmail(
 	itemLabel: string,
 	itemTitle: string,
 	itemUrl: string,
+	unsubscribeUrl?: string,
 ): CreatedEmail {
-	const subject = `${sharerName} shared "${itemTitle}" with you on nao`;
-	const html = renderToString(SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl }));
-	return { subject, html };
+	return createEmail(
+		`${sharerName} shared "${itemTitle}" with you on nao`,
+		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl, unsubscribeUrl }),
+	);
 }
 
 export function buildUserAddedEmail(
@@ -25,9 +30,10 @@ export function buildUserAddedEmail(
 	teamName: string,
 	teamLabel: 'project' | 'organization',
 	temporaryPassword?: string,
+	invitedBy?: string,
 ): CreatedEmail {
-	const subject = `You've been added to ${teamName} on nao`;
-	const html = renderToString(
+	return createEmail(
+		`You've been added to ${teamName} on nao`,
 		UserAddedToProject({
 			userName: user.name,
 			teamName,
@@ -35,15 +41,13 @@ export function buildUserAddedEmail(
 			loginUrl: env.BETTER_AUTH_URL,
 			to: user.email,
 			temporaryPassword,
+			invitedBy,
 		}),
 	);
-	return { subject, html };
 }
 
 export function buildForgotPasswordEmail(user: { name: string }, resetUrl: string): CreatedEmail {
-	const subject = 'Reset your password on nao';
-	const html = renderToString(ForgotPassword({ userName: user.name, resetUrl }));
-	return { subject, html };
+	return createEmail('Reset your password on nao', ForgotPassword({ userName: user.name, resetUrl }));
 }
 
 export function buildResetPasswordEmail(
@@ -51,11 +55,27 @@ export function buildResetPasswordEmail(
 	projectName: string,
 	temporaryPassword: string,
 ): CreatedEmail {
-	const subject = `Your password on the project ${projectName} has been reset on nao`;
-	const html = renderToString(
+	return createEmail(
+		`Your password on the project ${projectName} has been reset on nao`,
 		ResetPassword({ userName: user.name, temporaryPassword, loginUrl: env.BETTER_AUTH_URL, projectName }),
 	);
-	return { subject, html };
+}
+
+export function buildNotificationEmail(
+	user: { name: string },
+	title: string,
+	body?: string,
+	linkUrl?: string,
+	ctaLabel?: string,
+	attachments?: EmailAttachment[],
+	unsubscribeUrl?: string,
+	bodyHtml?: string,
+): CreatedEmail {
+	return createEmail(
+		`${title} — nao`,
+		NotificationEmail({ userName: user.name, title, body, bodyHtml, linkUrl, ctaLabel, unsubscribeUrl }),
+		attachments ?? [],
+	);
 }
 
 export function buildBudgetLimitReachedEmail(
@@ -65,9 +85,10 @@ export function buildBudgetLimitReachedEmail(
 	currentSpendUsd: number,
 	period: string,
 	resetLabel: string,
+	unsubscribeUrl?: string,
 ): CreatedEmail {
-	const subject = `Budget limit reached for ${providerLabel} on nao`;
-	const html = renderToString(
+	return createEmail(
+		`Budget limit reached for ${providerLabel} on nao`,
 		BudgetLimitReached({
 			userName: user.name,
 			providerLabel,
@@ -75,7 +96,13 @@ export function buildBudgetLimitReachedEmail(
 			currentSpendUsd,
 			period,
 			resetLabel,
+			unsubscribeUrl,
 		}),
 	);
-	return { subject, html };
+}
+
+function createEmail(subject: string, element: ReactElement, extraAttachments: EmailAttachment[] = []): CreatedEmail {
+	const html = `<!DOCTYPE html>${renderToString(element)}`;
+	const attachments = [...(emailLogoAttachment ? [emailLogoAttachment] : []), ...extraAttachments];
+	return attachments.length > 0 ? { subject, html, attachments } : { subject, html };
 }

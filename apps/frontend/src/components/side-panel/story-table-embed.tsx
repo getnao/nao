@@ -1,39 +1,33 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { Pencil } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useState } from 'react';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { ParsedTableBlock } from '@nao/shared/story-segments';
 
 import { DataTableCard } from '@/components/data-table-card';
 import { TableFormatEditDialog } from '@/components/tool-calls/display-table-edit-dialog';
 import { Button } from '@/components/ui/button';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useStoryTableEdit } from '@/contexts/story-table-edit';
-import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
+import { useSourceQuery } from '@/hooks/use-source-query';
 
 export const StoryTableEmbed = memo(function StoryTableEmbed({
 	table,
 	dragHandle,
+	dragHandlePlacement = 'trailing',
 }: {
 	table: ParsedTableBlock;
 	dragHandle?: React.ReactNode;
+	dragHandlePlacement?: 'leading' | 'trailing';
 }) {
-	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
-
-	const sourceData = useMemo(() => {
-		const fromEmbedData = embedData?.[table.queryId];
-		if (fromEmbedData) {
-			return fromEmbedData;
-		}
-
-		return findLatestExecuteSqlInMessages(agent?.messages ?? [], table.queryId)?.output ?? null;
-	}, [embedData, agent?.messages, table.queryId]);
+	const embedSourceData = embedData?.[table.queryId];
+	const { sourceData: agentSourceData } = useSourceQuery(embedSourceData ? undefined : table.queryId);
+	const sourceData = embedSourceData ?? agentSourceData;
 
 	if (!sourceData?.data || !Array.isArray(sourceData.data)) {
 		return (
-			<StoryEmbedFallback dragHandle={dragHandle}>
+			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
 				Table data unavailable (query: {table.queryId})
 			</StoryEmbedFallback>
 		);
@@ -48,9 +42,10 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 			columns={columns}
 			title={table.title}
 			conditionalFormats={table.conditionalFormats}
+			leadingHeader={dragHandlePlacement === 'leading' ? dragHandle : undefined}
 			headerActions={
 				<>
-					{dragHandle}
+					{dragHandlePlacement === 'leading' ? null : dragHandle}
 					<StoryTableEditControls table={table} data={rows} columns={columns} />
 				</>
 			}

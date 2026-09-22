@@ -4,6 +4,11 @@
 	"workspaces": [
 		"apps/*"
 	],
+	"packageManager": "npm@11.10.1",
+	"engines": {
+		"node": ">=22.14.0 <23",
+		"npm": "11.10.1"
+	},
 	"scripts": {
 		"dev": "npm-run-all -lp dev:backend dev:frontend dev:fastapi",
 		"dev:backend": "npm run dev -w @nao/backend",
@@ -21,6 +26,9 @@
 		"format:check": "prettier --check .",
 		"cli:fix": "cd cli && make lint-fix",
 		"cli:check": "cd cli && make lint",
+		"lock:normalize": "npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
+		"lock:check": "./scripts/check-lockfile.sh",
+		"npm:pin": "./scripts/use-pinned-npm.sh",
 		"build:cli": "cd cli && python build.py -f",
 		"setup": "cd scripts && ./setup.sh",
 		"release": "./scripts/release.sh",
@@ -38,7 +46,7 @@
 		"typescript-eslint": "^8.51.0"
 	},
 	"dependencies": {
-		"@boxlite-ai/boxlite": "^0.3.0",
+		"@boxlite-ai/boxlite": "^0.10.0",
 		"@emnapi/core": "^1.9.2",
 		"@emnapi/runtime": "^1.9.2",
 		"@pydantic/monty": "^0.0.7",

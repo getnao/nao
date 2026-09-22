@@ -18,6 +18,7 @@ const DOT_COLORS: Record<NavSegmentProps['color'], string> = {
 };
 
 function NavSegment({ label, current, total, color, onPrev, onNext }: NavSegmentProps) {
+	const isSingle = total === 1;
 	return (
 		<div className='flex items-center gap-2 px-3 py-1.5 border-r border-border last:border-r-0'>
 			<span className={cn('size-2 rounded-full flex-shrink-0', DOT_COLORS[color])} />
@@ -31,7 +32,7 @@ function NavSegment({ label, current, total, color, onPrev, onNext }: NavSegment
 					variant='ghost-muted'
 					size='icon-sm'
 					onClick={onPrev}
-					disabled={current <= 1}
+					disabled={!isSingle && current <= 1}
 					aria-label={`Previous ${label}`}
 				>
 					<ChevronUp className='size-3.5' />
@@ -41,7 +42,7 @@ function NavSegment({ label, current, total, color, onPrev, onNext }: NavSegment
 					variant='ghost-muted'
 					size='icon-sm'
 					onClick={onNext}
-					disabled={current >= total}
+					disabled={!isSingle && current >= total}
 					aria-label={`Next ${label}`}
 				>
 					<ChevronDown className='size-3.5' />

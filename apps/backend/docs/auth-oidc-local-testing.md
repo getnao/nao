@@ -21,6 +21,20 @@ This guide walks through manually testing the OIDC SSO feature end-to-end using 
     - **Controlled access**: Allow everyone in your organization (or assign specific users/groups)
 5. Click **Save**, then copy the **Client ID** and **Client Secret**
 
+### Show the App on the Okta Dashboard
+
+Optional — only needed to test launching nao from Okta's **My Apps** page.
+
+1. In the application's **General Settings**, click **Edit**
+2. Set **Login initiated by** to **Either Okta or App**
+3. Check **Display application icon to users**
+4. Set **Initiate login URI** to `http://localhost:3000/api/sso/start`
+5. Click **Save**
+
+Clicking the tile then redirects to `/api/sso/start`, which starts the OAuth flow server-side and sends the browser to Okta — the nao login page is never rendered. Without this URI, Okta lands the user on `/login` instead.
+
+If **Assignments** is locked with "This app is implicitly assigned to users", the app has **Federation Broker Mode** enabled. Disable it under **General** → **Federation Broker Mode** to assign users manually, or manage access through the app's sign-on policy instead.
+
 ### Enable PKCE
 
 In the application settings, under **General Settings** → **Client Credentials**, ensure that **Proof Key for Code Exchange (PKCE)** is enabled. This is the recommended configuration and matches `OIDC_PKCE=true` in the nao `.env`.
@@ -76,6 +90,8 @@ Replace the placeholder values with the ones from your Okta application.
 5. Authenticate with your Okta credentials
 6. After successful authentication, you should be redirected back to nao and logged in
 
+To test the Okta-initiated flow, open the **My Apps** dashboard and click the `nao-local` tile. You should land in nao already signed in, without seeing the login page.
+
 ## 4. Verify User Roles
 
 nao assigns the **admin** role to the very first user created in the system. All subsequent users are created with the **user** role.
@@ -89,12 +105,14 @@ This matches the standard nao behavior — the first-user-is-admin rule applies 
 
 ## Troubleshooting
 
-| Symptom                                          | Likely Cause                                                                                                 |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| No "Continue with Okta" button                   | EE license/feature not active, or `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_DISCOVERY_URL` not set     |
-| 404 on discovery URL                             | Missing `/.well-known/openid-configuration` suffix on the issuer URI                                         |
-| `redirect_uri_mismatch`                          | Redirect URI in Okta doesn't match `http://localhost:3000/api/auth/oauth2/callback/okta` exactly             |
-| "User is not assigned to the client application" | Test user not assigned to the Okta app (see **Assign Users** above)                                          |
-| "You are not allowed to access this app"         | Missing Access Policy on the authorization server (see **Configure the Authorization Server Access Policy**) |
-| TLS certificate errors in logs                   | Corporate proxy or self-signed certs — configure `NODE_EXTRA_CA_CERTS` or equivalent for your runtime        |
-| Login succeeds but user can't see projects       | Expected — an admin must add the user to a project after first login                                         |
+| Symptom                                             | Likely Cause                                                                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| No "Continue with Okta" button                      | EE license/feature not active, or `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_DISCOVERY_URL` not set             |
+| 404 on discovery URL                                | Missing `/.well-known/openid-configuration` suffix on the issuer URI                                                 |
+| `redirect_uri_mismatch`                             | Redirect URI in Okta doesn't match `http://localhost:3000/api/auth/oauth2/callback/okta` exactly                     |
+| "User is not assigned to the client application"    | Test user not assigned to the Okta app (see **Assign Users** above)                                                  |
+| "You are not allowed to access this app"            | Missing Access Policy on the authorization server (see **Configure the Authorization Server Access Policy**)         |
+| TLS certificate errors in logs                      | Corporate proxy or self-signed certs — configure `NODE_EXTRA_CA_CERTS` or equivalent for your runtime                |
+| Login succeeds but user can't see projects          | Expected — an admin must add the user to a project after first login                                                 |
+| App tile opens the login page instead of signing in | **Initiate login URI** not set to `http://localhost:3000/api/sso/start` (see **Show the App on the Okta Dashboard**) |
+| App does not appear on the **My Apps** page         | **Display application icon to users** unchecked, user not assigned, or Federation Broker Mode enabled                |

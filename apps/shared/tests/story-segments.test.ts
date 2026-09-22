@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildStoryChartBlock, buildStoryFilterBlock } from '../src/chart-block';
+import { buildStoryChartBlock, buildStoryFilterBlock, buildStoryMapBlock } from '../src/chart-block';
 import {
 	getGridTemplateColumns,
 	getStoryFiltersFromCode,
 	groupBlocksIntoGrid,
 	insertGridColumn,
+	mapBlockToInput,
 	parseChartBlock,
+	parseMapBlock,
 	popGridColumn,
+	popGridColumns,
 	previewGridColumns,
 	reorderGridColumns,
 	resizeGridColumns,
@@ -315,6 +318,46 @@ describe('popGridColumn', () => {
 		expect(popGridColumn(grid, -1)).toBeNull();
 		expect(popGridColumn(grid, 2)).toBeNull();
 		expect(popGridColumn(singleColumn, 0)).toBeNull();
+	});
+});
+
+describe('popGridColumns', () => {
+	it('removes one column and keeps the remaining columns in a grid', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [2]);
+
+		expect(result?.popped).toBe(CHART_THREE);
+		expect(splitGridColumnsRaw(result?.remaining ?? '').columns).toEqual([CHART_ONE, CHART_TWO]);
+	});
+
+	it('removes multiple columns into a grid and leaves one column', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [0, 2]);
+
+		expect(result?.remaining).toBe(CHART_TWO);
+		expect(splitGridColumnsRaw(result?.popped ?? '').columns).toEqual([CHART_ONE, CHART_THREE]);
+	});
+
+	it('removes all columns into a grid', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [0, 1, 2]);
+
+		expect(result?.remaining).toBeNull();
+		expect(splitGridColumnsRaw(result?.popped ?? '').columns).toEqual([CHART_ONE, CHART_TWO, CHART_THREE]);
+	});
+
+	it('normalizes out-of-order and duplicate indices', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+
+		expect(popGridColumns(grid, [2, 0, 0])).toEqual(popGridColumns(grid, [0, 2]));
+	});
+
+	it('returns null for invalid input', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+
+		expect(popGridColumns(grid, [])).toBeNull();
+		expect(popGridColumns(grid, [3])).toBeNull();
+		expect(popGridColumns(CHART_ONE, [0])).toBeNull();
 	});
 });
 
@@ -675,5 +718,83 @@ describe('story filter tags', () => {
 				rawTag: expect.any(String),
 			},
 		]);
+	});
+});
+
+describe('buildStoryMapBlock', () => {
+	it('emits a basic points block', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q1',
+			map_type: 'points',
+			latitude_key: 'lat',
+			longitude_key: 'lng',
+			title: 'City Points',
+		});
+		expect(tag).toContain('query_id="q1"');
+		expect(tag).toContain('map_type="points"');
+		expect(tag).toContain('latitude_key="lat"');
+		expect(tag).toContain('longitude_key="lng"');
+		expect(tag).toContain('title="City Points"');
+	});
+
+	it('emits boundaries_url and boundaries_join_property for choropleth with URL', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q2',
+			map_type: 'choropleth',
+			value_key: 'sales',
+			region_key: 'state',
+			boundaries_url: 'https://example.com/states.geojson',
+			boundaries_join_property: 'name',
+			title: 'Sales by State',
+		});
+		expect(tag).toContain('boundaries_url="https://example.com/states.geojson"');
+		expect(tag).toContain('boundaries_join_property="name"');
+		expect(tag).not.toContain('latitude_key');
+	});
+
+	it('round-trips through parseMapBlock with boundaries_url', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q3',
+			map_type: 'choropleth',
+			value_key: 'pop',
+			region_key: 'iso',
+			boundaries_url: 'https://cdn.example.com/world.geojson',
+			boundaries_join_property: 'ISO_A3',
+			title: 'World Map',
+		});
+		const parsed = parseMapBlock(tag.slice('<map '.length, -3));
+		expect(parsed?.boundariesUrl).toBe('https://cdn.example.com/world.geojson');
+		expect(parsed?.boundariesJoinProperty).toBe('ISO_A3');
+	});
+});
+
+describe('mapBlockToInput', () => {
+	it('maps a choropleth block with region_boundaries', () => {
+		const map = parseMapBlock(
+			'query_id="q1" map_type="choropleth" value_key="sales" region_key="country" region_boundaries="world_countries" title="Sales"',
+		);
+		expect(mapBlockToInput(map!)).toMatchObject({
+			query_id: 'q1',
+			map_type: 'choropleth',
+			value_key: 'sales',
+			region_key: 'country',
+			region_boundaries: 'world_countries',
+		});
+	});
+
+	it('maps a choropleth block with boundaries_url and boundaries_join_property', () => {
+		const map = parseMapBlock(
+			'query_id="q1" map_type="choropleth" value_key="sales" region_key="state" boundaries_url="https://example.com/states.geojson" boundaries_join_property="name" title="Sales"',
+		);
+		expect(mapBlockToInput(map!)).toMatchObject({
+			boundaries_url: 'https://example.com/states.geojson',
+			boundaries_join_property: 'name',
+			region_key: 'state',
+		});
+	});
+
+	it('defaults the map type to points', () => {
+		const map = parseMapBlock('query_id="q1" latitude_key="lat" longitude_key="lng" title="Points"');
+		expect(mapBlockToInput(map!).map_type).toBe('points');
 	});
 });

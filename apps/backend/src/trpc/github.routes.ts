@@ -71,7 +71,7 @@ export const githubRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
 			}
 
-			const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
+			const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
 			if (!membership) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 			}
@@ -147,35 +147,6 @@ export const githubRoutes = {
 			throw new TRPCError({
 				code: 'INTERNAL_SERVER_ERROR',
 				message: err instanceof Error ? err.message : 'Failed to unlink repository',
-			});
-		}
-	}),
-
-	pullProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		if (!ctx.project.path) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
-		}
-
-		const gitInfo = githubService.getGitInfo(ctx.project.path);
-		if (!gitInfo.isGithub || !gitInfo.repoFullName) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'This project is not linked to a GitHub repository' });
-		}
-
-		const token = await userQueries.getGithubToken(ctx.user.id);
-		if (!token) {
-			throw new TRPCError({
-				code: 'BAD_REQUEST',
-				message: 'GitHub is not connected. Connect your GitHub account first.',
-			});
-		}
-
-		try {
-			githubService.pullRepo(token, gitInfo.repoFullName, ctx.project.path);
-			return githubService.getGitInfo(ctx.project.path);
-		} catch (err) {
-			throw new TRPCError({
-				code: 'INTERNAL_SERVER_ERROR',
-				message: err instanceof Error ? err.message : 'Failed to pull latest changes',
 			});
 		}
 	}),

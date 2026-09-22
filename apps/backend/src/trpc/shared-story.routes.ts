@@ -1,4 +1,4 @@
-import { DOWNLOAD_FORMATS, SHARE_VISIBILITY } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -10,14 +10,17 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { notifySharedItem } from '../services/notification.service';
+import { teardownStoryDelivery } from '../services/story-delivery.service';
 import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
 	getStoryFilterOptions,
 	getStoryQuerySql,
 } from '../services/story-filters';
+import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { notifySharedItemRecipients } from '../utils/email';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -39,7 +42,6 @@ const shareAccessProcedure = resourceProjectProcedure(
 		item.userId === userId ||
 		sharedStoryQueries.canUserAccessSharedStory(item.id, userId),
 );
-
 export const sharedStoryRoutes = {
 	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
 		const projects = await projectQueries.listUserProjects(ctx.user.id);
@@ -83,9 +85,19 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
 			}
 
+			const storyOwnerId = (await storyQueries.getStoryOwnerId(story.id)) ?? ctx.user.id;
+			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
+			}
+
 			if (input.visibility === 'project') {
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
-					storyOwnerId: ctx.user.id,
+					storyOwnerId,
+					projectId: ctx.project.id,
+				});
+			} else {
+				await storyFolderQueries.ensureStoryPrivate(story.id, {
+					storyOwnerId,
 					projectId: ctx.project.id,
 				});
 			}
@@ -109,18 +121,17 @@ export const sharedStoryRoutes = {
 				sharedStoryId: created.id,
 			});
 
-			if (input.notify) {
-				notifySharedItemRecipients({
-					projectId: ctx.project.id,
-					sharerId: ctx.user.id,
-					sharerName: ctx.user.name,
-					shareId: created.id,
-					itemLabel: 'story',
-					itemTitle: story.title,
-					visibility: input.visibility,
-					allowedUserIds: input.allowedUserIds,
-				}).catch((err) => console.error('Failed to notify shared story recipients', err));
-			}
+			notifySharedItem({
+				projectId: ctx.project.id,
+				sharerId: ctx.user.id,
+				sharerName: ctx.user.name,
+				shareId: created.id,
+				itemLabel: 'story',
+				itemTitle: story.title,
+				visibility: input.visibility,
+				allowedUserIds: input.allowedUserIds,
+				deliverExternally: input.notify,
+			}).catch((err) => console.error('Failed to notify shared story recipients', err));
 
 			return created;
 		}),
@@ -132,14 +143,17 @@ export const sharedStoryRoutes = {
 		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
 		const cacheSchedule = storyRow?.cacheSchedule ?? null;
 		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
+		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
+		const canFork = await getStoryForkAccess(shared, ctx.user.id, ctx.userRole);
 
-		const { queryData, cachedAt } = await getStoryQueryData(
+		const { queryData, cachedAt, code } = await getStoryQueryData(
 			shared.chatId!,
 			shared.slug,
 			shared.code,
 			isLive,
 			cacheSchedule,
 		);
+		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
 
 		if (ctx.user.id !== shared.userId) {
 			logAnalyticsEvent({
@@ -155,6 +169,7 @@ export const sharedStoryRoutes = {
 
 		return {
 			...shared,
+			code,
 			storyId: shared.storyId,
 			queryData,
 			isLive,
@@ -162,9 +177,29 @@ export const sharedStoryRoutes = {
 			cacheSchedule,
 			cacheScheduleDescription,
 			cachedAt,
+			lastRefreshFailure,
 			userRole: ctx.userRole,
+			canRefresh,
+			canFork,
 		};
 	}),
+
+	getVersionQueryData: shareAccessProcedure
+		.input(z.object({ shareId: z.string(), versionNumber: z.number().int().positive() }))
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+			}
+
+			const version = await storyQueries.getVersionByNumber(shared.chatId, shared.slug, input.versionNumber);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+			}
+
+			const queryData = await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code);
+			return { queryData };
+		}),
 
 	getLiveQueryData: chatProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
@@ -208,7 +243,6 @@ export const sharedStoryRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
-			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
@@ -218,26 +252,33 @@ export const sharedStoryRoutes = {
 
 	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
-		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
-		const storyOwnerId = story ? await storyQueries.getStoryOwnerId(story.id) : undefined;
-		const activity =
-			story && storyOwnerId
-				? await activityQueries.startStoryRefreshActivity({
-						projectId: shared.projectId,
-						userId: storyOwnerId,
-						storyId: story.id,
-						chatId: story.chatId,
-						trigger: 'manual',
-					})
-				: null;
+		if (!shared.chatId) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+		}
+		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId, shared.slug);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		const { storyOwnerId, canRefresh } = await getStoryRefreshAccess(story.id, ctx.user.id, ctx.userRole);
+		if (!storyOwnerId) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Live Story has no execution owner.' });
+		}
+		if (!canRefresh) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Story owner or an admin can refresh this.' });
+		}
+		const activity = await activityQueries.startStoryRefreshActivity({
+			projectId: shared.projectId,
+			userId: storyOwnerId,
+			storyId: story.id,
+			chatId: story.chatId,
+			trigger: 'manual',
+		});
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
-			if (activity) {
+			return await withKeyedLock(`story:${story.id}`, async () => {
+				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
-			}
-			if (story?.id) {
 				logAnalyticsEvent({
 					projectId: shared.projectId,
 					type: 'refresh',
@@ -248,12 +289,10 @@ export const sharedStoryRoutes = {
 					sharedStoryId: shared.id,
 					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
 				});
-			}
-			return { queryData, cachedAt: new Date() };
+				return { queryData, cachedAt: new Date() };
+			});
 		} catch (err) {
-			if (activity) {
-				await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
-			}
+			await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
 			throw err;
 		}
 	}),
@@ -265,7 +304,10 @@ export const sharedStoryRoutes = {
 			if (!story) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
-
+			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+			if (storyProjectId !== ctx.project.id) {
+				return { shareId: null, visibility: null, allowedUserIds: [] };
+			}
 			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.project.id);
 			if (!share) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
@@ -285,13 +327,12 @@ export const sharedStoryRoutes = {
 			if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
-
 			const previousAllowedUserIds = await sharedStoryQueries.getSharedStoryAllowedUserIds(input.shareId);
 			await sharedStoryQueries.updateSharedStoryAllowedUsers(input.shareId, input.allowedUserIds);
 
 			const newlyAddedUserIds = input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id));
 			if (newlyAddedUserIds.length > 0) {
-				await notifySharedItemRecipients({
+				await notifySharedItem({
 					projectId: shared.projectId,
 					sharerId: shared.userId,
 					sharerName: shared.authorName,
@@ -324,8 +365,13 @@ export const sharedStoryRoutes = {
 		if (ctx.resource.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
 		}
-
 		await sharedStoryQueries.deleteSharedStory(input.shareId);
+		const storyOwnerId = (await storyQueries.getStoryOwnerId(ctx.resource.storyId)) ?? ctx.resource.userId;
+		await storyFolderQueries.ensureStoryPrivate(ctx.resource.storyId, {
+			storyOwnerId,
+			projectId: ctx.resource.projectId,
+		});
+		await teardownStoryDelivery(ctx.resource.storyId);
 	}),
 
 	download: shareAccessProcedure
@@ -346,7 +392,7 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const { queryData } = await getStoryQueryData(
+			const { queryData, code } = await getStoryQueryData(
 				shared.chatId!,
 				shared.slug,
 				version.code,
@@ -372,12 +418,32 @@ export const sharedStoryRoutes = {
 
 			const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
 
-			return buildDownloadResponse(
-				input.format,
-				version.title,
-				version.code,
-				queryData,
-				displaySettings?.dateFormat,
-			);
+			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
 		}),
 };
+
+async function getStoryRefreshAccess(
+	storyId: string,
+	userId: string,
+	userRole: UserRole | null,
+): Promise<{ storyOwnerId: string | undefined; canRefresh: boolean }> {
+	const storyOwnerId = await storyQueries.getStoryOwnerId(storyId);
+	return {
+		storyOwnerId,
+		canRefresh: Boolean(storyOwnerId && (userId === storyOwnerId || userRole === 'admin')),
+	};
+}
+
+async function getStoryForkAccess(
+	shared: { projectId: string; userId: string },
+	userId: string,
+	userRole: UserRole | null,
+): Promise<boolean> {
+	if (userRole === 'viewer') {
+		return false;
+	}
+	if (shared.userId === userId) {
+		return true;
+	}
+	return hasUserGroupFeature(shared.projectId, userId, 'storyCreation');
+}

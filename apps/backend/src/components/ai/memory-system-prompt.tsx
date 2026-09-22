@@ -20,7 +20,7 @@ export const MEMORY_EXTRACTION_SYSTEM_PROMPT = renderToMarkdown(
 		</Span>
 
 		<Title>Output Structure</Title>
-		<Span>Your output has two separate fields:</Span>
+		<Span>Return JSON with two separate fields:</Span>
 		<List>
 			<ListItem>
 				<Bold>user_instructions</Bold> — directives that tell the agent how to behave in future conversations

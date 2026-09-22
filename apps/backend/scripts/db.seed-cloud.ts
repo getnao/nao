@@ -4,6 +4,7 @@ import { hashPassword } from 'better-auth/crypto';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
+import * as projectQueries from '../src/queries/project.queries';
 
 const PASSWORD = 'password';
 const EXAMPLE_PROJECT_PATH = path.resolve(import.meta.dirname, '../../../example');
@@ -384,7 +385,7 @@ async function upsertProject(tx: Tx, values: { name: string; type: 'local'; path
 	if (existing) {
 		return [existing] as const;
 	}
-	return tx.insert(s.project).values(values).returning().execute();
+	return [await projectQueries.createProject(values, tx)] as const;
 }
 
 async function ensureOrgMember(tx: Tx, orgId: string, userId: string, role: 'admin' | 'user') {

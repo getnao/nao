@@ -9,12 +9,14 @@ const mocks = vi.hoisted(() => ({
 	compactMock: vi.fn(),
 	resolveProviderModelMock: vi.fn(),
 	resolveAnnotationModelIdMock: vi.fn(),
+	resolveDefaultModelSelectionMock: vi.fn(),
 	scheduleSaveMock: vi.fn(),
 }));
 
 vi.mock('../src/utils/llm', () => ({
 	resolveProviderModel: mocks.resolveProviderModelMock,
 	resolveAnnotationModelId: mocks.resolveAnnotationModelIdMock,
+	resolveDefaultModelSelection: mocks.resolveDefaultModelSelectionMock,
 }));
 
 vi.mock('../src/utils/schedule-task', () => ({
@@ -44,8 +46,13 @@ describe('compactionService.compactConversationIfNeeded', () => {
 			}),
 			tokenCounter,
 		});
-		mocks.resolveProviderModelMock.mockResolvedValue({ model: {} });
+		mocks.resolveProviderModelMock.mockResolvedValue({
+			model: { modelId: 'gpt-4.1-mini' },
+			providerOptions: { openai: {} },
+			contextWindow: 200_000,
+		});
 		mocks.resolveAnnotationModelIdMock.mockResolvedValue('gpt-4.1-mini');
+		mocks.resolveDefaultModelSelectionMock.mockResolvedValue(null);
 		mocks.compactMock.mockResolvedValue({
 			summary: 'Conversation summary',
 			usage: { totalTokens: 123 },
@@ -65,6 +72,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 		const result = await compactionService.compactConversationIfNeeded({
 			chat: { id: 'chat-1', projectId: 'project-1', userId: 'user-1' },
 			provider: 'openai',
+			modelId: 'gpt-5.5',
 			messages,
 			tools: {},
 			maxOutputTokens: 16,
@@ -97,6 +105,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 		const result = await compactionService.compactConversationIfNeeded({
 			chat: { id: 'chat-2', projectId: 'project-2', userId: 'user-2' },
 			provider: 'openai',
+			modelId: 'gpt-5.5',
 			messages,
 			tools: {} as AgentTools,
 			maxOutputTokens: 50,
@@ -107,6 +116,11 @@ describe('compactionService.compactConversationIfNeeded', () => {
 
 		expect(onCompactionStarted).toHaveBeenCalledOnce();
 		expect(onCompactionFinished).toHaveBeenCalledOnce();
+		expect(mocks.resolveAnnotationModelIdMock).toHaveBeenCalledWith(
+			'project-2',
+			{ provider: 'openai', modelId: 'gpt-5.5' },
+			'gpt-4.1-mini',
+		);
 
 		expect(result).toMatchObject({
 			summary: 'Conversation summary',

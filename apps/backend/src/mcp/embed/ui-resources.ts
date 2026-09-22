@@ -8,6 +8,7 @@ import { mcpAppsScriptUrl } from './mcp-apps-bundle';
 
 export const STORY_APP_URI = 'ui://nao/app/story.html';
 export const CHART_APP_URI = 'ui://nao/app/chart.html';
+export const MAP_APP_URI = 'ui://nao/app/map.html';
 
 export function registerNaoMcpApps(server: McpServer): void {
 	registerAppResource(
@@ -38,6 +39,23 @@ export function registerNaoMcpApps(server: McpServer): void {
 					uri: CHART_APP_URI,
 					mimeType: RESOURCE_MIME_TYPE,
 					text: buildAppShellHtml('Nao Chart'),
+					_meta: { ui: buildContentUiMeta(server) },
+				},
+			],
+		}),
+	);
+
+	registerAppResource(
+		server,
+		'Nao Map App',
+		MAP_APP_URI,
+		{ title: 'Nao Map App', _meta: { ui: buildListingUiMeta() } },
+		async () => ({
+			contents: [
+				{
+					uri: MAP_APP_URI,
+					mimeType: RESOURCE_MIME_TYPE,
+					text: buildAppShellHtml('Nao Map'),
 					_meta: { ui: buildContentUiMeta(server) },
 				},
 			],
@@ -144,6 +162,11 @@ body.is-loading{min-height:160px}
 	var sawEmbedResizeFromCurrentNavigation = false;
 	var currentEmbedFallbackHtml = null;
 	var currentEmbedUrlForLink = null;
+	// Hosts that block the embed URL (strict CSP) only ever render the inline blob delivered with the
+	// tool result. That result is not replayed when the host re-mounts an earlier app iframe, so we
+	// cache it per tool call and restore it instead of falling back to a stuck "Waiting for result…".
+	var resultStorageKey = null;
+	var lastResolvedPayload = null;
 
 	function clearEmbedLoadWatch() {
 		if (embedLoadWatchTimer) {
@@ -212,7 +235,7 @@ body.is-loading{min-height:160px}
 		currentEmbedFallbackHtml =
 			typeof fallbackHtml === 'string' && fallbackHtml.length > 0 ? fallbackHtml : null;
 		currentEmbedUrlForLink = url.indexOf('blob:') !== 0 && /^https?:\\/\\//.test(url) ? url : null;
-		setStatus(url.indexOf('blob:') === 0 ? 'Loading preview…' : 'Loading chart…');
+		setStatus(url.indexOf('blob:') === 0 ? 'Loading preview…' : 'Loading…');
 		attachEmbedResizeListener();
 		var useBlobFallback = currentEmbedFallbackHtml && url.indexOf('blob:') !== 0 && /^https?:\\/\\//.test(url);
 		if (useBlobFallback) {
@@ -262,7 +285,7 @@ body.is-loading{min-height:160px}
 		try {
 			u = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
 		} catch (err) {
-			setStatus('Chart preview could not be loaded.', true);
+			setStatus('Preview could not be loaded.', true);
 			return;
 		}
 		setSrc(u);
@@ -292,7 +315,8 @@ body.is-loading{min-height:160px}
 			typeof p.embedUrl === 'string' ? p.embedUrl : typeof p.embed_url === 'string' ? p.embed_url : '';
 		var chartBlob = typeof p.sandboxChartHtml === 'string' ? p.sandboxChartHtml : '';
 		var storyBlob = typeof p.sandboxStoryHtml === 'string' ? p.sandboxStoryHtml : '';
-		var sandboxBlob = chartBlob || storyBlob;
+		var mapBlob = typeof p.sandboxMapHtml === 'string' ? p.sandboxMapHtml : '';
+		var sandboxBlob = chartBlob || storyBlob || mapBlob;
 		if (!embedUrl && !sandboxBlob) return null;
 		return { embedUrl: embedUrl, sandboxChartHtml: sandboxBlob };
 	}
@@ -319,7 +343,9 @@ body.is-loading{min-height:160px}
 			primary.sandboxChartHtml ||
 			secondary.sandboxChartHtml ||
 			primary.sandboxStoryHtml ||
-			secondary.sandboxStoryHtml;
+			secondary.sandboxStoryHtml ||
+			primary.sandboxMapHtml ||
+			secondary.sandboxMapHtml;
 		return {
 			embedUrl: primary.embedUrl || secondary.embedUrl,
 			sandboxChartHtml: sandboxBlob,
@@ -354,9 +380,72 @@ body.is-loading{min-height:160px}
 
 	var hasRenderedPreview = false;
 
+	function toolIdFromHostContext(ctx) {
+		try {
+			var id = ctx && ctx.toolInfo && ctx.toolInfo.id;
+			if (typeof id === 'string' || typeof id === 'number') return String(id);
+		} catch (e) {}
+		return null;
+	}
+
+	function setResultStorageKeyFromContext(ctx) {
+		var id = toolIdFromHostContext(ctx);
+		resultStorageKey = id ? 'nao-mcp-embed:' + id : null;
+		if (resultStorageKey && lastResolvedPayload) {
+			writeStoredPayload(lastResolvedPayload);
+		}
+	}
+
+	function writeStoredPayload(p) {
+		if (!resultStorageKey || !p) return;
+		try {
+			sessionStorage.setItem(
+				resultStorageKey,
+				JSON.stringify({ embedUrl: p.embedUrl || '', sandboxChartHtml: p.sandboxChartHtml || '' }),
+			);
+		} catch (e) {}
+	}
+
+	function readStoredPayload() {
+		if (!resultStorageKey) return null;
+		try {
+			var raw = sessionStorage.getItem(resultStorageKey);
+			if (!raw) return null;
+			var p = JSON.parse(raw);
+			if (!p || typeof p !== 'object') return null;
+			return {
+				embedUrl: typeof p.embedUrl === 'string' ? p.embedUrl : '',
+				sandboxChartHtml: typeof p.sandboxChartHtml === 'string' ? p.sandboxChartHtml : '',
+			};
+		} catch (e) {
+			return null;
+		}
+	}
+
+	function restoreRenderedPayload() {
+		if (hasRenderedPreview) return true;
+		var p = readStoredPayload();
+		if (!p) return false;
+		// The embed URL already failed to load in this host (that is why nothing rendered on this
+		// mount), so restore straight from the self-contained blob when we have one.
+		if (p.sandboxChartHtml.length > 0) {
+			setBlobHtml(p.sandboxChartHtml);
+			hasRenderedPreview = true;
+			return true;
+		}
+		if (p.embedUrl.length > 0) {
+			setSrc(p.embedUrl);
+			hasRenderedPreview = true;
+			return true;
+		}
+		return false;
+	}
+
 	function applyToolPayload(raw) {
 		var p = resolveToolPayload(raw);
 		if (!p) return false;
+		lastResolvedPayload = p;
+		writeStoredPayload(p);
 		var chartBlob = p.sandboxChartHtml;
 		var embedUrl = p.embedUrl;
 		var sandboxFallback = chartBlob;
@@ -410,8 +499,8 @@ body.is-loading{min-height:160px}
 	function markHostReady() {
 		if (hostHandshakeDone) return;
 		hostHandshakeDone = true;
-		if (!hasRenderedPreview) {
-			setStatus('Waiting for chart…');
+		if (!hasRenderedPreview && !restoreRenderedPayload()) {
+			setStatus('Waiting for result…');
 		}
 		try {
 			console.log('[nao-mcp-app] host handshake ready');
@@ -471,7 +560,10 @@ body.is-loading{min-height:160px}
 		function onInitReply(event) {
 			var msg = event.data;
 			if (!msg || msg.jsonrpc !== '2.0') return;
-			if (msg.id === initId && msg.result) finish();
+			if (msg.id === initId && msg.result) {
+				setResultStorageKeyFromContext(msg.result.hostContext);
+				finish();
+			}
 		}
 		window.addEventListener('message', onInitReply);
 		setTimeout(finish, 5000);
@@ -497,7 +589,10 @@ body.is-loading{min-height:160px}
 	function connectToHost() {
 		setStatus('Connecting…');
 		if (typeof globalThis.App === 'function' && typeof globalThis.PostMessageTransport === 'function') {
-			mcpApp = new globalThis.App({ name: 'nao-mcp-app', version: '0.1.0' }, { autoResize: false });
+			mcpApp = new globalThis.App(
+				{ name: 'nao-mcp-app', version: '0.1.0' },
+				{ availableDisplayModes: ['inline'], autoResize: false },
+			);
 			mcpApp.addEventListener('toolresult', handleHostToolResult);
 			mcpApp.ontoolcancelled = function () {
 				setStatus('Tool execution cancelled.', true);
@@ -505,6 +600,9 @@ body.is-loading{min-height:160px}
 			mcpApp
 				.connect(new globalThis.PostMessageTransport(window.parent, window.parent))
 				.then(function () {
+					try {
+						setResultStorageKeyFromContext(mcpApp.getHostContext && mcpApp.getHostContext());
+					} catch (e) {}
 					markHostReady();
 				})
 				.catch(function (err) {

@@ -144,15 +144,7 @@ const groupToolsByCategory = (tools: McpToolSummary[]): { category: ToolCategory
 	}));
 };
 
-function McpOAuthConnect({
-	server,
-	isAdmin,
-	onConnected,
-}: {
-	server: McpServerStatus;
-	isAdmin: boolean;
-	onConnected: () => void;
-}) {
+function McpOAuthConnect({ server, onConnected }: { server: McpServerStatus; onConnected: () => void }) {
 	const [connecting, setConnecting] = useState(false);
 
 	const handleConnect = async () => {
@@ -166,10 +158,6 @@ function McpOAuthConnect({
 
 	if (server.oauthConnected) {
 		return <Badge className='bg-green-500/10 text-green-600'>OAuth connected</Badge>;
-	}
-
-	if (!isAdmin) {
-		return <Badge className='bg-amber-500/10 text-amber-600'>OAuth required</Badge>;
 	}
 
 	return (
@@ -295,6 +283,8 @@ export function McpSettings({ isAdmin }: Props) {
 						{servers.map((server) => {
 							const isExpanded = expandedServers.includes(server.name);
 							const connection = connectionLabel(server);
+							const canDiscover =
+								isAdmin || (server.toolCount === 0 && (!server.oauth || server.oauthConnected));
 
 							return (
 								<>
@@ -312,11 +302,7 @@ export function McpSettings({ isAdmin }: Props) {
 											<div className='flex items-center gap-2'>
 												<span className={connection.className}>{connection.label}</span>
 												{server.oauth && (
-													<McpOAuthConnect
-														server={server}
-														isAdmin={isAdmin}
-														onConnected={refresh}
-													/>
+													<McpOAuthConnect server={server} onConnected={refresh} />
 												)}
 											</div>
 										</TableCell>
@@ -337,7 +323,7 @@ export function McpSettings({ isAdmin }: Props) {
 										</TableCell>
 										<TableCell className='w-0'>
 											<div className='flex items-center gap-1'>
-												{isAdmin && (
+												{canDiscover && (
 													<Button
 														variant='ghost'
 														size='icon-sm'
@@ -484,7 +470,10 @@ export function McpSettings({ isAdmin }: Props) {
 													) : (
 														!server.error && (
 															<div className='text-sm text-muted-foreground'>
-																No tools discovered yet. Click Connect all MCP servers.
+																No tools discovered yet.{' '}
+																{isAdmin
+																	? 'Click Connect all MCP servers.'
+																	: 'Connect this server to discover its tools.'}
 															</div>
 														)
 													)}

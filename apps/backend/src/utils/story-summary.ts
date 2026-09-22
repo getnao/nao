@@ -54,6 +54,13 @@ function extractSegments(code: string): SummarySegment[] {
 				type: 'table',
 				title: attrs.title || '',
 			});
+		} else if (match[6] !== undefined) {
+			const attrs = parseAttributes(match[6]);
+			segments.push({
+				type: 'map',
+				mapType: attrs.map_type || 'points',
+				title: attrs.title || '',
+			});
 		}
 
 		lastIndex = match.index + match[0].length;

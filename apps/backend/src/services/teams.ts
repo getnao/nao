@@ -3,7 +3,8 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createTeamsAdapter } from '@chat-adapter/teams';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
-import { CITATION_TAG_REGEX } from '@nao/shared';
+import { stripAssistantTags } from '@nao/shared';
+import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -29,7 +30,9 @@ import {
 	createSummaryToolCalls,
 	createTextBlock,
 	EXCLUDED_TOOLS,
+	formatClarificationText,
 	formatMessagingError,
+	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
@@ -318,18 +321,31 @@ class TeamsService {
 			if (part.type === 'text') {
 				this._flushToolGroup(state, ctx);
 				await this._handleTextPart(part, state, ctx);
-			} else if (part.type === 'tool-execute_sql') {
+			} else if (isQueryResultPart(part)) {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				await this._handleChartPart(part, state, ctx);
 			} else if (part.type === 'tool-display_map') {
 				await this._handleMapPart(part, state, ctx);
+			} else if (part.type === 'tool-clarification') {
+				this._handleClarificationPart(part, ctx);
 			}
 			lastMessage = uiMessage;
 		}
 
 		await this._sendFinalText(ctx);
 		return { ...state, lastMessage };
+	}
+
+	private _handleClarificationPart(
+		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
+		ctx: ConversationContext,
+	): void {
+		if (part.state === 'input-streaming' || !part.input) {
+			return;
+		}
+		const text = formatClarificationText(part.input.question, part.input.options);
+		this._updateTextBlock(text, ctx);
 	}
 
 	private async _handleTextPart(
@@ -345,7 +361,7 @@ class TeamsService {
 		state.lastUpdateAt = Date.now();
 	}
 
-	private _handleSqlPart(part: Extract<UIMessagePart, { type: 'tool-execute_sql' }>, state: StreamState): void {
+	private _handleSqlPart(part: Extract<UIMessagePart, { type: QueryResultPartType }>, state: StreamState): void {
 		if (part.state !== 'output-available') {
 			return;
 		}
@@ -407,6 +423,36 @@ class TeamsService {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+		const png = await renderMapImage(part, state, this._projectId, {
+			chatId: ctx.chatId,
+			toolCallId: part.toolCallId,
+		});
+		if (!png) {
+			await this._pushMapLinkCard(part, ctx);
+			return;
+		}
+		try {
+			const mapId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
+			const imageUrl = new URL(`c/${ctx.chatId}/${mapId}.png`, this._redirectUrl).toString();
+			ctx.textBlockIndex = -1;
+			ctx.blocks.push(createImageBlock(imageUrl));
+			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
+		} catch (error) {
+			logger.error(`Map image rendering failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
+			await this._pushMapLinkCard(part, ctx);
+		}
+	}
+
+	private async _pushMapLinkCard(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available') {
+			return;
+		}
 		try {
 			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;
@@ -467,7 +513,7 @@ class TeamsService {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createTextBlock(text.replace(CITATION_TAG_REGEX, ''));
+		const block = createTextBlock(stripAssistantTags(text));
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
 			ctx.blocks.push(block);

@@ -53,6 +53,25 @@ If you ignore this document twice, or if you spam the tracker with agent-generat
 
 ## Getting Started
 
+### Node and npm versions
+
+The repo pins Node to the version in `.nvmrc` and npm to the exact version in the
+`packageManager` field of the root `package.json`. npm refuses to install with any
+other version (`engine-strict`), because npm releases disagree on the
+`dev`/`peer`/`optional` flags they write into `package-lock.json`, so every install
+would rewrite the file and the diff would flip back and forth forever.
+
+```bash
+nvm use
+npm run npm:pin
+```
+
+If you touched dependencies, normalise the lockfile before committing:
+
+```bash
+npm run lock:normalize
+```
+
 ### Running the project
 
 At the root of the project, run:

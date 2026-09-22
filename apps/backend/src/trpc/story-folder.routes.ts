@@ -173,7 +173,6 @@ export const storyFolderRoutes = {
 			}
 			assertCanPlaceInDestination(target, ctx.user.id);
 			assertCanChangeFolderScope(folder, target, ctx.user.id);
-
 			try {
 				await storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId);
 			} catch (err) {
@@ -211,7 +210,6 @@ export const storyFolderRoutes = {
 			}
 
 			assertCanPlaceInDestination(target, ctx.user.id);
-
 			await storyFolderQueries.moveStoryToFolder(input.storyId, input.folderId, {
 				storyOwnerId,
 				projectId: ctx.project.id,

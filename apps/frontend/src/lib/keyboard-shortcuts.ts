@@ -4,10 +4,13 @@ import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
 export type ShortcutId =
 	| 'toggle-sidebar'
 	| 'command-menu'
+	| 'toggle-theme'
 	| 'new-chat'
 	| 'go-to-stories'
+	| 'toggle-story-chat'
 	| 'keyboard-help'
-	| 'stop-generation';
+	| 'stop-generation'
+	| 'cycle-model';
 export type ShortcutGroup = 'General' | 'Navigation' | 'Chat';
 
 export type ShortcutDefinition = {
@@ -15,6 +18,7 @@ export type ShortcutDefinition = {
 	label: string;
 	group: ShortcutGroup;
 	shortcut: Shortcut;
+	alternateShortcuts?: readonly Shortcut[];
 	allowInInput?: boolean;
 };
 
@@ -26,16 +30,29 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		shortcut: { mod: true, key: 'b' },
 	},
 	{
+		id: 'toggle-story-chat',
+		label: 'Toggle story side panel',
+		group: 'General',
+		shortcut: { mod: true, shift: true, key: 'b' },
+	},
+	{
 		id: 'command-menu',
 		label: 'Command menu',
 		group: 'General',
 		shortcut: { mod: true, key: 'k' },
 	},
 	{
+		id: 'toggle-theme',
+		label: 'Toggle light/dark mode',
+		group: 'General',
+		shortcut: { mod: true, shift: true, key: 'l' },
+	},
+	{
 		id: 'keyboard-help',
 		label: 'Keyboard shortcuts',
 		group: 'General',
 		shortcut: { mod: true, key: '/' },
+		alternateShortcuts: [{ mod: true, key: ':' }],
 	},
 	{
 		id: 'new-chat',
@@ -55,6 +72,13 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		group: 'Chat',
 		shortcut: { ctrl: true, key: 'c' },
 	},
+	// Handled by the chat input alone, so that Shift+Tab keeps moving focus everywhere else.
+	{
+		id: 'cycle-model',
+		label: 'Cycle model',
+		group: 'Chat',
+		shortcut: { shift: true, key: 'Tab' },
+	},
 ];
 
 export function getShortcut(id: ShortcutId): ShortcutDefinition {
@@ -70,7 +94,8 @@ export function getShortcutTokens(id: ShortcutId): string[] {
 }
 
 export function getShortcutLabel(id: ShortcutId): string {
-	return formatShortcutLabel(getShortcut(id).shortcut);
+	const { shortcut, alternateShortcuts = [] } = getShortcut(id);
+	return [shortcut, ...alternateShortcuts].map(formatShortcutLabel).join(' · ');
 }
 
 export function isTypingTarget(event: KeyboardEvent): boolean {

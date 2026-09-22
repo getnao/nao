@@ -14,12 +14,14 @@ import {
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useSsoRoleMapping } from '@/hooks/use-sso-role-mapping';
 
 interface EditMemberDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	member: TeamMember | null;
 	isAdmin: boolean;
+	roleScope: 'organization' | 'project';
 	availableRoles?: readonly UserRole[];
 	onSubmit: (data: { userId: string; name?: string; newRole?: UserRole }) => Promise<void>;
 }
@@ -29,10 +31,14 @@ export function EditMemberDialog({
 	onOpenChange,
 	member,
 	isAdmin,
+	roleScope,
 	availableRoles = USER_ROLES,
 	onSubmit,
 }: EditMemberDialogProps) {
 	const [error, setError] = useState('');
+	const { organizationRolesManagedByIdp, providerName, isLoading } = useSsoRoleMapping();
+	const isOrganizationRole = roleScope === 'organization';
+	const isRoleEditingDisabled = isOrganizationRole && (organizationRolesManagedByIdp || isLoading);
 
 	const form = useForm({
 		defaultValues: {
@@ -48,7 +54,7 @@ export function EditMemberDialog({
 				await onSubmit({
 					userId: member.id,
 					name: value.name,
-					newRole: value.role,
+					newRole: isRoleEditingDisabled ? undefined : value.role,
 				});
 				onOpenChange(false);
 			} catch (err) {
@@ -104,8 +110,12 @@ export function EditMemberDialog({
 										Role
 									</label>
 									<DropdownMenu>
-										<DropdownMenuTrigger asChild>
-											<Button variant='outline' className='w-full justify-between'>
+										<DropdownMenuTrigger asChild disabled={isRoleEditingDisabled}>
+											<Button
+												variant='outline'
+												className='w-full justify-between'
+												disabled={isRoleEditingDisabled}
+											>
 												<span>{USER_ROLE_LABELS[field.state.value]}</span>
 												<ChevronDown className='h-4 w-4 opacity-50' />
 											</Button>
@@ -122,6 +132,12 @@ export function EditMemberDialog({
 											))}
 										</DropdownMenuContent>
 									</DropdownMenu>
+									{isOrganizationRole && organizationRolesManagedByIdp && (
+										<p className='text-xs text-muted-foreground'>
+											Organization roles are assigned from {providerName} groups and refresh when
+											the user signs in again.
+										</p>
+									)}
 								</div>
 							)}
 						</form.Field>

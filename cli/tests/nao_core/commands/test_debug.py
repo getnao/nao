@@ -26,7 +26,7 @@ class TestLLMConnection:
             assert success is True
             assert "Connected successfully" in message
             assert "3 models available" in message
-            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key")
+            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url=None)
 
     def test_openai_warns_when_configured_models_missing(self):
         config = ProviderConfig(
@@ -293,6 +293,145 @@ class TestLLMConnection:
 
             assert success is False
             assert "Invalid API key" in message
+
+    def test_requesty_connection_success(self):
+        config = ProviderConfig(provider=LLMProvider.REQUESTY, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock(), MagicMock()]
+            mock_openai_class.return_value = mock_client
+            success, message = check_llm_connection(config)
+            assert success is True
+            assert "Connected successfully" in message
+            assert "2 models available" in message
+            # Verify OpenAI was called with the Requesty base_url
+            mock_openai_class.assert_called_once_with(
+                base_url="https://router.requesty.ai/v1", api_key="sk-test-api-key"
+            )
+
+    def test_requesty_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = ProviderConfig(provider=LLMProvider.REQUESTY, api_key="invalid")
+        with patch("openai.OpenAI") as mock_class:
+            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Invalid API key" in message
+
+    def test_moonshot_connection_uses_the_default_endpoint(self):
+        config = ProviderConfig(provider=LLMProvider.MOONSHOT, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [SimpleNamespace(id="kimi-k3")]
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "1 models available" in message
+            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://api.moonshot.ai/v1")
+
+    def test_qwen_connection_uses_the_default_endpoint(self):
+        config = ProviderConfig(provider=LLMProvider.QWEN, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [SimpleNamespace(id="qwen3.7-plus")]
+            mock_openai_class.return_value = mock_client
+
+            success, _ = check_llm_connection(config)
+
+            assert success is True
+            mock_openai_class.assert_called_once_with(
+                api_key="sk-test-api-key",
+                base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            )
+
+    def test_minimax_falls_back_to_a_probe_completion_without_a_model_list(self):
+        """MiniMax answers GET /v1/models with a 404, so credentials are checked with a completion."""
+        config = ProviderConfig(
+            provider=LLMProvider.MINIMAX,
+            api_key="sk-test-api-key",
+            models=[ModelConfig(id="MiniMax-M3")],
+        )
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("404 page not found")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "verified 'MiniMax-M3' with a test completion" in message
+            mock_client.chat.completions.create.assert_called_once_with(
+                model="MiniMax-M3",
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+            )
+
+    def test_minimax_without_models_reports_that_one_is_needed(self):
+        config = ProviderConfig(provider=LLMProvider.MINIMAX, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("404 page not found")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "declare a model" in message
+            mock_client.chat.completions.create.assert_not_called()
+
+    def test_openai_not_found_is_not_retried_as_a_completion(self):
+        """Only the providers with no model list fall back to a probe, so a wrong endpoint stays visible."""
+        config = ProviderConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="sk-test-api-key",
+            base_url="https://proxy.internal/wrong",
+            models=[ModelConfig(id="gpt-4.1")],
+        )
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("404 page not found")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "404 page not found" in message
+            mock_client.chat.completions.create.assert_not_called()
+
+    def test_openai_compatible_endpoint_is_reached_without_a_key(self):
+        """A self-hosted endpoint declares its own URL and often needs no authentication."""
+        config = ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, base_url="http://localhost:8000/v1")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [SimpleNamespace(id="my-model")]
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "1 models available" in message
+            mock_openai_class.assert_called_once_with(api_key="no-key", base_url="http://localhost:8000/v1")
+
+    def test_qwen_auth_failure_is_not_retried_as_a_completion(self):
+        config = ProviderConfig(
+            provider=LLMProvider.QWEN,
+            api_key="invalid",
+            models=[ModelConfig(id="qwen3.7-plus")],
+        )
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("Unauthorized")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Authentication failed" in message
+            mock_client.chat.completions.create.assert_not_called()
 
     def test_ollama_connection_success(self):
         config = ProviderConfig(provider=LLMProvider.OLLAMA)
@@ -704,3 +843,35 @@ llm:
         assert any("[bold red]✗[/bold red]" in call for call in calls)
 
         mock_check.assert_called_once()
+
+    def test_debug_preserves_provider_extra_in_missing_dependency_message(self, create_config):
+        """MissingDependencyError pip extras like [anthropic] must survive Rich table rendering."""
+        from io import StringIO
+
+        from rich.console import Console
+
+        from nao_core.deps import MissingDependencyError
+
+        create_config("""\
+project_name: test-project
+llm:
+  provider: anthropic
+  api_key: sk-test-key
+""")
+
+        missing_message = str(MissingDependencyError("anthropic", "anthropic", "for Anthropic LLM provider"))
+        assert "pip install 'nao-core[anthropic]'" in missing_message
+
+        buffer = StringIO()
+        real_console = Console(file=buffer, force_terminal=True, width=200, color_system=None)
+
+        with patch(
+            "nao_core.commands.debug.check_llm_connection",
+            return_value=(False, missing_message),
+        ):
+            with patch("nao_core.commands.debug.console", real_console):
+                debug()
+
+        output = buffer.getvalue()
+        assert "pip install 'nao-core[anthropic]'" in output
+        assert "uv pip install 'nao-core[anthropic]'" in output

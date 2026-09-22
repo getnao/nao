@@ -42,9 +42,11 @@ class TokenCost:
 class VerificationResult:
     """Result from running a verification prompt."""
 
-    data: list[dict[str, Any]]
+    data: list[dict[str, Any]] | None
     expectedData: list[dict[str, Any]]
     expectedColumns: list[str]
+    sql: str | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -128,6 +130,9 @@ class AgentClient:
             "prompt": test_case.prompt,
             "sql": test_case.sql,
         }
+
+        if test_case.database:
+            payload["databaseId"] = test_case.database
 
         cost_payload = serialize_model_costs(costs)
         if cost_payload is not None:

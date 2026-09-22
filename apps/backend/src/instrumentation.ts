@@ -2,6 +2,7 @@ import { LangfuseSpanProcessor } from '@langfuse/otel';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 
 import { env } from './env';
+import { DataToolRedactingSpanProcessor } from './utils/langfuse-redaction';
 
 /**
  * Langfuse tracing is opt-in and requires an explicit destination: it only
@@ -25,7 +26,7 @@ if (keysPresent && !baseUrl) {
 
 if (langfuseSpanProcessor) {
 	const tracerProvider = new NodeTracerProvider({
-		spanProcessors: [langfuseSpanProcessor],
+		spanProcessors: [new DataToolRedactingSpanProcessor(langfuseSpanProcessor)],
 	});
 	tracerProvider.register();
 

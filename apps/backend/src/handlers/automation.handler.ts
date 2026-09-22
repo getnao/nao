@@ -1,7 +1,7 @@
 import type { InferUIMessageChunk } from 'ai';
 import { getToolName, isToolUIPart, readUIMessageStream } from 'ai';
 
-import { getTools, WEB_CHAT_ONLY_TOOLS } from '../agents/tools';
+import { getTools } from '../agents/tools';
 import { renderAutomationRunPrompt } from '../components/ai/automation-run-prompt';
 import type { DBAutomationRun, DBScheduledJob } from '../db/abstractSchema';
 import type { AutomationWithSchedule } from '../queries/automation.queries';
@@ -124,7 +124,7 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 			{
 				excludeFollowUps: true,
 				supportsCustomCharts: false,
-				tools: ({ chat: agentChat, agentSettings, webTools }) =>
+				tools: ({ chat: agentChat, agentSettings, toolContext, webTools }) =>
 					getTools(
 						agentSettings,
 						{
@@ -143,7 +143,7 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 							mcpEnabled: automation.mcpEnabled,
 							mcpServers: automation.mcpServers,
 							excludeFollowUps: true,
-							excludeBuiltinTools: WEB_CHAT_ONLY_TOOLS,
+							semanticLayerMode: toolContext.semanticLayerMode,
 						},
 					),
 			},

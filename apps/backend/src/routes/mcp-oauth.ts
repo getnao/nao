@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 
+import type { UserRole } from '@nao/shared';
+
 import type { App } from '../app';
-import { getAuth } from '../auth';
+import { getSession } from '../auth';
 import { env } from '../env';
-import { setMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
+import { claimMcpDiscoveryUser, setMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
 import * as projectQueries from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
 import { buildAuthorizationRedirect, completeAuthorization } from '../services/mcp-oauth';
@@ -75,6 +77,19 @@ export function resultPage(status: 'connected' | 'error', server: string, return
 </body></html>`;
 }
 
+/**
+ * Tool discovery runs with a single user's token. An admin always takes it over on connect;
+ * a regular user only claims it when no admin ever connected the server, so the agent still
+ * gets its tool specs instead of seeing an empty server.
+ */
+async function claimDiscovery(role: UserRole, projectId: string, server: string, userId: string): Promise<boolean> {
+	if (role === 'admin') {
+		await setMcpDiscoveryUser(projectId, server, userId);
+		return true;
+	}
+	return claimMcpDiscoveryUser(projectId, server, userId);
+}
+
 export const mcpOAuthRoutes = async (app: App) => {
 	app.get('/connect', async (request, reply) => {
 		const { server, projectId, returnTo } = request.query as {
@@ -86,8 +101,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 			return reply.status(400).send({ error: 'Missing server' });
 		}
 
-		const auth = await getAuth();
-		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user) {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}
@@ -142,8 +156,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 			return reply.status(400).send({ error: 'Invalid state' });
 		}
 
-		const auth = await getAuth();
-		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user || session.user.id !== decoded.userId) {
 			return reply.type('text/html').send(resultPage('error', decoded.server, decoded.returnTo));
 		}
@@ -168,8 +181,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 				code,
 			});
 
-			if (role === 'admin') {
-				await setMcpDiscoveryUser(decoded.projectId, decoded.server, decoded.userId);
+			if (await claimDiscovery(role, decoded.projectId, decoded.server, decoded.userId)) {
 				await mcpService.discoverServer(decoded.projectId, decoded.server);
 			}
 

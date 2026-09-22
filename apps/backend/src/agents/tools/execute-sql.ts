@@ -1,19 +1,36 @@
 import { sqlIncludesFilterTemplate, stripSqlFilterBlocks, validateSqlFilterTemplate } from '@nao/shared/sql-template';
 import type { executeSql } from '@nao/shared/tools';
-import { executeSql as schemas } from '@nao/shared/tools';
+import { executeSql as schemas, LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
-import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
+import {
+	EXECUTE_SEMANTIC_QUERY_TOOL_NAME,
+	getExecuteSqlPartByQueryIdInChat,
+	updateExecuteSqlPart,
+} from '../../queries/execute-sql.queries';
+import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
+import { runQueryOnLocalFiles } from '../../services/local-query.service';
+import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
+import { executeWarehouseSql } from '../../services/warehouse-sql.service';
 import { ToolContext } from '../../types/tools';
 import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
+type ExecuteQueryOptions = {
+	/** SQL compiled by the semantic layer may reach the warehouse even when hand-written SQL may not. */
+	compiledBySemanticLayer?: boolean;
+};
+
 export async function executeQuery(
-	{ sql_query, database_id, query_id }: executeSql.Input,
+	{ sql_query, database_id, query_id, save_to }: executeSql.Input,
 	context: ToolContext,
+	options: ExecuteQueryOptions = {},
 ): Promise<executeSql.Output> {
+	if (!options.compiledBySemanticLayer) {
+		assertWarehouseSqlAllowed(database_id, context);
+	}
 	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
 	const effectiveSql = stripSqlFilterBlocks(sql_query);
 	if (templateWarnings.length > 0 && sqlIncludesFilterTemplate(effectiveSql)) {
@@ -27,32 +44,37 @@ export async function executeQuery(
 		);
 	}
 
+	if (save_to && context.adminMode) {
+		throw new Error('save_to is unavailable in admin mode. Run the query without save_to.');
+	}
+
+	if (save_to && database_id !== LOCAL_DATABASE_ID) {
+		throw new Error(
+			`save_to only works with the "${LOCAL_DATABASE_ID}" database. To keep a warehouse result, re-run it against ${LOCAL_DATABASE_ID} as "SELECT * FROM <query_id>".`,
+		);
+	}
+
 	if (context.adminMode) {
 		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
 	}
 
-	const naoProjectFolder = context.projectFolder;
-	const envVars = context.envVars;
-	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-		},
-		body: JSON.stringify({
-			sql: effectiveSql,
-			nao_project_folder: naoProjectFolder,
-			...(database_id && { database_id }),
-			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
-			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),
-		}),
-	});
-
-	if (!response.ok) {
-		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-		throw new Error(`Error executing SQL query: ${JSON.stringify(errorData.detail)}`);
+	if (database_id === LOCAL_DATABASE_ID) {
+		return withTemplateWarnings(
+			await executeLocalQuery(effectiveSql, context, query_id, save_to),
+			templateWarnings,
+		);
 	}
 
-	const data = await response.json();
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
+	const data = await executeWarehouseSql(effectiveSql, {
+		projectFolder: context.projectFolder,
+		databaseId: database_id,
+		envVars: context.envVars,
+		azureAccessToken: context.azureAccessToken,
+		enforceExcludedColumns,
+		tableAccess: context.warehouseTableAccess,
+		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
+	});
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 
 	context.queryResults.set(id, { columns: data.columns, data: data.data });
@@ -68,6 +90,33 @@ export async function executeQuery(
 		},
 		templateWarnings,
 	);
+}
+
+/** Files and earlier results, in nao's own DuckDB. No warehouse is involved. */
+async function executeLocalQuery(
+	sqlQuery: string,
+	context: ToolContext,
+	queryId?: `query_${string}`,
+	saveTo?: executeSql.SaveTo,
+): Promise<executeSql.Output> {
+	const {
+		result: { columns, data },
+		savedFile,
+	} = await runQueryOnLocalFiles(sqlQuery, context, saveTo);
+	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
+	context.queryResults.set(id, { columns, data });
+	const appliedLimit = detectQueryRowLimit(sqlQuery);
+
+	return {
+		_version: '1',
+		data,
+		row_count: data.length,
+		columns,
+		id,
+		dialect: 'duckdb',
+		...(appliedLimit !== null && { applied_limit: appliedLimit }),
+		...(savedFile && { saved_file: savedFile }),
+	};
 }
 
 async function executeAppDbQuery(
@@ -106,17 +155,40 @@ async function updateExistingQuery(
 			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
 		);
 	}
+	if (existing.toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
+		throw new Error(
+			`Query ${input.query_id} is a semantic query and cannot be edited as SQL. Call execute_semantic_query again with the adjusted metrics, group_by or where.`,
+		);
+	}
 
+	const saveTo = input.save_to ?? existing.toolInput.save_to;
 	const nextInput: executeSql.Input = {
 		sql_query: input.sql_query,
 		database_id: input.database_id ?? existing.toolInput.database_id,
 		name: input.name ?? existing.toolInput.name,
+		...(saveTo && { save_to: saveTo }),
 	};
 
 	const output = await executeQuery({ ...nextInput, query_id: input.query_id }, context);
 	await updateExecuteSqlPart(existing.toolCallId, nextInput, output);
 	return output;
 }
+
+/** Semantics-only mode: the warehouse is reached through the layer, raw SQL stays for the local database. */
+function assertWarehouseSqlAllowed(databaseId: string | undefined, context: ToolContext): void {
+	if (context.adminMode || isWarehouseSqlEnabled(context.semanticLayerMode) || databaseId === LOCAL_DATABASE_ID) {
+		return;
+	}
+	throw new Error(
+		`Raw SQL on the warehouse is disabled in this project: query metrics with execute_semantic_query. execute_sql only accepts database_id "${LOCAL_DATABASE_ID}", to reshape earlier results (SELECT * FROM <query_id>) or read files.`,
+	);
+}
+
+const LOCAL_ONLY_DESCRIPTION = [
+	`Run DuckDB SQL in nao's local database ("${LOCAL_DATABASE_ID}", the only accepted database_id): the warehouse is only reachable through execute_semantic_query in this project.`,
+	'Every earlier query result, including semantic ones, is a table named after its query id, so post-process them here: joins, pivots, shares, deltas. It also reads CSV, JSON, Parquet and Excel files by their path.',
+	'To edit a previous local query in-place (keep the same query_id for charts/stories), pass query_id from an earlier execute_sql result.',
+].join(' ');
 
 function buildExecuteSqlToolDescription() {
 	return [
@@ -134,7 +206,7 @@ function buildExecuteSqlToolDescription() {
 	].join(' ');
 }
 
-export default createTool<executeSql.Input, executeSql.Output>({
+const executeSqlTool = createTool<executeSql.Input, executeSql.Output>({
 	description: buildExecuteSqlToolDescription(),
 	inputSchema: schemas.InputSchema,
 	outputSchema: schemas.OutputSchema,
@@ -146,3 +218,7 @@ export default createTool<executeSql.Input, executeSql.Output>({
 	},
 	toModelOutput: ({ output }) => renderToModelOutput(ExecuteSqlOutput({ output }), output),
 });
+
+export const localOnlyExecuteSql = { ...executeSqlTool, description: LOCAL_ONLY_DESCRIPTION };
+
+export default executeSqlTool;
