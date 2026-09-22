@@ -32,7 +32,7 @@ describe('MCP Story creation permission', () => {
 		const server = new FakeMcpServer();
 		const context = createContext(false);
 
-		registerContextLayerTools(server as never, context);
+		registerContextLayerTools(server as never, context, []);
 		registerAssetTools(server as never, context);
 
 		expect([...server.tools.keys()]).not.toContain('create_story');
@@ -44,7 +44,7 @@ describe('MCP Story creation permission', () => {
 	it('registers create_story when allowed', () => {
 		const server = new FakeMcpServer();
 
-		registerContextLayerTools(server as never, createContext(true));
+		registerContextLayerTools(server as never, createContext(true), []);
 
 		expect([...server.tools.keys()]).toContain('create_story');
 	});
