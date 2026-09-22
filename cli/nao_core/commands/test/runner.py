@@ -315,18 +315,23 @@ def print_run_table(results: list[TestRunResult]) -> None:
     rows = []
     for (name, model), group in sorted(group_by_test_and_model(run_dicts).items()):
         metrics = pass_metrics_for_group(group)
-        rows.append(
+        row = {
+            "Test": name,
+            "Model": model,
+            "Status": status_icon(float(metrics["pass_hat_k"]) == 1.0),
+            "Success %": format_pass_fraction(float(metrics["pass_at_1"])),
+        }
+        if int(metrics["k"]) > 1:
+            row["Pass@k"] = format_pass_fraction(float(metrics["pass_at_k"]))
+        row.update(
             {
-                "Test": name,
-                "Model": model,
-                "Status": status_icon(float(metrics["pass_hat_k"]) == 1.0),
-                "Success %": format_pass_fraction(float(metrics["pass_at_1"])),
                 "Tokens": sum(run.get("tokens") or 0 for run in group),
                 "Cost": sum(run.get("cost") or 0 for run in group),
                 "Time (s)": round(sum(run.get("duration_ms") or 0 for run in group) / 1000, 1),
                 "Tools": sum(run.get("tool_call_count") or 0 for run in group),
             }
         )
+        rows.append(row)
 
     UI.table(pd.DataFrame(rows), title="Test Results")
 
