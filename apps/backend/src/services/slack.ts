@@ -1257,7 +1257,7 @@ class ProjectSlackBot {
 			} else if (part.type === 'tool-display_map') {
 				await this._handleMapPart(part, state, ctx);
 			} else if (part.type === 'tool-clarification') {
-				await this._handleClarificationPart(part, ctx);
+				await this._handleClarificationPart(part, state, ctx);
 			}
 		}
 
@@ -1267,11 +1267,13 @@ class ProjectSlackBot {
 
 	private async _handleClarificationPart(
 		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
+		state: StreamState,
 		ctx: ConversationContext,
 	): Promise<void> {
-		if (part.state === 'input-streaming' || !part.input) {
+		if (part.state === 'input-streaming' || !part.input || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
 		}
+		state.renderedToolCallIds.add(part.toolCallId);
 		this._closeCurrentTextRun(ctx);
 		ctx.blocks.push(...createTextBlocks(formatClarificationText(part.input.question, part.input.options)));
 		await this._editConversationCard(ctx, ctx.blocks);
