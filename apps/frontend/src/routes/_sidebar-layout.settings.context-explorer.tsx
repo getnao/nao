@@ -99,6 +99,12 @@ function ContextExplorerPage() {
 	}, [historicalFrom, historicalTo, initialPath, navigate]);
 
 	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
+	const rulesPreviewGroups = useQuery(trpc.contextExplorer.getRulesPreviewGroups.queryOptions());
+	const rulesPreviewGroupsState = rulesPreviewGroups.isLoading
+		? ({ status: 'loading' } as const)
+		: rulesPreviewGroups.isError || !rulesPreviewGroups.data
+			? ({ status: 'error' } as const)
+			: ({ status: 'ready', ...rulesPreviewGroups.data } as const);
 	const fileContent = useQuery({
 		...trpc.contextExplorer.readFile.queryOptions({ path: selectedPath! }),
 		enabled: !!selectedPath,
@@ -327,6 +333,7 @@ function ContextExplorerPage() {
 									}
 									return result.data;
 								}}
+								rulesPreviewGroups={rulesPreviewGroupsState}
 							/>
 						)}
 					</div>

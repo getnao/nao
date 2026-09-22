@@ -1,7 +1,7 @@
 import type { Attributes, Context } from '@opentelemetry/api';
 import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-node';
 
-const REDACTED_DATA_TOOL_NAMES = new Set(['execute_sql', 'read_query_result']);
+const REDACTED_DATA_TOOL_NAMES = new Set(['execute_sql', 'execute_semantic_query', 'read_query_result']);
 const JSON_ATTRIBUTE_NAMES = ['ai.prompt', 'ai.prompt.messages', 'ai.response.toolCalls'];
 const TOOL_PAYLOAD_KEYS = ['input', 'args', 'output', 'result'];
 const TOOL_SPAN_PAYLOAD_KEYS = ['ai.toolCall.args', 'ai.toolCall.result'];

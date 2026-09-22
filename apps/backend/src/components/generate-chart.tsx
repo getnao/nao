@@ -1,4 +1,4 @@
-import { bucketPieData, buildChart, defaultColorFor, labelize, resolveDataKey } from '@nao/shared';
+import { bucketPieData, buildChart, defaultColorFor, labelize, resolveDataKey, sortByDateKey } from '@nao/shared';
 import type { DateFormatSettings } from '@nao/shared/date';
 import { displayChart } from '@nao/shared/tools';
 import React from 'react';
@@ -70,7 +70,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
 
 	const isPie = chartType === 'pie' || chartType === 'donut';
 
-	const chartData = isPie ? bucketPieData(data, xAxisKey, series[0]?.data_key ?? '') : data;
+	const orderedData = config.x_axis_type === 'date' ? sortByDateKey(data, xAxisKey) : data;
+	const chartData = isPie ? bucketPieData(orderedData, xAxisKey, series[0]?.data_key ?? '') : orderedData;
 
 	let legend: LegendEntry[] = [];
 	if (includeLegend) {

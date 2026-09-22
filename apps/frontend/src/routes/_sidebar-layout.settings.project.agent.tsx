@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 
@@ -9,11 +10,14 @@ import { LlmProvidersSection } from '@/components/settings/llm-providers-section
 import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
+import { SettingsSemanticLayer } from '@/components/settings/semantic-layer';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
+import { SubagentModelSection } from '@/components/settings/subagent-model-section';
 import { SettingsWebSearch } from '@/components/settings/web-search';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { usePermissions } from '@/hooks/use-permissions';
+import { trpc } from '@/main';
 
 type AgentTab = 'models' | 'tools' | 'mcp-servers';
 
@@ -64,6 +68,9 @@ function ProjectAgentPage() {
 }
 
 function ModelsSettings({ isAdmin }: { isAdmin: boolean }) {
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const subagentsEnabled = config.data?.betaSubagentsEnabled === true;
+
 	return (
 		<>
 			<SettingsCard
@@ -73,6 +80,7 @@ function ModelsSettings({ isAdmin }: { isAdmin: boolean }) {
 				<LlmProvidersSection isAdmin={isAdmin} />
 			</SettingsCard>
 			<DefaultModelsSection isAdmin={isAdmin} />
+			{subagentsEnabled && <SubagentModelSection isAdmin={isAdmin} />}
 			<SettingsTranscribe isAdmin={isAdmin} />
 		</>
 	);
@@ -85,6 +93,7 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			<SavedPrompts isAdmin={isAdmin} />
 			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
+			<SettingsSemanticLayer isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsExcludeColumns isAdmin={isAdmin} />
 		</>

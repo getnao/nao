@@ -4,6 +4,7 @@ import {
 	type LlmProvider,
 	MAX_PYTHON_EXECUTION_DURATION_SECS,
 	MIN_PYTHON_EXECUTION_DURATION_SECS,
+	SEMANTIC_LAYER_MODES,
 } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -30,6 +31,7 @@ import { mcpService } from '../services/mcp';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
 import { AgentSettings } from '../types/agent-settings';
 import type { ContextUsage } from '../types/chat';
 import {
@@ -37,6 +39,7 @@ import {
 	customModelMetadataSchema,
 	llmConfigSchema,
 	llmProviderSchema,
+	llmSelectedModelSchema,
 	modelSettingsMapSchema,
 } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
@@ -48,7 +51,7 @@ import {
 	getProjectAvailableModels,
 	getProjectConfigLlm,
 } from '../utils/llm';
-import { extractRequiredEnvVars } from '../utils/nao-config';
+import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
@@ -133,11 +136,12 @@ export const projectRoutes = {
 				}),
 			),
 		)
-		.query(({ ctx }) => {
+		.query(async ({ ctx }) => {
 			if (!ctx.project?.path) {
 				return [];
 			}
-			return getDatabaseObjects(ctx.project.path);
+			const access = await resolveWarehouseTableAccess(ctx.project.id, ctx.user.id, ctx.project.path);
+			return getDatabaseObjects(ctx.project.path).filter((object) => isDatabaseObjectAllowed(access, object));
 		}),
 
 	getLlmConfigs: projectProtectedProcedure
@@ -315,6 +319,7 @@ export const projectRoutes = {
 					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
 					replyMode: config.replyMode,
+					dmScopeMissing: config.dmScopeMissing,
 				}
 			: null;
 
@@ -931,6 +936,7 @@ export const projectRoutes = {
 			capabilities: {
 				pythonSandbox: isPythonAvailable,
 				sandbox: isSandboxAvailable,
+				semanticLayer: ctx.project.path ? extractConfiguredSemanticLayer(ctx.project.path) !== null : false,
 			},
 		};
 	}),
@@ -975,6 +981,16 @@ export const projectRoutes = {
 						mode: z.enum(['provider']).optional(),
 					})
 					.optional(),
+				semanticLayer: z
+					.object({
+						mode: z.enum(SEMANTIC_LAYER_MODES).optional(),
+					})
+					.optional(),
+				subagent: z
+					.object({
+						model: llmSelectedModelSchema.nullable().optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -987,6 +1003,8 @@ export const projectRoutes = {
 				sql: { ...existing.sql, ...input.sql },
 				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
+				semanticLayer: { ...existing.semanticLayer, ...input.semanticLayer },
+				subagent: { ...existing.subagent, ...input.subagent },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,
@@ -1001,6 +1019,7 @@ export const projectRoutes = {
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
+				semantic_layer_mode: merged.semanticLayer?.mode,
 			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),

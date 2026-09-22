@@ -1,0 +1,5 @@
+{
+	"extraPaths": ["cli"],
+	"venvPath": "cli",
+	"venv": ".venv"
+}

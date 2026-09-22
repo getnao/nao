@@ -23,6 +23,7 @@ from .mcp import McpConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
+from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
 from .slack import SlackConfig
 from .test import TestConfig
@@ -38,7 +39,7 @@ class NaoConfigError(Exception):
 # config (e.g. `nao sync` with the databases provider) can load with
 # drop_invalid_optional_sections=True so an unresolvable block here — typically an
 # unset env('...') secret — is ignored with a warning instead of failing the run.
-OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test")
+OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test", "semantic_layer")
 
 
 class NaoConfig(BaseModel):
@@ -55,6 +56,9 @@ class NaoConfig(BaseModel):
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
     test: TestConfig | None = Field(default=None, description="The defaults used by `nao test`")
+    semantic_layer: SemanticLayerConfig | None = Field(
+        default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
+    )
 
     _missing_secrets: dict[str, None] = {}
 
@@ -113,6 +117,8 @@ class NaoConfig(BaseModel):
             UI.print("  Skills: configured")
         if existing.test:
             UI.print("  Test: configured")
+        if existing.semantic_layer:
+            UI.print("  Semantic layer: configured")
         UI.print()
 
         new_databases = cls._prompt_databases(has_existing=bool(existing.databases))

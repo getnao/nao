@@ -29,6 +29,7 @@ import {
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
@@ -49,6 +50,7 @@ import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
+import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
@@ -62,6 +64,7 @@ import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
+import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
@@ -206,6 +209,10 @@ app.register(embedStoryDownloadRoutes, {
 	prefix: '/api/embed',
 });
 
+app.register(notificationUnsubscribeRoutes, {
+	prefix: '/api/notifications',
+});
+
 app.register(authRoutes, {
 	prefix: '/api',
 });
@@ -258,7 +265,7 @@ app.register(mcpServerRoutes, {
 	prefix: '/mcp',
 });
 
-app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
+async function sendProtectedResourceMetadata(request: { host: string }, reply: FastifyReply) {
 	const { buildProtectedResourceMetadata } = await import('./auth');
 	const { resolveMcpFacingOrigin } = await import('./env');
 	const metadata = await buildProtectedResourceMetadata({
@@ -269,7 +276,12 @@ app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
 		.header('Content-Type', 'application/json')
 		.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400')
 		.send(metadata);
-});
+}
+
+// RFC 9728 path-aware discovery for the bare and project-scoped MCP URLs, plus the root fallback.
+app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp/:projectId', sendProtectedResourceMetadata);
 
 async function relayWebResponse(
 	handler: (req: Request) => Promise<Response>,
@@ -390,6 +402,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
+	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler);
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({
@@ -424,7 +437,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	app.log.info(`Server is running on ${address}`);
 
 	void pingLicensesServer();
-	void slackService.startSocketModeForAllProjects();
+	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());
 	void mattermostService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });

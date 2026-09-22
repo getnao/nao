@@ -12,6 +12,7 @@ export interface SettingsSearchEntry {
 	adminOrContextAdmin?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
+	betaSubagentsOnly?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -72,6 +73,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 
 	// ── Organization ─────────────────────────────────────────
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		title: 'Switch organization',
+		description: 'Choose which organization to manage.',
+		keywords: ['change organization', 'organization selector', 'workspace'],
+	},
 	{
 		page: '/settings/organization/members',
 		pageLabel: 'Members',
@@ -321,6 +329,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Agent',
 		section: 'Models',
 		search: { tab: 'models' },
+		title: 'Subagent model',
+		description: 'Choose which model subagents such as the context search run on.',
+		keywords: ['subagent', 'sub-agent', 'search agent', 'context search', 'delegate', 'cheaper model', 'cost'],
+		adminOnly: true,
+		betaSubagentsOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Models',
+		search: { tab: 'models' },
 		title: 'Transcription',
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],
@@ -373,6 +392,25 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'GeoJSON Boundary Library',
 		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
 		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Semantic layer',
+		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
+		keywords: [
+			'semantic',
+			'metricflow',
+			'dbt',
+			'metrics',
+			'dimensions',
+			'semantics first',
+			'semantics only',
+			"don't use semantics",
+		],
 		adminOnly: true,
 	},
 	{
@@ -778,6 +816,45 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Members',
 		description: 'Manage the members of your project.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'project members'],
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'User Groups',
+		title: 'User Groups',
+		description:
+			'Assign project users to groups and configure which features, database tables, and docs they can use.',
+		keywords: ['users', 'groups', 'permissions', 'features', 'context', 'schemas', 'tables', 'docs', 'enterprise'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'User Groups',
+		section: 'Users',
+		search: { tab: 'users' },
+		title: 'Users',
+		description: 'Assign project users to groups.',
+		keywords: ['members', 'roles', 'memberships', 'permissions'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'User Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'Manage Groups',
+		description: 'Configure which features, database tables, and docs each group can use.',
+		keywords: ['groups', 'permissions', 'features', 'context', 'schemas', 'tables', 'docs'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'User Groups',
+		section: 'Security',
+		search: { tab: 'security' },
+		title: 'Row-level security',
+		description: 'Mark sensitive tables and choose the constraint columns group row policies may use.',
+		keywords: ['security', 'rows', 'rls', 'predicates', 'where', 'constraint columns', 'sensitive tables'],
+		adminOnly: true,
 	},
 
 	// ── Usage & Costs ────────────────────────────────────────

@@ -13,6 +13,7 @@ import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
+import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 function assertAutomationsEnabled() {
 	if (!env.BETA_AUTOMATIONS_ENABLED) {
@@ -20,12 +21,12 @@ function assertAutomationsEnabled() {
 	}
 }
 
-const automationProcedure = canSendProcedure.use(async ({ next }) => {
+const automationProcedure = canSendProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
 	return next();
 });
 
-const automationReadProcedure = projectProtectedProcedure.use(async ({ next }) => {
+const automationReadProcedure = projectProtectedProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
 	return next();
 });
@@ -101,6 +102,7 @@ export const automationRoutes = {
 	}),
 
 	create: automationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
+		await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'automationCreation');
 		assertTriggers(input.cron, input.webhookEnabled);
 		const { cron, enabled, title, ...promptInput } = input;
 		const modelSelection =
@@ -196,6 +198,23 @@ export const automationRoutes = {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
 		}
 		return { ...fresh, alreadyTerminal: !updated };
+	}),
+
+	unreadCount: automationReadProcedure.query(async ({ ctx }): Promise<number> => {
+		return automationQueries.countUnreadAutomationRuns(ctx.project.id, ctx.user.id);
+	}),
+
+	markRunRead: automationReadProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
+		const marked = await automationQueries.markAutomationRunRead(ctx.project.id, ctx.user.id, input.runId);
+		if (!marked) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
+		}
+		return { success: true as const };
+	}),
+
+	markAllRunsRead: automationReadProcedure.mutation(async ({ ctx }) => {
+		await automationQueries.markAllAutomationRunsRead(ctx.project.id, ctx.user.id);
+		return { success: true as const };
 	}),
 
 	parseCronFromText: automationReadProcedure

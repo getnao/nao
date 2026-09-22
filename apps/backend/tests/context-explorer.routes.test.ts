@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getFileTree: vi.fn(),
 	getGithubToken: vi.fn(),
 	getGitlabToken: vi.fn(),
+	listUserGroups: vi.fn(),
 	getHistoricalContextDiffActions: vi.fn(),
 	getContextRepositoryStatus: vi.fn(),
 	getUserRoleInProject: vi.fn(),
@@ -28,7 +29,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
-vi.mock('../src/services/sso-group-mapping.service', () => ({ isGroupRoleMappingActive: vi.fn(async () => false) }));
 vi.mock('../src/utils/logger', () => ({
 	logger: { warn: mocks.loggerWarn },
 	serializeError: (error: unknown) => ({ message: error instanceof Error ? error.message : String(error) }),
@@ -53,6 +53,14 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/queries/user.queries', () => ({
 	getGithubToken: mocks.getGithubToken,
 	getGitlabToken: mocks.getGitlabToken,
+}));
+
+vi.mock('../src/services/user-group-availability.service', () => ({
+	listActiveUserGroups: mocks.listUserGroups,
+}));
+
+vi.mock('../src/services/sso-group-mapping.service', () => ({
+	isOrganizationRoleMappingActive: vi.fn(async () => false),
 }));
 
 vi.mock('../src/services/context-explorer.service', () => ({
@@ -600,6 +608,65 @@ describe('live context update access', () => {
 			}),
 		]);
 		expect(history[0]).not.toHaveProperty('actorName');
+	});
+});
+
+describe('context explorer RULES preview groups', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+	});
+
+	it('returns only minimal groups from the selected project to a context admin', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('context_admin');
+		mocks.listUserGroups.mockResolvedValue([
+			{
+				id: 'default-id',
+				name: 'All Users',
+				isDefault: true,
+				featureGrants: ['storyCreation'],
+				contextGrants: { mode: 'all' },
+			},
+			{
+				id: 'finance-id',
+				name: 'Finance',
+				isDefault: false,
+				featureGrants: [],
+				contextGrants: { mode: 'restricted' },
+			},
+		]);
+
+		await expect(createCaller().getRulesPreviewGroups()).resolves.toEqual({
+			enforced: true,
+			groups: [
+				{ id: 'default-id', name: 'All Users', isDefault: true },
+				{ id: 'finance-id', name: 'Finance', isDefault: false },
+			],
+		});
+		expect(mocks.listUserGroups).toHaveBeenCalledWith('project-id');
+	});
+
+	it('returns enforced preview groups without unlimited entitlement', async () => {
+		mocks.listUserGroups.mockResolvedValue([
+			{ id: 'default-id', name: 'All Users', isDefault: true },
+			{ id: 'finance-id', name: 'Finance', isDefault: false },
+		]);
+
+		await expect(createCaller().getRulesPreviewGroups()).resolves.toEqual({
+			enforced: true,
+			groups: [
+				{ id: 'default-id', name: 'All Users', isDefault: true },
+				{ id: 'finance-id', name: 'Finance', isDefault: false },
+			],
+		});
+		expect(mocks.listUserGroups).toHaveBeenCalledWith('project-id');
+	});
+
+	it('rejects users without context administration access', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+
+		await expect(createCaller().getRulesPreviewGroups()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.listUserGroups).not.toHaveBeenCalled();
 	});
 });
 

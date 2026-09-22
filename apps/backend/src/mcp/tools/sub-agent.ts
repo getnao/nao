@@ -46,6 +46,14 @@ const ASK_NAO_DESCRIPTION =
 
 const ASK_NAO_DATA_MODE_DESCRIPTION = ASK_NAO_DESCRIPTION + CHART_DATA_MODE_ASK_NAO_ADDENDUM;
 
+const ASK_NAO_STORY_RESTRICTED_DESCRIPTION =
+	'Default tool for analytics questions, chart requests, and updates to existing Stories. ' +
+	"Delegates the full reasoning loop to nao's sub-agent — it reads project rules/context, writes SQL, and builds charts. " +
+	'The conversation is persisted as a chat visible in the nao UI. New Story creation is unavailable for this user, but existing Stories can still be updated.\n\n' +
+	'USE WHEN: the user asks an analytics question, wants a chart, or wants to update an existing Story. Default to this tool; use `execute_sql` / `display_chart` / `update_story` only when you need step-by-step control.\n\n' +
+	"LONG RUNS: if this returns `status: 'running'`, poll `get_nao_answer` with the returned `chatId` every few seconds until complete.\n\n" +
+	"CLARIFICATIONS: if this returns `status: 'needs_clarification'`, relay its question to the user, then call `ask_nao` again with the same `chatId` and their answer.";
+
 const GET_NAO_ANSWER_DESCRIPTION =
 	'Fetch the result of an `ask_nao` run that is still in progress. ' +
 	"USE WHEN: a previous `ask_nao` (or `get_nao_answer`) call returned `status: 'running'`. " +
@@ -81,10 +89,16 @@ const ASK_NAO_CLARIFICATION_SCHEMA = z
 	);
 
 export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
+	const askNaoDescription = ctx.storyCreationEnabled
+		? ctx.chartDataMode
+			? ASK_NAO_DATA_MODE_DESCRIPTION
+			: ASK_NAO_DESCRIPTION
+		: ASK_NAO_STORY_RESTRICTED_DESCRIPTION + (ctx.chartDataMode ? CHART_DATA_MODE_ASK_NAO_ADDENDUM : '');
+
 	registerMcpTool(server, ctx, {
 		name: 'ask_nao',
 		title: 'Ask Nao',
-		description: ctx.chartDataMode ? ASK_NAO_DATA_MODE_DESCRIPTION : ASK_NAO_DESCRIPTION,
+		description: askNaoDescription,
 		inputSchema: {
 			question: z
 				.string()
@@ -112,8 +126,9 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			chatId: z
 				.string()
 				.describe(
-					'UUID of the chat that holds this run. Pass to `get_nao_answer` to poll, or to ' +
-						'`create_story` / `update_story` to attach further work.',
+					ctx.storyCreationEnabled
+						? 'UUID of the chat that holds this run. Pass to `get_nao_answer` to poll, or to `create_story` / `update_story` to attach further work.'
+						: 'UUID of the chat that holds this run. Pass it to `get_nao_answer` to poll or continue the conversation.',
 				),
 			chatUrl: z.url().describe('URL to open the chat in the nao UI.'),
 			text: z.string().describe('The assistant final text response. Empty while `status` is `running`.'),

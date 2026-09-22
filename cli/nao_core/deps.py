@@ -42,6 +42,8 @@ _EXTRAS: dict[str, list[str]] = {
     # Integrations
     "notion": ["notion_client", "notion2md"],
     "confluence": ["markdownify"],
+    # Semantic layer engines
+    "semantic-layer": ["metricflow"],
     # Secret resolution backends
     "aws-secrets": ["boto3", "glom"],
     "k8s-secrets": ["kubernetes"],
@@ -131,6 +133,10 @@ def get_required_extras(config: NaoConfig) -> list[str]:
     if config.confluence and "confluence" not in seen:
         extras.append("confluence")
         seen.add("confluence")
+
+    if config.semantic_layer and "semantic-layer" not in seen:
+        extras.append("semantic-layer")
+        seen.add("semantic-layer")
 
     return extras
 

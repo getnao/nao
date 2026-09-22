@@ -1,0 +1,59 @@
+import type { DBStoryDelivery } from '../db/abstractSchema';
+import * as projectQueries from '../queries/project.queries';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
+import * as storyQueries from '../queries/story.queries';
+import * as storyDeliveryQueries from '../queries/story-delivery.queries';
+
+/** Users subscribed to a story's scheduled delivery. Empty when delivery is disabled or unconfigured. */
+export async function resolveDeliverySubscriberIds(storyId: string): Promise<string[]> {
+	const delivery = await storyDeliveryQueries.getByStoryId(storyId);
+	if (!delivery || !delivery.enabled) {
+		return [];
+	}
+	const projectId = delivery.projectId ?? (await storyQueries.getStoryProjectId(storyId));
+	if (!projectId) {
+		return [];
+	}
+	const ownerId = (await storyQueries.getStoryOwnerId(storyId)) ?? null;
+	return resolveDeliveryRecipientUserIds(delivery, storyId, projectId, ownerId);
+}
+
+export async function resolveDeliveryRecipientUserIds(
+	delivery: DBStoryDelivery,
+	storyId: string,
+	projectId: string,
+	ownerId: string | null,
+): Promise<string[]> {
+	const accessibleIds = await currentProjectAccessIds(projectId);
+
+	if (delivery.recipientMode !== 'all') {
+		return dedupe(delivery.recipientUserIds.filter((id) => accessibleIds.has(id)));
+	}
+
+	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
+	if (!access) {
+		return excludeOwner([...accessibleIds], ownerId);
+	}
+
+	if (access.visibility === 'specific') {
+		return excludeOwner(
+			access.allowedUserIds.filter((id) => accessibleIds.has(id)),
+			ownerId,
+		);
+	}
+
+	return excludeOwner([...accessibleIds], ownerId);
+}
+
+async function currentProjectAccessIds(projectId: string): Promise<Set<string>> {
+	const members = await projectQueries.listUsersWithProjectAccess(projectId);
+	return new Set(members.map((member) => member.id));
+}
+
+function excludeOwner(ids: string[], ownerId: string | null): string[] {
+	return dedupe(ids.filter((id) => id !== ownerId));
+}
+
+function dedupe(ids: string[]): string[] {
+	return [...new Set(ids)];
+}

@@ -6,11 +6,17 @@ interface UseStoryViewerLiveSettingsParams {
 	chatId: string;
 	storySlug: string;
 	shareId?: string;
+	enabled?: boolean;
 }
 
-export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseStoryViewerLiveSettingsParams) => {
+export const useStoryViewerLiveSettings = ({
+	chatId,
+	storySlug,
+	shareId,
+	enabled = true,
+}: UseStoryViewerLiveSettingsParams) => {
 	const queryClient = useQueryClient();
-	const { data } = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
+	const { data } = useQuery({ ...trpc.story.listVersions.queryOptions({ chatId, storySlug }), enabled });
 
 	const storyId = data?.id ?? null;
 	const isLive = data?.isLive ?? false;
@@ -71,13 +77,13 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseSt
 	);
 
 	const handleSaveSettings = useCallback(
-		(settings: {
+		async (settings: {
 			isLive: boolean;
 			isLiveTextDynamic: boolean;
 			cacheSchedule: string | null;
 			cacheScheduleDescription: string | null;
 		}) => {
-			updateLiveSettingsMutation.mutate({ chatId, storySlug, ...settings });
+			await updateLiveSettingsMutation.mutateAsync({ chatId, storySlug, ...settings });
 		},
 		[chatId, storySlug, updateLiveSettingsMutation],
 	);
