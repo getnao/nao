@@ -103,12 +103,13 @@ function serializeExecuteSql(part: UIToolPart<'execute_sql'>, options: Serialize
 }
 
 function serializeDisplayChart(part: UIToolPart<'display_chart'>, options: SerializeOptions): string | null {
-	if (shouldSkipErrored(part, options) || !part.input) {
+	const chartError = part.output?.success === false ? (part.output.error ?? 'Chart failed to render') : undefined;
+	if (shouldSkipErrored(part, options) || (chartError && !options.includeErrors) || !part.input) {
 		return null;
 	}
 	const title = part.input.title?.trim();
 	const sections = [title ? `**Chart — ${title}**` : '**Chart**', codeBlock('json', stringify(part.input))];
-	appendError(sections, part.errorText);
+	appendError(sections, part.errorText ?? chartError);
 	return sections.join(BLOCK_SEPARATOR);
 }
 

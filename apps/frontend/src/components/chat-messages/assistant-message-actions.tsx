@@ -36,6 +36,7 @@ export function AssistantMessageActions({
 	const [includeSql, setIncludeSql] = useState(true);
 	const [includePython, setIncludePython] = useState(true);
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
+	const [exportError, setExportError] = useState<string | null>(null);
 	const { isCopied, copy } = useCopyToClipboard();
 	const getAgentMessages = useAgentMessagesGetter();
 	const { data: chat } = useQuery(trpc.chat.get.queryOptions({ chatId }));
@@ -58,9 +59,13 @@ export function AssistantMessageActions({
 
 	const handleExportPdf = async () => {
 		setIsExportingPdf(true);
+		setExportError(null);
 		try {
 			const result = await trpcClient.chat.download.query({ chatId, format: 'pdf', ...exportOptions });
 			downloadBase64File(result.filename, result.data, result.mimeType);
+		} catch (error) {
+			setExportError(error instanceof Error ? error.message : 'Export failed');
+			console.error('Chat PDF export failed:', error);
 		} finally {
 			setIsExportingPdf(false);
 		}
@@ -204,6 +209,12 @@ export function AssistantMessageActions({
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
+
+				{exportError && (
+					<p className='text-xs text-destructive max-w-64 truncate' title={exportError}>
+						{exportError}
+					</p>
+				)}
 			</div>
 
 			<FeedbackDialog

@@ -91,7 +91,7 @@ function renderExecuteSql(part: UIToolPart<'execute_sql'>, options: ChatStoryCod
 
 function renderDisplayChart(part: UIToolPart<'display_chart'>, options: ChatStoryCodeOptions): string | null {
 	const input = part.input as displayChart.Input | undefined;
-	if (shouldSkipErrored(part, options) || !input || !input.query_id) {
+	if (shouldSkipErrored(part, options) || part.output?.success === false || !input || !input.query_id) {
 		return null;
 	}
 	if (displayChart.isTableInput(input)) {
