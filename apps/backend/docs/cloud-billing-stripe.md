@@ -5,7 +5,7 @@ Scope: architecture, rollout guidance, and the current implementation state.
 
 ## Current implementation status
 
-The branch contains the server-side Stripe foundation, a working sandbox Price lookup, the nullable organization billing schema, a read-only organization billing API, and a feature-gated Plan & Billing page. It can store and read an organization billing projection, but no implemented path writes that projection yet. It does not expose Checkout, create Stripe Customers or Subscriptions, process webhooks, initialize trials, or enforce paid access. No customer can subscribe through nao at this stage.
+The branch now contains a cardless Stripe-hosted Checkout flow, organization Customer mapping, Customer Portal and paused-subscription recovery actions, a signed durable webhook inbox and worker, and a feature-gated Plan & Billing page. An organization admin can start one 14-day Stripe trial without entering payment details. Stripe pauses the subscription at trial end when no payment method exists, and signed webhooks update nao's local billing projection. Paid-access enforcement, reminders, and production rollout remain incomplete.
 
 ### Completed: Stripe SDK and client boundary
 
@@ -27,8 +27,7 @@ The backend recognizes these server-only environment variables:
 NAO_MODE=cloud
 CLOUD_BILLING_ENABLED=true
 STRIPE_SECRET_KEY=
-STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=nao_cloud_monthly_v1
-# Accepted but currently unused because the webhook route does not exist:
+STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=nao_cloud_monthly_v2
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PORTAL_CONFIGURATION_ID=
 ```
@@ -39,28 +38,28 @@ Configuration behavior:
 - Billing remains inactive in self-hosted mode even if Stripe variables are present.
 - When billing is enabled in cloud mode, startup requires:
     - `STRIPE_SECRET_KEY`
+    - `STRIPE_WEBHOOK_SECRET`
     - `STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY`
 - Empty values are normalized to missing values.
-- `STRIPE_WEBHOOK_SECRET` is optional until the webhook endpoint exists.
 - `STRIPE_PORTAL_CONFIGURATION_ID` remains optional because the account's default portal configuration can be used.
 - `NAO_DEFAULT_PROJECT_PATH` must remain unset in cloud mode under the existing environment rules.
 - `.env.example` documents the variables without containing credentials.
 
 The current validation checks that required configuration exists. It does not infer whether a secret belongs to live mode or a sandbox because nao's `MODE=prod` runtime setting is also used by non-production deployments. Live-versus-sandbox separation must therefore be controlled by deployment secrets and Stripe account setup.
 
-Here, **optional** means only that the backend may start without `STRIPE_WEBHOOK_SECRET` while there is no Stripe webhook route. The configured secret is currently accepted but unused. This is not an unsigned-webhook fallback: nao does not currently accept Stripe webhook requests at all. When `/api/billing/stripe/webhook` is implemented, that route must require the secret and verify every request against the exact raw body before processing it. If the secret is absent, the route must not register or startup must fail.
+The `/api/billing/stripe/webhook` route registers only when cloud billing is enabled. It requires `STRIPE_WEBHOOK_SECRET` and verifies every request against the exact raw body; there is no unsigned fallback.
 
 ### Completed: stable Price lookup and contract validation
 
 The application does not persist or configure a sandbox-specific `price_...` identifier. It uses the stable lookup key:
 
 ```text
-nao_cloud_monthly_v1
+nao_cloud_monthly_v2
 ```
 
 `getCloudMonthlyPrice()` asks Stripe for the active Price with that lookup key. The secret key determines whether the lookup runs against the sandbox or live Stripe environment.
 
-Before returning the Price, the service verifies the complete v1 billing contract:
+Before returning the Price, the service verifies the complete v2 billing contract:
 
 - the Price is active;
 - the billing scheme is fixed/per-unit;
@@ -79,7 +78,7 @@ The development sandbox currently has:
 
 - a nao Cloud Product;
 - an active EUR 2,000 monthly Price;
-- the `nao_cloud_monthly_v1` lookup key;
+- the `nao_cloud_monthly_v2` lookup key;
 - a sandbox secret key in the local environment;
 - a Stripe CLI webhook signing secret in the local environment.
 
@@ -185,14 +184,14 @@ The frontend now has a `/settings/organization/billing` route named **Plan & Bil
 - Direct access redirects to Account settings when cloud billing is disabled.
 - Settings search indexes the page only when cloud billing is enabled.
 - The page loads the signed-in user's organization billing projection from the database through `billing.getStatus`.
-- A plan summary is resolved only when the organization's persisted `billingPlan` matches `cloud_monthly_v1`.
+- A plan summary is resolved only when the organization's persisted `billingPlan` matches `cloud_monthly_v2`.
 - Backend plan policy supplies the stable plan key, display name, price, currency, interval, trial length, and user limit.
 - The frontend formats those values without duplicating the billing contract.
 - The page displays persisted status, trial end, paid-period end, and access end when those values exist.
-- The page is visible to organization members; future management actions will remain restricted to organization admins.
-- The page explicitly states that payment details, invoices, and cancellation are not available until self-serve billing is wired.
+- The page is visible to organization members; management actions are restricted to organization admins.
+- Organization admins can start the cardless trial, open the Customer Portal, and recover a paused subscription.
 
-The route verifies that billing is enabled and the caller belongs to an organization. It returns no Stripe Customer ID, Subscription ID, Price ID, or raw Stripe object. An organization whose billing columns are still null is shown as having no assigned plan and an unconfigured status; the frontend does not infer a subscription. The page does not import Stripe or initiate a payment.
+The route verifies that billing is enabled and the caller belongs to an organization. It returns no Stripe Customer ID, Subscription ID, Price ID, or raw Stripe object. An organization whose billing columns are still null sees the available plan and trial action without the frontend inferring a subscription. The page never imports Stripe; it requests server-created hosted URLs.
 
 #### Organization ownership, not project ownership
 
@@ -219,7 +218,7 @@ The diagnosed local failure was the first case: a stale schema, not a confirmed 
 `billing.getStatus` uses two local sources and makes no Stripe API request:
 
 1. The database provides organization-specific state: the assigned `billingPlan`, billing status, trial dates, paid-period end, cancellation flag, and access end.
-2. `apps/backend/src/types/billing.ts` provides the fixed v1 plan catalog metadata: **nao Cloud**, EUR 2,000 per month, a 14-day trial, and unlimited users.
+2. `apps/backend/src/types/billing.ts` provides the fixed v2 plan catalog metadata: **nao Cloud**, EUR 2,000 per month, a 14-day trial, and unlimited users.
 
 The database does not currently store the EUR 2,000 display amount, and the status route does not fetch that amount from Stripe. The persisted `billingPlan` key merely selects the matching local plan definition. This keeps the billing page available when Stripe is slow or unavailable.
 
@@ -234,7 +233,7 @@ The read path is intentionally narrow:
 3. The backend queries the database for the user's organization membership and the joined organization row.
 4. A user without a membership receives `NOT_FOUND`.
 5. The route reads the billing projection from that organization row.
-6. If `billingPlan` is exactly `cloud_monthly_v1`, the backend returns the local plan policy.
+6. If `billingPlan` is exactly `cloud_monthly_v2`, the backend returns the local plan policy.
 7. The route returns a product-oriented response without exposing internal Stripe identifiers.
 
 The conceptual response is:
@@ -242,7 +241,7 @@ The conceptual response is:
 ```ts
 {
   plan: {
-    key: 'cloud_monthly_v1';
+    key: 'cloud_monthly_v2';
     name: 'nao Cloud';
     trialDays: 14;
     userLimit: null;
@@ -287,7 +286,7 @@ The route deliberately omits:
 The organization database is authoritative for which plan and billing state the organization currently has. Display metadata is local so reading persisted billing status never depends on Stripe:
 
 - when `billingPlan` is null, the route returns `plan: null` and makes no Stripe request;
-- when `billingPlan` is `cloud_monthly_v1`, the route returns the fixed local plan contract;
+- when `billingPlan` is `cloud_monthly_v2`, the route returns the fixed local plan contract;
 - when `billingPlan` contains an unknown future key, the route preserves `planKey` but returns `plan: null`;
 - a matching plan does not imply an active subscription; `status` and entitlement dates carry that meaning;
 - `getCloudMonthlyPrice()` separately validates Stripe's configured Price before a future Checkout uses it.
@@ -298,8 +297,8 @@ The page renders these states:
 
 - while the query is pending: **Loading billing details…**;
 - when the query fails: **Unable to load billing details.**;
-- migrated organization with all billing fields null: no assigned plan and status **Not configured**;
-- recognized plan: plan name, formatted EUR price, monthly interval, unlimited users, and 14-day new-organization trial policy;
+- migrated organization with all billing fields null: available plan, trial action for admins, and status **Not configured**;
+- recognized or available plan: plan name, formatted EUR price, monthly interval, unlimited users, and 14-day trial policy;
 - persisted status: normalized status text;
 - available dates: locale-formatted trial, current-period, and access boundaries;
 - missing dates: an em dash;
@@ -342,54 +341,37 @@ The 10 Stripe service tests and two billing route tests pass. Backend TypeScript
 
 The repository-wide `npm run lint` command still fails on unrelated existing files, primarily browser-global `document` references in a generated project chart under `apps/backend/projects/`. The edited billing files pass their focused lint checks.
 
-### Configured but not yet wired
+### Completed: cardless trial and webhook reconciliation
 
-- `getCloudMonthlyPrice()` is implemented but no Checkout route calls it yet.
-- No route or job currently writes `billingPlan`, `billingStatus`, trial dates, subscription dates, or Stripe identifiers.
-- `STRIPE_WEBHOOK_SECRET` may be configured, but it is unused because nao has no `/api/billing/stripe/webhook` route yet.
-- Stripe CLI can forward events, but those requests currently receive `404`.
-- `STRIPE_PORTAL_CONFIGURATION_ID` is accepted, but no Customer Portal session is created yet.
-- `CLOUD_BILLING_ENABLED=true` enables configuration and Stripe client access only; it does not currently change user access or create Stripe objects.
+- `billing.createCheckoutSession` creates or reuses one organization Customer and starts hosted subscription Checkout.
+- Checkout uses the validated server-side Price, quantity `1`, a 14-day trial, and `payment_method_collection=if_required`.
+- No payment method is required to complete Checkout; Stripe pauses the subscription at trial end when none exists.
+- `billing.createPortalSession` lets admins add payment details and manage the Stripe Customer.
+- `billing.resumeSubscription` verifies a usable payment method before resuming a paused subscription.
+- `/api/billing/stripe/webhook` verifies the raw signed body, deduplicates Event IDs, and durably enqueues processing.
+- The retryable worker retrieves current Stripe state so delayed or out-of-order events converge on the latest subscription projection.
+- The Plan & Billing page starts Checkout, confirms the webhook-backed trial, opens the Portal, and recovers paused subscriptions.
 
 ### Not implemented
 
 The following work remains:
 
-- atomic 14-day trial initialization during organization creation;
-- the durable, idempotent webhook inbox;
-- the webhook inbox portion of the existing synchronized billing migration;
-- webhook signature verification using the exact raw request body;
-- asynchronous event processing, retries, and reconciliation;
-- Stripe Customer creation and organization mapping;
-- Checkout Session creation;
-- Customer Portal Session creation;
-- billing mutation routes;
+- hourly subscription reconciliation as a safety net for missed or previously mishandled webhooks;
 - trial reminders and billing email coordination;
 - paid-access resolution and enforcement at every cost-producing backend boundary;
-- webhook-backed automatic billing-status synchronization and management actions on the Plan & Billing page;
 - trial/payment banners and restricted-state frontend behavior;
 - test-clock coverage for trial, renewal, failure, and cancellation;
 - production Product, Price, secrets, portal configuration, and webhook destination.
 
 ### Next implementation milestone
 
-The next milestone completes the billing persistence foundation:
-
-1. Decide the explicit rollout policy for existing cloud organizations. Leave their billing columns null until that policy is chosen.
-2. Initialize `billingPlan`, `billingStatus`, `trialStartedAt`, `trialEndsAt`, `billingAccessEndsAt`, and `billingUpdatedAt` atomically in the same transaction that creates each new cloud organization.
-3. Ensure joining an existing organization never resets or extends its trial.
-4. Audit every organization-creation path so the invariant applies to every new cloud organization and no self-hosted organization is accidentally restricted.
-5. Add the webhook inbox for durable receipt and deduplication.
-6. Amend migration `0065_organization_billing` and both snapshots to include that inbox rather than creating migration `0066`.
-7. Add focused tests proving exact 14-day initialization, join behavior, self-hosted isolation, duplicate-event rejection, and PostgreSQL/SQLite parity.
-
-Trial initialization must not call Stripe. Signup should commit the organization and trial even if Stripe is unavailable. Only after the durable webhook inbox exists should the webhook endpoint acknowledge events with a successful response; otherwise Stripe events could be accepted and discarded before nao can process them reliably.
+The next milestone is hourly subscription reconciliation: find organizations with Stripe subscriptions, retrieve their current Stripe state, update the local billing projection, isolate per-organization failures, and log drift without customer PII. This is a safety net for missed webhooks, manual Stripe Dashboard changes, and projection bugs. After that, implement entitlement enforcement and customer communication.
 
 ## 1. Goal
 
 nao Cloud needs self-serve, organization-level billing:
 
-- Every new cloud organization receives a 14-day free trial.
+- Every cloud organization is eligible for one 14-day free trial started through Checkout.
 - The initial paid plan costs EUR 2,000 per month.
 - The plan includes unlimited users, so subscription quantity must always be `1`.
 - Organization admins can add payment details, subscribe, view invoices, update payment methods, and cancel.
@@ -401,12 +383,12 @@ Billing is only active when `NAO_MODE=cloud`. The existing instance-wide enterpr
 
 ## 2. Recommended product decisions
 
-These decisions produce the smallest reliable v1:
+These decisions produce the smallest reliable v2:
 
-1. Use Stripe-hosted Checkout to collect payment details and start the subscription.
+1. Use Stripe-hosted Checkout to start a cardless trial subscription.
 2. Use the Stripe Customer Portal for payment methods, invoices, and cancellation.
 3. Keep one Stripe Customer and at most one current Stripe Subscription per nao organization.
-4. Start the 14-day trial in nao when the organization is created. Do not require a card to begin the trial.
+4. Start the 14-day trial only after an organization admin completes Checkout. Do not require a card.
 5. Once a Stripe subscription exists, treat Stripe as authoritative for payment and subscription state.
 6. Keep only the Stripe identifiers and the access-relevant subscription projection in nao.
 7. Process signed Stripe webhooks through a durable, idempotent inbox.
@@ -414,19 +396,9 @@ These decisions produce the smallest reliable v1:
 9. Configure cancellation for the end of the paid billing period, not immediate destructive shutdown.
 10. Resolve one fixed server-side Price lookup key. Never accept a Price ID, amount, Customer ID, or organization ID from the browser as trusted billing input.
 
-### Why the trial begins in nao
+### Why the trial begins in Checkout
 
-The organization is currently created during the post-signup authentication hook. Calling Stripe inside that database/authentication path would make signup depend on an external network service and create a difficult partial-failure problem.
-
-Instead:
-
-- The organization transaction writes immutable `trialStartedAt` and `trialEndsAt` values.
-- No Stripe object is required until an administrator opens Checkout.
-- If Stripe is temporarily unavailable, a user can still create an account and begin the trial.
-- When Checkout is started during the trial, the remaining trial period is carried into the Stripe subscription.
-- If Checkout is started after the local trial has expired, the first paid period starts immediately.
-
-This is the hybrid model anticipated by the issue: nao owns the pre-subscription trial, and Stripe owns the subscription lifecycle.
+Organizations remain untrialed until an admin explicitly chooses **Start 14-day free trial**. Completing cardless Checkout creates the Stripe Subscription and starts the trial; abandoning Checkout consumes nothing. This keeps Stripe authoritative for the complete subscription lifecycle while avoiding payment details at signup. Persisted trial timestamps and existing Stripe subscriptions prevent a second trial after pause or cancellation.
 
 ## 3. Current nao integration points
 
@@ -476,7 +448,7 @@ Create one recurring Price:
 - Recurrence: monthly
 - Usage type: licensed/fixed
 - Quantity: always `1`
-- Suggested lookup key: `nao_cloud_monthly_v1`
+- Suggested lookup key: `nao_cloud_monthly_v2`
 
 Stripe Prices are effectively immutable for amount and currency. A future pricing change should create a new Price rather than modifying the meaning of the existing Price ID. Existing subscriptions can remain on the old Price or be migrated deliberately.
 
@@ -491,7 +463,7 @@ Activate and configure the [Stripe Customer Portal](https://docs.stripe.com/cust
 - Allow customers to view and download invoices.
 - Allow cancellation at the end of the current billing period.
 - Collect a cancellation reason if useful.
-- Do not enable plan switching in v1 because only one plan exists.
+- Do not enable plan switching in v2 because only one plan exists.
 - Set a return URL under the nao organization billing settings page.
 - If a subscription is still trialing, configure `trial_update_behavior` to continue the trial instead of ending it when a customer edits the subscription.
 
@@ -511,7 +483,7 @@ In Stripe Billing settings:
 
 Stripe currently recommends eight attempts over two weeks as the default Smart Retries policy. The exact dunning period is a product decision because it determines how long `past_due` organizations retain full access.
 
-nao should own product-specific trial reminders because an organization can be in its local trial before a Stripe Subscription exists. Stripe should own receipts, invoice documents, payment-action messages, and payment-failure recovery emails.
+nao should own product-specific trial reminders after the Stripe trial has been projected locally. Stripe should own receipts, invoice documents, payment-action messages, and payment-failure recovery emails.
 
 ### 4.5 Webhook destination
 
@@ -548,7 +520,7 @@ Recommended server-only environment variables:
 ```env
 CLOUD_BILLING_ENABLED=false
 STRIPE_SECRET_KEY=
-STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=nao_cloud_monthly_v1
+STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=nao_cloud_monthly_v2
 # Required only when the webhook route is implemented:
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PORTAL_CONFIGURATION_ID=
@@ -575,7 +547,7 @@ Billing belongs to the organization. The current implementation extends the exis
 
 Implemented nullable columns:
 
-- `billingPlan`: stable nao plan key such as `cloud_monthly_v1`
+- `billingPlan`: stable nao plan key such as `cloud_monthly_v2`
 - `billingStatus`: normalized local status
 - `trialStartedAt`
 - `trialEndsAt`
@@ -602,7 +574,7 @@ Important constraints:
 
 - `stripeCustomerId` must be unique when non-null.
 - `stripeSubscriptionId` must be unique when non-null.
-- Trial timestamps are set once when a cloud organization is created.
+- Trial timestamps are set from the first webhook-confirmed Stripe trial and are never reset.
 - Joining an existing organization must not start another trial.
 - Renaming an organization must not create a new Stripe Customer.
 - A canceled organization keeps its Stripe identifiers for history and Customer Portal access.
@@ -667,7 +639,6 @@ Grant full access when:
 
 - billing is disabled,
 - the deployment is self-hosted,
-- the local organization trial has not expired,
 - the Stripe subscription is `trialing` or `active`,
 - cancellation is scheduled but the paid period has not ended,
 - or a `past_due` grace period is still active.
@@ -676,7 +647,7 @@ Grant full access when:
 
 Restrict cost-producing and state-changing operations when:
 
-- the local trial has expired without a subscription,
+- the organization has no subscription after its trial,
 - the Stripe subscription is `unpaid`, `paused`, or `incomplete_expired`,
 - cancellation has completed,
 - the subscription is absent after the applicable trial,
@@ -736,12 +707,13 @@ The implementation has one lazy server-side Stripe client:
 - never imported by frontend code,
 - and easy to replace with a fake at the external boundary in tests.
 
-There are no mutating Stripe requests yet. Every future mutating request must use a Stripe idempotency key. Stripe retains idempotency results for at least 24 hours, so a key must identify one logical attempt rather than a permanent organization-wide action.
+Every mutating Stripe request uses an idempotency key. Stripe retains idempotency results for at least 24 hours, so keys identify a deliberate logical operation.
 
 Useful key shapes:
 
 - customer creation: organization ID plus a customer-creation version
-- Checkout session creation: organization ID plus a server-generated request UUID
+- initial trial Checkout: organization ID plus a trial-Checkout version; reuse the Customer's matching open Session
+- Portal session and subscription resume: organization/subscription ID plus a request UUID
 - subscription mutation: subscription ID plus the intended transition and request UUID
 
 Do not place email addresses or secrets in idempotency keys. See Stripe's [idempotent request documentation](https://docs.stripe.com/api/idempotent_requests).
@@ -767,13 +739,11 @@ The current read path reuses `getUserOrgMembership()`, which joins the user's me
 The `billing` router is registered and currently exposes:
 
 - `getStatus`: read-only and available to every authenticated organization member when cloud billing is enabled.
-
-Future operations:
-
 - `createCheckoutSession`: organization admin only
 - `createPortalSession`: organization admin only
+- `resumeSubscription`: organization admin only
 
-The current response includes persisted plan/status fields, trial and period dates, the access end, and whether the caller is an organization admin. It enriches the recognized plan with backend-validated Stripe catalog information.
+The current response includes persisted plan/status fields, trial and period dates, the access end, whether the caller is an organization admin, and product-oriented Checkout/Portal availability. It never returns Stripe identifiers.
 
 The completed status API must eventually become a broader product-oriented view containing:
 
@@ -812,27 +782,22 @@ Stripe requires the unmodified body for signature verification and recommends as
 
 ## 9. Lifecycle flows
 
-### 9.1 New organization and trial
+### 9.1 New organization before trial
 
 1. A new cloud user completes signup.
 2. Existing domain/invitation logic first checks whether the user should join an organization.
-3. Only when creating a genuinely new organization, set:
-    - `billingStatus = trialing`
-    - `trialStartedAt = now`
-    - `trialEndsAt = now + 14 days`
-    - `billingAccessEndsAt = trialEndsAt`
-4. Add the user as organization admin in the same transaction.
-5. Schedule idempotent trial reminder jobs.
-6. Do not call Stripe from the authentication hook.
+3. Create the organization with nullable billing fields and add the user as organization admin.
+4. Do not call Stripe from the authentication hook.
+5. Show the available plan and cardless trial action on Plan & Billing.
 
-The access resolver should compare timestamps at request time. It must not depend exclusively on a scheduler firing exactly at the trial boundary.
+Joining or creating an organization does not consume a trial. The Stripe-confirmed trial is projected only after Checkout completion.
 
 ### 9.2 Starting Checkout
 
-When an organization admin chooses Subscribe:
+When an organization admin chooses **Start 14-day free trial**:
 
 1. Load the admin's organization from the authenticated session.
-2. Return the existing Customer Portal path if the organization already has a usable subscription.
+2. Reject Checkout if local history or Stripe already shows a subscription for the cloud plan.
 3. Create or reuse one Stripe Customer.
 4. Store `nao_org_id` in Stripe Customer metadata for operations and support.
 5. Create a hosted Checkout Session with:
@@ -840,17 +805,17 @@ When an organization admin chooses Subscribe:
     - the server-configured monthly Price
     - quantity `1`
     - the existing Stripe Customer
-    - payment-method collection enabled
+    - `payment_method_collection=if_required`
+    - a 14-day subscription trial
+    - pause-on-missing-payment-method end behavior
     - a success URL under nao
     - a cancel URL back to billing settings
     - the nao organization ID in metadata
-6. If the local trial is still active, carry its absolute end into the subscription using Checkout's supported legacy trial configuration.
-7. If the local trial has expired, omit the trial and collect the first payment immediately.
-8. Return only the Checkout URL to the browser.
+6. Return only the Checkout URL to the browser.
 
-The current Stripe Trial Offer API is a preview feature and is not supported by hosted Checkout. This v1 should therefore use Checkout's established subscription trial fields, not the preview Trial Offer API. Re-evaluate after that API becomes stable.
+The current Stripe Trial Offer API is a preview feature and is not supported by hosted Checkout. This v2 should therefore use Checkout's established subscription trial fields, not the preview Trial Offer API. Re-evaluate after that API becomes stable.
 
-The Checkout success redirect is not proof of payment. It should display a short “confirming subscription” state and poll `getStatus`. Access changes only after the signed webhook has been reconciled.
+The Checkout success redirect is not proof of a trial. It displays a short “confirming trial” state and polls `getStatus`. Billing state changes only after the signed webhook has been reconciled.
 
 ### 9.3 Checkout completion
 
@@ -925,14 +890,9 @@ The Customer Portal should schedule cancellation at period end:
 
 Cancellation never deletes nao data.
 
-### 9.8 Trial expiry without a subscription
+### 9.8 Trial expiry without a payment method
 
-No Stripe webhook exists when the organization never entered Checkout. Therefore:
-
-- the local access resolver detects `now >= trialEndsAt`,
-- the organization becomes restricted immediately,
-- trial reminder jobs stop or become harmless no-ops,
-- and admins retain access to the billing page so they can subscribe.
+Stripe changes the subscription to `paused` when its trial ends without a payment method. The webhook worker projects that current state locally. The organization becomes restricted once access enforcement is enabled, while admins retain billing-page access to open the Portal, add payment details, and request an idempotent server-side resume.
 
 ## 10. Webhook reliability
 
@@ -987,7 +947,7 @@ The app should also display:
 - a read-only notice after restriction,
 - and a clear Subscribe or Manage billing action.
 
-Avoid duplicate emails. nao owns local-trial product reminders; Stripe owns invoice/payment communications configured in Billing settings. Stripe's available customer emails are documented under [Send customer emails](https://docs.stripe.com/invoicing/send-email).
+Avoid duplicate emails. nao owns product-specific trial reminders; Stripe owns invoice/payment communications configured in Billing settings. Stripe's available customer emails are documented under [Send customer emails](https://docs.stripe.com/invoicing/send-email).
 
 ## 12. Frontend experience
 
@@ -1016,7 +976,7 @@ Admins additionally receive:
 - View invoices
 - Manage or cancel subscription
 
-The management actions can all redirect to Stripe-hosted pages. Do not build custom card forms or invoice tables for v1.
+The management actions can all redirect to Stripe-hosted pages. Do not build custom card forms or invoice tables for v2.
 
 ### UX requirements
 
@@ -1056,7 +1016,7 @@ Do not add the credit ledger or Enterprise tier in issue #1459.
 
 Test the access resolver at meaningful boundaries:
 
-- first and last instant of the local trial,
+- first and last instant of the projected Stripe trial,
 - active subscription,
 - cancellation scheduled before period end,
 - cancellation after period end,
@@ -1093,11 +1053,21 @@ stripe listen --forward-to localhost:5005/api/billing/stripe/webhook
 
 Copy the CLI-provided `whsec_...` value into the local webhook-secret environment variable. Do not use the Dashboard endpoint secret for CLI-forwarded events.
 
+Use Stripe test cards when adding or replacing a payment method:
+
+- `4242 4242 4242 4242` — successful payment;
+- `4000 0000 0000 9995` — declined payment with insufficient funds;
+- `4000 0025 0000 3155` — payment requiring 3D Secure authentication.
+
+Use any future expiration date, any three-digit CVC, and test billing details. These numbers work only in Stripe test environments; never use real card data in the sandbox.
+
 Exercise:
 
-- successful Checkout,
-- card requiring authentication,
-- declined first payment,
+- successful cardless Checkout,
+- abandoned Checkout without consuming a trial,
+- adding a payment method before trial end,
+- pausing at trial end without a payment method,
+- adding a payment method and resuming,
 - failed renewal,
 - payment-method replacement,
 - cancellation at period end,
@@ -1113,7 +1083,8 @@ Use [Stripe Billing simulations/test clocks](https://docs.stripe.com/billing/tes
 Verify both database engines:
 
 - a pre-billing organization remains readable after migration,
-- new cloud organizations receive trial timestamps,
+- untrialed organizations retain nullable trial timestamps,
+- webhook-confirmed trials receive Stripe trial timestamps,
 - self-hosted organizations do not accidentally receive cloud billing restrictions,
 - unique Stripe identifiers reject cross-organization reuse,
 - and schema snapshots/journals remain synchronized.
@@ -1193,17 +1164,16 @@ Create a short runbook for:
 - Completed: add configuration validation and the Stripe service boundary.
 - Completed: add the organization billing projection to synchronized PostgreSQL and SQLite migration `0065`.
 - Completed: add the read-only organization billing route and cloud-only Plan & Billing page.
+- Completed: add the webhook inbox to migration `0065`.
+- Completed: add cardless Checkout, Customer Portal, resume, signed webhook, worker, and live billing actions.
 - Remaining: apply migration `0065` independently to every runtime database.
-- Remaining: initialize local trials atomically for new cloud organizations.
-- Remaining: add the webhook inbox to migration `0065`.
 - Remaining: create and validate the Customer Portal configuration.
 - Remaining: register deployed sandbox webhook destinations; Stripe CLI forwarding covers local development only.
 - Keep `CLOUD_BILLING_ENABLED=false` by default.
 
-### Phase 2: billing flows
+### Phase 2: entitlement and communication
 
-- Add Checkout, Customer Portal, webhook inbox, worker, and reconciliation.
-- Complete the existing organization billing page with live management actions and add trial/payment banners.
+- Add trial/payment banners and reminders.
 - Add access enforcement at all cost-producing backend boundaries.
 - Complete automated and sandbox tests.
 
@@ -1242,7 +1212,6 @@ The eventual implementation will likely touch:
 - `apps/backend/package.json` for the official Stripe Node SDK
 - `apps/backend/src/env.ts` for validated billing configuration
 - PostgreSQL and SQLite schemas plus one synchronized migration
-- organization creation/query logic for trial initialization
 - a Stripe client/service and billing access service
 - billing queries
 - billing tRPC routes
@@ -1259,11 +1228,11 @@ This list is a guide, not a requirement to create an abstraction or file when an
 
 ## 19. Acceptance checklist
 
-- A new cloud organization receives exactly 14 days of access without a card.
+- An eligible cloud organization can explicitly start exactly 14 days of access without a card.
 - A user joining an existing organization does not create a second trial.
 - The EUR 2,000 monthly price and quantity are chosen only by the backend.
 - Only organization admins can start or manage billing.
-- Checkout collects payment details and preserves the remaining trial when applicable.
+- Checkout starts the trial without requiring payment details.
 - A Checkout redirect alone never grants paid access.
 - Signed webhooks are idempotent, asynchronous, and safe out of order.
 - Paid invoices extend access.
@@ -1286,7 +1255,7 @@ Resolve these before implementation is considered complete:
 4. How long is the `past_due` grace period?
 5. After retries, should Stripe mark subscriptions `unpaid` or cancel them?
 6. Which read-only/export actions remain available after restriction?
-7. Are existing cloud organizations granted a new trial, grandfathered, or migrated manually?
+7. Which existing cloud organizations with external/manual billing history must be marked ineligible before rollout?
 8. Can support grant a temporary extension, and how is that audited?
 9. Should cancellation always occur at period end?
 10. Which trial reminder schedule and wording should nao use?

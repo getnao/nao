@@ -11,8 +11,10 @@ export const BILLING_STATUSES = [
 
 export type BillingStatus = (typeof BILLING_STATUSES)[number];
 
+export const STRIPE_WEBHOOK_JOB_NAME = 'stripe.webhook';
+
 export const CLOUD_MONTHLY_PLAN = {
-	key: 'cloud_monthly_v1',
+	key: 'cloud_monthly_v2',
 	name: 'nao Cloud',
 	amount: 200_000,
 	currency: 'eur',

@@ -196,6 +196,18 @@ export const organization = sqliteTable('organization', {
 		.notNull(),
 });
 
+export const stripeWebhookEvent = sqliteTable('stripe_webhook_event', {
+	id: text('id').primaryKey(),
+	type: text('type').notNull(),
+	stripeObjectId: text('stripe_object_id'),
+	livemode: integer('livemode', { mode: 'boolean' }).notNull(),
+	receivedAt: integer('received_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	processedAt: integer('processed_at', { mode: 'timestamp_ms' }),
+	lastError: text('last_error'),
+});
+
 export const orgMember = sqliteTable(
 	'org_member',
 	{

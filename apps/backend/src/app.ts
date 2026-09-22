@@ -11,7 +11,7 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-import { env, isCloud } from './env';
+import { env, isCloud, isCloudBillingEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
@@ -30,6 +30,7 @@ import {
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
+import { STRIPE_WEBHOOK_JOB_NAME, stripeWebhookHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
@@ -51,6 +52,7 @@ import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
+import { stripeWebhookRoutes } from './routes/stripe-webhook';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
@@ -235,6 +237,12 @@ app.register(whatsappRoutes, {
 	prefix: '/api/webhooks/whatsapp',
 });
 
+if (isCloudBillingEnabled()) {
+	app.register(stripeWebhookRoutes, {
+		prefix: '/api/billing/stripe/webhook',
+	});
+}
+
 app.register(deployRoutes, {
 	prefix: '/api',
 });
@@ -396,6 +404,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
+	if (isCloudBillingEnabled()) {
+		registerJob(STRIPE_WEBHOOK_JOB_NAME, stripeWebhookHandler);
+	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({

@@ -10,4 +10,13 @@ ALTER TABLE `organization` ADD `cancel_at_period_end` integer;--> statement-brea
 ALTER TABLE `organization` ADD `billing_access_ends_at` integer;--> statement-breakpoint
 ALTER TABLE `organization` ADD `billing_updated_at` integer;--> statement-breakpoint
 CREATE UNIQUE INDEX `organization_stripe_customer_id_unique` ON `organization` (`stripe_customer_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `organization_stripe_subscription_id_unique` ON `organization` (`stripe_subscription_id`);
+CREATE UNIQUE INDEX `organization_stripe_subscription_id_unique` ON `organization` (`stripe_subscription_id`);--> statement-breakpoint
+CREATE TABLE `stripe_webhook_event` (
+	`id` text PRIMARY KEY NOT NULL,
+	`type` text NOT NULL,
+	`stripe_object_id` text,
+	`livemode` integer NOT NULL,
+	`received_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	`processed_at` integer,
+	`last_error` text
+);

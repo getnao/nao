@@ -183,6 +183,16 @@ export const organization = pgTable('organization', {
 		.notNull(),
 });
 
+export const stripeWebhookEvent = pgTable('stripe_webhook_event', {
+	id: text('id').primaryKey(),
+	type: text('type').notNull(),
+	stripeObjectId: text('stripe_object_id'),
+	livemode: boolean('livemode').notNull(),
+	receivedAt: timestamp('received_at').defaultNow().notNull(),
+	processedAt: timestamp('processed_at'),
+	lastError: text('last_error'),
+});
+
 export const orgMember = pgTable(
 	'org_member',
 	{

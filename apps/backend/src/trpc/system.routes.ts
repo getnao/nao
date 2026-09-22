@@ -1,4 +1,4 @@
-import { env } from '../env';
+import { env, isCloudBillingEnabled } from '../env';
 import * as userQueries from '../queries/user.queries';
 import { checkForUpdate } from '../services/version-check.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
@@ -6,7 +6,7 @@ import { adminProtectedProcedure, publicProcedure } from './trpc';
 export const systemRoutes = {
 	getPublicConfig: publicProcedure.query(async () => ({
 		naoMode: env.NAO_MODE,
-		cloudBillingEnabled: env.NAO_MODE === 'cloud' && env.CLOUD_BILLING_ENABLED,
+		cloudBillingEnabled: isCloudBillingEnabled(),
 		enableUserLogin: env.ENABLE_USER_LOGIN,
 		enableUserSignup: await isUserSignupAvailable(),
 		betaAutomationsEnabled: env.BETA_AUTOMATIONS_ENABLED,

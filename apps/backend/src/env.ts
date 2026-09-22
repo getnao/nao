@@ -323,7 +323,11 @@ const baseEnvSchema = z.object({
 const envSchema = baseEnvSchema
 	.superRefine((data, ctx) => {
 		if (data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED) {
-			for (const variable of ['STRIPE_SECRET_KEY', 'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY'] as const) {
+			for (const variable of [
+				'STRIPE_SECRET_KEY',
+				'STRIPE_WEBHOOK_SECRET',
+				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
+			] as const) {
 				if (!data[variable]) {
 					ctx.addIssue({
 						code: 'custom',
@@ -417,6 +421,10 @@ export function __reloadEnvForTesting(): void {
 
 export const isCloud = env.NAO_MODE === 'cloud';
 export const isSelfHosted = env.NAO_MODE === 'self-hosted';
+
+export function isCloudBillingEnabled(): boolean {
+	return env.NAO_MODE === 'cloud' && env.CLOUD_BILLING_ENABLED;
+}
 
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
