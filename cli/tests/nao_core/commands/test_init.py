@@ -96,7 +96,7 @@ class TestCreateEmptyStructure:
         content = readme.read_text()
         assert "system.md" in content
         assert "slack.md" in content
-        # Documents the placeholder that keeps nao's default prompt
+        assert "mattermost.md" in content
         assert "{{ nao_prompt }}" in content
 
     def test_creates_example_slack_prompt_file(self, tmp_path: Path):
@@ -106,6 +106,13 @@ class TestCreateEmptyStructure:
         slack_prompt = tmp_path / "agent" / "prompts" / "slack.md"
         assert slack_prompt.exists()
         assert "{{ nao_prompt }}" in slack_prompt.read_text()
+
+    def test_does_not_create_example_mattermost_prompt_file(self, tmp_path: Path):
+        """Does not create an example agent/prompts/mattermost.md."""
+        create_empty_structure(tmp_path)
+
+        mattermost_prompt = tmp_path / "agent" / "prompts" / "mattermost.md"
+        assert not mattermost_prompt.exists()
 
     def test_creates_naoignore_file(self, tmp_path: Path):
         """Creates .naoignore file with ignored generated paths."""
@@ -321,6 +328,33 @@ class TestNaoConfigPromptDatabases:
         assert result[0] == mock_config
         mock_prompt_config.assert_called_once()
         mock_confirm.assert_called_once_with("Set up database connections?", default=True)
+
+    @patch("nao_core.config.base.ask_confirm")
+    @patch("nao_core.config.base.ask_select")
+    @patch("nao_core.config.databases.motherduck.MotherDuckConfig.promptConfig")
+    def test_adds_motherduck_database(self, mock_prompt_config, mock_select, mock_confirm):
+        """Adds MotherDuck database when selected."""
+        from nao_core.config import NaoConfig
+        from nao_core.config.databases.motherduck import MotherDuckConfig
+
+        mock_config = MotherDuckConfig(name="md-analytics", database="my_db", token="tok")
+        mock_prompt_config.return_value = mock_config
+
+        mock_confirm.return_value = True
+        mock_select.return_value = "motherduck"
+
+        result = NaoConfig._prompt_databases()
+
+        assert len(result) == 1
+        assert result[0] == mock_config
+        assert result[0].type == "motherduck"
+        mock_prompt_config.assert_called_once()
+        mock_confirm.assert_called_once_with("Set up database connections?", default=True)
+        # MotherDuck appears as a first-class choice in the warehouse picker.
+        choices = mock_select.call_args.kwargs["choices"]
+        labels = [c.title for c in choices]
+        assert "MotherDuck" in labels
+        assert "DuckDB" in labels
 
 
 class TestNaoConfigPromptRepos:
@@ -955,3 +989,51 @@ class TestInitCommandNoTty:
         assert (project_dir / "databases").is_dir()
         # The config still names the existing project
         assert "project_name: pre-written" in config_yaml.read_text()
+
+    @patch("nao_core.commands.debug.debug")
+    @patch("nao_core.commands.init.NaoConfig.promptConfig")
+    @patch("nao_core.commands.init.UI")
+    def test_yes_preserves_pre_written_motherduck_config(
+        self,
+        mock_ui,
+        mock_prompt_config,
+        mock_debug,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """`--yes` keeps a pre-written MotherDuck database entry loadable."""
+        from nao_core.commands.init import init
+        from nao_core.config import NaoConfig
+        from nao_core.config.databases.motherduck import MotherDuckConfig
+
+        project_dir = tmp_path / "pre-written-md"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setenv("MOTHERDUCK_TOKEN", "init-token")
+
+        config_yaml = project_dir / "nao_config.yaml"
+        config_yaml.write_text(
+            """
+project_name: pre-written-md
+databases:
+  - type: motherduck
+    name: md-analytics
+    database: my_db
+    token: "{{ env('MOTHERDUCK_TOKEN') }}"
+""".lstrip()
+        )
+
+        with patch("nao_core.deps.get_missing_extras", return_value=[]):
+            init(yes=True)
+
+        mock_prompt_config.assert_not_called()
+        assert (project_dir / "RULES.md").exists()
+
+        loaded = NaoConfig.load(project_dir)
+        assert len(loaded.databases) == 1
+        db = loaded.databases[0]
+        assert isinstance(db, MotherDuckConfig)
+        assert db.name == "md-analytics"
+        assert db.database == "my_db"
+        assert db.token == "init-token"
+        assert db.connection_path() == "md:my_db?motherduck_token=init-token"

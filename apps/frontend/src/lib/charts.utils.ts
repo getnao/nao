@@ -2,7 +2,7 @@ import { getToolName, isToolUIPart } from './ai';
 import { hashValue } from './hash';
 import type { UIMessage } from '@nao/backend/chat';
 
-export { labelize } from '@nao/shared';
+export { labelize, sortByDateKey } from '@nao/shared';
 
 export type RangeOptions = Record<string, { label: string }>;
 
@@ -62,23 +62,6 @@ export function filterByDateRange<T extends Record<string, any>>(data: T[], xAxi
 		}
 
 		return date >= cutoffDate;
-	});
-}
-
-/** Sorts data chronologically (ascending) by a date key so charts render left-to-right */
-export function sortByDateKey<T extends Record<string, any>>(data: T[], xAxisKey: string): T[] {
-	return [...data].sort((a, b) => {
-		const dateA = new Date(a[xAxisKey]);
-		const dateB = new Date(b[xAxisKey]);
-		const validA = isValidDate(dateA);
-		const validB = isValidDate(dateB);
-		if (!validA || !validB) {
-			if (!validA && !validB) {
-				return 0;
-			}
-			return validA ? -1 : 1;
-		}
-		return dateA.getTime() - dateB.getTime();
 	});
 }
 

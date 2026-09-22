@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import type { App } from '../app';
-import { getAuth } from '../auth';
+import { getSession } from '../auth';
 import { env } from '../env';
 import * as userQueries from '../queries/user.queries';
 import * as gitlabService from '../services/gitlab';
@@ -17,8 +17,7 @@ export const gitlabRoutes = async (app: App) => {
 			return reply.status(400).send({ error: 'GitLab integration is not configured' });
 		}
 
-		const auth = await getAuth();
-		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user) {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}
@@ -39,8 +38,7 @@ export const gitlabRoutes = async (app: App) => {
 			return reply.redirect('/settings/organization?gitlab=error&reason=missing_params');
 		}
 
-		const auth = await getAuth();
-		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user) {
 			return reply.redirect('/settings/organization?gitlab=error&reason=unauthorized');
 		}

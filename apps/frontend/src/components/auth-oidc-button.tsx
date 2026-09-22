@@ -7,6 +7,7 @@ import KeycloakIcon from '@/components/icons/keycloak-icon.svg';
 import OktaIcon from '@/components/icons/okta-icon.svg';
 import { AuthSocialButton } from '@/components/ui/button';
 import { handleOidcSignIn } from '@/lib/auth-client';
+import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 
 const oidcProviderIcons: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
 	okta: OktaIcon,
@@ -22,16 +23,27 @@ interface OidcSignInButtonProps {
 	providerId: string;
 	providerName: string;
 	callbackUrl?: string;
+	lastUsed?: boolean;
 	className?: string;
 }
 
-export function OidcSignInButton({ providerId, providerName, callbackUrl, className }: OidcSignInButtonProps) {
+export function OidcSignInButton({
+	providerId,
+	providerName,
+	callbackUrl,
+	lastUsed,
+	className,
+}: OidcSignInButtonProps) {
 	const Icon = getOidcProviderIcon(providerId);
 	return (
 		<AuthSocialButton
 			icon={Icon}
 			label={`Continue with ${providerName}`}
-			onClick={() => void handleOidcSignIn(providerId, callbackUrl)}
+			onClick={() => {
+				rememberSignInMethod('oidc');
+				void handleOidcSignIn(providerId, callbackUrl);
+			}}
+			lastUsed={lastUsed}
 			className={className}
 		/>
 	);

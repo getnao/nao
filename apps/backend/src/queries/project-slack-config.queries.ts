@@ -47,6 +47,7 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 		transportMode,
 		appToken: settings.slackAppToken ?? '',
 		replyMode: toSlackReplyMode(settings.slackReplyMode),
+		dmScopeMissing: settings.slackDmScopeMissing ?? false,
 	};
 };
 
@@ -107,6 +108,42 @@ export const upsertProjectSlackConfig = async (data: {
 	};
 };
 
+/** Overwrite only the credential and transport fields, keeping the UI-managed ones. */
+export const applySlackTransportSettings = async (data: {
+	projectId: string;
+	botToken: string;
+	signingSecret: string;
+	transportMode: SlackTransportMode;
+	appToken: string;
+}): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, data.projectId)).execute(),
+			`Project not found: ${data.projectId}`,
+		);
+		const existing = project.slackSettings;
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					slackBotToken: data.botToken,
+					slackSigningSecret: data.signingSecret,
+					slackTransportMode: data.transportMode,
+					slackAppToken: data.appToken,
+					slackSettingsSource: 'env',
+					slackllmProvider: existing?.slackllmProvider ?? '',
+					slackllmModelId: existing?.slackllmModelId ?? '',
+					autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
+					autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+					slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+				},
+			})
+			.where(eq(s.project.id, data.projectId))
+			.execute();
+	});
+};
+
 export const updateProjectSlackModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
@@ -132,6 +169,8 @@ export const updateProjectSlackModel = async (
 					slackTransportMode: existing?.slackTransportMode ?? 'webhook',
 					slackAppToken: existing?.slackAppToken ?? '',
 					slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+					// A model change edits a UI-managed field; credential ownership is untouched.
+					slackSettingsSource: existing?.slackSettingsSource,
 				},
 			})
 			.where(eq(s.project.id, projectId))
@@ -192,6 +231,30 @@ export const updateProjectSlackAutoCreateUsers = async (
 	});
 };
 
+export const setSlackDmScopeMissing = async (projectId: string, missing: boolean): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.slackSettings;
+		if (!existing) {
+			return;
+		}
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					...existing,
+					slackDmScopeMissing: missing,
+				},
+			})
+			.where(eq(s.project.id, projectId))
+			.execute();
+	});
+};
+
 export const deleteProjectSlackConfig = async (projectId: string): Promise<void> => {
 	await db.update(s.project).set({ slackSettings: null }).where(eq(s.project.id, projectId)).execute();
 };
@@ -207,6 +270,7 @@ export interface SlackConfig {
 	transportMode: SlackTransportMode;
 	appToken: string;
 	replyMode: SlackReplyMode;
+	dmScopeMissing: boolean;
 }
 
 export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
@@ -228,6 +292,7 @@ export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
 			transportMode: 'socket',
 			appToken: settings.slackAppToken,
 			replyMode: toSlackReplyMode(settings.slackReplyMode),
+			dmScopeMissing: settings.slackDmScopeMissing ?? false,
 		});
 	}
 	return configs;

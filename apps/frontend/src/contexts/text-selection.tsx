@@ -73,15 +73,25 @@ export const useOptionalSelection = () => useContext(SelectionContext);
 export const SelectionProvider = ({
 	children,
 	persistenceConfig,
+	resetKey,
 }: {
 	children: React.ReactNode;
 	persistenceConfig?: PersistenceConfig;
+	resetKey?: string;
 }) => {
 	const [selection, setSelection] = useState<SelectionState | null>(null);
 	const [anchors, setAnchors] = useState<SelectionAnchor[]>([]);
 	const [openAnchorChatId, setOpenAnchorChatId] = useState<string | null>(null);
+	const [prevResetKey, setPrevResetKey] = useState(resetKey);
 	const [containerMounted, setContainerMounted] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
+
+	if (resetKey !== prevResetKey) {
+		setPrevResetKey(resetKey);
+		setSelection(null);
+		setAnchors([]);
+		setOpenAnchorChatId(null);
+	}
 
 	useEffect(() => {
 		setContainerMounted(true);

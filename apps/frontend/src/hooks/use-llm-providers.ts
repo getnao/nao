@@ -86,6 +86,7 @@ export function useLlmProviders() {
 				queryKey: trpc.project.listAvailableTranscribeModels.queryOptions().queryKey,
 			}),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getKnownTranscribeModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey }),
 		]);
 	};
 

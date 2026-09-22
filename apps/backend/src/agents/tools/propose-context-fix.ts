@@ -21,9 +21,16 @@ const EditSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Exact text to replace. Omit to create a new file or replace the whole file — then `new_string` is the full content.',
+			'Exact text to replace, scoped to only what THIS recommendation changes. Required when the file already ' +
+				'has content. Omit ONLY when creating a brand-new file or giving an existing but empty file its first ' +
+				'content — then `new_string` is the full file content.',
 		),
-	new_string: z.string().describe('Replacement text, or the full file content when `old_string` is omitted.'),
+	new_string: z
+		.string()
+		.describe(
+			'Replacement text containing only this recommendation\u2019s change (or the full content when creating a new ' +
+				'file). Never include edits belonging to another recommendation, even when it edits the same file.',
+		),
 });
 type EditInput = z.infer<typeof EditSchema>;
 
@@ -94,9 +101,13 @@ export function createContextFixCollector(
 	const editTool = createTool<EditInput, Ack>({
 		description:
 			'Propose a concrete edit to a human-written context file (RULES.md, semantics/**, docs/**, queries/**, ' +
-			'nao_config.yaml, agent/**) or a linked GitHub repo file under repos/<name>/** to fix a recommendation ' +
+			'nao_config.yaml, agent/**) or a linked repository file under repos/<name>/** to fix a recommendation ' +
 			'you just recorded. Never target generated warehouse files (databases/**) or unlinked repos/** paths — use ' +
-			'propose_manual_fix for those. Call once per logical change; multiple edits to the same file are merged.',
+			'propose_manual_fix for those. Each recommendation is applied INDEPENDENTLY from a clean copy of the ' +
+			'current file, so include ONLY this recommendation\u2019s change — never another recommendation\u2019s edits, ' +
+			'even when several recommendations touch the same file. To edit a file that already has content you must pass ' +
+			'old_string/new_string; omit old_string only to create a new file or to populate an existing empty file. ' +
+			'Call once per logical change; multiple edits to the same file within one recommendation are merged.',
 		inputSchema: EditSchema,
 		execute: async ({ suggestedFile, subjectKey, path: filePath, old_string, new_string }) => {
 			const target = resolveEditTarget(filePath, linkedRepos, allowContextEdits);
@@ -104,14 +115,22 @@ export function createContextFixCollector(
 			const fix = getOrCreate(suggestedFile, subjectKey);
 			const pending = fix.edits.find((edit) => edit.path === filePath);
 			const original = pending ? pending.oldContent : readFileSafe(filePath, projectFolder);
-			const fileExists = pending ? pending.kind === 'edit' : original !== null;
+			const kind: ProposedEdit['kind'] = pending ? pending.kind : original !== null ? 'edit' : 'create';
 			const baseContent = pending ? pending.newContent : (original ?? '');
+
+			if (baseContent !== '' && (old_string === undefined || old_string === '')) {
+				throw new Error(
+					`"${filePath}" already has content, so replace only the exact lines this recommendation changes: pass a ` +
+						'precise old_string/new_string instead of the whole file. Whole-file content is allowed only when ' +
+						'creating a new file, and each recommendation must contain only its own change.',
+				);
+			}
 
 			const nextContent = applyEdit(baseContent, old_string, new_string, filePath);
 
 			const proposed: ProposedEdit = {
 				path: filePath,
-				kind: fileExists ? 'edit' : 'create',
+				kind,
 				oldContent: original ?? '',
 				newContent: nextContent,
 				...target,
@@ -173,8 +192,8 @@ function resolveEditTarget(
 	if (isHumanWritableContextPath(filePath)) {
 		if (!allowContextEdits) {
 			throw new Error(
-				`"${filePath}" belongs to the context repository, but no GitHub repository is configured for context PRs. ` +
-					'Call propose_manual_fix unless this finding belongs in a linked GitHub repo under repos/<name>/**.',
+				`"${filePath}" belongs to the context repository, but no repository is connected for context pull requests. ` +
+					'Call propose_manual_fix unless this finding belongs in a linked repository under repos/<name>/**.',
 			);
 		}
 		return {};

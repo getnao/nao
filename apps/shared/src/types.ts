@@ -1,9 +1,14 @@
+import type { DocumentExtension } from './attachments';
+
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
 export const USER_ROLES = ['admin', 'user', 'viewer', 'context_admin'] as const satisfies readonly UserRole[];
 
 /** Project roles available when editing organization members (org roles never include context_admin). */
 export const ORG_MEMBER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly UserRole[];
+
+/** `invited` until the user replaces their temporary password on first sign-in. */
+export type MemberStatus = 'invited' | 'active';
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
 	admin: 'Admin',
@@ -17,9 +22,80 @@ export const TOOL_CALL_DENSITIES = ['compact', 'detailed'] as const;
 /** How much detail to show for tool calls in the chat. */
 export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 
+export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
+	budget: 'Budget alerts',
+	feedback: 'Feedback alerts',
+	story_refresh: 'Story refreshes',
+	shared: 'Shared with you',
+	subscription: 'Subscriptions',
+};
+
+export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
+	budget: 'Alerts when a provider budget limit is reached.',
+	feedback: 'Alerts when users leave positive or negative feedback.',
+	story_refresh: 'Results of your story refreshes.',
+	shared: 'When someone shares a story or chat with you.',
+	subscription: "When you're added to a story's scheduled delivery.",
+};
+
+export type SharedItemLabel = 'story' | 'chat';
+
+export type FeedbackNotificationPayload = {
+	kind: 'feedback';
+	vote: 'up' | 'down';
+	submitterName: string;
+	chatTitle: string | null;
+	explanation: string | null;
+};
+
+export type SharedNotificationPayload = {
+	kind: 'shared';
+	sharerName: string;
+	itemLabel: SharedItemLabel;
+	itemTitle: string;
+	visibility: Visibility;
+};
+
+export type StoryRefreshNotificationPayload = {
+	kind: 'story_refresh';
+	storyId: string;
+	status: 'refreshed' | 'failed';
+	queriesRefreshed?: number;
+	trigger?: 'manual' | 'schedule';
+	ownerName?: string;
+	storyTitle?: string;
+};
+
+export type StorySubscriptionNotificationPayload = {
+	kind: 'story_subscription';
+	storyId: string;
+	storyTitle: string;
+	ownerName: string;
+	/** Share id used to render the live story (charts, tables, maps) as a preview in the notification card. */
+	shareId: string | null;
+};
+
 export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
 export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
 export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
+
+export const SEMANTIC_LAYER_MODES = ['exclusive', 'prioritized', 'disabled'] as const;
+
+/**
+ * How the agent routes metric questions when the project declares a semantic layer.
+ * - `exclusive`: every question goes through the layer; raw SQL is not exposed at all.
+ * - `prioritized` (default): try the layer first, fall back to SQL when it cannot answer.
+ * - `disabled`: definitions stay readable as context, but the semantic tool is not exposed.
+ */
+export type SemanticLayerMode = (typeof SEMANTIC_LAYER_MODES)[number];
+
+export const DEFAULT_SEMANTIC_LAYER_MODE: SemanticLayerMode = 'prioritized';
 
 export interface UserPreferences {
 	toolCallDensity?: ToolCallDensity;
@@ -41,6 +117,7 @@ export const LLM_PROVIDERS = [
 	'google',
 	'mistral',
 	'openrouter',
+	'requesty',
 	'ollama',
 	'bedrock',
 	'vertex',
@@ -57,6 +134,7 @@ export const providerLabels: Record<LlmProviderKind, string> = {
 	google: 'Google',
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
+	requesty: 'Requesty',
 	ollama: 'Ollama',
 	bedrock: 'Amazon Bedrock',
 	vertex: 'Vertex AI',
@@ -148,12 +226,84 @@ export type FileTreeEntry = {
 	children?: FileTreeEntry[];
 };
 
-export const ALLOWED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
-export type ImageMediaType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+export type ContextGitUnavailableReason =
+	| 'github-unavailable'
+	| 'git-unavailable'
+	| 'repository-mismatch'
+	| 'no-token'
+	| 'no-repo'
+	| 'unsupported-provider'
+	| 'project-not-found'
+	| 'project-ambiguous';
 
-export type ImageUploadData = {
-	mediaType: ImageMediaType;
-	data: string;
+export type FileEditabilityReason =
+	| ContextGitUnavailableReason
+	| 'generated'
+	| 'rendered-template'
+	| 'synced-source'
+	| 'not-tracked';
+
+export type FileEditabilityGuidance =
+	| {
+			message: string;
+			actionKind: 'file' | 'route';
+			actionPath: string;
+			actionLabel: string;
+	  }
+	| {
+			message: string;
+			actionKind: null;
+			actionPath: null;
+			actionLabel: null;
+	  };
+
+export type FileContentResponse = {
+	content: string;
+	hash: string;
+	isEditable: boolean;
+	reason: FileEditabilityReason | null;
+	guidance?: FileEditabilityGuidance;
+};
+
+export type FileWriteResponse = {
+	hash: string;
+};
+
+export type FileContentSearchResult = {
+	path: string;
+	count: number;
+	line: number;
+	text: string;
+};
+
+export type FileContentSearchResponse = {
+	results: FileContentSearchResult[];
+	truncated: boolean;
+};
+
+export type ContextChangedFile = {
+	path: string;
+	kind: 'modified' | 'untracked' | 'deleted';
+	additions: number | null;
+	deletions: number | null;
+};
+
+export type ContextBranchInfo = {
+	currentBranch: string | null;
+	defaultBranch: string;
+	aheadCommitCount: number;
+	unpushedCommitCount: number;
+	branches: string[];
+	suggestedBranch: string;
+};
+
+export type ContextBranchCreationResult = ContextBranchInfo & {
+	usedFallbackBase: boolean;
+};
+
+export type ContextFileDiff = ContextChangedFile & {
+	oldContent: string;
+	newContent: string;
 };
 
 export const WARNING_BUDGET_THRESHOLD = 0.8;
@@ -199,6 +349,8 @@ export type ProjectChatListItem = {
 	source: string | null;
 	numberOfMessages: number;
 	totalTokens: number;
+	cacheReadTokens: number;
+	totalCost: number;
 	feedbackText: string;
 	downvotes: number;
 	upvotes: number;
@@ -209,10 +361,11 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
-export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx';
-export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx'] as const satisfies readonly ChatDownloadFormat[];
+export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
+export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
 
-export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat;
+/** A file taken out of permanent storage is recorded under its own extension. */
+export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
 
 export const ANALYTICS_EVENT_TYPES = ['page_view', 'download', 'fork', 'favorite', 'refresh', 'view_duration'] as const;
 export const ANALYTICS_ASSET_TYPES = ['chat', 'story'] as const;

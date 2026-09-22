@@ -6,11 +6,17 @@ interface UseStoryViewerLiveSettingsParams {
 	chatId: string;
 	storySlug: string;
 	shareId?: string;
+	enabled?: boolean;
 }
 
-export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseStoryViewerLiveSettingsParams) => {
+export const useStoryViewerLiveSettings = ({
+	chatId,
+	storySlug,
+	shareId,
+	enabled = true,
+}: UseStoryViewerLiveSettingsParams) => {
 	const queryClient = useQueryClient();
-	const { data } = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
+	const { data } = useQuery({ ...trpc.story.listVersions.queryOptions({ chatId, storySlug }), enabled });
 
 	const storyId = data?.id ?? null;
 	const isLive = data?.isLive ?? false;
@@ -18,54 +24,66 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseSt
 	const cacheSchedule = data?.cacheSchedule ?? null;
 	const cacheScheduleDescription = data?.cacheScheduleDescription ?? null;
 
-	const invalidateSharedStory = () => {
+	const invalidateSharedStory = async () => {
 		if (!shareId) {
 			return;
 		}
-		void queryClient.invalidateQueries({
+		await queryClient.invalidateQueries({
 			queryKey: trpc.storyShare.get.queryKey({ shareId }),
 		});
 	};
 
 	const updateLiveSettingsMutation = useMutation(
 		trpc.story.updateLiveSettings.mutationOptions({
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
-				});
-				invalidateSharedStory();
+			onSuccess: async () => {
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
+					}),
+					invalidateSharedStory(),
+				]);
 			},
 		}),
 	);
 
 	const refreshDataMutation = useMutation(
 		trpc.story.refreshData.mutationOptions({
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({
-					queryKey: trpc.automation.feed.queryKey(),
-				});
-				invalidateSharedStory();
+			onSettled: async () => {
+				const invalidations = [
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.automation.feed.queryKey(),
+					}),
+					invalidateSharedStory(),
+				];
+				if (storyId) {
+					invalidations.push(
+						queryClient.invalidateQueries({
+							queryKey: trpc.story.getStandalone.queryKey({ storyId }),
+						}),
+					);
+				}
+				await Promise.all(invalidations);
 			},
 		}),
 	);
 
 	const handleSaveSettings = useCallback(
-		(settings: {
+		async (settings: {
 			isLive: boolean;
 			isLiveTextDynamic: boolean;
 			cacheSchedule: string | null;
 			cacheScheduleDescription: string | null;
 		}) => {
-			updateLiveSettingsMutation.mutate({ chatId, storySlug, ...settings });
+			await updateLiveSettingsMutation.mutateAsync({ chatId, storySlug, ...settings });
 		},
 		[chatId, storySlug, updateLiveSettingsMutation],
 	);

@@ -8,6 +8,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToolCallActions } from '@/contexts/tool-call-actions';
+import { useDateFormat } from '@/hooks/use-date-format';
 import { downloadCsv, downloadXlsx, tableToCsv } from '@/lib/table-export';
 
 export type DataExportFormat = 'csv' | 'xlsx';
@@ -24,6 +25,7 @@ interface ExportDataMenuProps {
 export function ExportDataMenu({ columns, data, filename, onExport, align = 'end', children }: ExportDataMenuProps) {
 	const [open, setOpen] = useState(false);
 	const toolCallActions = useToolCallActions();
+	const dateFormat = useDateFormat();
 
 	const handleOpenChange = (next: boolean) => {
 		setOpen(next);
@@ -32,9 +34,9 @@ export function ExportDataMenu({ columns, data, filename, onExport, align = 'end
 
 	const handleExport = async (format: DataExportFormat) => {
 		if (format === 'csv') {
-			downloadCsv(`${filename}.csv`, tableToCsv(columns, data));
+			downloadCsv(`${filename}.csv`, tableToCsv(columns, data, dateFormat));
 		} else {
-			await downloadXlsx(`${filename}.xlsx`, columns, data);
+			await downloadXlsx(`${filename}.xlsx`, columns, data, dateFormat);
 		}
 		onExport?.(format);
 	};

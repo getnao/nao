@@ -1,78 +1,327 @@
 import '../src/env';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import s from '../src/db/abstractSchema';
+import { db } from '../src/db/db';
 import { getMessagesUsage, getTotalUsage } from '../src/queries/usage.queries';
+import {
+	getUserPreferences,
+	mutateUserPreferences,
+	updateUserPreferences,
+} from '../src/queries/user-preference.queries';
+import type { UsagePeriodRange } from '../src/types/usage';
+import { usagePeriodRangeSchema } from '../src/types/usage';
 import { formatDate } from '../src/utils/date';
 
-const queryRows = vi.hoisted(() => ({ value: [] as Record<string, unknown>[] }));
+vi.mock('../src/db/db', async () => {
+	const { default: Database } = await import('better-sqlite3');
+	const { drizzle } = await import('drizzle-orm/better-sqlite3');
+	const { generateSQLiteDrizzleJson, generateSQLiteMigration } = await import('drizzle-kit/api');
+	const sqliteSchema = await import('../src/db/sqlite-schema');
 
-vi.mock('../src/db/db', () => {
-	const query = {
-		from: () => query,
-		innerJoin: () => query,
-		leftJoin: () => query,
-		where: () => query,
-		groupBy: async () => queryRows.value,
-		then: (resolve: (rows: Record<string, unknown>[]) => unknown, reject: (error: unknown) => unknown) =>
-			Promise.resolve(queryRows.value).then(resolve, reject),
-	};
+	const sqlite = new Database(':memory:');
+	const statements = await generateSQLiteMigration(
+		await generateSQLiteDrizzleJson({}),
+		await generateSQLiteDrizzleJson(sqliteSchema),
+	);
+	for (const statement of statements) {
+		sqlite.exec(statement);
+	}
+	sqlite.pragma('foreign_keys = ON');
 
-	return {
-		db: {
-			select: () => query,
-		},
-	};
+	return { db: drizzle(sqlite, { schema: sqliteSchema }) };
 });
 
 vi.mock('../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: async () => [],
 }));
 
+const PROJECT_ID = 'usage-project';
+const OTHER_PROJECT_ID = 'usage-project-other';
+const USER_ID = 'usage-user';
+const OTHER_USER_ID = 'usage-user-other';
+const CHAT_ID = 'usage-chat';
+
 describe('usage query results', () => {
-	beforeEach(() => {
-		queryRows.value = [];
+	beforeAll(async () => {
+		await db.insert(s.user).values([
+			{ id: USER_ID, name: 'Usage User', email: 'usage@example.com' },
+			{ id: OTHER_USER_ID, name: 'Other Usage User', email: 'other-usage@example.com' },
+		]);
+		await db.insert(s.project).values([
+			{ id: PROJECT_ID, name: 'Usage Project', type: 'local', path: '/tmp/usage-project' },
+			{ id: OTHER_PROJECT_ID, name: 'Other Usage Project', type: 'local', path: '/tmp/usage-project-other' },
+		]);
+		await db.insert(s.chat).values({ id: CHAT_ID, projectId: PROJECT_ID, userId: USER_ID });
 	});
 
-	it('normalizes total usage aggregates to numbers', async () => {
-		queryRows.value = [{ totalMessages: '12', uniqueUsers: '4' }];
+	beforeEach(async () => {
+		await db.delete(s.userPreference);
+		await db.delete(s.llmInference);
+		await db.delete(s.chatMessage);
+	});
 
-		await expect(getTotalUsage('project-1', { granularity: 'day' })).resolves.toEqual({
-			totalMessages: 12,
-			uniqueUsers: 4,
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	afterAll(() => {
+		db.$client.close();
+	});
+
+	it('returns total usage aggregates as numbers', async () => {
+		await db.insert(s.chatMessage).values([
+			{ id: 'total-1', chatId: CHAT_ID, role: 'user' },
+			{ id: 'total-2', chatId: CHAT_ID, role: 'user' },
+		]);
+
+		await expect(getTotalUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } })).resolves.toEqual({
+			totalMessages: 2,
+			uniqueUsers: 1,
 		});
 	});
 
-	it('normalizes message aggregates and includes context recommendations', async () => {
-		const date = formatDate(new Date(), 'day');
-		queryRows.value = [
-			{
-				date,
-				messageCount: '8',
-				webMessageCount: '1',
-				slackMessageCount: '1',
-				teamsMessageCount: '1',
-				telegramMessageCount: '1',
-				whatsappMessageCount: '1',
-				adminMessageCount: '1',
-				mcpMessageCount: '1',
-				contextRecommendationsMessageCount: '1',
-			},
-		];
+	it.each([
+		[{ value: 24, unit: 'hour' }, 24],
+		[{ value: 15, unit: 'day' }, 15],
+		[{ value: 30, unit: 'day' }, 30],
+		[{ value: 6, unit: 'month' }, 6],
+	] satisfies [UsagePeriodRange, number][])(
+		'returns one data point per period within the natural granularity cap',
+		async (period, expectedLength) => {
+			await expect(getMessagesUsage(PROJECT_ID, { period })).resolves.toHaveLength(expectedLength);
+		},
+	);
 
-		const records = await getMessagesUsage('project-1', { granularity: 'day' });
-		const record = records.find((item) => item.date === date);
+	it('uses the same calendar boundary for totals and chart data', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+		const period = { value: 15, unit: 'day' as const };
+
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'outside-calendar-range',
+				chatId: CHAT_ID,
+				role: 'user',
+				createdAt: new Date('2026-08-19T12:00:00Z'),
+			},
+			{
+				id: 'inside-calendar-range',
+				chatId: CHAT_ID,
+				role: 'user',
+				createdAt: new Date('2026-08-20T12:00:00Z'),
+			},
+		]);
+
+		const [records, total] = await Promise.all([
+			getMessagesUsage(PROJECT_ID, { period }),
+			getTotalUsage(PROJECT_ID, { period }),
+		]);
+
+		expect(records[0]?.date).toBe('2026-08-20');
+		expect(records.reduce((sum, record) => sum + record.messageCount, 0)).toBe(1);
+		expect(total.totalMessages).toBe(1);
+	});
+
+	it('stores period preferences independently for each user and project', async () => {
+		const usagePeriod = { mode: '6m' as const };
+		const savedUsagePeriods = [{ id: 'year', days: 365, granularity: 'month' as const }];
+		const projectPreferences = { usagePeriod, savedUsagePeriods };
+
+		await updateUserPreferences(USER_ID, {
+			projectPreferences: {
+				[PROJECT_ID]: projectPreferences,
+			},
+		});
+
+		await expect(getUserPreferences(USER_ID)).resolves.toEqual({
+			projectPreferences: {
+				[PROJECT_ID]: projectPreferences,
+			},
+		});
+		await expect(getUserPreferences(OTHER_USER_ID)).resolves.toEqual({});
+		expect((await getUserPreferences(USER_ID)).projectPreferences?.[OTHER_PROJECT_ID]).toBeUndefined();
+	});
+
+	it('serializes concurrent project preference transforms', async () => {
+		await updateUserPreferences(USER_ID, { toolCallDensity: 'detailed' });
+		await Promise.all([
+			mutateUserPreferences(USER_ID, (current) => {
+				const projectPreferences = current.projectPreferences?.[PROJECT_ID] ?? {};
+				return {
+					...current,
+					projectPreferences: {
+						...current.projectPreferences,
+						[PROJECT_ID]: {
+							...projectPreferences,
+							savedUsagePeriods: [
+								...(projectPreferences.savedUsagePeriods ?? []),
+								{ id: 'first', days: 30, granularity: 'day' },
+							],
+						},
+					},
+				};
+			}),
+			mutateUserPreferences(USER_ID, (current) => {
+				const projectPreferences = current.projectPreferences?.[PROJECT_ID] ?? {};
+				return {
+					...current,
+					projectPreferences: {
+						...current.projectPreferences,
+						[PROJECT_ID]: {
+							...projectPreferences,
+							savedUsagePeriods: [
+								...(projectPreferences.savedUsagePeriods ?? []),
+								{ id: 'second', days: 365, granularity: 'month' },
+							],
+						},
+					},
+				};
+			}),
+		]);
+
+		const preferences = await getUserPreferences(USER_ID);
+		expect(preferences.toolCallDensity).toBe('detailed');
+		expect(preferences.projectPreferences?.[PROJECT_ID]?.savedUsagePeriods).toHaveLength(2);
+		expect(preferences.projectPreferences?.[PROJECT_ID]?.savedUsagePeriods).toEqual(
+			expect.arrayContaining([
+				{ id: 'first', days: 30, granularity: 'day' },
+				{ id: 'second', days: 365, granularity: 'month' },
+			]),
+		);
+	});
+
+	it('accepts positive period values without a maximum', () => {
+		expect(usagePeriodRangeSchema.safeParse({ value: 24, unit: 'hour' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 5000, unit: 'day' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 1000, unit: 'month' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 0, unit: 'day' }).success).toBe(false);
+		expect(usagePeriodRangeSchema.safeParse({ value: 1.5, unit: 'day' }).success).toBe(false);
+	});
+
+	it('uses an explicit chart granularity', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+
+		await expect(
+			getMessagesUsage(PROJECT_ID, {
+				period: { value: 365, unit: 'day' },
+				granularity: 'month',
+			}),
+		).resolves.toHaveLength(13);
+	});
+
+	it('counts messages by source, including context recommendations', async () => {
+		const sources = [
+			'web',
+			'slack',
+			'teams',
+			'telegram',
+			'mattermost',
+			'whatsapp',
+			'admin',
+			'mcp',
+			'contextRecommendations',
+		] as const;
+		const now = new Date();
+		await db.insert(s.chatMessage).values(
+			sources.map((source, index) => ({
+				id: `source-${index}`,
+				chatId: CHAT_ID,
+				role: 'user' as const,
+				source,
+				createdAt: now,
+			})),
+		);
+
+		const records = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
+		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
-			messageCount: 8,
+			messageCount: 9,
 			webMessageCount: 1,
 			slackMessageCount: 1,
 			teamsMessageCount: 1,
 			telegramMessageCount: 1,
+			mattermostMessageCount: 1,
 			whatsappMessageCount: 1,
 			adminMessageCount: 1,
 			mcpMessageCount: 1,
 			contextRecommendationsMessageCount: 1,
+		});
+	});
+
+	it('unions auxiliary inference usage with message usage across dates', async () => {
+		const now = new Date();
+		const previousDay = new Date(now);
+		previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'union-user',
+				chatId: CHAT_ID,
+				role: 'user',
+				source: 'web',
+				createdAt: new Date(now.getTime() - 1_000),
+			},
+			{
+				id: 'union-assistant',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				inputNoCacheTokens: 100,
+				inputCacheReadTokens: 10,
+				outputTotalTokens: 50,
+				totalTokens: 160,
+				createdAt: now,
+			},
+		]);
+		await db.insert(s.llmInference).values([
+			{
+				id: 'union-inference-current',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				chatId: CHAT_ID,
+				type: 'title_generation',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				inputNoCacheTokens: 30,
+				inputCacheReadTokens: 10,
+				outputTotalTokens: 10,
+				totalTokens: 50,
+				createdAt: now,
+			},
+			{
+				id: 'union-inference-previous',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'compaction',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				inputNoCacheTokens: 40,
+				outputTotalTokens: 5,
+				totalTokens: 45,
+				createdAt: previousDay,
+			},
+		]);
+
+		const records = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
+
+		expect(records.find((item) => item.date === formatDate(now, 'day'))).toMatchObject({
+			messageCount: 1,
+			webMessageCount: 1,
+			inputNoCacheTokens: 130,
+			inputCacheReadTokens: 20,
+			outputTotalTokens: 60,
+			totalTokens: 210,
+		});
+		expect(records.find((item) => item.date === formatDate(previousDay, 'day'))).toMatchObject({
+			messageCount: 0,
+			inputNoCacheTokens: 40,
+			outputTotalTokens: 5,
+			totalTokens: 45,
 		});
 	});
 });

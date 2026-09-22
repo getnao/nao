@@ -9,6 +9,7 @@ export type BudgetPeriod = z.infer<typeof budgetPeriodSchema>;
 export const budgetEntrySchema = z.object({
 	provider: llmProviderSchema,
 	limitUsd: z.int().min(0).max(MAX_BUDGET_LIMIT_USD),
+	perUserLimitUsd: z.int().min(0).max(MAX_BUDGET_LIMIT_USD).optional(),
 	period: budgetPeriodSchema,
 });
 

@@ -13,12 +13,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import type { LucideIcon } from 'lucide-react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { trpc } from '@/main';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { cn } from '@/lib/utils';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
 	{ value: 'stacked_bar', label: 'Stacked bar' },
+	{ value: 'horizontal_bar', label: 'Horizontal bar' },
 	{ value: 'line', label: 'Line' },
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
@@ -50,7 +51,13 @@ const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon
 	{ value: 'area', label: 'Area', icon: ChartArea },
 ];
 
-const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
+const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
+	'pie',
+	'kpi_card',
+	'radar',
+	'horizontal_bar',
+	'horizontal_bar_100',
+]);
 
 type UnitPlacement = 'prefix' | 'suffix';
 
@@ -64,6 +71,9 @@ function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
 	if (type === 'stacked_area_100') {
 		return 'stacked_area';
 	}
+	if (type === 'horizontal_bar_100') {
+		return 'horizontal_bar';
+	}
 	return type;
 }
 
@@ -74,6 +84,9 @@ function percentChartType(type: displayChart.ChartType): displayChart.ChartType 
 	}
 	if (type === 'stacked_area' || type === 'stacked_area_100') {
 		return 'stacked_area_100';
+	}
+	if (type === 'horizontal_bar' || type === 'horizontal_bar_100') {
+		return 'horizontal_bar_100';
 	}
 	return type;
 }
@@ -124,6 +137,12 @@ export function ChartConfigEditDialog({
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
 	const supportsAxisLabels = displayChart.chartTypeSupportsAxisLabels(draft.chart_type);
+	const isPercentNormalized = displayChart.isPercentStackedChartType(draft.chart_type);
+	const isHorizontalBar = baseChartType(draft.chart_type) === 'horizontal_bar';
+	const showNormalizeToggle =
+		displayChart.isStackedChartType(draft.chart_type) &&
+		(!isHorizontalBar || isPercentNormalized || draft.series.length >= 2);
+	const canEnableNormalize = !isHorizontalBar || draft.series.length >= 2;
 	const unsupportedNumberFormat = useMemo(
 		() =>
 			draft.series
@@ -331,7 +350,7 @@ export function ChartConfigEditDialog({
 						</Select>
 					</div>
 
-					{displayChart.isStackedChartType(draft.chart_type) && (
+					{showNormalizeToggle && (
 						<div className='flex items-center justify-between gap-3'>
 							<div className='grid gap-0.5'>
 								<label htmlFor='chart-normalize' className='text-sm font-semibold text-foreground'>
@@ -343,7 +362,8 @@ export function ChartConfigEditDialog({
 							</div>
 							<Switch
 								id='chart-normalize'
-								checked={displayChart.isPercentStackedChartType(draft.chart_type)}
+								checked={isPercentNormalized}
+								disabled={!isPercentNormalized && !canEnableNormalize}
 								onCheckedChange={(checked) =>
 									setDraft((prev) => ({
 										...prev,
@@ -654,7 +674,7 @@ export function ChartConfigEditDialog({
 							</label>
 							<Switch
 								id='show-data-labels'
-								checked={Boolean(draft.show_data_labels)}
+								checked={displayChart.resolveShowDataLabels(draft.chart_type, draft.show_data_labels)}
 								onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
 							/>
 						</div>
@@ -708,7 +728,8 @@ export function DisplayChartEditDialog({
 	data,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
-	const { messages, setMessages } = useAgentContext();
+	const { setMessages } = useAgentContext();
+	const messages = useAgentMessages();
 
 	const updateMutation = useMutation(
 		trpc.chart.updateConfig.mutationOptions({

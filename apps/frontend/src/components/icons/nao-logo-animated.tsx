@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 type NaoLogoAnimatedProps = {
@@ -9,9 +9,13 @@ type NaoLogoAnimatedProps = {
 	durationSeconds?: number;
 	loop?: boolean;
 	title?: string;
+	color?: string;
 };
 
 const TOTAL_FRAMES = 97;
+
+/** Defaults to the live brand color so the loading logo follows white-label theming. */
+const DEFAULT_LOGO_COLOR = 'var(--violet)';
 
 type Branch = {
 	full: string;
@@ -132,10 +136,14 @@ export default function NaoLogoAnimated({
 	durationSeconds = 1.617,
 	loop = true,
 	title = 'nao',
+	color = DEFAULT_LOGO_COLOR,
 }: NaoLogoAnimatedProps) {
 	const reducedMotion = usePrefersReducedMotion();
+	const idPrefix = `${useId().replace(/[^a-zA-Z0-9]/g, '')}-`;
+	const filterId = `${idPrefix}filter0_n_457_57730`;
 	const dur = `${durationSeconds}s`;
 	const repeatCount = loop ? 'indefinite' : 1;
+	const highlight = `color-mix(in srgb, ${color}, white 12%)`;
 
 	return (
 		<svg
@@ -150,14 +158,15 @@ export default function NaoLogoAnimated({
 			aria-label={title}
 		>
 			<title>{title}</title>
-			<g filter='url(#filter0_n_457_57730)'>
+			<g filter={`url(#${filterId})`}>
 				{BRANCHES.map((branch) => {
 					const { values, keyTimes } = buildMorph(branch, loop);
+					const gradientId = `${idPrefix}${branch.gradientId}`;
 					return (
 						<path
 							key={branch.gradientId}
 							d={reducedMotion ? branch.full : branch.collapsed}
-							fill={`url(#${branch.gradientId})`}
+							fill={`url(#${gradientId})`}
 						>
 							{!reducedMotion && (
 								<animate
@@ -181,7 +190,7 @@ export default function NaoLogoAnimated({
 			</g>
 			<defs>
 				<filter
-					id='filter0_n_457_57730'
+					id={filterId}
 					x='0'
 					y='0'
 					width='111.826'
@@ -214,71 +223,25 @@ export default function NaoLogoAnimated({
 						<feMergeNode in='color1' />
 					</feMerge>
 				</filter>
-				<radialGradient
-					id='paint0_radial_457_57730'
-					cx='0'
-					cy='0'
-					r='1'
-					gradientUnits='userSpaceOnUse'
-					gradientTransform='translate(58.7348 4.55734) rotate(90) scale(80.2902 233.258)'
-				>
-					<stop offset='0.157902' stopColor='#522BFF' />
-					<stop offset='0.466346' stopColor='#4F5EFF' />
-					<stop offset='0.798077' stopColor='#522BFF' />
-					<stop offset='1' stopColor='#522BFF' />
-				</radialGradient>
-				<radialGradient
-					id='paint1_radial_457_57730'
-					cx='0'
-					cy='0'
-					r='1'
-					gradientUnits='userSpaceOnUse'
-					gradientTransform='translate(58.7348 4.55734) rotate(90) scale(80.2902 233.258)'
-				>
-					<stop offset='0.157902' stopColor='#522BFF' />
-					<stop offset='0.466346' stopColor='#4F5EFF' />
-					<stop offset='0.798077' stopColor='#522BFF' />
-					<stop offset='1' stopColor='#522BFF' />
-				</radialGradient>
-				<radialGradient
-					id='paint2_radial_457_57730'
-					cx='0'
-					cy='0'
-					r='1'
-					gradientUnits='userSpaceOnUse'
-					gradientTransform='translate(58.7348 4.55734) rotate(90) scale(80.2902 233.258)'
-				>
-					<stop offset='0.157902' stopColor='#522BFF' />
-					<stop offset='0.466346' stopColor='#4F5EFF' />
-					<stop offset='0.798077' stopColor='#522BFF' />
-					<stop offset='1' stopColor='#522BFF' />
-				</radialGradient>
-				<radialGradient
-					id='paint3_radial_457_57730'
-					cx='0'
-					cy='0'
-					r='1'
-					gradientUnits='userSpaceOnUse'
-					gradientTransform='translate(58.7348 4.55734) rotate(90) scale(80.2902 233.258)'
-				>
-					<stop offset='0.157902' stopColor='#522BFF' />
-					<stop offset='0.466346' stopColor='#4F5EFF' />
-					<stop offset='0.798077' stopColor='#522BFF' />
-					<stop offset='1' stopColor='#522BFF' />
-				</radialGradient>
-				<radialGradient
-					id='paint4_radial_457_57730'
-					cx='0'
-					cy='0'
-					r='1'
-					gradientUnits='userSpaceOnUse'
-					gradientTransform='translate(58.7348 4.55734) rotate(90) scale(80.2902 233.258)'
-				>
-					<stop offset='0.157902' stopColor='#522BFF' />
-					<stop offset='0.466346' stopColor='#4F5EFF' />
-					<stop offset='0.798077' stopColor='#522BFF' />
-					<stop offset='1' stopColor='#522BFF' />
-				</radialGradient>
+				{BRANCHES.map((branch) => {
+					const gradientId = `${idPrefix}${branch.gradientId}`;
+					return (
+						<radialGradient
+							key={branch.gradientId}
+							id={gradientId}
+							cx='0'
+							cy='0'
+							r='1'
+							gradientUnits='userSpaceOnUse'
+							gradientTransform='translate(58.7348 4.55734) rotate(90) scale(80.2902 233.258)'
+						>
+							<stop offset='0.157902' style={{ stopColor: color }} />
+							<stop offset='0.466346' style={{ stopColor: highlight }} />
+							<stop offset='0.798077' style={{ stopColor: color }} />
+							<stop offset='1' style={{ stopColor: color }} />
+						</radialGradient>
+					);
+				})}
 			</defs>
 		</svg>
 	);

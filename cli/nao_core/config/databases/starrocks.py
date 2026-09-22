@@ -173,16 +173,26 @@ class StarRocksDatabaseContext(DatabaseContext):
         ]
 
     def columns(self) -> list[dict[str, Any]]:
+        if self._columns_cache is None:
+            self._columns_load_failed = False
+            columns = self._load_columns()
+            if columns is None:
+                self._columns_load_failed = True
+                return []
+            self._columns_cache = columns
+        return self._filter_excluded_columns(self._columns_cache)
+
+    def _load_columns(self) -> list[dict[str, Any]] | None:
         try:
             columns = self._columns_from_information_schema()
-            if columns:
-                return self._filter_excluded_columns(columns)
         except Exception:
-            pass
+            columns = []
+        if columns:
+            return columns
         try:
-            return self._filter_excluded_columns(self._columns_from_show_full_columns())
+            return self._columns_from_show_full_columns()
         except Exception:
-            return []
+            return None
 
     def row_count(self) -> int:
         try:

@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 
 import { trpc } from '@/main';
 
+export const DEFAULT_BRAND_COLOR = '#522bff';
+
 export interface BrandingState {
 	enabled: boolean;
 	appName: string | null;

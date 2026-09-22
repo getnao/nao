@@ -6,7 +6,7 @@ import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from
 import { llmTelemetry } from '../agents/telemetry';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { sanitizeCron } from '../utils/cron';
-import { resolveProviderModel } from '../utils/llm';
+import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 
 /** Reasoning models spend most of the budget thinking before writing the expression. */
 const MAX_OUTPUT_TOKENS = 1024;
@@ -52,12 +52,13 @@ export async function naturalLanguageToCron(projectId: string, text: string): Pr
 async function resolveModelForProject(
 	projectId: string,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const provider = await llmConfigQueries.getProjectModelProvider(projectId);
+	const pinned = await resolveDefaultModelSelection(projectId, 'other');
+	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
 	if (!provider) {
 		return null;
 	}
 
-	const extractorModelId = getProviderMeta(provider).extractorModelId;
-	const model = await resolveProviderModel(projectId, provider, extractorModelId, false);
+	const modelId = pinned?.modelId ?? getProviderMeta(provider).extractorModelId;
+	const model = await resolveProviderModel(projectId, provider, modelId, false);
 	return model ? { provider, model } : null;
 }

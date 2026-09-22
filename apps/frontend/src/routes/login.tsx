@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { signIn } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
+import { useIsCloud } from '@/hooks/use-nao-mode';
+import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
 
@@ -30,7 +32,7 @@ function Login() {
 	const [serverError, setServerError] = useState<string | undefined>(oauthError);
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const isCloud = config.data?.naoMode === 'cloud';
+	const isCloud = useIsCloud();
 	const isUserLoginEnabled = config.data?.enableUserLogin;
 	const isUserSignupEnabled = config.data?.enableUserSignup;
 
@@ -46,6 +48,7 @@ function Login() {
 			setServerError(undefined);
 			await signIn.email(value, {
 				onSuccess: () => {
+					rememberSignInMethod('email');
 					if (oauthAuthorizeUrl) {
 						window.location.href = oauthAuthorizeUrl;
 					} else if (safeRedirect) {
@@ -90,17 +93,17 @@ function Login() {
 				type='email'
 				title='Email'
 				placeholder='joe@gmail.com'
-				className='mb-6'
+				className='mb-4'
 			/>
 			<FormTextField
 				form={form}
 				name='password'
 				type='password'
 				title='Password'
-				className={isUserLoginEnabled && isSmtpSetup.data ? 'mb-2' : 'mb-10'}
+				className={isUserLoginEnabled && isSmtpSetup.data ? 'mb-2' : 'mb-8'}
 			/>
 			{isUserLoginEnabled && isSmtpSetup.data && (
-				<div className='text-right mb-8'>
+				<div className='text-right mb-6'>
 					<Link
 						to='/forgot-password'
 						className='text-xs text-foreground font-medium underline underline-offset-2'

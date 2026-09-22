@@ -3,12 +3,15 @@ import dbConfig, { Dialect } from '../../db/dbConfig';
 import { Block, Bold, Br, Code, CodeBlock, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import type { LinkedContextRepo } from '../../types/context-recommendation';
 import { ALLOWED_APP_DB_VIEWS } from '../../utils/app-db-allowlist';
+import type { ContextPresence } from '../../utils/nao-config';
 import { AppDbTimestamps } from './app-db-timestamps';
 import { NaoContextStructure } from './nao-context-structure';
 
 export function renderContextRecommendationsSystemPrompt(options?: {
 	proposeFixes?: boolean;
 	linkedRepos?: LinkedContextRepo[];
+	templates?: string[];
+	contextPresence?: ContextPresence;
 	contextRepoConnected?: boolean;
 	customInstructions?: string;
 }): string {
@@ -18,6 +21,8 @@ export function renderContextRecommendationsSystemPrompt(options?: {
 		<ContextRecommendationsSystemPrompt
 			proposeFixes={options?.proposeFixes ?? false}
 			linkedRepos={options?.linkedRepos ?? []}
+			templates={options?.templates}
+			contextPresence={options?.contextPresence}
 			contextRepoConnected={options?.contextRepoConnected ?? false}
 			customInstructions={customInstructions}
 		/>,
@@ -27,11 +32,15 @@ export function renderContextRecommendationsSystemPrompt(options?: {
 function ContextRecommendationsSystemPrompt({
 	proposeFixes,
 	linkedRepos,
+	templates,
+	contextPresence,
 	contextRepoConnected,
 	customInstructions,
 }: {
 	proposeFixes: boolean;
 	linkedRepos: LinkedContextRepo[];
+	templates?: string[];
+	contextPresence?: ContextPresence;
 	contextRepoConnected: boolean;
 	customInstructions?: string;
 }) {
@@ -50,7 +59,11 @@ function ContextRecommendationsSystemPrompt({
 				context that you may recommend improving, correcting, or extending.
 			</Span>
 
-			<NaoContextStructure />
+			<NaoContextStructure
+				templates={templates}
+				repoNames={linkedRepos.map((repo) => repo.name)}
+				contextPresence={contextPresence}
+			/>
 			<Span>
 				<Code>RULES.md</Code> and <Code>semantics/*.md</Code> hold the project-wide rules and metric definitions
 				the agent relies on — the most common place a fix belongs.
@@ -154,6 +167,20 @@ function ContextRecommendationsSystemPrompt({
 					<ListItem>
 						<Code>semantic_missing</Code> — the agent lacked semantics definitions (a metric, a dimension, a
 						domain concept) to answer correctly.
+					</ListItem>
+					<ListItem>
+						<Code>context_bloat</Code> — a monolithic context file whose size inflates token cost on every
+						read (or gets truncated so the agent never sees all of it) and should be split into smaller,
+						focused files. The run prompt&apos;s read-cost table is the signal.
+					</ListItem>
+					<ListItem>
+						<Code>skills</Code> — the finding is about a reusable skill under{' '}
+						<Code>agent/skills/&lt;name&gt;.md</Code>, in any of three ways: <Bold>create</Bold> a new skill
+						when a repeatable analysis process is re-derived across many chats (or a heavy always-loaded
+						procedure surfaced by the read-cost table should move out of the always-loaded context);{' '}
+						<Bold>improve</Bold> an existing skill that is incomplete, unclear, or outdated; or{' '}
+						<Bold>fix</Bold> an existing skill whose instructions are wrong and propagate the same mistake
+						across chats.
 					</ListItem>
 					<ListItem>
 						<Code>other</Code> — repeated corrections, friction, coverage gaps that do not fit above.
@@ -319,6 +346,14 @@ function ProposeFixesSection({
 				pull request. Pass the same <Code>suggestedFile</Code> and <Code>subjectKey</Code> you recorded so the
 				fix attaches to the right recommendation.
 			</Span>
+			<Span>
+				<Bold>Each recommendation is applied independently.</Bold> Every fix is evaluated against a clean copy
+				of the current file, and the user may apply one recommendation without the others. When several
+				recommendations edit the <Bold>same</Bold> file, each <Code>edit_file</Code> call must contain{' '}
+				<Bold>only that recommendation&apos;s change</Bold> relative to the file as it exists on disk now —
+				never carry over the edit you just proposed for another recommendation. Do not assume an earlier fix is
+				already applied.
+			</Span>
 			<LinkedRepos repos={linkedRepos} />
 			<List>
 				<ListItem>
@@ -327,8 +362,9 @@ function ProposeFixesSection({
 					{contextRepoConnected ? (
 						<>
 							call <Code>edit_file</Code> with a precise <Code>old_string</Code> / <Code>new_string</Code>{' '}
-							(omit <Code>old_string</Code> to create a file). Read the file first so the edit applies
-							cleanly.
+							scoped to just this finding&apos;s change (omit <Code>old_string</Code> only to create a new
+							file or to populate an existing empty file — you cannot replace a whole file that already
+							has content). Read the file first so the edit applies cleanly.
 						</>
 					) : (
 						<>

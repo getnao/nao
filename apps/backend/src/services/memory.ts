@@ -14,7 +14,7 @@ import type {
 	UserMemory,
 	UserProfile,
 } from '../types/memory';
-import { resolveAnnotationModelId, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { posthog, PostHogEvent } from './posthog';
 
@@ -61,8 +61,11 @@ class MemoryService {
 			return;
 		}
 
-		const modelId = await this._getExtractorModelId(opts.projectId, opts.provider, opts.modelId);
-		const model = await this._resolveModel(opts.projectId, opts.provider, modelId);
+		const pinned = await resolveDefaultModelSelection(opts.projectId, 'other');
+		const provider = pinned?.provider ?? opts.provider;
+		const modelId =
+			pinned?.modelId ?? (await this._getExtractorModelId(opts.projectId, opts.provider, opts.modelId));
+		const model = await this._resolveModel(opts.projectId, provider, modelId);
 		if (!model) {
 			return;
 		}
@@ -83,6 +86,7 @@ class MemoryService {
 
 		this._trackMemoryExtraction({
 			...opts,
+			provider,
 			modelId,
 			usage: extractorResult.usage,
 			newCount,
@@ -91,6 +95,7 @@ class MemoryService {
 
 		await this._saveInferenceRecord({
 			...opts,
+			provider,
 			modelId,
 			usage: extractorResult.usage,
 		});

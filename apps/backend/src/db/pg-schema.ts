@@ -1,11 +1,26 @@
-import type { MapSettings, McpChartEmbedStoredConfig, McpMapEmbedStoredConfig } from '@nao/shared';
+import {
+	type BackgroundModelSettings,
+	DEFAULT_USER_GROUP_CONFIG,
+	type MapSettings,
+	type McpChartEmbedStoredConfig,
+	type McpMapEmbedStoredConfig,
+	type SsoGroupProvider,
+	type StoredDatabaseContextAccess,
+	type StoredLegacyDatabaseContextAccessV1,
+	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectRowSecurity,
+	type StoredUserGroupConfig,
+	type StoredUserGroupContextAccess,
+	type StoredUserGroupRowPolicies,
+	type StoredUserGroupSsoMappings,
+} from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
 	LlmProvider,
+	NotificationChannel,
 	RepoProvider,
-	UserPreferences,
 } from '@nao/shared/types';
 import {
 	ANALYTICS_ASSET_TYPES,
@@ -13,6 +28,7 @@ import {
 	BUDGET_PERIODS,
 	FOLDER_SYSTEM_TYPE,
 	FOLDER_VISIBILITY,
+	NOTIFICATION_CATEGORIES,
 	SHARE_VISIBILITY,
 	USER_ROLES,
 } from '@nao/shared/types';
@@ -54,8 +70,16 @@ import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
+import {
+	MattermostSettings,
+	SlackSettings,
+	TeamsSettings,
+	TelegramSettings,
+	WhatsappSettings,
+} from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
+import type { StoryQuerySources } from '../types/story-cache';
+import type { StoredUserPreferences } from '../types/usage';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -79,7 +103,7 @@ export const userPreference = pgTable('user_preference', {
 	userId: text('user_id')
 		.primaryKey()
 		.references(() => user.id, { onDelete: 'cascade' }),
-	preferences: jsonb('preferences').$type<UserPreferences>().notNull().default({}),
+	preferences: jsonb('preferences').$type<StoredUserPreferences>().notNull().default({}),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
@@ -200,10 +224,13 @@ export const project = pgTable(
 		slackSettings: jsonb('slack_settings').$type<SlackSettings>(),
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
 		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
+		mattermostSettings: jsonb('mattermost_settings').$type<MattermostSettings>(),
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
+		defaultModels: jsonb('default_models').$type<BackgroundModelSettings>(),
+		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -257,6 +284,7 @@ export const chat = pgTable(
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
+		mattermostThreadId: text('mattermost_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: jsonb('fork_metadata').$type<ForkMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -271,6 +299,7 @@ export const chat = pgTable(
 		index('chat_slack_thread_idx').on(table.slackThreadId),
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
+		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );
@@ -348,9 +377,11 @@ export const messagePart = pgTable(
 		toolProviderMetadata: jsonb('tool_provider_metadata').$type<ProviderMetadata>(),
 		providerMetadata: jsonb('provider_metadata').$type<ProviderMetadata>(),
 
-		// file/image columns
+		// file columns: images live in message_image, other attachments in permanent storage
 		mediaType: text('media_type'),
 		imageId: text('image_id').references(() => messageImage.id, { onDelete: 'set null' }),
+		storagePath: text('storage_path'),
+		filename: text('filename'),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -369,7 +400,7 @@ export const messagePart = pgTable(
 		),
 		check(
 			'file_fields_required',
-			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND ${t.imageId} IS NOT NULL ELSE TRUE END`,
+			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND (${t.imageId} IS NOT NULL OR ${t.storagePath} IS NOT NULL) ELSE TRUE END`,
 		),
 	],
 );
@@ -400,6 +431,62 @@ export const projectMember = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
+);
+
+export const userGroup = pgTable(
+	'user_group',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		isDefault: boolean('is_default').default(false).notNull(),
+		featureGrants: jsonb('feature_grants')
+			.$type<StoredUserGroupConfig>()
+			.notNull()
+			.default(DEFAULT_USER_GROUP_CONFIG),
+		contextGrants: jsonb('context_grants').$type<
+			| StoredLegacyDatabaseContextAccessV1
+			| StoredLegacyDatabaseContextAccessV2
+			| StoredDatabaseContextAccess
+			| StoredUserGroupContextAccess
+		>(),
+		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
+		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('user_group_projectId_idx').on(t.projectId),
+		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		uniqueIndex('user_group_project_default_unique')
+			.on(t.projectId)
+			.where(sql`${t.isDefault} = true`),
+	],
+);
+
+export const userGroupMember = pgTable(
+	'user_group_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<'manual' | SsoGroupProvider>().default('manual').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
+		index('user_group_member_user_provider_idx').on(t.userId, t.provider),
+	],
 );
 
 export const projectLlmConfig = pgTable(
@@ -455,6 +542,7 @@ export const projectProviderBudget = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		limitUsd: integer('limit_usd').notNull(),
+		perUserLimitUsd: integer('per_user_limit_usd'),
 		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
 		currentPeriodStart: timestamp('current_period_start').defaultNow().notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -468,6 +556,26 @@ export const projectProviderBudget = pgTable(
 		index('project_provider_budget_projectId_idx').on(t.projectId),
 		unique('project_provider_budget_project_provider').on(t.projectId, t.provider),
 		check('budget_period_valid', sql`${t.period} IN (${sql.raw(BUDGET_PERIODS.map((p) => `'${p}'`).join(', '))})`),
+	],
+);
+
+export const budgetNotification = pgTable(
+	'budget_notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<LlmProvider>().notNull(),
+		scope: text('scope').notNull(),
+		periodStart: timestamp('period_start').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('budget_notification_projectId_idx').on(t.projectId),
+		unique('budget_notification_project_provider_scope_period').on(t.projectId, t.provider, t.scope, t.periodStart),
 	],
 );
 
@@ -608,6 +716,7 @@ export const automationRun = pgTable(
 		startedAt: timestamp('started_at').defaultNow().notNull(),
 		completedAt: timestamp('completed_at'),
 		errorMessage: text('error_message'),
+		readAt: timestamp('read_at'),
 		integrationResults: jsonb('integration_results').$type<AutomationIntegrationResult[]>().notNull().default([]),
 	},
 	(t) => [
@@ -652,8 +761,6 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 	projectId: text('project_id')
 		.primaryKey()
 		.references(() => project.id, { onDelete: 'cascade' }),
-	modelProvider: text('model_provider').$type<LlmProvider>(),
-	modelId: text('model_id'),
 	frequency: text('frequency', { enum: CONTEXT_RECOMMENDATION_FREQUENCIES }),
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
@@ -666,6 +773,29 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const contextBranchOwnership = pgTable(
+	'context_branch_ownership',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		branch: text('branch').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		reviewRequestUrl: text('review_request_url'),
+		reviewRequestKind: text('review_request_kind', { enum: ['created', 'link'] }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		unique('context_branch_ownership_project_branch_unique').on(t.projectId, t.branch),
+		index('context_branch_ownership_userId_idx').on(t.userId),
+	],
+);
 
 export const contextRecommendation = pgTable(
 	'context_recommendation',
@@ -855,11 +985,13 @@ export const storyDataCache = pgTable('story_data_cache', {
 		.references(() => story.id, { onDelete: 'cascade' })
 		.primaryKey(),
 	queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+	querySources: jsonb('query_sources').$type<StoryQuerySources>(),
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
 
 export const ACTIVITY_TYPES = [
+	'context.pulled',
 	'story.refreshed',
 	'story.shared',
 	'story.pinned',
@@ -904,6 +1036,75 @@ export const activity = pgTable(
 		index('activity_startedAt_idx').on(t.startedAt),
 	],
 );
+
+export const notification = pgTable(
+	'notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		category: text('category', { enum: NOTIFICATION_CATEGORIES }).notNull(),
+		title: text('title').notNull(),
+		body: text('body'),
+		linkUrl: text('link_url'),
+		payload: jsonb('payload').$type<Record<string, unknown>>(),
+		readAt: timestamp('read_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('notification_user_read_idx').on(t.userId, t.readAt),
+		index('notification_user_project_read_idx').on(t.userId, t.projectId, t.readAt),
+		index('notification_createdAt_idx').on(t.createdAt),
+	],
+);
+
+export const notificationUnsubscribe = pgTable(
+	'notification_unsubscribe',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scope: text('scope').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.scope] }),
+		index('notification_unsubscribe_userId_idx').on(t.userId),
+		index('notification_unsubscribe_scope_idx').on(t.scope),
+	],
+);
+
+export const storyDelivery = pgTable('story_delivery', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	storyId: text('story_id')
+		.notNull()
+		.references(() => story.id, { onDelete: 'cascade' })
+		.unique(),
+	projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+	enabled: boolean('enabled').notNull().default(false),
+	cron: text('cron'),
+	scheduleDescription: text('schedule_description'),
+	channels: jsonb('channels').$type<NotificationChannel[]>().notNull(),
+	recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+		.notNull()
+		.default('specific'),
+	recipientUserIds: jsonb('recipient_user_ids').$type<string[]>().notNull(),
+	scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+	createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
 
 export const memories = pgTable(
 	'memories',
@@ -1053,6 +1254,12 @@ export const scheduledJob = pgTable(
 	},
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
 );
+
+export const keyedLock = pgTable('keyed_lock', {
+	key: text('key').primaryKey(),
+	owner: text('owner').notNull(),
+	expiresAt: timestamp('expires_at').notNull(),
+});
 
 export const mcpCallLog = pgTable(
 	'mcp_call_log',

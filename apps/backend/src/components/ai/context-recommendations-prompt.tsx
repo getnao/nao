@@ -1,6 +1,8 @@
 import { DBContextRecommendation } from '../../db/abstractSchema';
 import { Block, Bold, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
+import type { FlaggedContextFile } from '../../services/context-recommendations.file-costs';
 import type { LinkedContextRepo } from '../../types/context-recommendation';
+import type { ContextPresence } from '../../utils/nao-config';
 
 type ExistingRecommendationSummary = Pick<
 	DBContextRecommendation,
@@ -11,9 +13,12 @@ type ContextRecommendationsPromptProps = {
 	windowStart: Date;
 	windowEnd: Date;
 	existing: ExistingRecommendationSummary[];
+	fileReadCosts?: FlaggedContextFile[];
 	proposeFixes?: boolean;
 	linkedRepos?: LinkedContextRepo[];
 	contextRepoConnected?: boolean;
+	templates?: string[];
+	contextPresence?: ContextPresence;
 };
 
 export function renderContextRecommendationsPrompt(props: ContextRecommendationsPromptProps): string {
@@ -24,10 +29,18 @@ function ContextRecommendationsPrompt({
 	windowStart,
 	windowEnd,
 	existing,
+	fileReadCosts = [],
 	proposeFixes = false,
 	linkedRepos = [],
 	contextRepoConnected = false,
+	templates,
+	contextPresence,
 }: ContextRecommendationsPromptProps) {
+	const hasColumnsContext =
+		contextPresence?.databases !== false && (templates === undefined || templates.includes('columns'));
+	const hasProfilingContext =
+		contextPresence?.databases !== false && (templates === undefined || templates.includes('profiling'));
+
 	return (
 		<Block>
 			<Span>
@@ -39,8 +52,26 @@ function ContextRecommendationsPrompt({
 				<List ordered>
 					<ListItem>
 						Tool errors: v_messages where tool_state = &quot;output-error&quot; — cluster by the failing
-						table/column. Count how many tool calls failed per root cause. Cross-reference
-						databases/**/columns.md and description.md.
+						table/column. Count how many tool calls failed per root cause.
+						{hasColumnsContext && hasProfilingContext ? (
+							<>
+								{' '}
+								Cross-reference <Code>databases/**/columns.md</Code> for wrong-column failures and{' '}
+								<Code>databases/**/profiling.md</Code> (<Code>top_values</Code>) for wrong-value
+								failures.
+							</>
+						) : hasColumnsContext ? (
+							<>
+								{' '}
+								Cross-reference <Code>databases/**/columns.md</Code> for wrong-column failures.
+							</>
+						) : hasProfilingContext ? (
+							<>
+								{' '}
+								Cross-reference <Code>databases/**/profiling.md</Code> (<Code>top_values</Code>) for
+								wrong-value failures.
+							</>
+						) : null}
 					</ListItem>
 					<ListItem>
 						Source-code context: if a warehouse gap traces back to SQL, dbt, docs, or application code in{' '}
@@ -62,8 +93,21 @@ function ContextRecommendationsPrompt({
 						Treat each distinct metric or concept users asked for as its own gap and its own recommendation,
 						not a single lumped &quot;missing semantics&quot; finding.
 					</ListItem>
+					<ListItem>
+						Token cost: use the &quot;Context file read cost&quot; table below. A monolithic file that is
+						read often and is heavy per read (flagged <Code>frequent_and_expensive</Code>) inflates LLM cost
+						on every use; a rarely read but very large file (flagged <Code>rare_but_outlier</Code>) spikes
+						cost whenever it is pulled in; a file flagged <Code>truncated_on_read</Code> is so large the
+						read tool cut it off, so the agent never even saw the whole file. For any of these, record a{' '}
+						<Code>context_bloat</Code> recommendation to split it into smaller, focused files so the agent
+						only loads the relevant part. When the heavy content is really a repeatable process the agent
+						keeps re-reading, record a <Code>skills</Code> recommendation to factor it into an on-demand
+						skill instead.
+					</ListItem>
 				</List>
 			</Block>
+
+			<ContextFileCosts files={fileReadCosts} />
 
 			<Block separator={'\n'}>
 				<Title>Recording (record as you go — never batch until the end)</Title>
@@ -178,6 +222,36 @@ function LinkedRepos({ repos }: { repos: LinkedContextRepo[] }) {
 								)
 							</>
 						)}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
+function ContextFileCosts({ files }: { files: FlaggedContextFile[] }) {
+	if (files.length === 0) {
+		return null;
+	}
+	return (
+		<Block separator={'\n'}>
+			<Title>Context file read cost (estimated tokens, this window)</Title>
+			<Span>
+				Estimated from the size of each <Code>read</Code> tool call, capped per read at the read-tool truncation
+				limit and ordered by total tokens. Flags mark files worth modularizing; unflagged rows are context for
+				comparison. Files injected automatically (e.g. <Code>RULES.md</Code>) may not appear here.
+			</Span>
+			<List>
+				{files.map((file) => (
+					<ListItem key={file.filePath}>
+						<Code>{file.filePath}</Code> — {file.readCount} reads, {file.totalTokens} tokens total (avg{' '}
+						{file.avgTokens}, max {file.maxTokens} per read){file.truncated ? ', truncated on read' : ''}
+						{file.flag ? (
+							<>
+								{' '}
+								— <Bold>{file.flag}</Bold>
+							</>
+						) : null}
 					</ListItem>
 				))}
 			</List>

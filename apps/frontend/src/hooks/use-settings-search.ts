@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import Fuse from 'fuse.js';
 
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
 import { settingsSearchIndex } from '@/components/settings-search-index';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
@@ -32,7 +33,7 @@ export function useSettingsSearch(query: string): SettingsSearchEntry[] {
 		}
 
 		const matches = fuse.search(query, { limit: 8 }).map((result) => result.item);
-		return dedupeByPage(matches);
+		return dedupeByDestination(matches);
 	}, [fuse, query]);
 }
 
@@ -50,11 +51,10 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 }
 
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
+	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
+	const isCloud = useIsCloud();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const license = useQuery(trpc.license.getStatus.queryOptions());
-	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
-	const isCloud = config.data?.naoMode === 'cloud';
-	const hasLicense = license.data?.tokenProvided === true;
+	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
 
 	return useMemo(
 		() =>
@@ -62,24 +62,26 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 				.filter(
 					(entry) =>
 						(!entry.adminOnly || isAdmin) &&
+						(!entry.orgAdminOnly || isOrgAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
 						(!entry.cloudHidden || !isCloud) &&
 						(!entry.cloudOnly || isCloud) &&
-						(!entry.licenseRequired || hasLicense),
+						(!entry.betaSubagentsOnly || betaSubagentsEnabled),
 				)
 				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
-		[hasLicense, isAdmin, isCloud, isContextAdmin, isViewer],
+		[betaSubagentsEnabled, isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer],
 	);
 }
 
-function dedupeByPage(entries: SettingsSearchEntry[]): SettingsSearchEntry[] {
-	const seenPages = new Set<string>();
+function dedupeByDestination(entries: SettingsSearchEntry[]): SettingsSearchEntry[] {
+	const seenDestinations = new Set<string>();
 	return entries.filter((entry) => {
-		if (seenPages.has(entry.page)) {
+		const destination = `${entry.page}:${JSON.stringify(entry.search ?? {})}`;
+		if (seenDestinations.has(destination)) {
 			return false;
 		}
 
-		seenPages.add(entry.page);
+		seenDestinations.add(destination);
 		return true;
 	});
 }
@@ -88,7 +90,7 @@ const settingsSuggestionPages = [
 	'/settings/account',
 	'/settings/organization',
 	'/settings/project',
-	'/settings/project/models',
+	'/settings/context-explorer',
 	'/settings/project/agent',
 	'/settings/usage',
 ];

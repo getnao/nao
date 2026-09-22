@@ -2,6 +2,7 @@ import os
 from typing import Any, Tuple
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from nao_core.config import NaoConfig, resolve_project_path
@@ -258,7 +259,7 @@ def debug():
                     db.name,
                     db.type,
                     "[green]Connected[/green]",
-                    message,
+                    escape(message),
                 )
             else:
                 console.print("[bold red]✗[/bold red]")
@@ -266,7 +267,7 @@ def debug():
                     db.name,
                     db.type,
                     "[red]Failed[/red]",
-                    f"[red]{message}[/red]",
+                    f"[red]{escape(message)}[/red]",
                 )
 
         console.print()
@@ -295,19 +296,21 @@ def debug():
 
             if success and has_model_warning:
                 console.print("[bold yellow]⚠[/bold yellow]")
-                llm_table.add_row(provider_name, models, "[yellow]Connected[/yellow]", f"[yellow]{message}[/yellow]")
+                llm_table.add_row(
+                    provider_name, models, "[yellow]Connected[/yellow]", f"[yellow]{escape(message)}[/yellow]"
+                )
                 model_warnings.append(f"{provider_name}: {message.split('Warning: ', 1)[1]}")
             elif success:
                 console.print("[bold green]✓[/bold green]")
-                llm_table.add_row(provider_name, models, "[green]Connected[/green]", message)
+                llm_table.add_row(provider_name, models, "[green]Connected[/green]", escape(message))
             else:
                 console.print("[bold red]✗[/bold red]")
-                llm_table.add_row(provider_name, models, "[red]Failed[/red]", f"[red]{message}[/red]")
+                llm_table.add_row(provider_name, models, "[red]Failed[/red]", f"[red]{escape(message)}[/red]")
 
         console.print()
         console.print(llm_table)
         for warning in model_warnings:
-            console.print(f"[yellow]⚠[/yellow] {warning}")
+            console.print(f"[yellow]⚠[/yellow] {escape(warning)}")
     else:
         console.print("[dim]No LLM configured[/dim]")
 

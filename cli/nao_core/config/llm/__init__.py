@@ -17,6 +17,7 @@ class LLMProvider(str, Enum):
     MISTRAL = "mistral"
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
+    REQUESTY = "requesty"
     OLLAMA = "ollama"
     BEDROCK = "bedrock"
     VERTEX = "vertex"
@@ -55,6 +56,12 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         api_key="required",
         base_url_env_var="OPENROUTER_BASE_URL",
         default_base_url="https://openrouter.ai/api/v1",
+    ),
+    LLMProvider.REQUESTY: ProviderAuthConfig(
+        env_var="REQUESTY_API_KEY",
+        api_key="required",
+        base_url_env_var="REQUESTY_BASE_URL",
+        default_base_url="https://router.requesty.ai/v1",
     ),
     LLMProvider.OLLAMA: ProviderAuthConfig(
         env_var="OLLAMA_API_KEY", api_key="none", base_url_env_var="OLLAMA_BASE_URL"
@@ -107,6 +114,7 @@ OPENAI_COMPATIBLE_PROVIDERS: frozenset[LLMProvider] = frozenset(
     {
         LLMProvider.OPENAI,
         LLMProvider.OPENROUTER,
+        LLMProvider.REQUESTY,
         LLMProvider.QWEN,
         LLMProvider.MINIMAX,
         LLMProvider.MOONSHOT,
@@ -124,6 +132,7 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.MISTRAL: "mistral-small-latest",
     LLMProvider.GEMINI: "gemini-2.0-flash",
     LLMProvider.OPENROUTER: "openai/gpt-4.1-mini",
+    LLMProvider.REQUESTY: "openai/gpt-4o-mini",
     LLMProvider.OLLAMA: "llama3.2",
     LLMProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
     LLMProvider.VERTEX: "gemini-2.5-flash",
@@ -190,6 +199,30 @@ class ModelCosts(BaseModel):
     output: float | None = Field(default=None, ge=0, description="Price of an output token")
 
 
+class BudgetPeriod(str, Enum):
+    """How often a provider's spend limit resets."""
+
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class BudgetConfig(BaseModel):
+    """A spend limit for a provider, enforced by the chat app and shown in its budgets page."""
+
+    limit: float | None = Field(default=None, ge=0, description="Project-wide spend limit in US dollars for the period")
+    per_user_limit: float | None = Field(
+        default=None, ge=0, description="Spend limit in US dollars per user for the period"
+    )
+    period: BudgetPeriod = Field(default=BudgetPeriod.MONTH, description="How often the limit resets")
+
+    @model_validator(mode="after")
+    def validate_limits(self) -> "BudgetConfig":
+        if not self.limit and not self.per_user_limit:
+            raise ValueError("budget requires a limit or a per_user_limit")
+        return self
+
+
 class LLMConfigMeta(BaseModel):
     costs: ModelCosts
 
@@ -229,6 +262,9 @@ class ProviderConfig(BaseModel):
     key_file: str | None = Field(default=None, description="Path to service account key file (only for Vertex)")
     models: list[ModelConfig] = Field(
         default_factory=list, description="The models to expose for this provider, in display order"
+    )
+    budget: BudgetConfig | None = Field(
+        default=None, description="Spend limit for this provider, enforced by the chat app"
     )
 
     @property
@@ -310,6 +346,7 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Mistral", value="mistral"),
             questionary.Choice("Google Gemini", value="gemini"),
             questionary.Choice("OpenRouter (Kimi, DeepSeek, etc.)", value="openrouter"),
+            questionary.Choice("Requesty", value="requesty"),
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
             questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),

@@ -94,6 +94,15 @@ export interface WindowTotals {
 	regenerations: number;
 }
 
+export interface ContextFileReadCost {
+	filePath: string;
+	readCount: number;
+	totalTokens: number;
+	avgTokens: number;
+	maxTokens: number;
+	truncated: boolean;
+}
+
 export interface LinkedContextRepo {
 	name: string;
 	contextPath: string;

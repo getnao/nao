@@ -17,7 +17,9 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/automations/$automationId')({
-	beforeLoad: requireAutomationsEnabled,
+	beforeLoad: async () => {
+		await requireAutomationsEnabled();
+	},
 	component: AutomationDetailPage,
 });
 

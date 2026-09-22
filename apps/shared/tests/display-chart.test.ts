@@ -23,6 +23,17 @@ describe('display chart custom types', () => {
 
 	it('distinguishes built-in and custom chart types', () => {
 		expect(displayChart.isBuiltinChartType('line')).toBe(true);
+		expect(displayChart.isBuiltinChartType('horizontal_bar')).toBe(true);
+		expect(displayChart.isBuiltinChartType('horizontal_bar_100')).toBe(true);
 		expect(displayChart.isBuiltinChartType('bubble')).toBe(false);
+	});
+
+	it('defaults data labels on only for horizontal bars', () => {
+		expect(displayChart.resolveShowDataLabels('horizontal_bar', undefined)).toBe(true);
+		expect(displayChart.resolveShowDataLabels('horizontal_bar_100', undefined)).toBe(false);
+		expect(displayChart.resolveShowDataLabels('bar', undefined)).toBe(false);
+		expect(displayChart.resolveShowDataLabels('horizontal_bar', false)).toBe(false);
+		expect(displayChart.resolveShowDataLabels('horizontal_bar_100', true)).toBe(true);
+		expect(displayChart.resolveShowDataLabels('bar', true)).toBe(true);
 	});
 });

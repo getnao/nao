@@ -7,6 +7,8 @@ import pytest
 from nao_core.config.llm import (
     DEFAULT_ANNOTATION_MODELS,
     PROVIDER_AUTH,
+    BudgetConfig,
+    BudgetPeriod,
     LLMConfig,
     LLMProvider,
     ModelConfig,
@@ -153,6 +155,34 @@ def test_default_model_falls_back_to_the_first_one():
     )
     assert provider.default_model is not None
     assert provider.default_model.id == "gpt-4.1"
+
+
+def test_budget_reads_limits_and_period():
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.OPENAI,
+                api_key="sk-test",
+                budget=BudgetConfig(limit=100, per_user_limit=20, period=BudgetPeriod.WEEK),
+            )
+        ]
+    )
+
+    budget = config.providers[0].budget
+    assert budget is not None
+    assert budget.limit == 100
+    assert budget.per_user_limit == 20
+    assert budget.period is BudgetPeriod.WEEK
+
+
+def test_budget_period_defaults_to_month():
+    budget = BudgetConfig(limit=50)
+    assert budget.period is BudgetPeriod.MONTH
+
+
+def test_budget_requires_a_positive_limit():
+    with pytest.raises(ValueError, match="budget requires a limit or a per_user_limit"):
+        BudgetConfig(period=BudgetPeriod.MONTH)
 
 
 def test_costs_are_resolved_per_model():

@@ -683,10 +683,14 @@ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series
 
 export function extractQueryIds(code: string): Set<string> {
 	const ids = new Set<string>();
-	const regex = /<(?:chart|table|map)\s+[^>]*?\bquery_id\s*=\s*"([^"]+)"/g;
-	let match: RegExpExecArray | null;
-	while ((match = regex.exec(code)) !== null) {
-		ids.add(match[1]);
+	for (const tagRegex of [chartTagRegex('g'), tableTagRegex('g'), mapTagRegex('g')]) {
+		let match: RegExpExecArray | null;
+		while ((match = tagRegex.exec(code)) !== null) {
+			const { query_id } = parseChartAttributes(match[1]);
+			if (query_id) {
+				ids.add(query_id);
+			}
+		}
 	}
 	return ids;
 }

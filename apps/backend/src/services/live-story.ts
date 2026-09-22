@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import { TAG_ATTRS } from '@nao/shared/story-segments';
 import { generateText, Output } from 'ai';
@@ -5,19 +7,30 @@ import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 
 import { llmTelemetry } from '../agents/telemetry';
+import { queryAppDb } from '../agents/tools/query-app-db';
 import { LiveStoryRefreshPrompt } from '../components/ai/live-story-refresh-prompt';
 import type { DBStoryDataCache } from '../db/abstractSchema';
-import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
+import type { StoryQuerySources } from '../types/story-cache';
+import type { McpToolContext } from '../types/tools';
+import { convertToTokenUsage } from '../utils/ai';
+import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
-import { MAX_OUTPUT_TOKENS } from './agent';
+import { buildMcpToolContext, MAX_OUTPUT_TOKENS } from './agent';
+import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
+import { executeWarehouseSql } from './warehouse-sql.service';
 const MAX_RENDERED_ROWS = 60;
+
+interface StoryRefreshTarget {
+	projectId: string;
+	userId: string;
+	chatId: string;
+}
 
 export async function executeLiveQuery(
 	chatId: string,
@@ -28,18 +41,17 @@ export async function executeLiveQuery(
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
-	const projectId = await chatQueries.getChatProjectId(chatId);
-	if (!projectId) {
-		throw new Error('Chat project not found');
+	const sqlQuery = stripSqlFilterBlocks(query.sqlQuery);
+	if (query.adminMode) {
+		const projectId = await requireChatProjectId(chatId);
+		return executeAppDatabaseSql(projectId, sqlQuery);
 	}
 
-	const project = await projectQueries.retrieveProjectById(projectId);
-	if (!project.path) {
-		throw new Error('Project path not configured');
-	}
-
-	const envVars = await projectQueries.getEnvVars(projectId);
-	return executeRawSql(stripSqlFilterBlocks(query.sqlQuery), project.path, query.databaseId, envVars);
+	const executionContext = await createStoryExecutionContext(chatId);
+	return executeRawSql(sqlQuery, {
+		executionContext,
+		databaseId: query.databaseId,
+	});
 }
 
 export interface RefreshResult {
@@ -47,56 +59,78 @@ export interface RefreshResult {
 }
 
 export async function refreshStoryData(chatId: string, slug: string): Promise<RefreshResult> {
+	const { queryData } = await refreshStoryDataWithContext(chatId, slug);
+	return { queryData };
+}
+
+async function refreshStoryDataWithContext(
+	chatId: string,
+	slug: string,
+	existingExecutionContext?: StoryExecutionContext,
+): Promise<RefreshResult & { code: string }> {
 	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
 	if (!version) {
 		throw new Error('Story not found');
 	}
 
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
+	const executionContext = Object.values(sqlQueries).some((query) => !query.adminMode)
+		? (existingExecutionContext ?? (await createStoryExecutionContext(chatId)))
+		: null;
 	if (Object.keys(sqlQueries).length === 0) {
-		return { queryData: {} };
+		return { queryData: {}, code: version.code };
 	}
 
-	const projectId = await chatQueries.getChatProjectId(chatId);
-	if (!projectId) {
+	const chat = await chatQueries.getChatInfo(chatId);
+	if (!chat) {
 		throw new Error('Chat project not found');
-	}
-
-	const project = await projectQueries.retrieveProjectById(projectId);
-	if (!project.path) {
-		throw new Error('Project path not configured');
 	}
 
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
-		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
-			const projectEnvVars = await projectQueries.getEnvVars(projectId);
-			const result = await executeRawSql(
-				stripSqlFilterBlocks(sqlQuery),
-				project.path!,
+		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId, adminMode }]) => {
+			const effectiveSql = stripSqlFilterBlocks(sqlQuery);
+			if (adminMode) {
+				queryData[queryId] = await executeAppDatabaseSql(chat.projectId, effectiveSql);
+				return;
+			}
+			if (!executionContext) {
+				throw new Error('Live Story warehouse query has no execution context.');
+			}
+
+			const result = await executeRawSql(effectiveSql, {
+				executionContext,
 				databaseId,
-				projectEnvVars,
-			);
+			});
 			queryData[queryId] = result;
 		}),
 	);
 
+	let refreshedCode = version.code;
 	if (version.isLiveTextDynamic) {
-		const newCode = await generateDynamicStoryCode(projectId, version.title, version.code, queryData);
+		const newCode = await generateDynamicStoryCode(
+			{ projectId: chat.projectId, userId: chat.userId, chatId },
+			version.title,
+			version.code,
+			queryData,
+		);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
+			refreshedCode = newCode;
 		}
 	}
 
-	await storyQueries.upsertStoryDataCache(chatId, slug, queryData);
+	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries));
 
-	return { queryData };
+	return { queryData, code: refreshedCode };
 }
 
 export interface StoryQueryDataResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }> | null;
 	cachedAt: Date | null;
+	code: string;
+	allowsPersistedFallback?: boolean;
 }
 
 export async function getStoryQueryData(
@@ -107,60 +141,130 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
+		return {
+			queryData: await getQueryDataFromCode(chatId, code),
+			cachedAt: null,
+			code,
+			allowsPersistedFallback: true,
+		};
 	}
-
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
 	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
-		return resolveFromCache(chatId, code, cache);
+		return resolveLegacyCache(chatId, code, cache);
 	}
 
 	try {
-		const { queryData } = await refreshStoryData(chatId, slug);
+		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug);
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
 			cachedAt: new Date(),
+			code: refreshedCode,
 		};
 	} catch {
 		if (cache) {
-			return resolveFromCache(chatId, code, cache);
+			return resolveLegacyCache(chatId, code, cache);
 		}
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
+		return {
+			queryData: await getQueryDataFromCode(chatId, code),
+			cachedAt: null,
+			code,
+		};
 	}
 }
 
-async function resolveFromCache(chatId: string, code: string, cache: DBStoryDataCache): Promise<StoryQueryDataResult> {
+async function resolveLegacyCache(
+	chatId: string,
+	code: string,
+	cache: DBStoryDataCache,
+): Promise<StoryQueryDataResult> {
 	const missing = findMissingQueryIds(code, cache.queryData);
 	const queryData =
 		missing.length > 0 ? await backfillMissingQueryData(code, cache.queryData, { chatId }) : cache.queryData;
-	return { queryData, cachedAt: cache.cachedAt };
+	return { queryData, cachedAt: cache.cachedAt, code };
+}
+
+type StorySqlQueries = Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>;
+
+function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
+	return Object.fromEntries(
+		Object.entries(sqlQueries).map(([queryId, query]) => {
+			const databaseId = query.databaseId ?? null;
+			const normalizedSql = normalizeEffectiveSql(query.sqlQuery);
+			const canonicalSource = JSON.stringify({
+				sql: normalizedSql,
+				databaseId,
+				adminMode: query.adminMode,
+			});
+			return [
+				queryId,
+				{
+					fingerprint: createHash('sha256').update(canonicalSource).digest('hex'),
+					databaseId,
+					adminMode: query.adminMode,
+				},
+			];
+		}),
+	);
+}
+
+function normalizeEffectiveSql(sql: string): string {
+	return stripSqlFilterBlocks(sql).replaceAll('\r\n', '\n').trim();
+}
+
+export interface StoryExecutionContext {
+	toolContext: McpToolContext;
+	enforceExcludedColumns: boolean;
+}
+
+interface RawSqlExecutionOptions {
+	executionContext: StoryExecutionContext;
+	databaseId?: string;
 }
 
 export async function executeRawSql(
 	sqlQuery: string,
-	projectFolder: string,
-	databaseId?: string,
-	envVars?: Record<string, string>,
+	options: RawSqlExecutionOptions,
 ): Promise<{ data: unknown[]; columns: string[] }> {
-	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			sql: sqlQuery,
-			nao_project_folder: projectFolder,
-			...(databaseId && { database_id: databaseId }),
-			...(envVars && Object.keys(envVars).length > 0 && { env_vars: envVars }),
-		}),
+	const context = options.executionContext.toolContext;
+	const data = await executeWarehouseSql(sqlQuery, {
+		projectFolder: context.projectFolder,
+		databaseId: options.databaseId,
+		envVars: context.envVars,
+		azureAccessToken: context.azureAccessToken,
+		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
+		tableAccess: context.warehouseTableAccess,
+		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
-
-	if (!response.ok) {
-		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-		throw new Error(`Error executing SQL query: ${JSON.stringify(errorData.detail)}`);
-	}
-
-	const data = await response.json();
 	return { data: data.data, columns: data.columns };
+}
+
+export async function createStoryExecutionContext(chatId: string): Promise<StoryExecutionContext> {
+	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
+	if (!ownerId) {
+		throw new Error('Chat owner not found');
+	}
+	const toolContext = await buildMcpToolContext({ projectId, userId: ownerId });
+	return {
+		toolContext,
+		enforceExcludedColumns: await resolveExcludedColumnEnforcement(toolContext.agentSettings),
+	};
+}
+
+async function requireChatProjectId(chatId: string): Promise<string> {
+	const projectId = await chatQueries.getChatProjectId(chatId);
+	if (!projectId) {
+		throw new Error('Chat project not found');
+	}
+	return projectId;
+}
+
+async function executeAppDatabaseSql(
+	projectId: string,
+	sqlQuery: string,
+): Promise<{ data: unknown[]; columns: string[] }> {
+	const { columns, rows } = await queryAppDb(projectId, sqlQuery);
+	return { data: rows, columns };
 }
 
 function isCacheExpired(cachedAt: Date, cacheSchedule: string | null): boolean {
@@ -178,17 +282,20 @@ function isCacheExpired(cachedAt: Date, cacheSchedule: string | null): boolean {
 }
 
 async function generateDynamicStoryCode(
-	projectId: string,
+	target: StoryRefreshTarget,
 	title: string,
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 ): Promise<string | null> {
-	const provider = await llmConfigQueries.getProjectModelProvider(projectId);
+	const { projectId } = target;
+	const pinned = await resolveDefaultModelSelection(projectId, 'live_story');
+	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
 	if (!provider) {
 		return null;
 	}
 
-	const model = await resolveProviderModel(projectId, provider, getDefaultModelId(provider));
+	const modelId = pinned?.modelId ?? getDefaultModelId(provider);
+	const model = await resolveProviderModel(projectId, provider, modelId);
 	if (!model) {
 		return null;
 	}
@@ -197,7 +304,7 @@ async function generateDynamicStoryCode(
 		const querySummaries = buildQueryDataSummary(queryData);
 		const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
 
-		const { output } = await generateText({
+		const { output, usage } = await generateText({
 			...model,
 			system: systemPrompt,
 			messages: [{ role: 'user', content: 'Refresh the story narrative with the latest query results.' }],
@@ -210,14 +317,24 @@ async function generateDynamicStoryCode(
 			experimental_telemetry: llmTelemetry('nao-live-story', { projectId, tags: [provider] }),
 		});
 
+		scheduleSaveLlmInferenceRecord({
+			type: 'live_story_refresh',
+			projectId,
+			userId: target.userId,
+			chatId: target.chatId,
+			llmProvider: provider,
+			llmModelId: model.model.modelId,
+			...convertToTokenUsage(usage),
+		});
+
 		const candidate = stripCodeFence(output.code.trim());
 		if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
 			return null;
 		}
 
 		return candidate;
-	} catch {
-		return null;
+	} catch (error) {
+		throw error instanceof Error ? error : new Error(String(error));
 	}
 }
 

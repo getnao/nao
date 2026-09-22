@@ -4,19 +4,22 @@ import {
 	oauthProviderAuthServerMetadata,
 	oauthProviderOpenIdConfigMetadata,
 } from '@better-auth/oauth-provider';
-import type { BetterAuthPlugin } from 'better-auth';
+import type { BetterAuthPlugin, Session } from 'better-auth';
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { verifyAccessToken } from 'better-auth/oauth2';
+import { createAuthMiddleware } from 'better-auth/api';
 import { jwt } from 'better-auth/plugins';
 import { bearer } from 'better-auth/plugins/bearer';
 import type { JWTPayload } from 'jose';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
-import { env, isCloud, MCP_SERVER_URL } from './env';
+import { env, isCloud, MCP_VALID_AUDIENCES } from './env';
+import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
+import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
+import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
 import * as gitlabService from './services/gitlab';
@@ -24,14 +27,10 @@ import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import {
 	augmentSocialProvidersWithMicrosoft,
 	getTrustedProvidersForMicrosoft,
-	isSocialProviderMicrosoft,
 } from './services/microsoft-auth.service';
-import {
-	augmentPluginsWithOidc,
-	getOidcProviderId,
-	getTrustedProvidersForOidc,
-	isSocialProviderOidc,
-} from './services/oidc-auth.service';
+import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
+import { syncSsoLoginGroups } from './services/sso-login-sync.service';
+import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
@@ -49,18 +48,36 @@ export const getAuth = async () => {
 	return defaultAuthPromise;
 };
 
+export const getSession = async (headers: Headers) => {
+	const auth = await getAuth();
+	const session = await auth.api.getSession({ headers });
+	if (!session?.session || !(await shouldExpireSsoSession(session.session))) {
+		return session;
+	}
+
+	const context = await auth.$context;
+	await context.internalAdapter.deleteSession(session.session.token);
+	return null;
+};
+
 export function updateAuth() {
 	defaultAuthPromise = null;
 	authServerMetadataPromise = null;
 	openIdConfigMetadataPromise = null;
 }
 
-export async function verifyOAuthAccessToken(token: string, audience: string): Promise<JWTPayload> {
-	const { issuer, jwksUrl } = await getAuthServerEndpoints();
-	return verifyAccessToken(token, {
-		verifyOptions: { audience, issuer },
-		jwksUrl,
-	});
+export async function verifyOAuthAccessToken(token: string, audience: string[]): Promise<JWTPayload> {
+	const auth = await getAuth();
+	const { issuer } = await getAuthServerEndpoints();
+	// Verify against the LOCAL JWKS. nao is the token issuer, so it already holds
+	// its own signing keys. better-auth's verifyAccessToken instead fetches them
+	// over the external issuer URL (BETTER_AUTH_URL/jwks); in self-hosted
+	// split-horizon deployments that host is not resolvable from the server's own
+	// network, so the fetch throws, better-auth swallows it, and every MCP token
+	// is rejected with "no token payload". Using the in-process key set avoids the
+	// self-referential round-trip entirely.
+	const { keys } = await auth.api.getJwks();
+	return verifyJwtWithLocalJwks(token, { audience, issuer, keys });
 }
 
 export async function buildProtectedResourceMetadata(
@@ -203,11 +220,11 @@ async function createAuthInstance(baseURL: string) {
 			oauthProvider({
 				loginPage: '/login',
 				consentPage: '/consent',
-				accessTokenExpiresIn: 86400,
-				refreshTokenExpiresIn: 604800,
+				accessTokenExpiresIn: env.MCP_ACCESS_TOKEN_TTL,
+				refreshTokenExpiresIn: env.MCP_REFRESH_TOKEN_TTL,
 				allowDynamicClientRegistration: true,
-				allowUnauthenticatedClientRegistration: true,
-				validAudiences: [env.BETTER_AUTH_URL, MCP_SERVER_URL],
+				allowUnauthenticatedClientRegistration: env.ALLOW_UNAUTHENTICATED_DCR,
+				validAudiences: MCP_VALID_AUDIENCES,
 			}),
 			...ssoPlugins,
 		],
@@ -225,6 +242,23 @@ async function createAuthInstance(baseURL: string) {
 				enabled: true,
 				trustedProviders,
 			},
+		},
+		hooks: {
+			after: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== '/get-session' || !ctx.request) {
+					return;
+				}
+
+				const result = ctx.context.returned as { session?: Session } | null;
+				if (!result?.session || !(await shouldExpireSsoSession(result.session))) {
+					return;
+				}
+
+				await ctx.context.internalAdapter.deleteSession(result.session.token);
+				return new Response('null', {
+					headers: { 'content-type': 'application/json' },
+				});
+			}),
 		},
 		databaseHooks: {
 			user: {
@@ -256,11 +290,6 @@ async function createAuthInstance(baseURL: string) {
 					},
 					async after(user, ctx) {
 						const providerId = resolveProviderId(ctx);
-						const isSocial =
-							providerId === 'google' ||
-							providerId === 'github' ||
-							providerId === 'gitlab' ||
-							(ssoEnabled && (isSocialProviderMicrosoft(providerId) || isSocialProviderOidc(providerId)));
 
 						try {
 							if (isCloud) {
@@ -278,10 +307,7 @@ async function createAuthInstance(baseURL: string) {
 									await orgQueries.initializePersonalOrganization(user.id);
 								}
 							} else {
-								await orgQueries.initializeDefaultOrganizationForFirstUser(user.id);
-								if (isSocial) {
-									await orgQueries.addUserToDefaultProjectIfExists(user.id);
-								}
+								await initializeSelfHostedUserAfterCreation(user.id, providerId, ssoEnabled);
 							}
 							await refreshAuthAfterInitialSelfHostedSignup();
 						} catch (err) {
@@ -293,6 +319,32 @@ async function createAuthInstance(baseURL: string) {
 								message: 'Account setup could not be completed. Please try again or contact support.',
 							});
 						}
+					},
+				},
+				delete: {
+					before: async (user) => {
+						try {
+							const { cleanupContextWorktree } = await import('./services/context-explorer-git.service');
+							const projects = await projectQueries.listUserProjects(user.id);
+							for (const project of projects) {
+								if (project.path) {
+									await cleanupContextWorktree(project.id, project.path, user.id);
+								}
+							}
+						} catch (error) {
+							logger.warn(`Failed to clean up context worktrees before deleting user ${user.id}`, {
+								source: 'system',
+								context: { error: serializeError(error) },
+							});
+						}
+						return true;
+					},
+				},
+			},
+			session: {
+				create: {
+					async after(session, ctx) {
+						await syncSsoLoginGroups(session.userId, resolveProviderId(ctx));
 					},
 				},
 			},
@@ -326,9 +378,8 @@ async function refreshAuthAfterInitialSelfHostedSignup(): Promise<void> {
 	}
 }
 
-async function getAuthServerEndpoints(): Promise<{ issuer: string; jwksUrl: string }> {
+async function getAuthServerEndpoints(): Promise<{ issuer: string }> {
 	const auth = await getAuth();
 	const context = await auth.$context;
-	const issuer = context.baseURL;
-	return { issuer, jwksUrl: `${issuer}/jwks` };
+	return { issuer: context.baseURL };
 }

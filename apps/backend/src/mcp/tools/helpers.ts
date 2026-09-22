@@ -134,7 +134,11 @@ export async function buildChartEmbedFromArtifact(
 	artifact: displayChart.ChartInput,
 	ctx: McpContext,
 	opts: { chatId: string | null; callLogId: string },
-): Promise<{ payload: ChartToolPayload; sandboxChartHtml: string | null } | { keyError: ChartKeyError } | null> {
+): Promise<
+	| { payload: ChartToolPayload; sandboxChartHtml: string | null; queryData: ChartQueryData }
+	| { keyError: ChartKeyError }
+	| null
+> {
 	const {
 		query_id,
 		chart_type,
@@ -219,17 +223,19 @@ export async function buildChartEmbedFromArtifact(
 
 	const naoChatUrl = effectiveChatId ? chatUrl(effectiveChatId) : null;
 	let sandboxChartHtml: string | null = null;
-	try {
-		sandboxChartHtml = await buildChartSandboxHtml({
-			title,
-			chartBlock: block,
-			queryId: query_id,
-			columns: queryData.columns,
-			data: queryData.data,
-			naoChatUrl,
-		});
-	} catch (sandboxErr) {
-		logger.warn(`MCP sandbox HTML failed: ${String(sandboxErr)}`, { source: 'tool' });
+	if (!ctx.chartDataMode) {
+		try {
+			sandboxChartHtml = await buildChartSandboxHtml({
+				title,
+				chartBlock: block,
+				queryId: query_id,
+				columns: queryData.columns,
+				data: queryData.data,
+				naoChatUrl,
+			});
+		} catch (sandboxErr) {
+			logger.warn(`MCP sandbox HTML failed: ${String(sandboxErr)}`, { source: 'tool' });
+		}
 	}
 
 	const payload: ChartToolPayload = {
@@ -240,7 +246,7 @@ export async function buildChartEmbedFromArtifact(
 		title,
 		chatId: effectiveChatId,
 	};
-	return { payload, sandboxChartHtml };
+	return { payload, sandboxChartHtml, queryData };
 }
 
 type MapKeyError = { invalidKeys: string[]; availableColumns: string[] };

@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'dri
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
+import type { StoryQuerySources } from '../types/story-cache';
 import * as executeSqlQueries from './execute-sql.queries';
 
 export type UserStoryRow = Pick<
@@ -41,6 +42,10 @@ export async function getStoryByChatAndSlug(
 export async function getStoryById(storyId: string): Promise<DBStory | null> {
 	const [row] = await db.select().from(s.story).where(eq(s.story.id, storyId)).limit(1).execute();
 	return row ?? null;
+}
+
+export async function renameStory(storyId: string, title: string): Promise<void> {
+	await db.update(s.story).set({ title }).where(eq(s.story.id, storyId)).execute();
 }
 
 export async function getStoryProjectId(storyId: string): Promise<string | null> {
@@ -82,7 +87,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 		.select({
 			id: s.story.id,
 			chatId: s.story.chatId,
-			projectId: s.story.projectId,
+			projectId: sql<string>`coalesce(${s.story.projectId}, ${s.chat.projectId})`,
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
@@ -210,10 +215,6 @@ export async function createStoryVersion(
 ): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title }, executor);
 
-	if (story.title !== data.title) {
-		await executor.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
-	}
-
 	const nextVersion = executor
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
 		.from(s.storyVersion)
@@ -231,7 +232,7 @@ export async function createStoryVersion(
 		.returning()
 		.execute();
 
-	return { ...created, title: data.title };
+	return { ...created, title: story.title };
 }
 
 export async function createStandaloneVersion(data: {
@@ -250,10 +251,6 @@ export async function createStandaloneVersion(data: {
 		title: data.title,
 	});
 
-	if (story.title !== data.title) {
-		await db.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
-	}
-
 	const nextVersion = db
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
 		.from(s.storyVersion)
@@ -271,7 +268,7 @@ export async function createStandaloneVersion(data: {
 		.returning()
 		.execute();
 
-	return { ...created, title: data.title };
+	return { ...created, title: story.title };
 }
 
 export async function createStandaloneStory(data: {
@@ -512,6 +509,7 @@ export async function upsertStoryDataCache(
 	chatId: string,
 	slug: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	querySources: StoryQuerySources,
 	analysisResults?: Record<string, string> | null,
 ): Promise<DBStoryDataCache> {
 	const story = await getStoryByChatAndSlug(chatId, slug);
@@ -524,6 +522,7 @@ export async function upsertStoryDataCache(
 		.values({
 			storyId: story.id,
 			queryData,
+			querySources,
 			analysisResults: analysisResults ?? null,
 			cachedAt: new Date(),
 		})
@@ -531,6 +530,7 @@ export async function upsertStoryDataCache(
 			target: s.storyDataCache.storyId,
 			set: {
 				queryData,
+				querySources,
 				analysisResults: analysisResults ?? null,
 				cachedAt: new Date(),
 			},
@@ -547,10 +547,10 @@ export async function upsertStoryDataCacheByStoryId(
 ): Promise<void> {
 	await db
 		.insert(s.storyDataCache)
-		.values({ storyId, queryData, cachedAt: new Date() })
+		.values({ storyId, queryData, querySources: null, cachedAt: new Date() })
 		.onConflictDoUpdate({
 			target: s.storyDataCache.storyId,
-			set: { queryData, cachedAt: new Date() },
+			set: { queryData, querySources: null, cachedAt: new Date() },
 		})
 		.execute();
 }
@@ -558,7 +558,7 @@ export async function upsertStoryDataCacheByStoryId(
 export async function getSqlQueriesFromCode(
 	chatId: string,
 	code: string,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
+): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
 	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return {};
@@ -570,7 +570,7 @@ export async function getSqlQueriesFromCode(
 export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
-): Promise<{ sqlQuery: string; databaseId?: string } | null> {
+): Promise<{ sqlQuery: string; databaseId?: string; adminMode: boolean } | null> {
 	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
 	if (!part) {
 		return null;
@@ -578,6 +578,7 @@ export async function getSqlQueryById(
 	return {
 		sqlQuery: part.toolInput.sql_query,
 		...(part.toolInput.database_id && { databaseId: part.toolInput.database_id }),
+		adminMode: part.adminMode,
 	};
 }
 
@@ -591,7 +592,7 @@ async function queryStoriesWithLatestVersion(
 		.select({
 			id: s.story.id,
 			chatId: s.story.chatId,
-			projectId: s.story.projectId,
+			projectId: sql<string>`coalesce(${s.story.projectId}, ${s.chat.projectId})`,
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
@@ -704,6 +705,7 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.select({
 			storyId: s.storyDataCache.storyId,
 			queryData: s.storyDataCache.queryData,
+			querySources: s.storyDataCache.querySources,
 			analysisResults: s.storyDataCache.analysisResults,
 			cachedAt: s.storyDataCache.cachedAt,
 		})

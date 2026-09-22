@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 import maplibregl from 'maplibre-gl';
@@ -52,6 +52,7 @@ const POINT_STROKE_WIDTH = 1;
 
 export interface MapViewHandle {
 	captureImage: (type?: string) => Promise<string | null>;
+	resize: () => void;
 }
 
 interface MapViewProps {
@@ -64,7 +65,7 @@ interface MapViewProps {
 	boundaryProjectId?: string | null;
 }
 
-export default function MapView({
+export default memo(function MapView({
 	points,
 	config,
 	rows,
@@ -185,6 +186,9 @@ export default function MapView({
 					regions: regionsRef.current,
 					type,
 				});
+			},
+			resize: () => {
+				mapRef.current?.resize();
 			},
 		}),
 		[],
@@ -349,7 +353,7 @@ export default function MapView({
 			)}
 		</div>
 	);
-}
+});
 
 function setupPointLayers(
 	map: maplibregl.Map,

@@ -65,6 +65,7 @@ describe('readProjectConfigLlm', () => {
 						},
 					],
 					modelSettings: { 'gpt-4.1': { reasoningEffort: 'high' } },
+					budget: null,
 				},
 			],
 		});
@@ -91,8 +92,53 @@ describe('readProjectConfigLlm', () => {
 				enabledModels: [],
 				customModels: [],
 				modelSettings: {},
+				budget: null,
 			},
 		]);
+	});
+
+	it('reads a provider budget with its limits and period', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai',
+			'    api_key: sk-openai',
+			'    budget:',
+			'      limit: 100',
+			'      per_user_limit: 20',
+			'      period: week',
+			'  - provider: anthropic',
+			'    api_key: sk-ant',
+			'    budget:',
+			'      per_user_limit: 5',
+		]);
+
+		const config = readProjectConfigLlm(dir);
+
+		expect(findConfigLlmProvider(config, 'openai')?.budget).toEqual({
+			limitUsd: 100,
+			perUserLimitUsd: 20,
+			period: 'week',
+		});
+		expect(findConfigLlmProvider(config, 'anthropic')?.budget).toEqual({
+			limitUsd: 0,
+			perUserLimitUsd: 5,
+			period: 'month',
+		});
+	});
+
+	it('drops a budget that sets no positive limit', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai',
+			'    api_key: sk-openai',
+			'    budget:',
+			'      limit: 0',
+			'      period: month',
+		]);
+
+		expect(findConfigLlmProvider(readProjectConfigLlm(dir), 'openai')?.budget).toBeNull();
 	});
 
 	it('resolves env placeholders from the project env vars then the process env', () => {
@@ -141,6 +187,33 @@ describe('readProjectConfigLlm', () => {
 			region: 'us-east-1',
 		});
 		expect(findConfigLlmProvider(config, 'google')?.apiKey).toBe('gm-key');
+	});
+
+	it('reads named endpoints declared with a sibling name key', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai-compatible',
+			'    name: llmProxy',
+			'    api_key: sk-litellm',
+			'    base_url: http://litellm:4000/v1',
+			'    models:',
+			'    - id: gpt-5.5',
+			'  - provider: openai-compatible',
+			'    name: vllm',
+			'    base_url: http://vllm:8000/v1',
+			'    models:',
+			'    - id: llama-3.3-70b',
+		]);
+
+		const config = readProjectConfigLlm(dir);
+
+		expect(config?.providers.map((p) => p.provider)).toEqual([
+			'openaiCompatible/llmproxy',
+			'openaiCompatible/vllm',
+		]);
+		expect(findConfigLlmProvider(config, 'openaiCompatible/llmproxy')?.enabledModels).toEqual(['gpt-5.5']);
+		expect(findConfigLlmProvider(config, 'openaiCompatible/vllm')?.enabledModels).toEqual(['llama-3.3-70b']);
 	});
 
 	it('reads several named endpoints of the same provider', () => {

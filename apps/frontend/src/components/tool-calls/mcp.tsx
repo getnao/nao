@@ -9,12 +9,13 @@ import type { ToolCallComponentProps } from '.';
 import type { displayChart } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { getToolName } from '@/lib/ai';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
 
-const EMPTY_MESSAGES: UIMessage[] = [];
-
 type McpContent = { type: string; text: string };
+type SqlData = Record<string, unknown>[];
+
+const sqlDataByMessages = new WeakMap<UIMessage[], Map<string, SqlData | null>>();
 
 const extractChartBlock = (output: unknown): string | null => {
 	if (output && typeof output === 'object' && !Array.isArray(output)) {
@@ -26,33 +27,43 @@ const extractChartBlock = (output: unknown): string | null => {
 	return null;
 };
 
-const findSqlData = (messages: UIMessage[], queryId: string): Record<string, unknown>[] | null => {
+const findSqlData = (messages: UIMessage[], queryId: string): SqlData | null => {
+	let sqlDataByQueryId = sqlDataByMessages.get(messages);
+	if (!sqlDataByQueryId) {
+		sqlDataByQueryId = new Map();
+		sqlDataByMessages.set(messages, sqlDataByQueryId);
+	}
+
+	if (sqlDataByQueryId.has(queryId)) {
+		return sqlDataByQueryId.get(queryId) ?? null;
+	}
+
 	for (const message of messages) {
 		for (const part of message.parts) {
 			const output = (part as UIToolPart).output;
 			if (output && typeof output === 'object' && !Array.isArray(output)) {
 				const typed = output as Record<string, unknown>;
 				if (typed.query_id === queryId && Array.isArray(typed.data)) {
-					return typed.data as Record<string, unknown>[];
+					const data = typed.data as SqlData;
+					sqlDataByQueryId.set(queryId, data);
+					return data;
 				}
 			}
 		}
 	}
+
+	sqlDataByQueryId.set(queryId, null);
 	return null;
 };
 
 const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
-	const agent = useOptionalAgentContext();
-	const messages = agent?.messages ?? EMPTY_MESSAGES;
-
 	const attrString = chartBlock.match(/^<chart\s+([\s\S]*?)\s*\/?>$/)?.[1] ?? '';
 	const chart = parseChartBlock(attrString);
+	const data = useAgentMessagesSelector((messages) => (chart ? findSqlData(messages, chart.queryId) : null));
 
 	if (!chart || chart.series.length === 0) {
 		return null;
 	}
-
-	const data = findSqlData(messages, chart.queryId);
 
 	if (!data || data.length === 0) {
 		return (
