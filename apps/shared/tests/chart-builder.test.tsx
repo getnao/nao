@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { buildChart, computeKpiComparison, computeValueAxisWidth, describePreviousPeriod } from '../src/chart-builder';
+import { CHART_FONT_STACK } from '../src/chart-fonts';
 import { formatChartValue } from '../src/chart-values';
 
 describe('formatChartValue', () => {
@@ -163,7 +164,7 @@ describe('buildChart', () => {
 		expect(xAxis?.props.angle).toBe(-35);
 		expect(xAxis?.props.textAnchor).toBe('end');
 		expect(xAxis?.props.height).toBe(56);
-		expect(xAxis?.props.tick).toEqual({ fontSize: 9 });
+		expect(xAxis?.props.tick).toEqual({ fontSize: 9, fontFamily: CHART_FONT_STACK });
 		expect(xAxis?.props.tickFormatter('A very long category')).toBe('A very long category');
 	});
 
