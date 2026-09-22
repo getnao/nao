@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { trpc, trpcClient } from '@/main';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useAgentMessagesGetter } from '@/contexts/agent.provider';
 import { getMessageMarkdown, getChatMarkdown } from '@/lib/serialize-message';
 import { downloadBase64File, downloadTextFile, toFileSlug } from '@/lib/export-chat';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -37,15 +37,18 @@ export function AssistantMessageActions({
 	const [includePython, setIncludePython] = useState(true);
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
 	const { isCopied, copy } = useCopyToClipboard();
-	const agent = useOptionalAgentContext();
+	const getAgentMessages = useAgentMessagesGetter();
 	const { data: chat } = useQuery(trpc.chat.get.queryOptions({ chatId }));
 
-	const chatMessages = agent?.messages ?? [message];
 	const chatTitle = chat?.title ?? 'nao chat';
 	const chatMetadata = { title: chatTitle, createdAt: chat?.createdAt, updatedAt: chat?.updatedAt };
 	const exportOptions = { includeErrors, includeSql, includePython };
 
-	const buildChatMarkdown = () => getChatMarkdown(chatMessages, exportOptions, chatMetadata);
+	const buildChatMarkdown = () => {
+		const agentMessages = getAgentMessages();
+		const chatMessages = agentMessages.length > 0 ? agentMessages : [message];
+		return getChatMarkdown(chatMessages, exportOptions, chatMetadata);
+	};
 
 	const handleCopyChat = () => copy(buildChatMarkdown());
 
