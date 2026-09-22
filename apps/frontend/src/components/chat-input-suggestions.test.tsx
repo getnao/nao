@@ -31,6 +31,22 @@ vi.mock('@/components/chat-messages/assistant-message-actions', () => ({
 	FeedbackDialog: () => null,
 	NegativeFeedbackDialog: () => null,
 }));
+vi.mock('@/components/side-panel/live-story-settings-dialog', () => ({
+	LiveStorySettingsDialog: () => null,
+}));
+vi.mock('@/components/side-panel/hooks/use-story-viewer-live-settings', () => ({
+	useStoryViewerLiveSettings: () => ({
+		storyId: null,
+		isLive: false,
+		isLiveTextDynamic: true,
+		cacheSchedule: null,
+		cacheScheduleDescription: null,
+		isUpdating: false,
+		isRefreshing: false,
+		handleSaveSettings: vi.fn(),
+		handleRefreshData: vi.fn(),
+	}),
+}));
 vi.mock('@tanstack/react-query', () => ({
 	useMutation: () => ({ isPending: false, mutate: mocks.submitFeedback }),
 }));
