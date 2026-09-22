@@ -28,6 +28,8 @@ export async function storyBuildWorker(): Promise<void> {
 	const NAMESPACE = 'story';
 	const SCRIPT_EXTENSIONS = ['jsx', 'tsx', 'js', 'ts'];
 	const RESOLVE_EXTENSIONS = [...SCRIPT_EXTENSIONS, 'json', 'css', 'md'];
+	const PRODUCTION_DEFINE = { 'process.env.NODE_ENV': '"production"' };
+	const JSX_RUNTIME_IMPORTS = ['react/jsx-runtime', 'react/jsx-dev-runtime'];
 
 	const request = JSON.parse(await Bun.stdin.text()) as StoryBuildRequest;
 	const files = request.files;
@@ -86,8 +88,14 @@ export async function storyBuildWorker(): Promise<void> {
 				continue;
 			}
 			try {
-				const transpiler = new Bun.Transpiler({ loader: extension as 'jsx' | 'tsx' | 'js' | 'ts' });
+				const transpiler = new Bun.Transpiler({
+					loader: extension as 'jsx' | 'tsx' | 'js' | 'ts',
+					define: PRODUCTION_DEFINE,
+				});
 				for (const found of transpiler.scanImports(content)) {
+					if (JSX_RUNTIME_IMPORTS.includes(found.path)) {
+						continue;
+					}
 					const message = describeImport(filePath, found.path);
 					if (message) {
 						diagnostics.push({ file: filePath, message });
@@ -113,7 +121,7 @@ export async function storyBuildWorker(): Promise<void> {
 		minify: false,
 		sourcemap: 'none',
 		throw: false,
-		define: { 'process.env.NODE_ENV': '"production"' },
+		define: PRODUCTION_DEFINE,
 		plugins: [
 			{
 				name: 'story-files',

@@ -1,5 +1,5 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { BulkStoryItem, NotificationChannel, UserRole } from '@nao/shared/types';
+import type { BulkStoryItem, NotificationChannel, StoryFormat, UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -14,6 +14,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
+import { CustomStoryNotFoundError, getCustomStoryQueryData, getCustomStoryVersion } from '../services/custom-story';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -234,6 +235,7 @@ export const storyRoutes = {
 				return {
 					id: null as string | null,
 					title: input.storySlug,
+					format: 'classic' as StoryFormat,
 					isLive: false,
 					isLiveTextDynamic: false,
 					cacheSchedule: null as string | null,
@@ -247,6 +249,7 @@ export const storyRoutes = {
 			return {
 				id: story.id as string | null,
 				title: story.title,
+				format: story.format,
 				isLive: story.isLive,
 				isLiveTextDynamic: story.isLiveTextDynamic,
 				cacheSchedule: story.cacheSchedule,
@@ -272,6 +275,31 @@ export const storyRoutes = {
 
 			const queryData = await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code);
 			return { queryData };
+		}),
+
+	getCustomVersion: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input }) => {
+			try {
+				return await getCustomStoryVersion(input.chatId, input.storySlug, input.versionNumber);
+			} catch (error) {
+				if (error instanceof CustomStoryNotFoundError) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: error.message });
+				}
+				throw error;
+			}
+		}),
+
+	getCustomStoryQueryData: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			return getCustomStoryQueryData(input.chatId, input.queryId);
 		}),
 
 	listStories: chatStoryProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {

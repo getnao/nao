@@ -7,6 +7,8 @@ import viteReact from '@vitejs/plugin-react';
 import svgr from 'vite-plugin-svgr';
 import { defineConfig } from 'vite';
 
+import { storyRuntime } from './vite/story-runtime-plugin';
+
 // https://vitejs.dev/config/
 export default defineConfig({
 	plugins: [
@@ -25,6 +27,7 @@ export default defineConfig({
 			svgrOptions: { exportType: 'default' },
 		}),
 		tailwindcss(),
+		storyRuntime(),
 	],
 	resolve: {
 		alias: {

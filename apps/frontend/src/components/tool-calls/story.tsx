@@ -35,6 +35,9 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const finalStorySlug = output?.id ?? input?.id;
 	const canOpen = Boolean(chatId && finalStorySlug);
 	const isCreateAction = input?.action === 'create' && input.format !== 'custom';
+	const mountedBeforeOutputRef = useRef(toolPart.state !== 'output-available' && toolPart.state !== 'output-error');
+	const isCustomPublished =
+		mountedBeforeOutputRef.current && output?.format === 'custom' && output.success && input?.action === 'publish';
 
 	const isInInteractiveContext = Boolean(contextOrUrlChatId);
 
@@ -47,7 +50,8 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	});
 
 	useEffect(() => {
-		if (hasAutoOpenedRef.current || !isCreateAction || !isStreaming || !canOpen || !chatId || !finalStorySlug) {
+		const shouldAutoOpen = (isCreateAction && isStreaming) || isCustomPublished;
+		if (hasAutoOpenedRef.current || !shouldAutoOpen || !canOpen || !chatId || !finalStorySlug) {
 			return;
 		}
 
@@ -68,6 +72,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		hasAutoOpenedRef.current = true;
 	}, [
 		isCreateAction,
+		isCustomPublished,
 		isStreaming,
 		canOpen,
 		chatId,
@@ -101,7 +106,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	}
 
 	const title = latestStory?.title ?? output?.title ?? input.title ?? input.id;
-	const labels = STORY_ACTION_LABELS[input.action ?? 'create'];
+	const labels = STORY_ACTION_LABELS[input.action ?? 'create'] ?? STORY_ACTION_LABELS.create;
 	const statusLabel = isStreaming
 		? labels.pending
 		: `${labels.done}${output?.version ? ` · v${output.version}` : ''}`;

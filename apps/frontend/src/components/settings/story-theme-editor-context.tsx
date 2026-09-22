@@ -44,6 +44,7 @@ export function useInvalidateStoryTheme(): () => Promise<void> {
 				queryClient.invalidateQueries({ queryKey: trpc.storyTheme.getState.queryKey() }),
 				queryClient.invalidateQueries({ queryKey: trpc.storyTheme.getActive.queryKey() }),
 				queryClient.invalidateQueries({ queryKey: trpc.storyTheme.listVersions.queryKey() }),
+				queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey() }),
 			]).then(() => undefined),
 		[queryClient],
 	);

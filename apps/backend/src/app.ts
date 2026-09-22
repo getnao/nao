@@ -3,12 +3,13 @@ import './instrumentation';
 import formbody from '@fastify/formbody';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
+import { STORY_RUNTIME_PATH } from '@nao/shared/story-app';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import fastify, { FastifyReply } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { existsSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, relative as relativePath } from 'path';
 import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
@@ -375,11 +376,32 @@ const isReservedBackendPath = (url: string) => {
 
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
+/** Sandboxed custom-story frames have an opaque origin, so the modules they load must be CORS-readable. */
+const isStoryRuntimeAsset = (filePath: string) => {
+	const relative = relativePath(staticRoot ?? '', filePath).replaceAll('\\', '/');
+	return relative.startsWith(`${STORY_RUNTIME_PATH.slice(1)}/`);
+};
+
+const setStoryRuntimeCorsHeaders = (reply: FastifyReply) => {
+	reply.header('Access-Control-Allow-Origin', 'null');
+	reply.header('Access-Control-Allow-Private-Network', 'true');
+};
+
+app.options(`${STORY_RUNTIME_PATH}/*`, (_request, reply) => {
+	setStoryRuntimeCorsHeaders(reply);
+	reply.header('Access-Control-Allow-Methods', 'GET, HEAD').status(204).send();
+});
+
 if (staticRoot) {
 	app.register(fastifyStatic, {
 		root: staticRoot,
 		prefix: '/',
 		wildcard: false,
+		setHeaders: (reply, filePath) => {
+			if (isStoryRuntimeAsset(filePath)) {
+				setStoryRuntimeCorsHeaders(reply as unknown as FastifyReply);
+			}
+		},
 	});
 }
 

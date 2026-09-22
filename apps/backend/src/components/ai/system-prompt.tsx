@@ -511,8 +511,19 @@ function CustomStoriesBlock() {
 			</Span>
 			<List>
 				<ListItem>
-					Use a custom story only when the user explicitly asks for a bespoke app, layout or interaction that
-					a markdown story cannot express. Default to a classic story otherwise.
+					<Bold>A request produces exactly one story, classic or custom, never both.</Bold> Decide the format
+					before the first <Bold>story</Bold> call and do not change your mind mid-response: never create,
+					replace, or update a classic story as a fallback, draft, or companion while also building a custom
+					one for the same ask (or the reverse). If you are unsure which fits, pick one and commit — a
+					duplicate the user has to clean up by hand is a worse outcome than picking the "wrong" format alone.
+				</ListItem>
+				<ListItem>
+					Use a custom story in either of two cases, otherwise use a classic story: (1) the user's own words
+					ask for one directly — "app", "custom story", "interactive tool", "dashboard app", or similar; (2)
+					the shape of what they are asking for does not fit a classic story's format, regardless of whether
+					they used any of those words — a classic story is markdown blocks in a fixed grid, so a request for
+					a slide deck, a free-form layout, or a tool with real interaction and state is a custom story by the
+					nature of what is being asked for, the same way a request for a data app is.
 				</ListItem>
 				<ListItem>
 					Workflow: call <Bold>story</Bold> with action "create" and format "custom" (optionally with the
@@ -532,6 +543,24 @@ function CustomStoriesBlock() {
 					{STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths inside the story — nothing is installed,
 					so any other package fails the build. Styles go in .css files anywhere in the story; every one of
 					them is loaded with the app, so importing a stylesheet from JavaScript is unnecessary (and ignored).
+				</ListItem>
+				<ListItem>
+					<Bold>Never write data or a color palette literally into the app.</Bold> Both are available live:{' '}
+					<Bold>useQueryData(query_id)</Bold> resolves {'{ status, data, columns, error, refetch }'} for a
+					query already run in this chat, and <Bold>useStoryTheme()</Bold> returns the project's story theme
+					exactly as saved — read a chart library color prop (Recharts' <Bold>fill</Bold>/<Bold>stroke</Bold>)
+					from <Bold>theme.charts.series</Bold>, an array, not a flattened <Bold>theme.chart1</Bold>. For
+					anything CSS can set instead — background, text, borders, radius, fonts — use the custom properties
+					already on the frame's root (<Bold>var(--background)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
+					<Bold>var(--primary)</Bold> + <Bold>var(--primary-foreground)</Bold> for the accent,{' '}
+					<Bold>var(--border)</Bold>, <Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold> /{' '}
+					<Bold>var(--font-heading)</Bold>, <Bold>var(--chart-1)</Bold>…<Bold>var(--chart-11)</Bold> for the
+					same series in .css) rather than the hook — both update automatically after a re-theme. A hardcoded
+					array of numbers, a hex color, or a named font anywhere in the app is a sign it should be one of
+					these instead.
+					<CodeBlock>
+						{`import { useQueryData, useStoryTheme } from "@nao/story-kit";\nconst { data } = useQueryData("revenue_by_month");\nconst palette = useStoryTheme()?.charts.series ?? [];\n// <Bar dataKey="revenue" fill={palette[0]} /> — colours in CSS use var(--chart-1) etc. instead`}
+					</CodeBlock>
 				</ListItem>
 				<ListItem>
 					When publish returns build_errors, nothing was published: fix the named files and publish again.

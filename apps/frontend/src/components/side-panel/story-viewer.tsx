@@ -25,6 +25,7 @@ import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -49,7 +50,20 @@ interface StoryViewerProps {
 	initialTabIndex?: number;
 }
 
-export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {
+export function StoryViewer(props: StoryViewerProps) {
+	const { isReadonlyMode: contextReadonlyMode, isReplay } = useSidePanel();
+	const isReadonlyMode = isReplay ? contextReadonlyMode : (props.isReadonlyMode ?? contextReadonlyMode);
+	const { data } = useQuery({
+		...trpc.story.listVersions.queryOptions({ chatId: props.chatId, storySlug: props.storySlug }),
+		enabled: !isReadonlyMode,
+	});
+	if (data?.format === 'custom') {
+		return <CustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} />;
+	}
+	return <ClassicStoryViewer {...props} />;
+}
+
+function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
