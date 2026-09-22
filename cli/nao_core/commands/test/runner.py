@@ -534,7 +534,7 @@ def test(
     UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
     UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]")
     if k_count > 1:
-        UI.print(f"[dim]k: {k_count}[/dim]")
+        UI.print(f"[dim] Attempts: {k_count}[/dim]")
     UI.print("")
 
     test_cases = discover_tests(project_path)
