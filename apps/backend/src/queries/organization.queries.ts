@@ -48,6 +48,35 @@ export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void>
 
 export const getUserOrgMembership = async (
 	userId: string,
+	selectedOrganizationId?: string | null,
+): Promise<(DBOrgMember & { organization: DBOrganization }) | null> => {
+	if (selectedOrganizationId) {
+		const selectedMembership = await findUserOrgMembership(userId, selectedOrganizationId);
+		if (selectedMembership) {
+			return selectedMembership;
+		}
+	}
+
+	return findUserOrgMembership(userId);
+};
+
+export const listUserOrgMemberships = async (userId: string) => {
+	return db
+		.select({
+			id: s.organization.id,
+			name: s.organization.name,
+			role: s.orgMember.role,
+		})
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
+		.where(eq(s.orgMember.userId, userId))
+		.orderBy(asc(s.organization.name), asc(s.organization.id))
+		.execute();
+};
+
+const findUserOrgMembership = async (
+	userId: string,
+	organizationId?: string,
 ): Promise<(DBOrgMember & { organization: DBOrganization }) | null> => {
 	const [result] = await db
 		.select({
@@ -59,7 +88,11 @@ export const getUserOrgMembership = async (
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
-		.where(eq(s.orgMember.userId, userId))
+		.where(
+			organizationId
+				? and(eq(s.orgMember.userId, userId), eq(s.orgMember.orgId, organizationId))
+				: eq(s.orgMember.userId, userId),
+		)
 		.limit(1)
 		.execute();
 	return result ?? null;
@@ -228,15 +261,32 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 
 			if (!existingProject) {
 				const projectName = projectPath.split('/').pop() || 'Default Project';
-				const [project] = await tx
-					.insert(s.project)
-					.values({ name: projectName, type: 'local', path: projectPath, orgId: org.id })
-					.returning()
-					.execute();
+				const project = await projectQueries.createProject(
+					{ name: projectName, type: 'local', path: projectPath, orgId: org.id },
+					tx,
+				);
 
 				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'admin' }).execute();
 			}
 		}
+	});
+};
+
+export const addUserToDefaultOrganizationIfExists = async (userId: string): Promise<void> => {
+	const existingMembership = await getUserOrgMembership(userId);
+	if (existingMembership) {
+		return;
+	}
+
+	const org = await getFirstOrganization();
+	if (!org) {
+		return;
+	}
+
+	await addOrgMemberIfMissing({
+		orgId: org.id,
+		userId,
+		role: env.DEFAULT_USER_ROLE,
 	});
 };
 

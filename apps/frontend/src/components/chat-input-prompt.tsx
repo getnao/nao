@@ -26,6 +26,7 @@ type ChatPromptProps = {
 	initialValue?: string;
 	minHeight?: string;
 	submitOnEnter?: boolean;
+	storyCreationEnabled: boolean;
 	onChange: (value: string, mentions: SelectedMention[]) => void;
 	onEnter?: (value: string, mentions: SelectedMention[]) => void;
 };
@@ -75,6 +76,7 @@ export function ChatPrompt({
 	initialValue,
 	minHeight,
 	submitOnEnter = true,
+	storyCreationEnabled,
 	onChange,
 	onEnter,
 }: ChatPromptProps) {
@@ -100,11 +102,15 @@ export function ChatPrompt({
 						})) ?? []),
 					],
 				},
-				{
-					trigger: story.MENTION_TRIGGER,
-					menuPosition: 'above',
-					options: [storyMentionOption],
-				},
+				...(storyCreationEnabled
+					? [
+							{
+								trigger: story.MENTION_TRIGGER,
+								menuPosition: 'above' as const,
+								options: [storyMentionOption],
+							},
+						]
+					: []),
 				{
 					trigger: DATABASE_MENTION_TRIGGER,
 					menuPosition: 'above',

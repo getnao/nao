@@ -12,10 +12,10 @@ import { addTeamMember } from '../services/team-member';
 import { ORG_ROLES } from '../types/organization';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
-import { assertRolesAreEditable, protectedProcedure } from './trpc';
+import { assertOrganizationRolesAreEditable, protectedProcedure } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
+	const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
 	if (!membership) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 	}
@@ -31,6 +31,10 @@ const orgAdminOnlyProcedure = orgAdminProcedure.use(async ({ ctx, next }) => {
 });
 
 export const organizationRoutes = {
+	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
+		return orgQueries.listUserOrgMemberships(ctx.user.id);
+	}),
+
 	get: orgAdminProcedure.query(async ({ ctx }) => ({
 		id: ctx.org.id,
 		name: ctx.org.name,
@@ -78,7 +82,7 @@ export const organizationRoutes = {
 	updateMemberRole: orgAdminOnlyProcedure
 		.input(z.object({ userId: z.string(), role: z.enum(ORG_ROLES) }))
 		.mutation(async ({ input, ctx }) => {
-			await assertRolesAreEditable();
+			await assertOrganizationRolesAreEditable();
 
 			const currentRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
 			if (input.role !== 'admin') {
@@ -123,7 +127,7 @@ export const organizationRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			if (input.newRole) {
-				await assertRolesAreEditable();
+				await assertOrganizationRolesAreEditable();
 			}
 
 			const currentRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);

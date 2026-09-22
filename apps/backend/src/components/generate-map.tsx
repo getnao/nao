@@ -3,6 +3,7 @@ import {
 	bubbleLegendValues,
 	buildChoroplethEntries,
 	buildMapPoints,
+	CHART_FONT_STACK,
 	CHOROPLETH_MIN_OPACITY,
 	choroplethOpacity,
 	choroplethValueDomain,
@@ -244,7 +245,7 @@ function TitleHeader({ title, bandHeight }: { title: string; bandHeight: number 
 			y={bandHeight / 2}
 			fontSize={15}
 			fontWeight={300}
-			fontFamily='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+			fontFamily={CHART_FONT_STACK}
 			fill='#0a0a0a'
 			textAnchor='middle'
 			dominantBaseline='middle'
@@ -335,7 +336,7 @@ function Attribution({ text }: { text: string }) {
 				fontSize={9}
 				fill='#3a4756'
 				textAnchor='end'
-				fontFamily='system-ui, sans-serif'
+				fontFamily={CHART_FONT_STACK}
 			>
 				{text}
 			</text>

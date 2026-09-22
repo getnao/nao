@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { buildChart, computeKpiComparison, computeValueAxisWidth, describePreviousPeriod } from '../src/chart-builder';
+import { CHART_FONT_STACK } from '../src/chart-fonts';
 import { formatChartValue } from '../src/chart-values';
 
 describe('formatChartValue', () => {
@@ -53,10 +54,10 @@ describe('computeValueAxisWidth', () => {
 
 	it('reserves extra width for a rotated axis title when hasLabel is set', () => {
 		const currencyFormat = { d3_format: ',.0f', prefix: '$' };
-		expect(computeValueAxisWidth([1, 10], undefined, true)).toBe(56);
+		expect(computeValueAxisWidth([1, 10], undefined, true)).toBe(76);
 		expect(computeValueAxisWidth([], undefined, true)).toBe(60);
-		expect(computeValueAxisWidth([0, 980_000], currencyFormat, true)).toBe(102);
-		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], currencyFormat, true)).toBe(140);
+		expect(computeValueAxisWidth([0, 980_000], currencyFormat, true)).toBe(122);
+		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], currencyFormat, true)).toBe(160);
 	});
 });
 
@@ -163,7 +164,7 @@ describe('buildChart', () => {
 		expect(xAxis?.props.angle).toBe(-35);
 		expect(xAxis?.props.textAnchor).toBe('end');
 		expect(xAxis?.props.height).toBe(56);
-		expect(xAxis?.props.tick).toEqual({ fontSize: 9 });
+		expect(xAxis?.props.tick).toEqual({ fontSize: 9, fontFamily: CHART_FONT_STACK });
 		expect(xAxis?.props.tickFormatter('A very long category')).toBe('A very long category');
 	});
 

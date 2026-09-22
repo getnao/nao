@@ -13,6 +13,7 @@ export interface McpContext {
 	settings: McpEndpointSettings;
 	/** When true, chart tools return config + data rows for the client agent to render itself instead of embed links/apps only. */
 	chartDataMode: boolean;
+	storyCreationEnabled: boolean;
 }
 
 export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };

@@ -1,11 +1,22 @@
-import type { BackgroundModelSettings, CustomBoundarySet, MapSettings } from '@nao/shared';
+import {
+	ALL_DATABASE_CONTEXT_ACCESS,
+	ALL_DOCS_CONTEXT_ACCESS,
+	type BackgroundModelSettings,
+	type CustomBoundarySet,
+	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	DEFAULT_USER_GROUP_NAME,
+	type MapSettings,
+	serializeUserGroupConfig,
+	serializeUserGroupContextAccess,
+	USER_GROUP_FEATURES,
+} from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
@@ -16,6 +27,12 @@ import { userMemberStatus } from './user.queries';
 export interface UserProjectWithRole {
 	project: DBProject;
 	userRole: UserRole;
+}
+
+export type ProjectAccessSource = 'project' | 'organization' | 'both';
+
+export interface UserWithProjectAccessDetails extends UserWithRole {
+	source: ProjectAccessSource;
 }
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -54,10 +71,10 @@ export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: 
 	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
-export const createProject = async (project: NewProject): Promise<DBProject> => {
-	const [created] = await db.insert(s.project).values(project).returning().execute();
-	return created;
-};
+export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> =>
+	transaction
+		? createProjectWithDefaultGroup(project, transaction)
+		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
 
 export const getProjectMember = async (projectId: string, userId: string): Promise<DBProjectMember | null> => {
 	const [member] = await db
@@ -68,8 +85,11 @@ export const getProjectMember = async (projectId: string, userId: string): Promi
 	return member ?? null;
 };
 
-export const addProjectMember = async (member: NewProjectMember): Promise<DBProjectMember> => {
-	const [created] = await db.insert(s.projectMember).values(member).returning().execute();
+export const addProjectMember = async (
+	member: NewProjectMember,
+	executor: DBExecutor = db,
+): Promise<DBProjectMember> => {
+	const [created] = await executor.insert(s.projectMember).values(member).returning().execute();
 	return created;
 };
 
@@ -180,6 +200,30 @@ export const listUsersWithProjectAccess = async (projectId: string): Promise<Use
 	return results;
 };
 
+export const listUsersWithProjectAccessDetails = async (projectId: string): Promise<UserWithProjectAccessDetails[]> => {
+	const project = await getProjectById(projectId);
+	const results = await db
+		.select({
+			id: s.user.id,
+			name: s.user.name,
+			email: s.user.email,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+			status: userMemberStatus,
+			source: sql<ProjectAccessSource>`case
+				when ${s.projectMember.userId} is not null and ${s.orgMember.userId} is not null then 'both'
+				when ${s.projectMember.userId} is not null then 'project'
+				else 'organization'
+			end`,
+		})
+		.from(s.user)
+		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.userId, s.user.id), eq(s.orgMember.orgId, project?.orgId ?? '')))
+		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)))
+		.execute();
+
+	return results;
+};
+
 export const getDefaultProject = async (): Promise<DBProject | null> => {
 	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
 	if (projectPath) {
@@ -241,6 +285,10 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 		pythonExecution: {
 			...current.pythonExecution,
 			...settings.pythonExecution,
+		},
+		subagent: {
+			...current.subagent,
+			...settings.subagent,
 		},
 	};
 	await db.update(s.project).set({ agentSettings: next }).where(eq(s.project.id, projectId)).execute();
@@ -378,6 +426,35 @@ const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Quer
 	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
 
 type Lockable<Query> = { for(strength: 'update'): Query };
+
+const createProjectWithDefaultGroup = (
+	project: NewProject,
+	transaction: DBTransaction,
+): DBProject | Promise<DBProject> => {
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return createPostgresProjectWithDefaultGroup(project, transaction);
+	}
+	const [created] = transaction.insert(s.project).values(project).returning().all();
+	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
+	return created;
+};
+
+const createPostgresProjectWithDefaultGroup = async (
+	project: NewProject,
+	transaction: DBTransaction,
+): Promise<DBProject> => {
+	const [created] = await transaction.insert(s.project).values(project).returning().execute();
+	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
+	return created;
+};
+
+const defaultUserGroupValues = (projectId: string) => ({
+	projectId,
+	name: DEFAULT_USER_GROUP_NAME,
+	isDefault: true,
+	featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY),
+	contextGrants: serializeUserGroupContextAccess(ALL_DATABASE_CONTEXT_ACCESS, ALL_DOCS_CONTEXT_ACCESS),
+});
 
 export const getEnvVars = async (projectId: string): Promise<Record<string, string>> => {
 	const project = await getProjectById(projectId);

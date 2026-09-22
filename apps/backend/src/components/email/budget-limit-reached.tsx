@@ -1,5 +1,6 @@
 import { EmailLayout } from './email-layout';
 import { EmailParagraph } from './email-text';
+import { emailColors } from './email-theme';
 
 interface BudgetLimitReachedProps {
 	userName: string;
@@ -8,6 +9,7 @@ interface BudgetLimitReachedProps {
 	currentSpendUsd: number;
 	period: string;
 	resetLabel: string;
+	unsubscribeUrl?: string;
 }
 
 export function BudgetLimitReached({
@@ -17,6 +19,7 @@ export function BudgetLimitReached({
 	currentSpendUsd,
 	period,
 	resetLabel,
+	unsubscribeUrl,
 }: BudgetLimitReachedProps) {
 	return (
 		<EmailLayout title={`Budget limit reached for ${providerLabel} on nao`}>
@@ -36,6 +39,14 @@ export function BudgetLimitReached({
 			<EmailParagraph>
 				To unblock users, you can increase the budget limit in your project settings.
 			</EmailParagraph>
+
+			{unsubscribeUrl && (
+				<EmailParagraph muted>
+					<a href={unsubscribeUrl} style={{ color: emailColors.muted }}>
+						Unsubscribe from budget alert emails
+					</a>
+				</EmailParagraph>
+			)}
 		</EmailLayout>
 	);
 }

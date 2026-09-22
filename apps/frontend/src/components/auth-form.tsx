@@ -8,7 +8,7 @@ import { MicrosoftSignInButton, useIsMicrosoftSetup } from '@/components/auth-mi
 import { OidcSignInButton } from '@/components/auth-oidc-button';
 import { Button, ChatButton, AuthSocialButton } from '@/components/ui/button';
 import { LastUsedPill } from '@/components/ui/last-used-pill';
-import { buildBrandVars } from '@/components/brand-color';
+import { buildBrandVars, buildLastUsedPillVars } from '@/components/brand-color';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
@@ -62,6 +62,7 @@ export function AuthForm({
 	const brandVars = customColor
 		? (buildBrandVars(customColor, isDark ? 'dark' : 'light') as React.CSSProperties)
 		: undefined;
+	const lastUsedPillVars = customColor ? (buildLastUsedPillVars(customColor) as React.CSSProperties) : undefined;
 
 	const [lastSignInMethod] = useState(loadLastSignInMethod);
 	const [isEmailFormExpanded, setIsEmailFormExpanded] = useState(lastSignInMethod === 'email');
@@ -135,7 +136,7 @@ export function AuthForm({
 		!areSocialProvidersPending && displayEmailPasswordForm && (!showsProviders || isEmailFormExpanded);
 
 	return (
-		<div className='flex min-h-screen w-full'>
+		<div className='flex min-h-screen w-full' style={lastUsedPillVars}>
 			<div className='flex w-full items-center justify-center lg:w-1/2'>
 				<div className='mx-auto w-full max-w-md p-8 my-auto gap-4'>
 					<div className='flex flex-col items-center start mb-10 pb-2 gap-8'>

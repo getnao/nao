@@ -31,6 +31,7 @@ import { mcpService } from '../services/mcp';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
 import { AgentSettings } from '../types/agent-settings';
 import type { ContextUsage } from '../types/chat';
 import {
@@ -38,6 +39,7 @@ import {
 	customModelMetadataSchema,
 	llmConfigSchema,
 	llmProviderSchema,
+	llmSelectedModelSchema,
 	modelSettingsMapSchema,
 } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
@@ -134,11 +136,12 @@ export const projectRoutes = {
 				}),
 			),
 		)
-		.query(({ ctx }) => {
+		.query(async ({ ctx }) => {
 			if (!ctx.project?.path) {
 				return [];
 			}
-			return getDatabaseObjects(ctx.project.path);
+			const access = await resolveWarehouseTableAccess(ctx.project.id, ctx.user.id, ctx.project.path);
+			return getDatabaseObjects(ctx.project.path).filter((object) => isDatabaseObjectAllowed(access, object));
 		}),
 
 	getLlmConfigs: projectProtectedProcedure
@@ -316,6 +319,7 @@ export const projectRoutes = {
 					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
 					replyMode: config.replyMode,
+					dmScopeMissing: config.dmScopeMissing,
 				}
 			: null;
 
@@ -982,6 +986,11 @@ export const projectRoutes = {
 						mode: z.enum(SEMANTIC_LAYER_MODES).optional(),
 					})
 					.optional(),
+				subagent: z
+					.object({
+						model: llmSelectedModelSchema.nullable().optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -995,6 +1004,7 @@ export const projectRoutes = {
 				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
 				semanticLayer: { ...existing.semanticLayer, ...input.semanticLayer },
+				subagent: { ...existing.subagent, ...input.subagent },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,

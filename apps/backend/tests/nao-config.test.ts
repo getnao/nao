@@ -4,14 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-	extractConfiguredDatabases,
-	extractConfiguredRepos,
-	extractRequiredEnvVars,
-	extractConfiguredTemplates,
-	extractContextPresence,
-	readProjectContext,
-} from '../src/utils/nao-config';
+import { extractConfiguredRepos, extractRequiredEnvVars } from '../src/utils/nao-config';
 
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },

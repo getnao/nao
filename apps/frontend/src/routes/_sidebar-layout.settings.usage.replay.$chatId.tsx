@@ -1,9 +1,8 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { Check, Link } from 'lucide-react';
+import { createFileRoute } from '@tanstack/react-router';
 
 import { ChatsReplayPanel } from '@/components/settings/chats-replay-panel';
 import { validateUsageSearch } from '@/components/settings/usage-route-search';
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useReplayOrigin } from '@/hooks/use-replay-origin';
 import { requireContextAdminOrAdmin } from '@/lib/require-admin';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage/replay/$chatId')({
@@ -15,39 +14,14 @@ export const Route = createFileRoute('/_sidebar-layout/settings/usage/replay/$ch
 function ChatReplayRoute() {
 	const { chatId } = Route.useParams();
 	const usageSearch = Route.useSearch();
-	const navigate = useNavigate();
-	const { isCopied, copy } = useCopyToClipboard();
+	const origin = useReplayOrigin(usageSearch);
 
 	return (
 		<ChatsReplayPanel
 			chatId={chatId}
+			origin={{ label: origin.label, onClick: origin.goBack }}
 			highlightOnLoad={usageSearch.highlight}
 			targetId={usageSearch.targetId}
-			metadataAction={
-				<button
-					type='button'
-					className='flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground'
-					onClick={() => copy(window.location.href).catch(console.error)}
-				>
-					{isCopied ? <Check className='size-3' /> : <Link className='size-3' />}
-					{isCopied ? 'Copied!' : 'Copy link'}
-				</button>
-			}
-			onBack={() => {
-				if (usageSearch.origin === 'recommendations') {
-					navigate({
-						to: '/settings/recommendations',
-						search: { tab: usageSearch.recoTab, openChats: usageSearch.recoId },
-						replace: true,
-					});
-					return;
-				}
-				navigate({
-					to: '/settings/usage',
-					search: usageSearch,
-					replace: true,
-				});
-			}}
 		/>
 	);
 }

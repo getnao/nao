@@ -8,7 +8,6 @@ import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
-const ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
 const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
 

@@ -63,6 +63,8 @@ function ChatPage() {
 	const router = useRouter();
 	const { chatId } = Route.useParams();
 	const { role, canViewChatReplay } = usePermissions();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const showAutomationLinks = role !== undefined && role !== 'viewer' && config.data?.betaAutomationsEnabled === true;
 	const chat = useChatQuery({ chatId });
 	const title = chat.data?.title;
 
@@ -179,13 +181,13 @@ function ChatPage() {
 										<span className='truncate'>{chatProject.name}</span>
 									</Badge>
 								)}
-								{isAutomationRunning && (
+								{showAutomationLinks && isAutomationRunning && (
 									<Badge variant='secondary' className='gap-1 text-muted-foreground w-fit'>
 										<Spinner className='size-3' />
 										<span>Running...</span>
 									</Badge>
 								)}
-								{automationId && (
+								{showAutomationLinks && automationId && (
 									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit' asChild>
 										<Link to='/automations/$automationId' params={{ automationId }}>
 											<TimerIcon />
@@ -265,7 +267,7 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
-						<div className='pointer-events-none absolute left-0 right-4 bottom-0 z-10 pt-8'>
+						<div className='pointer-events-none absolute inset-x-0 md:right-4 bottom-0 z-10 pt-8'>
 							<div
 								ref={inputAreaRef}
 								className='pointer-events-auto bg-gradient-to-t from-background via-background via-70% to-transparent'
