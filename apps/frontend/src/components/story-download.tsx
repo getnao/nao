@@ -2,12 +2,12 @@ import { Download, FileCode, FileText, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
 import type { DownloadFormat } from '@nao/shared/types';
-import { Button } from '@/components/ui/button';
 import {
-	DropdownMenu,
-	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuTrigger,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { trpcClient } from '@/main';
 
@@ -81,71 +81,58 @@ function useStoryDownload({
 	return { isDownloading, error, canDownload, handleDownload };
 }
 
-interface StoryDownloadProps extends StoryDownloadOptions {
+interface StoryDownloadMenuItemProps extends StoryDownloadOptions {
 	isAgentRunning?: boolean;
 	isSaving?: boolean;
-	iconOnly?: boolean;
 }
 
-export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...downloadOptions }: StoryDownloadProps) {
+/**
+ * Download entry for use inside an existing dropdown, with the formats in a submenu. Selecting a
+ * format keeps the menu open so the spinner and any error stay visible, since PDF rendering runs
+ * server-side and is not instant.
+ */
+export function StoryDownloadMenuItem({ isAgentRunning, isSaving, ...downloadOptions }: StoryDownloadMenuItemProps) {
 	const { isDownloading, error, canDownload, handleDownload } = useStoryDownload(downloadOptions);
 
 	if (!canDownload) {
 		return null;
 	}
 
-	const isDisabled = isAgentRunning || isDownloading || isSaving;
+	const startDownload = (format: DownloadFormat) => (event: Event) => {
+		event.preventDefault();
+		void handleDownload(format);
+	};
 
 	return (
-		<>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					{iconOnly ? (
-						<Button
-							variant='ghost'
-							size='icon-sm'
-							className='hover:rounded-full'
-							disabled={isDisabled}
-							aria-label='Download story'
-							title='Download story'
+		<DropdownMenuSub>
+			<DropdownMenuSubTrigger disabled={isAgentRunning || isSaving}>
+				{isDownloading ? (
+					<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+				) : (
+					<Download className='size-3.5' strokeWidth={2.25} />
+				)}
+				<span>Download</span>
+			</DropdownMenuSubTrigger>
+			<DropdownMenuSubContent className='w-auto min-w-20'>
+				<DropdownMenuItem disabled={isDownloading} onSelect={startDownload('pdf')}>
+					<FileText /> <span>PDF</span>
+				</DropdownMenuItem>
+				<DropdownMenuItem disabled={isDownloading} onSelect={startDownload('html')}>
+					<FileCode /> <span>HTML</span>
+				</DropdownMenuItem>
+				{error && (
+					<>
+						<DropdownMenuSeparator />
+						<p
+							role='alert'
+							className='line-clamp-3 max-w-56 px-2 py-1 text-xs leading-snug text-destructive'
+							title={error}
 						>
-							{isDownloading ? (
-								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-							) : (
-								<Download className='size-3.5' strokeWidth={2.25} />
-							)}
-						</Button>
-					) : (
-						<Button
-							variant='outline'
-							size='sm'
-							disabled={isDisabled}
-							aria-label='Download story'
-							title='Download story'
-						>
-							{isDownloading ? (
-								<Loader2 className='size-3.5 animate-spin' />
-							) : (
-								<Download className='size-3.5' />
-							)}
-							<span>Download</span>
-						</Button>
-					)}
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align='end' className='w-auto min-w-20'>
-					<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
-						<FileText /> <span>PDF</span>
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={() => handleDownload('html')}>
-						<FileCode /> <span>HTML</span>
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
-			{error && (
-				<p className='text-xs text-destructive mt-1 max-w-48 truncate' title={error}>
-					{error}
-				</p>
-			)}
-		</>
+							{error}
+						</p>
+					</>
+				)}
+			</DropdownMenuSubContent>
+		</DropdownMenuSub>
 	);
 }
