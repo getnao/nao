@@ -2,16 +2,15 @@ import { Download, FileCode, FileText, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
 import type { DownloadFormat } from '@nao/shared/types';
-import { Button } from '@/components/ui/button';
 import {
-	DropdownMenu,
-	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuTrigger,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { trpcClient } from '@/main';
 
-interface StoryDownloadOptions {
+export interface StoryDownloadOptions {
 	storyId?: string;
 	chatId?: string;
 	storySlug?: string;
@@ -19,6 +18,10 @@ interface StoryDownloadOptions {
 	shareType?: 'chat' | 'story';
 	isOwner?: boolean;
 	versionNumber?: number;
+}
+
+export function canDownloadStory({ storyId, shareId, isOwner = true }: StoryDownloadOptions) {
+	return isOwner || !!shareId || !!storyId;
 }
 
 function useStoryDownload({
@@ -31,15 +34,13 @@ function useStoryDownload({
 	versionNumber,
 }: StoryDownloadOptions) {
 	const [isDownloading, setIsDownloading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const canDownload = isOwner || !!shareId || !!storyId;
+	const canDownload = canDownloadStory({ storyId, shareId, isOwner });
 
 	const handleDownload = async (format: DownloadFormat) => {
 		if (!canDownload) {
 			return;
 		}
 		setIsDownloading(true);
-		setError(null);
 		try {
 			let result;
 			if (storyId) {
@@ -70,25 +71,22 @@ function useStoryDownload({
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Download failed';
-			setError(message);
 			console.error('Story download failed:', err);
 		} finally {
 			setIsDownloading(false);
 		}
 	};
 
-	return { isDownloading, error, canDownload, handleDownload };
+	return { isDownloading, canDownload, handleDownload };
 }
 
-interface StoryDownloadProps extends StoryDownloadOptions {
+interface StoryDownloadMenuProps extends StoryDownloadOptions {
 	isAgentRunning?: boolean;
 	isSaving?: boolean;
-	iconOnly?: boolean;
 }
 
-export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...downloadOptions }: StoryDownloadProps) {
-	const { isDownloading, error, canDownload, handleDownload } = useStoryDownload(downloadOptions);
+export function StoryDownloadMenu({ isAgentRunning, isSaving, ...downloadOptions }: StoryDownloadMenuProps) {
+	const { isDownloading, canDownload, handleDownload } = useStoryDownload(downloadOptions);
 
 	if (!canDownload) {
 		return null;
@@ -97,55 +95,23 @@ export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...d
 	const isDisabled = isAgentRunning || isDownloading || isSaving;
 
 	return (
-		<>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					{iconOnly ? (
-						<Button
-							variant='ghost'
-							size='icon-sm'
-							className='hover:rounded-full'
-							disabled={isDisabled}
-							aria-label='Download story'
-							title='Download story'
-						>
-							{isDownloading ? (
-								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-							) : (
-								<Download className='size-3.5' strokeWidth={2.25} />
-							)}
-						</Button>
-					) : (
-						<Button
-							variant='outline'
-							size='sm'
-							disabled={isDisabled}
-							aria-label='Download story'
-							title='Download story'
-						>
-							{isDownloading ? (
-								<Loader2 className='size-3.5 animate-spin' />
-							) : (
-								<Download className='size-3.5' />
-							)}
-							<span>Download</span>
-						</Button>
-					)}
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align='end' className='w-auto min-w-20'>
-					<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
-						<FileText /> <span>PDF</span>
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={() => handleDownload('html')}>
-						<FileCode /> <span>HTML</span>
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
-			{error && (
-				<p className='text-xs text-destructive mt-1 max-w-48 truncate' title={error}>
-					{error}
-				</p>
-			)}
-		</>
+		<DropdownMenuSub>
+			<DropdownMenuSubTrigger disabled={isDisabled}>
+				{isDownloading ? (
+					<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+				) : (
+					<Download className='size-3.5' strokeWidth={2.25} />
+				)}
+				<span>Download</span>
+			</DropdownMenuSubTrigger>
+			<DropdownMenuSubContent>
+				<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
+					<FileText /> <span>PDF</span>
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => handleDownload('html')}>
+					<FileCode /> <span>HTML</span>
+				</DropdownMenuItem>
+			</DropdownMenuSubContent>
+		</DropdownMenuSub>
 	);
 }

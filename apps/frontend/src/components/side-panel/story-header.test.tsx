@@ -16,7 +16,8 @@ vi.mock('@/components/editable-story-title', () => ({
 }));
 
 vi.mock('@/components/story-download', () => ({
-	StoryDownload: () => null,
+	StoryDownloadMenu: () => null,
+	canDownloadStory: () => true,
 }));
 
 vi.mock('@/components/story-page-header', () => ({
