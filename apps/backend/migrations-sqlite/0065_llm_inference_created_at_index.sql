@@ -1,0 +1,1 @@
+CREATE INDEX `llm_inference_createdAt_idx` ON `llm_inference` (`created_at`);
