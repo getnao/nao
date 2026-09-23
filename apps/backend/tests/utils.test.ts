@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
@@ -27,6 +29,39 @@ describe('formatErrorMessageForUI', () => {
 	it('returns the message from a normal Error', () => {
 		const reason = 'Query blocked because main.customers.last_name is an excluded column.';
 		expect(formatErrorMessageForUI(new Error(reason))).toBe(reason);
+	});
+
+	it('replaces provider payload validation errors with a concise message', () => {
+		const requestId = randomUUID();
+		const error = Object.assign(new Error('Zod invalid_union details'), {
+			name: 'AI_TypeValidationError',
+			value: {
+				error: {
+					message: `Internal provider details. Please include the request ID ${requestId} in your email.`,
+					code: '500',
+				},
+			},
+		});
+
+		const message = formatErrorMessageForUI(error);
+
+		expect(JSON.parse(message)).toEqual({
+			error: {
+				message: 'The model provider returned an error (500). Please retry.',
+				requestId,
+			},
+		});
+		expect(message).not.toContain('Internal provider details');
+		expect(message).not.toContain('invalid_union');
+	});
+
+	it('replaces other validation errors with a concise message', () => {
+		const error = Object.assign(new Error('Zod invalid_union details'), {
+			name: 'AI_TypeValidationError',
+			value: { unexpected: true },
+		});
+
+		expect(formatErrorMessageForUI(error)).toBe('The model provider returned an error. Please retry.');
 	});
 
 	it.each([undefined, null, '', 'raw error', {}, new Error(''), new Error('   ')])(

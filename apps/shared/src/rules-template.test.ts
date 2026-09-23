@@ -1,0 +1,300 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+	extractConditionalGroupContent,
+	isRootRulesPath,
+	renderConditionalGroupBlocks,
+	renderConditionalGroupBlocksWithSourceLines,
+} from './rules-template';
+
+const licensed = (groupNames: string[]) => ({ enforced: true as const, groupNames });
+const unlicensed = { enforced: false as const };
+
+describe('renderConditionalGroupBlocks', () => {
+	it('includes a matching group and removes directive lines', () => {
+		const source = ['Always', '{% if group("finance") %}', 'Finance only', '{% endif %}', 'Done'].join('\n');
+
+		expect(renderConditionalGroupBlocks(source, licensed(['Finance']))).toBe(
+			['Always', 'Finance only', 'Done'].join('\n'),
+		);
+	});
+
+	it('matches any name in a multi-group condition without regard to capitalization', () => {
+		const source = '{% if group("finance", "marketing") %}\nShared rule\n{% endif %}\n';
+
+		expect(renderConditionalGroupBlocks(source, licensed(['Finance']))).toBe('Shared rule\n');
+		expect(renderConditionalGroupBlocks(source, licensed(['MARKETING']))).toBe('Shared rule\n');
+		expect(renderConditionalGroupBlocks(source, licensed(['Sales']))).toBe('');
+	});
+
+	it('omits blocks for unknown or unmatched groups', () => {
+		const source = 'Before\n{% if group("unknown") %}\nSecret\n{% endif %}\nAfter\n';
+
+		expect(renderConditionalGroupBlocks(source, licensed(['finance']))).toBe('Before\nAfter\n');
+	});
+
+	it('matches the built-in All Users name', () => {
+		const source = '{% if group("All Users") %}\nEveryone\n{% endif %}\n';
+
+		expect(renderConditionalGroupBlocks(source, licensed(['All Users']))).toBe('Everyone\n');
+	});
+
+	it('supports nested and adjacent blocks', () => {
+		const source = [
+			'{% if group("finance") %}',
+			'Finance',
+			'{% if group("leaders") %}',
+			'Finance leaders',
+			'{% endif %}',
+			'{% endif %}',
+			'{% if group("marketing") %}',
+			'Marketing',
+			'{% endif %}',
+			'{% if group("finance", "marketing") %}',
+			'Shared',
+			'{% endif %}',
+			'',
+		].join('\n');
+
+		expect(renderConditionalGroupBlocks(source, licensed(['finance']))).toBe('Finance\nShared\n');
+		expect(renderConditionalGroupBlocks(source, licensed(['finance', 'leaders']))).toBe(
+			'Finance\nFinance leaders\nShared\n',
+		);
+	});
+
+	it('preserves inline and fenced-code marker text verbatim', () => {
+		const source = [
+			'Use `{% if group("finance") %}` in an example.',
+			'```jinja',
+			'{% if group("finance") %}',
+			'Example content',
+			'{% endif %}',
+			'```',
+			'',
+		].join('\n');
+
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe(source);
+	});
+
+	it.each([
+		[
+			'list item',
+			['- ```jinja', '  {% if group("finance") %}', '  Example content', '  {% endif %}', '  ```', ''].join('\n'),
+		],
+		[
+			'blockquote',
+			['> ~~~jinja', '> {% if group("finance") %}', '> Example content', '> {% endif %}', '> ~~~', ''].join('\n'),
+		],
+		[
+			'nested container',
+			[
+				'> - ````jinja',
+				'>   {% if group("finance") %}',
+				'>   Example content',
+				'>   {% endif %}',
+				'>   ````',
+				'',
+			].join('\n'),
+		],
+	])('preserves conditional-looking text in a %s fence', (_name, source) => {
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe(source);
+	});
+
+	it.each([
+		[
+			'long ordered list',
+			[
+				'10. ```jinja',
+				'    {% if group("finance") %}',
+				'        ```',
+				'    Example content',
+				'    {% endif %}',
+				'    ```',
+			],
+		],
+		[
+			'nested lists',
+			[
+				'- 10. ```jinja',
+				'      {% if group("finance") %}',
+				'      Example content',
+				'      {% endif %}',
+				'      ```',
+			],
+		],
+		[
+			'list and blockquote',
+			[
+				'10. > ```jinja',
+				'    > {% if group("finance") %}',
+				'    > Example content',
+				'    > {% endif %}',
+				'    > ```',
+			],
+		],
+	])('closes a fenced example in a %s before filtering later rules', (_name, fencedExample) => {
+		const source = [
+			...fencedExample,
+			'{% if group("finance") %}',
+			'Restricted content',
+			'{% endif %}',
+			'Public content',
+			'',
+		].join('\n');
+
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe(
+			[...fencedExample, 'Public content', ''].join('\n'),
+		);
+	});
+
+	it('supports whitespace-control delimiters', () => {
+		const source = 'Before\n{%- if group("finance") -%}\nFinance\n{%- endif -%}\nAfter\n';
+
+		expect(renderConditionalGroupBlocks(source, licensed(['finance']))).toBe('Before\nFinance\nAfter\n');
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe('Before\nAfter\n');
+	});
+
+	it('preserves ordinary line endings while removing complete directive and guarded lines', () => {
+		const source = 'Before\r\n  {% if group("finance") %}  \r\nInside\r\n{% endif %}\r\nAfter';
+
+		expect(renderConditionalGroupBlocks(source, licensed(['finance']))).toBe('Before\r\nInside\r\nAfter');
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe('Before\r\nAfter');
+	});
+
+	it('includes every valid block without exposing directives when unlicensed', () => {
+		const source = 'Before\n{% if group("missing") %}\nVisible\n{% endif %}\nAfter\n';
+
+		expect(renderConditionalGroupBlocks(source, unlicensed)).toBe('Before\nVisible\nAfter\n');
+	});
+
+	it('maps rendered lines back to source lines', () => {
+		const source = 'Before\n{% if group("finance") %}\nFinance\n{% endif %}\nAfter\n';
+
+		expect(renderConditionalGroupBlocksWithSourceLines(source, licensed(['Finance']))).toEqual({
+			content: 'Before\nFinance\nAfter\n',
+			lines: [
+				{ content: 'Before', sourceLineNumber: 1 },
+				{ content: 'Finance', sourceLineNumber: 3 },
+				{ content: 'After', sourceLineNumber: 5 },
+			],
+		});
+	});
+
+	it.each([
+		['unmatched endif', 'Public\n{% endif %}\nGuarded'],
+		['missing endif', 'Public\n{% if group("finance") %}\nGuarded'],
+		['malformed group call', 'Public\n{% if group("finance" "marketing") %}\nGuarded\n{% endif %}'],
+		['empty argument set', 'Public\n{% if group() %}\nGuarded\n{% endif %}'],
+		['empty group name', 'Public\n{% if group("") %}\nGuarded\n{% endif %}'],
+		['unsupported conditional', 'Public\n{% if user.is_admin %}\nGuarded\n{% endif %}'],
+		['unsupported else', 'Public\n{% if group("finance") %}\nGuarded\n{% else %}\nExposed\n{% endif %}'],
+		['unsupported tag', 'Public\n{% include "private.md" %}\nGuarded'],
+		['malformed whitespace control', 'Public\n{%- if user.is_admin -%}\nGuarded\n{%- endif -%}'],
+	])('fails closed for %s', (_name, source) => {
+		expect(() => renderConditionalGroupBlocks(source, licensed(['finance']))).toThrow();
+		expect(() => renderConditionalGroupBlocks(source, unlicensed)).toThrow();
+	});
+});
+
+describe('extractConditionalGroupContent', () => {
+	it('returns matching block content without directives or global text', () => {
+		const source = [
+			'Global rule',
+			'{% if group("finance") %}',
+			'Finance only',
+			'{% endif %}',
+			'More global text',
+		].join('\n');
+
+		expect(extractConditionalGroupContent(source, 'finance')).toBe('Finance only\n');
+	});
+
+	it('matches OR group arguments without regard to capitalization', () => {
+		const source = '{% if group("finance", "marketing") %}\nShared rule\n{% endif %}\n';
+
+		expect(extractConditionalGroupContent(source, 'FINANCE')).toBe('Shared rule\n');
+		expect(extractConditionalGroupContent(source, 'Marketing')).toBe('Shared rule\n');
+	});
+
+	it('returns multiple matching blocks in source order', () => {
+		const source = [
+			'{% if group("finance") %}',
+			'First',
+			'{% endif %}',
+			'Global',
+			'{% if group("finance", "marketing") %}',
+			'Second',
+			'{% endif %}',
+			'',
+		].join('\n');
+
+		expect(extractConditionalGroupContent(source, 'finance')).toBe('First\nSecond\n');
+	});
+
+	it('honors nested matching and nonmatching conditions without leaking or duplicating content', () => {
+		const source = [
+			'{% if group("finance") %}',
+			'Outer match',
+			'{% if group("finance", "marketing") %}',
+			'Nested match',
+			'{% endif %}',
+			'{% if group("leaders") %}',
+			'Nested nonmatch',
+			'{% endif %}',
+			'{% endif %}',
+			'{% if group("leaders") %}',
+			'Outer nonmatch',
+			'{% if group("finance") %}',
+			'Hidden nested match',
+			'{% endif %}',
+			'{% endif %}',
+			'',
+		].join('\n');
+
+		expect(extractConditionalGroupContent(source, 'finance')).toBe('Outer match\nNested match\n');
+	});
+
+	it('retains fenced directive-looking text inside a matching block', () => {
+		const source = [
+			'{% if group("finance") %}',
+			'```jinja',
+			'{% if group("leaders") %}',
+			'Example content',
+			'{% endif %}',
+			'```',
+			'{% endif %}',
+			'',
+		].join('\n');
+
+		expect(extractConditionalGroupContent(source, 'finance')).toBe(
+			['```jinja', '{% if group("leaders") %}', 'Example content', '{% endif %}', '```', ''].join('\n'),
+		);
+	});
+
+	it('returns empty content when no condition matches', () => {
+		const source = 'Global\n{% if group("marketing") %}\nMarketing only\n{% endif %}\n';
+
+		expect(extractConditionalGroupContent(source, 'finance')).toBe('');
+	});
+
+	it.each([
+		['unmatched endif', 'Public\n{% endif %}\nGuarded'],
+		['missing endif', 'Public\n{% if group("finance") %}\nGuarded'],
+		['malformed condition', 'Public\n{% if group("finance" "marketing") %}\nGuarded\n{% endif %}'],
+	])('throws for %s', (_name, source) => {
+		expect(() => extractConditionalGroupContent(source, 'finance')).toThrow();
+	});
+});
+
+describe('isRootRulesPath', () => {
+	it.each(['RULES.md', '/RULES.md', '.\\RULES.md', '//./RULES.md'])('accepts root path %s', (filePath) => {
+		expect(isRootRulesPath(filePath)).toBe(true);
+	});
+
+	it.each(['/nested/RULES.md', 'docs\\RULES.md', '/rules.md', 'docs/../RULES.md'])(
+		'rejects non-root path %s',
+		(filePath) => {
+			expect(isRootRulesPath(filePath)).toBe(false);
+		},
+	);
+});

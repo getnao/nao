@@ -29,6 +29,7 @@ import {
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
@@ -50,6 +51,7 @@ import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
+import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
@@ -63,6 +65,7 @@ import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
+import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
@@ -205,6 +208,10 @@ app.register(authErrorRedirectRoutes, {
 
 app.register(embedStoryDownloadRoutes, {
 	prefix: '/api/embed',
+});
+
+app.register(notificationUnsubscribeRoutes, {
+	prefix: '/api/notifications',
 });
 
 app.register(authRoutes, {
@@ -403,6 +410,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
+	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler);
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({
@@ -437,7 +445,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	app.log.info(`Server is running on ${address}`);
 
 	void pingLicensesServer();
-	void slackService.startSocketModeForAllProjects();
+	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());
 	void mattermostService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });

@@ -1,11 +1,20 @@
 /* @license Enterprise */
 
-import type { BetterAuthOptions } from 'better-auth';
+import { APIError, type BetterAuthOptions } from 'better-auth';
+import { microsoft } from 'better-auth/social-providers';
 import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
+import { logger, serializeError } from '../utils/logger';
+import {
+	decideGroupOrganizationRoleMapping,
+	hasMicrosoftGroupsOverage,
+	parseEntraGroupOrganizationRoleMapping,
+} from '../utils/sso-group-mapping';
+import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { verifyMicrosoftIdTokenClaims } from './sso-token.service';
 
 export type SocialProviders = NonNullable<BetterAuthOptions['socialProviders']>;
 
@@ -21,11 +30,80 @@ export function augmentSocialProvidersWithMicrosoft(providers: SocialProviders):
 	if (!config) {
 		return;
 	}
+	const stockProvider = microsoft({
+		clientId: config.clientId,
+		clientSecret: config.clientSecret,
+		tenantId: config.tenantId,
+	});
 	providers.microsoft = {
 		clientId: config.clientId,
 		clientSecret: config.clientSecret,
 		tenantId: config.tenantId,
+		getUserInfo: async (token) => {
+			await assertMicrosoftGroupAccess(token);
+			return stockProvider.getUserInfo(token);
+		},
 	};
+}
+
+async function assertMicrosoftGroupAccess(token: { idToken?: string; accessToken?: string }): Promise<void> {
+	const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
+	if (roleMapping.status !== 'valid' || roleMapping.mapping.size === 0 || !(await hasFeature(LICENSE_FEATURES.sso))) {
+		return;
+	}
+	if (!token.idToken) {
+		throw new APIError('FORBIDDEN', {
+			message: 'Microsoft sign-in did not return an ID token.',
+		});
+	}
+
+	const verifiedToken = await verifyMicrosoftIdTokenClaims(token.idToken);
+	if (verifiedToken.status !== 'verified') {
+		throwMicrosoftMembershipUnavailable();
+	}
+	const claims = verifiedToken.claims;
+	if ('groups' in claims) {
+		assertMicrosoftGroupDecision(claims, roleMapping.mapping);
+		return;
+	}
+	if (!hasMicrosoftGroupsOverage(claims)) {
+		assertMicrosoftGroupDecision(claims, roleMapping.mapping);
+		return;
+	}
+	if (!token.accessToken) {
+		throwMicrosoftMembershipUnavailable();
+	}
+
+	let resolvedIds: string[];
+	try {
+		const { resolveMicrosoftGraphMemberships } = await import('./microsoft-user-group-membership.service');
+		resolvedIds = await resolveMicrosoftGraphMemberships(token.accessToken, [...roleMapping.mapping.keys()]);
+	} catch (error) {
+		logger.warn('Could not verify Microsoft Entra group membership during sign-in', {
+			source: 'system',
+			context: { error: serializeError(error) },
+		});
+		throwMicrosoftMembershipUnavailable();
+	}
+	assertMicrosoftGroupDecision({ ...claims, groups: resolvedIds }, roleMapping.mapping);
+}
+
+function assertMicrosoftGroupDecision(
+	claims: Record<string, unknown>,
+	mapping: Map<string, 'admin' | 'user' | 'viewer'>,
+): void {
+	const decision = decideGroupOrganizationRoleMapping(claims, 'groups', mapping);
+	if (decision.action === 'deny') {
+		throw new APIError('FORBIDDEN', {
+			message: 'Your account is not assigned to any nao access group.',
+		});
+	}
+}
+
+function throwMicrosoftMembershipUnavailable(): never {
+	throw new APIError('FORBIDDEN', {
+		message: 'Microsoft group membership could not be verified.',
+	});
 }
 
 export function getTrustedProvidersForMicrosoft(): string[] {

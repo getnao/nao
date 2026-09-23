@@ -93,6 +93,9 @@ describe('usage chart granularity', () => {
 	});
 
 	it('enforces the technical bucket limit without limiting days', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+
 		expect(
 			savedUsagePeriodInputSchema.safeParse({
 				days: MAX_USAGE_CHART_BUCKETS_PER_REQUEST,

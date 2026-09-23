@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { executeSql, grep, list, readFile } from '@nao/shared/tools';
+import { executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
@@ -12,6 +12,7 @@ import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
+import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
@@ -20,7 +21,7 @@ import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
 import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 
-const EXECUTE_SQL_DESCRIPTION =
+const EXECUTE_SQL_BASE_DESCRIPTION =
 	'Run a single SQL query against the connected warehouse. Read-only unless the workspace admin ' +
 	'has enabled write permissions.\n\n' +
 	'USE WHEN: you already know the SQL (or have a precise question that maps to one query).\n' +
@@ -67,7 +68,7 @@ const UPDATE_STORY_DESCRIPTION =
 
 type ExecuteSqlMcpInput = executeSql.Input & { chat_id?: string };
 
-const EXECUTE_SQL_INPUT_SCHEMA = executeSql.InputSchema.extend({
+const EXECUTE_SQL_BASE_INPUT_SCHEMA = executeSql.InputSchema.extend({
 	chat_id: zodV3
 		.string()
 		.optional()
@@ -77,9 +78,13 @@ const EXECUTE_SQL_INPUT_SCHEMA = executeSql.InputSchema.extend({
 		),
 });
 
-export function registerContextLayerTools(server: McpServer, ctx: McpContext): void {
+export function registerContextLayerTools(
+	server: McpServer,
+	ctx: McpContext,
+	configuredDatabases: ConfiguredDatabase[],
+): void {
 	registerFileTools(server, ctx);
-	registerExecuteSql(server, ctx);
+	registerExecuteSql(server, ctx, configuredDatabases);
 	registerContextStoryTools(server, ctx);
 }
 
@@ -112,13 +117,14 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 	});
 }
 
-function registerExecuteSql(server: McpServer, ctx: McpContext): void {
+function registerExecuteSql(server: McpServer, ctx: McpContext, configuredDatabases: ConfiguredDatabase[]): void {
+	const warehouseDatabaseIds = getWarehouseDatabaseIds(configuredDatabases);
 	registerAgentToolAsMcp<executeSql.Input, executeSql.Output, ExecuteSqlMcpInput>(server, ctx, {
 		name: 'execute_sql',
 		agentTool: executeSqlTool,
 		title: 'Execute SQL',
-		description: EXECUTE_SQL_DESCRIPTION,
-		inputSchema: EXECUTE_SQL_INPUT_SCHEMA,
+		description: buildExecuteSqlDescription(warehouseDatabaseIds),
+		inputSchema: buildExecuteSqlInputSchema(warehouseDatabaseIds),
 		outputSchema: executeSql.OutputSchema.extend({
 			query_id: zodV3
 				.string()
@@ -145,64 +151,120 @@ function registerExecuteSql(server: McpServer, ctx: McpContext): void {
 	});
 }
 
-function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
-	registerMcpTool(server, ctx, {
-		name: 'create_story',
-		title: 'Create Story',
-		description: CREATE_STORY_DESCRIPTION,
-		inputSchema: {
-			title: z.string().describe('Story title.'),
-			content: z
-				.string()
-				.optional()
-				.describe(
-					'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
-				),
-			query_data: z
-				.record(
-					z.string(),
-					z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
-				)
-				.optional()
-				.describe(
-					"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
-						'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
-				),
-			chat_id: z
-				.string()
-				.optional()
-				.describe(
-					'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
-				),
-		},
-		outputSchema: STORY_OUTPUT_SCHEMA,
-		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ title, content, query_data, chat_id }) => {
-			const slug = generateSlug(title);
-			const code = content ?? `# ${title}\n`;
-			const story = chat_id
-				? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
-				: await createStandaloneStory({ slug, title, code, ctx });
+function getWarehouseDatabaseIds(configuredDatabases: ConfiguredDatabase[]): string[] {
+	return [
+		...new Set(
+			configuredDatabases.map((database) => database.id).filter((databaseId) => databaseId !== LOCAL_DATABASE_ID),
+		),
+	];
+}
 
-			if ('error' in story) {
-				return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
-			}
+function buildExecuteSqlDescription(warehouseDatabaseIds: string[]): string {
+	if (warehouseDatabaseIds.length < 2) {
+		return EXECUTE_SQL_BASE_DESCRIPTION;
+	}
 
-			await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
+	return `${EXECUTE_SQL_BASE_DESCRIPTION}\n\nDatabase selection: \`database_id\` is required because multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+}
 
-			const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
-			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
-			const output: StoryMcpToolPayload = {
-				embedUrl,
-				id: story.id,
-				title: story.title,
-				createdAt: story.createdAt,
-				url: storyUrl(storyForUrl),
-				chatUrl: storyChatUrl(storyForUrl),
-			};
-			return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
-		},
+function buildExecuteSqlInputSchema(warehouseDatabaseIds: string[]) {
+	if (warehouseDatabaseIds.length < 2) {
+		const validDatabaseIds = new Set([...warehouseDatabaseIds, LOCAL_DATABASE_ID]);
+		const databaseIdSchema = EXECUTE_SQL_BASE_INPUT_SCHEMA.shape.database_id.refine(
+			(databaseId) => databaseId === undefined || validDatabaseIds.has(databaseId),
+			{ message: 'Unknown database_id.' },
+		);
+
+		return EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
+			database_id: databaseIdSchema,
+		});
+	}
+
+	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
+	const missingDatabaseIdMessage = `database_id is required when multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const unknownDatabaseIdMessage = `Unknown database_id. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const description = `Required because multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const databaseIdSchema = zodV3
+		.enum(validDatabaseIds as [string, ...string[]], {
+			errorMap: (issue) => ({
+				message:
+					issue.code === 'invalid_type' && issue.received === 'undefined'
+						? missingDatabaseIdMessage
+						: unknownDatabaseIdMessage,
+			}),
+		})
+		.describe(description);
+
+	return EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
+		database_id: databaseIdSchema,
 	});
+}
+
+function formatDatabaseIds(databaseIds: string[]): string {
+	return databaseIds.map((databaseId) => `"${databaseId}"`).join(', ');
+}
+
+function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
+	if (ctx.storyCreationEnabled) {
+		registerMcpTool(server, ctx, {
+			name: 'create_story',
+			title: 'Create Story',
+			description: CREATE_STORY_DESCRIPTION,
+			inputSchema: {
+				title: z.string().describe('Story title.'),
+				content: z
+					.string()
+					.optional()
+					.describe(
+						'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
+					),
+				query_data: z
+					.record(
+						z.string(),
+						z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
+					)
+					.optional()
+					.describe(
+						"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
+							'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
+					),
+				chat_id: z
+					.string()
+					.optional()
+					.describe(
+						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
+					),
+			},
+			outputSchema: STORY_OUTPUT_SCHEMA,
+			_meta: uiToolMeta(STORY_APP_URI),
+			handler: async ({ title, content, query_data, chat_id }) => {
+				const slug = generateSlug(title);
+				const code = content ?? `# ${title}\n`;
+				const story = chat_id
+					? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
+					: await createStandaloneStory({ slug, title, code, ctx });
+
+				if ('error' in story) {
+					return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
+				}
+
+				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+
+				const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
+				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
+				const output: StoryMcpToolPayload = {
+					embedUrl,
+					id: story.id,
+					title: story.title,
+					createdAt: story.createdAt,
+					url: storyUrl(storyForUrl),
+					chatUrl: storyChatUrl(storyForUrl),
+				};
+				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
+			},
+		});
+	}
 
 	registerMcpTool(server, ctx, {
 		name: 'update_story',

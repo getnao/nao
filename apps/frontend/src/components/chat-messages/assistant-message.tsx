@@ -21,6 +21,7 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useIsCancellingMessage } from '@/hooks/use-is-cancelling-message-store';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { AssistantMessageProvider, useAssistantMessage } from '@/contexts/assistant-message';
+import { useAgentContext } from '@/contexts/agent.provider';
 
 export const AssistantMessage = memo(
 	({
@@ -39,6 +40,7 @@ export const AssistantMessage = memo(
 		storyIntroMessageId: string | undefined;
 	}) => {
 		const chatId = useChatId();
+		const { error } = useAgentContext();
 		const [toolCallDensity] = useToolCallDensity();
 		const messageParts = useMemo(
 			() => groupToolCalls(message.parts, toolCallDensity),
@@ -63,7 +65,7 @@ export const AssistantMessage = memo(
 				<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
 					<MessageParts parts={messageParts} />
 
-					{isSettled && !hasContent && (
+					{isSettled && !hasContent && !(isLastMessage && error) && (
 						<div className='text-muted-foreground italic text-sm'>No response</div>
 					)}
 

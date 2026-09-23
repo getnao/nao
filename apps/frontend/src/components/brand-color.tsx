@@ -44,6 +44,13 @@ export function buildBrandVars(hex: string, theme: 'light' | 'dark' = 'light'): 
 	return buildThemeVars(hex, theme);
 }
 
+export function buildLastUsedPillVars(hex: string): Record<string, string> {
+	return {
+		'--last-used-pill-bg': hex,
+		'--last-used-pill-fg': chooseForeground(hex),
+	};
+}
+
 function injectBrandStyle(hex: string) {
 	removeBrandStyle();
 	const style = document.createElement('style');

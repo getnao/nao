@@ -33,6 +33,12 @@ export type NewProject = typeof sqliteSchema.project.$inferInsert;
 export type DBProjectMember = typeof sqliteSchema.projectMember.$inferSelect;
 export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 
+export type DBUserGroup = typeof sqliteSchema.userGroup.$inferSelect;
+export type NewUserGroup = typeof sqliteSchema.userGroup.$inferInsert;
+
+export type DBUserGroupMember = typeof sqliteSchema.userGroupMember.$inferSelect;
+export type NewUserGroupMember = typeof sqliteSchema.userGroupMember.$inferInsert;
+
 export type DBProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferSelect;
 export type NewProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferInsert;
 
@@ -87,8 +93,20 @@ export type ActivityType = DBActivity['type'];
 export type ActivityStatus = DBActivity['status'];
 export type ActivityTrigger = DBActivity['trigger'];
 
+export type DBNotification = typeof sqliteSchema.notification.$inferSelect;
+export type NewNotification = typeof sqliteSchema.notification.$inferInsert;
+
+export type DBNotificationUnsubscribe = typeof sqliteSchema.notificationUnsubscribe.$inferSelect;
+export type NewNotificationUnsubscribe = typeof sqliteSchema.notificationUnsubscribe.$inferInsert;
+
+export type DBStoryDelivery = typeof sqliteSchema.storyDelivery.$inferSelect;
+export type NewStoryDelivery = typeof sqliteSchema.storyDelivery.$inferInsert;
+
 export type DBProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferSelect;
 export type NewProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferInsert;
+
+export type DBBudgetNotification = typeof sqliteSchema.budgetNotification.$inferSelect;
+export type NewBudgetNotification = typeof sqliteSchema.budgetNotification.$inferInsert;
 
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
@@ -134,6 +152,9 @@ export type NewApiKey = typeof sqliteSchema.apiKey.$inferInsert;
 export type DBScheduledJob = typeof sqliteSchema.scheduledJob.$inferSelect;
 export type NewScheduledJob = typeof sqliteSchema.scheduledJob.$inferInsert;
 export type ScheduledJobStatus = DBScheduledJob['status'];
+
+export type DBKeyedLock = typeof sqliteSchema.keyedLock.$inferSelect;
+export type NewKeyedLock = typeof sqliteSchema.keyedLock.$inferInsert;
 
 export type DBBrandingConfig = typeof sqliteSchema.brandingConfig.$inferSelect;
 export type NewBrandingConfig = typeof sqliteSchema.brandingConfig.$inferInsert;

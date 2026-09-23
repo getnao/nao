@@ -1,17 +1,34 @@
-import type {
-	BackgroundModelSettings,
-	MapSettings,
-	McpChartEmbedStoredConfig,
-	McpMapEmbedStoredConfig,
+import {
+	type BackgroundModelSettings,
+	DEFAULT_USER_GROUP_CONFIG,
+	type MapSettings,
+	type McpChartEmbedStoredConfig,
+	type McpMapEmbedStoredConfig,
+	type SsoGroupProvider,
+	type StoredDatabaseContextAccess,
+	type StoredLegacyDatabaseContextAccessV1,
+	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectRowSecurity,
+	type StoredUserGroupConfig,
+	type StoredUserGroupContextAccess,
+	type StoredUserGroupRowPolicies,
+	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
+import type {
+	AnalyticsEventMetadata,
+	CitationData,
+	LlmProvider,
+	NotificationChannel,
+	RepoProvider,
+} from '@nao/shared/types';
 import {
 	ANALYTICS_ASSET_TYPES,
 	ANALYTICS_EVENT_TYPES,
 	BUDGET_PERIODS,
 	FOLDER_SYSTEM_TYPE,
 	FOLDER_VISIBILITY,
+	NOTIFICATION_CATEGORIES,
 	SHARE_VISIBILITY,
 	USER_ROLES,
 } from '@nao/shared/types';
@@ -58,6 +75,7 @@ import {
 	WhatsappSettings,
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
+import type { StoryQuerySources } from '../types/story-cache';
 import type { StoredUserPreferences } from '../types/usage';
 
 export const user = sqliteTable('user', {
@@ -227,6 +245,7 @@ export const project = sqliteTable(
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 		defaultModels: text('default_models', { mode: 'json' }).$type<BackgroundModelSettings>(),
+		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -438,6 +457,66 @@ export const projectMember = sqliteTable(
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
 );
 
+export const userGroup = sqliteTable(
+	'user_group',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+		featureGrants: text('feature_grants', { mode: 'json' })
+			.$type<StoredUserGroupConfig>()
+			.notNull()
+			.default(DEFAULT_USER_GROUP_CONFIG),
+		contextGrants: text('context_grants', { mode: 'json' }).$type<
+			| StoredLegacyDatabaseContextAccessV1
+			| StoredLegacyDatabaseContextAccessV2
+			| StoredDatabaseContextAccess
+			| StoredUserGroupContextAccess
+		>(),
+		ssoMappings: text('sso_mappings', { mode: 'json' }).$type<StoredUserGroupSsoMappings>(),
+		rowPolicies: text('row_policies', { mode: 'json' }).$type<StoredUserGroupRowPolicies>(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('user_group_projectId_idx').on(t.projectId),
+		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		uniqueIndex('user_group_project_default_unique')
+			.on(t.projectId)
+			.where(sql`${t.isDefault} = 1`),
+	],
+);
+
+export const userGroupMember = sqliteTable(
+	'user_group_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<'manual' | SsoGroupProvider>().default('manual').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
+		index('user_group_member_user_provider_idx').on(t.userId, t.provider),
+	],
+);
+
 export const projectLlmConfig = sqliteTable(
 	'project_llm_config',
 	{
@@ -511,6 +590,28 @@ export const projectProviderBudget = sqliteTable(
 		index('project_provider_budget_projectId_idx').on(t.projectId),
 		unique('project_provider_budget_project_provider').on(t.projectId, t.provider),
 		check('budget_period_valid', sql.raw(`period IN (${BUDGET_PERIODS.map((p) => `'${p}'`).join(', ')})`)),
+	],
+);
+
+export const budgetNotification = sqliteTable(
+	'budget_notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<LlmProvider>().notNull(),
+		scope: text('scope').notNull(),
+		periodStart: integer('period_start', { mode: 'timestamp_ms' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('budget_notification_projectId_idx').on(t.projectId),
+		unique('budget_notification_project_provider_scope_period').on(t.projectId, t.provider, t.scope, t.periodStart),
 	],
 );
 
@@ -661,6 +762,7 @@ export const automationRun = sqliteTable(
 			.notNull(),
 		completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
 		errorMessage: text('error_message'),
+		readAt: integer('read_at', { mode: 'timestamp_ms' }),
 		integrationResults: text('integration_results', { mode: 'json' })
 			.$type<AutomationIntegrationResult[]>()
 			.notNull()
@@ -955,6 +1057,7 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 	queryData: text('query_data', { mode: 'json' })
 		.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 		.notNull(),
+	querySources: text('query_sources', { mode: 'json' }).$type<StoryQuerySources>(),
 	analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
 	cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -1009,6 +1112,81 @@ export const activity = sqliteTable(
 		index('activity_startedAt_idx').on(t.startedAt),
 	],
 );
+
+export const notification = sqliteTable(
+	'notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		category: text('category', { enum: NOTIFICATION_CATEGORIES }).notNull(),
+		title: text('title').notNull(),
+		body: text('body'),
+		linkUrl: text('link_url'),
+		payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>(),
+		readAt: integer('read_at', { mode: 'timestamp_ms' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('notification_user_read_idx').on(t.userId, t.readAt),
+		index('notification_user_project_read_idx').on(t.userId, t.projectId, t.readAt),
+		index('notification_createdAt_idx').on(t.createdAt),
+	],
+);
+
+export const notificationUnsubscribe = sqliteTable(
+	'notification_unsubscribe',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scope: text('scope').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.scope] }),
+		index('notification_unsubscribe_userId_idx').on(t.userId),
+		index('notification_unsubscribe_scope_idx').on(t.scope),
+	],
+);
+
+export const storyDelivery = sqliteTable('story_delivery', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	storyId: text('story_id')
+		.notNull()
+		.references(() => story.id, { onDelete: 'cascade' })
+		.unique(),
+	projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+	cron: text('cron'),
+	scheduleDescription: text('schedule_description'),
+	channels: text('channels', { mode: 'json' }).$type<NotificationChannel[]>().notNull(),
+	recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+		.notNull()
+		.default('specific'),
+	recipientUserIds: text('recipient_user_ids', { mode: 'json' }).$type<string[]>().notNull(),
+	scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+	createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
 
 export const memories = sqliteTable(
 	'memories',
@@ -1173,6 +1351,12 @@ export const scheduledJob = sqliteTable(
 	},
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
 );
+
+export const keyedLock = sqliteTable('keyed_lock', {
+	key: text('key').primaryKey(),
+	owner: text('owner').notNull(),
+	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+});
 
 export const mcpCallLog = sqliteTable(
 	'mcp_call_log',

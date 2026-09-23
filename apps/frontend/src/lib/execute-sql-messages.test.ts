@@ -104,3 +104,39 @@ describe('applyExecuteSqlResultToMessages', () => {
 		expect(findLatestExecuteSqlInMessages(secondReplacement, output.id)?.output.revision).toBe(2);
 	});
 });
+
+describe('findLatestExecuteSqlInMessages', () => {
+	it('reads a semantic query result as the SQL the layer compiled', () => {
+		const messages = [
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				parts: [
+					{
+						type: 'tool-execute_semantic_query',
+						toolCallId: 'call-1',
+						state: 'output-available',
+						input: { metrics: ['revenue'], group_by: ['metric_time__month'], name: 'Revenue by month' },
+						output: {
+							id: 'query_sem1',
+							data: [{ revenue: 100 }],
+							row_count: 1,
+							columns: ['revenue'],
+							compiled_sql: 'SELECT SUM(amount) AS revenue FROM orders',
+							database_id: 'warehouse',
+						},
+					},
+				],
+			},
+		] as unknown as UIMessage[];
+
+		const sourceQuery = findLatestExecuteSqlInMessages(messages, 'query_sem1');
+
+		expect(sourceQuery?.input).toEqual({
+			sql_query: 'SELECT SUM(amount) AS revenue FROM orders',
+			database_id: 'warehouse',
+			name: 'Revenue by month',
+		});
+		expect(sourceQuery?.output.data).toEqual([{ revenue: 100 }]);
+	});
+});

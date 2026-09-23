@@ -12,6 +12,7 @@ from nao_core.commands.sync.providers.confluence.provider import ConfluenceSyncP
 from nao_core.commands.sync.providers.databases.provider import DatabaseSyncProvider
 from nao_core.commands.sync.providers.notion.provider import NotionSyncProvider
 from nao_core.commands.sync.providers.repositories.provider import RepositorySyncProvider
+from nao_core.commands.sync.providers.semantic_layer.provider import SemanticLayerSyncProvider
 
 
 class TestSyncResult:
@@ -52,11 +53,12 @@ class TestGetAllProviders:
     def test_returns_list_of_providers(self):
         providers = get_all_providers()
 
-        assert len(providers) == 4
+        assert len(providers) == 5
         assert any(isinstance(p.provider, RepositorySyncProvider) for p in providers)
         assert any(isinstance(p.provider, DatabaseSyncProvider) for p in providers)
         assert any(isinstance(p.provider, NotionSyncProvider) for p in providers)
         assert any(isinstance(p.provider, ConfluenceSyncProvider) for p in providers)
+        assert any(isinstance(p.provider, SemanticLayerSyncProvider) for p in providers)
 
     def test_returns_copy_of_providers(self):
         providers1 = get_all_providers()
