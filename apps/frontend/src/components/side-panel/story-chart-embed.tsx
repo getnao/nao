@@ -3,6 +3,7 @@ import { Code, Pencil } from 'lucide-react';
 import { memo, useContext, useMemo, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
 import { StoryEmbedFallback } from './story-embed-fallback';
+import type { ChartType } from '@nao/shared/chart-types';
 import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
@@ -76,7 +77,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 		>
 			<ChartDisplay
 				data={data}
-				chartType={chart.chartType as displayChart.ChartType}
+				chartType={chart.chartType as ChartType}
 				xAxisKey={chart.xAxisKey}
 				xAxisType={xAxisType}
 				xAxisLabel={chart.xAxisLabel}
@@ -131,7 +132,7 @@ export function StoryChartEmbedShell({
 	const config = useMemo(
 		() => ({
 			query_id: chart.queryId,
-			chart_type: chart.chartType as displayChart.ChartType,
+			chart_type: chart.chartType as ChartType,
 			x_axis_key: chart.xAxisKey,
 			x_axis_type: (chart.xAxisType || null) as displayChart.XAxisType | null,
 			x_axis_label: chart.xAxisLabel,

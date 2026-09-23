@@ -1,5 +1,5 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
-import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_ENTRY_CANDIDATES, STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
+import { STORY_APP_ALLOWED_IMPORTS } from '@nao/shared/story-app';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
@@ -504,69 +504,71 @@ function CustomStoriesBlock() {
 		<Block>
 			<Title level={2}>Custom Stories</Title>
 			<Span>
-				Besides markdown stories, the <Bold>story</Bold> tool can create a <Bold>custom</Bold> story: a small
-				source-based app whose files live under <Bold>/stories/&lt;id&gt;/</Bold> in the same file tree, so{' '}
-				<Bold>list</Bold>, <Bold>read</Bold>, <Bold>search</Bold> and <Bold>grep</Bold> work there like anywhere
-				else. Only the custom stories of this chat are mounted.
+				A story is either <Bold>classic</Bold> (markdown with chart/table blocks) or <Bold>custom</Bold>: a
+				React app under <Bold>/stories/&lt;id&gt;/</Bold>, edited with <Bold>write</Bold> and made visible with{' '}
+				<Bold>story</Bold> "publish". Pick the format before the first <Bold>story</Bold> call; a request gets
+				exactly one story, never a classic one alongside or as a draft of a custom one.
+			</Span>
+			<Span>Choose custom when any of these holds, even if the user never says "custom":</Span>
+			<List>
+				<ListItem>
+					They ask for a "custom story" or an "app" — "custom" names the format, not a tailored classic story.
+				</ListItem>
+				<ListItem>
+					The deliverable has its own shape: slides, deck, presentation, pitch, one-pager, infographic,
+					wallboard/TV screen, scrollytelling narrative. Classic tabs are not slides.
+				</ListItem>
+				<ListItem>
+					It needs interaction beyond reading: what-if sliders or inputs, calculator or simulator,
+					click-to-drill or cross-filtering between charts, toggles between metrics or views, a step-by-step
+					walkthrough.
+				</ListItem>
+				<ListItem>
+					It needs a visual the chart types lack (funnel, cohort heatmap, gauge, timeline, calendar, flow) or
+					a bespoke layout, or the user found a classic story too limited.
+				</ListItem>
+			</List>
+			<Span>
+				Otherwise — a report or dashboard of charts, tables and text, tabs and grids included — use classic.
 			</Span>
 			<List>
 				<ListItem>
-					<Bold>A request produces exactly one story, classic or custom, never both.</Bold> Decide the format
-					before the first <Bold>story</Bold> call and do not change your mind mid-response: never create,
-					replace, or update a classic story as a fallback, draft, or companion while also building a custom
-					one for the same ask (or the reverse). If you are unsure which fits, pick one and commit — a
-					duplicate the user has to clean up by hand is a worse outcome than picking the "wrong" format alone.
+					Run the queries first, then "create" with format "custom" and no files to get a starter app; read
+					it, replace every <Bold>REPLACE_ME</Bold> queryId with a real query id and every placeholder title
+					with one that fits the data, keep its page/grid layout. Imports are limited to{' '}
+					{STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths. On build_errors nothing was published:
+					fix and publish again. "update"/"replace" do not apply.
 				</ListItem>
 				<ListItem>
-					Use a custom story in either of two cases, otherwise use a classic story: (1) the user's own words
-					ask for one directly — "app", "custom story", "interactive tool", "dashboard app", or similar; (2)
-					the shape of what they are asking for does not fit a classic story's format, regardless of whether
-					they used any of those words — a classic story is markdown blocks in a fixed grid, so a request for
-					a slide deck, a free-form layout, or a tool with real interaction and state is a custom story by the
-					nature of what is being asked for, the same way a request for a data app is.
+					Build with <Bold>@nao/story-kit</Bold> blocks — <Bold>KpiCard</Bold>, <Bold>BarChart</Bold>,{' '}
+					<Bold>LineChart</Bold>, <Bold>{'<Chart type="mixed">'}</Bold>, <Bold>DataTable</Bold> — which match
+					display_chart and handle loading and errors themselves. Every block takes <Bold>queryId</Bold> (or{' '}
+					<Bold>data</Bold>) and <Bold>title</Bold>; KpiCard and charts also take <Bold>format</Bold>{' '}
+					("number" | "compact" | "percent" with fractions | "currency"), <Bold>currency</Bold>,{' '}
+					<Bold>decimals</Bold>. Charts: <Bold>xKey</Bold>, <Bold>series</Bold> (names or{' '}
+					{'{ key, label?, type?, axis? }'}), <Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>,{' '}
+					<Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line), <Bold>showDataLabels</Bold>. KpiCard:{' '}
+					<Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous row. DataTable:{' '}
+					<Bold>columns</Bold>, <Bold>maxRows</Bold>.
 				</ListItem>
 				<ListItem>
-					Workflow: call <Bold>story</Bold> with action "create" and format "custom" (optionally with the
-					initial files), edit the draft with <Bold>write</Bold> on{' '}
-					<Bold>/stories/&lt;id&gt;/&lt;file&gt;</Bold>, then call <Bold>story</Bold> with action "publish" to
-					snapshot the draft into a version the user can open. Nothing is visible to the user until it is
-					published.
+					Users edit KpiCard and chart blocks through a pencil that rewrites their props in your source: pass
+					literal props and give each block a distinct title.
 				</ListItem>
 				<ListItem>
-					File paths are relative to the story root, at most six levels deep, with these extensions only: .js
-					.jsx .ts .tsx .css .json .md. Keep the app small — a story holds at most 60 files of 512 KB each.
+					For anything else (pie, scatter, bespoke visuals), wrap Recharts or your own markup in{' '}
+					<Bold>{'<Block kind="...">'}</Bold> with <Bold>{'<div className="nao-chart">'}</Bold>,{' '}
+					<Bold>seriesColor(i)</Bold> and a plain Recharts <Bold>{'<Tooltip />'}</Bold> (already themed;
+					format values with <Bold>{'formatter={(value) => formatNumber(value, { format })}'}</Bold>).{' '}
+					<Bold>useQueryData(queryId)</Bold> returns <Bold>data: null</Bold> until <Bold>status</Bold> is
+					"success" — guard before reading rows.
 				</ListItem>
 				<ListItem>
-					The app is bundled server-side on publish. The entry file (
-					{STORY_APP_ENTRY_CANDIDATES.map((path) => `"${path}"`).join(', ')}, or "entry" in{' '}
-					{STORY_APP_MANIFEST_PATH}) must default-export the root React component. Imports are limited to{' '}
-					{STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths inside the story — nothing is installed,
-					so any other package fails the build. Styles go in .css files anywhere in the story; every one of
-					them is loaded with the app, so importing a stylesheet from JavaScript is unnecessary (and ignored).
-				</ListItem>
-				<ListItem>
-					<Bold>Never write data or a color palette literally into the app.</Bold> Both are available live:{' '}
-					<Bold>useQueryData(query_id)</Bold> resolves {'{ status, data, columns, error, refetch }'} for a
-					query already run in this chat, and <Bold>useStoryTheme()</Bold> returns the project's story theme
-					exactly as saved — read a chart library color prop (Recharts' <Bold>fill</Bold>/<Bold>stroke</Bold>)
-					from <Bold>theme.charts.series</Bold>, an array, not a flattened <Bold>theme.chart1</Bold>. For
-					anything CSS can set instead — background, text, borders, radius, fonts — use the custom properties
-					already on the frame's root (<Bold>var(--background)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
-					<Bold>var(--primary)</Bold> + <Bold>var(--primary-foreground)</Bold> for the accent,{' '}
-					<Bold>var(--border)</Bold>, <Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold> /{' '}
-					<Bold>var(--font-heading)</Bold>, <Bold>var(--chart-1)</Bold>…<Bold>var(--chart-11)</Bold> for the
-					same series in .css) rather than the hook — both update automatically after a re-theme. A hardcoded
-					array of numbers, a hex color, or a named font anywhere in the app is a sign it should be one of
-					these instead.
-					<CodeBlock>
-						{`import { useQueryData, useStoryTheme } from "@nao/story-kit";\nconst { data } = useQueryData("revenue_by_month");\nconst palette = useStoryTheme()?.charts.series ?? [];\n// <Bar dataKey="revenue" fill={palette[0]} /> — colours in CSS use var(--chart-1) etc. instead`}
-					</CodeBlock>
-				</ListItem>
-				<ListItem>
-					When publish returns build_errors, nothing was published: fix the named files and publish again.
-				</ListItem>
-				<ListItem>
-					"update" and "replace" do not apply to custom stories; edit the files and publish again instead.
+					<Bold>Never hardcode data, colours or fonts.</Bold> Read rows with <Bold>useQueryData</Bold>; style
+					with <Bold>var(--background)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
+					<Bold>var(--muted-foreground)</Bold>, <Bold>var(--primary)</Bold>, <Bold>var(--border)</Bold>,{' '}
+					<Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold>, <Bold>var(--font-heading)</Bold>,{' '}
+					<Bold>var(--chart-1…11)</Bold>. They follow theme changes live, so a re-theme needs no republish.
 				</ListItem>
 			</List>
 		</Block>

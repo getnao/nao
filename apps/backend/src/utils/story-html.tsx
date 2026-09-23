@@ -35,6 +35,7 @@ import {
 	scaleBubbleRadius,
 	withOpacity,
 } from '@nao/shared';
+import type { ChartType } from '@nao/shared/chart-types';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
@@ -1445,7 +1446,7 @@ function Placeholder({ label, message }: { label: string; message: string }) {
 
 function toChartConfig(chart: ParsedChartBlock) {
 	return {
-		chart_type: chart.chartType as displayChart.ChartType,
+		chart_type: chart.chartType as ChartType,
 		x_axis_key: chart.xAxisKey,
 		x_axis_type: chart.xAxisType as displayChart.XAxisType | null,
 		x_axis_label: chart.xAxisLabel,

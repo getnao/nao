@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareStoryDialog } from '../share-dialog.story';
@@ -27,6 +27,7 @@ import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
@@ -39,7 +40,6 @@ import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
 import { Spinner } from '@/components/ui/spinner';
-import { chatActivityStore } from '@/stores/chat-activity';
 import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { trpc } from '@/main';
 
@@ -94,10 +94,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	});
 	const chatMessages = outerAgentHasCorrectChat ? undefined : (chatQuery.data?.messages ?? null);
 
-	const isChatAgentRunning = useSyncExternalStore(
-		useCallback((cb) => chatActivityStore.subscribe(chatId, cb), [chatId]),
-		useCallback(() => chatActivityStore.getActivity(chatId).running, [chatId]),
-	);
+	const isChatAgentRunning = useChatActivity(chatId).running;
 
 	const { allStories, draftStory, latestStoryOutputVersion, isAgentRunning, isStoryUpdating, isStoryInterrupted } =
 		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning);

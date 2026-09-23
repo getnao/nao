@@ -42,6 +42,14 @@ import { collectAxisValues, collectStackedAxisValues, resolveBarYAxisDomain, res
 import { CHART_FONT_STACK } from './chart-fonts';
 import { type ChartStyle, DEFAULT_CHART_STYLE } from './chart-style';
 import {
+	type ChartType,
+	isComboChart,
+	isPercentStackedChartType,
+	isPieChart,
+	isStackedChartType,
+	resolveShowDataLabels,
+} from './chart-types';
+import {
 	attachValueAffixes,
 	formatChartValue,
 	formatCompactNumber,
@@ -51,7 +59,7 @@ import {
 	toFiniteNumber,
 } from './chart-values';
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
-import * as displayChart from './tools/display-chart';
+import type * as displayChart from './tools/display-chart';
 
 export const DEFAULT_COLORS = [
 	'#104e64',
@@ -305,7 +313,7 @@ export function defaultColorFor(_key: string, index: number): string {
 
 export interface BuildChartProps {
 	data: Record<string, unknown>[];
-	chartType: displayChart.ChartType;
+	chartType: ChartType;
 	xAxisKey: string;
 	xAxisType?: 'number' | 'category';
 	series: displayChart.SeriesConfig[];
@@ -358,10 +366,10 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'kpi_card') {
 		return buildKpiCard(resolved, props.kpiLeadingSlot);
 	}
-	if (displayChart.isPieChart(resolved.chartType)) {
+	if (isPieChart(resolved.chartType)) {
 		return buildPieChart(resolved);
 	}
-	if (displayChart.isComboChart(resolved.chartType)) {
+	if (isComboChart(resolved.chartType)) {
 		return buildComboChart(resolved);
 	}
 	if (
@@ -397,7 +405,7 @@ function buildResolved(props: BuildChartProps) {
 			? Math.ceil(props.data.length / props.maxXAxisTicks) - 1
 			: undefined;
 
-	const isPercent = displayChart.isPercentStackedChartType(props.chartType);
+	const isPercent = isPercentStackedChartType(props.chartType);
 	// A total series is meaningless in a 100% stack (it would be its own 100%), so drop it
 	// from both rendering and normalization to keep the drawn bars and tooltip shares in sync.
 	const series = isPercent ? percentStackSeries(props.series) : props.series;
@@ -489,19 +497,17 @@ function KpiCardContainer({ children }: { children: React.ReactNode }) {
 	return <div className='flex w-full flex-wrap justify-start gap-4'>{children}</div>;
 }
 
-function KpiCard({
-	value,
-	displayName,
-	comparison,
-	valueFormat,
-	leadingSlot,
-}: {
+export interface KpiCardProps {
 	value: unknown;
-	displayName: string;
+	/** Omitted when the surrounding block already shows the title. */
+	displayName?: string;
 	comparison: KpiComparison | null;
 	valueFormat?: displayChart.ValueFormat;
 	leadingSlot?: React.ReactNode;
-}) {
+}
+
+/** `nao-kpi-card__*` classes let surfaces without Tailwind (sandboxed custom stories) style the same markup. */
+export function KpiCard({ value, displayName, comparison, valueFormat, leadingSlot }: KpiCardProps) {
 	let formattedValue = '';
 
 	if (typeof value === 'number') {
@@ -511,6 +517,7 @@ function KpiCard({
 	}
 
 	const showArrowAndColor = comparison != null && comparison.colored && comparison.direction !== 'flat';
+	const trend = showArrowAndColor ? comparison.direction : 'neutral';
 	const pillColorClass = showArrowAndColor
 		? comparison.direction === 'up'
 			? 'text-green-600'
@@ -518,16 +525,22 @@ function KpiCard({
 		: 'text-muted-foreground';
 
 	return (
-		<div className='min-w-[160px]'>
-			<div className='flex items-center gap-1'>
-				{leadingSlot}
-				<div className='text-lg tracking-wide'>{displayName}</div>
-			</div>
-			<div className='text-3xl font-medium tabular-nums'>{formattedValue}</div>
+		<div className='nao-kpi-card min-w-[160px]'>
+			{(displayName || leadingSlot) && (
+				<div className='nao-kpi-card__header flex items-center gap-1'>
+					{leadingSlot}
+					{displayName && <div className='nao-kpi-card__name text-lg tracking-wide'>{displayName}</div>}
+				</div>
+			)}
+			<div className='nao-kpi-card__value text-3xl font-medium tabular-nums'>{formattedValue}</div>
 			{comparison && (
-				<div className={`mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-sm ${pillColorClass}`}>
+				<div
+					className={`nao-kpi-card__comparison nao-kpi-card__comparison--${trend} mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-sm ${pillColorClass}`}
+				>
 					{showArrowAndColor && <KpiTrendArrow direction={comparison.direction} />}
-					<span className='font-medium tabular-nums'>{comparison.valueText}</span>
+					<span className='nao-kpi-card__comparison-value font-medium tabular-nums'>
+						{comparison.valueText}
+					</span>
 					<span className='font-normal'>vs. {comparison.periodLabel}</span>
 				</div>
 			)}
@@ -635,7 +648,7 @@ function formatCategoryTick(value: string, labelFormatter: (value: string) => st
 
 function buildHorizontalBarChart(props: ResolvedProps) {
 	const { data, chartType, xAxisKey, series, colorFor, labelFormatter, children, xAxisInterval } = props;
-	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const isPercent = isPercentStackedChartType(chartType);
 	const renderedSeries = getRenderedSeries(series, series.length > 1);
 	const hasMultipleSeries = renderedSeries.length > 1;
 	const seriesKeys = renderedSeries.map((item) => item.data_key);
@@ -649,7 +662,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 	const valueFormatter = (value: number) =>
 		isPercent ? formatPercentAxisTick(value) : formatChartValue(value, valueFormat);
 	const labelValues = isPercent ? clampedRowTotals.map((value) => (value > 0 ? 1 : 0)) : signedRowTotals;
-	const showValueLabels = displayChart.resolveShowDataLabels(props.chartType, props.showDataLabels);
+	const showValueLabels = resolveShowDataLabels(props.chartType, props.showDataLabels);
 	const tickFormatter = (value: string) =>
 		formatCategoryTick(value, labelFormatter, HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS);
 	const categoryAxisWidth = computeHorizontalBarCategoryAxisWidth(data, xAxisKey, tickFormatter);
@@ -896,8 +909,8 @@ function buildBarChart(props: ResolvedProps) {
 		yAxisLabel,
 		showDataLabels,
 	} = props;
-	const isStacked = displayChart.isStackedChartType(chartType);
-	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const isStacked = isStackedChartType(chartType);
+	const isPercent = isPercentStackedChartType(chartType);
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
 	const dataKeys = renderedSeries.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
@@ -1055,8 +1068,8 @@ function buildAreaChart(props: ResolvedProps) {
 	} = props;
 	const gradientIdPrefix = props.gradientIdPrefix ?? '';
 	const gradientIdFor = (index: number) => `${gradientIdPrefix}grad-${index}`;
-	const isStacked = displayChart.isStackedChartType(chartType);
-	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const isStacked = isStackedChartType(chartType);
+	const isPercent = isPercentStackedChartType(chartType);
 	const zeroBaseline = chartType !== 'line';
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
 	const dataKeys = renderedSeries.map((s) => s.data_key);
@@ -1127,7 +1140,7 @@ function buildAreaChart(props: ResolvedProps) {
 	);
 }
 
-function comboSeriesType(series: displayChart.SeriesConfig, baseType: displayChart.ChartType): displayChart.SeriesType {
+function comboSeriesType(series: displayChart.SeriesConfig, baseType: ChartType): displayChart.SeriesType {
 	if (series.series_type) {
 		return series.series_type;
 	}
@@ -1273,7 +1286,7 @@ function computeComboAxisWidth(
 function renderComboSeries(
 	series: displayChart.SeriesConfig,
 	index: number,
-	baseType: displayChart.ChartType,
+	baseType: ChartType,
 	colorFor: (key: string, index: number) => string,
 	idPrefix: string,
 	chartStyle: ChartStyle,

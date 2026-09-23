@@ -2,6 +2,8 @@ import { STORY_HOST_MODULE, STORY_RUNTIME_MODULES } from '@nao/shared/story-app'
 import { FONT_STYLESHEET_HOSTS, storyThemeToCssVars } from '@nao/shared/story-theme';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
+import { KIT_STYLES } from '@/story-runtime/story-kit/styles';
+
 export interface StoryRuntimeLocation {
 	baseUrl: string;
 	extension: '.js' | '.ts';
@@ -50,6 +52,7 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 ${fontLinks}
 <style>${themeStyles(input.theme)}</style>
 <style>${BASE_STYLES}</style>
+<style>${KIT_STYLES}</style>
 ${storyStyles}
 </head>
 <body>

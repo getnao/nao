@@ -1,4 +1,5 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
+import { STORY_KIT_EDITABLE_BLOCKS } from '@nao/shared/story-app';
 import type { BulkStoryItem, NotificationChannel, StoryFormat, UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
@@ -13,6 +14,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { CustomStoryNotFoundError, getCustomStoryQueryData, getCustomStoryVersion } from '../services/custom-story';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
@@ -22,6 +24,7 @@ import {
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
+import { editCustomStoryBlock, StoryBlockEditError } from '../services/story-block-edit';
 import {
 	assertValidDeliverySchedule,
 	disableStoryDelivery,
@@ -37,6 +40,7 @@ import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
+import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
 import { backfillMissingQueryData } from '../utils/story-query-data';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -72,6 +76,8 @@ const storyOwnerProjectProcedure = storyOwnerProcedure.use(async ({ ctx, getRawI
 	}
 	return next();
 });
+
+const storyKitBlockComponent = z.enum(STORY_KIT_EDITABLE_BLOCKS);
 
 const bulkStoryItemsInput = z.object({
 	items: z
@@ -300,6 +306,40 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
 		.query(async ({ input }) => {
 			return getCustomStoryQueryData(input.chatId, input.queryId);
+		}),
+
+	editCustomStoryBlock: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				block: z.object({ component: storyKitBlockComponent, props: z.record(z.string(), z.unknown()) }),
+				change: z.object({
+					component: storyKitBlockComponent.optional(),
+					set: z.record(z.string(), z.unknown()),
+					unset: z.array(z.string()),
+				}),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Edit the story once it is done.',
+				});
+			}
+			try {
+				return await editCustomStoryBlock(input);
+			} catch (error) {
+				if (error instanceof CustomStoryNotFoundError) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: error.message });
+				}
+				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw error;
+			}
 		}),
 
 	listStories: chatStoryProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {

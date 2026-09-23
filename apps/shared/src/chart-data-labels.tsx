@@ -2,8 +2,9 @@ import React from 'react';
 
 import { barYAxisDomainIsPadded, collectAxisValues, collectStackedAxisValues } from './chart-domain';
 import { CHART_FONT_STACK } from './chart-fonts';
+import { type ChartType, isPercentStackedChartType, isStackedChartType } from './chart-types';
 import { formatChartValue, getChartLevelValueFormat, niceAxisMax, toFiniteNumber } from './chart-values';
-import * as displayChart from './tools/display-chart';
+import type * as displayChart from './tools/display-chart';
 
 const DATA_LABEL_PROPS = {
 	fill: 'var(--foreground, #111827)',
@@ -30,7 +31,7 @@ const PIE_DATA_LABEL_GAP = 10;
 interface DataLabelChartProps {
 	data: Record<string, unknown>[];
 	series: displayChart.SeriesConfig[];
-	chartType: displayChart.ChartType;
+	chartType: ChartType;
 	showDataLabels?: boolean;
 	yAxisMin?: number;
 	yAxisMax?: number;
@@ -120,7 +121,7 @@ export function shouldReserveDataLabelHeadroom<Props extends DataLabelChartProps
 	if (barChartUsesPaddedDomain(props)) {
 		return false;
 	}
-	if (displayChart.isStackedChartType(props.chartType)) {
+	if (isStackedChartType(props.chartType)) {
 		return true;
 	}
 	const maxValue = getMaxPlottedValue(props);
@@ -134,11 +135,11 @@ export function shouldReserveStackTotalFootroom<Props extends DataLabelChartProp
 	if (
 		props.showDataLabels !== true ||
 		isHorizontalBarChart(props.chartType) ||
-		!displayChart.isStackedChartType(props.chartType)
+		!isStackedChartType(props.chartType)
 	) {
 		return false;
 	}
-	if (displayChart.isPercentStackedChartType(props.chartType)) {
+	if (isPercentStackedChartType(props.chartType)) {
 		return false;
 	}
 	return props.data.some((row) => {
@@ -220,17 +221,17 @@ function renderLabels(labels: LabelCandidate[]) {
 	);
 }
 
-function isCartesianLabelChart(chartType: displayChart.ChartType): boolean {
+function isCartesianLabelChart(chartType: ChartType): boolean {
 	return (
 		chartType === 'bar' ||
 		chartType === 'line' ||
 		chartType === 'area' ||
-		displayChart.isStackedChartType(chartType) ||
+		isStackedChartType(chartType) ||
 		chartType === 'mixed'
 	);
 }
 
-function isHorizontalBarChart(chartType: displayChart.ChartType): boolean {
+function isHorizontalBarChart(chartType: ChartType): boolean {
 	return chartType === 'horizontal_bar' || chartType === 'horizontal_bar_100';
 }
 
@@ -247,7 +248,7 @@ function barChartUsesPaddedDomain(props: DataLabelChartProps): boolean {
 }
 
 function getMaxPlottedValue(props: DataLabelChartProps): number | null {
-	const isStacked = displayChart.isStackedChartType(props.chartType);
+	const isStacked = isStackedChartType(props.chartType);
 	let max: number | null = null;
 	for (const row of props.data) {
 		let positiveStackTotal = 0;

@@ -146,11 +146,12 @@ export const getTools = (
 
 	if ('story' in result) {
 		const mapsEnabled = 'display_map' in result;
+		const customStories = isCustomStoriesEnabled() && 'write' in result;
 		result = {
 			...result,
 			story: {
 				...result.story,
-				description: buildStoryToolDescription({ mapsEnabled, customStories: isCustomStoriesEnabled() }),
+				description: buildStoryToolDescription({ mapsEnabled, customStories }),
 			},
 		};
 	}

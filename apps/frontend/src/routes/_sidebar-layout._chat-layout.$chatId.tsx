@@ -14,6 +14,7 @@ import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { SidePanel } from '@/components/side-panel/side-panel';
+import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -267,6 +268,7 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
+						<StoryBlockEditPanel chatId={chatId} />
 						<div className='pointer-events-none absolute inset-x-0 md:right-4 bottom-0 z-10 pt-8'>
 							<div
 								ref={inputAreaRef}

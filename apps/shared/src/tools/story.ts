@@ -30,7 +30,7 @@ export const InputSchema = z.object({
 		.array(FileSchema)
 		.optional()
 		.describe(
-			'Only for "create" with format "custom": the initial draft files. Omit to start from an empty draft.',
+			'Only for "create" with format "custom": the initial draft files. Omit to start from the story-kit starter app (nao.json, app.jsx, app.css).',
 		),
 	code: z
 		.string()

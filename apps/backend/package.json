@@ -52,6 +52,8 @@
 		"@aws-sdk/client-s3": "^3.1102.0",
 		"@aws-sdk/credential-providers": "^3.1030.0",
 		"@azure/identity": "^4.13.0",
+		"@babel/parser": "^7.29.9",
+		"@babel/types": "^7.29.8",
 		"@better-auth/core": "1.6.30",
 		"@better-auth/oauth-provider": "~1.6.30",
 		"@chat-adapter/slack": "^4.15.0",

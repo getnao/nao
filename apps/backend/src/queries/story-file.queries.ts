@@ -8,7 +8,7 @@ import s, {
 	type DBStoryFile,
 	type DBStoryVersion,
 } from '../db/abstractSchema';
-import { db, type DBExecutor } from '../db/db';
+import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import { normalizeStoryFilePath } from '../utils/story-file-path';
 
 export interface StoryFileInput {
@@ -122,53 +122,64 @@ export async function getVersionFile(
 	return row ?? null;
 }
 
-export async function cutVersionFromDraft(data: {
+interface CutVersionInput {
 	storyId: string;
 	action: DBStoryVersion['action'];
 	source: DBStoryVersion['source'];
-}): Promise<{ version: DBStoryVersion; files: DBStoryFile[] }> {
-	return db.transaction(async (tx) => {
-		const draft = await listDraftFiles(data.storyId, tx);
-		if (draft.length === 0) {
-			throw new StoryFileLimitError('The story has no draft files to publish.');
-		}
+}
 
-		await upsertFileBlobs(
-			draft.map((file) => file.content),
-			tx,
-		);
+/** Runs inside the caller's transaction when given one, so a draft write and its version land together. */
+export async function cutVersionFromDraft(
+	data: CutVersionInput,
+	transaction?: DBTransaction,
+): Promise<{ version: DBStoryVersion; files: DBStoryFile[] }> {
+	return transaction ? cutVersion(data, transaction) : db.transaction((tx) => cutVersion(data, tx));
+}
 
-		const nextVersion = tx
-			.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
-			.from(s.storyVersion)
-			.where(eq(s.storyVersion.storyId, data.storyId));
+async function cutVersion(
+	data: CutVersionInput,
+	tx: DBTransaction,
+): Promise<{ version: DBStoryVersion; files: DBStoryFile[] }> {
+	const draft = await listDraftFiles(data.storyId, tx);
+	if (draft.length === 0) {
+		throw new StoryFileLimitError('The story has no draft files to publish.');
+	}
 
-		const [version] = await tx
-			.insert(s.storyVersion)
-			.values({
-				storyId: data.storyId,
-				code: '',
-				action: data.action,
-				source: data.source,
-				version: sql`(${nextVersion})`,
-			})
-			.returning()
-			.execute();
+	await upsertFileBlobs(
+		draft.map((file) => file.content),
+		tx,
+	);
 
-		const files = await tx
-			.insert(s.storyFile)
-			.values(
-				draft.map((file) => ({
-					storyVersionId: version.id,
-					path: file.path,
-					contentHash: hashContent(file.content),
-				})),
-			)
-			.returning()
-			.execute();
+	const nextVersion = tx
+		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
+		.from(s.storyVersion)
+		.where(eq(s.storyVersion.storyId, data.storyId));
 
-		return { version, files };
-	});
+	const [version] = await tx
+		.insert(s.storyVersion)
+		.values({
+			storyId: data.storyId,
+			code: '',
+			action: data.action,
+			source: data.source,
+			version: sql`(${nextVersion})`,
+		})
+		.returning()
+		.execute();
+
+	const files = await tx
+		.insert(s.storyFile)
+		.values(
+			draft.map((file) => ({
+				storyVersionId: version.id,
+				path: file.path,
+				contentHash: hashContent(file.content),
+			})),
+		)
+		.returning()
+		.execute();
+
+	return { version, files };
 }
 
 async function upsertFileBlobs(contents: string[], executor: DBExecutor): Promise<void> {
@@ -208,8 +219,9 @@ export async function getVersionBundle(storyVersionId: string): Promise<DBStoryB
 export async function setVersionBundle(
 	storyVersionId: string,
 	result: { bundle: string; bundleError: null } | { bundle: null; bundleError: string },
+	executor: DBExecutor = db,
 ): Promise<void> {
-	await db
+	await executor
 		.insert(s.storyBundle)
 		.values({ storyVersionId, ...result })
 		.onConflictDoUpdate({ target: s.storyBundle.storyVersionId, set: { ...result, builtAt: new Date() } })

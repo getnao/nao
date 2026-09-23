@@ -1,17 +1,21 @@
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { StoryBlockEditPayload } from '@nao/shared/story-app';
 
 import type { CustomStoryRuntimeError } from '@/components/custom-story/custom-story-frame';
+import type { StoryBlockEditTarget } from '@/stores/story-block-edit';
+import { CustomStoryBlockEditDialog } from '@/components/custom-story/custom-story-block-edit';
 import { CustomStoryFrame } from '@/components/custom-story/custom-story-frame';
 import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useChatActivity } from '@/hooks/use-chat-activity';
 import { trpc } from '@/main';
-import { chatActivityStore } from '@/stores/chat-activity';
+import { storyBlockEditStore } from '@/stores/story-block-edit';
 
 interface CustomStoryViewerProps {
 	chatId: string;
@@ -27,6 +31,8 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 	const [runtimeErrors, setRuntimeErrors] = useState<CustomStoryRuntimeError[]>([]);
 	const [runtimeErrorCount, setRuntimeErrorCount] = useState(0);
+	const [dialogTarget, setDialogTarget] = useState<StoryBlockEditTarget | null>(null);
+	const isAgentRunning = useChatActivity(chatId).running;
 
 	const versionsQuery = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
 	const versionNumbers = useMemo(
@@ -44,7 +50,30 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const content = contentQuery.data;
 	const styles = useMemo(() => content?.styles.map((style) => style.content) ?? [], [content?.styles]);
 
-	useRefreshWhenAgentStops(chatId, storySlug);
+	const canEditBlocks = isViewingLatest && !isAgentRunning;
+
+	const handleEditBlock = useCallback(
+		(payload: StoryBlockEditPayload) => {
+			if (!content) {
+				return;
+			}
+			const target = { chatId, storySlug, versionNumber: content.version.number, payload };
+			setSelectedVersion(null);
+			if (isVisible) {
+				storyBlockEditStore.open(target);
+			} else {
+				setDialogTarget(target);
+			}
+		},
+		[chatId, content, isVisible, storySlug],
+	);
+
+	useRefreshWhenAgentStops(chatId, storySlug, isAgentRunning);
+	useEffect(() => {
+		if (!canEditBlocks) {
+			setDialogTarget(null);
+		}
+	}, [canEditBlocks]);
 	useEffect(() => {
 		setCurrentStorySlug(storySlug);
 	}, [setCurrentStorySlug, storySlug]);
@@ -115,22 +144,25 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 						bundle={content.bundle}
 						styles={styles}
 						theme={content.theme ?? DEFAULT_STORY_THEME}
+						editable={canEditBlocks}
+						onEditBlock={handleEditBlock}
 						onError={handleRuntimeError}
 					/>
 				) : (
 					<BuildFailure message={content?.bundleError ?? 'This version has no build output.'} />
 				)}
 			</div>
+
+			<CustomStoryBlockEditDialog
+				target={canEditBlocks ? dialogTarget : null}
+				onClose={() => setDialogTarget(null)}
+			/>
 		</div>
 	);
 }
 
-function useRefreshWhenAgentStops(chatId: string, storySlug: string) {
+function useRefreshWhenAgentStops(chatId: string, storySlug: string, isRunning: boolean) {
 	const queryClient = useQueryClient();
-	const isRunning = useSyncExternalStore(
-		useCallback((callback) => chatActivityStore.subscribe(chatId, callback), [chatId]),
-		useCallback(() => chatActivityStore.getActivity(chatId).running, [chatId]),
-	);
 	const wasRunning = useRef(isRunning);
 	useEffect(() => {
 		if (wasRunning.current && !isRunning) {

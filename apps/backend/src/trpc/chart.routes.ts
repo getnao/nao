@@ -1,3 +1,4 @@
+import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { displayChart } from '@nao/shared/tools';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -85,7 +86,7 @@ async function readDownloadableChartConfig(
 			message: 'Chart download is only available for chart visualizations.',
 		});
 	}
-	if (!displayChart.isBuiltinChartType(config.chart_type)) {
+	if (!isBuiltinChartType(config.chart_type)) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: 'Custom charts can only be viewed in the interactive web chat.',

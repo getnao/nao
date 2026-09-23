@@ -1,9 +1,16 @@
 import { isStoryHostMessage } from '@nao/shared/story-app';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+
+import { resolveBlockColors } from './story-colors';
 import type { ErrorInfo, ReactNode } from 'react';
-import type { StoryFrameMessage, StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
+import type {
+	StoryBlockEditRequest,
+	StoryFrameMessage,
+	StoryQueryResult,
+	StoryTableExportFormat,
+} from '@nao/shared/story-app';
 
 interface BootOptions {
 	source: string;
@@ -16,7 +23,9 @@ interface PendingQuery {
 }
 
 const pendingQueries = new Map<string, PendingQuery>();
+const editingListeners = new Set<() => void>();
 let activeTheme: StoryTheme | null = null;
+let editingEnabled = false;
 
 export async function bootStory({ source, theme }: BootOptions): Promise<void> {
 	activeTheme = theme;
@@ -48,8 +57,48 @@ export function getStoryTheme(): StoryTheme | null {
 	return activeTheme;
 }
 
+export function copyTable(columns: string[], rows: Record<string, unknown>[]): void {
+	send({ type: 'nao-story:copy-table', columns, rows });
+}
+
+export function exportTable(
+	format: StoryTableExportFormat,
+	filename: string,
+	columns: string[],
+	rows: Record<string, unknown>[],
+): void {
+	send({ type: 'nao-story:export-table', format, filename, columns, rows });
+}
+
+export function isEditingEnabled(): boolean {
+	return editingEnabled;
+}
+
+export function subscribeToEditing(listener: () => void): () => void {
+	editingListeners.add(listener);
+	return () => {
+		editingListeners.delete(listener);
+	};
+}
+
+export function requestBlockEdit({ block, config, columns, rows }: StoryBlockEditRequest): void {
+	send({
+		type: 'nao-story:edit-block',
+		block: { component: block.component, props: toJsonSafe(block.props) },
+		config,
+		columns,
+		rows: toJsonSafe(rows),
+		colors: resolveBlockColors(config),
+	});
+}
+
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	if (event.source !== window.parent || !isStoryHostMessage(event.data)) {
+		return;
+	}
+	if (event.data.type === 'nao-story:editing') {
+		editingEnabled = event.data.enabled;
+		editingListeners.forEach((listener) => listener());
 		return;
 	}
 	const pending = pendingQueries.get(event.data.requestId);
@@ -66,6 +115,10 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 
 function send(message: StoryFrameMessage): void {
 	window.parent.postMessage(message, '*');
+}
+
+function toJsonSafe<T>(value: T): T {
+	return JSON.parse(JSON.stringify(value)) as T;
 }
 
 /** The bundle arrives as text; a same-frame blob URL turns it into an importable module without any network hop. */

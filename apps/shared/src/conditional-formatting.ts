@@ -152,6 +152,34 @@ export function computeColumnRange(rows: Record<string, unknown>[], column: stri
 	return min === Number.POSITIVE_INFINITY ? null : { min, max };
 }
 
+/** Resolves each cell's background from a table's conditional formats, precomputing colour-scale ranges once. */
+export function createCellBackgroundResolver(
+	data: Record<string, unknown>[],
+	conditionalFormats?: ColumnConditionalFormats,
+): ((column: string, value: unknown) => string | undefined) | undefined {
+	if (!conditionalFormats) {
+		return undefined;
+	}
+	const ranges = computeFormattedColumnRanges(data, conditionalFormats);
+	return (column, value) => {
+		const rule = conditionalFormats[column];
+		return isConditionalFormatRule(rule) ? resolveCellBackground(rule, value, ranges[column] ?? null) : undefined;
+	};
+}
+
+function computeFormattedColumnRanges(
+	data: Record<string, unknown>[],
+	conditionalFormats: ColumnConditionalFormats,
+): Record<string, ColumnRange | null> {
+	const ranges: Record<string, ColumnRange | null> = {};
+	for (const [column, rule] of Object.entries(conditionalFormats)) {
+		if (isConditionalFormatRule(rule) && rule.type === 'color-scale') {
+			ranges[column] = computeColumnRange(data, column);
+		}
+	}
+	return ranges;
+}
+
 export function resolveCellBackground(
 	rule: ConditionalFormatRule,
 	value: unknown,

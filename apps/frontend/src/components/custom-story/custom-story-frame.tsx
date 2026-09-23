@@ -1,24 +1,33 @@
 import { isStoryFrameMessage, STORY_RUNTIME_PATH } from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { buildStoryFrameDocument } from './story-frame-document';
-import type { StoryFrameMessage, StoryHostMessage } from '@nao/shared/story-app';
+import type { StoryBlockEditPayload, StoryFrameMessage, StoryHostMessage } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
-import type { StoryRuntimeLocation } from './story-frame-document';
 
+import type { StoryRuntimeLocation } from './story-frame-document';
+import { useDateFormat } from '@/hooks/use-date-format';
+import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { chatActivityStore } from '@/stores/chat-activity';
 
 export interface CustomStoryRuntimeError {
 	message: string;
 	stack?: string;
 }
 
+const QUERY_RETRY_DELAY_MS = 1500;
+const MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING = 10;
+const MAX_EXPORT_FILENAME_LENGTH = 100;
+
 interface CustomStoryFrameProps {
 	chatId: string;
 	bundle: string;
 	styles: string[];
 	theme: StoryTheme;
+	editable?: boolean;
+	onEditBlock?: (request: StoryBlockEditPayload) => void;
 	onReady?: () => void;
 	onError?: (error: CustomStoryRuntimeError) => void;
 	className?: string;
@@ -31,14 +40,18 @@ export function CustomStoryFrame({
 	bundle,
 	styles,
 	theme,
+	editable = false,
+	onEditBlock,
 	onReady,
 	onError,
 	className,
 }: CustomStoryFrameProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const loadCountRef = useRef(0);
+	const isFrameReadyRef = useRef(false);
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
+	const dateFormat = useDateFormat();
 	const srcDoc = useStoryFrameDocument(bundle, styles, theme, onError);
 
 	const reply = useCallback((message: StoryHostMessage) => {
@@ -48,9 +61,13 @@ export function CustomStoryFrame({
 	const answerQuery = useCallback(
 		async (requestId: string, queryId: string) => {
 			try {
-				const result = await queryClient.fetchQuery(
-					trpc.story.getCustomStoryQueryData.queryOptions({ chatId, queryId }),
-				);
+				const result = await queryClient.fetchQuery({
+					...trpc.story.getCustomStoryQueryData.queryOptions({ chatId, queryId }),
+					retry: (failureCount) =>
+						failureCount < MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING &&
+						chatActivityStore.getActivity(chatId).running,
+					retryDelay: QUERY_RETRY_DELAY_MS,
+				});
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
@@ -69,6 +86,8 @@ export function CustomStoryFrame({
 		const dispatch = (message: StoryFrameMessage) => {
 			switch (message.type) {
 				case 'nao-story:ready':
+					isFrameReadyRef.current = true;
+					reply({ type: 'nao-story:editing', enabled: editable });
 					onReady?.();
 					break;
 				case 'nao-story:query':
@@ -77,11 +96,38 @@ export function CustomStoryFrame({
 				case 'nao-story:error':
 					onError?.({ message: message.message, stack: message.stack });
 					break;
+				case 'nao-story:copy-table':
+					if (isUserGesture()) {
+						void navigator.clipboard.writeText(tableToTsv(message.columns, message.rows, dateFormat));
+					}
+					break;
+				case 'nao-story:export-table':
+					if (isUserGesture()) {
+						exportTable(message, dateFormat);
+					}
+					break;
+				case 'nao-story:edit-block':
+					if (editable) {
+						onEditBlock?.({
+							block: message.block,
+							config: message.config,
+							columns: message.columns,
+							rows: message.rows,
+							colors: message.colors,
+						});
+					}
+					break;
 			}
 		};
 		window.addEventListener('message', handleMessage);
 		return () => window.removeEventListener('message', handleMessage);
-	}, [answerQuery, onError, onReady]);
+	}, [answerQuery, dateFormat, editable, onEditBlock, onError, onReady, reply]);
+
+	useEffect(() => {
+		if (isFrameReadyRef.current) {
+			reply({ type: 'nao-story:editing', enabled: editable });
+		}
+	}, [editable, reply]);
 
 	const handleLoad = useCallback(() => {
 		loadCountRef.current += 1;
@@ -94,6 +140,7 @@ export function CustomStoryFrame({
 	useEffect(() => {
 		if (srcDoc !== null) {
 			loadCountRef.current = 0;
+			isFrameReadyRef.current = false;
 			setNavigatedAway(false);
 		}
 	}, [srcDoc]);
@@ -112,7 +159,7 @@ export function CustomStoryFrame({
 	return (
 		<iframe
 			ref={iframeRef}
-			title='Custom story'
+			aria-label='Custom story'
 			sandbox='allow-scripts'
 			referrerPolicy='no-referrer'
 			srcDoc={srcDoc}
@@ -129,6 +176,7 @@ function useStoryFrameDocument(
 	onError?: (error: CustomStoryRuntimeError) => void,
 ): string | null {
 	const [srcDoc, setSrcDoc] = useState<string | null>(null);
+	const reportError = useEffectEvent((error: unknown) => onError?.({ message: describeError(error) }));
 	useEffect(() => {
 		let cancelled = false;
 		setSrcDoc(null);
@@ -140,14 +188,13 @@ function useStoryFrameDocument(
 			},
 			(error: unknown) => {
 				if (!cancelled) {
-					onError?.({ message: describeError(error) });
+					reportError(error);
 				}
 			},
 		);
 		return () => {
 			cancelled = true;
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- onError intentionally excluded from the deps: rebuilding the document on every render where the caller passes a new inline `onError` would defeat the point of this effect. Safe today because the only caller memoizes it with an empty dependency array.
 	}, [bundle, styles, theme]);
 	return srcDoc;
 }
@@ -157,6 +204,31 @@ function storyRuntimeLocation(): StoryRuntimeLocation {
 	return import.meta.env.DEV
 		? { baseUrl: `${origin}/src/story-runtime/`, extension: '.ts' }
 		: { baseUrl: `${origin}${STORY_RUNTIME_PATH}/`, extension: '.js' };
+}
+
+function isUserGesture(): boolean {
+	return navigator.userActivation?.isActive ?? false;
+}
+
+function exportTable(
+	{ format, filename, columns, rows }: Extract<StoryFrameMessage, { type: 'nao-story:export-table' }>,
+	dateFormat: ReturnType<typeof useDateFormat>,
+) {
+	const safeName = toSafeFilename(filename);
+	if (format === 'csv') {
+		downloadCsv(`${safeName}.csv`, tableToCsv(columns, rows, dateFormat));
+	} else {
+		void downloadXlsx(`${safeName}.xlsx`, columns, rows, dateFormat);
+	}
+}
+
+function toSafeFilename(name: string): string {
+	const safe = name
+		.replace(/[^\p{L}\p{N} ._-]+/gu, '_')
+		.replace(/^[.\s]+/, '')
+		.slice(0, MAX_EXPORT_FILENAME_LENGTH)
+		.trim();
+	return safe || 'table';
 }
 
 function describeError(error: unknown): string {

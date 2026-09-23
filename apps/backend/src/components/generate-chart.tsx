@@ -1,4 +1,5 @@
 import { bucketPieData, buildChart, defaultColorFor, labelize, resolveDataKey, sortByDateKey } from '@nao/shared';
+import { isBuiltinChartType } from '@nao/shared/chart-types';
 import type { DateFormatSettings } from '@nao/shared/date';
 import { displayChart } from '@nao/shared/tools';
 import React from 'react';
@@ -45,7 +46,7 @@ export function generateChartImage(input: RenderChartInput): Buffer {
 
 export function renderChartToSvg(input: RenderChartInput): string {
 	const { config, data, dateFormat } = input;
-	if (!displayChart.isBuiltinChartType(config.chart_type)) {
+	if (!isBuiltinChartType(config.chart_type)) {
 		throw new Error(`Custom chart "${config.chart_type}" cannot be rendered on the server.`);
 	}
 	const chartType = config.chart_type;

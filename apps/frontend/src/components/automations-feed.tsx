@@ -1,3 +1,5 @@
+import { stripAssistantTags } from '@nao/shared';
+import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { Link } from '@tanstack/react-router';
 import {
 	Bell,
@@ -19,9 +21,8 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
-import { stripAssistantTags } from '@nao/shared';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { displayChart } from '@nao/shared/tools';
+import type { displayChart } from '@nao/shared/tools';
 import { NOTIFICATION_CATEGORY_LABELS } from '@nao/shared/types';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type {
@@ -789,7 +790,7 @@ function ChartSlideshow({ charts }: { charts: AutomationFeedChart[] }) {
 function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 	const xAxisType = chart.config.x_axis_type === 'number' ? 'number' : 'category';
 	const data = chart.data as Record<string, unknown>[];
-	if (!displayChart.isBuiltinChartType(chart.config.chart_type)) {
+	if (!isBuiltinChartType(chart.config.chart_type)) {
 		return <div className='text-sm text-muted-foreground'>Custom charts are available in web chats only.</div>;
 	}
 

@@ -1,4 +1,3 @@
-import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_ENTRY_CANDIDATES, STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
 import { injectTableFormatting } from '@nao/shared/story-segments';
 import { story } from '@nao/shared/tools';
 
@@ -12,6 +11,7 @@ import * as storyFileQueries from '../../queries/story-file.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { buildStoryApp } from '../../services/story-app-build';
 import { isCustomStoriesEnabled } from '../../services/story-mount';
+import { scaffoldCustomStoryFiles } from '../../services/story-scaffold';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
 import { STORIES_MOUNT } from '../../utils/story-mount';
@@ -29,9 +29,8 @@ const STORY_FILTER_DESCRIPTION = [
 ].join(' ');
 
 const CUSTOM_STORY_DESCRIPTION = [
-	`A story can also be a custom app: pass format="custom" to "create" (with optional initial "files"), edit its source files under /${STORIES_MOUNT}/<id>/ with the write tool, then call "publish" to build the draft and snapshot it into a new version.`,
-	`The entry file (${STORY_APP_ENTRY_CANDIDATES.join(', ')}, or "entry" in ${STORY_APP_MANIFEST_PATH}) must default-export the root React component. Only these packages can be imported: ${STORY_APP_ALLOWED_IMPORTS.join(', ')}; everything else must be a relative import of a file in the story. A failed build returns build_errors and publishes nothing.`,
-	'Only build a custom story when the user explicitly asks for a bespoke app or layout that the markdown story cannot express; "update" and "replace" do not apply to custom stories.',
+	`format="custom" creates a React app instead: "create" seeds a @nao/story-kit starter under /${STORIES_MOUNT}/<id>/ (or takes "files"), edit it with the write tool, then "publish" builds and snapshots it.`,
+	'See the Custom Stories instructions for when to pick it.',
 ].join(' ');
 
 export function buildStoryToolDescription({
@@ -221,7 +220,7 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 		const files = await db.transaction(async (tx) => {
 			const created = await storyQueries.createCustomStory({ chatId, slug: input.id, title }, tx);
 			await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.id, tx);
-			return storyFileQueries.seedDraftFiles(created.id, input.files ?? [], tx);
+			return storyFileQueries.seedDraftFiles(created.id, scaffoldCustomStoryFiles(title, input.files ?? []), tx);
 		});
 		rememberStoryArtifact(context, input.id, title);
 		return customResult(

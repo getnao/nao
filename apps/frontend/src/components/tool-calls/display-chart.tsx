@@ -1,12 +1,11 @@
+import { bucketPieData, buildChart, buildStoryChartBlock, labelize, resolveDataKey, useChartStyle } from '@nao/shared';
 import {
-	buildChart,
-	bucketPieData,
-	buildStoryChartBlock,
-	DEFAULT_COLORS,
-	labelize,
-	resolveDataKey,
-	useChartStyle,
-} from '@nao/shared';
+	buildSeriesChartConfig,
+	buildSeriesLegendPayload,
+	seriesColorAt,
+	useSeriesVisibility,
+} from '@nao/shared/chart-series';
+import { isBuiltinChartType, isComboChart, isPercentStackedChartType, isPieChart } from '@nao/shared/chart-types';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -22,7 +21,6 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Customized } from 'recharts';
-
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { Button } from '../ui/button';
@@ -36,8 +34,9 @@ import { CustomChart } from './custom-chart';
 import { SqlQueryDisplay } from './sql-query-display';
 import { SqlResultDisplay } from './sql-result-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import type { ChartConfig } from '@nao/shared/chart-tooltip';
+import type { ChartType } from '@nao/shared/chart-types';
 import type { ToolCallComponentProps } from '.';
-import type { ChartConfig } from '../ui/chart';
 import type { DateRange } from '@/lib/charts.utils';
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { trpc } from '@/main';
@@ -59,7 +58,6 @@ import { cn } from '@/lib/utils';
 import { ExportDataMenu } from '@/components/export-data-menu';
 import { useSourceQuery } from '@/hooks/use-source-query';
 
-const Colors = DEFAULT_COLORS.map((_, index) => `var(--chart-${index + 1})`);
 const LEGEND_SCROLL_OFFSET = 120;
 const HORIZONTAL_LABEL_GAP = 12;
 const DIAGONAL_LABEL_GAP = 8;
@@ -83,7 +81,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	const chartConfig = config && displayChart.isChartInput(config) ? config : undefined;
 	const tableConfig = config && displayChart.isTableInput(config) ? config : undefined;
 	const isTableVariant = input?.chart_type === 'table';
-	const isBuiltinChart = chartConfig ? displayChart.isBuiltinChartType(chartConfig.chart_type) : false;
+	const isBuiltinChart = chartConfig ? isBuiltinChartType(chartConfig.chart_type) : false;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const [viewMode, setViewMode] = useState<ViewMode>('chart');
 	const storyIds = useStoryIds();
@@ -259,7 +257,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	};
 
 	const isKpiChartView = viewMode === 'chart' && chartConfig.chart_type === 'kpi_card';
-	const isPieChartView = viewMode === 'chart' && displayChart.isPieChart(chartConfig.chart_type);
+	const isPieChartView = viewMode === 'chart' && isPieChart(chartConfig.chart_type);
 
 	return (
 		<div
@@ -289,7 +287,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					<div className='flex items-center gap-1'>
 						<span className='text-sm font-medium text-foreground flex-1'>{chartConfig.title}</span>
 						{viewMode === 'chart' &&
-							!displayChart.isPieChart(chartConfig.chart_type) &&
+							!isPieChart(chartConfig.chart_type) &&
 							chartConfig.x_axis_type === 'date' && (
 								<ChartRangeSelector
 									options={DATE_RANGE_OPTIONS}
@@ -396,7 +394,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				</div>
 			</div>
 
-			{isEditable && displayChart.isBuiltinChartType(chartConfig.chart_type) && (
+			{isEditable && isBuiltinChartType(chartConfig.chart_type) && (
 				<DisplayChartEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
@@ -411,7 +409,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				<SqlResultDisplay output={sourceData} />
 			) : viewMode === 'query' && sqlQuery ? (
 				<SqlQueryDisplay query={sqlQuery} />
-			) : !displayChart.isBuiltinChartType(chartConfig.chart_type) ? (
+			) : !isBuiltinChartType(chartConfig.chart_type) ? (
 				<CustomChart config={customChartConfig} data={filteredData} />
 			) : (
 				<ChartDisplay
@@ -431,8 +429,8 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					showDataLabels={chartConfig.show_data_labels}
 					comparisonMode={'comparison_mode' in chartConfig ? chartConfig.comparison_mode : undefined}
 					hideTotal={chartConfig.hide_total}
-					className={displayChart.isPieChart(chartConfig.chart_type) ? 'flex-1 justify-center' : undefined}
-					chartContentClassName={displayChart.isPieChart(chartConfig.chart_type) ? 'aspect-4/3' : undefined}
+					className={isPieChart(chartConfig.chart_type) ? 'flex-1 justify-center' : undefined}
+					chartContentClassName={isPieChart(chartConfig.chart_type) ? 'aspect-4/3' : undefined}
 				/>
 			)}
 		</div>
@@ -441,7 +439,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 
 export interface ChartDisplayProps {
 	data: Record<string, unknown>[];
-	chartType: displayChart.ChartType;
+	chartType: ChartType;
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
 	xAxisLabel?: string;
@@ -521,9 +519,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
-	const isPercentStacked = displayChart.isPercentStackedChartType(chartType);
+	const isPercentStacked = isPercentStackedChartType(chartType);
 
-	const isPie = displayChart.isPieChart(chartType);
+	const isPie = isPieChart(chartType);
 	const pieCenteringClass = isPie ? 'mx-auto max-w-[480px]' : '';
 	const pieValueKey = series[0]?.data_key ?? '';
 	const pieData = useMemo(
@@ -541,7 +539,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					const category = String(item[xAxisKey]);
 					acc[toKey(category)] = {
 						label: labelize(category, dateFormat),
-						color: Colors[index % Colors.length],
+						color: seriesColorAt(index),
 					};
 					return acc;
 				},
@@ -556,15 +554,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			);
 		}
 
-		return series.reduce((acc, s, idx) => {
-			acc[s.data_key] = {
-				label: s.label || labelize(s.data_key, dateFormat),
-				color: s.color || Colors[idx % Colors.length],
-				isTotal: s.is_total,
-				valueFormat: s.value_format,
-			};
-			return acc;
-		}, {} as ChartConfig);
+		return buildSeriesChartConfig(series, (dataKey) => labelize(dataKey, dateFormat));
 	}, [series, xAxisKey, pieValueKey, pieData, isPie, dateFormat]);
 
 	const colorFor = useMemo(
@@ -582,17 +572,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 				return {
 					value: category,
 					dataKey: toKey(category),
-					color: Colors[index % Colors.length],
+					color: seriesColorAt(index),
 					isHidden: false,
 				};
 			});
 		}
-		return series.map((s, idx) => ({
-			value: s.label || labelize(s.data_key, dateFormat),
-			dataKey: s.data_key,
-			color: s.color || Colors[idx % Colors.length],
-			isHidden: hiddenSeriesKeys.has(s.data_key),
-		}));
+		return buildSeriesLegendPayload(series, hiddenSeriesKeys, (dataKey) => labelize(dataKey, dateFormat));
 	}, [isPie, pieData, xAxisKey, series, hiddenSeriesKeys, dateFormat]);
 
 	const labelFormatter = useMemo(
@@ -640,7 +625,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 		[isPie, dateFormat],
 	);
 
-	const isDualAxis = displayChart.isComboChart(chartType) && displayChart.hasRightAxisSeries(visibleSeries);
+	const isDualAxis = isComboChart(chartType) && displayChart.hasRightAxisSeries(visibleSeries);
 	const chartStyle = useChartStyle();
 
 	const chartElement = useMemo(
@@ -905,33 +890,5 @@ const useHorizontalScrollControls = () => {
 		...scrollState,
 		scrollRef,
 		scrollLegend,
-	};
-};
-
-/** Manages which series are visible and hidden */
-const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
-	const [hiddenSeriesKeys, setHiddenSeriesKeys] = useState<Set<string>>(new Set());
-
-	const visibleSeries = useMemo(
-		() => series.filter((s) => !hiddenSeriesKeys.has(s.data_key)),
-		[series, hiddenSeriesKeys],
-	);
-
-	const handleToggleSeriesVisibility = useCallback((dataKey: string) => {
-		setHiddenSeriesKeys((prev) => {
-			const copy = new Set(prev);
-			if (copy.has(dataKey)) {
-				copy.delete(dataKey);
-			} else {
-				copy.add(dataKey);
-			}
-			return copy;
-		});
-	}, []);
-
-	return {
-		visibleSeries,
-		hiddenSeriesKeys,
-		handleToggleSeriesVisibility,
 	};
 };

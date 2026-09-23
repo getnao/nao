@@ -1,12 +1,19 @@
 import { join, resolve } from 'node:path';
 
 import { build } from 'vite';
+
 import { STORY_RUNTIME_MODULES, STORY_RUNTIME_PATH } from '../../shared/src/story-app';
 import type { Plugin, ResolvedConfig } from 'vite';
 
 const ENTRY_DIR = 'src/story-runtime';
 const RUNTIME_DIR = STORY_RUNTIME_PATH.slice(1);
 const ENTRY_NAMES = [...new Set(Object.values(STORY_RUNTIME_MODULES))];
+
+/**
+ * Runtime sources (and the shared modules they import) run inside the story frame, which has no fast-refresh preamble:
+ * keep them out of `@vitejs/plugin-react`.
+ */
+export const STORY_RUNTIME_SOURCES = /\/(frontend\/src\/story-runtime|shared\/src)\//;
 
 export function storyRuntime(): Plugin {
 	let config: ResolvedConfig;
