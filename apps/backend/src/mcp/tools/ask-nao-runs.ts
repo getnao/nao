@@ -26,7 +26,20 @@ export type AskNaoRunState =
 
 const runs = new Map<string, AskNaoRunState>();
 
-const FINISHED_RUN_TTL_MS = 30 * 60 * 1000;
+// Completed/errored runs are kept briefly in case the MCP client polls
+// `get_nao_answer` right after the run ends. `reconstructAnswerFromDb`
+// covers misses, so a short TTL is enough.
+const FINISHED_RUN_TTL_MS = 5 * 60 * 1000;
+
+// A run that is still 'running' this long after it started is hung (the sync
+// budget is 45s, so healthy runs settle far sooner). Evict it instead of
+// leaking the entry until the process is restarted.
+const MAX_RUN_MS = 15 * 60 * 1000;
+
+// Backstop: never hold more than this many runs in memory. Oldest entries
+// (insertion order) are evicted first. Protects the process even if the
+// sweep logic above misses a future state shape.
+const MAX_RUNS = 1000;
 
 /**
  * Tracks `ask_nao` agent runs that outlive their originating MCP request.
@@ -50,14 +63,36 @@ export const askNaoRuns = {
 	},
 };
 
+/**
+ * Removes expired or over-cap entries from the run registry.
+ *
+ * - Finished runs are evicted after `FINISHED_RUN_TTL_MS`.
+ * - Runs stuck in 'running' past `MAX_RUN_MS` are evicted (they would
+ *   otherwise never leave the map, leaking memory until restart).
+ * - A hard cap (`MAX_RUNS`) evicts the oldest entries as a backstop.
+ *
+ * Exposed for tests; production calls it from the sweep interval below.
+ */
+export function sweepExpiredRuns(now: number = Date.now()): void {
+	for (const [chatId, state] of runs) {
+		const isExpired = state.status !== 'running' && now - state.finishedAt > FINISHED_RUN_TTL_MS;
+		const isStuck = state.status === 'running' && now - state.startedAt > MAX_RUN_MS;
+		if (isExpired || isStuck) {
+			runs.delete(chatId);
+		}
+	}
+	while (runs.size > MAX_RUNS) {
+		const oldest = runs.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		runs.delete(oldest);
+	}
+}
+
 setInterval(
 	() => {
-		const now = Date.now();
-		for (const [chatId, state] of runs) {
-			if (state.status !== 'running' && now - state.finishedAt > FINISHED_RUN_TTL_MS) {
-				runs.delete(chatId);
-			}
-		}
+		sweepExpiredRuns();
 	},
 	5 * 60 * 1000,
 ).unref();
