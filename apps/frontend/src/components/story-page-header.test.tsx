@@ -15,7 +15,7 @@ vi.mock('@/components/editable-story-title', () => ({
 }));
 
 vi.mock('@/components/story-download', () => ({
-	StoryDownload: () => null,
+	StoryDownloadMenuItem: () => null,
 }));
 
 vi.mock('@/hooks/use-toggle-favorite', () => ({
@@ -48,6 +48,26 @@ describe('StoryPageHeader shared-story refresh control', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Refresh data' }));
 
 		expect(onRefresh).toHaveBeenCalledOnce();
+	});
+});
+
+describe('StoryPageHeader toolbar actions', () => {
+	afterEach(cleanup);
+
+	it('exposes Share as a top-level button and keeps download and favorite in the menu', () => {
+		const onShare = vi.fn();
+		render(
+			<TooltipProvider>
+				<StoryPageHeader title='Revenue' onShare={onShare} download={{ storyId: 'story-1' }} />
+			</TooltipProvider>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: /share/i }));
+
+		expect(onShare).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('button', { name: /download/i })).toBeNull();
+		expect(screen.queryByRole('button', { name: /favorites/i })).toBeNull();
+		expect(screen.getByRole('button', { name: 'More actions' })).toBeDefined();
 	});
 });
 

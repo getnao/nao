@@ -21,7 +21,7 @@ import {
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import { EditableStoryTitle } from '@/components/editable-story-title';
-import { StoryDownload } from '@/components/story-download';
+import { StoryDownloadMenuItem } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -173,12 +173,19 @@ export function StoryPageHeader({
 
 					{live && <LiveStoryControls live={live} />}
 
+					{onShare && (
+						<Button variant='outline' size='sm' className='gap-1.5 rounded-full text-xs' onClick={onShare}>
+							{isShared ? (
+								<Globe className='size-3.5 text-primary' strokeWidth={2.25} />
+							) : (
+								<Upload className='size-3.5' strokeWidth={2.25} />
+							)}
+							<span>Share</span>
+						</Button>
+					)}
+
 					<div>
-						{download && <StoryDownload iconOnly {...download} />}
-
-						{storyId && <FavoriteButton storyId={storyId} />}
-
-						{(onShare || onOpenAnalytics) && (
+						{(download || storyId || onOpenAnalytics) && (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<Button
@@ -191,16 +198,8 @@ export function StoryPageHeader({
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align='end' className='w-auto min-w-20'>
-									{onShare && (
-										<DropdownMenuItem onSelect={onShare}>
-											{isShared ? (
-												<Globe className='text-primary' strokeWidth={2.25} />
-											) : (
-												<Upload strokeWidth={2.25} />
-											)}
-											<span>Share</span>
-										</DropdownMenuItem>
-									)}
+									{download && <StoryDownloadMenuItem {...download} />}
+									{storyId && <FavoriteMenuItem storyId={storyId} />}
 									{onOpenAnalytics && (
 										<DropdownMenuItem onSelect={onOpenAnalytics}>
 											<Info className='size-3' />
@@ -457,30 +456,16 @@ function RefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onR
 	);
 }
 
-function FavoriteButton({ storyId }: { storyId: string }) {
+function FavoriteMenuItem({ storyId }: { storyId: string }) {
 	const { toggle: toggleFavorite, isPending } = useToggleFavorite('story');
 	const { data: favorites } = useQuery(trpc.favorite.list.queryOptions());
 	const isFavorited = favorites?.storyIds.includes(storyId) ?? false;
 
 	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={() => toggleFavorite(storyId)}
-					disabled={isPending}
-					aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-				>
-					<Star
-						className={cn('size-3.5', isFavorited && 'fill-foreground text-foreground')}
-						strokeWidth={2.25}
-					/>
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
-		</Tooltip>
+		<DropdownMenuItem onSelect={() => toggleFavorite(storyId)} disabled={isPending}>
+			<Star className={cn('size-3.5', isFavorited && 'fill-foreground text-foreground')} strokeWidth={2.25} />
+			<span>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</span>
+		</DropdownMenuItem>
 	);
 }
 
