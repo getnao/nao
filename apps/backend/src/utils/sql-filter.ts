@@ -203,6 +203,13 @@ function getWithMainKeyword(sql: string): string | null {
 					pos = sql.indexOf(',', pos + 1) + 1;
 					continue;
 				}
+				// A CTE name with an explicit column list `WITH t(n) AS (...)` has
+				// its `(n)` closed as a depth-0 group right before `AS`. Skip past
+				// it so the keyword after the CTE body gets classified instead.
+				if (/^AS\b/i.test(rest)) {
+					pos++;
+					continue;
+				}
 				const match = rest.match(/^(\w+)/);
 				return match ? match[1].toUpperCase() : null;
 			}
