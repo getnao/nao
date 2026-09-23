@@ -25,7 +25,7 @@ import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
-import { StoryDownload } from '@/components/story-download';
+import { StoryDownloadMenuItem } from '@/components/story-download';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
@@ -253,38 +253,25 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const downloadButton = (
-		<StoryDownload
-			iconOnly
-			chatId={chatId}
-			storySlug={storySlug}
-			shareId={shareId ?? undefined}
-			shareType={shareType ?? undefined}
-			isOwner={!isReadonlyMode}
-			isAgentRunning={isAgentRunning}
-			isSaving={isSaving}
-			versionNumber={versionNumber}
-		/>
-	);
-
-	const starButton = !isReadonlyMode && storyId && (
+	const shareButton = !isReadonlyMode && (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
 					variant='ghost'
 					size='icon-sm'
 					className='hover:rounded-full'
-					onClick={() => toggleFavorite(storyId)}
-					disabled={isFavoritePending}
-					aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+					onClick={onShare}
+					disabled={isAgentRunning}
+					aria-label='Share'
 				>
-					<Star
-						className={cn('size-3.5', isFavorited && 'fill-foreground text-foreground')}
-						strokeWidth={2.25}
-					/>
+					{isShared ? (
+						<Globe className='size-3.5 text-primary' strokeWidth={2.25} />
+					) : (
+						<Upload className='size-3.5' strokeWidth={2.25} />
+					)}
 				</Button>
 			</TooltipTrigger>
-			<TooltipContent>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
+			<TooltipContent>{isShared ? 'Manage sharing' : 'Share story'}</TooltipContent>
 		</Tooltip>
 	);
 
@@ -370,7 +357,9 @@ export const StoryHeader = memo(function StoryHeader({
 		</Tooltip>
 	);
 
-	const actionButtons = !isReadonlyMode && (
+	const hasActions = !isReadonlyMode || !!shareId;
+
+	const actionButtons = hasActions && (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button variant='ghost' size='icon-sm' className='hover:rounded-full' aria-label='More actions'>
@@ -378,18 +367,37 @@ export const StoryHeader = memo(function StoryHeader({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' className='w-auto min-w-20'>
-				<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
-					{isShared ? <Globe className='text-primary' strokeWidth={2.25} /> : <Upload strokeWidth={2.25} />}
-					<span>Share</span>
-				</DropdownMenuItem>
-				<DropdownMenuItem onSelect={onOpenAnalytics}>
-					<Info className='size-3' />
-					<span>Analytics</span>
-				</DropdownMenuItem>
-				<DropdownMenuItem onSelect={onEnlarge}>
-					<Maximize2 strokeWidth={2.25} />
-					<span>Expand</span>
-				</DropdownMenuItem>
+				<StoryDownloadMenuItem
+					chatId={chatId}
+					storySlug={storySlug}
+					shareId={shareId ?? undefined}
+					shareType={shareType ?? undefined}
+					isOwner={!isReadonlyMode}
+					isAgentRunning={isAgentRunning}
+					isSaving={isSaving}
+					versionNumber={versionNumber}
+				/>
+				{!isReadonlyMode && storyId && (
+					<DropdownMenuItem onSelect={() => toggleFavorite(storyId)} disabled={isFavoritePending}>
+						<Star
+							className={cn('size-3.5', isFavorited && 'fill-foreground text-foreground')}
+							strokeWidth={2.25}
+						/>
+						<span>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</span>
+					</DropdownMenuItem>
+				)}
+				{!isReadonlyMode && (
+					<>
+						<DropdownMenuItem onSelect={onOpenAnalytics}>
+							<Info className='size-3' />
+							<span>Analytics</span>
+						</DropdownMenuItem>
+						<DropdownMenuItem onSelect={onEnlarge}>
+							<Maximize2 strokeWidth={2.25} />
+							<span>Expand</span>
+						</DropdownMenuItem>
+					</>
+				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -411,8 +419,7 @@ export const StoryHeader = memo(function StoryHeader({
 						<div className='flex-1' />
 						{viewModeToggle}
 						{liveControls}
-						{downloadButton}
-						{starButton}
+						{shareButton}
 						{replayAnalyticsButton}
 						{actionButtons}
 					</div>
@@ -438,8 +445,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{versionNav}
 					{viewModeToggle}
 					{liveControls}
-					{downloadButton}
-					{starButton}
+					{shareButton}
 					{replayAnalyticsButton}
 					{actionButtons}
 				</div>

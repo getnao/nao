@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { StoryHeader } from './story-header';
@@ -16,7 +16,7 @@ vi.mock('@/components/editable-story-title', () => ({
 }));
 
 vi.mock('@/components/story-download', () => ({
-	StoryDownload: () => null,
+	StoryDownloadMenuItem: () => null,
 }));
 
 vi.mock('@/components/story-page-header', () => ({
@@ -69,6 +69,29 @@ describe('StoryHeader editing subheader', () => {
 
 		expect(screen.getByText('Editing code')).toBeDefined();
 		expect(screen.getByRole('button', { name: /save/i })).toBeDefined();
+	});
+});
+
+describe('StoryHeader toolbar actions', () => {
+	afterEach(cleanup);
+
+	it('exposes Share as a top-level button and keeps download and favorite in the menu', () => {
+		const onShare = vi.fn();
+		renderHeader({ onShare, storyId: 'story-1' });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+		expect(onShare).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('button', { name: /download/i })).toBeNull();
+		expect(screen.queryByRole('button', { name: /favorites/i })).toBeNull();
+		expect(screen.getByRole('button', { name: 'More actions' })).toBeDefined();
+	});
+
+	it('hides Share for readonly viewers but still offers the menu when they can download', () => {
+		renderHeader({ isReadonlyMode: true, shareId: 'share-1' });
+
+		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'More actions' })).toBeDefined();
 	});
 });
 
