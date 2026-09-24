@@ -6,7 +6,6 @@ import {
 	Code,
 	Ellipsis,
 	Eye,
-	Globe,
 	Info,
 	Loader2,
 	Maximize2,
@@ -14,8 +13,6 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Save,
-	Star,
-	Upload,
 	X,
 } from 'lucide-react';
 import { memo, useMemo } from 'react';
@@ -24,8 +21,8 @@ import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { useIsMobile } from '@/hooks/use-is-mobile';
-import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
+import { ShareButton, StoryFavoriteMenuItem, StoryFavoritedButton } from '@/components/story-header-actions';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
@@ -135,9 +132,6 @@ export const StoryHeader = memo(function StoryHeader({
 	lastRefreshFailure,
 }: StoryHeaderProps) {
 	const isMobile = useIsMobile();
-	const { toggle: toggleFavorite, isPending: isFavoritePending } = useToggleFavorite('story');
-	const { data: favorites } = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: !!storyId });
-	const isFavorited = !!storyId && (favorites?.storyIds.includes(storyId) ?? false);
 	const { data: persistedStories = [] } = useQuery({
 		...trpc.story.listStories.queryOptions({ chatId }),
 		enabled: !isReadonlyMode,
@@ -254,25 +248,7 @@ export const StoryHeader = memo(function StoryHeader({
 	);
 
 	const shareButton = !isReadonlyMode && (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={onShare}
-					disabled={isAgentRunning}
-					aria-label='Share'
-				>
-					{isShared ? (
-						<Globe className='size-3.5 text-primary' strokeWidth={2.25} />
-					) : (
-						<Upload className='size-3.5' strokeWidth={2.25} />
-					)}
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>Share</TooltipContent>
-		</Tooltip>
+		<ShareButton isShared={isShared} onShare={onShare} disabled={isAgentRunning} />
 	);
 
 	const liveControls = (!isReadonlyMode || isReplay) && (
@@ -366,6 +342,9 @@ export const StoryHeader = memo(function StoryHeader({
 		versionNumber,
 	};
 	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
+	const canFavorite = !isReadonlyMode && !!storyId;
+
+	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
 
 	const actionButtons = showActionsMenu && (
 		<DropdownMenu>
@@ -376,16 +355,11 @@ export const StoryHeader = memo(function StoryHeader({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' className='w-auto min-w-20'>
 				<StoryDownloadMenu {...downloadOptions} isAgentRunning={isAgentRunning} isSaving={isSaving} />
-				{!isReadonlyMode && storyId && (
-					<DropdownMenuItem onSelect={() => toggleFavorite(storyId)} disabled={isFavoritePending}>
-						<Star className={cn(isFavorited && 'fill-foreground text-foreground')} strokeWidth={2.25} />
-						<span>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</span>
-					</DropdownMenuItem>
-				)}
+				{canFavorite && <StoryFavoriteMenuItem storyId={storyId} />}
 				{!isReadonlyMode && (
 					<>
 						<DropdownMenuItem onSelect={onOpenAnalytics}>
-							<Info className='size-3' />
+							<Info strokeWidth={2.25} />
 							<span>Analytics</span>
 						</DropdownMenuItem>
 						<DropdownMenuItem onSelect={onEnlarge}>
@@ -415,6 +389,7 @@ export const StoryHeader = memo(function StoryHeader({
 						<div className='flex-1' />
 						{viewModeToggle}
 						{liveControls}
+						{favoritedButton}
 						{shareButton}
 						{replayAnalyticsButton}
 						{actionButtons}
@@ -441,6 +416,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{versionNav}
 					{viewModeToggle}
 					{liveControls}
+					{favoritedButton}
 					{shareButton}
 					{replayAnalyticsButton}
 					{actionButtons}

@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
 import {
 	Activity,
 	ChevronLeft,
@@ -7,7 +6,6 @@ import {
 	Code,
 	Ellipsis,
 	Eye,
-	Globe,
 	Info,
 	Loader2,
 	MessageSquare,
@@ -15,13 +13,12 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Save,
-	Star,
-	Upload,
 } from 'lucide-react';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
+import { ShareButton, StoryFavoriteMenuItem, StoryFavoritedButton } from '@/components/story-header-actions';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -33,10 +30,8 @@ import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTimeAgo } from '@/hooks/use-time-ago';
-import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 interface LiveControls {
 	isLive: boolean;
@@ -175,6 +170,8 @@ export function StoryPageHeader({
 
 					{live && <LiveStoryControls live={live} />}
 
+					{storyId && <StoryFavoritedButton storyId={storyId} />}
+
 					{onShare && <ShareButton isShared={isShared} onShare={onShare} />}
 
 					{showActionsMenu && (
@@ -191,10 +188,10 @@ export function StoryPageHeader({
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align='end' className='w-auto min-w-20'>
 								{download && <StoryDownloadMenu {...download} />}
-								{storyId && <FavoriteMenuItem storyId={storyId} />}
+								{storyId && <StoryFavoriteMenuItem storyId={storyId} />}
 								{onOpenAnalytics && (
 									<DropdownMenuItem onSelect={onOpenAnalytics}>
-										<Info className='size-3' />
+										<Info strokeWidth={2.25} />
 										<span>Analytics</span>
 									</DropdownMenuItem>
 								)}
@@ -444,42 +441,6 @@ function RefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onR
 			</TooltipTrigger>
 			<TooltipContent>Refresh data</TooltipContent>
 		</Tooltip>
-	);
-}
-
-function ShareButton({ isShared, onShare }: { isShared: boolean; onShare: () => void }) {
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={onShare}
-					aria-label='Share'
-				>
-					{isShared ? (
-						<Globe className='size-3.5 text-primary' strokeWidth={2.25} />
-					) : (
-						<Upload className='size-3.5' strokeWidth={2.25} />
-					)}
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>Share</TooltipContent>
-		</Tooltip>
-	);
-}
-
-function FavoriteMenuItem({ storyId }: { storyId: string }) {
-	const { toggle: toggleFavorite, isPending } = useToggleFavorite('story');
-	const { data: favorites } = useQuery(trpc.favorite.list.queryOptions());
-	const isFavorited = favorites?.storyIds.includes(storyId) ?? false;
-
-	return (
-		<DropdownMenuItem onSelect={() => toggleFavorite(storyId)} disabled={isPending}>
-			<Star className={cn(isFavorited && 'fill-foreground text-foreground')} strokeWidth={2.25} />
-			<span>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</span>
-		</DropdownMenuItem>
 	);
 }
 

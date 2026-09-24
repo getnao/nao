@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { StoryPageHeader } from './story-page-header';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
+const { favoritesQuery } = vi.hoisted(() => ({
+	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+}));
+
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: () => ({ data: undefined }),
+	useQuery: () => favoritesQuery,
 }));
 
 vi.mock('@/components/editable-story-title', () => ({
@@ -49,6 +53,47 @@ describe('StoryPageHeader shared-story refresh control', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Refresh data' }));
 
 		expect(onRefresh).toHaveBeenCalledOnce();
+	});
+});
+
+describe('StoryPageHeader actions', () => {
+	beforeEach(() => {
+		favoritesQuery.data = undefined;
+	});
+	afterEach(cleanup);
+
+	it('renders a share button that calls onShare', () => {
+		const onShare = vi.fn();
+		render(
+			<TooltipProvider>
+				<StoryPageHeader title='Revenue' onShare={onShare} />
+			</TooltipProvider>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+		expect(onShare).toHaveBeenCalledOnce();
+	});
+
+	it('only shows the header star once the story is favorited', () => {
+		favoritesQuery.data = { storyIds: ['story-1'] };
+		render(
+			<TooltipProvider>
+				<StoryPageHeader title='Revenue' storyId='story-1' />
+			</TooltipProvider>,
+		);
+
+		expect(screen.getByRole('button', { name: 'Unfavorite' })).toBeDefined();
+	});
+
+	it('hides the header star when the story is not favorited', () => {
+		render(
+			<TooltipProvider>
+				<StoryPageHeader title='Revenue' storyId='story-1' />
+			</TooltipProvider>,
+		);
+
+		expect(screen.queryByRole('button', { name: 'Unfavorite' })).toBeNull();
 	});
 });
 
