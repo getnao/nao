@@ -5,7 +5,7 @@ This document describes the architecture, configuration, rollout, and operationa
 ## Product contract
 
 - Billing is owned by an organization, never by a user or cloud instance.
-- Every eligible cloud organization receives one 14-day trial.
+- Every eligible cloud organization can activate one 14-day trial when an admin is ready.
 - The initial plan is EUR 2,000 per month with unlimited users.
 - Stripe subscription quantity is always `1`.
 - Organization admins can subscribe, manage payment details, view invoices, cancel, and recover a paused subscription.
@@ -183,7 +183,7 @@ Billing extends the existing `organization` table:
 
 Supported local statuses are `trialing`, `active`, `past_due`, `unpaid`, `canceled`, `paused`, `incomplete`, and `incomplete_expired`.
 
-Stripe Customer and Subscription IDs are unique when present. Trial timestamps are initialized atomically with organization creation and are never reset by Checkout, joining an organization, resubscribing, or renaming the organization.
+Stripe Customer and Subscription IDs are unique when present. Trial timestamps remain null until an organization admin explicitly activates the trial. Activation is atomic, organization-scoped, and one-time; Checkout, joining an organization, resubscribing, or renaming the organization never resets it.
 
 The `stripe_webhook_event` table is a durable inbox containing the Event ID, type, object ID, live-mode flag, receipt time, processing time, and last error. Raw event payloads and payment details are not retained.
 
@@ -297,6 +297,7 @@ flowchart LR
 
     AccessSummary["billing.getAccess"]
     Status["billing.getStatus"]
+    StartTrial["billing.startTrial"]
     Invoices["billing.getInvoices"]
     Sync["billing.syncStripeBilling"]
     Checkout["billing.createCheckoutSession"]
@@ -316,6 +317,7 @@ flowchart LR
     MemberGuard --> AccessSummary --> Organization
     MemberGuard --> AdminGuard
     AdminGuard --> Status --> Organization
+    AdminGuard --> StartTrial --> Organization
     AdminGuard --> Invoices --> InvoiceAPI
     AdminGuard --> Sync --> Reconcile
     AdminGuard --> Checkout
@@ -334,6 +336,7 @@ flowchart LR
 
 - `billing.getAccess` returns only entitlement, trial, role-action, and billing-action state required by the organization-wide banner.
 - `billing.getStatus` returns the persisted plan, entitlement dates, action availability, and payment-method readiness.
+- `billing.startTrial` atomically activates the organization's one 14-day trial without creating Stripe objects.
 - `billing.getInvoices` lists up to 100 invoices for the persisted Customer and returns only display fields and hosted document URLs.
 - `billing.syncStripeBilling` retrieves canonical Stripe state and refreshes the local projection.
 - `billing.createCheckoutSession` creates or reuses the organization Customer and starts the first subscription Checkout.
@@ -347,6 +350,9 @@ flowchart TD
     Operation{"Admin operation"}
 
     Operation -->|getStatus| Status["Read local projection"]
+    Operation -->|startTrial| TrialUnused{"Trial never started<br/>and no subscription?"}
+    TrialUnused -->|No| TrialConflict["BAD_REQUEST"]
+    TrialUnused -->|Yes| StartTrial["Atomically start 14-day local trial"]
     Operation -->|getInvoices| HasInvoiceCustomer{"Customer exists?"}
     HasInvoiceCustomer -->|No| EmptyInvoices["Return empty list"]
     HasInvoiceCustomer -->|Yes| ListInvoices["List Stripe invoices"]
@@ -357,7 +363,9 @@ flowchart TD
 
     Operation -->|createCheckoutSession| HasSubscription{"Subscription ID exists?"}
     HasSubscription -->|Yes| CheckoutConflict["CONFLICT"]
-    HasSubscription -->|No| EnsureCustomer["Create or reuse Customer"]
+    HasSubscription -->|No| TrialStarted{"Trial was activated?"}
+    TrialStarted -->|No| BadRequest
+    TrialStarted -->|Yes| EnsureCustomer["Create or reuse Customer"]
     EnsureCustomer --> FirstHistory{"Cloud subscription history exists?"}
     FirstHistory -->|Yes| CheckoutConflict
     FirstHistory -->|No| InitialCheckout["Create initial Checkout"]
@@ -387,9 +395,9 @@ flowchart TD
 
 ### Organization creation
 
-Cloud organization creation stores the plan, trial start, trial end, and access end in the same transaction as the organization. It does not call Stripe.
+Cloud organization creation does not start a trial or call Stripe. This prevents a personal organization created at signup from consuming its trial when the user later joins another organization.
 
-At the first billing-enabled startup, existing organizations with no plan, trial, or Stripe subscription receive the same one-time 14-day trial. Organizations with billing state are unchanged.
+An organization starts with restricted access until one of its admins activates the trial from the billing page. Activation atomically stores the plan, trial start, trial end, and access end. A second activation is rejected, and regular members cannot activate it.
 
 ### Initial Checkout
 
@@ -453,7 +461,8 @@ Cancellation never removes nao data or Stripe identifiers.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> LocalTrial: Organization created
+    [*] --> TrialAvailable: Organization created
+    TrialAvailable --> LocalTrial: Admin activates trial
     LocalTrial --> Incomplete: Immediate Checkout started
     LocalTrial --> Trialing: Checkout preserves at least 48 hours
     LocalTrial --> Restricted: Local trial expires without subscription
@@ -703,9 +712,9 @@ Deployment order:
 3. apply migration `0065` with `npm run db:migrate -w @nao/backend`;
 4. deploy the code while `CLOUD_BILLING_ENABLED=false`;
 5. configure and validate the sandbox Product, Price, Portal, emails, retries, and webhook;
-6. identify existing organizations that must not receive the automatic trial;
+6. identify existing organizations that are eligible to activate a trial;
 7. enable billing in a non-production cloud environment;
-8. run trial, renewal, failure, cancellation, replay, and recovery simulations;
+8. run trial activation, renewal, failure, cancellation, replay, and recovery simulations;
 9. repeat with live Stripe objects and secrets before gradual production enablement.
 
 Rolling out code before the migration causes missing-column failures. Applying the migration alone does not enable billing.
@@ -717,7 +726,7 @@ Rollback disables `CLOUD_BILLING_ENABLED` without deleting billing state, inbox 
 Focused automated tests cover:
 
 - Stripe configuration and Price validation;
-- one-time trial initialization;
+- explicit one-time trial activation and admin authorization;
 - Checkout trial boundaries, including Stripe's 48-hour minimum;
 - organization selection;
 - webhook signatures, deduplication, ordering, and retries;
@@ -734,6 +743,52 @@ stripe listen --forward-to localhost:5005/api/billing/stripe/webhook
 ```
 
 Exercise cardless trial Checkout, immediate paid Checkout, payment-method updates, trial pause and resume, renewals, failed payments, cancellation and reversal, duplicate events, downtime, and Dashboard edits.
+
+## Known organization, project, and onboarding dependencies
+
+The following issues are outside the Stripe billing implementation and should be handled in a separate organization/onboarding PR. Billing must remain organization-scoped and should consume one unambiguous organization context after these flows are corrected.
+
+### Membership integrity
+
+1. Project and messaging-provider flows can create `project_member` rows without a matching `org_member`. Project APIs then work while organization settings and `billing.getAccess` fail.
+2. Organization settings are visible based on project role even when the user has no resolvable organization membership.
+3. Removing a direct project membership does not remove access inherited through organization membership, so the removal can appear successful without changing effective access.
+4. The project team page lists direct project members but omits users with organization-inherited project access.
+5. The generic `Admin` label normally displays the current project role. It does not communicate whether the user is also an organization admin who can manage members and billing.
+
+### Organization selection
+
+6. A user may belong to multiple organizations, but there is no organization picker. With no selected project, organization-scoped requests fail when more than one membership exists.
+7. `project.getCurrent` may fall back from a stale or inaccessible selected project while organization and billing routes continue using the raw project header. The displayed project and billing organization can therefore diverge.
+
+### Invitations and consent
+
+8. Adding an existing user immediately creates membership without acceptance. Adding an unknown email creates a credential account, temporary password, and membership.
+9. The `invited` member status is derived from `requiresPasswordReset`; there is no pending invitation entity, recipient-bound token, accept or decline action, expiry state, or audit trail.
+10. Users cannot leave an organization themselves, so they cannot reject an unwanted membership or remove an unused personal organization after joining another organization.
+
+### Removal and onboarding
+
+11. Removing an effective project admin throws an unstructured error and can target an organization-inherited admin who is absent from the project team list.
+12. Cloud signup creates a personal organization and admin membership but no project, leaving project creation or import as a separate onboarding step.
+13. Verified-domain auto-join is applied to Google sign-in but not GitHub or GitLab sign-in, so the same work identity can receive different organization membership depending on the provider.
+
+The separate PR should:
+
+- enforce a single project-to-organization membership invariant or explicitly support project-only membership across every organization API;
+- introduce expiring invitations with accept and decline actions instead of direct membership creation;
+- add self-serve organization departure while protecting the last admin;
+- provide an explicit organization selector and one canonical project/organization context;
+- show effective project access, including organization-inherited access, and make removal semantics accurate;
+- label project and organization roles separately;
+- make cloud onboarding behavior consistent across authentication providers.
+
+Product decisions required before implementation:
+
+- whether organization membership grants access to every current and future organization project;
+- whether a project role may override or downgrade an organization role;
+- whether an unused personal organization is retained, deactivated, or archived after joining another organization;
+- whether trial activation must precede first-project creation or is part of one onboarding operation.
 
 ## Security and operations
 

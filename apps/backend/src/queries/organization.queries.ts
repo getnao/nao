@@ -3,8 +3,7 @@ import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { env, isCloudBillingEnabled } from '../env';
-import { CLOUD_MONTHLY_PLAN } from '../types/billing';
+import { env } from '../env';
 import { OrgRole } from '../types/organization';
 import * as projectQueries from './project.queries';
 import * as userQueries from './user.queries';
@@ -313,37 +312,12 @@ export const initializePersonalOrganization = async (userId: string): Promise<vo
 	const user = await userQueries.getUser({ id: userId });
 	const orgName = user ? `${user.name}'s Organization` : 'Personal Organization';
 	const orgSlug = `org-${userId.replace(/-/g, '').slice(0, 16)}`;
-	const billing = isCloudBillingEnabled() ? cloudTrialValues(new Date()) : {};
 
 	await db.transaction(async (tx) => {
-		const [org] = await tx
-			.insert(s.organization)
-			.values({ name: orgName, slug: orgSlug, ...billing })
-			.returning()
-			.execute();
+		const [org] = await tx.insert(s.organization).values({ name: orgName, slug: orgSlug }).returning().execute();
 
 		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
 	});
-};
-
-export const initializeMissingCloudOrganizationTrials = async (now = new Date()): Promise<number> => {
-	if (!isCloudBillingEnabled()) {
-		return 0;
-	}
-
-	const initialized = await db
-		.update(s.organization)
-		.set(cloudTrialValues(now))
-		.where(
-			and(
-				isNull(s.organization.billingPlan),
-				isNull(s.organization.trialStartedAt),
-				isNull(s.organization.stripeSubscriptionId),
-			),
-		)
-		.returning({ id: s.organization.id })
-		.execute();
-	return initialized.length;
 };
 
 /**
@@ -392,19 +366,6 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
 	await ensureDefaultProject(org);
 };
-
-function cloudTrialValues(now: Date): Partial<NewOrganization> {
-	const trialEndsAt = new Date(now.getTime() + CLOUD_MONTHLY_PLAN.trialDays * 24 * 60 * 60 * 1000);
-	return {
-		billingPlan: CLOUD_MONTHLY_PLAN.key,
-		billingStatus: 'trialing',
-		trialStartedAt: now,
-		trialEndsAt,
-		billingAccessEndsAt: trialEndsAt,
-		billingUpdatedAt: now,
-	};
-}
-
 export interface OrgMemberWithUser {
 	id: string;
 	name: string;

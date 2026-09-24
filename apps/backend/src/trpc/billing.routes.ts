@@ -10,6 +10,7 @@ import {
 	getCloudBillingOrganizationForAdmin,
 	listCloudInvoicesForAdmin,
 	resumeCloudSubscriptionForAdmin,
+	startCloudTrialForAdmin,
 	syncCloudBillingForAdmin,
 } from '../services/billing-management.service';
 import { hasCloudBillingAccess } from '../services/cloud-billing-access.service';
@@ -52,6 +53,11 @@ export const billingRoutes = {
 		status: ctx.organization.billingStatus,
 		trialEndsAt: ctx.organization.trialEndsAt,
 		canManageBilling: ctx.orgRole === 'admin',
+		trialAvailable:
+			ctx.organization.billingStatus === null &&
+			ctx.organization.trialStartedAt === null &&
+			ctx.organization.trialEndsAt === null &&
+			ctx.organization.stripeSubscriptionId === null,
 		requiresBillingAction:
 			ctx.organization.billingStatus === 'trialing' && ctx.organization.hasDefaultPaymentMethod !== true,
 	})),
@@ -73,6 +79,11 @@ export const billingRoutes = {
 			hasDefaultPaymentMethod: organization.hasDefaultPaymentMethod,
 			billingAccessEndsAt: organization.billingAccessEndsAt,
 			canManageBilling: true,
+			trialAvailable:
+				organization.billingStatus === null &&
+				organization.trialStartedAt === null &&
+				organization.trialEndsAt === null &&
+				organization.stripeSubscriptionId === null,
 			localTrialActive:
 				organization.billingStatus === 'trialing' &&
 				Boolean(organization.trialEndsAt && organization.trialEndsAt.getTime() > Date.now()) &&
@@ -85,6 +96,18 @@ export const billingRoutes = {
 				['canceled', 'incomplete_expired'].includes(organization.billingStatus ?? ''),
 			hasStripeSubscription: Boolean(organization.stripeSubscriptionId),
 		};
+	}),
+
+	startTrial: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
+		try {
+			const organization = await startCloudTrialForAdmin({
+				userId: ctx.user.id,
+				organizationId: ctx.organization.id,
+			});
+			return { trialEndsAt: organization.trialEndsAt };
+		} catch (error) {
+			throwBillingFailure('trial activation', 'Unable to start the free trial', error);
+		}
 	}),
 
 	getInvoices: cloudBillingAdminProcedure.query(async ({ ctx }) => {

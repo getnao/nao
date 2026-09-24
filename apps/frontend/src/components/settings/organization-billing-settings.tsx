@@ -8,7 +8,6 @@ import {
 	formatBillingDate,
 	formatBillingInterval,
 	formatBillingPrice,
-	formatBillingRenewal,
 	formatBillingStatus,
 	getBillingManagementDescription,
 	getBillingPortalButtonLabel,
@@ -67,7 +66,8 @@ function BillingFeedback({ billingState }: { billingState: BillingState }) {
 }
 
 function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
-	const { billing, hasStripeSubscription, isHistoricalSubscription, plan, statusView } = billingState;
+	const { billing, hasStripeSubscription, isHistoricalSubscription, statusView } = billingState;
+	const currentPlan = billing.data?.plan;
 
 	return (
 		<SettingsCard title='Current plan'>
@@ -82,15 +82,15 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 				</p>
 			)}
 			{billing.data &&
-				(plan && !isHistoricalSubscription ? (
+				(currentPlan && !isHistoricalSubscription ? (
 					<div className='flex flex-col gap-2'>
 						<div className='flex flex-wrap items-center gap-2'>
-							<p className='font-medium text-foreground'>{plan.name}</p>
+							<p className='font-medium text-foreground'>{currentPlan.name}</p>
 							<Badge variant={statusView.variant}>{statusView.label}</Badge>
 						</div>
 						<p className='text-sm text-muted-foreground'>
-							{formatBillingPrice(plan.amount, plan.currency)} per{' '}
-							{formatBillingInterval(plan.interval, plan.intervalCount)}
+							{formatBillingPrice(currentPlan.amount, currentPlan.currency)} per{' '}
+							{formatBillingInterval(currentPlan.interval, currentPlan.intervalCount)}
 						</p>
 						<p className='text-sm text-muted-foreground'>{statusView.description}</p>
 						{billingState.isEndingAtPeriodEnd && (
@@ -115,7 +115,9 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 						<p className='text-sm text-muted-foreground'>
 							{hasStripeSubscription
 								? statusView.description
-								: 'Subscribe to nao Cloud to restore access.'}
+								: billing.data.trialAvailable
+									? 'Start your free trial to unlock nao Cloud for this organization.'
+									: 'Subscribe to nao Cloud to restore access.'}
 						</p>
 					</div>
 				))}
@@ -130,11 +132,13 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 	}
 
 	const isLocalTrialActive = billing.data.localTrialActive;
-	const subscribeDescription = !isLocalTrialActive
-		? 'Your free trial has ended. Subscribe to restore access; billing starts immediately.'
-		: preservesRemainingTrial(billing.data.trialEndsAt)
-			? 'Your free trial is already active. Subscribe now to preserve the remaining trial time; billing starts when it ends.'
-			: 'Less than 48 hours remain on your free trial. Subscribe now and billing starts immediately.';
+	const actionDescription = billing.data.trialAvailable
+		? `Start this organization's ${plan.trialDays}-day free trial when your team is ready. No payment method is required.`
+		: !isLocalTrialActive
+			? 'Your free trial has ended. Subscribe to restore access; billing starts immediately.'
+			: preservesRemainingTrial(billing.data.trialEndsAt)
+				? 'Your free trial is already active. Subscribe now to preserve the remaining trial time; billing starts when it ends.'
+				: 'Less than 48 hours remain on your free trial. Subscribe now and billing starts immediately.';
 
 	return (
 		<SettingsCard title='Billing setup'>
@@ -158,23 +162,36 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 					<PlanDetail
 						label='Free trial'
 						value={
-							isLocalTrialActive
-								? `Active until ${formatBillingDate(billing.data.trialEndsAt)}`
-								: `Ended ${formatBillingDate(billing.data.trialEndsAt)}`
+							billing.data.trialAvailable
+								? `${plan.trialDays} days, starting when activated`
+								: isLocalTrialActive
+									? `Active until ${formatBillingDate(billing.data.trialEndsAt)}`
+									: `Ended ${formatBillingDate(billing.data.trialEndsAt)}`
 						}
 					/>
 					<PlanDetail label='Currency' value={plan.currency.toUpperCase()} />
 				</dl>
 
 				<div className='flex flex-col items-start gap-3 border-t border-border pt-5'>
-					<p className='text-sm text-muted-foreground'>{subscribeDescription}</p>
+					<p className='text-sm text-muted-foreground'>{actionDescription}</p>
 					{billing.data.canManageBilling ? (
-						<Button onClick={billingState.subscribe} isLoading={billingState.isCheckoutPending}>
-							Subscribe to nao Cloud
-						</Button>
+						billing.data.trialAvailable ? (
+							<Button onClick={billingState.startTrial} isLoading={billingState.isTrialPending}>
+								Start 14-day free trial
+							</Button>
+						) : (
+							<Button onClick={billingState.subscribe} isLoading={billingState.isCheckoutPending}>
+								Subscribe to nao Cloud
+							</Button>
+						)
 					) : (
 						<p className='text-sm text-muted-foreground'>
 							Only an organization admin can subscribe or add billing details.
+						</p>
+					)}
+					{billingState.trialError && (
+						<p className='text-sm text-destructive' role='alert'>
+							{billingState.trialError}
 						</p>
 					)}
 					{billingState.checkoutError && (
@@ -189,8 +206,11 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 }
 
 function PlanDetailsCard({ billingState }: { billingState: BillingState }) {
-	const { billing, hasStripeSubscription, isHistoricalSubscription, plan, status, statusView } = billingState;
+	const { billing, hasStripeSubscription, isHistoricalSubscription, plan, status } = billingState;
 	if (!billing.data || (!hasStripeSubscription && status !== 'trialing')) {
+		return null;
+	}
+	if (billingState.isEndingAtPeriodEnd || billingState.isLocalTrialExpired) {
 		return null;
 	}
 
@@ -214,29 +234,19 @@ function PlanDetailsCard({ billingState }: { billingState: BillingState }) {
 				</div>
 			)}
 			<dl className='grid gap-3 text-sm sm:grid-cols-2'>
-				<PlanDetail label='Status' value={statusView.label} />
-				<PlanDetail label='Trial started' value={formatBillingDate(billing.data.trialStartedAt)} />
-				<PlanDetail
-					label={status === 'trialing' && !billingState.isLocalTrialExpired ? 'Trial ends' : 'Trial ended'}
-					value={formatBillingDate(billing.data.trialEndsAt)}
-				/>
-				{hasStripeSubscription && (
-					<>
-						<PlanDetail
-							label='Current period ends'
-							value={formatBillingDate(billing.data.currentPeriodEndsAt)}
-						/>
-						<PlanDetail
-							label='Renewal'
-							value={formatBillingRenewal(status, billing.data.cancelAtPeriodEnd ?? false)}
-						/>
-						<PlanDetail
-							label='Payment method'
-							value={billing.data.hasDefaultPaymentMethod ? 'On file' : 'Not added'}
-						/>
-					</>
+				{status === 'trialing' && !billingState.isLocalTrialExpired ? (
+					<PlanDetail label='Trial ends' value={formatBillingDate(billing.data.trialEndsAt)} />
+				) : isHistoricalSubscription ? (
+					<PlanDetail
+						label='Access ended'
+						value={formatBillingDate(billing.data.billingAccessEndsAt ?? billing.data.currentPeriodEndsAt)}
+					/>
+				) : (
+					<PlanDetail
+						label={status === 'active' ? 'Next renewal' : 'Billing period ends'}
+						value={formatBillingDate(billing.data.currentPeriodEndsAt)}
+					/>
 				)}
-				<PlanDetail label='Access through' value={formatBillingDate(billing.data.billingAccessEndsAt)} />
 			</dl>
 		</SettingsCard>
 	);

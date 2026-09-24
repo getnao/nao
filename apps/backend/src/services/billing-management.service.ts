@@ -35,6 +35,15 @@ export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInp
 	return requireAdminOrganization(input);
 }
 
+export async function startCloudTrialForAdmin(input: AdminBillingInput, now = new Date()): Promise<DBOrganization> {
+	const organization = await requireAdminOrganization(input);
+	const started = await billingQueries.startOrganizationTrial(organization.id, now);
+	if (!started) {
+		throw new CloudBillingManagementInputError('This organization has already used its free trial');
+	}
+	return started;
+}
+
 export async function listCloudInvoicesForAdmin(input: AdminBillingInput) {
 	const organization = await requireAdminOrganization(input);
 	return organization.stripeCustomerId ? listCloudInvoices(organization.stripeCustomerId) : [];
@@ -56,6 +65,9 @@ export async function createCloudCheckoutForAdmin(input: AdminBillingInput): Pro
 	let organization = await requireAdminOrganization(input);
 	if (organization.stripeSubscriptionId) {
 		throw new CloudInitialCheckoutUnavailableError('This organization already has a Stripe subscription');
+	}
+	if (!organization.trialStartedAt) {
+		throw new CloudBillingManagementInputError('Start the organization trial before subscribing');
 	}
 
 	let stripeCustomerId = organization.stripeCustomerId;

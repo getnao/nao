@@ -58,6 +58,8 @@ function getAccessNotice(
 				hasAccess: boolean;
 				status: string | null;
 				trialEndsAt: Date | null;
+				trialAvailable: boolean;
+				canManageBilling: boolean;
 				requiresBillingAction: boolean;
 		  }
 		| undefined,
@@ -65,6 +67,15 @@ function getAccessNotice(
 ) {
 	if (!access) {
 		return null;
+	}
+	if (access.trialAvailable) {
+		return {
+			restricted: true,
+			title: "Your organization's free trial has not started.",
+			description: access.canManageBilling
+				? 'Start it when your team is ready.'
+				: 'An organization admin can start it when your team is ready.',
+		};
 	}
 	if (!access.hasAccess) {
 		return {

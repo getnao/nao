@@ -15,6 +15,9 @@ const stripeMocks = vi.hoisted(() => ({
 	reconcileCustomer: vi.fn(),
 	resumeSubscription: vi.fn(),
 }));
+const billingMocks = vi.hoisted(() => ({
+	startTrial: vi.fn(),
+}));
 
 vi.mock('../src/auth', () => ({
 	getSession: vi.fn(async () => null),
@@ -35,6 +38,7 @@ vi.mock('../src/queries/user.queries', () => ({
 
 vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: stripeMocks.attachCustomer,
+	startOrganizationTrial: billingMocks.startTrial,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
@@ -90,6 +94,7 @@ describe('billing.getAccess', () => {
 			status: 'trialing',
 			trialEndsAt,
 			canManageBilling: false,
+			trialAvailable: false,
 			requiresBillingAction: true,
 		});
 	});
@@ -136,6 +141,7 @@ describe('billing.getStatus', () => {
 			canManageBilling: true,
 			hasStripeSubscription: false,
 			localTrialActive: true,
+			trialAvailable: false,
 		});
 	});
 
@@ -146,6 +152,7 @@ describe('billing.getStatus', () => {
 			plan: null,
 			planKey: null,
 			status: null,
+			trialAvailable: true,
 		});
 	});
 
@@ -189,6 +196,33 @@ describe('billing.getStatus', () => {
 	});
 });
 
+describe('billing.startTrial', () => {
+	beforeEach(() => {
+		testState.billingEnabled = true;
+		testState.membership = membership({});
+		vi.clearAllMocks();
+		billingMocks.startTrial.mockResolvedValue({
+			...(testState.membership as { organization: Record<string, unknown> }).organization,
+			billingStatus: 'trialing',
+			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
+		});
+	});
+
+	it('starts the selected organization trial for an admin', async () => {
+		await expect(caller().billing.startTrial()).resolves.toEqual({
+			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
+		});
+		expect(billingMocks.startTrial).toHaveBeenCalledWith('org-id', expect.any(Date));
+	});
+
+	it('rejects non-admin members before starting a trial', async () => {
+		testState.membership = membership({}, 'member');
+
+		await expect(caller().billing.startTrial()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(billingMocks.startTrial).not.toHaveBeenCalled();
+	});
+});
+
 describe('billing.createCheckoutSession', () => {
 	beforeEach(() => {
 		testState.billingEnabled = true;
@@ -228,6 +262,13 @@ describe('billing.createCheckoutSession', () => {
 		testState.membership = membership({}, 'member');
 
 		await expect(caller().billing.createCheckoutSession()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(stripeService.createCloudCustomer).not.toHaveBeenCalled();
+	});
+
+	it('requires the organization to start its trial before Checkout', async () => {
+		testState.membership = membership({});
+
+		await expect(caller().billing.createCheckoutSession()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 		expect(stripeService.createCloudCustomer).not.toHaveBeenCalled();
 	});
 

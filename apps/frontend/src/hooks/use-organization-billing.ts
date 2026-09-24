@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 
 import { getBillingStatusView, isHistoricalBillingStatus } from '@/lib/billing-display';
@@ -10,6 +10,7 @@ export type OrganizationBillingSearch = {
 };
 
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
+	const queryClient = useQueryClient();
 	const initialStatusSyncRequested = useRef(false);
 	const [isResumeConfirming, setIsResumeConfirming] = useState(false);
 	const [isCheckoutPolling, setIsCheckoutPolling] = useState(
@@ -34,6 +35,16 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		enabled: billing.data?.canManageBilling === true && billing.data.invoiceHistoryAvailable,
 		refetchOnWindowFocus: 'always',
 	});
+	const startTrial = useMutation(
+		trpc.billing.startTrial.mutationOptions({
+			onSuccess: async () => {
+				await Promise.all([
+					billing.refetch(),
+					queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
+				]);
+			},
+		}),
+	);
 	const checkout = useMutation(
 		trpc.billing.createCheckoutSession.mutationOptions({
 			onSuccess: ({ url }) => {
@@ -167,6 +178,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		checkoutFeedback,
 		portalFeedback,
 		checkoutError: checkout.isError ? checkout.error.message : null,
+		trialError: startTrial.isError ? startTrial.error.message : null,
 		managementError:
 			resumeSubscription.error?.message ??
 			resubscribe.error?.message ??
@@ -175,12 +187,14 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			syncStripeBilling.error?.message ??
 			null,
 		isCheckoutPending: checkout.isPending,
+		isTrialPending: startTrial.isPending,
 		isPortalPending: portal.isPending,
 		isPaymentMethodPortalPending: paymentMethodPortal.isPending,
 		isResubscribePending: resubscribe.isPending,
 		isResumePending: resumeSubscription.isPending,
 		isBillingSyncPending: syncStripeBilling.isPending,
 		subscribe: () => checkout.mutate(),
+		startTrial: () => startTrial.mutate(),
 		openPortal: () => portal.mutate({ requestId: crypto.randomUUID() }),
 		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: crypto.randomUUID() }),
 		resubscribe: () => resubscribe.mutate(),

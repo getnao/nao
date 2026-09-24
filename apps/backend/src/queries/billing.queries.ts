@@ -2,7 +2,7 @@ import { and, eq, gt, isNotNull, isNull, lte } from 'drizzle-orm';
 
 import s, { DBOrganization, DBStripeWebhookEvent, NewStripeWebhookEvent } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { BillingStatus } from '../types/billing';
+import { BillingStatus, CLOUD_MONTHLY_PLAN } from '../types/billing';
 
 export interface SubscriptionProjection {
 	billingPlan: string;
@@ -21,6 +21,32 @@ export interface SubscriptionProjection {
 interface BillingSyncClaim {
 	organization: DBOrganization;
 	token: string;
+}
+
+export async function startOrganizationTrial(orgId: string, now = new Date()): Promise<DBOrganization | null> {
+	const trialEndsAt = new Date(now.getTime() + CLOUD_MONTHLY_PLAN.trialDays * 24 * 60 * 60 * 1000);
+	const [organization] = await db
+		.update(s.organization)
+		.set({
+			billingPlan: CLOUD_MONTHLY_PLAN.key,
+			billingStatus: 'trialing',
+			trialStartedAt: now,
+			trialEndsAt,
+			billingAccessEndsAt: trialEndsAt,
+			billingUpdatedAt: now,
+		})
+		.where(
+			and(
+				eq(s.organization.id, orgId),
+				isNull(s.organization.billingStatus),
+				isNull(s.organization.trialStartedAt),
+				isNull(s.organization.trialEndsAt),
+				isNull(s.organization.stripeSubscriptionId),
+			),
+		)
+		.returning()
+		.execute();
+	return organization ?? null;
 }
 
 export async function attachStripeCustomer(orgId: string, stripeCustomerId: string): Promise<DBOrganization> {

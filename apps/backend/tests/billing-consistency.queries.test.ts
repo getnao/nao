@@ -1,5 +1,3 @@
-import '../src/env';
-
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -24,15 +22,14 @@ vi.mock('../src/db/db', async () => {
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { __reloadEnvForTesting } from '../src/env';
 import {
 	claimBillingSync,
 	claimTrialReminder,
 	releaseTrialReminder,
+	startOrganizationTrial,
 	type SubscriptionProjection,
 	updateSubscriptionProjection,
 } from '../src/queries/billing.queries';
-import { initializeMissingCloudOrganizationTrials } from '../src/queries/organization.queries';
 import { enqueueOnceJob } from '../src/queries/scheduled-job.queries';
 
 describe('billing consistency queries', () => {
@@ -111,30 +108,18 @@ describe('billing consistency queries', () => {
 		expect(pending).toMatchObject({ status: 'pending', attempts: 1, payload: { eventId: 'evt_pending' } });
 	});
 
-	it('initializes one trial for an existing unclassified cloud organization', async () => {
-		const originalEnv = { ...process.env };
+	it('starts one trial only after an explicit request', async () => {
 		const now = new Date('2026-09-24T00:00:00.000Z');
 		await db.insert(s.organization).values({
 			id: 'unclassified-org',
 			name: 'Unclassified',
 			slug: 'unclassified',
 		});
-		try {
-			Object.assign(process.env, {
-				NAO_MODE: 'cloud',
-				CLOUD_BILLING_ENABLED: 'true',
-				STRIPE_SECRET_KEY: 'sk_test_example',
-				STRIPE_WEBHOOK_SECRET: 'whsec_example',
-				STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'nao_cloud_monthly_v2',
-			});
-			__reloadEnvForTesting();
 
-			await expect(initializeMissingCloudOrganizationTrials(now)).resolves.toBe(1);
-			await expect(initializeMissingCloudOrganizationTrials(now)).resolves.toBe(0);
-		} finally {
-			process.env = originalEnv;
-			__reloadEnvForTesting();
-		}
+		await expect(startOrganizationTrial('unclassified-org', now)).resolves.toMatchObject({
+			billingStatus: 'trialing',
+		});
+		await expect(startOrganizationTrial('unclassified-org', now)).resolves.toBeNull();
 
 		const [organization] = await db.select().from(s.organization).where(eq(s.organization.id, 'unclassified-org'));
 		expect(organization).toMatchObject({

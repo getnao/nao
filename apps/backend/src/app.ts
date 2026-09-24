@@ -34,7 +34,7 @@ import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-re
 import { STRIPE_WEBHOOK_JOB_NAME, stripeWebhookHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
-import { ensureOrganizationSetup, initializeMissingCloudOrganizationTrials } from './queries/organization.queries';
+import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
 import { attachmentRoutes } from './routes/attachment';
@@ -377,9 +377,7 @@ app.setNotFoundHandler((request, reply) => {
 });
 
 export const startServer = async (opts: { port: number; host: string }) => {
-	if (isCloud) {
-		await initializeMissingCloudOrganizationTrials();
-	} else {
+	if (!isCloud) {
 		await ensureOrganizationSetup();
 	}
 	await logLicenseStatus();
