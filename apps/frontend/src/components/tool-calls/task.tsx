@@ -1,5 +1,6 @@
 import { task } from '@nao/shared/tools';
 import { ArrowUpRight } from 'lucide-react';
+
 import type { ToolCallComponentProps } from '.';
 import { SubagentLink } from '@/components/subagent/subagent-link';
 import { useSubagentDuration } from '@/components/subagent/use-subagent-duration';
@@ -120,14 +121,4 @@ export function subagentLabel(type: task.SubagentType | undefined): string {
 /** The task description names the run; before it streams in, fall back to the subagent type. */
 export function taskTitle(input: Partial<task.Input> | undefined): string {
 	return input?.description || `${subagentLabel(input?.subagent_type)} subagent`;
-}
-
-/** Strips markdown markers so a report excerpt reads as plain text. */
-function toPlainText(markdown: string): string {
-	return markdown
-		.replace(/^#+\s*/gm, '')
-		.replace(/[*_`>]/g, '')
-		.replace(/^\s*[-+]\s+/gm, '')
-		.replace(/\n{2,}/g, '\n')
-		.trim();
 }
