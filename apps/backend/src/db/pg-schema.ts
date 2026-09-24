@@ -889,6 +889,7 @@ export const story = pgTable(
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: timestamp('archived_at'),
 		certifiedAt: timestamp('certified_at'),
+		certifiedBy: text('certified_by').references(() => user.id, { onDelete: 'set null' }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

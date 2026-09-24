@@ -47,6 +47,7 @@ export type StoryItem = {
 	summary: StorySummary;
 	isLive: boolean;
 	isCertified: boolean;
+	certifiedByName: string | null;
 	isPinned: boolean;
 	isFavorited: boolean;
 	sharing: StorySharingInfo | null;
@@ -148,6 +149,7 @@ export function buildStoryItems({
 			summary: story.summary,
 			isLive: story.isLive,
 			isCertified: story.certifiedAt !== null,
+			certifiedByName: story.certifiedByName,
 			isPinned: sharedEntry?.isPinned ?? false,
 			isFavorited,
 			sharing: story.sharing,
@@ -179,6 +181,7 @@ export function buildStoryItems({
 			summary: story.summary,
 			isLive: story.isLive,
 			isCertified: story.certifiedAt !== null,
+			certifiedByName: story.certifiedByName,
 			isPinned: false,
 			isFavorited,
 			sharing: null,
@@ -204,6 +207,7 @@ export function buildStoryItems({
 				summary: story.summary,
 				isLive: story.isLive,
 				isCertified: story.certifiedAt !== null,
+				certifiedByName: story.certifiedByName,
 				isPinned: story.isPinned,
 				isFavorited,
 				sharing: story.sharing,

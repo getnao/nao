@@ -288,15 +288,16 @@ export const storyRoutes = {
 	getCertification: projectProtectedProcedure
 		.input(z.object({ storyId: z.string() }))
 		.query(async ({ input, ctx }) => {
-			const story = await getStoryInProject(input.storyId, ctx.project.id);
-			return { certifiedAt: story.certifiedAt };
+			await getStoryInProject(input.storyId, ctx.project.id);
+			return storyQueries.getStoryCertification(input.storyId);
 		}),
 
 	toggleCertification: adminProtectedProcedure
 		.input(z.object({ storyId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
 			const story = await getStoryInProject(input.storyId, ctx.project.id);
-			const certifiedAt = await storyQueries.setStoryCertification(story.id, story.certifiedAt === null);
+			const certifiedBy = story.certifiedAt === null ? ctx.user.id : null;
+			const certifiedAt = await storyQueries.setStoryCertification(story.id, certifiedBy);
 			return { certifiedAt };
 		}),
 

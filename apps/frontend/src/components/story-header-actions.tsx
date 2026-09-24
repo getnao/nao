@@ -64,10 +64,15 @@ export function StoryCertifyMenuItem({ storyId }: { storyId: string }) {
 		return null;
 	}
 
-	const isCertified = certification.data.certifiedAt !== null;
+	const { certifiedAt, certifiedByName } = certification.data;
+	const isCertified = certifiedAt !== null;
 
 	return (
-		<DropdownMenuItem onSelect={() => toggle(storyId)} disabled={isPending}>
+		<DropdownMenuItem
+			onSelect={() => toggle(storyId)}
+			disabled={isPending}
+			title={isCertified && certifiedByName ? `Certified by ${certifiedByName}` : undefined}
+		>
 			<ShieldCheck className={cn(isCertified && 'fill-foreground/20')} strokeWidth={2.25} />
 			<span>{isCertified ? 'Remove certification' : 'Certify'}</span>
 		</DropdownMenuItem>

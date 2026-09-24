@@ -166,7 +166,7 @@ export function StoryCard({
 
 					{item.isCertified && (
 						<div className='absolute top-2 right-2 z-10'>
-							<CertifiedBadge />
+							<CertifiedBadge certifiedByName={item.certifiedByName} />
 						</div>
 					)}
 
@@ -434,7 +434,11 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 					interactive
 					pending={certification.isPending}
 					onClick={handleCertify}
-					tooltip={item.isCertified ? 'Remove certification' : 'Certify story'}
+					tooltip={
+						item.isCertified
+							? `Remove certification${item.certifiedByName ? ` (by ${item.certifiedByName})` : ''}`
+							: 'Certify story'
+					}
 				>
 					<ShieldCheck className='size-3' />
 				</QuickActionButton>
@@ -607,7 +611,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 }
 
 function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }) {
-	const certified = item.isCertified ? <CertifiedBadge /> : null;
+	const certified = item.isCertified ? <CertifiedBadge certifiedByName={item.certifiedByName} /> : null;
 	const live = item.isLive ? <LiveBadge /> : null;
 	const sharing = item.sharing ? (
 		<SharingBadge visibility={item.sharing.visibility} sharedWithCount={item.sharing.sharedWithCount} />

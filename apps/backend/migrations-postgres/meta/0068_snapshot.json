@@ -1,5 +1,5 @@
 {
-  "id": "9911b76c-7a17-4fd2-ba05-daa970366c9b",
+  "id": "1e99cd3b-fdd7-475d-955a-088e0084ed3f",
   "prevId": "85b227bf-9c7e-44bc-b025-37b19cc84937",
   "version": "7",
   "dialect": "postgresql",
@@ -6674,6 +6674,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "certified_by": {
+          "name": "certified_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -6825,6 +6831,19 @@
           "tableTo": "scheduled_job",
           "columnsFrom": [
             "scheduled_job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "story_certified_by_user_id_fk": {
+          "name": "story_certified_by_user_id_fk",
+          "tableFrom": "story",
+          "tableTo": "user",
+          "columnsFrom": [
+            "certified_by"
           ],
           "columnsTo": [
             "id"

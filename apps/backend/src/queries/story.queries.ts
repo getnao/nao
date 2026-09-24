@@ -1,6 +1,6 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo } from '@nao/shared/types';
-import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import { aliasedTable, and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
@@ -23,7 +23,9 @@ export type UserStoryRow = Pick<
 	| 'certifiedAt'
 	| 'createdAt'
 	| 'updatedAt'
-> & { code: string; version: number };
+> & { code: string; version: number; certifiedByName: string | null };
+
+const storyCertifier = aliasedTable(s.user, 'story_certifier');
 
 export async function getStoryByChatAndSlug(
 	chatId: string,
@@ -98,6 +100,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			cacheScheduleDescription: s.story.cacheScheduleDescription,
 			archivedAt: s.story.archivedAt,
 			certifiedAt: s.story.certifiedAt,
+			certifiedByName: storyCertifier.name,
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
@@ -105,6 +108,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
 		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
 		.innerJoin(
 			s.storyVersion,
@@ -352,10 +356,23 @@ export async function unarchiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
 }
 
-export async function setStoryCertification(storyId: string, certified: boolean): Promise<Date | null> {
-	const certifiedAt = certified ? new Date() : null;
-	await db.update(s.story).set({ certifiedAt }).where(eq(s.story.id, storyId)).execute();
+export async function setStoryCertification(storyId: string, certifiedBy: string | null): Promise<Date | null> {
+	const certifiedAt = certifiedBy ? new Date() : null;
+	await db.update(s.story).set({ certifiedAt, certifiedBy }).where(eq(s.story.id, storyId)).execute();
 	return certifiedAt;
+}
+
+export async function getStoryCertification(
+	storyId: string,
+): Promise<{ certifiedAt: Date | null; certifiedByName: string | null }> {
+	const [row] = await db
+		.select({ certifiedAt: s.story.certifiedAt, certifiedByName: storyCertifier.name })
+		.from(s.story)
+		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
+		.where(eq(s.story.id, storyId))
+		.limit(1)
+		.execute();
+	return row ?? { certifiedAt: null, certifiedByName: null };
 }
 
 async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
@@ -617,6 +634,7 @@ async function queryStoriesWithLatestVersion(
 			cacheScheduleDescription: s.story.cacheScheduleDescription,
 			archivedAt: s.story.archivedAt,
 			certifiedAt: s.story.certifiedAt,
+			certifiedByName: storyCertifier.name,
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
@@ -624,6 +642,7 @@ async function queryStoriesWithLatestVersion(
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
 		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
 		.innerJoin(
 			s.storyVersion,
