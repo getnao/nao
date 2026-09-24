@@ -28,7 +28,7 @@ describe('isReadOnlySqlQuery', () => {
 	it('allows a recursive CTE with a column list', async () => {
 		expect(
 			await isReadOnlySqlQuery(
-				'WITH t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 5) SELECT n FROM t',
+				'WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 5) SELECT n FROM t',
 			),
 		).toBe(true);
 	});
@@ -47,6 +47,10 @@ describe('isReadOnlySqlQuery', () => {
 
 	it('still blocks a DELETE behind a CTE with a column list', async () => {
 		expect(await isReadOnlySqlQuery('WITH t(n) AS (SELECT 1) DELETE FROM t')).toBe(false);
+	});
+
+	it('still blocks a DELETE behind a column-list CTE with a second plain CTE', async () => {
+		expect(await isReadOnlySqlQuery('WITH a(x) AS (SELECT 1), b AS (SELECT 2) DELETE FROM a')).toBe(false);
 	});
 
 	it('blocks INSERT', async () => {
