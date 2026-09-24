@@ -20,6 +20,7 @@ export type UserStoryRow = Pick<
 	| 'cacheSchedule'
 	| 'cacheScheduleDescription'
 	| 'archivedAt'
+	| 'certifiedAt'
 	| 'createdAt'
 	| 'updatedAt'
 > & { code: string; version: number };
@@ -96,6 +97,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			cacheSchedule: s.story.cacheSchedule,
 			cacheScheduleDescription: s.story.cacheScheduleDescription,
 			archivedAt: s.story.archivedAt,
+			certifiedAt: s.story.certifiedAt,
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
@@ -348,6 +350,12 @@ export async function archiveByStoryId(storyId: string): Promise<void> {
 
 export async function unarchiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
+}
+
+export async function setStoryCertification(storyId: string, certified: boolean): Promise<Date | null> {
+	const certifiedAt = certified ? new Date() : null;
+	await db.update(s.story).set({ certifiedAt }).where(eq(s.story.id, storyId)).execute();
+	return certifiedAt;
 }
 
 async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
@@ -608,6 +616,7 @@ async function queryStoriesWithLatestVersion(
 			cacheSchedule: s.story.cacheSchedule,
 			cacheScheduleDescription: s.story.cacheScheduleDescription,
 			archivedAt: s.story.archivedAt,
+			certifiedAt: s.story.certifiedAt,
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,

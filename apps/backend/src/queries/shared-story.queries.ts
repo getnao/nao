@@ -14,6 +14,7 @@ export type SharedStoryWithLatest = DBSharedStory & {
 	code: string;
 	version: number;
 	isLive: boolean;
+	certifiedAt: Date | null;
 	sharedWithCount: number;
 };
 
@@ -225,6 +226,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			code: s.storyVersion.code,
 			version: s.storyVersion.version,
 			isLive: s.story.isLive,
+			certifiedAt: s.story.certifiedAt,
 			sharedWithCount: sql<number>`coalesce(${accessCounts.cnt}, 0)`,
 		})
 		.from(s.sharedStory)

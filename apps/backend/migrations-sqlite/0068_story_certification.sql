@@ -1,0 +1,1 @@
+ALTER TABLE `story` ADD `certified_at` integer;

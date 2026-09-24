@@ -1,0 +1,1 @@
+ALTER TABLE "story" ADD COLUMN "certified_at" timestamp;

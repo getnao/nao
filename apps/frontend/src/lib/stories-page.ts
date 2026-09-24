@@ -9,6 +9,7 @@ type RouterOutputs = inferRouterOutputs<TrpcRouter>;
 export type SortField = 'name' | 'owner' | 'updated';
 export type SortDirection = 'asc' | 'desc';
 export type SortState = { field: SortField; direction: SortDirection };
+export type StoriesScope = 'all' | 'certified';
 
 export const STORIES_DISPLAY_KEY = 'stories-display-mode';
 export const STORIES_SORT_KEY = 'stories-sort';
@@ -45,6 +46,7 @@ export type StoryItem = {
 	storySlug?: string;
 	summary: StorySummary;
 	isLive: boolean;
+	isCertified: boolean;
 	isPinned: boolean;
 	isFavorited: boolean;
 	sharing: StorySharingInfo | null;
@@ -145,6 +147,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			isLive: story.isLive,
+			isCertified: story.certifiedAt !== null,
 			isPinned: sharedEntry?.isPinned ?? false,
 			isFavorited,
 			sharing: story.sharing,
@@ -175,6 +178,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			isLive: story.isLive,
+			isCertified: story.certifiedAt !== null,
 			isPinned: false,
 			isFavorited,
 			sharing: null,
@@ -199,6 +203,7 @@ export function buildStoryItems({
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
 				isLive: story.isLive,
+				isCertified: story.certifiedAt !== null,
 				isPinned: story.isPinned,
 				isFavorited,
 				sharing: story.sharing,
@@ -212,13 +217,14 @@ export function buildStoryItems({
 	return [...ownItems, ...standaloneItems, ...sharedItems];
 }
 
-export function filterStories(items: StoryItem[], query: string): StoryItem[] {
+export function filterStories(items: StoryItem[], query: string, scope: StoriesScope = 'all'): StoryItem[] {
+	const scopedItems = scope === 'certified' ? items.filter((item) => item.isCertified) : items;
 	if (!query.trim()) {
-		return items;
+		return scopedItems;
 	}
 
 	const lowerQuery = query.toLowerCase();
-	return items.filter(
+	return scopedItems.filter(
 		(item) =>
 			matchesStoryId(item, query) ||
 			item.title.toLowerCase().includes(lowerQuery) ||
@@ -243,6 +249,7 @@ export function buildCurrentLevelEntries({
 	currentUserName,
 	favoriteFolderIds,
 	searchQuery = '',
+	scope = 'all',
 }: {
 	items: StoryItem[];
 	folders: FolderItem[];
@@ -251,10 +258,15 @@ export function buildCurrentLevelEntries({
 	currentUserName: string;
 	favoriteFolderIds?: string[];
 	searchQuery?: string;
+	scope?: StoriesScope;
 }): { pinned: StoryItem[]; favorites: FavoriteEntry[]; entries: ExplorerEntry[] } {
+	if (scope === 'certified') {
+		return buildCertifiedEntries(items, sort, currentUserName);
+	}
+
 	const favoriteFolderSet = new Set<string>(favoriteFolderIds ?? []);
 
-	const pinned = items.filter((i) => i.isPinned);
+	const pinned = items.filter((i) => i.isPinned).sort(compareCertifiedFirst);
 
 	const favoriteStories: FavoriteEntry[] = items
 		.filter((i) => !i.isPinned && i.isFavorited)
@@ -290,6 +302,21 @@ export function buildCurrentLevelEntries({
 	return { pinned, favorites, entries };
 }
 
+/**
+ * The certified scope is a flat view: every certified story, regardless of folder.
+ */
+function buildCertifiedEntries(
+	items: StoryItem[],
+	sort: SortState,
+	currentUserName: string,
+): { pinned: StoryItem[]; favorites: FavoriteEntry[]; entries: ExplorerEntry[] } {
+	const entries: ExplorerEntry[] = items
+		.filter((item) => item.isCertified)
+		.map((story): ExplorerEntry => ({ kind: 'story', story }));
+	entries.sort(compareEntries(sort, currentUserName));
+	return { pinned: [], favorites: [], entries };
+}
+
 function isAtCurrentLevel(item: StoryItem, currentFolderId: string | null): boolean {
 	if (currentFolderId === '__shared_with_me__') {
 		return item.kind === 'shared-with-me';
@@ -301,8 +328,21 @@ function systemFolderRank(folder: FolderItem): number {
 	return folder.systemType == null ? 99 : FOLDER_SYSTEM_TYPE.indexOf(folder.systemType);
 }
 
+function compareCertifiedFirst(a: StoryItem, b: StoryItem): number {
+	return Number(b.isCertified) - Number(a.isCertified);
+}
+
+function isCertifiedEntry(entry: ExplorerEntry): boolean {
+	return entry.kind === 'story' && entry.story.isCertified;
+}
+
 function compareEntries(sort: SortState, currentUserName: string): (a: ExplorerEntry, b: ExplorerEntry) => number {
 	return (a, b) => {
+		const certifiedCmp = Number(isCertifiedEntry(b)) - Number(isCertifiedEntry(a));
+		if (certifiedCmp !== 0) {
+			return certifiedCmp;
+		}
+
 		const aVal = getSortValue(a, sort.field, currentUserName);
 		const bVal = getSortValue(b, sort.field, currentUserName);
 		const mul = sort.direction === 'asc' ? 1 : -1;
