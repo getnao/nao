@@ -36,6 +36,7 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 
 	return (
 		<Streamdown
+			className='sql-query-display'
 			plugins={markdownPlugins}
 			allowedTags={ALLOWED_TAGS}
 			literalTagContent={LITERAL_TAG_CONTENT}
