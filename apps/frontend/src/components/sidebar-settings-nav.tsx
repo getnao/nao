@@ -11,6 +11,7 @@ interface NavContext {
 	isCloudBillingEnabled: boolean;
 	isContextAdmin: boolean;
 	isCloud: boolean;
+	isOrgAdmin: boolean;
 	isViewer: boolean;
 }
 
@@ -130,7 +131,7 @@ const settingsNavGroups: NavGroup[] = [
 			{
 				label: 'Plan & Billing',
 				to: '/settings/organization/billing',
-				visible: ({ isCloudBillingEnabled }) => isCloudBillingEnabled,
+				visible: ({ isCloudBillingEnabled, isOrgAdmin }) => isCloudBillingEnabled && isOrgAdmin,
 				exact: true,
 			},
 			{
@@ -157,6 +158,7 @@ interface SidebarSettingsNavProps {
 	isViewer: boolean;
 	isCloud: boolean;
 	isCloudBillingEnabled: boolean;
+	isOrgAdmin: boolean;
 }
 
 export function SidebarSettingsNav({
@@ -166,6 +168,7 @@ export function SidebarSettingsNav({
 	isViewer,
 	isCloud,
 	isCloudBillingEnabled,
+	isOrgAdmin,
 }: SidebarSettingsNavProps) {
 	const navigate = useNavigate();
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +180,7 @@ export function SidebarSettingsNav({
 		isCloudBillingEnabled,
 		isContextAdmin,
 		isCloud,
+		isOrgAdmin,
 		isViewer,
 	};
 	const navGroups = settingsNavGroups

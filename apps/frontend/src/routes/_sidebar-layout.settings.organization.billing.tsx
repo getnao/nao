@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 
 import { OrganizationBillingSettings } from '@/components/settings/organization-billing-settings';
-import { requireCloudBilling } from '@/lib/require-admin';
+import { requireOrganizationAdminCloudBilling } from '@/lib/require-admin';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/organization/billing')({
-	beforeLoad: requireCloudBilling,
+	beforeLoad: requireOrganizationAdminCloudBilling,
 	validateSearch: (search: Record<string, unknown>) => ({
 		checkout:
 			search.checkout === 'success' || search.checkout === 'subscribed' || search.checkout === 'canceled'

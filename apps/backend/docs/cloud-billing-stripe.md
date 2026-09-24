@@ -22,6 +22,54 @@ CLOUD_BILLING_ENABLED=true
 
 When disabled, billing tRPC procedures return `NOT_FOUND`, raw Stripe routes and billing jobs are not registered, and application access remains unrestricted.
 
+## System map
+
+```mermaid
+flowchart LR
+    Admin["Organization admin"]
+    Stripe["Stripe"]
+    Scheduler["Internal scheduler"]
+
+    subgraph HTTP["HTTP boundaries"]
+        Router["billing tRPC router"]
+        Webhook["POST /api/billing/stripe/webhook"]
+    end
+
+    subgraph Services["Billing services"]
+        Management["billing-management.service<br/>rechecks org admin in the database"]
+        Gateway["stripe.service<br/>low-level Stripe gateway"]
+        Reconciliation["billing-reconciliation.service"]
+        Lifecycle["billing-lifecycle.service"]
+        Access["cloud-billing-access.service"]
+    end
+
+    subgraph Persistence["Local persistence"]
+        Organization[("organization")]
+        Inbox[("stripe_webhook_event")]
+        Jobs[("scheduled_job")]
+    end
+
+    Admin --> Router
+    Router --> Management
+    Management --> Organization
+    Management --> Gateway
+    Stripe --> Webhook
+    Webhook -->|verify signature| Gateway
+    Webhook --> Inbox
+    Webhook --> Jobs
+    Scheduler --> Jobs
+    Jobs --> Reconciliation
+    Jobs --> Lifecycle
+    Reconciliation --> Gateway
+    Reconciliation --> Organization
+    Lifecycle --> Reconciliation
+    Lifecycle --> Organization
+    Access --> Organization
+    Gateway <--> Stripe
+```
+
+There are two intentional trust paths. Interactive requests must pass both the tRPC admin middleware and the independent database-backed admin check in `billing-management.service.ts`. Signed Stripe webhooks and internal scheduled jobs do not impersonate a user; they use the lower-level Stripe gateway and validate object ownership during reconciliation.
+
 ## Stripe configuration
 
 ### Product and Price
@@ -129,11 +177,188 @@ The `stripe_webhook_event` table is a durable inbox containing the Event ID, typ
 
 PostgreSQL and SQLite use the same logical migration, `0065_organization_billing`, with synchronized schema snapshots.
 
+```mermaid
+erDiagram
+    ORGANIZATION ||--o{ ORG_MEMBER : has
+
+    ORGANIZATION {
+        string id PK
+        string billingPlan
+        string billingStatus
+        datetime trialStartedAt
+        datetime trialEndsAt
+        string stripeCustomerId UK
+        string stripeSubscriptionId UK
+        string stripePriceId
+        datetime currentPeriodEndsAt
+        boolean cancelAtPeriodEnd
+        boolean hasDefaultPaymentMethod
+        datetime billingAccessEndsAt
+        datetime billingUpdatedAt
+        string billingSyncToken
+        datetime trialReminderClaimedAt
+    }
+
+    ORG_MEMBER {
+        string orgId FK
+        string userId
+        string role
+    }
+
+    STRIPE_WEBHOOK_EVENT {
+        string id PK
+        string type
+        string stripeObjectId
+        boolean livemode
+        datetime receivedAt
+        datetime processedAt
+        string lastError
+    }
+```
+
+Stripe owns Customers, Subscriptions, Prices, Payment Methods, and Invoices. nao stores identifiers and a queryable projection, not copies of payment data:
+
+```mermaid
+flowchart LR
+    Org["organization"]
+    Customer["Stripe Customer"]
+    Subscription["Stripe Subscription"]
+    Price["Stripe Price"]
+    PaymentMethod["Stripe Payment Method"]
+    Invoice["Stripe Invoice"]
+
+    Org -->|"stripeCustomerId"| Customer
+    Org -->|"stripeSubscriptionId"| Subscription
+    Org -->|"stripePriceId"| Price
+    Customer --> PaymentMethod
+    Customer --> Invoice
+    Customer --> Subscription
+    Subscription --> Price
+```
+
 ## Organization resolution
 
 Organization-scoped requests resolve the organization from the authenticated user's selected project. Without a selected project, the user must belong to exactly one organization. An unknown selected project or ambiguous membership fails instead of falling back to an arbitrary organization.
 
 This rule applies to billing, organization settings, API keys, and GitHub or GitLab project imports.
+
+## Interactive route authorization
+
+Every billing procedure follows the same fail-closed chain before any Stripe operation:
+
+```mermaid
+flowchart TD
+    Request["Authenticated tRPC request"]
+    Enabled{"Cloud billing enabled?"}
+    Resolve["Resolve organization membership"]
+    MiddlewareAdmin{"Organization admin?"}
+    ServiceAdmin["Reload org membership in billing-management.service"]
+    ServiceAllowed{"Still an admin?"}
+    Operation["Run route operation"]
+
+    Request --> Enabled
+    Enabled -->|No| NotFound["NOT_FOUND<br/>no database or Stripe work"]
+    Enabled -->|Yes| Resolve
+    Resolve -->|Missing or ambiguous| ResolutionError["NOT_FOUND or BAD_REQUEST"]
+    Resolve --> MiddlewareAdmin
+    MiddlewareAdmin -->|No| Forbidden["FORBIDDEN"]
+    MiddlewareAdmin -->|Yes| ServiceAdmin
+    ServiceAdmin --> ServiceAllowed
+    ServiceAllowed -->|No| Forbidden
+    ServiceAllowed -->|Yes| Operation
+```
+
+The browser cannot select Stripe object IDs. The management service reloads the organization after checking the authenticated user's current membership, then uses only persisted Customer and Subscription IDs.
+
+### Route map
+
+```mermaid
+flowchart LR
+    Guard["Shared admin authorization<br/>router + management service"]
+
+    Status["billing.getStatus"]
+    Invoices["billing.getInvoices"]
+    Sync["billing.syncStripeBilling"]
+    Checkout["billing.createCheckoutSession"]
+    Portal["billing.createPortalSession"]
+    Payment["billing.createPaymentMethodSession"]
+    Resubscribe["billing.createResubscribeSession"]
+    Resume["billing.resumeSubscription"]
+
+    Organization[("organization projection")]
+    Reconcile["Reconciliation"]
+    CustomerAPI["Stripe Customers API"]
+    CheckoutAPI["Stripe Checkout Sessions API"]
+    PortalAPI["Stripe Billing Portal API"]
+    InvoiceAPI["Stripe Invoices API"]
+    SubscriptionAPI["Stripe Subscriptions API"]
+
+    Guard --> Status --> Organization
+    Guard --> Invoices --> InvoiceAPI
+    Guard --> Sync --> Reconcile
+    Guard --> Checkout
+    Checkout --> Organization
+    Checkout -->|"create if absent"| CustomerAPI
+    Checkout --> CheckoutAPI
+    Guard --> Portal --> PortalAPI
+    Guard --> Payment -->|"payment_method_update flow"| PortalAPI
+    Guard --> Resubscribe
+    Resubscribe --> SubscriptionAPI
+    Resubscribe --> CheckoutAPI
+    Guard --> Resume --> SubscriptionAPI
+    Reconcile --> SubscriptionAPI
+    Reconcile --> Organization
+```
+
+- `billing.getStatus` returns the persisted plan, entitlement dates, action availability, and payment-method readiness.
+- `billing.getInvoices` lists up to 100 invoices for the persisted Customer and returns only display fields and hosted document URLs.
+- `billing.syncStripeBilling` retrieves canonical Stripe state and refreshes the local projection.
+- `billing.createCheckoutSession` creates or reuses the organization Customer and starts the first subscription Checkout.
+- `billing.createPortalSession` opens the general Customer Portal for an existing subscription.
+- `billing.createPaymentMethodSession` opens a Portal flow restricted to payment-method updates.
+- `billing.createResubscribeSession` allows a new paid Checkout only after a canceled or incomplete-expired subscription.
+- `billing.resumeSubscription` resumes only a paused subscription with a usable default payment method.
+
+```mermaid
+flowchart TD
+    Operation{"Admin operation"}
+
+    Operation -->|getStatus| Status["Read local projection"]
+    Operation -->|getInvoices| HasInvoiceCustomer{"Customer exists?"}
+    HasInvoiceCustomer -->|No| EmptyInvoices["Return empty list"]
+    HasInvoiceCustomer -->|Yes| ListInvoices["List Stripe invoices"]
+
+    Operation -->|syncStripeBilling| HasSyncCustomer{"Customer exists?"}
+    HasSyncCustomer -->|No| NotSynced["Return synced: false"]
+    HasSyncCustomer -->|Yes| SyncCustomer["Reconcile canonical Stripe state"]
+
+    Operation -->|createCheckoutSession| HasSubscription{"Subscription ID exists?"}
+    HasSubscription -->|Yes| CheckoutConflict["CONFLICT"]
+    HasSubscription -->|No| EnsureCustomer["Create or reuse Customer"]
+    EnsureCustomer --> FirstHistory{"Cloud subscription history exists?"}
+    FirstHistory -->|Yes| CheckoutConflict
+    FirstHistory -->|No| InitialCheckout["Create initial Checkout"]
+
+    Operation -->|createPortalSession| PortalReady{"Customer and subscription exist?"}
+    PortalReady -->|No| BadRequest["BAD_REQUEST"]
+    PortalReady -->|Yes| GeneralPortal["Create general Portal session"]
+
+    Operation -->|createPaymentMethodSession| PaymentReady{"Customer exists?"}
+    PaymentReady -->|No| BadRequest
+    PaymentReady -->|Yes| PaymentPortal["Create payment_method_update Portal session"]
+
+    Operation -->|createResubscribeSession| Terminal{"Customer and terminal subscription exist?"}
+    Terminal -->|No| BadRequest
+    Terminal -->|Yes| CurrentSubscription{"Any current cloud subscription?"}
+    CurrentSubscription -->|Yes| ResubscribeConflict["CONFLICT"]
+    CurrentSubscription -->|No| PaidCheckout["Create paid Checkout without trial"]
+
+    Operation -->|resumeSubscription| Paused{"Subscription is paused?"}
+    Paused -->|No| BadRequest
+    Paused -->|Yes| PaymentAvailable{"Default payment method exists?"}
+    PaymentAvailable -->|No| BadRequest
+    PaymentAvailable -->|Yes| Resume["Idempotently resume subscription"]
+```
 
 ## Trial and subscription lifecycle
 
@@ -159,6 +384,40 @@ Stripe Checkout requires an absolute trial end to be at least 48 hours in the fu
 
 The success redirect is not proof of payment. The UI polls the persisted projection while signed webhook processing or explicit reconciliation confirms Stripe state.
 
+```mermaid
+sequenceDiagram
+    actor Admin
+    participant UI as Billing page
+    participant Router as billing.createCheckoutSession
+    participant Management as Billing management service
+    participant DB as Database
+    participant Stripe as Stripe API
+
+    Admin->>UI: Subscribe
+    UI->>Router: Authenticated mutation
+    Router->>DB: Resolve membership and require admin
+    Router->>Management: userId and organizationId
+    Management->>DB: Recheck current admin role and reload organization
+    alt Customer does not exist
+        Management->>Stripe: Create Customer with org metadata
+        Stripe-->>Management: Customer ID
+        Management->>DB: Attach Customer if still unassigned
+    end
+    Management->>Stripe: List cloud subscription history
+    alt Existing subscription history
+        Stripe-->>Management: Existing subscriptions
+        Management-->>Router: Conflict; use recovery or resubscribe
+    else First subscription
+        Management->>Stripe: Create or reuse idempotent Checkout Session
+        Stripe-->>Management: Hosted Checkout URL
+        Router-->>UI: URL only
+        UI->>Stripe: Navigate to hosted Checkout
+        Stripe-->>UI: Redirect to billing page
+        UI->>Router: Poll persisted status
+        Note over Stripe,DB: Signed webhooks or explicit reconciliation update the projection
+    end
+```
+
 ### Trial expiry
 
 When a Checkout-created trial ends without a payment method, Stripe pauses the subscription. The organization becomes restricted while billing recovery remains available. An admin can add a payment method in the Portal and request an idempotent resume.
@@ -168,6 +427,36 @@ When a Checkout-created trial ends without a payment method, Stripe pauses the s
 Portal cancellation occurs at period end. Access continues until the cancellation boundary. Canceled and incomplete-expired subscriptions remain as history and can start a new paid Checkout without another trial.
 
 Cancellation never removes nao data or Stripe identifiers.
+
+```mermaid
+stateDiagram-v2
+    [*] --> LocalTrial: Organization created
+    LocalTrial --> Incomplete: Immediate Checkout started
+    LocalTrial --> Trialing: Checkout preserves at least 48 hours
+    LocalTrial --> Restricted: Local trial expires without subscription
+    Incomplete --> Active: Initial payment succeeds
+    Incomplete --> IncompleteExpired: Checkout cannot complete
+    Trialing --> Active: Trial ends with payment method
+    Trialing --> Paused: Trial ends without payment method
+    Active --> PastDue: Renewal payment fails
+    Active --> Canceled: Cancellation boundary reached
+    PastDue --> Active: Recovery succeeds
+    PastDue --> Unpaid: Stripe retries exhausted
+    PastDue --> Canceled: Stripe cancels
+    Paused --> Active: Admin adds payment method and resumes
+    Canceled --> Incomplete: Admin starts paid resubscription
+    IncompleteExpired --> Incomplete: Admin starts paid resubscription
+    Restricted --> Incomplete: Admin starts paid subscription
+
+    note right of LocalTrial
+        Local state only;
+        no Stripe object yet
+    end note
+
+    note right of Canceled
+        Data and Stripe history remain
+    end note
+```
 
 ## Reconciliation and webhooks
 
@@ -194,7 +483,84 @@ Each reconciliation:
 
 This compare-and-swap prevents a slower stale read from overwriting newer state.
 
+```mermaid
+sequenceDiagram
+    participant Stripe
+    participant Webhook as Raw webhook route
+    participant Inbox as stripe_webhook_event
+    participant Queue as Scheduled jobs
+    participant Worker as Stripe webhook handler
+    participant Reconcile as Reconciliation service
+    participant Org as organization
+
+    Stripe->>Webhook: Event, raw body, Stripe-Signature
+    Webhook->>Webhook: Verify raw body and signature with endpoint secret
+    alt Invalid signature or wrong live mode
+        Webhook-->>Stripe: 400
+    else Valid event
+        Webhook->>Inbox: Insert Event ID if absent
+        Webhook->>Queue: Enqueue unique stripe-event job
+        Webhook-->>Stripe: 200 received
+        Queue->>Worker: eventId
+        Worker->>Inbox: Skip if already processed
+        Worker->>Stripe: Retrieve canonical Event
+        Worker->>Reconcile: Customer ID and organization hint
+        Reconcile->>Org: Resolve mapping and claim sync token
+        Reconcile->>Stripe: List current cloud subscriptions
+        Reconcile->>Stripe: Retrieve payment-method readiness
+        Reconcile->>Reconcile: Validate Customer, Product, and org metadata
+        Reconcile->>Org: Conditional projection update by sync token
+        Worker->>Inbox: Mark processed
+        Note over Worker,Inbox: Failures store lastError and retry up to ten times
+    end
+```
+
+Event types only trigger a refresh category; they do not directly mutate entitlement from their payload:
+
+```mermaid
+flowchart LR
+    CheckoutEvents["Checkout completed events"]
+    SubscriptionEvents["Subscription created, updated,<br/>deleted, paused, resumed,<br/>trial_will_end"]
+    InvoiceEvents["Invoice paid, failed,<br/>action required, finalization failed"]
+    PaymentEvents["Customer or payment-method changes"]
+
+    CheckoutEvents --> ResolveCheckout["Retrieve Checkout and Subscription"]
+    SubscriptionEvents --> ResolveCustomer["Resolve Customer"]
+    InvoiceEvents --> ResolveInvoice["Resolve invoice Customer"]
+    PaymentEvents --> ResolvePayment["Resolve payment-method Customer"]
+
+    ResolveCheckout --> Reconcile["Reconcile canonical Customer state"]
+    ResolveCustomer --> Reconcile
+    ResolveInvoice --> Reconcile
+    ResolvePayment --> Reconcile
+```
+
 An hourly lifecycle job reconciles every mapped organization in batches of five concurrent Customers. Individual failures are logged without aborting the remaining organizations.
+
+```mermaid
+flowchart TD
+    Hourly["Hourly billing.lifecycle job"]
+    Customers["List organizations with Stripe Customers"]
+    Batches["Split into batches of five"]
+    Reconcile["Reconcile each Customer concurrently"]
+    Continue{"More batches?"}
+    Due["Find trials ending within three days"]
+    Reread["Re-read billing state and active admins"]
+    Claim{"Atomically claim reminder?"}
+    Send["Send reminder to every active admin"]
+    Delivered{"At least one delivered?"}
+    Release["Release exact claim for retry"]
+    Done["Done"]
+
+    Hourly --> Customers --> Batches --> Reconcile --> Continue
+    Continue -->|Yes| Reconcile
+    Continue -->|No| Due
+    Due --> Reread --> Claim
+    Claim -->|No| Done
+    Claim -->|Yes| Send --> Delivered
+    Delivered -->|Yes| Done
+    Delivered -->|No| Release --> Done
+```
 
 ## Entitlement policy
 
@@ -222,6 +588,35 @@ Restrictions block cost-producing or state-changing work, including agent/model 
 
 Enforcement happens at backend service and route boundaries. UI warnings are not security controls. Background jobs become no-ops while restricted and remain configured for later recovery.
 
+```mermaid
+flowchart TD
+    Check["Check organization entitlement"]
+    Enabled{"Cloud billing enabled?"}
+    State{"Persisted billing status"}
+    Trial{"Trial and access end are in the future?"}
+    Canceling{"Canceling at period end?"}
+    CancelBoundary{"Access boundary is in the future?"}
+    ActiveBoundary{"Current period end plus 24-hour grace is in the future?"}
+    Allow["Allow full access"]
+    Restrict["Restrict cost-producing and mutating work<br/>preserve data and billing recovery"]
+
+    Check --> Enabled
+    Enabled -->|No| Allow
+    Enabled -->|Yes| State
+    State -->|trialing| Trial
+    Trial -->|Yes| Allow
+    Trial -->|No| Restrict
+    State -->|active| Canceling
+    Canceling -->|Yes| CancelBoundary
+    CancelBoundary -->|Yes| Allow
+    CancelBoundary -->|No| Restrict
+    Canceling -->|No| ActiveBoundary
+    ActiveBoundary -->|Yes| Allow
+    ActiveBoundary -->|No| Restrict
+    State -->|past_due| Allow
+    State -->|"missing, unpaid, paused,<br/>incomplete, incomplete_expired, canceled"| Restrict
+```
+
 ## Trial reminders
 
 The hourly lifecycle job and Stripe's `trial_will_end` event share one persisted reminder claim.
@@ -236,7 +631,7 @@ The hourly lifecycle job and Stripe's `trial_will_end` event share one persisted
 
 The cloud-only billing router provides:
 
-- status for organization members;
+- status for organization admins;
 - invoice history for admins;
 - explicit Stripe synchronization;
 - initial Checkout;
@@ -246,6 +641,8 @@ The cloud-only billing router provides:
 - paused-subscription resume.
 
 Stripe identifiers and raw Stripe objects are never returned to the browser.
+
+All eight procedures use the shared admin middleware and call a management-service operation that independently reloads the membership and requires `orgMember.role = admin`. This second check protects Stripe access if a future caller reaches the service without the expected route middleware.
 
 The Plan & Billing page displays the plan, trial and paid boundaries, cancellation state, payment-method readiness, invoice history, subscription history, and recovery actions. It polls briefly after Checkout and Portal returns while webhooks remain authoritative.
 
@@ -280,7 +677,7 @@ Focused automated tests cover:
 - bounded reconciliation concurrency;
 - reminder claiming, delivery, and retry;
 - entitlement boundaries;
-- billing routes and representative protected operations.
+- billing routes and every management-service admin boundary.
 
 Sandbox validation should use Stripe CLI forwarding and Billing test clocks:
 

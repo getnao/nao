@@ -87,6 +87,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Plan & Billing',
 		description: 'Review the nao Cloud plan, pricing, trial, and billing availability.',
 		keywords: ['subscription', 'price', 'plan', 'payment', 'invoice', 'trial', 'stripe'],
+		orgAdminOnly: true,
 		cloudBillingOnly: true,
 	},
 	{
@@ -96,6 +97,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Subscription status',
 		description: 'Review whether the organization plan is active, paused, past due, or canceled.',
 		keywords: ['current plan', 'subscription history', 'status', 'paused', 'canceled', 'past due'],
+		orgAdminOnly: true,
 		cloudBillingOnly: true,
 	},
 	{

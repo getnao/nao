@@ -2,21 +2,23 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { isCloudBillingEnabled } from '../env';
-import * as billingQueries from '../queries/billing.queries';
-import { reconcileCloudBillingCustomer } from '../services/billing-reconciliation.service';
+import {
+	createCloudCheckoutForAdmin,
+	createCloudPaymentMethodPortalForAdmin,
+	createCloudPortalForAdmin,
+	createCloudResubscribeForAdmin,
+	getCloudBillingOrganizationForAdmin,
+	listCloudInvoicesForAdmin,
+	resumeCloudSubscriptionForAdmin,
+	syncCloudBillingForAdmin,
+} from '../services/billing-management.service';
 import {
 	CloudInitialCheckoutUnavailableError,
 	CloudSubscriptionResumeError,
 	CloudSubscriptionUnavailableError,
-	createCloudCheckoutSession,
-	createCloudCustomer,
-	createCloudPaymentMethodSession,
-	createCloudPortalSession,
-	createCloudResubscribeSession,
-	listCloudInvoices,
-	resumeCloudSubscription,
 } from '../services/stripe.service';
 import { CLOUD_MONTHLY_PLAN } from '../types/billing';
+import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
 import { protectedProcedure, resolveOrganizationMembership } from './trpc';
 
@@ -44,159 +46,120 @@ const cloudBillingAdminProcedure = cloudBillingMemberProcedure.use(async ({ ctx,
 const requestInput = z.object({ requestId: z.uuid() });
 
 export const billingRoutes = {
-	getStatus: cloudBillingMemberProcedure.query(({ ctx }) => ({
-		plan: ctx.organization.billingPlan === CLOUD_MONTHLY_PLAN.key ? CLOUD_MONTHLY_PLAN : null,
-		availablePlan: CLOUD_MONTHLY_PLAN,
-		planKey: ctx.organization.billingPlan,
-		status: ctx.organization.billingStatus,
-		trialStartedAt: ctx.organization.trialStartedAt,
-		trialEndsAt: ctx.organization.trialEndsAt,
-		currentPeriodEndsAt: ctx.organization.currentPeriodEndsAt,
-		cancelAtPeriodEnd: ctx.organization.cancelAtPeriodEnd,
-		hasDefaultPaymentMethod: ctx.organization.hasDefaultPaymentMethod,
-		billingAccessEndsAt: ctx.organization.billingAccessEndsAt,
-		canManageBilling: ctx.orgRole === 'admin',
-		localTrialActive:
-			ctx.organization.billingStatus === 'trialing' &&
-			Boolean(ctx.organization.trialEndsAt && ctx.organization.trialEndsAt.getTime() > Date.now()) &&
-			!ctx.organization.stripeSubscriptionId,
-		portalAvailable: Boolean(ctx.organization.stripeCustomerId && ctx.organization.stripeSubscriptionId),
-		invoiceHistoryAvailable: Boolean(ctx.organization.stripeCustomerId),
-		paymentMethodManagementAvailable: Boolean(ctx.organization.stripeCustomerId),
-		resubscribeAvailable:
-			Boolean(ctx.organization.stripeCustomerId && ctx.organization.stripeSubscriptionId) &&
-			['canceled', 'incomplete_expired'].includes(ctx.organization.billingStatus ?? ''),
-		hasStripeSubscription: Boolean(ctx.organization.stripeSubscriptionId),
-	})),
+	getStatus: cloudBillingAdminProcedure.query(async ({ ctx }) => {
+		const organization = await getCloudBillingOrganizationForAdmin({
+			userId: ctx.user.id,
+			organizationId: ctx.organization.id,
+		});
+		return {
+			plan: organization.billingPlan === CLOUD_MONTHLY_PLAN.key ? CLOUD_MONTHLY_PLAN : null,
+			availablePlan: CLOUD_MONTHLY_PLAN,
+			planKey: organization.billingPlan,
+			status: organization.billingStatus,
+			trialStartedAt: organization.trialStartedAt,
+			trialEndsAt: organization.trialEndsAt,
+			currentPeriodEndsAt: organization.currentPeriodEndsAt,
+			cancelAtPeriodEnd: organization.cancelAtPeriodEnd,
+			hasDefaultPaymentMethod: organization.hasDefaultPaymentMethod,
+			billingAccessEndsAt: organization.billingAccessEndsAt,
+			canManageBilling: true,
+			localTrialActive:
+				organization.billingStatus === 'trialing' &&
+				Boolean(organization.trialEndsAt && organization.trialEndsAt.getTime() > Date.now()) &&
+				!organization.stripeSubscriptionId,
+			portalAvailable: Boolean(organization.stripeCustomerId && organization.stripeSubscriptionId),
+			invoiceHistoryAvailable: Boolean(organization.stripeCustomerId),
+			paymentMethodManagementAvailable: Boolean(organization.stripeCustomerId),
+			resubscribeAvailable:
+				Boolean(organization.stripeCustomerId && organization.stripeSubscriptionId) &&
+				['canceled', 'incomplete_expired'].includes(organization.billingStatus ?? ''),
+			hasStripeSubscription: Boolean(organization.stripeSubscriptionId),
+		};
+	}),
 
 	getInvoices: cloudBillingAdminProcedure.query(async ({ ctx }) => {
-		if (!ctx.organization.stripeCustomerId) {
-			return [];
-		}
 		try {
-			return await listCloudInvoices(ctx.organization.stripeCustomerId);
+			return await listCloudInvoicesForAdmin({
+				userId: ctx.user.id,
+				organizationId: ctx.organization.id,
+			});
 		} catch (error) {
-			logBillingFailure('invoice history', error);
-			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to load Stripe invoices' });
+			throwBillingFailure('invoice history', 'Unable to load Stripe invoices', error);
 		}
 	}),
 
 	syncStripeBilling: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
 		try {
-			if (!ctx.organization.stripeCustomerId) {
-				return { synced: false as const };
-			}
-			await reconcileCloudBillingCustomer({
-				stripeCustomerId: ctx.organization.stripeCustomerId,
-				organizationIdHint: ctx.organization.id,
+			return await syncCloudBillingForAdmin({
+				userId: ctx.user.id,
+				organizationId: ctx.organization.id,
 			});
-			return { synced: true as const };
 		} catch (error) {
-			logBillingFailure('billing sync', error);
-			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to sync Stripe billing status' });
+			throwBillingFailure('billing sync', 'Unable to sync Stripe billing status', error);
 		}
 	}),
 
 	createCheckoutSession: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
-		if (ctx.organization.stripeSubscriptionId) {
-			throw new TRPCError({ code: 'CONFLICT', message: 'This organization already has a Stripe subscription' });
-		}
-
 		try {
-			let stripeCustomerId = ctx.organization.stripeCustomerId;
-			if (!stripeCustomerId) {
-				const customer = await createCloudCustomer({
-					organizationId: ctx.organization.id,
-					organizationName: ctx.organization.name,
-					adminEmail: ctx.user.email,
-				});
-				stripeCustomerId = (await billingQueries.attachStripeCustomer(ctx.organization.id, customer.id))
-					.stripeCustomerId;
-			}
-			if (!stripeCustomerId) {
-				throw new Error('Unable to attach Stripe Customer');
-			}
-
-			const url = await createCloudCheckoutSession({
+			const url = await createCloudCheckoutForAdmin({
+				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
-				stripeCustomerId,
-				trialEndsAt: ctx.organization.trialEndsAt,
 			});
 			return { url };
 		} catch (error) {
 			if (error instanceof CloudInitialCheckoutUnavailableError) {
 				throw new TRPCError({ code: 'CONFLICT', message: error.message });
 			}
-			logBillingFailure('Checkout', error);
-			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to start Stripe Checkout' });
+			throwBillingFailure('Checkout', 'Unable to start Stripe Checkout', error);
 		}
 	}),
 
 	createPortalSession: cloudBillingAdminProcedure.input(requestInput).mutation(async ({ ctx, input }) => {
-		if (!ctx.organization.stripeCustomerId || !ctx.organization.stripeSubscriptionId) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'No Stripe subscription is available to manage' });
-		}
 		try {
-			const url = await createCloudPortalSession({
+			const url = await createCloudPortalForAdmin({
+				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
-				stripeCustomerId: ctx.organization.stripeCustomerId,
 				requestId: input.requestId,
 			});
 			return { url };
 		} catch (error) {
-			logBillingFailure('Customer Portal', error);
-			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to open Stripe billing' });
+			throwBillingFailure('Customer Portal', 'Unable to open Stripe billing', error);
 		}
 	}),
 
 	createPaymentMethodSession: cloudBillingAdminProcedure.input(requestInput).mutation(async ({ ctx, input }) => {
-		if (!ctx.organization.stripeCustomerId) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'No Stripe Customer is available to manage' });
-		}
 		try {
-			const url = await createCloudPaymentMethodSession({
+			const url = await createCloudPaymentMethodPortalForAdmin({
+				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
-				stripeCustomerId: ctx.organization.stripeCustomerId,
 				requestId: input.requestId,
 			});
 			return { url };
 		} catch (error) {
-			logBillingFailure('payment method management', error);
-			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to manage payment methods' });
+			throwBillingFailure('payment method management', 'Unable to manage payment methods', error);
 		}
 	}),
 
 	createResubscribeSession: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
-		if (
-			!ctx.organization.stripeCustomerId ||
-			!ctx.organization.stripeSubscriptionId ||
-			!['canceled', 'incomplete_expired'].includes(ctx.organization.billingStatus ?? '')
-		) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'A new subscription is not available' });
-		}
 		try {
-			const url = await createCloudResubscribeSession({
+			const url = await createCloudResubscribeForAdmin({
+				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
-				stripeCustomerId: ctx.organization.stripeCustomerId,
 			});
 			return { url };
 		} catch (error) {
 			if (error instanceof CloudSubscriptionUnavailableError) {
 				throw new TRPCError({ code: 'CONFLICT', message: error.message });
 			}
-			logBillingFailure('subscription Checkout', error);
-			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to start Stripe Checkout' });
+			throwBillingFailure('subscription Checkout', 'Unable to start Stripe Checkout', error);
 		}
 	}),
 
 	resumeSubscription: cloudBillingAdminProcedure.input(requestInput).mutation(async ({ ctx, input }) => {
-		if (!ctx.organization.stripeSubscriptionId) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'No Stripe subscription is available to resume' });
-		}
 		try {
-			await resumeCloudSubscription({
+			await resumeCloudSubscriptionForAdmin({
+				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
-				stripeSubscriptionId: ctx.organization.stripeSubscriptionId,
 				requestId: input.requestId,
 			});
 			return { pending: true as const };
@@ -204,13 +167,28 @@ export const billingRoutes = {
 			if (error instanceof CloudSubscriptionResumeError) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 			}
-			logBillingFailure('subscription resume', error);
-			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to resume the subscription' });
+			throwBillingFailure('subscription resume', 'Unable to resume the subscription', error);
 		}
 	}),
 };
 
-function logBillingFailure(action: string, error: unknown): void {
+function throwBillingFailure(action: string, publicMessage: string, error: unknown): never {
+	const handlerCode = getHandlerErrorCode(error);
+	if (handlerCode) {
+		const message = error instanceof Error ? error.message : publicMessage;
+		throw new TRPCError({ code: handlerCode, message });
+	}
 	const message = error instanceof Error ? error.message : String(error);
 	logger.error(`Stripe ${action} failed: ${message}`, { source: 'system' });
+	throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: publicMessage });
+}
+
+function getHandlerErrorCode(error: unknown): HandlerErrorCode | null {
+	if (typeof error !== 'object' || error === null || !('codeMessage' in error)) {
+		return null;
+	}
+	const code = error.codeMessage;
+	return code === 'BAD_REQUEST' || code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || code === 'NOT_FOUND'
+		? code
+		: null;
 }

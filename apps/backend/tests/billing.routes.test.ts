@@ -25,6 +25,12 @@ vi.mock('../src/queries/project.queries', () => ({}));
 vi.mock('../src/queries/organization.queries', () => ({
 	getUserOrgMembershipByProject: vi.fn(async () => testState.membership),
 	listUserOrgMemberships: vi.fn(async () => (testState.membership ? [testState.membership] : [])),
+	getOrgMember: vi.fn(async () => testState.membership),
+	getOrganizationById: vi.fn(async () => testState.membership?.organization ?? null),
+}));
+
+vi.mock('../src/queries/user.queries', () => ({
+	getUser: vi.fn(async () => ({ id: 'user-id', email: 'admin@example.com' })),
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
@@ -116,6 +122,12 @@ describe('billing.getStatus', () => {
 		await expect(caller('project-id').billing.getStatus()).resolves.toMatchObject({ status: 'active' });
 		expect(orgQueries.getUserOrgMembershipByProject).toHaveBeenCalledWith('user-id', 'project-id');
 		expect(orgQueries.listUserOrgMemberships).not.toHaveBeenCalled();
+	});
+
+	it('rejects non-admin members', async () => {
+		testState.membership = membership({}, 'member');
+
+		await expect(caller().billing.getStatus()).rejects.toMatchObject({ code: 'FORBIDDEN' });
 	});
 
 	it('rejects an unknown selected project instead of choosing another organization', async () => {

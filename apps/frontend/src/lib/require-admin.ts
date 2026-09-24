@@ -23,6 +23,14 @@ export async function requireCloudBilling() {
 	}
 }
 
+export async function requireOrganizationAdminCloudBilling() {
+	await requireCloudBilling();
+	const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
+	if (organization.role !== 'admin') {
+		throw redirect({ to: '/settings/account' });
+	}
+}
+
 export async function requireAdminNonCloud() {
 	await requireAdmin();
 	await requireNonCloud();
