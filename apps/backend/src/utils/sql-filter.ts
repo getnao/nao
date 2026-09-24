@@ -164,6 +164,10 @@ function splitStatements(sql: string): string[] {
 /**
  * For `WITH ... AS (...) <operation>` statements, skip past all CTE
  * definitions (balanced parentheses) and return the main operation keyword.
+ *
+ * A write keyword at the start of a CTE body is returned as the statement's
+ * keyword: data-modifying CTEs (`WITH cte AS (DELETE ... RETURNING *) SELECT ...`)
+ * execute the write even though the outer statement is a SELECT.
  */
 function getWithMainKeyword(sql: string): string | null {
 	let pos = sql.search(/\bWITH\b/i);
@@ -179,6 +183,9 @@ function getWithMainKeyword(sql: string): string | null {
 
 	let depth = 0;
 	let quote: string | null = null;
+	// Index just after the `(` that opened the current depth-0 group, so the
+	// group's own first keyword (the CTE body's operation) can be classified.
+	let groupStart = -1;
 
 	while (pos < sql.length) {
 		const ch = sql[pos];
@@ -194,10 +201,21 @@ function getWithMainKeyword(sql: string): string | null {
 		if (ch === "'" || ch === '"') {
 			quote = ch;
 		} else if (ch === '(') {
+			if (depth === 0) {
+				groupStart = pos + 1;
+			}
 			depth++;
 		} else if (ch === ')') {
 			depth--;
 			if (depth === 0) {
+				// The group that just closed is either a CTE column list (`(n)`,
+				// not a statement) or a CTE body. A body that starts with a write
+				// keyword performs that write, so classify it as the statement's
+				// keyword instead of skipping over it.
+				const firstWord = sql.slice(groupStart, pos).match(/^\s*(\w+)/);
+				if (firstWord && WRITE_STATEMENT_RE.test(firstWord[1])) {
+					return firstWord[1].toUpperCase();
+				}
 				const rest = sql.slice(pos + 1).trimStart();
 				if (rest.startsWith(',')) {
 					pos = sql.indexOf(',', pos + 1) + 1;
