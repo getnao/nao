@@ -45,6 +45,14 @@ vi.mock('../src/services/agent', () => ({
 	MAX_OUTPUT_TOKENS: 4096,
 }));
 
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: vi.fn(),
+}));
+
+vi.mock('../src/services/excluded-columns.service', () => ({
+	resolveExcludedColumnEnforcementForProject: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock('../src/utils/llm', () => ({
 	getDefaultModelId: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
