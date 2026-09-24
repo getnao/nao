@@ -649,6 +649,21 @@ flowchart TD
     State -->|"missing, unpaid, paused,<br/>incomplete, incomplete_expired, canceled"| Restrict
 ```
 
+## Tomorrow: enforce paid cloud agent access
+
+On nao Cloud, an organization must have an active trial or paid subscription to talk to an agent. User-supplied model API keys do not bypass this requirement: they may cover model usage, but the hosted nao service still incurs infrastructure costs.
+
+Implementation checklist:
+
+- enforce `assertProjectCloudBillingAccess` at the `/api/agent` request boundary immediately after resolving the project and before creating or editing chats, storing messages or attachments, initializing tools, or calling any model provider;
+- retain the independent assertion in `agentService.create` so non-HTTP and future callers fail closed;
+- audit every agent execution entry point, including retries, edits, forks, messaging integrations, tests, automations, and subagents, and route them through the same entitlement guard;
+- return an actionable `FORBIDDEN` response and disable the chat composer with a billing prompt in the UI;
+- preserve read-only access to existing chats, projects, stories, settings, and customer data;
+- verify that expired or missing trials and `unpaid`, `paused`, `incomplete`, `incomplete_expired`, and `canceled` subscriptions cannot create messages, inference records, tool runs, or provider requests;
+- verify that active trials, entitled subscriptions, self-hosted deployments, and cloud deployments with billing disabled keep their intended access;
+- test user-supplied API keys explicitly to ensure they never bypass cloud subscription enforcement.
+
 ## Trial reminders
 
 The hourly lifecycle job and Stripe's `trial_will_end` event share one persisted reminder claim.

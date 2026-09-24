@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { getBillingStatusView, isHistoricalBillingStatus } from '@/lib/billing-display';
 import { trpc } from '@/main';
 
+const STATUS_CONFIRMATION_TIMEOUT_MS = 15_000;
+
 export type OrganizationBillingSearch = {
 	checkout?: 'success' | 'subscribed' | 'canceled';
 	portal?: 'returned';
@@ -28,7 +30,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			(query.state.data?.status === 'paused' && isResumeConfirming) ||
 			isPortalPolling
 				? 2_000
-				: 10_000,
+				: false,
 	});
 	const invoices = useQuery({
 		...trpc.billing.getInvoices.queryOptions(),
@@ -110,8 +112,11 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	);
 	const isEndingAtPeriodEnd =
 		billing.data?.cancelAtPeriodEnd === true && (status === 'active' || status === 'trialing');
-	const shouldAutoSyncStripeBilling =
+	const canSyncStripeBilling =
 		billing.data?.canManageBilling === true && billing.data.paymentMethodManagementAvailable;
+	const shouldAutoSyncStripeBilling =
+		canSyncStripeBilling &&
+		(search.portal === 'returned' || search.checkout === 'success' || search.checkout === 'subscribed');
 	const syncBillingWithStripe = syncStripeBilling.mutate;
 	const isSyncingBillingWithStripe = syncStripeBilling.isPending;
 
@@ -119,9 +124,17 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		if (!isCheckoutPolling || isCheckoutConfirmed) {
 			return;
 		}
-		const timeout = window.setTimeout(() => setIsCheckoutPolling(false), 15_000);
+		const timeout = window.setTimeout(() => setIsCheckoutPolling(false), STATUS_CONFIRMATION_TIMEOUT_MS);
 		return () => window.clearTimeout(timeout);
 	}, [isCheckoutConfirmed, isCheckoutPolling]);
+
+	useEffect(() => {
+		if (!isResumeConfirming) {
+			return;
+		}
+		const timeout = window.setTimeout(() => setIsResumeConfirming(false), STATUS_CONFIRMATION_TIMEOUT_MS);
+		return () => window.clearTimeout(timeout);
+	}, [isResumeConfirming]);
 
 	useEffect(() => {
 		if (!shouldAutoSyncStripeBilling || initialStatusSyncRequested.current) {
@@ -132,7 +145,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	}, [shouldAutoSyncStripeBilling, syncBillingWithStripe]);
 
 	useEffect(() => {
-		if (!shouldAutoSyncStripeBilling) {
+		if (!canSyncStripeBilling) {
 			return;
 		}
 		const refreshOnFocus = () => {
@@ -142,7 +155,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		};
 		window.addEventListener('focus', refreshOnFocus);
 		return () => window.removeEventListener('focus', refreshOnFocus);
-	}, [isSyncingBillingWithStripe, shouldAutoSyncStripeBilling, syncBillingWithStripe]);
+	}, [canSyncStripeBilling, isSyncingBillingWithStripe, syncBillingWithStripe]);
 
 	useEffect(() => {
 		if (!isPortalPolling) {
