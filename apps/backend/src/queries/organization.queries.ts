@@ -3,7 +3,8 @@ import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { env } from '../env';
+import { env, isCloudBillingEnabled } from '../env';
+import { CLOUD_MONTHLY_PLAN } from '../types/billing';
 import { OrgRole } from '../types/organization';
 import * as projectQueries from './project.queries';
 import * as userQueries from './user.queries';
@@ -46,10 +47,10 @@ export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void>
 	await db.insert(s.orgMember).values(member).onConflictDoNothing().execute();
 };
 
-export const getUserOrgMembership = async (
-	userId: string,
-): Promise<(DBOrgMember & { organization: DBOrganization }) | null> => {
-	const [result] = await db
+type UserOrgMembership = DBOrgMember & { organization: DBOrganization };
+
+export const listUserOrgMemberships = async (userId: string, limit: number): Promise<UserOrgMembership[]> => {
+	return db
 		.select({
 			orgId: s.orgMember.orgId,
 			userId: s.orgMember.userId,
@@ -60,6 +61,30 @@ export const getUserOrgMembership = async (
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
 		.where(eq(s.orgMember.userId, userId))
+		.limit(limit)
+		.execute();
+};
+
+export const getUserOrgMembership = async (userId: string): Promise<UserOrgMembership | null> => {
+	return (await listUserOrgMemberships(userId, 1))[0] ?? null;
+};
+
+export const getUserOrgMembershipByProject = async (
+	userId: string,
+	projectId: string,
+): Promise<UserOrgMembership | null> => {
+	const [result] = await db
+		.select({
+			orgId: s.orgMember.orgId,
+			userId: s.orgMember.userId,
+			role: s.orgMember.role,
+			createdAt: s.orgMember.createdAt,
+			organization: s.organization,
+		})
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
+		.innerJoin(s.project, eq(s.project.orgId, s.organization.id))
+		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId)))
 		.limit(1)
 		.execute();
 	return result ?? null;
@@ -288,12 +313,37 @@ export const initializePersonalOrganization = async (userId: string): Promise<vo
 	const user = await userQueries.getUser({ id: userId });
 	const orgName = user ? `${user.name}'s Organization` : 'Personal Organization';
 	const orgSlug = `org-${userId.replace(/-/g, '').slice(0, 16)}`;
+	const billing = isCloudBillingEnabled() ? cloudTrialValues(new Date()) : {};
 
 	await db.transaction(async (tx) => {
-		const [org] = await tx.insert(s.organization).values({ name: orgName, slug: orgSlug }).returning().execute();
+		const [org] = await tx
+			.insert(s.organization)
+			.values({ name: orgName, slug: orgSlug, ...billing })
+			.returning()
+			.execute();
 
 		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
 	});
+};
+
+export const initializeMissingCloudOrganizationTrials = async (now = new Date()): Promise<number> => {
+	if (!isCloudBillingEnabled()) {
+		return 0;
+	}
+
+	const initialized = await db
+		.update(s.organization)
+		.set(cloudTrialValues(now))
+		.where(
+			and(
+				isNull(s.organization.billingPlan),
+				isNull(s.organization.trialStartedAt),
+				isNull(s.organization.stripeSubscriptionId),
+			),
+		)
+		.returning({ id: s.organization.id })
+		.execute();
+	return initialized.length;
 };
 
 /**
@@ -342,6 +392,18 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
 	await ensureDefaultProject(org);
 };
+
+function cloudTrialValues(now: Date): Partial<NewOrganization> {
+	const trialEndsAt = new Date(now.getTime() + CLOUD_MONTHLY_PLAN.trialDays * 24 * 60 * 60 * 1000);
+	return {
+		billingPlan: CLOUD_MONTHLY_PLAN.key,
+		billingStatus: 'trialing',
+		trialStartedAt: now,
+		trialEndsAt,
+		billingAccessEndsAt: trialEndsAt,
+		billingUpdatedAt: now,
+	};
+}
 
 export interface OrgMemberWithUser {
 	id: string;

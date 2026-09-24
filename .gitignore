@@ -9,6 +9,7 @@ count.txt
 .tanstack
 .wrangler
 *.sqlite
+*.sqlite*.backup
 .husky/_
 chats
 nao-chat-server

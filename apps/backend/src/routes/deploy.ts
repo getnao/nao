@@ -10,6 +10,7 @@ import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
+import { assertOrganizationCloudBillingAccess } from '../services/cloud-billing-access.service';
 
 export const deployRoutes = async (app: App) => {
 	app.post('/deploy', async (request, reply) => {
@@ -22,6 +23,7 @@ export const deployRoutes = async (app: App) => {
 		if (!org) {
 			return reply.status(401).send({ error: 'Invalid API key' });
 		}
+		await assertOrganizationCloudBillingAccess(org.id);
 
 		const file = await request.file();
 		if (!file) {

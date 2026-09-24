@@ -4,6 +4,7 @@ import { env, isCloudBillingEnabled } from '../env';
 import { BillingStatus, CLOUD_MONTHLY_PLAN } from '../types/billing';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2026-08-26.dahlia';
+const STRIPE_CHECKOUT_MIN_TRIAL_MS = 48 * 60 * 60 * 1000;
 const ORGANIZATION_METADATA_KEY = 'nao_org_id';
 const PLAN_METADATA_KEY = 'nao_plan_key';
 const CHECKOUT_KIND_METADATA_KEY = 'nao_checkout_kind';
@@ -14,7 +15,7 @@ type CloudMonthlyPrice = Stripe.Price & {
 	unit_amount: number;
 };
 
-export interface CloudSubscriptionProjection {
+interface CloudSubscriptionProjection {
 	billingPlan: typeof CLOUD_MONTHLY_PLAN.key;
 	billingStatus: BillingStatus;
 	stripeCustomerId: string;
@@ -24,10 +25,11 @@ export interface CloudSubscriptionProjection {
 	trialEndsAt: Date | null;
 	currentPeriodEndsAt: Date | null;
 	cancelAtPeriodEnd: boolean;
+	hasDefaultPaymentMethod: boolean;
 	billingAccessEndsAt: Date | null;
 }
 
-export interface CloudInvoice {
+interface CloudInvoice {
 	id: string;
 	number: string | null;
 	status: Stripe.Invoice.Status | null;
@@ -38,7 +40,7 @@ export interface CloudInvoice {
 	invoicePdf: string | null;
 }
 
-export class CloudTrialUnavailableError extends Error {}
+export class CloudInitialCheckoutUnavailableError extends Error {}
 
 export class CloudSubscriptionUnavailableError extends Error {}
 
@@ -64,30 +66,46 @@ export async function createCloudCustomer(input: {
 export async function createCloudCheckoutSession(input: {
 	organizationId: string;
 	stripeCustomerId: string;
+	trialEndsAt: Date | null;
 }): Promise<string> {
-	if ((await findCloudSubscriptions(input.stripeCustomerId)).length > 0) {
-		throw new CloudTrialUnavailableError('This organization has already used its cloud trial');
+	if ((await listCloudSubscriptions(input.stripeCustomerId)).length > 0) {
+		throw new CloudInitialCheckoutUnavailableError(
+			'This organization already has cloud subscription history; use resubscribe instead',
+		);
 	}
-	return createSubscriptionCheckoutSession({ ...input, kind: 'trial' });
+	return createSubscriptionCheckoutSession({
+		...input,
+		kind: 'initial',
+		operationKey: input.trialEndsAt?.getTime().toString() ?? 'expired',
+	});
 }
 
 export async function createCloudResubscribeSession(input: {
 	organizationId: string;
 	stripeCustomerId: string;
-	requestId: string;
 }): Promise<string> {
-	const subscriptions = await findCloudSubscriptions(input.stripeCustomerId);
+	const subscriptions = await listCloudSubscriptions(input.stripeCustomerId);
 	if (subscriptions.some((subscription) => !isTerminalSubscription(subscription))) {
 		throw new CloudSubscriptionUnavailableError('This organization already has a current subscription');
 	}
-	return createSubscriptionCheckoutSession({ ...input, kind: 'subscription' });
+	const latestSubscription = [...subscriptions].sort((left, right) => right.created - left.created)[0];
+	if (!latestSubscription) {
+		throw new CloudSubscriptionUnavailableError('This organization has no subscription history');
+	}
+	return createSubscriptionCheckoutSession({
+		...input,
+		kind: 'resubscribe',
+		operationKey: latestSubscription.id,
+		trialEndsAt: null,
+	});
 }
 
 async function createSubscriptionCheckoutSession(input: {
 	organizationId: string;
 	stripeCustomerId: string;
-	kind: 'trial' | 'subscription';
-	requestId?: string;
+	kind: 'initial' | 'resubscribe';
+	operationKey: string;
+	trialEndsAt: Date | null;
 }): Promise<string> {
 	const existingSession = (
 		await getStripeClient().checkout.sessions.list({
@@ -100,10 +118,7 @@ async function createSubscriptionCheckoutSession(input: {
 			session.mode === 'subscription' &&
 			session.metadata?.[ORGANIZATION_METADATA_KEY] === input.organizationId &&
 			session.metadata?.[PLAN_METADATA_KEY] === CLOUD_MONTHLY_PLAN.key &&
-			(input.kind === 'trial'
-				? !session.metadata?.[CHECKOUT_KIND_METADATA_KEY] ||
-					session.metadata[CHECKOUT_KIND_METADATA_KEY] === input.kind
-				: session.metadata?.[CHECKOUT_KIND_METADATA_KEY] === input.kind),
+			matchesCheckoutKind(session.metadata?.[CHECKOUT_KIND_METADATA_KEY], input.kind),
 	);
 	if (existingSession?.url) {
 		return existingSession.url;
@@ -111,6 +126,10 @@ async function createSubscriptionCheckoutSession(input: {
 
 	const price = await getCloudMonthlyPrice();
 	const billingUrl = billingPageUrl();
+	const trialEnd =
+		input.trialEndsAt && input.trialEndsAt.getTime() >= Date.now() + STRIPE_CHECKOUT_MIN_TRIAL_MS
+			? Math.floor(input.trialEndsAt.getTime() / 1000)
+			: null;
 	const session = await getStripeClient().checkout.sessions.create(
 		{
 			mode: 'subscription',
@@ -118,7 +137,7 @@ async function createSubscriptionCheckoutSession(input: {
 			customer_update: { address: 'auto', name: 'auto' },
 			client_reference_id: input.organizationId,
 			line_items: [{ price: price.id, quantity: 1 }],
-			payment_method_collection: input.kind === 'trial' ? 'if_required' : 'always',
+			payment_method_collection: trialEnd ? 'if_required' : 'always',
 			metadata: {
 				[ORGANIZATION_METADATA_KEY]: input.organizationId,
 				[PLAN_METADATA_KEY]: CLOUD_MONTHLY_PLAN.key,
@@ -129,21 +148,18 @@ async function createSubscriptionCheckoutSession(input: {
 					[ORGANIZATION_METADATA_KEY]: input.organizationId,
 					[PLAN_METADATA_KEY]: CLOUD_MONTHLY_PLAN.key,
 				},
-				...(input.kind === 'trial'
+				...(trialEnd
 					? {
-							trial_period_days: CLOUD_MONTHLY_PLAN.trialDays,
+							trial_end: trialEnd,
 							trial_settings: { end_behavior: { missing_payment_method: 'pause' as const } },
 						}
 					: {}),
 			},
-			success_url: `${billingUrl}?checkout=${input.kind === 'trial' ? 'success' : 'subscribed'}`,
+			success_url: `${billingUrl}?checkout=${input.kind === 'initial' ? 'success' : 'subscribed'}`,
 			cancel_url: `${billingUrl}?checkout=canceled`,
 		},
 		{
-			idempotencyKey:
-				input.kind === 'trial'
-					? `cloud-checkout-trial-v2:${input.organizationId}`
-					: `cloud-checkout-subscription-v2:${input.organizationId}:${input.requestId}`,
+			idempotencyKey: `cloud-checkout-${input.kind}-v3:${input.organizationId}:${input.operationKey}`,
 		},
 	);
 	if (!session.url) {
@@ -219,14 +235,9 @@ export async function resumeCloudSubscription(input: {
 		throw new CloudSubscriptionResumeError('Only a paused subscription can be resumed');
 	}
 
-	const customerId = stripeCustomerId(subscription.customer);
-	const customer = await getStripeClient().customers.retrieve(customerId);
 	if (
-		customer.deleted ||
-		(!subscription.default_payment_method &&
-			!subscription.default_source &&
-			!customer.invoice_settings.default_payment_method &&
-			!customer.default_source)
+		!hasSubscriptionDefaultPaymentMethod(subscription) &&
+		!(await hasCloudDefaultPaymentMethod(stripeCustomerId(subscription.customer)))
 	) {
 		throw new CloudSubscriptionResumeError('Add a payment method before resuming the subscription');
 	}
@@ -238,18 +249,19 @@ export async function resumeCloudSubscription(input: {
 	);
 }
 
-export async function findCloudSubscription(stripeCustomerIdValue: string): Promise<Stripe.Subscription | null> {
-	return (await findCloudSubscriptions(stripeCustomerIdValue))[0] ?? null;
+export async function hasCloudDefaultPaymentMethod(stripeCustomerIdValue: string): Promise<boolean> {
+	const customer = await getStripeClient().customers.retrieve(stripeCustomerIdValue);
+	return !customer.deleted && Boolean(customer.invoice_settings.default_payment_method || customer.default_source);
 }
 
-async function findCloudSubscriptions(stripeCustomerIdValue: string): Promise<Stripe.Subscription[]> {
+export async function listCloudSubscriptions(stripeCustomerIdValue: string): Promise<Stripe.Subscription[]> {
 	const price = await getCloudMonthlyPrice();
 	const subscriptions = await getStripeClient().subscriptions.list({
 		customer: stripeCustomerIdValue,
 		status: 'all',
 		limit: 100,
 	});
-	return subscriptions.data.filter((subscription) => hasPrice(subscription, price.id));
+	return subscriptions.data.filter((subscription) => hasProduct(subscription, stripeProductId(price.product)));
 }
 
 export async function getCloudSubscription(stripeSubscriptionId: string): Promise<Stripe.Subscription> {
@@ -257,8 +269,8 @@ export async function getCloudSubscription(stripeSubscriptionId: string): Promis
 		getCloudMonthlyPrice(),
 		getStripeClient().subscriptions.retrieve(stripeSubscriptionId),
 	]);
-	if (!hasPrice(subscription, price.id)) {
-		throw new Error(`Stripe Subscription "${stripeSubscriptionId}" does not use the configured cloud Price`);
+	if (!hasProduct(subscription, stripeProductId(price.product))) {
+		throw new Error(`Stripe Subscription "${stripeSubscriptionId}" does not use the configured cloud Product`);
 	}
 	return subscription;
 }
@@ -285,7 +297,10 @@ export async function cloudSubscriptionProjection(
 		throw new Error(`Unsupported Stripe subscription status "${subscription.status}"`);
 	}
 	const price = await getCloudMonthlyPrice();
-	const item = subscription.items.data.find((candidate) => candidate.price.id === price.id);
+	const productId = stripeProductId(price.product);
+	const item = subscription.items.data.find(
+		(candidate) => stripeProductId(candidate.price.product) === productId && candidate.quantity === 1,
+	);
 	if (!item) {
 		throw new Error(`Stripe Subscription "${subscription.id}" has no cloud plan item`);
 	}
@@ -295,6 +310,9 @@ export async function cloudSubscriptionProjection(
 	const cancellationEndsAt = stripeDate(subscription.cancel_at);
 	const cancellationScheduled =
 		subscription.status !== 'canceled' && (subscription.cancel_at_period_end || cancellationEndsAt !== null);
+	const hasDefaultPaymentMethod =
+		hasSubscriptionDefaultPaymentMethod(subscription) ||
+		(await hasCloudDefaultPaymentMethod(stripeCustomerId(subscription.customer)));
 	return {
 		billingPlan: CLOUD_MONTHLY_PLAN.key,
 		billingStatus: subscription.status,
@@ -305,6 +323,7 @@ export async function cloudSubscriptionProjection(
 		trialEndsAt,
 		currentPeriodEndsAt,
 		cancelAtPeriodEnd: cancellationScheduled,
+		hasDefaultPaymentMethod,
 		billingAccessEndsAt: cancellationScheduled
 			? (cancellationEndsAt ?? (subscription.status === 'trialing' ? trialEndsAt : currentPeriodEndsAt))
 			: subscription.status === 'trialing'
@@ -364,8 +383,16 @@ function billingPageUrl(): string {
 	return new URL('/settings/organization/billing', env.BETTER_AUTH_URL).toString();
 }
 
-function hasPrice(subscription: Stripe.Subscription, priceId: string): boolean {
-	return subscription.items.data.some((item) => item.price.id === priceId && item.quantity === 1);
+function matchesCheckoutKind(value: string | undefined, kind: 'initial' | 'resubscribe'): boolean {
+	return kind === 'initial'
+		? !value || value === 'trial' || value === kind
+		: value === 'subscription' || value === kind;
+}
+
+function hasProduct(subscription: Stripe.Subscription, productId: string): boolean {
+	return subscription.items.data.some(
+		(item) => stripeProductId(item.price.product) === productId && item.quantity === 1,
+	);
 }
 
 function isTerminalSubscription(subscription: Stripe.Subscription): boolean {
@@ -374,6 +401,14 @@ function isTerminalSubscription(subscription: Stripe.Subscription): boolean {
 
 function stripeCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer): string {
 	return typeof customer === 'string' ? customer : customer.id;
+}
+
+function stripeProductId(product: string | Stripe.Product | Stripe.DeletedProduct): string {
+	return typeof product === 'string' ? product : product.id;
+}
+
+function hasSubscriptionDefaultPaymentMethod(subscription: Stripe.Subscription): boolean {
+	return Boolean(subscription.default_payment_method || subscription.default_source);
 }
 
 function stripeDate(value: number | null): Date | null {

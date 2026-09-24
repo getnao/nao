@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lte } from 'drizzle-orm';
 
 import s, { DBOrganization, DBStripeWebhookEvent, NewStripeWebhookEvent } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -14,7 +14,13 @@ export interface SubscriptionProjection {
 	trialEndsAt: Date | null;
 	currentPeriodEndsAt: Date | null;
 	cancelAtPeriodEnd: boolean;
+	hasDefaultPaymentMethod: boolean;
 	billingAccessEndsAt: Date | null;
+}
+
+interface BillingSyncClaim {
+	organization: DBOrganization;
+	token: string;
 }
 
 export async function attachStripeCustomer(orgId: string, stripeCustomerId: string): Promise<DBOrganization> {
@@ -34,6 +40,20 @@ export async function attachStripeCustomer(orgId: string, stripeCustomerId: stri
 	return organization;
 }
 
+export async function claimBillingSync(orgId: string, stripeCustomerId: string): Promise<BillingSyncClaim> {
+	const token = crypto.randomUUID();
+	const [organization] = await db
+		.update(s.organization)
+		.set({ billingSyncToken: token })
+		.where(and(eq(s.organization.id, orgId), eq(s.organization.stripeCustomerId, stripeCustomerId)))
+		.returning()
+		.execute();
+	if (!organization) {
+		throw new Error(`Organization "${orgId}" is not attached to Stripe Customer "${stripeCustomerId}"`);
+	}
+	return { organization, token };
+}
+
 export async function getOrganizationByStripeCustomerId(stripeCustomerId: string): Promise<DBOrganization | null> {
 	const [organization] = await db
 		.select()
@@ -43,45 +63,96 @@ export async function getOrganizationByStripeCustomerId(stripeCustomerId: string
 	return organization ?? null;
 }
 
-export async function getOrganizationByStripeSubscriptionId(
-	stripeSubscriptionId: string,
-): Promise<DBOrganization | null> {
-	const [organization] = await db
-		.select()
-		.from(s.organization)
-		.where(eq(s.organization.stripeSubscriptionId, stripeSubscriptionId))
-		.execute();
-	return organization ?? null;
+export async function listOrganizationsWithStripeCustomers(): Promise<DBOrganization[]> {
+	return db.select().from(s.organization).where(isNotNull(s.organization.stripeCustomerId)).execute();
 }
 
-export async function updateSubscriptionProjection(orgId: string, projection: SubscriptionProjection): Promise<void> {
-	await db.transaction(async (tx) => {
-		const [organization] = await tx.select().from(s.organization).where(eq(s.organization.id, orgId)).execute();
-		if (!organization) {
-			throw new Error(`Organization "${orgId}" was not found`);
-		}
-		if (organization.stripeCustomerId && organization.stripeCustomerId !== projection.stripeCustomerId) {
-			throw new Error(`Organization "${orgId}" is attached to another Stripe Customer`);
-		}
-		if (
-			organization.stripeSubscriptionId &&
-			organization.stripeSubscriptionId !== projection.stripeSubscriptionId &&
-			!['canceled', 'incomplete_expired'].includes(organization.billingStatus ?? '')
-		) {
-			throw new Error(`Organization "${orgId}" is attached to another Stripe Subscription`);
-		}
+export async function listOrganizationsDueTrialReminder(now: Date, dueBefore: Date): Promise<DBOrganization[]> {
+	return db
+		.select()
+		.from(s.organization)
+		.where(
+			and(
+				eq(s.organization.billingStatus, 'trialing'),
+				isNotNull(s.organization.trialEndsAt),
+				gt(s.organization.trialEndsAt, now),
+				lte(s.organization.trialEndsAt, dueBefore),
+				isNull(s.organization.trialReminderClaimedAt),
+			),
+		)
+		.execute();
+}
 
-		await tx
-			.update(s.organization)
-			.set({
-				...projection,
-				trialStartedAt: projection.trialStartedAt ?? organization.trialStartedAt,
-				trialEndsAt: projection.trialEndsAt ?? organization.trialEndsAt,
-				billingUpdatedAt: new Date(),
-			})
-			.where(eq(s.organization.id, orgId))
-			.execute();
-	});
+export async function claimTrialReminder(orgId: string, trialEndsAt: Date, claimedAt: Date): Promise<boolean> {
+	const [claimed] = await db
+		.update(s.organization)
+		.set({ trialReminderClaimedAt: claimedAt })
+		.where(
+			and(
+				eq(s.organization.id, orgId),
+				eq(s.organization.billingStatus, 'trialing'),
+				eq(s.organization.trialEndsAt, trialEndsAt),
+				isNull(s.organization.trialReminderClaimedAt),
+			),
+		)
+		.returning({ id: s.organization.id })
+		.execute();
+	return Boolean(claimed);
+}
+
+export async function releaseTrialReminder(orgId: string, trialEndsAt: Date, claimedAt: Date): Promise<void> {
+	await db
+		.update(s.organization)
+		.set({ trialReminderClaimedAt: null })
+		.where(
+			and(
+				eq(s.organization.id, orgId),
+				eq(s.organization.trialEndsAt, trialEndsAt),
+				eq(s.organization.trialReminderClaimedAt, claimedAt),
+			),
+		)
+		.execute();
+}
+
+export async function updateSubscriptionProjection(
+	orgId: string,
+	syncToken: string,
+	projection: SubscriptionProjection,
+): Promise<boolean> {
+	const [updated] = await db
+		.update(s.organization)
+		.set({ ...projection, billingUpdatedAt: new Date(), billingSyncToken: null })
+		.where(
+			and(
+				eq(s.organization.id, orgId),
+				eq(s.organization.billingSyncToken, syncToken),
+				eq(s.organization.stripeCustomerId, projection.stripeCustomerId),
+			),
+		)
+		.returning({ id: s.organization.id })
+		.execute();
+	return Boolean(updated);
+}
+
+export async function updatePaymentMethodProjection(
+	orgId: string,
+	syncToken: string,
+	stripeCustomerId: string,
+	hasDefaultPaymentMethod: boolean,
+): Promise<boolean> {
+	const [updated] = await db
+		.update(s.organization)
+		.set({ hasDefaultPaymentMethod, billingUpdatedAt: new Date(), billingSyncToken: null })
+		.where(
+			and(
+				eq(s.organization.id, orgId),
+				eq(s.organization.billingSyncToken, syncToken),
+				eq(s.organization.stripeCustomerId, stripeCustomerId),
+			),
+		)
+		.returning({ id: s.organization.id })
+		.execute();
+	return Boolean(updated);
 }
 
 export async function insertStripeWebhookEvent(event: NewStripeWebhookEvent): Promise<DBStripeWebhookEvent | null> {

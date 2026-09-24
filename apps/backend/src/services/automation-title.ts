@@ -6,6 +6,7 @@ import { llmTelemetry } from '../agents/telemetry';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 
 const FALLBACK_TITLE = 'Untitled automation';
 
@@ -18,6 +19,7 @@ export async function inferAutomationTitle(
 	if (!trimmedPrompt) {
 		return FALLBACK_TITLE;
 	}
+	await assertProjectCloudBillingAccess(projectId);
 
 	const modelConfig = await resolveModelForProject(projectId, modelSelection);
 	if (!modelConfig) {

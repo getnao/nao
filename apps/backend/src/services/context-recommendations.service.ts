@@ -17,6 +17,7 @@ import { resolveDefaultModelSelection } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { readProjectContext } from '../utils/nao-config';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
 import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
 import { flagExpensiveContextFiles } from './context-recommendations.file-costs';
@@ -39,6 +40,7 @@ export async function runContextRecommendations(
 	projectId: string,
 	options?: { trigger?: 'schedule' | 'manual'; period?: { start?: Date; end?: Date } },
 ): Promise<{ runId: string }> {
+	await assertProjectCloudBillingAccess(projectId);
 	const period = options?.period;
 	const now = new Date();
 	const periodEnd = period?.end ?? now;

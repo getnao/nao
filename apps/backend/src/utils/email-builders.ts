@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 
 import { BudgetLimitReached } from '../components/email/budget-limit-reached';
+import { CloudTrialEnding } from '../components/email/cloud-trial-ending';
 import { ForgotPassword } from '../components/email/forgot-password';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
@@ -76,6 +77,22 @@ export function buildBudgetLimitReachedEmail(
 			currentSpendUsd,
 			period,
 			resetLabel,
+		}),
+	);
+}
+
+export function buildCloudTrialEndingEmail(
+	user: { name: string },
+	organizationName: string,
+	trialEndsAt: Date,
+): CreatedEmail {
+	return createEmail(
+		'Your nao Cloud trial ends soon',
+		CloudTrialEnding({
+			userName: user.name,
+			organizationName,
+			trialEndsAt,
+			billingUrl: new URL('/settings/organization/billing', env.BETTER_AUTH_URL).toString(),
 		}),
 	);
 }

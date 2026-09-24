@@ -1,36 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	attachCustomer: vi.fn(),
 	getCheckoutSubscription: vi.fn(),
 	getEvent: vi.fn(),
 	getInboxEvent: vi.fn(),
 	getOrganizationByCustomer: vi.fn(),
-	getOrganizationById: vi.fn(),
-	getOrganizationBySubscription: vi.fn(),
 	getSubscription: vi.fn(),
 	markFailed: vi.fn(),
 	markProcessed: vi.fn(),
-	projectSubscription: vi.fn(),
-	updateProjection: vi.fn(),
+	reconcileCustomer: vi.fn(),
+	sendTrialReminder: vi.fn(),
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
-	attachStripeCustomer: mocks.attachCustomer,
 	getOrganizationByStripeCustomerId: mocks.getOrganizationByCustomer,
-	getOrganizationByStripeSubscriptionId: mocks.getOrganizationBySubscription,
 	getStripeWebhookEvent: mocks.getInboxEvent,
 	markStripeWebhookEventFailed: mocks.markFailed,
 	markStripeWebhookEventProcessed: mocks.markProcessed,
-	updateSubscriptionProjection: mocks.updateProjection,
 }));
 
-vi.mock('../src/queries/organization.queries', () => ({
-	getOrganizationById: mocks.getOrganizationById,
+vi.mock('../src/services/billing-reconciliation.service', () => ({
+	reconcileCloudBillingCustomer: mocks.reconcileCustomer,
+}));
+
+vi.mock('../src/services/billing-lifecycle.service', () => ({
+	sendCloudTrialReminder: mocks.sendTrialReminder,
 }));
 
 vi.mock('../src/services/stripe.service', () => ({
-	cloudSubscriptionProjection: mocks.projectSubscription,
 	getCloudCheckoutSubscription: mocks.getCheckoutSubscription,
 	getCloudSubscription: mocks.getSubscription,
 	getStripeEvent: mocks.getEvent,
@@ -45,12 +42,10 @@ describe('stripeWebhookHandler', () => {
 			id: 'evt_123',
 			processedAt: null,
 		});
-		mocks.getOrganizationBySubscription.mockResolvedValue(null);
-		mocks.getOrganizationByCustomer.mockResolvedValue({
-			id: 'org-id',
-			stripeCustomerId: 'cus_cloud',
+		mocks.reconcileCustomer.mockResolvedValue({
+			applied: true,
+			ignored: false,
 		});
-		mocks.projectSubscription.mockResolvedValue({ billingStatus: 'trialing' });
 	});
 
 	it('does not process an inbox event twice', async () => {
@@ -59,10 +54,10 @@ describe('stripeWebhookHandler', () => {
 		await stripeWebhookHandler({ eventId: 'evt_123' }, {} as never);
 
 		expect(mocks.getEvent).not.toHaveBeenCalled();
-		expect(mocks.updateProjection).not.toHaveBeenCalled();
+		expect(mocks.reconcileCustomer).not.toHaveBeenCalled();
 	});
 
-	it('persists the trial only after Checkout completion is confirmed', async () => {
+	it('reconciles subscription state after Checkout completion', async () => {
 		const subscription = {
 			id: 'sub_cloud',
 			customer: 'cus_cloud',
@@ -82,27 +77,16 @@ describe('stripeWebhookHandler', () => {
 			},
 			subscription,
 		});
-		mocks.projectSubscription.mockResolvedValue({
-			billingStatus: 'trialing',
-			trialEndsAt: new Date('2026-10-06T00:00:00.000Z'),
-		});
-
 		await stripeWebhookHandler({ eventId: 'evt_123' }, {} as never);
 
-		expect(mocks.updateProjection).toHaveBeenCalledWith(
-			'org-id',
-			expect.objectContaining({ billingStatus: 'trialing' }),
-		);
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_cloud',
+			organizationIdHint: 'org-id',
+		});
 		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
 	});
 
-	it('projects freshly retrieved subscription state instead of an out-of-order event snapshot', async () => {
-		const currentSubscription = {
-			id: 'sub_cloud',
-			customer: 'cus_cloud',
-			metadata: { nao_org_id: 'org-id' },
-			status: 'paused',
-		};
+	it('reconciles subscription events by Customer', async () => {
 		mocks.getEvent.mockResolvedValue({
 			type: 'customer.subscription.updated',
 			data: {
@@ -114,13 +98,41 @@ describe('stripeWebhookHandler', () => {
 				},
 			},
 		});
-		mocks.getSubscription.mockResolvedValue(currentSubscription);
-		mocks.projectSubscription.mockResolvedValue({ billingStatus: 'paused' });
 
 		await stripeWebhookHandler({ eventId: 'evt_123' }, {} as never);
 
-		expect(mocks.projectSubscription).toHaveBeenCalledWith(currentSubscription);
-		expect(mocks.updateProjection).toHaveBeenCalledWith('org-id', { billingStatus: 'paused' });
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_cloud',
+			organizationIdHint: 'org-id',
+		});
+		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
+	});
+
+	it('notifies the mapped organization when a trial will end', async () => {
+		mocks.getEvent.mockResolvedValue({
+			type: 'customer.subscription.trial_will_end',
+			data: {
+				object: {
+					customer: 'cus_cloud',
+					metadata: { nao_org_id: 'org-id' },
+				},
+			},
+		});
+		mocks.getOrganizationByCustomer.mockResolvedValue({ id: 'org-id' });
+
+		await stripeWebhookHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.sendTrialReminder).toHaveBeenCalledWith('org-id');
+	});
+
+	it('projects the latest Customer payment-method state', async () => {
+		mocks.getEvent.mockResolvedValue({
+			type: 'customer.updated',
+			data: { object: { id: 'cus_cloud' } },
+		});
+		await stripeWebhookHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({ stripeCustomerId: 'cus_cloud' });
 		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
 	});
 });

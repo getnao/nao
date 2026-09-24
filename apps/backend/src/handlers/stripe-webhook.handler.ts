@@ -1,14 +1,10 @@
 import type Stripe from 'stripe';
 
 import * as billingQueries from '../queries/billing.queries';
-import * as organizationQueries from '../queries/organization.queries';
+import { sendCloudTrialReminder } from '../services/billing-lifecycle.service';
+import { reconcileCloudBillingCustomer } from '../services/billing-reconciliation.service';
 import type { JobHandler } from '../services/scheduler.service';
-import {
-	cloudSubscriptionProjection,
-	getCloudCheckoutSubscription,
-	getCloudSubscription,
-	getStripeEvent,
-} from '../services/stripe.service';
+import { getCloudCheckoutSubscription, getCloudSubscription, getStripeEvent } from '../services/stripe.service';
 import { STRIPE_WEBHOOK_JOB_NAME } from '../types/billing';
 
 export { STRIPE_WEBHOOK_JOB_NAME };
@@ -27,6 +23,13 @@ const INVOICE_EVENTS = new Set([
 	'invoice.payment_failed',
 	'invoice.payment_action_required',
 	'invoice.finalization_failed',
+]);
+
+const PAYMENT_METHOD_EVENTS = new Set([
+	'customer.updated',
+	'payment_method.attached',
+	'payment_method.detached',
+	'payment_method.updated',
 ]);
 
 export const stripeWebhookHandler: JobHandler<{ eventId?: unknown }> = async (payload) => {
@@ -63,58 +66,70 @@ async function processStripeEvent(event: Stripe.Event): Promise<void> {
 		if (stripeId(session.customer) !== stripeId(subscription.customer)) {
 			throw new Error(`Stripe Checkout Session "${session.id}" has an unexpected Customer`);
 		}
-		await reconcileSubscription(subscription, organizationId);
+		await reconcileCloudBillingCustomer({
+			stripeCustomerId: stripeId(session.customer),
+			organizationIdHint: organizationId,
+		});
 		return;
 	}
 
 	if (SUBSCRIPTION_EVENTS.has(event.type)) {
 		const eventSubscription = event.data.object as Stripe.Subscription;
-		await reconcileSubscription(
-			await getCloudSubscription(eventSubscription.id),
-			eventSubscription.metadata.nao_org_id,
-		);
+		const customerId = stripeId(eventSubscription.customer);
+		const result = await reconcileCloudBillingCustomer({
+			stripeCustomerId: customerId,
+			organizationIdHint: eventSubscription.metadata.nao_org_id,
+		});
+		if (event.type === 'customer.subscription.trial_will_end' && !result.ignored) {
+			const organization = await billingQueries.getOrganizationByStripeCustomerId(customerId);
+			if (organization) {
+				await sendCloudTrialReminder(organization.id);
+			}
+		}
 		return;
 	}
 
 	if (INVOICE_EVENTS.has(event.type)) {
 		const invoice = event.data.object as Stripe.Invoice;
-		const subscriptionId = invoice.parent?.subscription_details?.subscription;
-		if (!subscriptionId) {
+		const customerId = await invoiceCustomerId(invoice);
+		if (!customerId) {
 			return;
 		}
-		await reconcileSubscription(
-			await getCloudSubscription(stripeId(subscriptionId)),
-			invoice.parent?.subscription_details?.metadata?.nao_org_id,
-		);
+		await reconcileCloudBillingCustomer({
+			stripeCustomerId: customerId,
+			organizationIdHint: invoice.parent?.subscription_details?.metadata?.nao_org_id,
+		});
+		return;
+	}
+
+	if (PAYMENT_METHOD_EVENTS.has(event.type)) {
+		const customerId = paymentMethodCustomerId(event);
+		if (customerId) {
+			await reconcileCloudBillingCustomer({ stripeCustomerId: customerId });
+		}
 	}
 }
 
-async function reconcileSubscription(subscription: Stripe.Subscription, organizationId?: string): Promise<void> {
-	const customerId = stripeId(subscription.customer);
-	let organization =
-		(await billingQueries.getOrganizationByStripeSubscriptionId(subscription.id)) ??
-		(await billingQueries.getOrganizationByStripeCustomerId(customerId));
+async function invoiceCustomerId(invoice: Stripe.Invoice): Promise<string | null> {
+	if (invoice.customer) {
+		return stripeId(invoice.customer);
+	}
+	const subscriptionId = invoice.parent?.subscription_details?.subscription;
+	if (!subscriptionId) {
+		return null;
+	}
+	return stripeId((await getCloudSubscription(stripeId(subscriptionId))).customer);
+}
 
-	const metadataOrganizationId = subscription.metadata.nao_org_id;
-	const expectedOrganizationId = organizationId ?? metadataOrganizationId;
-	if (organization && expectedOrganizationId && organization.id !== expectedOrganizationId) {
-		throw new Error(`Stripe Subscription "${subscription.id}" organization metadata does not match`);
-	}
-	if (!organization && expectedOrganizationId) {
-		const metadataOrganization = await organizationQueries.getOrganizationById(expectedOrganizationId);
-		if (!metadataOrganization) {
-			throw new Error(`Organization "${expectedOrganizationId}" was not found`);
-		}
-		organization = await billingQueries.attachStripeCustomer(metadataOrganization.id, customerId);
-	}
-	if (!organization) {
-		throw new Error(`No organization is attached to Stripe Customer "${customerId}"`);
-	}
-	if (organization.stripeCustomerId !== customerId) {
-		throw new Error(`Stripe Subscription "${subscription.id}" has an unexpected Customer`);
+function paymentMethodCustomerId(event: Stripe.Event): string | null {
+	if (event.type === 'customer.updated') {
+		return (event.data.object as Stripe.Customer).id;
 	}
 
-	await billingQueries.updateSubscriptionProjection(organization.id, await cloudSubscriptionProjection(subscription));
+	const paymentMethod = event.data.object as Stripe.PaymentMethod;
+	const previous = event.data.previous_attributes as { customer?: string | Stripe.Customer | null } | undefined;
+	const customer = paymentMethod.customer ?? previous?.customer;
+	return customer ? stripeId(customer) : null;
 }
 
 function stripeId(value: string | { id: string } | null): string {

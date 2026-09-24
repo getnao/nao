@@ -3,9 +3,12 @@ import fs from 'node:fs';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
+import {
+	assertOrganizationCloudBillingAccess,
+	assertProjectCloudBillingAccess,
+} from '../services/cloud-billing-access.service';
 import * as githubService from '../services/github';
 import {
 	createNewProject,
@@ -14,7 +17,12 @@ import {
 	readProjectNameFromConfig,
 	replaceExistingProject,
 } from '../utils/project-import.utils';
-import { adminProtectedProcedure, contextAdminProtectedProcedure, protectedProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	contextAdminProtectedProcedure,
+	protectedProcedure,
+	resolveOrganizationMembership,
+} from './trpc';
 
 export const githubRoutes = {
 	isAvailable: protectedProcedure.query(() => {
@@ -71,10 +79,8 @@ export const githubRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
 			}
 
-			const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
-			if (!membership) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
-			}
+			const membership = await resolveOrganizationMembership(ctx.user.id, ctx.selectedProjectId);
+			await assertOrganizationCloudBillingAccess(membership.orgId);
 
 			const cloneDir = createTempProjectDir('github-import');
 			try {
@@ -131,6 +137,7 @@ export const githubRoutes = {
 	}),
 
 	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await assertProjectCloudBillingAccess(ctx.project.id);
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 		}

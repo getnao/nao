@@ -3,9 +3,12 @@ import fs from 'node:fs';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
+import {
+	assertOrganizationCloudBillingAccess,
+	assertProjectCloudBillingAccess,
+} from '../services/cloud-billing-access.service';
 import * as gitlabService from '../services/gitlab';
 import { logger, serializeError } from '../utils/logger';
 import {
@@ -15,7 +18,7 @@ import {
 	readProjectNameFromConfig,
 	replaceExistingProject,
 } from '../utils/project-import.utils';
-import { adminProtectedProcedure, protectedProcedure } from './trpc';
+import { adminProtectedProcedure, protectedProcedure, resolveOrganizationMembership } from './trpc';
 
 export const gitlabRoutes = {
 	isAvailable: protectedProcedure.query(() => {
@@ -72,10 +75,8 @@ export const gitlabRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitLab is not connected' });
 			}
 
-			const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
-			if (!membership) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
-			}
+			const membership = await resolveOrganizationMembership(ctx.user.id, ctx.selectedProjectId);
+			await assertOrganizationCloudBillingAccess(membership.orgId);
 
 			const cloneDir = createTempProjectDir('gitlab-import');
 			try {
@@ -123,6 +124,7 @@ export const gitlabRoutes = {
 	}),
 
 	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await assertProjectCloudBillingAccess(ctx.project.id);
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 		}

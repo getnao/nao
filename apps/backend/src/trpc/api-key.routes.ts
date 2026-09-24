@@ -2,15 +2,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as apiKeyQueries from '../queries/api-key.queries';
-import * as orgQueries from '../queries/organization.queries';
 import { generateApiKey } from '../services/api-key.service';
-import { protectedProcedure } from './trpc';
+import { protectedProcedure, resolveOrganizationMembership } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
-	if (!membership) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
-	}
+	const membership = await resolveOrganizationMembership(ctx.user.id, ctx.selectedProjectId);
 	if (membership.role !== 'admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only organization admins can manage API keys' });
 	}

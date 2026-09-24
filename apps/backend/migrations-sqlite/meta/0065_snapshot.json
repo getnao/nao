@@ -4615,6 +4615,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "has_default_payment_method": {
+          "name": "has_default_payment_method",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "billing_access_ends_at": {
           "name": "billing_access_ends_at",
           "type": "integer",
@@ -4624,6 +4631,20 @@
         },
         "billing_updated_at": {
           "name": "billing_updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "billing_sync_token": {
+          "name": "billing_sync_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trial_reminder_claimed_at": {
+          "name": "trial_reminder_claimed_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

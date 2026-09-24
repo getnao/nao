@@ -4940,6 +4940,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "has_default_payment_method": {
+          "name": "has_default_payment_method",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
         "billing_access_ends_at": {
           "name": "billing_access_ends_at",
           "type": "timestamp",
@@ -4948,6 +4954,18 @@
         },
         "billing_updated_at": {
           "name": "billing_updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billing_sync_token": {
+          "name": "billing_sync_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trial_reminder_claimed_at": {
+          "name": "trial_reminder_claimed_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false

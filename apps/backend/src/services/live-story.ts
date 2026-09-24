@@ -20,6 +20,7 @@ import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel }
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcementForProject } from './excluded-columns.service';
 const MAX_RENDERED_ROWS = 60;
 
@@ -42,6 +43,7 @@ export async function executeLiveQuery(
 	if (!projectId) {
 		throw new Error('Chat project not found');
 	}
+	await assertProjectCloudBillingAccess(projectId);
 
 	const sqlQuery = stripSqlFilterBlocks(query.sqlQuery);
 	if (query.adminMode) {
@@ -81,6 +83,7 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	if (!chat) {
 		throw new Error('Chat project not found');
 	}
+	await assertProjectCloudBillingAccess(chat.projectId);
 
 	const hasWarehouseQueries = Object.values(sqlQueries).some((query) => !query.adminMode);
 	const project = hasWarehouseQueries ? await projectQueries.retrieveProjectById(chat.projectId) : null;

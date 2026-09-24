@@ -3,11 +3,11 @@ import { z } from 'zod/v4';
 
 import { isCloudBillingEnabled } from '../env';
 import * as billingQueries from '../queries/billing.queries';
-import * as orgQueries from '../queries/organization.queries';
+import { reconcileCloudBillingCustomer } from '../services/billing-reconciliation.service';
 import {
+	CloudInitialCheckoutUnavailableError,
 	CloudSubscriptionResumeError,
 	CloudSubscriptionUnavailableError,
-	CloudTrialUnavailableError,
 	createCloudCheckoutSession,
 	createCloudCustomer,
 	createCloudPaymentMethodSession,
@@ -18,16 +18,13 @@ import {
 } from '../services/stripe.service';
 import { CLOUD_MONTHLY_PLAN } from '../types/billing';
 import { logger } from '../utils/logger';
-import { protectedProcedure } from './trpc';
+import { protectedProcedure, resolveOrganizationMembership } from './trpc';
 
 const cloudBillingMemberProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	if (!isCloudBillingEnabled()) {
 		throw new TRPCError({ code: 'NOT_FOUND' });
 	}
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
-	if (!membership) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
-	}
+	const membership = await resolveOrganizationMembership(ctx.user.id, ctx.selectedProjectId);
 
 	return next({
 		ctx: {
@@ -56,16 +53,20 @@ export const billingRoutes = {
 		trialEndsAt: ctx.organization.trialEndsAt,
 		currentPeriodEndsAt: ctx.organization.currentPeriodEndsAt,
 		cancelAtPeriodEnd: ctx.organization.cancelAtPeriodEnd,
+		hasDefaultPaymentMethod: ctx.organization.hasDefaultPaymentMethod,
 		billingAccessEndsAt: ctx.organization.billingAccessEndsAt,
 		canManageBilling: ctx.orgRole === 'admin',
-		trialAvailable: !ctx.organization.trialStartedAt && !ctx.organization.stripeSubscriptionId,
+		localTrialActive:
+			ctx.organization.billingStatus === 'trialing' &&
+			Boolean(ctx.organization.trialEndsAt && ctx.organization.trialEndsAt.getTime() > Date.now()) &&
+			!ctx.organization.stripeSubscriptionId,
 		portalAvailable: Boolean(ctx.organization.stripeCustomerId && ctx.organization.stripeSubscriptionId),
 		invoiceHistoryAvailable: Boolean(ctx.organization.stripeCustomerId),
 		paymentMethodManagementAvailable: Boolean(ctx.organization.stripeCustomerId),
 		resubscribeAvailable:
 			Boolean(ctx.organization.stripeCustomerId && ctx.organization.stripeSubscriptionId) &&
 			['canceled', 'incomplete_expired'].includes(ctx.organization.billingStatus ?? ''),
-		subscriptionConfirmed: Boolean(ctx.organization.stripeSubscriptionId),
+		hasStripeSubscription: Boolean(ctx.organization.stripeSubscriptionId),
 	})),
 
 	getInvoices: cloudBillingAdminProcedure.query(async ({ ctx }) => {
@@ -80,9 +81,25 @@ export const billingRoutes = {
 		}
 	}),
 
+	syncStripeBilling: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
+		try {
+			if (!ctx.organization.stripeCustomerId) {
+				return { synced: false as const };
+			}
+			await reconcileCloudBillingCustomer({
+				stripeCustomerId: ctx.organization.stripeCustomerId,
+				organizationIdHint: ctx.organization.id,
+			});
+			return { synced: true as const };
+		} catch (error) {
+			logBillingFailure('billing sync', error);
+			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unable to sync Stripe billing status' });
+		}
+	}),
+
 	createCheckoutSession: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
-		if (ctx.organization.trialStartedAt || ctx.organization.stripeSubscriptionId) {
-			throw new TRPCError({ code: 'CONFLICT', message: 'This organization has already used its cloud trial' });
+		if (ctx.organization.stripeSubscriptionId) {
+			throw new TRPCError({ code: 'CONFLICT', message: 'This organization already has a Stripe subscription' });
 		}
 
 		try {
@@ -103,10 +120,11 @@ export const billingRoutes = {
 			const url = await createCloudCheckoutSession({
 				organizationId: ctx.organization.id,
 				stripeCustomerId,
+				trialEndsAt: ctx.organization.trialEndsAt,
 			});
 			return { url };
 		} catch (error) {
-			if (error instanceof CloudTrialUnavailableError) {
+			if (error instanceof CloudInitialCheckoutUnavailableError) {
 				throw new TRPCError({ code: 'CONFLICT', message: error.message });
 			}
 			logBillingFailure('Checkout', error);
@@ -148,7 +166,7 @@ export const billingRoutes = {
 		}
 	}),
 
-	createResubscribeSession: cloudBillingAdminProcedure.input(requestInput).mutation(async ({ ctx, input }) => {
+	createResubscribeSession: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
 		if (
 			!ctx.organization.stripeCustomerId ||
 			!ctx.organization.stripeSubscriptionId ||
@@ -160,7 +178,6 @@ export const billingRoutes = {
 			const url = await createCloudResubscribeSession({
 				organizationId: ctx.organization.id,
 				stripeCustomerId: ctx.organization.stripeCustomerId,
-				requestId: input.requestId,
 			});
 			return { url };
 		} catch (error) {

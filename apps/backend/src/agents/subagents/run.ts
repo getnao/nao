@@ -1,6 +1,7 @@
 import type { task } from '@nao/shared/tools';
 import { type ModelMessage, stepCountIs, streamText } from 'ai';
 
+import { assertProjectCloudBillingAccess } from '../../services/cloud-billing-access.service';
 import type { TokenUsage } from '../../types/chat';
 import type { ToolContext } from '../../types/tools';
 import { convertToTokenUsage } from '../../utils/ai';
@@ -30,6 +31,7 @@ export async function* runSubagent(
 	definition: SubagentDefinition,
 	{ prompt, context, model, abortSignal }: SubagentRunOptions,
 ): AsyncGenerator<task.Output> {
+	await assertProjectCloudBillingAccess(context.projectId);
 	const progress = new SubagentProgress(model.selection.modelId);
 	const callSettings = model.config.callSettings ?? {};
 	const maxOutputTokens = callSettings.maxOutputTokens ?? SUBAGENT_MAX_OUTPUT_TOKENS;

@@ -12,6 +12,7 @@ const stripeMocks = vi.hoisted(() => ({
 	createPortal: vi.fn(),
 	createResubscribe: vi.fn(),
 	listInvoices: vi.fn(),
+	reconcileCustomer: vi.fn(),
 	resumeSubscription: vi.fn(),
 }));
 
@@ -22,17 +23,22 @@ vi.mock('../src/auth', () => ({
 vi.mock('../src/queries/project.queries', () => ({}));
 
 vi.mock('../src/queries/organization.queries', () => ({
-	getUserOrgMembership: vi.fn(async () => testState.membership),
+	getUserOrgMembershipByProject: vi.fn(async () => testState.membership),
+	listUserOrgMemberships: vi.fn(async () => (testState.membership ? [testState.membership] : [])),
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: stripeMocks.attachCustomer,
 }));
 
+vi.mock('../src/services/billing-reconciliation.service', () => ({
+	reconcileCloudBillingCustomer: stripeMocks.reconcileCustomer,
+}));
+
 vi.mock('../src/services/stripe.service', () => ({
 	CloudSubscriptionUnavailableError: class extends Error {},
 	CloudSubscriptionResumeError: class extends Error {},
-	CloudTrialUnavailableError: class extends Error {},
+	CloudInitialCheckoutUnavailableError: class extends Error {},
 	createCloudCheckoutSession: stripeMocks.createCheckout,
 	createCloudCustomer: stripeMocks.createCustomer,
 	createCloudPaymentMethodSession: stripeMocks.createPaymentMethod,
@@ -66,7 +72,6 @@ describe('billing.getStatus', () => {
 	beforeEach(() => {
 		testState.billingEnabled = true;
 		testState.membership = null;
-		vi.mocked(orgQueries.getUserOrgMembership).mockClear();
 		vi.clearAllMocks();
 	});
 
@@ -75,6 +80,7 @@ describe('billing.getStatus', () => {
 		testState.membership = membership({
 			billingPlan: 'cloud_monthly_v2',
 			billingStatus: 'trialing',
+			hasDefaultPaymentMethod: true,
 			trialEndsAt,
 		});
 		await expect(caller().billing.getStatus()).resolves.toMatchObject({
@@ -87,9 +93,10 @@ describe('billing.getStatus', () => {
 			planKey: 'cloud_monthly_v2',
 			status: 'trialing',
 			trialEndsAt,
+			hasDefaultPaymentMethod: true,
 			canManageBilling: true,
-			subscriptionConfirmed: false,
-			trialAvailable: true,
+			hasStripeSubscription: false,
+			localTrialActive: true,
 		});
 	});
 
@@ -103,18 +110,49 @@ describe('billing.getStatus', () => {
 		});
 	});
 
+	it('uses the selected project organization', async () => {
+		testState.membership = membership({ billingStatus: 'active' });
+
+		await expect(caller('project-id').billing.getStatus()).resolves.toMatchObject({ status: 'active' });
+		expect(orgQueries.getUserOrgMembershipByProject).toHaveBeenCalledWith('user-id', 'project-id');
+		expect(orgQueries.listUserOrgMemberships).not.toHaveBeenCalled();
+	});
+
+	it('rejects an unknown selected project instead of choosing another organization', async () => {
+		testState.membership = membership({ billingStatus: 'active' });
+		vi.mocked(orgQueries.getUserOrgMembershipByProject).mockResolvedValueOnce(null);
+
+		await expect(caller('stale-project-id').billing.getStatus()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+		expect(orgQueries.listUserOrgMemberships).not.toHaveBeenCalled();
+	});
+
+	it('requires a project when organization membership is ambiguous', async () => {
+		testState.membership = membership({});
+		vi.mocked(orgQueries.listUserOrgMemberships).mockResolvedValueOnce([
+			testState.membership,
+			membership({}),
+		] as never);
+
+		await expect(caller().billing.getStatus()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+	});
+
 	it('is unavailable without querying an organization when cloud billing is disabled', async () => {
 		testState.billingEnabled = false;
 
 		await expect(caller().billing.getStatus()).rejects.toMatchObject({ code: 'NOT_FOUND' });
-		expect(orgQueries.getUserOrgMembership).not.toHaveBeenCalled();
+		expect(orgQueries.listUserOrgMemberships).not.toHaveBeenCalled();
 	});
 });
 
 describe('billing.createCheckoutSession', () => {
 	beforeEach(() => {
 		testState.billingEnabled = true;
-		testState.membership = membership({});
+		testState.membership = membership({
+			billingPlan: 'cloud_monthly_v2',
+			billingStatus: 'trialing',
+			trialStartedAt: new Date('2026-09-24T00:00:00.000Z'),
+			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
+		});
 		vi.clearAllMocks();
 		stripeMocks.createCustomer.mockResolvedValue({ id: 'cus_cloud' });
 		stripeMocks.attachCustomer.mockResolvedValue({
@@ -137,6 +175,7 @@ describe('billing.createCheckoutSession', () => {
 		expect(stripeService.createCloudCheckoutSession).toHaveBeenCalledWith({
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
+			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
 		});
 	});
 
@@ -147,8 +186,8 @@ describe('billing.createCheckoutSession', () => {
 		expect(stripeService.createCloudCustomer).not.toHaveBeenCalled();
 	});
 
-	it('rejects a second trial before Stripe work', async () => {
-		testState.membership = membership({ trialStartedAt: new Date() });
+	it('rejects Checkout when a Stripe subscription already exists', async () => {
+		testState.membership = membership({ stripeSubscriptionId: 'sub_cloud' });
 
 		await expect(caller().billing.createCheckoutSession()).rejects.toMatchObject({ code: 'CONFLICT' });
 		expect(stripeService.createCloudCustomer).not.toHaveBeenCalled();
@@ -194,6 +233,21 @@ describe('billing management mutations', () => {
 		).resolves.toEqual({ url: 'https://billing.stripe.com/payment-method' });
 	});
 
+	it('syncs the persisted projection from current Stripe state', async () => {
+		await expect(caller().billing.syncStripeBilling()).resolves.toEqual({ synced: true });
+		expect(stripeMocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_cloud',
+			organizationIdHint: 'org-id',
+		});
+	});
+
+	it('reports that no Stripe sync occurred without a Customer', async () => {
+		testState.membership = membership({});
+
+		await expect(caller().billing.syncStripeBilling()).resolves.toEqual({ synced: false });
+		expect(stripeMocks.reconcileCustomer).not.toHaveBeenCalled();
+	});
+
 	it('starts a paid subscription Checkout only after a terminal subscription', async () => {
 		testState.membership = membership({
 			billingStatus: 'canceled',
@@ -201,13 +255,12 @@ describe('billing management mutations', () => {
 			stripeSubscriptionId: 'sub_cloud',
 		});
 
-		await expect(
-			caller().billing.createResubscribeSession({ requestId: 'c7cc1630-972f-4e2a-a412-9ef6c0e59ef9' }),
-		).resolves.toEqual({ url: 'https://checkout.stripe.com/subscription' });
+		await expect(caller().billing.createResubscribeSession()).resolves.toEqual({
+			url: 'https://checkout.stripe.com/subscription',
+		});
 		expect(stripeService.createCloudResubscribeSession).toHaveBeenCalledWith({
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
-			requestId: 'c7cc1630-972f-4e2a-a412-9ef6c0e59ef9',
 		});
 	});
 
@@ -218,9 +271,7 @@ describe('billing management mutations', () => {
 			stripeSubscriptionId: 'sub_cloud',
 		});
 
-		await expect(
-			caller().billing.createResubscribeSession({ requestId: 'c7cc1630-972f-4e2a-a412-9ef6c0e59ef9' }),
-		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(caller().billing.createResubscribeSession()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 		expect(stripeService.createCloudResubscribeSession).not.toHaveBeenCalled();
 	});
 
@@ -236,13 +287,13 @@ describe('billing management mutations', () => {
 	});
 });
 
-function caller() {
+function caller(selectedProjectId: string | null = null) {
 	return testRouter.createCaller({
 		session: {
 			user: { id: 'user-id', name: 'Admin', email: 'admin@example.com' },
 			session: { token: 'session-token' },
 		},
-		selectedProjectId: null,
+		selectedProjectId,
 	} as never);
 }
 
@@ -263,7 +314,9 @@ function membership(organization: Record<string, unknown>, role = 'admin') {
 			stripeSubscriptionId: null,
 			currentPeriodEndsAt: null,
 			cancelAtPeriodEnd: null,
+			hasDefaultPaymentMethod: null,
 			billingAccessEndsAt: null,
+			billingUpdatedAt: null,
 			...organization,
 		},
 	};

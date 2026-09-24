@@ -12,13 +12,10 @@ import { addTeamMember } from '../services/team-member';
 import { ORG_ROLES } from '../types/organization';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
-import { assertRolesAreEditable, protectedProcedure } from './trpc';
+import { assertRolesAreEditable, protectedProcedure, resolveOrganizationMembership } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
-	if (!membership) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
-	}
+	const membership = await resolveOrganizationMembership(ctx.user.id, ctx.selectedProjectId);
 
 	return next({ ctx: { org: membership.organization, orgRole: membership.role } });
 });

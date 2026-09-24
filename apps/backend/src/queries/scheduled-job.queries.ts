@@ -83,7 +83,26 @@ export const enqueueOnceJob = async (input: EnqueueOnceInput): Promise<DBSchedul
 		return row;
 	}
 
-	const [row] = await db.insert(s.scheduledJob).values(values).onConflictDoNothing().returning().execute();
+	const [row] = await db
+		.insert(s.scheduledJob)
+		.values(values)
+		.onConflictDoUpdate({
+			target: s.scheduledJob.uniqueKey,
+			set: {
+				name: input.name,
+				payload: input.payload,
+				runAt: input.runAt ?? new Date(),
+				status: 'pending',
+				attempts: 0,
+				maxAttempts: input.maxAttempts,
+				lastError: null,
+				lockedAt: null,
+				lockedBy: null,
+			},
+			setWhere: eq(s.scheduledJob.status, 'failed'),
+		})
+		.returning()
+		.execute();
 	return row ?? null;
 };
 

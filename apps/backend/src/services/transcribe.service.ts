@@ -9,12 +9,14 @@ import {
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getEnvApiKey } from '../utils/llm';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 
 export async function transcribeAudio(
 	projectId: string,
 	audio: string,
 	overrides?: { provider?: TranscribeProvider; modelId?: string },
 ): Promise<string> {
+	await assertProjectCloudBillingAccess(projectId);
 	const agentSettings = await projectQueries.getAgentSettings(projectId);
 	const savedProvider = agentSettings?.transcribe?.provider as TranscribeProvider | undefined;
 	const savedModelId = agentSettings?.transcribe?.modelId;

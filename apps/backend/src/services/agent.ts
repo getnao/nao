@@ -71,6 +71,7 @@ import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGeneratio
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
@@ -277,6 +278,7 @@ export class AgentService {
 		} = {},
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
+		await assertProjectCloudBillingAccess(chat.projectId);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);

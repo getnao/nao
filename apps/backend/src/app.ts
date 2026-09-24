@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 
 import { env, isCloud, isCloudBillingEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
+import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
@@ -33,7 +34,7 @@ import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-re
 import { STRIPE_WEBHOOK_JOB_NAME, stripeWebhookHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
-import { ensureOrganizationSetup } from './queries/organization.queries';
+import { ensureOrganizationSetup, initializeMissingCloudOrganizationTrials } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
 import { attachmentRoutes } from './routes/attachment';
@@ -377,7 +378,7 @@ app.setNotFoundHandler((request, reply) => {
 
 export const startServer = async (opts: { port: number; host: string }) => {
 	if (isCloud) {
-		// TODO: Implement cloud mode
+		await initializeMissingCloudOrganizationTrials();
 	} else {
 		await ensureOrganizationSetup();
 	}
@@ -406,6 +407,12 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
 	if (isCloudBillingEnabled()) {
 		registerJob(STRIPE_WEBHOOK_JOB_NAME, stripeWebhookHandler);
+		registerJob(BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler);
+		await ensureRecurring({
+			name: BILLING_LIFECYCLE_JOB_NAME,
+			cron: '0 * * * *',
+			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
+		});
 	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);

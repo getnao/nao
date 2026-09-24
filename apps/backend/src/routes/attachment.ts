@@ -5,6 +5,7 @@ import type { App } from '../app';
 import { env, noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
 import * as projectQueries from '../queries/project.queries';
+import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import {
 	isStorageEnabled,
 	relativePathFromKey,
@@ -41,6 +42,7 @@ export const attachmentRoutes = async (app: App) => {
 		if (!role || role === 'viewer') {
 			throw new HandlerError('FORBIDDEN', 'Viewers cannot upload files');
 		}
+		await assertProjectCloudBillingAccess(project.id);
 
 		const maxBytes = env.NAO_STORAGE_MAX_FILE_SIZE_MB * 1024 * 1024;
 		// Truncating rather than throwing keeps the size error phrased like every other one here.
