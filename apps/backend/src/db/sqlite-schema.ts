@@ -686,6 +686,23 @@ export const sharedStoryAccess = sqliteTable(
 	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
 
+export const storyRowReview = sqliteTable(
+	'story_row_review',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		rowId: text('row_id').notNull(),
+		decision: text('decision', { enum: ['agree', 'decline'] }).notNull(),
+		reason: text('reason'),
+		reviewerId: text('reviewer_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.rowId] }), index('story_row_review_reviewer_idx').on(t.reviewerId)],
+);
+
 export const projectSavedPrompt = sqliteTable(
 	'project_saved_prompt',
 	{

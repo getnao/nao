@@ -646,6 +646,23 @@ export const sharedStoryAccess = pgTable(
 	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
 
+export const storyRowReview = pgTable(
+	'story_row_review',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		rowId: text('row_id').notNull(),
+		decision: text('decision', { enum: ['agree', 'decline'] }).notNull(),
+		reason: text('reason'),
+		reviewerId: text('reviewer_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		updatedAt: timestamp('updated_at').notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.rowId] }), index('story_row_review_reviewer_idx').on(t.reviewerId)],
+);
+
 export const projectSavedPrompt = pgTable(
 	'project_saved_prompt',
 	{

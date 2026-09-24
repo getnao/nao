@@ -35,6 +35,7 @@ export interface ParsedChartBlock {
 export interface ParsedTableBlock {
 	queryId: string;
 	title: string;
+	reviewKey?: string;
 	conditionalFormats?: ColumnConditionalFormats;
 	/** The original `<table ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
@@ -173,6 +174,7 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 	return {
 		queryId: attrs.query_id,
 		title: attrs.title || '',
+		reviewKey: attrs.review_key || undefined,
 		conditionalFormats: parseConditionalFormats(attrs.formatting),
 	};
 }
@@ -328,6 +330,7 @@ export function injectTableFormatting(
 			query_id: attrs.query_id,
 			title: attrs.title || undefined,
 			conditional_formats: conditionalFormats,
+			review_key: attrs.review_key || undefined,
 		});
 	});
 }

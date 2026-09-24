@@ -22,6 +22,7 @@ interface DataTableCardProps {
 	maxRowsBeforePagination?: number;
 	chatId?: string;
 	conditionalFormats?: ColumnConditionalFormats;
+	renderCell?: (row: Record<string, unknown>, column: string) => ReactNode | undefined;
 	leadingHeader?: ReactNode;
 	/** Extra toolbar controls rendered before the copy/download/fullscreen actions. */
 	headerActions?: ReactNode;
@@ -37,6 +38,7 @@ export const DataTableCard = memo(
 		maxRowsBeforePagination = 10,
 		chatId,
 		conditionalFormats,
+		renderCell,
 		leadingHeader,
 		headerActions,
 	}: DataTableCardProps) => {
@@ -116,6 +118,7 @@ export const DataTableCard = memo(
 					maxRowsBeforePagination={maxRowsBeforePagination}
 					compactFooter={true}
 					conditionalFormats={conditionalFormats}
+					renderCell={renderCell}
 					humanizeColumnLabels={true}
 				/>
 
@@ -156,6 +159,7 @@ export const DataTableCard = memo(
 							maxRowsBeforePagination={maxRowsBeforePagination}
 							compactFooter={true}
 							conditionalFormats={conditionalFormats}
+							renderCell={renderCell}
 							humanizeColumnLabels={true}
 						/>
 					</DialogContent>

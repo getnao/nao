@@ -58,7 +58,9 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${hideTotalAttr} />`;
 }
 
-export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;
+export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'> & {
+	review_key?: string;
+};
 
 export function buildStoryTableBlock(input: StoryTableBlockInput): string {
 	const titleAttr =
@@ -67,7 +69,8 @@ export function buildStoryTableBlock(input: StoryTableBlockInput): string {
 		input.conditional_formats && Object.keys(input.conditional_formats).length > 0
 			? ` formatting='${escapeSingleQuotedStoryAttr(JSON.stringify(input.conditional_formats))}'`
 			: '';
-	return `<table query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}"${titleAttr}${formattingAttr} />`;
+	const reviewKeyAttr = input.review_key ? ` review_key="${escapeDoubleQuotedStoryAttr(input.review_key)}"` : '';
+	return `<table query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}"${titleAttr}${formattingAttr}${reviewKeyAttr} />`;
 }
 
 export type StoryMapBlockInput = Pick<

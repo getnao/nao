@@ -99,6 +99,7 @@ export function StoryTableEditControls({
 						query_id: table.queryId,
 						title: table.title || undefined,
 						conditional_formats: next,
+						review_key: table.reviewKey,
 					})
 				}
 				isSaving={edit.isSaving}

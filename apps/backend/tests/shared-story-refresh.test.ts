@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 	failActivity: vi.fn(),
 	getLatestStoryRefreshFailure: vi.fn(),
 	getStoryQueryData: vi.fn(),
+	listStoryRowReviews: vi.fn(),
+	saveStoryRowReview: vi.fn(),
 	refreshStoryData: vi.fn(),
 	logAnalyticsEvent: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
@@ -41,6 +43,10 @@ vi.mock('../src/queries/story.queries', () => ({
 	getStoryOwnerId: mocks.getStoryOwnerId,
 }));
 vi.mock('../src/queries/story-folder.queries', () => ({}));
+vi.mock('../src/queries/story-row-review.queries', () => ({
+	listStoryRowReviews: mocks.listStoryRowReviews,
+	saveStoryRowReview: mocks.saveStoryRowReview,
+}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
@@ -79,6 +85,7 @@ describe('shared Story manual refresh', () => {
 			storyId: 'story-1',
 			chatId: 'chat-1',
 			slug: 'orders',
+			code: '<table query_id="query_orders" review_key="id" />',
 		});
 		mocks.getStoryByChatAndSlug.mockResolvedValue({
 			id: 'story-1',
@@ -149,6 +156,69 @@ describe('shared Story manual refresh', () => {
 
 		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 		expect(mocks.startStoryRefreshActivity).not.toHaveBeenCalled();
+	});
+
+	it('lets a viewer save an agreement on a conversation in the reviewable table', async () => {
+		await createCaller('viewer-1').storyShare.saveRowReview({
+			shareId: 'share-1',
+			queryId: 'query_orders',
+			rowId: '1',
+			decision: 'agree',
+		});
+		expect(mocks.saveStoryRowReview).toHaveBeenCalledWith({
+			storyId: 'story-1',
+			rowId: '1',
+			decision: 'agree',
+			reason: null,
+			reviewerId: 'viewer-1',
+		});
+	});
+
+	it('requires a reason for a declined score', async () => {
+		await expect(
+			createCaller('viewer-1').storyShare.saveRowReview({
+				shareId: 'share-1',
+				queryId: 'query_orders',
+				rowId: '1',
+				decision: 'decline',
+				reason: '  ',
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.saveStoryRowReview).not.toHaveBeenCalled();
+	});
+
+	it('rejects a conversation absent from the source table', async () => {
+		await expect(
+			createCaller('viewer-1').storyShare.saveRowReview({
+				shareId: 'share-1',
+				queryId: 'query_orders',
+				rowId: '999',
+				decision: 'agree',
+			}),
+		).rejects.toMatchObject({ code: 'NOT_FOUND' });
+		expect(mocks.saveStoryRowReview).not.toHaveBeenCalled();
+	});
+
+	it('does not expose reviews to a user outside a specific share', async () => {
+		mocks.getSharedStory.mockResolvedValueOnce({
+			id: 'share-1',
+			projectId: 'project-1',
+			userId: 'sharer-1',
+			visibility: 'specific',
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			code: '<table query_id="query_orders" review_key="id" />',
+		});
+		mocks.canUserAccessSharedStory.mockResolvedValueOnce(false);
+		await expect(
+			createCaller('viewer-1').storyShare.getRowReviews({
+				shareId: 'share-1',
+				queryId: 'query_orders',
+				rowIds: ['1'],
+			}),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.listStoryRowReviews).not.toHaveBeenCalled();
 	});
 
 	it('lets the owner refresh using the owner execution principal', async () => {

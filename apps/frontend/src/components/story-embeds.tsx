@@ -8,6 +8,7 @@ import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed'
 import { StoryMapEmbedShell } from '@/components/side-panel/story-map-embed';
 import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
 import { StoryMapRender } from '@/components/story-map-embed';
+import { StoryRowReviewTable } from '@/components/story-row-review-table';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { DataTableCard } from '@/components/data-table-card';
 import { useSourceQuery } from '@/hooks/use-source-query';
@@ -216,6 +217,7 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 
 export const StoryTableEmbed = memo(function StoryTableEmbed({
 	table,
+	reviewShareId,
 	queryData,
 	liveQuery,
 	hasActiveFilters = false,
@@ -224,6 +226,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 	isDataPending = false,
 }: {
 	table: ParsedTableBlock;
+	reviewShareId?: string;
 	queryData?: QueryDataMap | null;
 	liveQuery?: LiveQueryConfig;
 	hasActiveFilters?: boolean;
@@ -255,6 +258,11 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 	}
 
 	const columns = resolvedResult.columns ?? [];
+	if (reviewShareId && table.reviewKey && columns.includes(table.reviewKey)) {
+		return (
+			<StoryRowReviewTable shareId={reviewShareId} table={table} data={resolvedResult.data} columns={columns} />
+		);
+	}
 	return (
 		<EmbedRefreshing isRefreshing={showRefreshing}>
 			<DataTableCard

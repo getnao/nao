@@ -1,3 +1,4 @@
+import { type Segment, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -8,6 +9,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import * as storyRowReviewQueries from '../queries/story-row-review.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
@@ -42,7 +44,84 @@ const shareAccessProcedure = resourceProjectProcedure(
 		item.userId === userId ||
 		sharedStoryQueries.canUserAccessSharedStory(item.id, userId),
 );
+
+function getReviewKey(code: string, queryId: string): string | null {
+	const visit = (segments: Segment[]): string | null => {
+		for (const segment of segments) {
+			if (segment.type === 'table' && segment.table.queryId === queryId && segment.table.reviewKey) {
+				return segment.table.reviewKey;
+			}
+			if (segment.type === 'grid') {
+				const nested = visit(segment.children);
+				if (nested) {
+					return nested;
+				}
+			}
+		}
+		return null;
+	};
+	return visit(splitCodeIntoSegments(code));
+}
+
+const reviewRowId = z.string().min(1).max(128);
 export const sharedStoryRoutes = {
+	getRowReviews: shareAccessProcedure
+		.input(z.object({ shareId: z.string(), queryId: z.string(), rowIds: z.array(reviewRowId).max(500) }))
+		.query(async ({ input, ctx }) => {
+			if (!getReviewKey(ctx.resource.code, input.queryId)) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'This table does not accept reviews.' });
+			}
+			return storyRowReviewQueries.listStoryRowReviews(ctx.resource.storyId, input.rowIds);
+		}),
+
+	saveRowReview: shareAccessProcedure
+		.input(
+			z.object({
+				shareId: z.string(),
+				queryId: z.string(),
+				rowId: reviewRowId,
+				decision: z.enum(['agree', 'decline']),
+				reason: z.string().max(1000).optional(),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			const reviewKey = getReviewKey(shared.code, input.queryId);
+			if (!reviewKey) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'This table does not accept reviews.' });
+			}
+			const reason = input.reason?.trim() ?? '';
+			if (input.decision === 'decline' && !reason) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'A reason is required when declining.' });
+			}
+			const { queryData } = await getStoryQueryData(
+				shared.chatId!,
+				shared.slug,
+				shared.code,
+				shared.isLive,
+				null,
+			);
+			const rows = queryData?.[input.queryId]?.data;
+			if (
+				!Array.isArray(rows) ||
+				!rows.some(
+					(row) =>
+						row !== null &&
+						typeof row === 'object' &&
+						String((row as Record<string, unknown>)[reviewKey]) === input.rowId,
+				)
+			) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Row is not in this table.' });
+			}
+			await storyRowReviewQueries.saveStoryRowReview({
+				storyId: shared.storyId,
+				rowId: input.rowId,
+				decision: input.decision,
+				reason: input.decision === 'decline' ? reason : null,
+				reviewerId: ctx.user.id,
+			});
+			return { saved: true };
+		}),
 	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
 		const projects = await projectQueries.listUserProjects(ctx.user.id);
 		const projectIds = projects.map((p) => p.id);

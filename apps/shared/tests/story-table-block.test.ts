@@ -6,6 +6,15 @@ import { injectTableFormatting, parseTableBlock, splitCodeIntoSegments } from '.
 import { displayChart } from '../src/tools';
 
 describe('buildStoryTableBlock', () => {
+	it('keeps an opt-in review key when formatting is injected', () => {
+		const code = '<table query_id="low_scores" review_key="conversation_id" />';
+		const updated = injectTableFormatting(code, { low_scores: { score: { type: 'color-scale' } } });
+		const table = splitCodeIntoSegments(updated)[0];
+		expect(table.type).toBe('table');
+		if (table.type === 'table') {
+			expect(table.table.reviewKey).toBe('conversation_id');
+		}
+	});
 	it('round-trips a table with conditional formatting through the story parser', () => {
 		const block = buildStoryTableBlock({
 			query_id: 'query_abc',

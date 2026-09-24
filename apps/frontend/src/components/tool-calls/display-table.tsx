@@ -4,9 +4,11 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { ColumnConditionalFormats, ColumnRange, ConditionalFormatRule } from '@nao/shared/conditional-formatting';
 import type { SortDirection } from '@nao/shared/story-table-utils';
+import type { ReactNode } from 'react';
+
 import { TablePagination } from '@/components/ui/table-pagination';
-import { useDateFormat } from '@/hooks/use-date-format';
 import { TablePaginationCompact } from '@/components/ui/table-pagination-compact';
+import { useDateFormat } from '@/hooks/use-date-format';
 import { cn } from '@/lib/utils';
 
 type TableRow = Record<string, unknown>;
@@ -23,6 +25,7 @@ interface TableDisplayProps {
 	compactFooter?: boolean;
 	conditionalFormats?: ColumnConditionalFormats;
 	humanizeColumnLabels?: boolean;
+	renderCell?: (row: TableRow, column: string) => ReactNode | undefined;
 }
 
 type Sort = { column: string; direction: SortDirection };
@@ -39,6 +42,7 @@ export const TableDisplay = memo(function TableDisplay({
 	compactFooter = false,
 	conditionalFormats,
 	humanizeColumnLabels = false,
+	renderCell,
 }: TableDisplayProps) {
 	const dateFormat = useDateFormat();
 	const resolvedColumns = useMemo(
@@ -160,11 +164,12 @@ export const TableDisplay = memo(function TableDisplay({
 													numericColumns.has(column) && 'text-right tabular-nums',
 												)}
 											>
-												{isNull ? (
-													<span className='italic text-muted-foreground/60'>NULL</span>
-												) : (
-													formatCellValue(value, dateFormat)
-												)}
+												{renderCell?.(row, column) ??
+													(isNull ? (
+														<span className='italic text-muted-foreground/60'>NULL</span>
+													) : (
+														formatCellValue(value, dateFormat)
+													))}
 											</td>
 										);
 									})}

@@ -439,6 +439,7 @@ function SharedStoryContent({
 		) => (
 			<StoryTableEmbed
 				table={table}
+				reviewShareId={shareId}
 				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
 				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
@@ -446,7 +447,7 @@ function SharedStoryContent({
 				isDataPending={isDataPending}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, shareId, useLiveUnfiltered],
 	);
 
 	const renderMap = useCallback(
