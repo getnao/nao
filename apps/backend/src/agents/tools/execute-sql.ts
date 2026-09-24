@@ -14,7 +14,7 @@ import { runQueryOnLocalFiles } from '../../services/local-query.service';
 import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { executeWarehouseSql } from '../../services/warehouse-sql.service';
 import { ToolContext } from '../../types/tools';
-import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
+import { containsBlockedPassthroughCall, detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
@@ -35,6 +35,12 @@ export async function executeQuery(
 	const effectiveSql = stripSqlFilterBlocks(sql_query);
 	if (templateWarnings.length > 0 && sqlIncludesFilterTemplate(effectiveSql)) {
 		throw new Error(`Invalid story filter SQL template: ${templateWarnings.join(' ')}`);
+	}
+	if (containsBlockedPassthroughCall(effectiveSql)) {
+		throw new Error(
+			'Query calls a catalog/server-passthrough function (e.g. postgres_query, mysql_query, sqlite_query) — ' +
+				"blocked regardless of write permissions, since these open a connection to another server rather than write to this database's data.",
+		);
 	}
 	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
 	if (!writePermEnabled && !(await isReadOnlySqlQuery(effectiveSql))) {
