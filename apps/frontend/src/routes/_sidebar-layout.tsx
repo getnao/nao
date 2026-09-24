@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router';
 
 import { CommandMenu } from '@/components/command-menu';
+import { CloudBillingAccessBanner } from '@/components/cloud-billing-access-banner';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { Sidebar } from '@/components/sidebar';
 import { CommandMenuCallbackProvider, useCommandMenuCallback } from '@/contexts/command-menu-callback';
@@ -33,7 +34,12 @@ function SidebarLayoutContent() {
 			<Sidebar />
 			<CommandMenu onOpenKeyboardShortcuts={() => setKeyboardShortcutsOpen(true)} />
 			<KeyboardShortcutsDialog open={keyboardShortcutsOpen} onOpenChange={setKeyboardShortcutsOpen} />
-			<Outlet />
+			<div className='flex min-h-0 min-w-0 flex-1 flex-col'>
+				<CloudBillingAccessBanner />
+				<div className='flex min-h-0 min-w-0 flex-1'>
+					<Outlet />
+				</div>
+			</div>
 		</>
 	);
 }

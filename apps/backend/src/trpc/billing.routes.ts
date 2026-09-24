@@ -12,6 +12,7 @@ import {
 	resumeCloudSubscriptionForAdmin,
 	syncCloudBillingForAdmin,
 } from '../services/billing-management.service';
+import { hasCloudBillingAccess } from '../services/cloud-billing-access.service';
 import {
 	CloudInitialCheckoutUnavailableError,
 	CloudSubscriptionResumeError,
@@ -46,6 +47,15 @@ const cloudBillingAdminProcedure = cloudBillingMemberProcedure.use(async ({ ctx,
 const requestInput = z.object({ requestId: z.uuid() });
 
 export const billingRoutes = {
+	getAccess: cloudBillingMemberProcedure.query(({ ctx }) => ({
+		hasAccess: hasCloudBillingAccess(true, ctx.organization),
+		status: ctx.organization.billingStatus,
+		trialEndsAt: ctx.organization.trialEndsAt,
+		canManageBilling: ctx.orgRole === 'admin',
+		requiresBillingAction:
+			ctx.organization.billingStatus === 'trialing' && ctx.organization.hasDefaultPaymentMethod !== true,
+	})),
+
 	getStatus: cloudBillingAdminProcedure.query(async ({ ctx }) => {
 		const organization = await getCloudBillingOrganizationForAdmin({
 			userId: ctx.user.id,

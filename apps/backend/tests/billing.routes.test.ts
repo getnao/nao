@@ -74,6 +74,39 @@ import { router } from '../src/trpc/trpc';
 
 const testRouter = router({ billing: billingRoutes });
 
+describe('billing.getAccess', () => {
+	beforeEach(() => {
+		testState.billingEnabled = true;
+		testState.membership = null;
+		vi.clearAllMocks();
+	});
+
+	it('returns minimal entitlement state to organization members', async () => {
+		const trialEndsAt = new Date('2099-10-05T00:00:00.000Z');
+		testState.membership = membership({ billingStatus: 'trialing', trialEndsAt }, 'member');
+
+		await expect(caller().billing.getAccess()).resolves.toEqual({
+			hasAccess: true,
+			status: 'trialing',
+			trialEndsAt,
+			canManageBilling: false,
+			requiresBillingAction: true,
+		});
+	});
+
+	it('reports an expired trial as restricted', async () => {
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			trialEndsAt: new Date('2020-10-05T00:00:00.000Z'),
+		});
+
+		await expect(caller().billing.getAccess()).resolves.toMatchObject({
+			hasAccess: false,
+			canManageBilling: true,
+		});
+	});
+});
+
 describe('billing.getStatus', () => {
 	beforeEach(() => {
 		testState.billingEnabled = true;

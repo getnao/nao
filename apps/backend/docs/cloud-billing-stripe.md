@@ -27,8 +27,14 @@ When disabled, billing tRPC procedures return `NOT_FOUND`, raw Stripe routes and
 ```mermaid
 flowchart LR
     Admin["Organization admin"]
+    Member["Organization member"]
     Stripe["Stripe"]
     Scheduler["Internal scheduler"]
+
+    subgraph Browser["Cloud UI"]
+        BillingPage["Plan & Billing page"]
+        AccessBanner["Trial and access banner"]
+    end
 
     subgraph HTTP["HTTP boundaries"]
         Router["billing tRPC router"]
@@ -49,8 +55,14 @@ flowchart LR
         Jobs[("scheduled_job")]
     end
 
-    Admin --> Router
-    Router --> Management
+    Admin --> BillingPage
+    Admin --> AccessBanner
+    Member --> AccessBanner
+    BillingPage --> Router
+    AccessBanner --> Router
+    Router -->|"resolve membership"| Organization
+    Router -->|"minimal entitlement summary"| Access
+    Router -->|"admin management"| Management
     Management --> Organization
     Management --> Gateway
     Stripe --> Webhook
@@ -68,7 +80,7 @@ flowchart LR
     Gateway <--> Stripe
 ```
 
-There are two intentional trust paths. Interactive requests must pass both the tRPC admin middleware and the independent database-backed admin check in `billing-management.service.ts`. Signed Stripe webhooks and internal scheduled jobs do not impersonate a user; they use the lower-level Stripe gateway and validate object ownership during reconciliation.
+There are two intentional trust paths. Interactive billing-management requests must pass both the tRPC admin middleware and the independent database-backed admin check in `billing-management.service.ts`. The member-readable entitlement summary does not expose Stripe or invoice data. Signed Stripe webhooks and internal scheduled jobs do not impersonate a user; they use the lower-level Stripe gateway and validate object ownership during reconciliation.
 
 ## Stripe configuration
 
@@ -244,13 +256,16 @@ This rule applies to billing, organization settings, API keys, and GitHub or Git
 
 ## Interactive route authorization
 
-Every billing procedure follows the same fail-closed chain before any Stripe operation:
+Every billing procedure checks the feature flag and resolves organization membership before database-backed billing work. The member-readable access procedure then evaluates the persisted entitlement without exposing Stripe data. Management procedures continue through both admin checks before any Stripe operation:
 
 ```mermaid
 flowchart TD
     Request["Authenticated tRPC request"]
     Enabled{"Cloud billing enabled?"}
     Resolve["Resolve organization membership"]
+    Procedure{"Procedure type?"}
+    Entitlement["Evaluate persisted entitlement"]
+    Summary["Return minimal access summary"]
     MiddlewareAdmin{"Organization admin?"}
     ServiceAdmin["Reload org membership in billing-management.service"]
     ServiceAllowed{"Still an admin?"}
@@ -260,7 +275,10 @@ flowchart TD
     Enabled -->|No| NotFound["NOT_FOUND<br/>no database or Stripe work"]
     Enabled -->|Yes| Resolve
     Resolve -->|Missing or ambiguous| ResolutionError["NOT_FOUND or BAD_REQUEST"]
-    Resolve --> MiddlewareAdmin
+    Resolve --> Procedure
+    Procedure -->|billing.getAccess| Entitlement
+    Entitlement --> Summary
+    Procedure -->|Management| MiddlewareAdmin
     MiddlewareAdmin -->|No| Forbidden["FORBIDDEN"]
     MiddlewareAdmin -->|Yes| ServiceAdmin
     ServiceAdmin --> ServiceAllowed
@@ -274,8 +292,10 @@ The browser cannot select Stripe object IDs. The management service reloads the 
 
 ```mermaid
 flowchart LR
-    Guard["Shared admin authorization<br/>router + management service"]
+    MemberGuard["Cloud billing enabled<br/>organization membership"]
+    AdminGuard["Admin authorization<br/>router + management service"]
 
+    AccessSummary["billing.getAccess"]
     Status["billing.getStatus"]
     Invoices["billing.getInvoices"]
     Sync["billing.syncStripeBilling"]
@@ -293,23 +313,26 @@ flowchart LR
     InvoiceAPI["Stripe Invoices API"]
     SubscriptionAPI["Stripe Subscriptions API"]
 
-    Guard --> Status --> Organization
-    Guard --> Invoices --> InvoiceAPI
-    Guard --> Sync --> Reconcile
-    Guard --> Checkout
+    MemberGuard --> AccessSummary --> Organization
+    MemberGuard --> AdminGuard
+    AdminGuard --> Status --> Organization
+    AdminGuard --> Invoices --> InvoiceAPI
+    AdminGuard --> Sync --> Reconcile
+    AdminGuard --> Checkout
     Checkout --> Organization
     Checkout -->|"create if absent"| CustomerAPI
     Checkout --> CheckoutAPI
-    Guard --> Portal --> PortalAPI
-    Guard --> Payment -->|"payment_method_update flow"| PortalAPI
-    Guard --> Resubscribe
+    AdminGuard --> Portal --> PortalAPI
+    AdminGuard --> Payment -->|"payment_method_update flow"| PortalAPI
+    AdminGuard --> Resubscribe
     Resubscribe --> SubscriptionAPI
     Resubscribe --> CheckoutAPI
-    Guard --> Resume --> SubscriptionAPI
+    AdminGuard --> Resume --> SubscriptionAPI
     Reconcile --> SubscriptionAPI
     Reconcile --> Organization
 ```
 
+- `billing.getAccess` returns only entitlement, trial, role-action, and billing-action state required by the organization-wide banner.
 - `billing.getStatus` returns the persisted plan, entitlement dates, action availability, and payment-method readiness.
 - `billing.getInvoices` lists up to 100 invoices for the persisted Customer and returns only display fields and hosted document URLs.
 - `billing.syncStripeBilling` retrieves canonical Stripe state and refreshes the local projection.
@@ -631,6 +654,7 @@ The hourly lifecycle job and Stripe's `trial_will_end` event share one persisted
 
 The cloud-only billing router provides:
 
+- minimal access and trial state for organization members;
 - status for organization admins;
 - invoice history for admins;
 - explicit Stripe synchronization;
@@ -642,9 +666,33 @@ The cloud-only billing router provides:
 
 Stripe identifiers and raw Stripe objects are never returned to the browser.
 
-All eight procedures use the shared admin middleware and call a management-service operation that independently reloads the membership and requires `orgMember.role = admin`. This second check protects Stripe access if a future caller reaches the service without the expected route middleware.
+All eight management procedures use the shared admin middleware and call a management-service operation that independently reloads the membership and requires `orgMember.role = admin`. This second check protects Stripe access if a future caller reaches the service without the expected route middleware.
 
-The Plan & Billing page displays the plan, trial and paid boundaries, cancellation state, payment-method readiness, invoice history, subscription history, and recovery actions. It polls briefly after Checkout and Portal returns while webhooks remain authoritative.
+The Plan & Billing page displays the plan, trial and paid boundaries, cancellation state, payment-method readiness, invoice history, subscription history, and recovery actions. An organization-wide banner warns members three days before trial expiry and explains restricted access afterward, with a billing action for admins. The UI polls briefly after Checkout and Portal returns while webhooks remain authoritative.
+
+```mermaid
+flowchart TD
+    Layout["Authenticated sidebar layout"]
+    Query["billing.getAccess every 60 seconds"]
+    Access{"Full access?"}
+    Trial{"Trialing within three days?"}
+    Hidden["No banner"]
+    TrialBanner["Show trial-ending banner"]
+    RestrictedBanner["Show limited-access banner"]
+    Admin{"Organization admin?"}
+    Manage["Link to Plan & Billing"]
+    Contact["Ask an organization admin"]
+
+    Layout --> Query --> Access
+    Access -->|No| RestrictedBanner
+    Access -->|Yes| Trial
+    Trial -->|No| Hidden
+    Trial -->|Yes| TrialBanner
+    RestrictedBanner --> Admin
+    TrialBanner --> Admin
+    Admin -->|Yes| Manage
+    Admin -->|No| Contact
+```
 
 ## Deployment and rollback
 
