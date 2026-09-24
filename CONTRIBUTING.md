@@ -82,6 +82,16 @@ npm run dev
 
 This will start the project in development mode. It will start the frontend and backend in development mode.
 
+### Metabase imports
+
+From inside a nao project, run `nao import metabase configure` to save `METABASE_URL` and
+`METABASE_API_KEY` in that project's `.env`, then use the `nao import metabase` CLI commands to export
+dashboards, collections, or saved questions. Agents consume the exported manifests and use nao MCP to
+execute SQL and create charts or stories. Add `--allow-query-execution` when an item requires Metabase to
+compile its SQL; this executes the saved question in Metabase and should only be used when you trust it.
+Without the option, the manifest records the item as non-executable instead. Set
+`BETA_STORY_FILTERS_ENABLED=true` to preserve supported dashboard filters.
+
 ## Project Structure
 
 ```

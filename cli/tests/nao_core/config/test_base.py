@@ -1,5 +1,6 @@
 import os
 import warnings
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -67,6 +68,12 @@ def test_threads_can_be_loaded_from_config(tmp_path):
     config = NaoConfig.load(tmp_path)
 
     assert config.threads == 4
+
+
+def test_default_example_config_only_contains_duckdb():
+    config = NaoConfig.load(Path(__file__).parents[4] / "example")
+
+    assert [database.name for database in config.databases] == ["duckdb-jaffle-shop"]
 
 
 def test_threads_must_be_positive():
