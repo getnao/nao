@@ -216,6 +216,6 @@ def test_with_model_summaries_handles_old_results_without_k_or_pass_metrics():
 
     backfilled = with_model_summaries(data)
 
-    assert "pass_metrics" not in data  # input unchanged shape is fine
+    assert "pass_metrics" not in backfilled  # old files stay compatible without pass_metrics
     assert backfilled["by_model"][0]["pass_rate"] == 50.0
     assert backfilled["by_model"][0]["k"] == 1

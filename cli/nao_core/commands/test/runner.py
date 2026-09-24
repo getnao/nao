@@ -22,6 +22,7 @@ from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
 from .summary import (
+    ModelSummary,
     group_by_test_and_model,
     pass_metrics_for_group,
     summarize,
@@ -336,6 +337,45 @@ def print_run_table(results: list[TestRunResult]) -> None:
     UI.table(pd.DataFrame(rows), title="Test Results")
 
 
+def print_legacy_run_table(results: list[TestRunResult]) -> None:
+    """Print the original one-row-per-run table used when k equals one."""
+    df = pd.DataFrame(
+        [
+            {
+                "Test": result.name,
+                "Model": result.model,
+                "Status": status_icon(result.passed),
+                "Message": result.message,
+                "Tokens": result.tokens or 0,
+                "Cost": result.cost or 0,
+                "Time (s)": round((result.duration_ms or 0) / 1000, 1),
+                "Tools": result.tool_call_count or 0,
+            }
+            for result in results
+        ]
+    )
+    UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
+
+
+def print_model_table(summaries: list[ModelSummary]) -> None:
+    """Print the original per-model summary table used when k equals one."""
+    df = pd.DataFrame(
+        [
+            {
+                "Model": column_label(summary.model),
+                "Pass Rate": format_pass_rate(summary.pass_rate),
+                "Passed": f"{summary.passed}/{summary.total}",
+                "Tokens": summary.total_tokens,
+                "Cost": summary.total_cost,
+                "Avg Time (s)": round(summary.avg_duration_ms / 1000, 1),
+                "Avg Tools": summary.avg_tool_calls,
+            }
+            for summary in summaries
+        ]
+    )
+    UI.table(df, title="Performance by Model", sum_columns={"Tokens": "", "Cost": "$"}, fixed_columns={"Model"})
+
+
 def print_summary_table(results: list[TestRunResult]) -> None:
     """Print one totals row across all test/model pairs and attempts."""
     run_dicts = [asdict(r) for r in results]
@@ -388,6 +428,12 @@ def format_pass_fraction(rate: float) -> str:
     pct = round(rate * 100, 1)
     color = "green" if pct == 100 else "red" if pct < 50 else "yellow"
     return f"[{color}]{pct}%[/{color}]"
+
+
+def format_pass_rate(pass_rate: float) -> str:
+    """Colour a legacy 0-100 pass rate for the k=1 model table."""
+    color = "green" if pass_rate == 100 else "red" if pass_rate < 50 else "yellow"
+    return f"[{color}]{pass_rate}%[/{color}]"
 
 
 def filter_test_cases(
@@ -616,14 +662,19 @@ def test(
     output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
     UI.print(f"[dim]Results saved to: {output_file}[/dim]\n")
 
-    print_run_table(results)
-
     run_dicts = [asdict(r) for r in results]
     model_summaries = summarize_by_model(run_dicts)
 
-    print_summary_table(results)
-    if len(model_summaries) > 1:
-        print_model_matrix(results)
+    if k_count == 1:
+        print_legacy_run_table(results)
+        if len(model_summaries) > 1:
+            print_model_table(model_summaries)
+            print_model_matrix(results)
+    else:
+        print_run_table(results)
+        print_summary_table(results)
+        if len(model_summaries) > 1:
+            print_model_matrix(results)
 
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
