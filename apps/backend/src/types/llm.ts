@@ -204,7 +204,7 @@ export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'reques
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
 	openai: OpenAIResponsesProviderOptions;
-	anthropic: AnthropicProviderOptions;
+	anthropic: Omit<AnthropicProviderOptions, 'fallbacks'>;
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;
 	ollama: Flatten<OllamaChatProviderOptions>;
