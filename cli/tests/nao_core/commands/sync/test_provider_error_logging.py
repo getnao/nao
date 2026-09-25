@@ -31,6 +31,7 @@ def create_mock_db_config(
     mock_config.name = name
     mock_config.type = db_type
     mock_config.templates = list(DatabaseTemplate)
+    mock_config.column_selection_for.return_value = ([], [])
     mock_conn = MagicMock()
     mock_config.connect.return_value = mock_conn
     mock_config.get_database_name.return_value = database_name
