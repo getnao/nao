@@ -661,7 +661,7 @@ Full access is granted when:
 
 - cloud billing is disabled;
 - the deployment is self-hosted;
-- a local or Stripe trial has not ended;
+- a Stripe-confirmed trial has not ended;
 - a renewing `active` subscription is within 24 hours after its projected period end;
 - an `active` subscription scheduled for cancellation has not reached its access end;
 - Stripe reports `past_due` while its configured recovery process remains active.

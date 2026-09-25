@@ -74,6 +74,7 @@ export async function listOrganizationsDueTrialReminder(now: Date, dueBefore: Da
 		.where(
 			and(
 				eq(s.organization.billingStatus, 'trialing'),
+				isNotNull(s.organization.stripeSubscriptionId),
 				isNotNull(s.organization.trialEndsAt),
 				gt(s.organization.trialEndsAt, now),
 				lte(s.organization.trialEndsAt, dueBefore),
@@ -91,6 +92,7 @@ export async function claimTrialReminder(orgId: string, trialEndsAt: Date, claim
 			and(
 				eq(s.organization.id, orgId),
 				eq(s.organization.billingStatus, 'trialing'),
+				isNotNull(s.organization.stripeSubscriptionId),
 				eq(s.organization.trialEndsAt, trialEndsAt),
 				isNull(s.organization.trialReminderClaimedAt),
 			),

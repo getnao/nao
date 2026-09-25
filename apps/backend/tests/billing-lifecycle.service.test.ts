@@ -95,6 +95,7 @@ describe('cloud billing lifecycle', () => {
 			id: 'org-id',
 			name: 'Acme',
 			billingStatus: 'trialing',
+			stripeSubscriptionId: 'sub_cloud',
 			trialEndsAt: new Date('2026-09-27T00:00:00.000Z'),
 			trialReminderClaimedAt: null,
 		};
@@ -115,6 +116,23 @@ describe('cloud billing lifecycle', () => {
 		expect(mocks.releaseReminder).not.toHaveBeenCalled();
 	});
 
+	it('does not email an unconfirmed local trial', async () => {
+		mocks.getOrganization.mockResolvedValue({
+			id: 'org-id',
+			name: 'Acme',
+			billingStatus: 'trialing',
+			stripeSubscriptionId: null,
+			trialEndsAt: new Date('2026-09-27T00:00:00.000Z'),
+			trialReminderClaimedAt: null,
+		});
+
+		await sendCloudTrialReminder('org-id', new Date('2026-09-24T00:00:00.000Z'));
+
+		expect(mocks.listAdmins).not.toHaveBeenCalled();
+		expect(mocks.claimReminder).not.toHaveBeenCalled();
+		expect(mocks.sendEmail).not.toHaveBeenCalled();
+	});
+
 	it('releases the reminder when every admin email fails', async () => {
 		const now = new Date('2026-09-24T00:00:00.000Z');
 		const trialEndsAt = new Date('2026-09-27T00:00:00.000Z');
@@ -122,6 +140,7 @@ describe('cloud billing lifecycle', () => {
 			id: 'org-id',
 			name: 'Acme',
 			billingStatus: 'trialing',
+			stripeSubscriptionId: 'sub_cloud',
 			trialEndsAt,
 			trialReminderClaimedAt: null,
 		});
@@ -140,6 +159,7 @@ describe('cloud billing lifecycle', () => {
 			id: 'org-id',
 			name: 'Acme',
 			billingStatus: 'trialing',
+			stripeSubscriptionId: 'sub_cloud',
 			trialEndsAt: new Date('2026-09-27T00:00:00.000Z'),
 			trialReminderClaimedAt: null,
 		});
@@ -159,6 +179,7 @@ describe('cloud billing lifecycle', () => {
 			id: 'org-id',
 			name: 'Acme',
 			billingStatus: 'trialing',
+			stripeSubscriptionId: 'sub_cloud',
 			trialEndsAt: new Date('2026-09-27T00:00:00.000Z'),
 			trialReminderClaimedAt: null,
 		});

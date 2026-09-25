@@ -148,10 +148,12 @@ export function formatBillingRenewal(status: string | null, cancelAtPeriodEnd: b
 }
 
 export function formatBillingPrice(amount: number, currency: string): string {
+	const fractionDigits = amount % 100 === 0 ? 0 : 2;
 	return new Intl.NumberFormat(undefined, {
 		style: 'currency',
 		currency: currency.toUpperCase(),
-		maximumFractionDigits: 0,
+		minimumFractionDigits: fractionDigits,
+		maximumFractionDigits: fractionDigits,
 	}).format(amount / 100);
 }
 

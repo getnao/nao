@@ -115,6 +115,7 @@ describe('billing consistency queries', () => {
 			name: 'Trial Reminder',
 			slug: 'trial-reminder',
 			billingStatus: 'trialing',
+			stripeSubscriptionId: 'sub_trial',
 			trialEndsAt,
 		});
 

@@ -20,6 +20,7 @@ export async function sendCloudTrialReminder(organizationId: string, now = new D
 	const organization = await organizationQueries.getOrganizationById(organizationId);
 	if (
 		organization?.billingStatus !== 'trialing' ||
+		!organization.stripeSubscriptionId ||
 		!organization.trialEndsAt ||
 		organization.trialEndsAt.getTime() <= now.getTime() ||
 		organization.trialReminderClaimedAt
