@@ -1,4 +1,4 @@
-import { MAX_SOURCE_IMAGES } from '@nao/shared/story-theme';
+import { MAX_SOURCE_IMAGES } from '@nao/shared/story-theme-source';
 import type { LlmProvider } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
 
@@ -35,17 +35,29 @@ const IMAGE_APPROXIMATION_WARNING =
 const SHELL_WARNING =
 	'This looks like a document inside editor chrome. The theme follows the canvas, not the surrounding UI.';
 
+export interface SourcePdf {
+	fileName: string;
+	pageCount: number;
+	fromZip: boolean;
+	pages: SourceImage[];
+}
+
 export interface StoryThemeSourceInput {
 	url?: string;
 	image?: SourceImage;
 	zip?: { data: Uint8Array; fileName: string };
+	pdfs?: SourcePdf[];
 }
 
 export async function generateStoryThemeFromSources(
 	projectId: string,
 	input: StoryThemeSourceInput,
 ): Promise<GenerateResult> {
-	const extraWarnings: string[] = [];
+	const pdfs = input.pdfs ?? [];
+	const extraWarnings = pdfs.flatMap(describePdfCoverage);
+	const visualImages = [...(input.image ? [input.image] : []), ...pdfs.flatMap((pdf) => pdf.pages)];
+	const hasVisualSource = visualImages.length > 0;
+	const zipWasOnlyPdfs = pdfs.some((pdf) => pdf.fromZip);
 	const url = input.url;
 	const zip = input.zip;
 	const [urlOutcome, zipOutcome] = await Promise.allSettled([
@@ -58,10 +70,10 @@ export async function generateStoryThemeFromSources(
 	const urlError = urlOutcome.status === 'rejected' ? urlOutcome.reason : null;
 	const zipError = zipOutcome.status === 'rejected' ? zipOutcome.reason : null;
 
-	if (urlError && !zipExtracted && !input.image) {
+	if (urlError && !zipExtracted && !hasVisualSource) {
 		throw urlError;
 	}
-	if (zipError && !urlExtracted && !input.image) {
+	if (zipError && !urlExtracted && !hasVisualSource) {
 		throw zipError;
 	}
 	if (urlError) {
@@ -69,17 +81,14 @@ export async function generateStoryThemeFromSources(
 			`The website could not be read (${describeError(urlError)}). The theme is generated from the other sources.`,
 		);
 	}
-	if (zipError) {
+	if (zipError && !zipWasOnlyPdfs) {
 		extraWarnings.push(
 			`The ZIP could not be read (${describeError(zipError)}). The theme is generated from the other sources.`,
 		);
 	}
 
 	const parts: DesignSignals[] = [];
-	const images: SourceImage[] = [];
-	if (input.image) {
-		images.push(input.image);
-	}
+	const images: SourceImage[] = [...visualImages];
 	if (urlExtracted?.screenshot) {
 		images.push(urlExtracted.screenshot);
 	}
@@ -95,10 +104,11 @@ export async function generateStoryThemeFromSources(
 
 	const vision = images.slice(0, MAX_SOURCE_IMAGES);
 	if (parts.length === 0) {
-		if (!input.image) {
-			throw new DesignSourceError('Add a website, an image or a ZIP.');
+		if (!hasVisualSource) {
+			throw new DesignSourceError('Add a website, an image, a PDF or a ZIP.');
 		}
-		const result = await generateStoryThemeFromImage(projectId, input.image);
+		const prompt = pdfs.length > 0 ? PDF_PROMPT : IMAGE_PROMPT;
+		const result = await generateStoryThemeFromImages(projectId, vision, prompt);
 		return { theme: result.theme, notes: [...extraWarnings, ...result.notes] };
 	}
 
@@ -129,19 +139,24 @@ export async function generateStoryTheme(
 	return applyGuards(fallbackProposal(grounded), guardContext(grounded, warnings));
 }
 
-export async function generateStoryThemeFromImage(projectId: string, image: SourceImage): Promise<GenerateResult> {
+/** The first image is sampled for pixels; every image goes to the model. */
+export async function generateStoryThemeFromImages(
+	projectId: string,
+	images: SourceImage[],
+	prompt = IMAGE_PROMPT,
+): Promise<GenerateResult> {
 	const warnings = [IMAGE_APPROXIMATION_WARNING];
 	let sample: ImageSample | null = null;
 	let sampleError: unknown;
 	try {
-		sample = await sampleImage(image, 'image');
+		sample = await sampleImage(images[0], 'image');
 	} catch (error) {
 		sampleError = error;
 	}
 	if (sample?.ground?.shellDetected) {
 		warnings.push(SHELL_WARNING);
 	}
-	const proposal = await proposeOrExplain(projectId, IMAGE_PROMPT, [image], warnings, {
+	const proposal = await proposeOrExplain(projectId, prompt, images, warnings, {
 		consequence: 'its colours were sampled directly',
 	});
 	if (sample) {
@@ -215,6 +230,13 @@ function mergePixelSignals(signals: DesignSignals, pixels: DesignSignals): Desig
 	};
 }
 
+function describePdfCoverage(pdf: SourcePdf): string[] {
+	if (pdf.pages.length >= pdf.pageCount) {
+		return [];
+	}
+	return [`Read ${pdf.pages.length} of the ${pdf.pageCount} pages of ${pdf.fileName}, spread across the document.`];
+}
+
 function guardContext(signals: DesignSignals, warnings: string[]): GuardContext {
 	return { brandCandidates: signals.brandCandidates, fontLinks: signals.fontLinks, warnings };
 }
@@ -238,6 +260,8 @@ const SYSTEM_PROMPT = [
 	'   Do not override measured chrome.',
 	'3. BRAND COLOUR CANDIDATES and other listed signals.',
 	'4. ZIP tokens — typeface names and colours the page may not expose.',
+	'PDF pages count as screenshots; when one prints swatches with hex codes or names typefaces, those printed',
+	'values are the brand declaring its system and outrank colours sampled from photos.',
 	'When several sources describe the same brand, reconcile them in that order.',
 	'',
 	'Fields:',
@@ -272,6 +296,15 @@ const SYSTEM_PROMPT = [
 	'  Framer, ignore dark sidebars, toolbars, layers and comment pins. page is the artboard fill. Hex codes',
 	'  visible on the canvas are the chart palette; copy them into series. Fonts named like D7CBI are subset IDs,',
 	'  not brand faces.',
+].join('\n');
+
+const PDF_PROMPT = [
+	'These images are pages of a PDF: brand guidelines, a style guide or a slide deck. They are the only source.',
+	'A page that prints swatches with hex codes or names its typefaces is the brand declaring its system: take',
+	'those values over anything sampled from photos or illustrations. Slides show the brand in use: read the',
+	'slide ground, title colour, highlight colour and card shapes from them.',
+	'Where you cannot tell a colour, typeface or radius, use an empty string or a near-neutral default rather',
+	'than inventing something specific.',
 ].join('\n');
 
 const IMAGE_PROMPT = [

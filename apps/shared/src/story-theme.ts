@@ -32,11 +32,6 @@ export function isAllowedFontStylesheet(raw: string): boolean {
 export const MIN_CHART_SERIES_COLORS = 3;
 export const MAX_CHART_SERIES_COLORS = 11;
 export const MAX_FONT_STYLESHEETS = 4;
-export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-export const MAX_ZIP_BYTES = 10 * 1024 * 1024;
-export const MAX_SOURCE_IMAGES = 4;
-export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
-export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
 
 const DEFAULT_SURFACES = { page: '#ffffff', sunken: '#f8f8f8' };
 const DEFAULT_ACCENT = { color: '#522bff', ink: '#ffffff' };

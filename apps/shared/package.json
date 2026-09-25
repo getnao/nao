@@ -25,6 +25,7 @@
 		"./story-app": "./src/story-app.ts",
 		"./story-theme": "./src/story-theme.ts",
 		"./story-theme-contrast": "./src/story-theme-contrast.ts",
+		"./story-theme-source": "./src/story-theme-source.ts",
 		"./story-validation": "./src/story-validation.ts",
 		"./rules-template": "./src/rules-template.ts",
 		"./sql-template": "./src/sql-template.ts",

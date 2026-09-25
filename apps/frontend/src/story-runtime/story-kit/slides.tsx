@@ -8,42 +8,73 @@ import type { CSSProperties, ReactNode } from 'react';
 
 export interface SlidesProps {
 	children: ReactNode;
+	title?: ReactNode;
+	eyebrow?: ReactNode;
 	className?: string;
 }
 
 export interface SlideProps {
 	children: ReactNode;
+	title?: ReactNode;
+	eyebrow?: ReactNode;
 	className?: string;
 	style?: CSSProperties;
 }
 
+interface SlideDeckProps {
+	slides: ReactNode[];
+	title?: ReactNode;
+	eyebrow?: ReactNode;
+	className?: string;
+}
+
 /** A deck: one slide at a time on screen, one slide per page once printed. */
-export function Slides({ children, className }: SlidesProps) {
+export function Slides({ children, title, eyebrow, className }: SlidesProps) {
 	const slides = Children.toArray(children);
 	if (isPrintMode()) {
 		return <PrintedSlides slides={slides} />;
 	}
-	return <SlideDeck slides={slides} className={className} />;
+	return <SlideDeck slides={slides} title={title} eyebrow={eyebrow} className={className} />;
 }
 
-export function Slide({ children, className, style }: SlideProps) {
+export function Slide({ children, title, eyebrow, className, style }: SlideProps) {
 	return (
 		<div className={joinClassNames('nao-slide', className)} style={style}>
+			{(title || eyebrow) && (
+				<header className='nao-slide__heading'>
+					{eyebrow && <div className='nao-slide__eyebrow'>{eyebrow}</div>}
+					{title && <h2 className='nao-slide__title'>{title}</h2>}
+				</header>
+			)}
 			{children}
 		</div>
 	);
 }
 
-function SlideDeck({ slides, className }: { slides: ReactNode[]; className?: string }) {
+function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 	const [index, setIndex] = useState(0);
 	const lastIndex = Math.max(slides.length - 1, 0);
 	const current = Math.min(index, lastIndex);
 	const goTo = useCallback((next: number) => setIndex(Math.min(Math.max(next, 0), lastIndex)), [lastIndex]);
 	useArrowKeys(current, goTo);
 	const { viewportRef, scale } = useSlideScale();
+	const hasManySlides = slides.length > 1;
 
 	return (
 		<div className={joinClassNames('nao-slides', className)}>
+			{(title || eyebrow || hasManySlides) && (
+				<header className='nao-slides__header'>
+					<div className='nao-slides__heading'>
+						{eyebrow && <div className='nao-slides__eyebrow'>{eyebrow}</div>}
+						{title && <h1 className='nao-slides__title'>{title}</h1>}
+					</div>
+					{hasManySlides && (
+						<span className='nao-slides__counter'>
+							{current + 1} / {slides.length}
+						</span>
+					)}
+				</header>
+			)}
 			<div
 				ref={viewportRef}
 				className='nao-slides__viewport'
@@ -51,30 +82,47 @@ function SlideDeck({ slides, className }: { slides: ReactNode[]; className?: str
 			>
 				{slides[current]}
 			</div>
-			{slides.length > 1 && (
-				<nav className='nao-slides__nav'>
-					<button
-						type='button'
-						onClick={() => goTo(current - 1)}
-						disabled={current === 0}
-						aria-label='Previous slide'
-					>
-						<ChevronLeftIcon />
-					</button>
-					<span className='nao-slides__counter'>
-						{current + 1} / {slides.length}
-					</span>
-					<button
-						type='button'
-						onClick={() => goTo(current + 1)}
-						disabled={current === lastIndex}
-						aria-label='Next slide'
-					>
-						<ChevronRightIcon />
-					</button>
-				</nav>
-			)}
+			{hasManySlides && <SlideNavigation current={current} count={slides.length} goTo={goTo} />}
 		</div>
+	);
+}
+
+function SlideNavigation({ current, count, goTo }: { current: number; count: number; goTo: (index: number) => void }) {
+	return (
+		<nav className='nao-slides__nav'>
+			<button
+				type='button'
+				className='nao-slides__step'
+				onClick={() => goTo(current - 1)}
+				disabled={current === 0}
+				aria-label='Previous slide'
+			>
+				<ChevronLeftIcon />
+				Previous
+			</button>
+			<div className='nao-slides__dots'>
+				{Array.from({ length: count }, (_, index) => (
+					<button
+						key={index}
+						type='button'
+						className='nao-slides__dot'
+						onClick={() => goTo(index)}
+						aria-current={index === current}
+						aria-label={`Go to slide ${index + 1}`}
+					/>
+				))}
+			</div>
+			<button
+				type='button'
+				className='nao-slides__step'
+				onClick={() => goTo(current + 1)}
+				disabled={current === count - 1}
+				aria-label='Next slide'
+			>
+				Next
+				<ChevronRightIcon />
+			</button>
+		</nav>
 	);
 }
 

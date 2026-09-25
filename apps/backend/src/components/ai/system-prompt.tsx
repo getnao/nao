@@ -554,7 +554,7 @@ function CustomStoriesBlock() {
 				<ListItem>
 					For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
 					<Bold>{'<Slide>'}</Bold> per slide (16:9): it provides the navigation and prints one slide per PDF
-					page.
+					page. Both take <Bold>eyebrow</Bold> and <Bold>title</Bold> props; a Slide is already padded.
 				</ListItem>
 				<ListItem>
 					For tabs, put the tab buttons in a <Bold>{'<nav>'}</Bold> (or give them <Bold>role="tab"</Bold>):

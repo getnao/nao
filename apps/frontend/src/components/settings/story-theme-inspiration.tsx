@@ -1,11 +1,19 @@
 import { useMutation } from '@tanstack/react-query';
-import { FolderArchive, Globe, Image as ImageIcon, Loader2, Sparkles, X } from 'lucide-react';
+import { FileText, FolderArchive, Globe, Image as ImageIcon, Loader2, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { IMAGE_MEDIA_TYPES, MAX_IMAGE_BYTES, MAX_SOURCE_IMAGES, MAX_ZIP_BYTES } from '@nao/shared/story-theme';
+import {
+	MAX_IMAGE_BYTES,
+	MAX_PDF_BYTES,
+	MAX_SOURCE_IMAGES,
+	MAX_ZIP_BYTES,
+	SOURCE_IMAGE_MEDIA_TYPES,
+} from '@nao/shared/story-theme-source';
 
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { ImageMediaType } from '@nao/shared/story-theme';
+import type { SourceImageMediaType } from '@nao/shared/story-theme-source';
+import type { RenderedPdf } from '@/components/settings/story-theme-pdf';
+import { renderPdfPages, renderZipPdfs } from '@/components/settings/story-theme-pdf';
 import { Button } from '@/components/ui/button';
 import { Favicon } from '@/components/ui/favicon';
 import { NakedInput } from '@/components/ui/input';
@@ -14,6 +22,7 @@ import { cn, formatBytes } from '@/lib/utils';
 import { trpc } from '@/main';
 
 type GenerateResult = inferRouterOutputs<TrpcRouter>['storyTheme']['generate'];
+type FileSourceKind = 'image' | 'pdf' | 'zip';
 
 interface PickedFile {
 	name: string;
@@ -22,8 +31,10 @@ interface PickedFile {
 	data: string;
 }
 
-const IMAGE_MEDIA_TYPE_ALIASES: Record<string, ImageMediaType> = { 'image/jpg': 'image/jpeg' };
+const IMAGE_MEDIA_TYPE_ALIASES: Record<string, SourceImageMediaType> = { 'image/jpg': 'image/jpeg' };
 const ZIP_MEDIA_TYPES = ['application/zip', 'application/x-zip-compressed', 'application/x-zip'];
+const MAX_BYTES: Record<FileSourceKind, number> = { image: MAX_IMAGE_BYTES, pdf: MAX_PDF_BYTES, zip: MAX_ZIP_BYTES };
+const SOURCE_NAMES: Record<FileSourceKind, string> = { image: 'Image', pdf: 'PDF', zip: 'ZIP' };
 const WELL_CLASS =
 	'flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm';
 
@@ -45,13 +56,14 @@ export function StoryThemeInspiration({
 	const [url, setUrl] = useState('');
 	const [image, setImage] = useState<PickedFile | null>(null);
 	const [zip, setZip] = useState<PickedFile | null>(null);
+	const [pdf, setPdf] = useState<PickedFile | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [running, setRunning] = useState(false);
 
 	const onError = (mutationError: { message: string }) => setError(mutationError.message);
 	const generateTheme = useMutation({ ...trpc.storyTheme.generate.mutationOptions(), onError });
 	const sourceLocked = disabled || running;
-	const hasSource = Boolean(url.trim() || image || zip);
+	const hasSource = Boolean(url.trim() || image || zip || pdf);
 	const canGenerate = hasSource && !running;
 
 	const generate = () => {
@@ -60,24 +72,36 @@ export function StoryThemeInspiration({
 		}
 		const trimmed = url.trim();
 		const normalized = trimmed ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`) : undefined;
-		if (!normalized && !image && !zip) {
+		if (!normalized && !image && !zip && !pdf) {
 			return;
 		}
 		setRunning(true);
-		generateTheme.mutate(
-			{
-				url: normalized,
-				image: image ? { data: image.data, mediaType: image.mediaType as ImageMediaType } : undefined,
-				zip: zip ? { data: zip.data, fileName: zip.name } : undefined,
-			},
-			{
-				onSuccess: (result) => {
-					onGenerated(sourceLabel(normalized, image, zip), result);
-					setError(null);
-				},
-				onSettled: () => {
-					setRunning(false);
-				},
+		renderPdfSources(pdf, zip).then(
+			(pdfs) =>
+				generateTheme.mutate(
+					{
+						url: normalized,
+						image: image
+							? { data: image.data, mediaType: image.mediaType as SourceImageMediaType }
+							: undefined,
+						zip: zip ? { data: zip.data, fileName: zip.name } : undefined,
+						pdfs,
+					},
+					{
+						onSuccess: (result) => {
+							onGenerated(sourceLabel(normalized, image, pdf, zip), result);
+							setError(null);
+						},
+						onSettled: () => {
+							setRunning(false);
+						},
+					},
+				),
+			() => {
+				setError(
+					`${pdf?.name ?? 'The PDF'} could not be read. Export it again or use a screenshot of its pages.`,
+				);
+				setRunning(false);
 			},
 		);
 	};
@@ -85,12 +109,13 @@ export function StoryThemeInspiration({
 	return (
 		<SettingsCard
 			title='Start from a brand'
-			description='Read colours, fonts and shapes from a website, an image or a ZIP of brand assets — or several together. The result defines the settings below.'
+			description='Read colours, fonts and shapes from a website, an image, a PDF (brand guidelines, a deck) or a ZIP of brand assets — or several together. The result defines the settings below.'
 			className={cn('gap-0', outcome && 'overflow-hidden pb-0')}
 		>
 			<div className='flex flex-col gap-2'>
 				<UrlSource url={url} onUrlChange={setUrl} disabled={sourceLocked} onSubmit={generate} />
 				<FileSource kind='image' file={image} onFile={setImage} disabled={sourceLocked} setError={setError} />
+				<FileSource kind='pdf' file={pdf} onFile={setPdf} disabled={sourceLocked} setError={setError} />
 				<FileSource kind='zip' file={zip} onFile={setZip} disabled={sourceLocked} setError={setError} />
 				{error && <p className='text-xs text-destructive'>{error}</p>}
 				<div className='flex flex-wrap items-center justify-between gap-3'>
@@ -101,7 +126,7 @@ export function StoryThemeInspiration({
 						pending={running}
 						disabled={!hasSource}
 						onClick={generate}
-						label={pendingLabel(url, image, zip)}
+						label={pendingLabel(url, image, pdf, zip)}
 					/>
 				</div>
 			</div>
@@ -212,7 +237,7 @@ function FileSource({
 	disabled,
 	setError,
 }: {
-	kind: 'image' | 'zip';
+	kind: FileSourceKind;
 	file: PickedFile | null;
 	onFile: (file: PickedFile | null) => void;
 	disabled: boolean;
@@ -221,11 +246,10 @@ function FileSource({
 	const [isDragging, setIsDragging] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const isImage = kind === 'image';
-	const maxBytes = isImage ? MAX_IMAGE_BYTES : MAX_ZIP_BYTES;
 
 	const pick = useCallback(
 		(picked: File) => {
-			const rejection = rejectionFor(picked, isImage, maxBytes);
+			const rejection = rejectionFor(picked, kind);
 			if (rejection) {
 				setError(rejection);
 				return;
@@ -233,16 +257,16 @@ function FileSource({
 			readAsBase64(picked)
 				.then((data) => {
 					onFile({
-						name: picked.name || (isImage ? 'pasted-image.png' : 'upload.zip'),
+						name: picked.name || DEFAULT_FILE_NAMES[kind],
 						size: picked.size,
-						mediaType: isImage ? imageMediaTypeOf(picked) : picked.type || 'application/zip',
+						mediaType: isImage ? imageMediaTypeOf(picked) : picked.type || DEFAULT_MEDIA_TYPES[kind],
 						data,
 					});
 					setError(null);
 				})
 				.catch(() => setError('The file could not be read.'));
 		},
-		[isImage, maxBytes, onFile, setError],
+		[isImage, kind, onFile, setError],
 	);
 
 	useEffect(() => {
@@ -291,7 +315,7 @@ function FileSource({
 		>
 			<label
 				aria-disabled={disabled}
-				aria-label={isImage ? 'Add an image' : 'Add a ZIP'}
+				aria-label={ADD_LABELS[kind]}
 				tabIndex={disabled ? -1 : 0}
 				onKeyDown={(event) => {
 					if (event.key === 'Enter' || event.key === ' ') {
@@ -311,7 +335,7 @@ function FileSource({
 									className='size-10 shrink-0 rounded object-cover'
 								/>
 							) : (
-								<FolderArchive className='size-4 text-muted-foreground' />
+								<SourceIcon kind={kind} />
 							)}
 						</span>
 						<span className='min-w-0 truncate'>
@@ -322,16 +346,10 @@ function FileSource({
 				) : (
 					<>
 						<div className='flex items-center px-3'>
-							{isImage ? (
-								<ImageIcon className='size-4 shrink-0 text-muted-foreground' />
-							) : (
-								<FolderArchive className='size-4 shrink-0 text-muted-foreground' />
-							)}
+							<SourceIcon kind={kind} />
 						</div>
 						<span className='min-w-0 flex-1'>
-							<span className='block text-muted-foreground'>
-								{isImage ? 'Drop, paste or click to add an image' : 'Drop or click to add a ZIP'}
-							</span>
+							<span className='block text-muted-foreground'>{DROP_PROMPTS[kind]}</span>
 							<span className='block truncate text-xs text-muted-foreground/70'>
 								{acceptedFormatsHint(kind)}
 							</span>
@@ -341,7 +359,7 @@ function FileSource({
 				<input
 					ref={inputRef}
 					type='file'
-					accept={isImage ? IMAGE_MEDIA_TYPES.join(',') : '.zip,application/zip'}
+					accept={ACCEPTED_TYPES[kind]}
 					className='hidden'
 					disabled={disabled}
 					onChange={(event) => {
@@ -353,22 +371,66 @@ function FileSource({
 					}}
 				/>
 			</label>
-			{file ? (
-				<ClearButton
-					disabled={disabled}
-					onClick={() => onFile(null)}
-					label={isImage ? 'Remove image' : 'Remove ZIP'}
-				/>
-			) : null}
+			{file ? <ClearButton disabled={disabled} onClick={() => onFile(null)} label={REMOVE_LABELS[kind]} /> : null}
 		</div>
 	);
 }
 
-function acceptedFormatsHint(kind: 'image' | 'zip'): string {
+const DEFAULT_FILE_NAMES: Record<FileSourceKind, string> = {
+	image: 'pasted-image.png',
+	pdf: 'brand.pdf',
+	zip: 'upload.zip',
+};
+const DEFAULT_MEDIA_TYPES: Record<FileSourceKind, string> = {
+	image: 'image/png',
+	pdf: 'application/pdf',
+	zip: 'application/zip',
+};
+const ADD_LABELS: Record<FileSourceKind, string> = { image: 'Add an image', pdf: 'Add a PDF', zip: 'Add a ZIP' };
+const REMOVE_LABELS: Record<FileSourceKind, string> = { image: 'Remove image', pdf: 'Remove PDF', zip: 'Remove ZIP' };
+const DROP_PROMPTS: Record<FileSourceKind, string> = {
+	image: 'Drop, paste or click to add an image',
+	pdf: 'Drop or click to add a PDF',
+	zip: 'Drop or click to add a ZIP',
+};
+const ACCEPTED_TYPES: Record<FileSourceKind, string> = {
+	image: SOURCE_IMAGE_MEDIA_TYPES.join(','),
+	pdf: '.pdf,application/pdf',
+	zip: '.zip,application/zip',
+};
+
+function SourceIcon({ kind }: { kind: FileSourceKind }) {
+	const Icon = kind === 'image' ? ImageIcon : kind === 'pdf' ? FileText : FolderArchive;
+	return <Icon className='size-4 shrink-0 text-muted-foreground' />;
+}
+
+/** The browser renders PDF pages (the file itself and any PDF inside the ZIP) and sends them as images. */
+async function renderPdfSources(pdf: PickedFile | null, zip: PickedFile | null) {
+	const standalone = pdf ? [await renderPdfPages(pdf.name, base64ToBytes(pdf.data))] : [];
+	const remainingPages = MAX_SOURCE_IMAGES - standalone.reduce((total, item) => total + item.pages.length, 0);
+	const fromZip = zip && remainingPages > 0 ? await renderZipPdfs(base64ToBytes(zip.data), remainingPages) : [];
+	return [
+		...standalone.map((item) => toPdfInput(item, false)),
+		...fromZip.map((item) => toPdfInput(item, true)),
+	].filter((item) => item.pages.length > 0);
+}
+
+function toPdfInput(pdf: RenderedPdf, fromZip: boolean) {
+	return { fileName: pdf.fileName, pageCount: pdf.pageCount, pages: pdf.pages, fromZip };
+}
+
+function base64ToBytes(data: string): Uint8Array {
+	return Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
+}
+
+function acceptedFormatsHint(kind: FileSourceKind): string {
 	if (kind === 'image') {
 		return `PNG, JPEG or WebP · up to ${formatBytes(MAX_IMAGE_BYTES)}`;
 	}
-	return `CSS, HTML, SVG, JSON, YAML, images (${MAX_SOURCE_IMAGES} max) · up to ${formatBytes(MAX_ZIP_BYTES)}`;
+	if (kind === 'pdf') {
+		return `Brand guidelines or a deck · up to ${formatBytes(MAX_PDF_BYTES)}`;
+	}
+	return `PDF, CSS, HTML, SVG, JSON, YAML, images · up to ${formatBytes(MAX_ZIP_BYTES)}`;
 }
 
 function ClearButton({ disabled, onClick, label }: { disabled: boolean; onClick: () => void; label: string }) {
@@ -413,10 +475,18 @@ function GenerateButton({
 	);
 }
 
-function sourceLabel(url: string | undefined, image: PickedFile | null, zip: PickedFile | null): string {
-	const parts = [url ? displaySourceLabel(url) : null, image?.name ?? null, zip?.name ?? null].filter(
-		(part): part is string => Boolean(part),
-	);
+function sourceLabel(
+	url: string | undefined,
+	image: PickedFile | null,
+	pdf: PickedFile | null,
+	zip: PickedFile | null,
+): string {
+	const parts = [
+		url ? displaySourceLabel(url) : null,
+		image?.name ?? null,
+		pdf?.name ?? null,
+		zip?.name ?? null,
+	].filter((part): part is string => Boolean(part));
 	if (parts.length <= 1) {
 		return parts[0] ?? '';
 	}
@@ -426,8 +496,8 @@ function sourceLabel(url: string | undefined, image: PickedFile | null, zip: Pic
 	return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
-function pendingLabel(url: string, image: PickedFile | null, zip: PickedFile | null): string {
-	const count = [url.trim(), image, zip].filter(Boolean).length;
+function pendingLabel(url: string, image: PickedFile | null, pdf: PickedFile | null, zip: PickedFile | null): string {
+	const count = [url.trim(), image, pdf, zip].filter(Boolean).length;
 	if (count > 1) {
 		return 'Reading your sources…';
 	}
@@ -436,6 +506,9 @@ function pendingLabel(url: string, image: PickedFile | null, zip: PickedFile | n
 	}
 	if (image) {
 		return 'Reading the image…';
+	}
+	if (pdf) {
+		return 'Reading the PDF…';
 	}
 	return 'Reading the ZIP…';
 }
@@ -505,25 +578,33 @@ function isTypingTarget(target: EventTarget | null): boolean {
 	return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
-function rejectionFor(picked: File, isImage: boolean, maxBytes: number): string | null {
+function rejectionFor(picked: File, kind: FileSourceKind): string | null {
+	const maxBytes = MAX_BYTES[kind];
 	if (picked.size > maxBytes) {
-		return `${isImage ? 'Image' : 'ZIP'} too large (${formatBytes(picked.size)}). Max ${formatBytes(maxBytes)}.`;
+		return `${SOURCE_NAMES[kind]} too large (${formatBytes(picked.size)}). Max ${formatBytes(maxBytes)}.`;
 	}
-	if (isImage && !isSupportedImage(picked.type)) {
+	if (kind === 'image' && !isSupportedImage(picked.type)) {
 		return 'Use a PNG, JPEG or WebP image.';
 	}
-	if (!isImage && !looksLikeZip(picked)) {
+	if (kind === 'pdf' && !looksLikePdf(picked)) {
+		return 'Use a PDF.';
+	}
+	if (kind === 'zip' && !looksLikeZip(picked)) {
 		return 'Use a ZIP.';
 	}
 	return null;
 }
 
-function isSupportedImage(type: string): boolean {
-	return type in IMAGE_MEDIA_TYPE_ALIASES || IMAGE_MEDIA_TYPES.includes(type as ImageMediaType);
+function looksLikePdf(file: File): boolean {
+	return file.type === 'application/pdf' || (!file.type && /\.pdf$/i.test(file.name));
 }
 
-function imageMediaTypeOf(file: File): ImageMediaType {
-	return IMAGE_MEDIA_TYPE_ALIASES[file.type] ?? ((file.type || 'image/png') as ImageMediaType);
+function isSupportedImage(type: string): boolean {
+	return type in IMAGE_MEDIA_TYPE_ALIASES || SOURCE_IMAGE_MEDIA_TYPES.includes(type as SourceImageMediaType);
+}
+
+function imageMediaTypeOf(file: File): SourceImageMediaType {
+	return IMAGE_MEDIA_TYPE_ALIASES[file.type] ?? ((file.type || 'image/png') as SourceImageMediaType);
 }
 
 /** Browsers often report an empty type for ZIPs, so the extension is the fallback. */

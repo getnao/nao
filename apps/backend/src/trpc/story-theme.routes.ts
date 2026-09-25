@@ -1,4 +1,10 @@
-import { IMAGE_MEDIA_TYPES, MAX_IMAGE_BYTES, MAX_ZIP_BYTES, storyThemeSchema } from '@nao/shared/story-theme';
+import { storyThemeSchema } from '@nao/shared/story-theme';
+import {
+	MAX_IMAGE_BYTES,
+	MAX_SOURCE_IMAGES,
+	MAX_ZIP_BYTES,
+	SOURCE_IMAGE_MEDIA_TYPES,
+} from '@nao/shared/story-theme-source';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -15,7 +21,7 @@ const imageInputSchema = z.object({
 		.string()
 		.min(32)
 		.max(Math.ceil(MAX_IMAGE_BYTES * BASE64_OVERHEAD)),
-	mediaType: z.enum(IMAGE_MEDIA_TYPES),
+	mediaType: z.enum(SOURCE_IMAGE_MEDIA_TYPES),
 });
 
 const zipInputSchema = z.object({
@@ -24,6 +30,13 @@ const zipInputSchema = z.object({
 		.min(32)
 		.max(Math.ceil(MAX_ZIP_BYTES * BASE64_OVERHEAD)),
 	fileName: z.string().trim().max(200).optional(),
+});
+
+const pdfInputSchema = z.object({
+	fileName: z.string().trim().min(1).max(200),
+	pageCount: z.number().int().positive(),
+	fromZip: z.boolean().default(false),
+	pages: z.array(imageInputSchema).min(1).max(MAX_SOURCE_IMAGES),
 });
 
 function assertCustomStoriesEnabled() {
@@ -92,9 +105,13 @@ export const storyThemeRoutes = {
 					url: z.string().trim().min(1).max(2048).optional(),
 					image: imageInputSchema.optional(),
 					zip: zipInputSchema.optional(),
+					pdfs: z.array(pdfInputSchema).max(MAX_SOURCE_IMAGES).default([]),
 				})
-				.refine((value) => value.url || value.image || value.zip, {
-					message: 'Add a website, an image or a ZIP.',
+				.refine((value) => value.url || value.image || value.zip || value.pdfs.length > 0, {
+					message: 'Add a website, an image, a PDF or a ZIP.',
+				})
+				.refine((value) => value.pdfs.flatMap((pdf) => pdf.pages).length <= MAX_SOURCE_IMAGES, {
+					message: `At most ${MAX_SOURCE_IMAGES} PDF pages are read at once.`,
 				}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -113,6 +130,15 @@ export const storyThemeRoutes = {
 								fileName: input.zip.fileName ?? 'upload.zip',
 							}
 						: undefined,
+					pdfs: input.pdfs.map((pdf) => ({
+						fileName: pdf.fileName,
+						pageCount: pdf.pageCount,
+						fromZip: pdf.fromZip,
+						pages: pdf.pages.map((page) => ({
+							data: decodeBase64(page.data, MAX_IMAGE_BYTES, 'PDF page'),
+							mediaType: page.mediaType,
+						})),
+					})),
 				});
 			} catch (error) {
 				if (error instanceof DesignSourceError) {

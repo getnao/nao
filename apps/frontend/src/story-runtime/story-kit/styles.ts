@@ -28,18 +28,28 @@ export const KIT_STYLES = `
 
 .nao-block{break-inside:avoid}
 
-.nao-slides{display:flex;flex-direction:column;gap:12px}
-.nao-slides__viewport{position:relative;overflow:hidden;border:1px solid var(--border);border-radius:var(--story-block-radius);box-sizing:content-box}
-.nao-slide{position:relative;width:${STORY_SLIDE_SIZE.width}px;height:${STORY_SLIDE_SIZE.height}px;overflow:hidden;box-sizing:border-box;background:var(--background)}
+.nao-slides{display:flex;flex-direction:column;gap:18px}
+.nao-slides__header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.nao-slides__heading{display:flex;flex-direction:column;gap:6px;min-width:0}
+.nao-slides__eyebrow,.nao-slide__eyebrow{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--primary)}
+.nao-slides__title{margin:0;font-family:var(--font-heading);font-size:clamp(28px,4vw,48px);line-height:1.05;letter-spacing:-.04em;color:var(--foreground)}
+.nao-slides__counter{flex:none;margin-left:auto;padding:8px 14px;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--foreground);background:color-mix(in srgb, var(--background) 86%, var(--foreground) 6%);border:1px solid var(--border);border-radius:999px}
+.nao-slides__viewport{position:relative;overflow:hidden;border:1px solid var(--border);border-radius:calc(var(--radius) * 2.2);box-shadow:0 24px 80px color-mix(in srgb, var(--foreground) 10%, transparent);box-sizing:content-box}
+.nao-slide{position:relative;display:flex;flex-direction:column;gap:24px;width:${STORY_SLIDE_SIZE.width}px;height:${STORY_SLIDE_SIZE.height}px;padding:48px 56px;overflow:hidden;box-sizing:border-box;color:var(--foreground);background:radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent), transparent 40%),color-mix(in srgb, var(--background) 94%, var(--foreground) 3%)}
 .nao-slides__viewport>.nao-slide{transform:scale(var(--nao-slide-scale));transform-origin:top left}
-.nao-slides__nav{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:var(--muted-foreground)}
-.nao-slides__nav button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;color:inherit;background:transparent;border:1px solid var(--border);border-radius:999px;cursor:pointer}
-.nao-slides__nav button svg{width:14px;height:14px}
-.nao-slides__nav button:hover:not(:disabled){color:var(--foreground);background:color-mix(in srgb, var(--muted-foreground) 12%, transparent)}
-.nao-slides__nav button:disabled{opacity:.35;cursor:default}
-.nao-slides__counter{min-width:48px;text-align:center;font-variant-numeric:tabular-nums}
+.nao-slide__heading{display:flex;flex-direction:column;gap:8px;flex:none}
+.nao-slide__title{margin:0;max-width:980px;font-family:var(--font-heading);font-size:52px;line-height:1;letter-spacing:-.04em;color:var(--foreground)}
+.nao-slides__nav{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.nao-slides__step{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;font:inherit;font-size:14px;font-weight:700;color:var(--foreground);background:var(--background);border:1px solid var(--border);border-radius:999px;cursor:pointer}
+.nao-slides__step svg{width:16px;height:16px}
+.nao-slides__step:hover:not(:disabled){background:color-mix(in srgb, var(--muted-foreground) 12%, var(--background))}
+.nao-slides__step:disabled{opacity:.4;cursor:default}
+.nao-slides__dots{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;min-width:0}
+.nao-slides__dot{width:10px;height:10px;padding:0;background:color-mix(in srgb, var(--foreground) 28%, transparent);border:0;border-radius:999px;cursor:pointer;transition:width .2s ease,background-color .2s ease}
+.nao-slides__dot:hover{background:color-mix(in srgb, var(--foreground) 45%, transparent)}
+.nao-slides__dot[aria-current=true]{width:44px;background:var(--primary)}
 .nao-slides--print{display:block}
-.nao-slides--print .nao-slide{break-after:page}
+.nao-slides--print .nao-slide{break-after:page;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .nao-slides--print .nao-slide:last-child{break-after:auto}
 html[${STORY_PRINT_SLIDES_ATTRIBUTE}] #root{display:none}
 

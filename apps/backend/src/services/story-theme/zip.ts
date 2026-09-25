@@ -1,4 +1,4 @@
-import { type ImageMediaType, MAX_IMAGE_BYTES, MAX_SOURCE_IMAGES } from '@nao/shared/story-theme';
+import { MAX_IMAGE_BYTES, MAX_SOURCE_IMAGES, type SourceImageMediaType } from '@nao/shared/story-theme-source';
 import * as cheerio from 'cheerio';
 import { type UnzipFileFilter, unzipSync } from 'fflate';
 
@@ -12,7 +12,7 @@ import { type DesignSignals, DesignSourceError, emptySignals, normalizeColor, si
 
 export interface ZipImage {
 	name: string;
-	mediaType: ImageMediaType;
+	mediaType: SourceImageMediaType;
 	data: Uint8Array;
 }
 
@@ -41,6 +41,7 @@ const ZIP_DEFLATED = 8;
 const STYLE_EXTENSIONS = /\.(css|scss|sass|less|styl)$/i;
 const MARKUP_EXTENSIONS = /\.(html?|svg)$/i;
 const TOKEN_EXTENSIONS = /\.(json|tokens|ya?ml)$/i;
+const PDF_EXTENSION = /\.pdf$/i;
 const IMAGE_EXTENSIONS: Record<string, ZipImage['mediaType']> = {
 	png: 'image/png',
 	jpg: 'image/jpeg',
@@ -106,6 +107,11 @@ export function extractSignalsFromZip(zip: Uint8Array, label: string): ZipSignal
 		.join('\n');
 	const signals = signalsFromCss([tokenCss, ...styleText].join('\n'), emptySignals('zip', 'zip', label));
 	const keptImages = images.sort((a, b) => b.data.byteLength - a.data.byteLength).slice(0, MAX_SOURCE_IMAGES);
+	if (images.length > keptImages.length) {
+		warnings.push(
+			`The ZIP has ${images.length} images; only the ${MAX_SOURCE_IMAGES} largest were read: ${keptImages.map((image) => image.name).join(', ')}.`,
+		);
+	}
 
 	return { signals: { ...signals, warnings }, images: keptImages };
 }
@@ -135,6 +141,9 @@ function readEntries(zip: Uint8Array): ZipScan {
 	const filter: UnzipFileFilter = (file) => {
 		const base = basename(file.name);
 		if (!base || base.startsWith('.') || file.name.includes('__MACOSX')) {
+			return false;
+		}
+		if (PDF_EXTENSION.test(base)) {
 			return false;
 		}
 		const kind = kindOf(base);
