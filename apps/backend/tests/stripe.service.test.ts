@@ -9,6 +9,7 @@ const stripeMocks = vi.hoisted(() => ({
 	listInvoices: vi.fn(),
 	listPrices: vi.fn(),
 	listSubscriptions: vi.fn(),
+	retrievePrice: vi.fn(),
 	resumeSubscription: vi.fn(),
 	retrieveCustomer: vi.fn(),
 	retrieveSubscription: vi.fn(),
@@ -32,7 +33,10 @@ vi.mock('stripe', () => ({
 			retrieve: stripeMocks.retrieveCustomer,
 		};
 		invoices = { list: stripeMocks.listInvoices };
-		prices = { list: stripeMocks.listPrices };
+		prices = {
+			list: stripeMocks.listPrices,
+			retrieve: stripeMocks.retrievePrice,
+		};
 		subscriptions = {
 			list: stripeMocks.listSubscriptions,
 			resume: stripeMocks.resumeSubscription,
@@ -51,6 +55,7 @@ import {
 	createCloudPaymentMethodSession,
 	createCloudPortalSession,
 	createCloudResubscribeSession,
+	getCloudBillingPlans,
 	getCloudMonthlyPrice,
 	getStripeClient,
 	listCloudInvoices,
@@ -107,12 +112,19 @@ describe('getCloudMonthlyPrice', () => {
 		);
 	});
 
+	it('accepts a replacement Price with a new positive amount', async () => {
+		const replacementPrice = cloudMonthlyPrice({ unit_amount: 250_000 });
+		stripeMocks.listPrices.mockResolvedValue({ data: [replacementPrice] });
+
+		await expect(getCloudMonthlyPrice()).resolves.toBe(replacementPrice);
+	});
+
 	it.each([
 		['inactive', { active: false }],
 		['inactive product', { product: cloudProduct({ active: false }) }],
 		['tiered', { billing_scheme: 'tiered' }],
 		['different currency', { currency: 'usd' }],
-		['different amount', { unit_amount: 100_000 }],
+		['zero amount', { unit_amount: 0 }],
 		['one-time', { type: 'one_time', recurring: null }],
 		['yearly', { recurring: recurring({ interval: 'year' }) }],
 		['multi-month', { recurring: recurring({ interval_count: 2 }) }],
@@ -121,7 +133,35 @@ describe('getCloudMonthlyPrice', () => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice(overrides)] });
 
 		await expect(getCloudMonthlyPrice()).rejects.toThrow(
-			'Stripe Price "price_cloud_monthly" must belong to an active Product and be a fixed EUR 2,000 monthly licensed Price',
+			'Stripe Price "price_cloud_monthly" must belong to an active Product and be a fixed positive EUR monthly licensed Price',
+		);
+	});
+
+	it("returns an existing subscription's historical Price separately from the current offer", async () => {
+		stripeMocks.listPrices.mockResolvedValue({
+			data: [cloudMonthlyPrice({ unit_amount: 250_000 })],
+		});
+		stripeMocks.retrievePrice.mockResolvedValue(
+			cloudMonthlyPrice({
+				id: 'price_legacy',
+				active: false,
+				product: 'prod_cloud',
+				unit_amount: 200_000,
+			}),
+		);
+
+		await expect(getCloudBillingPlans('price_legacy')).resolves.toMatchObject({
+			availablePlan: { amount: 250_000 },
+			subscriptionPlan: { amount: 200_000 },
+		});
+		expect(stripeMocks.retrievePrice).toHaveBeenCalledWith('price_legacy');
+	});
+
+	it('rejects a historical Price from another Product', async () => {
+		stripeMocks.retrievePrice.mockResolvedValue(cloudMonthlyPrice({ id: 'price_other', product: 'prod_other' }));
+
+		await expect(getCloudBillingPlans('price_other')).rejects.toThrow(
+			'Stripe Price "price_other" is not a valid historical cloud Price',
 		);
 	});
 
@@ -171,7 +211,35 @@ describe('cloud Checkout', () => {
 				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=success',
 				cancel_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=canceled',
 			}),
-			{ idempotencyKey: `cloud-checkout-initial-v3:org-id:${trialEndsAt.getTime()}` },
+			{ idempotencyKey: `cloud-checkout-initial-v4:org-id:${trialEndsAt.getTime()}` },
+		);
+	});
+
+	it('creates a zero-due Checkout before starting a new trial', async () => {
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/trial',
+		});
+
+		await expect(
+			createCloudCheckoutSession({
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				trialEndsAt: null,
+				trialDays: 14,
+			}),
+		).resolves.toBe('https://checkout.stripe.com/trial');
+
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				line_items: [{ price: 'price_cloud_monthly', quantity: 1 }],
+				payment_method_collection: 'if_required',
+				subscription_data: {
+					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+					trial_period_days: 14,
+					trial_settings: { end_behavior: { missing_payment_method: 'pause' } },
+				},
+			}),
+			{ idempotencyKey: 'cloud-checkout-initial-v4:org-id:trial-14' },
 		);
 	});
 
@@ -276,7 +344,7 @@ describe('cloud Checkout', () => {
 				},
 				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed',
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v3:org-id:sub_cloud' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v4:org-id:sub_cloud' },
 		);
 	});
 

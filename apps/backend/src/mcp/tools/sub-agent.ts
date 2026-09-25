@@ -6,6 +6,7 @@ import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
+import { assertProjectCloudBillingAccess } from '../../services/cloud-billing-access.service';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
@@ -127,6 +128,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 		},
 		errorMessage: () => 'Nao agent failed to process the request.',
 		handler: async ({ question, chatId }) => {
+			await assertProjectCloudBillingAccess(ctx.projectId);
 			await mcpService.initializeMcpState(ctx.projectId);
 			await skillService.initializeSkills(ctx.projectId);
 

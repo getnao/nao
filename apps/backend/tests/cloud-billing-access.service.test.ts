@@ -14,18 +14,31 @@ const recentlyPast = new Date('2026-09-24T00:00:00.000Z');
 describe('cloud billing access entitlement', () => {
 	it.each([
 		['billing disabled', false, null, true],
-		['local trial before its end', true, entitlement('trialing', { trialEndsAt: future }), true],
+		['unconfirmed local trial', true, entitlement('trialing', { trialEndsAt: future }), false],
 		[
 			'trialing before its billing access end',
 			true,
-			entitlement('trialing', { trialEndsAt: future, billingAccessEndsAt: future }),
+			entitlement('trialing', {
+				stripeSubscriptionId: 'sub_trial',
+				trialEndsAt: future,
+				billingAccessEndsAt: future,
+			}),
 			true,
 		],
-		['expired trial', true, entitlement('trialing', { trialEndsAt: past }), false],
+		[
+			'expired trial',
+			true,
+			entitlement('trialing', { stripeSubscriptionId: 'sub_trial', trialEndsAt: past }),
+			false,
+		],
 		[
 			'trial past its access end',
 			true,
-			entitlement('trialing', { trialEndsAt: future, billingAccessEndsAt: past }),
+			entitlement('trialing', {
+				stripeSubscriptionId: 'sub_trial',
+				trialEndsAt: future,
+				billingAccessEndsAt: past,
+			}),
 			false,
 		],
 		['trial missing its end', true, entitlement('trialing'), false],
@@ -69,6 +82,7 @@ describe('cloud billing access entitlement', () => {
 function entitlement(
 	billingStatus: BillingStatus,
 	overrides: Partial<{
+		stripeSubscriptionId: string;
 		trialEndsAt: Date;
 		currentPeriodEndsAt: Date;
 		billingAccessEndsAt: Date;
@@ -77,6 +91,7 @@ function entitlement(
 ) {
 	return {
 		billingStatus,
+		stripeSubscriptionId: null,
 		trialEndsAt: null,
 		currentPeriodEndsAt: null,
 		billingAccessEndsAt: null,

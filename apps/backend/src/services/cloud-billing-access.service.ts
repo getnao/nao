@@ -6,6 +6,7 @@ const ACTIVE_RECONCILIATION_GRACE_MS = 24 * 60 * 60 * 1000;
 
 type CloudBillingEntitlement = {
 	billingStatus: BillingStatus | null;
+	stripeSubscriptionId: string | null;
 	trialEndsAt: Date | null;
 	currentPeriodEndsAt: Date | null;
 	billingAccessEndsAt: Date | null;
@@ -34,6 +35,7 @@ export function hasCloudBillingAccess(
 	switch (entitlement.billingStatus) {
 		case 'trialing':
 			return (
+				entitlement.stripeSubscriptionId !== null &&
 				isAfter(entitlement.trialEndsAt, now) &&
 				(!entitlement.billingAccessEndsAt || isAfter(entitlement.billingAccessEndsAt, now))
 			);

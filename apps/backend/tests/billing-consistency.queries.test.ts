@@ -26,7 +26,6 @@ import {
 	claimBillingSync,
 	claimTrialReminder,
 	releaseTrialReminder,
-	startOrganizationTrial,
 	type SubscriptionProjection,
 	updateSubscriptionProjection,
 } from '../src/queries/billing.queries';
@@ -108,37 +107,21 @@ describe('billing consistency queries', () => {
 		expect(pending).toMatchObject({ status: 'pending', attempts: 1, payload: { eventId: 'evt_pending' } });
 	});
 
-	it('starts one trial only after an explicit request', async () => {
-		const now = new Date('2026-09-24T00:00:00.000Z');
-		await db.insert(s.organization).values({
-			id: 'unclassified-org',
-			name: 'Unclassified',
-			slug: 'unclassified',
-		});
-
-		await expect(startOrganizationTrial('unclassified-org', now)).resolves.toMatchObject({
-			billingStatus: 'trialing',
-		});
-		await expect(startOrganizationTrial('unclassified-org', now)).resolves.toBeNull();
-
-		const [organization] = await db.select().from(s.organization).where(eq(s.organization.id, 'unclassified-org'));
-		expect(organization).toMatchObject({
-			billingPlan: 'cloud_monthly_v2',
-			billingStatus: 'trialing',
-			trialStartedAt: now,
-			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
-			billingAccessEndsAt: new Date('2026-10-08T00:00:00.000Z'),
-		});
-	});
-
 	it('claims a trial reminder only once', async () => {
 		const trialEndsAt = new Date('2026-10-08T00:00:00.000Z');
 		const claimedAt = new Date('2026-10-05T00:00:00.000Z');
+		await db.insert(s.organization).values({
+			id: 'trial-reminder-org',
+			name: 'Trial Reminder',
+			slug: 'trial-reminder',
+			billingStatus: 'trialing',
+			trialEndsAt,
+		});
 
-		await expect(claimTrialReminder('unclassified-org', trialEndsAt, claimedAt)).resolves.toBe(true);
-		await expect(claimTrialReminder('unclassified-org', trialEndsAt, claimedAt)).resolves.toBe(false);
-		await releaseTrialReminder('unclassified-org', trialEndsAt, claimedAt);
-		await expect(claimTrialReminder('unclassified-org', trialEndsAt, claimedAt)).resolves.toBe(true);
+		await expect(claimTrialReminder('trial-reminder-org', trialEndsAt, claimedAt)).resolves.toBe(true);
+		await expect(claimTrialReminder('trial-reminder-org', trialEndsAt, claimedAt)).resolves.toBe(false);
+		await releaseTrialReminder('trial-reminder-org', trialEndsAt, claimedAt);
+		await expect(claimTrialReminder('trial-reminder-org', trialEndsAt, claimedAt)).resolves.toBe(true);
 	});
 });
 

@@ -133,11 +133,11 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 
 	const isLocalTrialActive = billing.data.localTrialActive;
 	const actionDescription = billing.data.trialAvailable
-		? `Start this organization's ${plan.trialDays}-day free trial when your team is ready. No payment method is required.`
+		? `Continue to Stripe to confirm this organization's ${plan.trialDays}-day free trial. No payment method is required.`
 		: !isLocalTrialActive
 			? 'Your free trial has ended. Subscribe to restore access; billing starts immediately.'
 			: preservesRemainingTrial(billing.data.trialEndsAt)
-				? 'Your free trial is already active. Subscribe now to preserve the remaining trial time; billing starts when it ends.'
+				? 'Complete Stripe Checkout to confirm the free trial. Access begins only after Stripe confirms it.'
 				: 'Less than 48 hours remain on your free trial. Subscribe now and billing starts immediately.';
 
 	return (
@@ -163,9 +163,9 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 						label='Free trial'
 						value={
 							billing.data.trialAvailable
-								? `${plan.trialDays} days, starting when activated`
+								? `${plan.trialDays} days, starting after Stripe Checkout`
 								: isLocalTrialActive
-									? `Active until ${formatBillingDate(billing.data.trialEndsAt)}`
+									? `Waiting for Stripe Checkout; reserved until ${formatBillingDate(billing.data.trialEndsAt)}`
 									: `Ended ${formatBillingDate(billing.data.trialEndsAt)}`
 						}
 					/>
@@ -177,11 +177,11 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 					{billing.data.canManageBilling ? (
 						billing.data.trialAvailable ? (
 							<Button onClick={billingState.startTrial} isLoading={billingState.isTrialPending}>
-								Start 14-day free trial
+								Start 14-day free trial in Stripe
 							</Button>
 						) : (
 							<Button onClick={billingState.subscribe} isLoading={billingState.isCheckoutPending}>
-								Subscribe to nao Cloud
+								{isLocalTrialActive ? 'Finish trial setup in Stripe' : 'Subscribe to nao Cloud'}
 							</Button>
 						)
 					) : (

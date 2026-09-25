@@ -18,6 +18,7 @@ import {
 	CloudInitialCheckoutUnavailableError,
 	CloudSubscriptionResumeError,
 	CloudSubscriptionUnavailableError,
+	getCloudBillingPlans,
 } from '../services/stripe.service';
 import { CLOUD_MONTHLY_PLAN } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
@@ -67,9 +68,10 @@ export const billingRoutes = {
 			userId: ctx.user.id,
 			organizationId: ctx.organization.id,
 		});
+		const { availablePlan, subscriptionPlan } = await getCloudBillingPlans(organization.stripePriceId);
 		return {
-			plan: organization.billingPlan === CLOUD_MONTHLY_PLAN.key ? CLOUD_MONTHLY_PLAN : null,
-			availablePlan: CLOUD_MONTHLY_PLAN,
+			plan: organization.billingPlan === CLOUD_MONTHLY_PLAN.key ? (subscriptionPlan ?? availablePlan) : null,
+			availablePlan,
 			planKey: organization.billingPlan,
 			status: organization.billingStatus,
 			trialStartedAt: organization.trialStartedAt,
@@ -100,12 +102,15 @@ export const billingRoutes = {
 
 	startTrial: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
 		try {
-			const organization = await startCloudTrialForAdmin({
+			const url = await startCloudTrialForAdmin({
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
 			});
-			return { trialEndsAt: organization.trialEndsAt };
+			return { url };
 		} catch (error) {
+			if (error instanceof CloudInitialCheckoutUnavailableError) {
+				throw new TRPCError({ code: 'CONFLICT', message: error.message });
+			}
 			throwBillingFailure('trial activation', 'Unable to start the free trial', error);
 		}
 	}),

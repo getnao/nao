@@ -5,6 +5,7 @@ import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
+import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { AgentRequestSchema } from '../types/chat';
 
@@ -24,6 +25,7 @@ export const agentRoutes = async (app: App) => {
 				return reply.status(403).send({ error: 'Viewers cannot send messages' });
 			}
 			canChatWithNaoData = userRole === 'admin' || userRole === 'context_admin';
+			await assertProjectCloudBillingAccess(projectId);
 		}
 
 		const result = await handleAgentRoute({

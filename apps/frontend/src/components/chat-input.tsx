@@ -117,6 +117,12 @@ function ChatInputBase({
 	const { canChatWithNaoData } = usePermissions();
 	const chatId = useChatId();
 	const storyBeforeAgentSend = useStoryBeforeAgentSend();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const billingAccess = useQuery({
+		...trpc.billing.getAccess.queryOptions(),
+		enabled: config.data?.cloudBillingEnabled === true,
+		refetchOnWindowFocus: 'always',
+	});
 
 	const isAdminMode = canChatWithNaoData && adminMode;
 	const adminModeLocked = useAgentMessagesSelector((messages) => messages.some((message) => message.role === 'user'));
@@ -390,6 +396,16 @@ function ChatInputBase({
 		[canCycleModels, cycleModel],
 	);
 
+	if (billingAccess.data?.hasAccess === false) {
+		return (
+			<ChatBillingRequired
+				canManageBilling={billingAccess.data.canManageBilling}
+				trialAvailable={billingAccess.data.trialAvailable}
+				className={className}
+			/>
+		);
+	}
+
 	return (
 		<div ref={dropZoneRef} className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageWithGuard} />
@@ -489,6 +505,44 @@ function ChatInputBase({
 					</InputGroupAddon>
 				</InputGroup>
 			</form>
+		</div>
+	);
+}
+
+function ChatBillingRequired({
+	canManageBilling,
+	trialAvailable,
+	className,
+}: {
+	canManageBilling: boolean;
+	trialAvailable: boolean;
+	className?: string;
+}) {
+	return (
+		<div className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
+			<div
+				className='flex flex-wrap items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm'
+				role='alert'
+			>
+				<AlertTriangle className='size-4 shrink-0 text-destructive' aria-hidden />
+				<div className='min-w-0 flex-1'>
+					<p className='font-medium text-foreground'>Agent access is paused for this organization.</p>
+					<p className='text-muted-foreground'>
+						{trialAvailable
+							? 'Start the free trial to begin chatting.'
+							: 'An active trial or subscription is required to run agents.'}
+					</p>
+				</div>
+				{canManageBilling ? (
+					<Button asChild size='sm' variant='secondary'>
+						<Link to='/settings/organization/billing' search={{ checkout: undefined, portal: undefined }}>
+							Manage billing
+						</Link>
+					</Button>
+				) : (
+					<span className='text-xs text-muted-foreground'>Ask an organization admin to manage billing.</span>
+				)}
+			</div>
 		</div>
 	);
 }

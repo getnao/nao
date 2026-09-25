@@ -29,6 +29,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
@@ -145,6 +146,7 @@ class TelegramService {
 
 		try {
 			await this._validateUserAccess(ctx);
+			await assertProjectCloudBillingAccess(this._projectId);
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			await this._saveOrUpdateUserMessage(ctx);
 
@@ -155,10 +157,11 @@ class TelegramService {
 
 			await this._handleStreamAgent(chat, ctx);
 		} catch (error) {
+			const errorMessage = formatMessagingError(error);
 			if (!ctx.convMessage) {
+				await ctx.thread.post(errorMessage);
 				return;
 			}
-			const errorMessage = formatMessagingError(error);
 			ctx.blocks = [createPlainTextBlock(errorMessage)];
 			await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
 		}

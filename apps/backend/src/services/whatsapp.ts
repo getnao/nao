@@ -30,6 +30,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
 
@@ -130,6 +131,7 @@ class WhatsappService {
 
 		try {
 			await this._validateUserAccess(ctx);
+			await assertProjectCloudBillingAccess(this._projectId);
 			await this._saveOrUpdateUserMessage(ctx);
 
 			const [chat] = await chatQueries.getChat(ctx.chatId);

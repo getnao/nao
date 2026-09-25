@@ -11,12 +11,10 @@ const stripeMocks = vi.hoisted(() => ({
 	createPaymentMethod: vi.fn(),
 	createPortal: vi.fn(),
 	createResubscribe: vi.fn(),
+	getBillingPlans: vi.fn(),
 	listInvoices: vi.fn(),
 	reconcileCustomer: vi.fn(),
 	resumeSubscription: vi.fn(),
-}));
-const billingMocks = vi.hoisted(() => ({
-	startTrial: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({
@@ -38,7 +36,6 @@ vi.mock('../src/queries/user.queries', () => ({
 
 vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: stripeMocks.attachCustomer,
-	startOrganizationTrial: billingMocks.startTrial,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
@@ -54,6 +51,7 @@ vi.mock('../src/services/stripe.service', () => ({
 	createCloudPaymentMethodSession: stripeMocks.createPaymentMethod,
 	createCloudPortalSession: stripeMocks.createPortal,
 	createCloudResubscribeSession: stripeMocks.createResubscribe,
+	getCloudBillingPlans: stripeMocks.getBillingPlans,
 	listCloudInvoices: stripeMocks.listInvoices,
 	resumeCloudSubscription: stripeMocks.resumeSubscription,
 }));
@@ -87,7 +85,10 @@ describe('billing.getAccess', () => {
 
 	it('returns minimal entitlement state to organization members', async () => {
 		const trialEndsAt = new Date('2099-10-05T00:00:00.000Z');
-		testState.membership = membership({ billingStatus: 'trialing', trialEndsAt }, 'member');
+		testState.membership = membership(
+			{ billingStatus: 'trialing', stripeSubscriptionId: 'sub_trial', trialEndsAt },
+			'member',
+		);
 
 		await expect(caller().billing.getAccess()).resolves.toEqual({
 			hasAccess: true,
@@ -117,6 +118,10 @@ describe('billing.getStatus', () => {
 		testState.billingEnabled = true;
 		testState.membership = null;
 		vi.clearAllMocks();
+		stripeMocks.getBillingPlans.mockResolvedValue({
+			availablePlan: cloudPlan(250_000),
+			subscriptionPlan: null,
+		});
 	});
 
 	it('returns the organization billing projection and matching plan', async () => {
@@ -131,7 +136,7 @@ describe('billing.getStatus', () => {
 			plan: {
 				key: 'cloud_monthly_v2',
 				name: 'nao Cloud',
-				amount: 200_000,
+				amount: 250_000,
 				currency: 'eur',
 			},
 			planKey: 'cloud_monthly_v2',
@@ -143,6 +148,25 @@ describe('billing.getStatus', () => {
 			localTrialActive: true,
 			trialAvailable: false,
 		});
+	});
+
+	it("returns an existing subscription's historical Price separately from the current offer", async () => {
+		testState.membership = membership({
+			billingPlan: 'cloud_monthly_v2',
+			billingStatus: 'active',
+			stripePriceId: 'price_legacy',
+			stripeSubscriptionId: 'sub_cloud',
+		});
+		stripeMocks.getBillingPlans.mockResolvedValue({
+			availablePlan: cloudPlan(250_000),
+			subscriptionPlan: cloudPlan(200_000),
+		});
+
+		await expect(caller().billing.getStatus()).resolves.toMatchObject({
+			plan: { amount: 200_000 },
+			availablePlan: { amount: 250_000 },
+		});
+		expect(stripeMocks.getBillingPlans).toHaveBeenCalledWith('price_legacy');
 	});
 
 	it('does not invent a plan for an uninitialized organization', async () => {
@@ -201,25 +225,44 @@ describe('billing.startTrial', () => {
 		testState.billingEnabled = true;
 		testState.membership = membership({});
 		vi.clearAllMocks();
-		billingMocks.startTrial.mockResolvedValue({
+		stripeMocks.createCustomer.mockResolvedValue({ id: 'cus_cloud' });
+		stripeMocks.attachCustomer.mockResolvedValue({
 			...(testState.membership as { organization: Record<string, unknown> }).organization,
-			billingStatus: 'trialing',
-			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
+			stripeCustomerId: 'cus_cloud',
 		});
+		stripeMocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/trial');
 	});
 
-	it('starts the selected organization trial for an admin', async () => {
+	it('opens a Stripe trial Checkout without granting local access first', async () => {
 		await expect(caller().billing.startTrial()).resolves.toEqual({
-			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
+			url: 'https://checkout.stripe.com/trial',
 		});
-		expect(billingMocks.startTrial).toHaveBeenCalledWith('org-id', expect.any(Date));
+		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			trialDays: 14,
+			trialEndsAt: null,
+		});
 	});
 
-	it('rejects non-admin members before starting a trial', async () => {
+	it('rejects non-admin members before creating Stripe trial objects', async () => {
 		testState.membership = membership({}, 'member');
 
 		await expect(caller().billing.startTrial()).rejects.toMatchObject({ code: 'FORBIDDEN' });
-		expect(billingMocks.startTrial).not.toHaveBeenCalled();
+		expect(stripeMocks.createCustomer).not.toHaveBeenCalled();
+		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
+	});
+
+	it('does not offer a second trial after one has started', async () => {
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			trialStartedAt: new Date('2026-09-24T00:00:00.000Z'),
+			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
+		});
+
+		await expect(caller().billing.startTrial()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(stripeMocks.createCustomer).not.toHaveBeenCalled();
+		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
 	});
 });
 
@@ -398,6 +441,7 @@ function membership(organization: Record<string, unknown>, role = 'admin') {
 			trialEndsAt: null,
 			stripeCustomerId: null,
 			stripeSubscriptionId: null,
+			stripePriceId: null,
 			currentPeriodEndsAt: null,
 			cancelAtPeriodEnd: null,
 			hasDefaultPaymentMethod: null,
@@ -405,5 +449,18 @@ function membership(organization: Record<string, unknown>, role = 'admin') {
 			billingUpdatedAt: null,
 			...organization,
 		},
+	};
+}
+
+function cloudPlan(amount: number) {
+	return {
+		key: 'cloud_monthly_v2',
+		name: 'nao Cloud',
+		amount,
+		currency: 'eur',
+		interval: 'month',
+		intervalCount: 1,
+		trialDays: 14,
+		userLimit: null,
 	};
 }

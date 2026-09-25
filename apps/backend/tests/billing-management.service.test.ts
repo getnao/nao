@@ -50,6 +50,7 @@ import {
 	getCloudBillingOrganizationForAdmin,
 	listCloudInvoicesForAdmin,
 	resumeCloudSubscriptionForAdmin,
+	startCloudTrialForAdmin,
 	syncCloudBillingForAdmin,
 } from '../src/services/billing-management.service';
 
@@ -66,6 +67,7 @@ describe('billing management authorization', () => {
 		['billing status', () => getCloudBillingOrganizationForAdmin(adminInput)],
 		['invoices', () => listCloudInvoicesForAdmin(adminInput)],
 		['billing synchronization', () => syncCloudBillingForAdmin(adminInput)],
+		['trial Checkout', () => startCloudTrialForAdmin(adminInput)],
 		['Checkout', () => createCloudCheckoutForAdmin(adminInput)],
 		['Customer Portal', () => createCloudPortalForAdmin(requestInput)],
 		['payment methods', () => createCloudPaymentMethodPortalForAdmin(requestInput)],

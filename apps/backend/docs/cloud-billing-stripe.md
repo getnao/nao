@@ -93,11 +93,56 @@ Create one Stripe Product named `nao Cloud` and one recurring Price:
 - interval: monthly
 - usage type: licensed
 - quantity: `1`
-- lookup key: `nao_cloud_monthly_v2`
+- lookup key: `nao_cloud_monthly_v3`
 
-The backend resolves the Price by lookup key and validates the full billing contract before use. The browser never supplies an amount, Price ID, Customer ID, Subscription ID, or organization ID as authoritative billing input.
+The lookup key tells nao which Price to sell. nao reads the amount from Stripe and checks that the Price is active, monthly, in EUR, and attached to the `nao Cloud` Product. The browser does not decide any billing values.
 
-Create a new Price for future pricing changes. Existing subscriptions can retain their historical Price while reconciliation recognizes the configured Product.
+#### Changing the price
+
+Stripe Prices are immutable. Changing the monthly amount means creating a replacement Price under the existing `nao Cloud` Product; it does not mean editing the Product or the current Price.
+
+Use a new versioned lookup key for every replacement, such as `nao_cloud_monthly_v4`. Do not transfer the previous lookup key: keeping both keys makes the cutover explicit in deployment configuration and preserves a simple rollback.
+
+To change the amount for new subscriptions:
+
+1. Decide the new amount, tax behavior, effective date, and whether existing subscriptions will be migrated.
+2. In Stripe sandbox mode, add the replacement monthly EUR Price to the existing `nao Cloud` Product. Match the licensed usage type, monthly interval, and tax behavior, and assign the next lookup key.
+3. Leave the previous Price active during the rollback window.
+4. Set the non-production `STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY` to the replacement key and restart or redeploy nao. Environment configuration is read at startup.
+5. Verify that Plan & Billing and a newly created Checkout show the replacement amount, and that a completed test subscription references the replacement Price.
+6. Create the equivalent Price under the live-mode `nao Cloud` Product. Sandbox and live Price IDs differ, but they can use the same lookup key.
+7. Update the production lookup-key setting, restart or redeploy, verify a new live Checkout, and monitor billing errors and webhook reconciliation.
+
+No code or database migration is required. The cutover occurs when a Checkout session is created:
+
+- a Checkout created after the configuration change uses the replacement Price;
+- a Checkout created before the change keeps the previous Price, even if the customer completes it later;
+- an existing paid or trialing subscription keeps its previous Price, including the amount charged when its trial ends.
+
+Changing the lookup key does not migrate existing subscriptions. If existing customers should move to the replacement amount, update each subscription item separately in Stripe or use a Subscription Schedule for a future billing boundary. Decide and communicate the effective date, and explicitly choose the proration behavior; Stripe otherwise prorates many mid-cycle Price changes by default. Test the migration with sandbox subscriptions or test clocks before applying it in live mode. Signed webhooks and reconciliation will then update each organization's persisted `stripePriceId` and displayed subscription amount.
+
+To roll back new sales, confirm that the previous Price is still active, restore its lookup key in `STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY`, and restart or redeploy nao. This affects only Checkout sessions created after the rollback. It does not change already-created sessions or reverse subscription migrations; those require separate Stripe updates with their own proration decision.
+
+After the rollback window, the previous Price may be deactivated so it cannot be selected for new purchases. Existing subscriptions can continue to reference an inactive Price. Keep the Product and historical Prices because reconciliation uses the shared Product to recognize both current and historical nao Cloud subscriptions.
+
+```mermaid
+flowchart LR
+    Product["nao Cloud Product"]
+    Previous["Previous Price<br/>nao_cloud_monthly_v3"]
+    Replacement["Replacement Price<br/>nao_cloud_monthly_v4"]
+    Config["STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY<br/>nao_cloud_monthly_v4"]
+    Existing["Existing paid or trialing subscription"]
+    EarlierCheckout["Checkout created before cutover"]
+    NewCheckout["Checkout created after cutover"]
+
+    Product --> Previous
+    Product --> Replacement
+    Config -->|"selects for new sessions"| Replacement
+    Existing -->|"keeps"| Previous
+    EarlierCheckout -->|"keeps"| Previous
+    NewCheckout -->|"uses"| Replacement
+    Existing -. "optional explicit migration" .-> Replacement
+```
 
 ### Customer Portal
 
@@ -153,7 +198,7 @@ Pin the destination to the API version used by the Stripe SDK.
 ```env
 CLOUD_BILLING_ENABLED=false
 STRIPE_SECRET_KEY=
-STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=nao_cloud_monthly_v2
+STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=nao_cloud_monthly_v3
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PORTAL_CONFIGURATION_ID=
 ```
@@ -183,7 +228,7 @@ Billing extends the existing `organization` table:
 
 Supported local statuses are `trialing`, `active`, `past_due`, `unpaid`, `canceled`, `paused`, `incomplete`, and `incomplete_expired`.
 
-Stripe Customer and Subscription IDs are unique when present. Trial timestamps remain null until an organization admin explicitly activates the trial. Activation is atomic, organization-scoped, and one-time; Checkout, joining an organization, resubscribing, or renaming the organization never resets it.
+Stripe Customer and Subscription IDs are unique when present. Trial timestamps remain null until a signed Stripe event confirms the Checkout-created subscription. Opening or abandoning Checkout does not grant access or consume the trial. Joining an organization, resubscribing, or renaming the organization never resets it.
 
 The `stripe_webhook_event` table is a durable inbox containing the Event ID, type, object ID, live-mode flag, receipt time, processing time, and last error. Raw event payloads and payment details are not retained.
 
@@ -228,20 +273,24 @@ erDiagram
     }
 ```
 
-Stripe owns Customers, Subscriptions, Prices, Payment Methods, and Invoices. nao stores identifiers and a queryable projection, not copies of payment data:
+Stripe owns Products, Customers, Subscriptions, Prices, Payment Methods, and Invoices. nao stores identifiers and a queryable projection, not copies of payment data:
 
 ```mermaid
 flowchart LR
     Org["organization"]
+    Config["Server Price lookup key"]
     Customer["Stripe Customer"]
     Subscription["Stripe Subscription"]
-    Price["Stripe Price"]
+    Product["Stripe Product"]
+    Price["Stripe Prices<br/>current and historical"]
     PaymentMethod["Stripe Payment Method"]
     Invoice["Stripe Invoice"]
 
     Org -->|"stripeCustomerId"| Customer
     Org -->|"stripeSubscriptionId"| Subscription
     Org -->|"stripePriceId"| Price
+    Config -->|"selects active Price"| Price
+    Product --> Price
     Customer --> PaymentMethod
     Customer --> Invoice
     Customer --> Subscription
@@ -253,6 +302,8 @@ flowchart LR
 Organization-scoped requests resolve the organization from the authenticated user's selected project. Without a selected project, the user must belong to exactly one organization. An unknown selected project or ambiguous membership fails instead of falling back to an arbitrary organization.
 
 This rule applies to billing, organization settings, API keys, and GitHub or GitLab project imports.
+
+Cloud signup creates a personal organization and makes the new user its admin, but it does not create a project. Because the sole organization is unambiguous, that admin can open Plan & Billing, start the trial, and create an organization API key before the first project exists. Billing never operates without an organization.
 
 ## Interactive route authorization
 
@@ -317,7 +368,10 @@ flowchart LR
     MemberGuard --> AccessSummary --> Organization
     MemberGuard --> AdminGuard
     AdminGuard --> Status --> Organization
-    AdminGuard --> StartTrial --> Organization
+    AdminGuard --> StartTrial
+    StartTrial --> Organization
+    StartTrial -->|"create if absent"| CustomerAPI
+    StartTrial --> CheckoutAPI
     AdminGuard --> Invoices --> InvoiceAPI
     AdminGuard --> Sync --> Reconcile
     AdminGuard --> Checkout
@@ -336,10 +390,10 @@ flowchart LR
 
 - `billing.getAccess` returns only entitlement, trial, role-action, and billing-action state required by the organization-wide banner.
 - `billing.getStatus` returns the persisted plan, entitlement dates, action availability, and payment-method readiness.
-- `billing.startTrial` atomically activates the organization's one 14-day trial without creating Stripe objects.
+- `billing.startTrial` creates or reuses a zero-due Stripe Checkout for the organization's one 14-day trial. Access remains restricted until Stripe confirms the subscription.
 - `billing.getInvoices` lists up to 100 invoices for the persisted Customer and returns only display fields and hosted document URLs.
 - `billing.syncStripeBilling` retrieves canonical Stripe state and refreshes the local projection.
-- `billing.createCheckoutSession` creates or reuses the organization Customer and starts the first subscription Checkout.
+- `billing.createCheckoutSession` preserves the remaining trial for organizations that activated a local trial before Checkout-backed activation was introduced.
 - `billing.createPortalSession` opens the general Customer Portal for an existing subscription.
 - `billing.createPaymentMethodSession` opens a Portal flow restricted to payment-method updates.
 - `billing.createResubscribeSession` allows a new paid Checkout only after a canceled or incomplete-expired subscription.
@@ -352,7 +406,10 @@ flowchart TD
     Operation -->|getStatus| Status["Read local projection"]
     Operation -->|startTrial| TrialUnused{"Trial never started<br/>and no subscription?"}
     TrialUnused -->|No| TrialConflict["BAD_REQUEST"]
-    TrialUnused -->|Yes| StartTrial["Atomically start 14-day local trial"]
+    TrialUnused -->|Yes| EnsureTrialCustomer["Create or reuse Customer"]
+    EnsureTrialCustomer --> TrialHistory{"Cloud subscription history exists?"}
+    TrialHistory -->|Yes| TrialConflict
+    TrialHistory -->|No| StartTrial["Create zero-due Checkout<br/>with 14-day trial"]
     Operation -->|getInvoices| HasInvoiceCustomer{"Customer exists?"}
     HasInvoiceCustomer -->|No| EmptyInvoices["Return empty list"]
     HasInvoiceCustomer -->|Yes| ListInvoices["List Stripe invoices"]
@@ -397,7 +454,7 @@ flowchart TD
 
 Cloud organization creation does not start a trial or call Stripe. This prevents a personal organization created at signup from consuming its trial when the user later joins another organization.
 
-An organization starts with restricted access until one of its admins activates the trial from the billing page. Activation atomically stores the plan, trial start, trial end, and access end. A second activation is rejected, and regular members cannot activate it.
+An organization starts with restricted access. An admin must complete the zero-due Stripe Checkout before the trial begins. Opening or abandoning Checkout does not grant access. Regular members cannot start Checkout, and an organization with subscription history cannot receive another trial.
 
 ### Initial Checkout
 
@@ -406,25 +463,25 @@ Checkout:
 1. resolves or creates one Stripe Customer for the organization;
 2. rejects Customers with existing cloud subscription history;
 3. uses the server-selected Price and quantity `1`;
-4. preserves the local trial with an exact `trial_end` when at least 48 hours remain;
-5. otherwise collects a payment method and starts billing immediately;
-6. stores the organization and plan keys in server-created metadata;
-7. returns only the hosted Checkout URL.
+4. configures a 14-day trial with a zero amount due today;
+5. allows Checkout to skip payment-method collection while nothing is due;
+6. pauses the subscription at trial expiry when no payment method is available;
+7. stores the organization and plan keys in server-created metadata;
+8. returns only the hosted Checkout URL.
 
-Stripe Checkout requires an absolute trial end to be at least 48 hours in the future. The billing page communicates when less time remains and billing will begin immediately.
-
-The success redirect is not proof of payment. The UI polls the persisted projection while signed webhook processing or explicit reconciliation confirms Stripe state.
+The success redirect is not proof of payment. The UI polls the persisted projection while signed webhook processing or explicit reconciliation confirms Stripe state. While confirmation is pending, the billing page reports that it is checking Stripe. Once the trial subscription is present, the temporary Checkout feedback disappears and the organization access query is invalidated so the global trial banner and chat gate update immediately.
 
 ```mermaid
 sequenceDiagram
     actor Admin
     participant UI as Billing page
-    participant Router as billing.createCheckoutSession
+    participant Router as billing.startTrial
     participant Management as Billing management service
     participant DB as Database
     participant Stripe as Stripe API
+    participant Webhook as Signed webhook worker
 
-    Admin->>UI: Subscribe
+    Admin->>UI: Start free trial
     UI->>Router: Authenticated mutation
     Router->>DB: Resolve membership and require admin
     Router->>Management: userId and organizationId
@@ -439,13 +496,18 @@ sequenceDiagram
         Stripe-->>Management: Existing subscriptions
         Management-->>Router: Conflict; use recovery or resubscribe
     else First subscription
-        Management->>Stripe: Create or reuse idempotent Checkout Session
+        Management->>Stripe: Create or reuse 14-day trial Checkout
         Stripe-->>Management: Hosted Checkout URL
         Router-->>UI: URL only
         UI->>Stripe: Navigate to hosted Checkout
-        Stripe-->>UI: Redirect to billing page
+        alt Checkout completed
+            Stripe-->>UI: Redirect to billing page
+            Stripe->>Webhook: Checkout and subscription events
+            Webhook->>DB: Reconcile subscription and grant trial access
+        else Checkout abandoned
+            Note over UI,DB: Organization remains restricted and trial remains available
+        end
         UI->>Router: Poll persisted status
-        Note over Stripe,DB: Signed webhooks or explicit reconciliation update the projection
     end
 ```
 
@@ -462,14 +524,14 @@ Cancellation never removes nao data or Stripe identifiers.
 ```mermaid
 stateDiagram-v2
     [*] --> TrialAvailable: Organization created
-    TrialAvailable --> LocalTrial: Admin activates trial
-    LocalTrial --> Incomplete: Immediate Checkout started
-    LocalTrial --> Trialing: Checkout preserves at least 48 hours
-    LocalTrial --> Restricted: Local trial expires without subscription
-    Incomplete --> Active: Initial payment succeeds
+    TrialAvailable --> Trialing: Trial Checkout completed
+    TrialAvailable --> TrialAvailable: Checkout abandoned
+    Incomplete --> Active: Paid Checkout succeeds
     Incomplete --> IncompleteExpired: Checkout cannot complete
     Trialing --> Active: Trial ends with payment method
+    Trialing --> PastDue: First invoice payment fails
     Trialing --> Paused: Trial ends without payment method
+    Trialing --> Canceled: Cancellation boundary reached
     Active --> PastDue: Renewal payment fails
     Active --> Canceled: Cancellation boundary reached
     PastDue --> Active: Recovery succeeds
@@ -478,11 +540,10 @@ stateDiagram-v2
     Paused --> Active: Admin adds payment method and resumes
     Canceled --> Incomplete: Admin starts paid resubscription
     IncompleteExpired --> Incomplete: Admin starts paid resubscription
-    Restricted --> Incomplete: Admin starts paid subscription
 
-    note right of LocalTrial
-        Local state only;
-        no Stripe object yet
+    note right of TrialAvailable
+        Restricted until a signed Stripe event
+        confirms the Checkout subscription
     end note
 
     note right of Canceled
@@ -614,11 +675,23 @@ Restricted organizations retain:
 - authentication;
 - organization and account administration;
 - billing status, Checkout, Portal, invoices, and recovery actions;
+- authenticated project creation and updates through `/api/deploy`, without agent execution access;
 - read-only access to existing projects, conversations, stories, settings, and customer-owned data.
 
-Restrictions block cost-producing or state-changing work, including agent/model calls, SQL execution, transcription, live refresh, automation execution, deployment, repository import, and context mutations.
+Restrictions block cost-producing execution and protected mutations, including agent/model calls, SQL execution, transcription, live refresh, automation execution, repository import, and context mutations.
 
 Enforcement happens at backend service and route boundaries. UI warnings are not security controls. Background jobs become no-ops while restricted and remain configured for later recovery.
+
+An organization API key may create or update a project through `/api/deploy` before the trial starts. Deployment authenticates the key and scopes the project to its organization, but intentionally does not require billing entitlement. Any scheduled project work checks entitlement before execution and becomes a no-op while access is restricted.
+
+This allows the user to finish project setup before encountering billing:
+
+1. sign up, which creates the personal organization;
+2. create an organization API key;
+3. deploy the first project;
+4. open the project and attempt to talk to the agent;
+5. follow the billing prompt and complete the 14-day trial Checkout;
+6. talk to the agent after Stripe confirms the trial subscription.
 
 ```mermaid
 flowchart TD
@@ -630,7 +703,7 @@ flowchart TD
     CancelBoundary{"Access boundary is in the future?"}
     ActiveBoundary{"Current period end plus 24-hour grace is in the future?"}
     Allow["Allow full access"]
-    Restrict["Restrict cost-producing and mutating work<br/>preserve data and billing recovery"]
+    Restrict["Restrict billable execution and protected mutations<br/>allow deployment and preserve data"]
 
     Check --> Enabled
     Enabled -->|No| Allow
@@ -649,20 +722,20 @@ flowchart TD
     State -->|"missing, unpaid, paused,<br/>incomplete, incomplete_expired, canceled"| Restrict
 ```
 
-## Tomorrow: enforce paid cloud agent access
+## Cloud agent access enforcement
 
 On nao Cloud, an organization must have an active trial or paid subscription to talk to an agent. User-supplied model API keys do not bypass this requirement: they may cover model usage, but the hosted nao service still incurs infrastructure costs.
 
-Implementation checklist:
+Enforcement occurs before agent work is persisted or initialized:
 
-- enforce `assertProjectCloudBillingAccess` at the `/api/agent` request boundary immediately after resolving the project and before creating or editing chats, storing messages or attachments, initializing tools, or calling any model provider;
-- retain the independent assertion in `agentService.create` so non-HTTP and future callers fail closed;
-- audit every agent execution entry point, including retries, edits, forks, messaging integrations, tests, automations, and subagents, and route them through the same entitlement guard;
-- return an actionable `FORBIDDEN` response and disable the chat composer with a billing prompt in the UI;
-- preserve read-only access to existing chats, projects, stories, settings, and customer data;
-- verify that expired or missing trials and `unpaid`, `paused`, `incomplete`, `incomplete_expired`, and `canceled` subscriptions cannot create messages, inference records, tool runs, or provider requests;
-- verify that active trials, entitled subscriptions, self-hosted deployments, and cloud deployments with billing disabled keep their intended access;
-- test user-supplied API keys explicitly to ensure they never bypass cloud subscription enforcement.
+- `/api/agent` checks the resolved chat or selected project before creating or editing chats, storing messages, initializing tools, or calling a model provider;
+- messaging integrations, automations, context recommendations, MCP `ask_nao`, forks, tests, and subagents use the same project entitlement guard;
+- `agentService.create` keeps an independent assertion so future or non-HTTP callers fail closed;
+- lower-level model, transcription, SQL execution, and live-story boundaries retain independent guards;
+- restricted requests return `FORBIDDEN`, and the web composer is replaced with an actionable billing prompt;
+- existing chats, projects, stories, settings, and customer data remain readable.
+
+Expired or missing trials and `unpaid`, `paused`, `incomplete`, `incomplete_expired`, and `canceled` subscriptions cannot create agent messages, inference records, tool runs, or provider requests. Active trials, entitled subscriptions, self-hosted deployments, and cloud deployments with billing disabled continue normally. User-supplied model API keys never bypass this enforcement.
 
 ## Trial reminders
 
@@ -692,7 +765,7 @@ Stripe identifiers and raw Stripe objects are never returned to the browser.
 
 All eight management procedures use the shared admin middleware and call a management-service operation that independently reloads the membership and requires `orgMember.role = admin`. This second check protects Stripe access if a future caller reaches the service without the expected route middleware.
 
-The Plan & Billing page displays the plan, trial and paid boundaries, cancellation state, payment-method readiness, invoice history, subscription history, and recovery actions. An organization-wide banner warns members three days before trial expiry and explains restricted access afterward, with a billing action for admins. The UI polls briefly after Checkout and Portal returns while webhooks remain authoritative.
+The Plan & Billing page displays the plan, trial and paid boundaries, cancellation state, payment-method readiness, invoice history, subscription history, and recovery actions. An organization-wide banner tells a new organization that its trial has not started, warns members three days before trial expiry, and explains restricted access afterward, with a billing action for admins. The new-organization banner disappears as soon as the confirmed trial state refreshes. The UI polls briefly after Checkout and Portal returns while webhooks remain authoritative; confirmation progress remains visible only while Stripe state is pending or delayed.
 
 ```mermaid
 flowchart TD
@@ -700,18 +773,23 @@ flowchart TD
     Query["billing.getAccess every 60 seconds"]
     Access{"Full access?"}
     Trial{"Trialing within three days?"}
+    TrialAvailable{"Trial never started?"}
     Hidden["No banner"]
     TrialBanner["Show trial-ending banner"]
+    TrialAvailableBanner["Show trial-not-started banner"]
     RestrictedBanner["Show limited-access banner"]
     Admin{"Organization admin?"}
     Manage["Link to Plan & Billing"]
     Contact["Ask an organization admin"]
 
     Layout --> Query --> Access
-    Access -->|No| RestrictedBanner
+    Access -->|No| TrialAvailable
+    TrialAvailable -->|Yes| TrialAvailableBanner
+    TrialAvailable -->|No| RestrictedBanner
     Access -->|Yes| Trial
     Trial -->|No| Hidden
     Trial -->|Yes| TrialBanner
+    TrialAvailableBanner --> Admin
     RestrictedBanner --> Admin
     TrialBanner --> Admin
     Admin -->|Yes| Manage
@@ -741,8 +819,9 @@ Rollback disables `CLOUD_BILLING_ENABLED` without deleting billing state, inbox 
 Focused automated tests cover:
 
 - Stripe configuration and Price validation;
-- explicit one-time trial activation and admin authorization;
-- Checkout trial boundaries, including Stripe's 48-hour minimum;
+- one-time trial Checkout and admin authorization;
+- abandoned Checkout remaining restricted until Stripe confirmation;
+- project deployment before trial activation while agent execution remains restricted;
 - organization selection;
 - webhook signatures, deduplication, ordering, and retries;
 - reconciliation ownership and stale-write protection;
@@ -756,6 +835,23 @@ Sandbox validation should use Stripe CLI forwarding and Billing test clocks:
 ```bash
 stripe listen --forward-to localhost:5005/api/billing/stripe/webhook
 ```
+
+The sandbox payment-method picker only exposes a few common presets. Enter Stripe's test card numbers manually to cover the relevant billing outcomes:
+
+- `4242 4242 4242 4242`: successful payment;
+- `4000 0000 0000 3220`: requires 3D Secure authentication, then succeeds;
+- `4000 0000 0000 0002`: `card_declined` with `generic_decline`;
+- `4000 0000 0000 9995`: `card_declined` with `insufficient_funds`;
+- `4000 0000 0000 9987`: `card_declined` with `lost_card`;
+- `4000 0000 0000 9979`: `card_declined` with `stolen_card`;
+- `4000 0000 0000 0069`: `expired_card`;
+- `4000 0000 0000 0127`: `incorrect_cvc`;
+- `4000 0000 0000 0119`: `processing_error`;
+- `4242 4242 4242 4241`: `incorrect_number`;
+- `4000 0000 0000 6975`: `card_declined` with `card_velocity_exceeded`;
+- `4000 0000 0000 0341`: attaches to a Customer successfully, then declines when charged.
+
+Use any future expiry date and any three-digit CVC unless testing invalid input. The incorrect-number card fails client-side validation before Stripe creates a payment attempt, so it does not produce payment-failure webhooks. Most decline cards also cannot be saved to a Customer. To test a recurring subscription failure after a successful attachment, use `4000 0000 0000 0341` as the default payment method and advance a test clock to the next charge.
 
 Exercise cardless trial Checkout, immediate paid Checkout, payment-method updates, trial pause and resume, renewals, failed payments, cancellation and reversal, duplicate events, downtime, and Dashboard edits.
 
@@ -803,7 +899,6 @@ Product decisions required before implementation:
 - whether organization membership grants access to every current and future organization project;
 - whether a project role may override or downgrade an organization role;
 - whether an unused personal organization is retained, deactivated, or archived after joining another organization;
-- whether trial activation must precede first-project creation or is part of one onboarding operation.
 
 ## Security and operations
 

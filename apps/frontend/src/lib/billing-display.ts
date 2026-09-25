@@ -15,9 +15,17 @@ export function getBillingStatusView(
 	cancelAtPeriodEnd: boolean,
 	hasDefaultPaymentMethod: boolean,
 	isLocalTrialExpired: boolean,
+	isLocalTrialPending: boolean,
 ): BillingStatusView {
 	switch (status) {
 		case 'trialing':
+			if (isLocalTrialPending) {
+				return {
+					label: 'Trial setup incomplete',
+					description: 'Complete Stripe Checkout before the free trial and access begin.',
+					variant: 'outline',
+				};
+			}
 			if (isLocalTrialExpired) {
 				return {
 					label: 'Trial ended',

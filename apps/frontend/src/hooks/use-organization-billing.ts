@@ -39,11 +39,8 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	});
 	const startTrial = useMutation(
 		trpc.billing.startTrial.mutationOptions({
-			onSuccess: async () => {
-				await Promise.all([
-					billing.refetch(),
-					queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
-				]);
+			onSuccess: ({ url }) => {
+				window.location.href = url;
 			},
 		}),
 	);
@@ -86,7 +83,11 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const syncStripeBilling = useMutation(
 		trpc.billing.syncStripeBilling.mutationOptions({
 			onSuccess: async () => {
-				await Promise.all([billing.refetch(), invoices.refetch()]);
+				await Promise.all([
+					billing.refetch(),
+					invoices.refetch(),
+					queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
+				]);
 				setIsPortalPolling(false);
 			},
 		}),
@@ -98,6 +99,8 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const isHistoricalSubscription = isHistoricalBillingStatus(status);
 	const isLocalTrialExpired =
 		status === 'trialing' && !hasStripeSubscription && billing.data?.localTrialActive === false;
+	const isLocalTrialPending =
+		status === 'trialing' && !hasStripeSubscription && billing.data?.localTrialActive === true;
 	const isCheckoutConfirmed =
 		search.checkout === 'subscribed'
 			? hasStripeSubscription && !isHistoricalSubscription
@@ -109,6 +112,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		billing.data?.cancelAtPeriodEnd ?? false,
 		billing.data?.hasDefaultPaymentMethod === true,
 		isLocalTrialExpired,
+		isLocalTrialPending,
 	);
 	const isEndingAtPeriodEnd =
 		billing.data?.cancelAtPeriodEnd === true && (status === 'active' || status === 'trialing');
@@ -182,6 +186,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		hasStripeSubscription,
 		isHistoricalSubscription,
 		isLocalTrialExpired,
+		isLocalTrialPending,
 		isEndingAtPeriodEnd,
 		isCheckoutPolling,
 		isCheckoutConfirmationDelayed:
@@ -235,7 +240,7 @@ function getCheckoutFeedback(
 		return null;
 	}
 	if (isConfirmed) {
-		return 'Subscription confirmed.';
+		return null;
 	}
 	return isPolling
 		? 'Confirming your subscription with Stripe…'

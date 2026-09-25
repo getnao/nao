@@ -2,6 +2,7 @@ import type { DBOrganization } from '../db/abstractSchema';
 import * as billingQueries from '../queries/billing.queries';
 import * as organizationQueries from '../queries/organization.queries';
 import * as userQueries from '../queries/user.queries';
+import { CLOUD_MONTHLY_PLAN } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { reconcileCloudBillingCustomer } from './billing-reconciliation.service';
 import {
@@ -35,13 +36,23 @@ export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInp
 	return requireAdminOrganization(input);
 }
 
-export async function startCloudTrialForAdmin(input: AdminBillingInput, now = new Date()): Promise<DBOrganization> {
+export async function startCloudTrialForAdmin(input: AdminBillingInput): Promise<string> {
 	const organization = await requireAdminOrganization(input);
-	const started = await billingQueries.startOrganizationTrial(organization.id, now);
-	if (!started) {
+	if (
+		organization.billingStatus ||
+		organization.trialStartedAt ||
+		organization.trialEndsAt ||
+		organization.stripeSubscriptionId
+	) {
 		throw new CloudBillingManagementInputError('This organization has already used its free trial');
 	}
-	return started;
+	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
+	return createCloudCheckoutSession({
+		organizationId: organization.id,
+		stripeCustomerId,
+		trialEndsAt: null,
+		trialDays: CLOUD_MONTHLY_PLAN.trialDays,
+	});
 }
 
 export async function listCloudInvoicesForAdmin(input: AdminBillingInput) {
@@ -62,7 +73,7 @@ export async function syncCloudBillingForAdmin(input: AdminBillingInput): Promis
 }
 
 export async function createCloudCheckoutForAdmin(input: AdminBillingInput): Promise<string> {
-	let organization = await requireAdminOrganization(input);
+	const organization = await requireAdminOrganization(input);
 	if (organization.stripeSubscriptionId) {
 		throw new CloudInitialCheckoutUnavailableError('This organization already has a Stripe subscription');
 	}
@@ -70,24 +81,7 @@ export async function createCloudCheckoutForAdmin(input: AdminBillingInput): Pro
 		throw new CloudBillingManagementInputError('Start the organization trial before subscribing');
 	}
 
-	let stripeCustomerId = organization.stripeCustomerId;
-	if (!stripeCustomerId) {
-		const user = await userQueries.getUser({ id: input.userId });
-		if (!user) {
-			throw new Error(`User "${input.userId}" was not found`);
-		}
-		const customer = await createCloudCustomer({
-			organizationId: organization.id,
-			organizationName: organization.name,
-			adminEmail: user.email,
-		});
-		organization = await billingQueries.attachStripeCustomer(organization.id, customer.id);
-		stripeCustomerId = organization.stripeCustomerId;
-	}
-	if (!stripeCustomerId) {
-		throw new Error('Unable to attach Stripe Customer');
-	}
-
+	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudCheckoutSession({
 		organizationId: organization.id,
 		stripeCustomerId,
@@ -157,4 +151,24 @@ async function requireAdminOrganization(input: AdminBillingInput): Promise<DBOrg
 		throw new HandlerError('NOT_FOUND', 'Organization was not found');
 	}
 	return organization;
+}
+
+async function ensureCloudCustomer(organization: DBOrganization, userId: string): Promise<string> {
+	if (organization.stripeCustomerId) {
+		return organization.stripeCustomerId;
+	}
+	const user = await userQueries.getUser({ id: userId });
+	if (!user) {
+		throw new Error(`User "${userId}" was not found`);
+	}
+	const customer = await createCloudCustomer({
+		organizationId: organization.id,
+		organizationName: organization.name,
+		adminEmail: user.email,
+	});
+	const updated = await billingQueries.attachStripeCustomer(organization.id, customer.id);
+	if (!updated.stripeCustomerId) {
+		throw new Error('Unable to attach Stripe Customer');
+	}
+	return updated.stripeCustomerId;
 }
