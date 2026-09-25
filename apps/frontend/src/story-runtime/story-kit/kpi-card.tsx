@@ -46,7 +46,7 @@ export function KpiCard(props: KpiCardProps) {
 			: undefined;
 
 	return (
-		<Block kind='kpi' edit={edit} {...block}>
+		<Block kind='kpi' queryId={queryId} edit={edit} {...block}>
 			<BlockState data={source}>
 				{(rows) => {
 					if (!resolved) {

@@ -56,7 +56,7 @@ interface SearchTarget {
 }
 
 interface TargetResult {
-	matches: RipgrepMatch[];
+	matches: grep.Match[];
 	totalMatches: number;
 }
 

@@ -1,7 +1,5 @@
 import {
 	Activity,
-	ChevronLeft,
-	ChevronRight,
 	CircleAlert,
 	Code,
 	Ellipsis,
@@ -16,6 +14,9 @@ import {
 } from 'lucide-react';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
+import type { StoryDownloadOptions } from '@/components/story-download';
+import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
@@ -24,6 +25,7 @@ import {
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
 } from '@/components/story-header-actions';
+import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -57,7 +59,7 @@ export interface StoryRefreshFailure {
 	failedAt: string | Date;
 }
 
-interface DownloadConfig {
+interface DownloadConfig extends Pick<StoryDownloadOptions, 'onDownload'> {
 	chatId?: string;
 	storySlug?: string;
 	storyId?: string;
@@ -66,7 +68,7 @@ interface DownloadConfig {
 	versionNumber?: number;
 }
 
-interface ViewModeControls {
+interface ClassicViewModeControls {
 	viewMode: StoryViewMode;
 	onViewModeChange: (mode: StoryViewMode) => void;
 	canEdit?: boolean;
@@ -78,12 +80,14 @@ interface ViewModeControls {
 	isSaving?: boolean;
 }
 
+type ViewModeControls = ClassicViewModeControls | CustomStoryViewModeControls;
+
 interface VersionControls {
 	currentVersion: number;
-	totalVersions: number;
+	versionDates: (string | Date)[];
+	versionDate?: string | Date | null;
 	isViewingLatest: boolean;
-	onPrevious: () => void;
-	onNext: () => void;
+	onSelectVersion: (version: number) => void;
 	onRestore: () => void;
 }
 
@@ -134,14 +138,21 @@ export function StoryPageHeader({
 					title={title}
 					canEdit={canRename}
 					heading='h1'
-					className='min-w-0 max-w-full truncate text-base font-medium'
+					className='min-w-20 max-w-full truncate text-base font-medium'
 					inputClassName='text-base font-medium'
 				/>
-				{authorName && <span className='shrink-0 text-sm text-muted-foreground'>by {authorName}</span>}
-
-				{versionControls && <VersionNav controls={versionControls} />}
+				{authorName && (
+					<span className='hidden shrink-0 text-sm text-muted-foreground sm:inline'>by {authorName}</span>
+				)}
 
 				<div className='ml-auto flex shrink-0 items-center gap-2'>
+					{versionControls && (
+						<StoryVersionNav
+							currentVersion={versionControls.currentVersion}
+							versionDates={versionControls.versionDates}
+							onSelectVersion={versionControls.onSelectVersion}
+						/>
+					)}
 					{viewModeControls && <ViewModeToggle controls={viewModeControls} />}
 
 					{onOpenChat && (
@@ -213,41 +224,11 @@ export function StoryPageHeader({
 	);
 }
 
-function VersionNav({ controls }: { controls: VersionControls }) {
-	if (controls.totalVersions <= 1) {
-		return null;
+function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
+	if (isCustomStoryViewModeControls(controls)) {
+		return <CustomStoryViewModeToggle {...controls} />;
 	}
 
-	return (
-		<div className='flex shrink-0 items-center gap-1'>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={controls.onPrevious}
-				disabled={controls.currentVersion <= 1}
-				aria-label='Previous version'
-			>
-				<ChevronLeft className='size-3' strokeWidth={2.25} />
-			</Button>
-			<span className='min-w-6 text-center text-xs text-muted-foreground tabular-nums'>
-				{controls.currentVersion}/{controls.totalVersions}
-			</span>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={controls.onNext}
-				disabled={controls.currentVersion >= controls.totalVersions}
-				aria-label='Next version'
-			>
-				<ChevronRight className='size-3' strokeWidth={2.25} />
-			</Button>
-		</div>
-	);
-}
-
-function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 	const { viewMode, onViewModeChange, canEdit = false, isAgentRunning = false, isSaving = false } = controls;
 
 	return (
@@ -295,12 +276,14 @@ function StorySubHeader({
 	viewModeControls?: ViewModeControls;
 	versionControls?: VersionControls;
 }) {
-	const viewMode = viewModeControls?.viewMode ?? 'preview';
-	const isCodeDirty = viewModeControls?.isCodeDirty ?? false;
+	const classicControls =
+		viewModeControls && !isCustomStoryViewModeControls(viewModeControls) ? viewModeControls : undefined;
+	const viewMode = classicControls?.viewMode ?? 'preview';
+	const isCodeDirty = classicControls?.isCodeDirty ?? false;
 	const isEditing = viewMode === 'edit' || (viewMode === 'code' && isCodeDirty);
 
-	if (viewModeControls && isEditing) {
-		const { onViewModeChange, onCancel, isCodeValid = true, onSave, isSaving = false } = viewModeControls;
+	if (classicControls && isEditing) {
+		const { onViewModeChange, onCancel, isCodeValid = true, onSave, isSaving = false } = classicControls;
 		const isEditingCode = viewMode === 'code' && isCodeDirty;
 		return (
 			<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2 md:px-6'>
@@ -337,7 +320,7 @@ function StorySubHeader({
 		return (
 			<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2 md:px-6'>
 				<span className='text-xs text-muted-foreground'>
-					Viewing v{versionControls.currentVersion} of {versionControls.totalVersions}
+					{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
 				</span>
 				<Button variant='outline' size='sm' onClick={versionControls.onRestore} className='gap-1.5'>
 					<RotateCcw className='size-3' strokeWidth={2.25} />
@@ -348,6 +331,10 @@ function StorySubHeader({
 	}
 
 	return null;
+}
+
+function isCustomStoryViewModeControls(controls: ViewModeControls): controls is CustomStoryViewModeControls {
+	return isCustomStoryViewMode(controls.viewMode);
 }
 
 function LiveStoryControls({ live }: { live: LiveControls }) {

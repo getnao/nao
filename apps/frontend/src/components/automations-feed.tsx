@@ -22,8 +22,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import type { displayChart } from '@nao/shared/tools';
 import { NOTIFICATION_CATEGORY_LABELS } from '@nao/shared/types';
+import type { displayChart } from '@nao/shared/tools';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type {
 	FeedbackNotificationPayload,

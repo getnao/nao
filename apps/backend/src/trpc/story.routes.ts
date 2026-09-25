@@ -16,7 +16,13 @@ import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import { CustomStoryNotFoundError, getCustomStoryQueryData, getCustomStoryVersion } from '../services/custom-story';
+import {
+	getCustomStoryFile,
+	getCustomStoryNarratives,
+	getCustomStoryQueryData,
+	getCustomStoryQuerySql,
+	getCustomStoryVersion,
+} from '../services/custom-story';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -24,7 +30,7 @@ import {
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
-import { editCustomStoryBlock, StoryBlockEditError } from '../services/story-block-edit';
+import { editCustomStoryBlock, restoreCustomStoryVersion, StoryBlockEditError } from '../services/story-block-edit';
 import {
 	assertValidDeliverySchedule,
 	disableStoryDelivery,
@@ -37,11 +43,13 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { storySnapshotHtml, toCustomStoryQueryTrpcError, toCustomStoryTrpcError } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
 import { backfillMissingQueryData } from '../utils/story-query-data';
+import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
 	adminProtectedProcedure,
@@ -295,17 +303,94 @@ export const storyRoutes = {
 			try {
 				return await getCustomStoryVersion(input.chatId, input.storySlug, input.versionNumber);
 			} catch (error) {
-				if (error instanceof CustomStoryNotFoundError) {
-					throw new TRPCError({ code: 'NOT_FOUND', message: error.message });
-				}
-				throw error;
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomVersionFile: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				path: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input }) => {
+			try {
+				return await getCustomStoryFile(input.chatId, input.storySlug, input.path, input.versionNumber);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
 			}
 		}),
 
 	getCustomStoryQueryData: chatOwnerProcedure
-		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
 		.query(async ({ input }) => {
-			return getCustomStoryQueryData(input.chatId, input.queryId);
+			try {
+				return await getCustomStoryQueryData(input.chatId, input.storySlug, input.queryId);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryQuerySql: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			try {
+				return { sqlQuery: await getCustomStoryQuerySql(input.chatId, input.storySlug, input.queryId) };
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryNarratives: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input }) => {
+			try {
+				return await getCustomStoryNarratives(input.chatId, input.storySlug);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	downloadCustom: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				html: storySnapshotHtml,
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			const version = input.versionNumber
+				? await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber)
+				: await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
+			if (!version || version.format !== 'custom') {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (projectId) {
+				logAnalyticsEvent({
+					projectId,
+					type: 'download',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: version.storyId,
+					chatId: input.chatId,
+					metadata: {
+						type: 'download',
+						format: input.format,
+						versionNumber: version.version,
+						title: version.title,
+					},
+				});
+			}
+
+			return buildStorySnapshotDownload(input.format, version.title, input.html);
 		}),
 
 	editCustomStoryBlock: chatOwnerProcedure
@@ -332,13 +417,36 @@ export const storyRoutes = {
 			try {
 				return await editCustomStoryBlock(input);
 			} catch (error) {
-				if (error instanceof CustomStoryNotFoundError) {
-					throw new TRPCError({ code: 'NOT_FOUND', message: error.message });
-				}
 				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 				}
-				throw error;
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	restoreCustomVersion: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				restoreVersionNumber: z.number().int().positive(),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Restore the version once it is done.',
+				});
+			}
+			try {
+				return await restoreCustomStoryVersion(input);
+			} catch (error) {
+				if (error instanceof StoryBlockEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw toCustomStoryTrpcError(error);
 			}
 		}),
 

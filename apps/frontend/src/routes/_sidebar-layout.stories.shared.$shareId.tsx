@@ -6,6 +6,7 @@ import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/sh
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { CustomStoryPreviewPage, SharedCustomStoryPage } from '@/components/custom-story/custom-story-page';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
@@ -35,6 +36,53 @@ export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')
 });
 
 export function SharedStoryPage() {
+	const { shareId } = Route.useParams();
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
+	if (story.format === 'custom') {
+		return <SharedCustomStory shareId={shareId} />;
+	}
+	return <SharedClassicStoryPage />;
+}
+
+function SharedCustomStory({ shareId }: { shareId: string }) {
+	const { data: session } = useSession();
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
+	const isOwner = Boolean(session?.user?.id) && session?.user?.id === story.userId;
+	const forkMutation = useMutation(
+		trpc.chatFork.fork.mutationOptions({
+			onSuccess: ({ chatId }) => {
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
+				navigate({ to: '/$chatId', params: { chatId } });
+			},
+		}),
+	);
+
+	useTrackViewDuration({
+		assetType: 'story',
+		storyId: story.storyId,
+		chatId: story.chatId,
+		storySlug: story.slug,
+		enabled: !isOwner,
+	});
+
+	if (isOwner && story.chatId) {
+		return <CustomStoryPreviewPage chatId={story.chatId} storySlug={story.slug} authorName={story.authorName} />;
+	}
+	return (
+		<SharedCustomStoryPage
+			shareId={shareId}
+			title={story.title}
+			authorName={story.authorName}
+			isLive={story.isLive}
+			onOpenChat={story.canFork ? () => forkMutation.mutate({ shareId, type: 'story' }) : undefined}
+			isOpeningChat={forkMutation.isPending}
+		/>
+	);
+}
+
+function SharedClassicStoryPage() {
 	const { shareId } = Route.useParams();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
@@ -123,10 +171,10 @@ export function SharedStoryPage() {
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
-					totalVersions: editor.versionNav.totalVersions,
+					versionDates: editor.versionNav.versionDates,
+					versionDate: editor.versionNav.versionDate,
 					isViewingLatest: editor.versionNav.isViewingLatest,
-					onPrevious: editor.versionNav.goToPrevious,
-					onNext: editor.versionNav.goToNext,
+					onSelectVersion: editor.versionNav.goToVersion,
 					onRestore: editor.handleRestore,
 				}}
 			/>

@@ -1,4 +1,5 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
+import type { StoryFormat } from '@nao/shared/types';
 import { aliasedTable, and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
@@ -13,6 +14,7 @@ export type SharedStoryWithLatest = DBSharedStory & {
 	chatId: string | null;
 	slug: string;
 	title: string;
+	format: StoryFormat;
 	code: string;
 	version: number;
 	isLive: boolean;
@@ -318,6 +320,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			chatId: s.story.chatId,
 			slug: s.story.slug,
 			title: s.story.title,
+			format: s.story.format,
 			code: s.storyVersion.code,
 			version: s.storyVersion.version,
 			isLive: s.story.isLive,

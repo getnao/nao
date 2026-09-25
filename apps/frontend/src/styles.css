@@ -4,6 +4,7 @@ layer(base);
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './styles.animations.css';
+@import './styles.custom-story-thumbnail.css';
 @source "../../../node_modules/streamdown/dist/*.js";
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../../node_modules/@streamdown/code/dist/*.js";

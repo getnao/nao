@@ -1,0 +1,52 @@
+import type { FileTreeEntry } from '@nao/shared/types';
+import type { ContentMatch } from '@/components/settings/file-tree';
+
+/** Folders first, then files, each alphabetically — the order the Settings file explorer uses. */
+export function buildStoryFileTree(paths: string[]): FileTreeEntry[] {
+	const root: FileTreeEntry[] = [];
+	for (const path of paths) {
+		insertPath(root, path.split('/'), '');
+	}
+	return sortEntries(root);
+}
+
+/** Case-insensitive, like the context explorer's content search: first matching line plus the match count. */
+export function findContentMatches(
+	files: { path: string; content: string }[],
+	query: string,
+): Map<string, ContentMatch> {
+	const needle = query.toLowerCase();
+	const matches = new Map<string, ContentMatch>();
+	for (const file of files) {
+		const lines = file.content.split('\n');
+		const matchingLines = lines.flatMap((text, index) => (text.toLowerCase().includes(needle) ? [index] : []));
+		if (matchingLines.length > 0) {
+			const firstLine = matchingLines[0];
+			matches.set(file.path, { count: matchingLines.length, line: firstLine + 1, text: lines[firstLine].trim() });
+		}
+	}
+	return matches;
+}
+
+function insertPath(entries: FileTreeEntry[], segments: string[], parentPath: string): void {
+	const [name, ...rest] = segments;
+	const path = parentPath ? `${parentPath}/${name}` : name;
+	if (rest.length === 0) {
+		entries.push({ name, path, type: 'file' });
+		return;
+	}
+	let directory = entries.find((entry) => entry.type === 'directory' && entry.name === name);
+	if (!directory) {
+		directory = { name, path, type: 'directory', children: [] };
+		entries.push(directory);
+	}
+	insertPath(directory.children!, rest, path);
+}
+
+function sortEntries(entries: FileTreeEntry[]): FileTreeEntry[] {
+	return entries
+		.map((entry) => (entry.children ? { ...entry, children: sortEntries(entry.children) } : entry))
+		.sort((left, right) =>
+			left.type === right.type ? left.name.localeCompare(right.name) : left.type === 'directory' ? -1 : 1,
+		);
+}

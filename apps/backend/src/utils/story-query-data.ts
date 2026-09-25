@@ -8,6 +8,18 @@ export type StoryQueryDataMap = Record<string, { data: unknown[]; columns: strin
 
 export type StoryQueryDataSource = { chatId: string } | { projectId: string; userId?: string };
 
+const CUSTOM_STORY_QUERY_ID_PATTERN = /\bquery_[A-Za-z0-9_-]+/g;
+
+export function extractCustomStoryQueryIds(files: { content: string }[]): Set<string> {
+	const ids = new Set<string>();
+	for (const file of files) {
+		for (const match of file.content.matchAll(CUSTOM_STORY_QUERY_ID_PATTERN)) {
+			ids.add(match[0]);
+		}
+	}
+	return ids;
+}
+
 export async function backfillMissingQueryDataForSandbox(
 	code: string,
 	opts: { storyId?: string; chatId?: string | null; projectId: string; userId?: string },

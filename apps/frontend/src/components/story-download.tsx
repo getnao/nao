@@ -10,6 +10,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { trpcClient } from '@/main';
 
+export interface StoryDownloadFile {
+	data: string;
+	filename: string;
+	mimeType: string;
+}
+
 export interface StoryDownloadOptions {
 	storyId?: string;
 	chatId?: string;
@@ -18,10 +24,12 @@ export interface StoryDownloadOptions {
 	shareType?: 'chat' | 'story';
 	isOwner?: boolean;
 	versionNumber?: number;
+	/** Replaces the server-rendered export, e.g. a custom story downloads a snapshot of its rendered frame. */
+	onDownload?: (format: DownloadFormat) => Promise<StoryDownloadFile>;
 }
 
-export function canDownloadStory({ storyId, shareId, isOwner = true }: StoryDownloadOptions) {
-	return isOwner || !!shareId || !!storyId;
+export function canDownloadStory({ storyId, shareId, isOwner = true, onDownload }: StoryDownloadOptions) {
+	return isOwner || !!shareId || !!storyId || !!onDownload;
 }
 
 function useStoryDownload({
@@ -32,9 +40,10 @@ function useStoryDownload({
 	shareType = 'story',
 	isOwner = true,
 	versionNumber,
+	onDownload,
 }: StoryDownloadOptions) {
 	const [isDownloading, setIsDownloading] = useState(false);
-	const canDownload = canDownloadStory({ storyId, shareId, isOwner });
+	const canDownload = canDownloadStory({ storyId, shareId, isOwner, onDownload });
 
 	const handleDownload = async (format: DownloadFormat) => {
 		if (!canDownload) {
@@ -43,7 +52,9 @@ function useStoryDownload({
 		setIsDownloading(true);
 		try {
 			let result;
-			if (storyId) {
+			if (onDownload) {
+				result = await onDownload(format);
+			} else if (storyId) {
 				result = await trpcClient.story.downloadStandalone.query({ storyId, format });
 			} else if (isOwner) {
 				result = await trpcClient.story.download.query({

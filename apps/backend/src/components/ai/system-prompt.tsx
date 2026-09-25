@@ -552,14 +552,30 @@ function CustomStoriesBlock() {
 					<Bold>columns</Bold>, <Bold>maxRows</Bold>.
 				</ListItem>
 				<ListItem>
+					For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
+					<Bold>{'<Slide>'}</Bold> per slide (16:9): it provides the navigation and prints one slide per PDF
+					page.
+				</ListItem>
+				<ListItem>
+					For tabs, put the tab buttons in a <Bold>{'<nav>'}</Bold> (or give them <Bold>role="tab"</Bold>):
+					PDF downloads open each tab in turn and print them one after the other.
+				</ListItem>
+				<ListItem>
 					Users edit KpiCard and chart blocks through a pencil that rewrites their props in your source: pass
 					literal props and give each block a distinct title.
 				</ListItem>
 				<ListItem>
+					Wrap prose that states numbers or trends in <Bold>{'<Narrative id="...">text</Narrative>'}</Bold>{' '}
+					inside your own element (e.g. {'<p>'}): when the story is live, each refresh rewrites that text from
+					the new data. Use a distinct literal id and plain literal text; text built from query rows in code
+					is already live and needs no Narrative.
+				</ListItem>
+				<ListItem>
 					For anything else (pie, scatter, bespoke visuals), wrap Recharts or your own markup in{' '}
-					<Bold>{'<Block kind="...">'}</Bold> with <Bold>{'<div className="nao-chart">'}</Bold>,{' '}
-					<Bold>seriesColor(i)</Bold> and a plain Recharts <Bold>{'<Tooltip />'}</Bold> (already themed;
-					format values with <Bold>{'formatter={(value) => formatNumber(value, { format })}'}</Bold>).{' '}
+					<Bold>{'<Block kind="..." queryId="...">'}</Bold> (the queryId it reads, so users can view its SQL)
+					with <Bold>{'<div className="nao-chart">'}</Bold>, <Bold>seriesColor(i)</Bold> and a plain Recharts{' '}
+					<Bold>{'<Tooltip />'}</Bold> (already themed; format values with{' '}
+					<Bold>{'formatter={(value) => formatNumber(value, { format })}'}</Bold>).{' '}
 					<Bold>useQueryData(queryId)</Bold> returns <Bold>data: null</Bold> until <Bold>status</Bold> is
 					"success" — guard before reading rows.
 				</ListItem>

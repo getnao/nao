@@ -234,10 +234,10 @@ function StandaloneEditableStory({
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
-					totalVersions: editor.versionNav.totalVersions,
+					versionDates: editor.versionNav.versionDates,
+					versionDate: editor.versionNav.versionDate,
 					isViewingLatest: editor.versionNav.isViewingLatest,
-					onPrevious: editor.versionNav.goToPrevious,
-					onNext: editor.versionNav.goToNext,
+					onSelectVersion: editor.versionNav.goToVersion,
 					onRestore: editor.handleRestore,
 				}}
 			/>

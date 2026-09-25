@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import type { StoryBlockReference } from '@nao/shared/types';
 import { useOptionalSelection } from '@/contexts/text-selection';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
@@ -11,9 +12,10 @@ interface ChatMessagesCitationChipProps {
 	end: number;
 	text: string;
 	storySlug?: string;
+	block?: StoryBlockReference;
 }
 
-export const ChatMessagesCitationChip = ({ start, end, text, storySlug }: ChatMessagesCitationChipProps) => {
+export const ChatMessagesCitationChip = ({ start, end, text, storySlug, block }: ChatMessagesCitationChipProps) => {
 	const selectionCtx = useOptionalSelection();
 	const sidePanel = useSidePanel();
 	const chatId = useChatId();
@@ -21,6 +23,12 @@ export const ChatMessagesCitationChip = ({ start, end, text, storySlug }: ChatMe
 
 	const handleClick = useCallback(() => {
 		if (storySlug && chatId) {
+			if (block) {
+				if (sidePanel.currentStorySlug !== storySlug) {
+					sidePanel.open(<StoryViewer chatId={chatId} storySlug={storySlug} />, storySlug);
+				}
+				return;
+			}
 			if (sidePanel.currentStorySlug === storySlug) {
 				scrollToStoryText(start, end, text);
 				return;
@@ -43,7 +51,7 @@ export const ChatMessagesCitationChip = ({ start, end, text, storySlug }: ChatMe
 		}
 
 		highlightRange(range);
-	}, [selectionCtx, sidePanel, chatId, storySlug, start, end, text]);
+	}, [selectionCtx, sidePanel, chatId, storySlug, block, start, end, text]);
 
 	return (
 		<button
@@ -52,7 +60,7 @@ export const ChatMessagesCitationChip = ({ start, end, text, storySlug }: ChatMe
 			onClick={handleClick}
 			className='mb-2 w-full text-left px-3 py-2 border border-border/50 bg-background/50 rounded-lg cursor-pointer hover:bg-accent/50 transition-colors'
 		>
-			<SelectionCitationExcerpt start={start} end={end} text={text} maxLength={80} lineClamp={2} />
+			<SelectionCitationExcerpt start={start} end={end} block={block} text={text} maxLength={80} lineClamp={2} />
 		</button>
 	);
 };

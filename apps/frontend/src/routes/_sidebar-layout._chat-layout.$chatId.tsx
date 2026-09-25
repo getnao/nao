@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
@@ -31,6 +31,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { storyBlockEditStore } from '@/stores/story-block-edit';
+import { STORY_BLOCK_EDIT_PANEL_MIN_WIDTH } from '@/lib/side-panel';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
@@ -100,6 +102,8 @@ function ChatPage() {
 	const inputAreaHeight = useHeight(inputAreaRef);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
+	const isEditingStoryBlock =
+		useSyncExternalStore(storyBlockEditStore.subscribe, storyBlockEditStore.getSnapshot) !== null;
 	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
@@ -285,6 +289,7 @@ function ChatPage() {
 							isAnimating={sidePanel.isAnimating}
 							sidePanelRef={sidePanelRef}
 							resizeHandleRef={sidePanel.resizeHandleRef}
+							chatPanelMinWidth={isEditingStoryBlock ? STORY_BLOCK_EDIT_PANEL_MIN_WIDTH : undefined}
 						>
 							{sidePanel.content}
 						</SidePanel>

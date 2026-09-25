@@ -1,14 +1,21 @@
-/**
- * Loaded by the frame document before the story's own CSS, so `app.css` overrides it and hand-rolled
- * Recharts charts (whose default tooltip is themed here too) look right even without a kit block.
- */
+import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+
+/** Loaded by the frame document before the story's own CSS, so `app.css` overrides it and hand-rolled */
 export const KIT_STYLES = `
 .nao-block{display:flex;flex-direction:column;gap:12px;min-width:0;padding:16px 20px;background:var(--card);color:var(--card-foreground);border:var(--story-block-border-width) solid var(--border);border-radius:var(--story-block-radius)}
 .nao-block__header{display:flex;align-items:flex-start;gap:8px}
 .nao-block__heading{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
-.nao-block__edit{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:22px;height:22px;padding:0;color:var(--muted-foreground);background:transparent;border:0;border-radius:999px;cursor:pointer}
-.nao-block__edit svg{width:13px;height:13px}
-.nao-block__edit:hover{background:color-mix(in srgb, var(--muted-foreground) 14%, transparent);color:var(--foreground)}
+.nao-block__actions{display:flex;align-items:center;gap:2px;flex-shrink:0}
+.nao-block__action{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;width:22px;height:22px;padding:0;color:var(--muted-foreground);background:transparent;border:0;border-radius:999px;cursor:pointer}
+.nao-block__action[data-tooltip]:hover::after,.nao-block__action[data-tooltip]:focus-visible::after{content:attr(data-tooltip);position:absolute;top:calc(100% + 6px);right:0;z-index:20;width:max-content;max-width:240px;padding:6px 10px;font-family:var(--font-sans);font-size:12px;font-weight:400;line-height:1.4;text-align:left;white-space:normal;color:var(--foreground);background:var(--background);border:1px solid color-mix(in srgb, var(--border) 50%, transparent);border-radius:var(--radius-sm);box-shadow:0 20px 25px -5px rgb(0 0 0 / .1),0 8px 10px -6px rgb(0 0 0 / .1);pointer-events:none}
+.nao-block__action svg{width:13px;height:13px}
+.nao-block__action[aria-pressed=true]{background:color-mix(in srgb, var(--muted-foreground) 14%, transparent);color:var(--foreground)}
+.nao-block__action:hover{background:color-mix(in srgb, var(--muted-foreground) 14%, transparent);color:var(--foreground)}
+.nao-sql{margin:0;max-height:320px;overflow:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre;color:var(--foreground);background:color-mix(in srgb, var(--muted) 50%, transparent);border:1px solid var(--border);border-radius:var(--radius-sm)}
+.nao-sql__keyword{color:var(--primary);font-weight:600}
+.nao-sql__string{color:var(--chart-2)}
+.nao-sql__number{color:var(--chart-3)}
+.nao-sql__comment{color:var(--muted-foreground);font-style:italic}
 .nao-block__title{margin:0;font-family:var(--font-heading);font-size:14px;font-weight:600;line-height:1.3;color:var(--foreground)}
 .nao-block__description{margin:0;font-size:12px;line-height:1.4;color:var(--muted-foreground)}
 .nao-block__body{min-width:0;flex:1}
@@ -17,6 +24,24 @@ export const KIT_STYLES = `
 .nao-block__state button{margin-left:8px;padding:2px 8px;font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:var(--radius-sm);cursor:pointer}
 .nao-skeleton{width:100%;height:100%;min-height:96px;border-radius:var(--radius-sm);background:linear-gradient(90deg,var(--muted) 25%,var(--card) 50%,var(--muted) 75%);background-size:200% 100%;animation:nao-shimmer 1.4s ease-in-out infinite}
 @keyframes nao-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.nao-narrative--loading{color:transparent;border-radius:var(--radius-sm);-webkit-box-decoration-break:clone;box-decoration-break:clone;background:linear-gradient(90deg,var(--muted) 25%,var(--card) 50%,var(--muted) 75%);background-size:200% 100%;animation:nao-shimmer 1.4s ease-in-out infinite}
+
+.nao-block{break-inside:avoid}
+
+.nao-slides{display:flex;flex-direction:column;gap:12px}
+.nao-slides__viewport{position:relative;overflow:hidden;border:1px solid var(--border);border-radius:var(--story-block-radius);box-sizing:content-box}
+.nao-slide{position:relative;width:${STORY_SLIDE_SIZE.width}px;height:${STORY_SLIDE_SIZE.height}px;overflow:hidden;box-sizing:border-box;background:var(--background)}
+.nao-slides__viewport>.nao-slide{transform:scale(var(--nao-slide-scale));transform-origin:top left}
+.nao-slides__nav{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:var(--muted-foreground)}
+.nao-slides__nav button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;color:inherit;background:transparent;border:1px solid var(--border);border-radius:999px;cursor:pointer}
+.nao-slides__nav button svg{width:14px;height:14px}
+.nao-slides__nav button:hover:not(:disabled){color:var(--foreground);background:color-mix(in srgb, var(--muted-foreground) 12%, transparent)}
+.nao-slides__nav button:disabled{opacity:.35;cursor:default}
+.nao-slides__counter{min-width:48px;text-align:center;font-variant-numeric:tabular-nums}
+.nao-slides--print{display:block}
+.nao-slides--print .nao-slide{break-after:page}
+.nao-slides--print .nao-slide:last-child{break-after:auto}
+html[${STORY_PRINT_SLIDES_ATTRIBUTE}] #root{display:none}
 
 .nao-kpi-card{min-width:160px}
 .nao-kpi-card__value{font-family:var(--font-heading);font-size:calc(var(--story-body-size) * 2);font-weight:500;line-height:1.1;letter-spacing:var(--story-heading-tracking);font-variant-numeric:tabular-nums;color:var(--foreground)}

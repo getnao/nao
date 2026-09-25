@@ -94,28 +94,15 @@ export const useStoryViewerVersions = ({
 	const storedVersionNumber = currentVersion?.version ?? 0;
 	const isViewingLatest = selectedVersionIndex === null;
 
-	const goToPreviousVersion = useCallback(() => {
-		if (currentVersionIndex <= 0) {
-			return;
-		}
-
-		setHistoricalVersionSelection({
-			chatId,
-			storySlug,
-			index: currentVersionIndex - 1,
-		});
-	}, [chatId, currentVersionIndex, storySlug]);
-
-	const goToNextVersion = useCallback(() => {
-		if (selectedVersionIndex === null) {
-			return;
-		}
-
-		const nextVersionIndex = selectedVersionIndex + 1;
-		setHistoricalVersionSelection(
-			nextVersionIndex >= versions.length - 1 ? null : { chatId, storySlug, index: nextVersionIndex },
-		);
-	}, [chatId, selectedVersionIndex, storySlug, versions.length]);
+	const goToVersion = useCallback(
+		(versionNumber: number) => {
+			const versionIndex = versionNumber - 1;
+			setHistoricalVersionSelection(
+				versionIndex >= versions.length - 1 ? null : { chatId, storySlug, index: Math.max(versionIndex, 0) },
+			);
+		},
+		[chatId, storySlug, versions.length],
+	);
 
 	const goToLatestVersion = useCallback(() => {
 		setHistoricalVersionSelection(null);
@@ -130,8 +117,7 @@ export const useStoryViewerVersions = ({
 		currentVersionNumber,
 		storedVersionNumber,
 		isViewingLatest,
-		goToPreviousVersion,
-		goToNextVersion,
+		goToVersion,
 		goToLatestVersion,
 	};
 };

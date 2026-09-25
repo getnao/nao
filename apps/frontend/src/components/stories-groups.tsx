@@ -29,6 +29,7 @@ import {
 	SharingBadge,
 } from '@/components/item-card';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { CustomStoryThumbnail } from '@/components/custom-story-thumbnail';
 import { StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
 import { SimpleTooltip } from '@/components/ui/tooltip';
@@ -167,7 +168,11 @@ export function StoryCard({
 					onClick={handleCardClick}
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
-						<StoryThumbnail summary={item.summary} />
+						{item.format === 'custom' ? (
+							<CustomStoryThumbnail />
+						) : (
+							<StoryThumbnail summary={item.summary} />
+						)}
 					</div>
 
 					{!selectionActive && (

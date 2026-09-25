@@ -429,6 +429,13 @@ export interface CitationData {
 	end: number;
 	text: string;
 	storySlug?: string;
+	block?: StoryBlockReference;
+}
+
+export interface StoryBlockReference {
+	kind: string;
+	title?: string;
+	queryId?: string;
 }
 
 export type MessageBubble = { role: 'user' | 'assistant'; charCount: number };

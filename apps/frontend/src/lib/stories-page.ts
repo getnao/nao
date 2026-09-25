@@ -2,7 +2,7 @@ import { FOLDER_SYSTEM_TYPE } from '@nao/shared/types';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { StorySharingInfo, StorySummary, SummarySegment } from '@nao/shared/types';
+import type { StoryFormat, StorySharingInfo, StorySummary, SummarySegment } from '@nao/shared/types';
 
 type RouterOutputs = inferRouterOutputs<TrpcRouter>;
 
@@ -45,6 +45,7 @@ export type StoryItem = {
 	chatId?: string;
 	storySlug?: string;
 	summary: StorySummary;
+	format: StoryFormat;
 	isLive: boolean;
 	isCertified: boolean;
 	certifiedByName: string | null;
@@ -147,6 +148,7 @@ export function buildStoryItems({
 			chatId,
 			storySlug: story.storySlug,
 			summary: story.summary,
+			format: story.format,
 			isLive: story.isLive,
 			isCertified: story.certifiedAt !== null,
 			certifiedByName: story.certifiedByName,
@@ -179,6 +181,7 @@ export function buildStoryItems({
 			kind: 'own-standalone',
 			storySlug: story.storySlug,
 			summary: story.summary,
+			format: story.format,
 			isLive: story.isLive,
 			isCertified: story.certifiedAt !== null,
 			certifiedByName: story.certifiedByName,
@@ -205,6 +208,7 @@ export function buildStoryItems({
 				author: story.authorName,
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
+				format: story.format,
 				isLive: story.isLive,
 				isCertified: story.certifiedAt !== null,
 				certifiedByName: story.certifiedByName,

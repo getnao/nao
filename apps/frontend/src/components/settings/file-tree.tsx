@@ -8,7 +8,7 @@ import { matchesOrderedTerms } from '@/lib/path-search';
 import { getAutoExpandKeys, getTreeNodePadding, removeExpandedSubtree } from '@/lib/tree-expansion';
 import { cn } from '@/lib/utils';
 
-type ContentMatch = {
+export type ContentMatch = {
 	count: number;
 	line: number;
 	text: string;

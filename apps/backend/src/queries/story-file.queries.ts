@@ -75,11 +75,16 @@ export async function deleteDraftFile(storyId: string, path: string, executor: D
 	return deleted.length > 0;
 }
 
-export async function replaceDraftFiles(storyId: string, files: StoryFileInput[]): Promise<DBStoryDraftFile[]> {
-	return db.transaction(async (tx) => {
+export async function replaceDraftFiles(
+	storyId: string,
+	files: StoryFileInput[],
+	transaction?: DBTransaction,
+): Promise<DBStoryDraftFile[]> {
+	const replace = async (tx: DBTransaction) => {
 		await tx.delete(s.storyDraftFile).where(eq(s.storyDraftFile.storyId, storyId)).execute();
 		return seedDraftFiles(storyId, files, tx);
-	});
+	};
+	return transaction ? replace(transaction) : db.transaction(replace);
 }
 
 export async function seedDraftFiles(

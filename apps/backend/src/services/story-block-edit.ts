@@ -16,6 +16,15 @@ interface StoryBlockEditInput {
 	change: StoryKitBlockChange;
 }
 
+interface StoryVersionRestoreInput {
+	chatId: string;
+	storySlug: string;
+	versionNumber: number;
+	restoreVersionNumber: number;
+}
+
+type LatestVersionInput = Pick<StoryBlockEditInput, 'chatId' | 'storySlug' | 'versionNumber'>;
+
 export class StoryBlockEditError extends Error {}
 
 const SCRIPT_FILE = /\.(jsx?|tsx?)$/i;
@@ -52,7 +61,46 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 	return { version: version.version };
 }
 
-async function loadDraftMatchingLatestVersion(storyId: string, input: StoryBlockEditInput): Promise<StoryFileInput[]> {
+/** Restoring re-publishes an older version's files and bundle as the new latest version. */
+export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput): Promise<{ version: number }> {
+	const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+	if (!story || story.format !== 'custom') {
+		throw new CustomStoryNotFoundError();
+	}
+	const draft = await loadDraftMatchingLatestVersion(story.id, input);
+	const restored = await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.restoreVersionNumber);
+	if (!restored) {
+		throw new CustomStoryNotFoundError();
+	}
+	const [files, bundle] = await Promise.all([
+		storyFileQueries.listVersionFiles(restored.id),
+		storyFileQueries.getVersionBundle(restored.id),
+	]);
+	const restoredBundle = bundle?.bundle;
+	if (!restoredBundle) {
+		throw new StoryBlockEditError('This version did not build, so it cannot be restored.');
+	}
+
+	const version = await db.transaction(async (tx) => {
+		if (!hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
+			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
+		}
+		await storyFileQueries.replaceDraftFiles(
+			story.id,
+			files.map((file) => ({ path: file.path, content: file.content })),
+			tx,
+		);
+		const cut = await storyFileQueries.cutVersionFromDraft(
+			{ storyId: story.id, action: 'update', source: 'user' },
+			tx,
+		);
+		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: restoredBundle, bundleError: null }, tx);
+		return cut.version;
+	});
+	return { version: version.version };
+}
+
+async function loadDraftMatchingLatestVersion(storyId: string, input: LatestVersionInput): Promise<StoryFileInput[]> {
 	const latest = await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
 	if (!latest || latest.version !== input.versionNumber) {
 		throw new StoryBlockEditError('The story has a newer version. Reload it and edit again.');

@@ -12,6 +12,7 @@ type SidePanelProps = {
 	resizeHandleRef: React.RefObject<HTMLDivElement | null>;
 	children: React.ReactNode;
 	isAnimating: boolean;
+	chatPanelMinWidth?: number;
 	className?: string;
 };
 
@@ -21,11 +22,12 @@ export const SidePanel = memo(function SidePanel({
 	resizeHandleRef,
 	children,
 	isAnimating,
+	chatPanelMinWidth,
 	className,
 }: SidePanelProps) {
 	const isMobile = useIsMobile();
 	const { close } = useSidePanel();
-	useSidePanelResize(sidePanelRef, containerRef, resizeHandleRef, !isAnimating && !isMobile);
+	useSidePanelResize(sidePanelRef, containerRef, resizeHandleRef, !isAnimating && !isMobile, chatPanelMinWidth);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {

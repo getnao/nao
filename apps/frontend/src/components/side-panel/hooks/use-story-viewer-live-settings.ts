@@ -24,6 +24,17 @@ export const useStoryViewerLiveSettings = ({
 	const cacheSchedule = data?.cacheSchedule ?? null;
 	const cacheScheduleDescription = data?.cacheScheduleDescription ?? null;
 
+	const invalidateCustomStory = () =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }) }),
+			queryClient.invalidateQueries({
+				queryKey: trpc.story.getCustomStoryQueryData.queryKey({ chatId, storySlug }),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: trpc.story.getCustomStoryNarratives.queryKey({ chatId, storySlug }),
+			}),
+		]);
+
 	const invalidateSharedStory = async () => {
 		if (!shareId) {
 			return;
@@ -43,6 +54,7 @@ export const useStoryViewerLiveSettings = ({
 					queryClient.invalidateQueries({
 						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
 					}),
+					invalidateCustomStory(),
 					invalidateSharedStory(),
 				]);
 			},
@@ -62,6 +74,7 @@ export const useStoryViewerLiveSettings = ({
 					queryClient.invalidateQueries({
 						queryKey: trpc.automation.feed.queryKey(),
 					}),
+					invalidateCustomStory(),
 					invalidateSharedStory(),
 				];
 				if (storyId) {

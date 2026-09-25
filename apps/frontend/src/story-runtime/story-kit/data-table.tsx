@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/use-click-outside';
-import { copyTable, exportTable } from '../story-host';
+import { copyTable, exportTable, isStoryExport } from '../story-host';
 import { Block, BlockState } from './block';
 import { isNumericColumn, withNumericValues } from './columns';
 import { useBlockData } from './use-block-data';
@@ -51,7 +51,7 @@ export function DataTable({
 	const title = block.title ?? 'table';
 
 	return (
-		<Block kind='data-table' {...block}>
+		<Block kind='data-table' queryId={queryId} {...block}>
 			<BlockState data={source}>
 				{(rows, resultColumns) => {
 					const visible = resolveColumns(rows, resultColumns, columns);
@@ -125,29 +125,33 @@ function TableActions({ rows, columns, filename, onFullscreen }: TableActionsPro
 
 	return (
 		<div className='nao-table__actions'>
-			<button type='button' onClick={handleCopy} title='Copy rows' aria-label='Copy rows'>
-				<CopyIcon />
-			</button>
-			<div className='nao-table__export' ref={menuRef}>
-				<button
-					type='button'
-					onClick={() => setExportMenuOpen((current) => !current)}
-					title='Export data'
-					aria-label='Export data'
-				>
-					<DownloadIcon />
-				</button>
-				{exportMenuOpen && (
-					<div className='nao-table__export-menu'>
-						<button type='button' onClick={() => handleExport('csv')}>
-							CSV
+			{!isStoryExport() && (
+				<>
+					<button type='button' onClick={handleCopy} title='Copy rows' aria-label='Copy rows'>
+						<CopyIcon />
+					</button>
+					<div className='nao-table__export' ref={menuRef}>
+						<button
+							type='button'
+							onClick={() => setExportMenuOpen((current) => !current)}
+							title='Export data'
+							aria-label='Export data'
+						>
+							<DownloadIcon />
 						</button>
-						<button type='button' onClick={() => handleExport('xlsx')}>
-							Excel (XLSX)
-						</button>
+						{exportMenuOpen && (
+							<div className='nao-table__export-menu'>
+								<button type='button' onClick={() => handleExport('csv')}>
+									CSV
+								</button>
+								<button type='button' onClick={() => handleExport('xlsx')}>
+									Excel (XLSX)
+								</button>
+							</div>
+						)}
 					</div>
-				)}
-			</div>
+				</>
+			)}
 			{onFullscreen && (
 				<button type='button' onClick={onFullscreen} title='View fullscreen' aria-label='View fullscreen'>
 					<MaximizeIcon />

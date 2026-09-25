@@ -1,33 +1,33 @@
 import { isStoryFrameMessage, STORY_RUNTIME_PATH } from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { narrativesOptions, queryDataOptions, querySqlOptions } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
 import type { StoryBlockEditPayload, StoryFrameMessage, StoryHostMessage } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryBlockReference } from '@nao/shared/types';
 
+import type { CustomStoryDataSource } from './story-data-options';
 import type { StoryRuntimeLocation } from './story-frame-document';
 import { useDateFormat } from '@/hooks/use-date-format';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
-import { chatActivityStore } from '@/stores/chat-activity';
 
 export interface CustomStoryRuntimeError {
 	message: string;
 	stack?: string;
 }
 
-const QUERY_RETRY_DELAY_MS = 1500;
-const MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING = 10;
 const MAX_EXPORT_FILENAME_LENGTH = 100;
 
 interface CustomStoryFrameProps {
-	chatId: string;
+	dataSource: CustomStoryDataSource;
 	bundle: string;
 	styles: string[];
 	theme: StoryTheme;
 	editable?: boolean;
 	onEditBlock?: (request: StoryBlockEditPayload) => void;
+	onAskBlock?: (block: StoryBlockReference) => void;
 	onReady?: () => void;
 	onError?: (error: CustomStoryRuntimeError) => void;
 	className?: string;
@@ -36,12 +36,13 @@ interface CustomStoryFrameProps {
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
 
 export function CustomStoryFrame({
-	chatId,
+	dataSource,
 	bundle,
 	styles,
 	theme,
 	editable = false,
 	onEditBlock,
+	onAskBlock,
 	onReady,
 	onError,
 	className,
@@ -61,19 +62,33 @@ export function CustomStoryFrame({
 	const answerQuery = useCallback(
 		async (requestId: string, queryId: string) => {
 			try {
-				const result = await queryClient.fetchQuery({
-					...trpc.story.getCustomStoryQueryData.queryOptions({ chatId, queryId }),
-					retry: (failureCount) =>
-						failureCount < MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING &&
-						chatActivityStore.getActivity(chatId).running,
-					retryDelay: QUERY_RETRY_DELAY_MS,
-				});
+				const result = await queryClient.fetchQuery(queryDataOptions(dataSource, queryId));
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
 			}
 		},
-		[chatId, queryClient, reply],
+		[dataSource, queryClient, reply],
+	);
+
+	const answerQuerySql = useCallback(
+		async (requestId: string, queryId: string) => {
+			try {
+				const { sqlQuery } = await queryClient.fetchQuery(querySqlOptions(dataSource, queryId));
+				reply({ type: 'nao-story:query-sql-result', requestId, sqlQuery });
+			} catch (error) {
+				reply({ type: 'nao-story:query-sql-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
+	const answerNarratives = useCallback(
+		async (requestId: string) => {
+			const narratives = await queryClient.fetchQuery(narrativesOptions(dataSource)).catch(() => ({}));
+			reply({ type: 'nao-story:narratives-result', requestId, narratives });
+		},
+		[dataSource, queryClient, reply],
 	);
 
 	useEffect(() => {
@@ -92,6 +107,9 @@ export function CustomStoryFrame({
 					break;
 				case 'nao-story:query':
 					void answerQuery(message.requestId, message.queryId);
+					break;
+				case 'nao-story:narratives':
+					void answerNarratives(message.requestId);
 					break;
 				case 'nao-story:error':
 					onError?.({ message: message.message, stack: message.stack });
@@ -117,11 +135,30 @@ export function CustomStoryFrame({
 						});
 					}
 					break;
+				case 'nao-story:ask-block':
+					if (editable) {
+						onAskBlock?.(message.block);
+					}
+					break;
+				case 'nao-story:query-sql':
+					void answerQuerySql(message.requestId, message.queryId);
+					break;
 			}
 		};
 		window.addEventListener('message', handleMessage);
 		return () => window.removeEventListener('message', handleMessage);
-	}, [answerQuery, dateFormat, editable, onEditBlock, onError, onReady, reply]);
+	}, [
+		answerNarratives,
+		answerQuery,
+		answerQuerySql,
+		dateFormat,
+		editable,
+		onAskBlock,
+		onEditBlock,
+		onError,
+		onReady,
+		reply,
+	]);
 
 	useEffect(() => {
 		if (isFrameReadyRef.current) {

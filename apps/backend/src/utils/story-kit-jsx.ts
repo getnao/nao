@@ -41,7 +41,7 @@ interface SourceEdit extends SourceRange {
 
 export class StoryKitJsxEditError extends Error {}
 
-const STORY_KIT_MODULE = '@nao/story-kit';
+export const STORY_KIT_MODULE = '@nao/story-kit';
 const DYNAMIC = Symbol('dynamic');
 const IGNORED_ATTRIBUTES = new Set(['key', 'ref']);
 const JS_IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -124,7 +124,7 @@ export function applyKitBlockChange(
 	return applyEdits(source, edits);
 }
 
-function parseScript(path: string, source: string): Node | null {
+export function parseScript(path: string, source: string): Node | null {
 	const isTypeScript = /\.tsx?$/i.test(path);
 	const hasJsx = !/\.ts$/i.test(path);
 	try {

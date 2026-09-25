@@ -1,13 +1,17 @@
-import { isStoryHostMessage } from '@nao/shared/story-app';
+import { isStoryHostMessage, STORY_PRINT_FLAG } from '@nao/shared/story-app';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { resolveBlockColors } from './story-colors';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryBlockReference } from '@nao/shared/types';
 import type {
 	StoryBlockEditRequest,
+	StoryExportData,
 	StoryFrameMessage,
+	StoryHostMessage,
+	StoryNarratives,
 	StoryQueryResult,
 	StoryTableExportFormat,
 } from '@nao/shared/story-app';
@@ -15,20 +19,25 @@ import type {
 interface BootOptions {
 	source: string;
 	theme: StoryTheme;
+	exportData?: StoryExportData;
 }
 
-interface PendingQuery {
-	resolve: (result: StoryQueryResult) => void;
+interface PendingRequest<T> {
+	resolve: (result: T) => void;
 	reject: (error: Error) => void;
 }
 
-const pendingQueries = new Map<string, PendingQuery>();
+const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
+const pendingQuerySql = new Map<string, PendingRequest<string>>();
+const pendingNarratives = new Map<string, (narratives: StoryNarratives) => void>();
 const editingListeners = new Set<() => void>();
 let activeTheme: StoryTheme | null = null;
 let editingEnabled = false;
+let exportData: StoryExportData | null = null;
 
-export async function bootStory({ source, theme }: BootOptions): Promise<void> {
+export async function bootStory({ source, theme, exportData: embeddedData }: BootOptions): Promise<void> {
 	activeTheme = theme;
+	exportData = embeddedData ?? null;
 	installGlobalErrorReporting();
 	const container = document.getElementById('root');
 	if (!container) {
@@ -39,6 +48,7 @@ export async function bootStory({ source, theme }: BootOptions): Promise<void> {
 		const App = await loadStoryComponent(source);
 		createRoot(container).render(createElement(StoryErrorBoundary, null, createElement(App)));
 		send({ type: 'nao-story:ready' });
+		document.documentElement.dataset.naoStoryReady = 'true';
 	} catch (error) {
 		reportError(error);
 		container.replaceChildren(renderCrash(error));
@@ -46,11 +56,33 @@ export async function bootStory({ source, theme }: BootOptions): Promise<void> {
 }
 
 export function requestQueryData(queryId: string): Promise<StoryQueryResult> {
+	if (exportData) {
+		return readExportedQuery(exportData, queryId);
+	}
 	const requestId = crypto.randomUUID();
 	return new Promise((resolve, reject) => {
 		pendingQueries.set(requestId, { resolve, reject });
 		send({ type: 'nao-story:query', requestId, queryId });
 	});
+}
+
+export function requestNarratives(): Promise<StoryNarratives> {
+	if (exportData) {
+		return Promise.resolve(exportData.narratives);
+	}
+	const requestId = crypto.randomUUID();
+	return new Promise((resolve) => {
+		pendingNarratives.set(requestId, resolve);
+		send({ type: 'nao-story:narratives', requestId });
+	});
+}
+
+export function isStoryExport(): boolean {
+	return exportData !== null;
+}
+
+export function isPrintMode(): boolean {
+	return (globalThis as { [STORY_PRINT_FLAG]?: unknown })[STORY_PRINT_FLAG] === true;
 }
 
 export function getStoryTheme(): StoryTheme | null {
@@ -92,6 +124,18 @@ export function requestBlockEdit({ block, config, columns, rows }: StoryBlockEdi
 	});
 }
 
+export function requestBlockAsk(block: StoryBlockReference): void {
+	send({ type: 'nao-story:ask-block', block });
+}
+
+export function requestQuerySql(queryId: string): Promise<string> {
+	const requestId = crypto.randomUUID();
+	return new Promise((resolve, reject) => {
+		pendingQuerySql.set(requestId, { resolve, reject });
+		send({ type: 'nao-story:query-sql', requestId, queryId });
+	});
+}
+
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	if (event.source !== window.parent || !isStoryHostMessage(event.data)) {
 		return;
@@ -99,6 +143,15 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	if (event.data.type === 'nao-story:editing') {
 		editingEnabled = event.data.enabled;
 		editingListeners.forEach((listener) => listener());
+		return;
+	}
+	if (event.data.type === 'nao-story:narratives-result') {
+		pendingNarratives.get(event.data.requestId)?.(event.data.narratives);
+		pendingNarratives.delete(event.data.requestId);
+		return;
+	}
+	if (event.data.type === 'nao-story:query-sql-result' || event.data.type === 'nao-story:query-sql-error') {
+		settleQuerySql(event.data);
 		return;
 	}
 	const pending = pendingQueries.get(event.data.requestId);
@@ -113,8 +166,25 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	}
 });
 
+function settleQuerySql(
+	message: Extract<StoryHostMessage, { type: 'nao-story:query-sql-result' | 'nao-story:query-sql-error' }>,
+): void {
+	const pending = pendingQuerySql.get(message.requestId);
+	pendingQuerySql.delete(message.requestId);
+	if (message.type === 'nao-story:query-sql-result') {
+		pending?.resolve(message.sqlQuery);
+	} else {
+		pending?.reject(new Error(message.message));
+	}
+}
+
 function send(message: StoryFrameMessage): void {
 	window.parent.postMessage(message, '*');
+}
+
+function readExportedQuery(data: StoryExportData, queryId: string): Promise<StoryQueryResult> {
+	const result = data.queries[queryId];
+	return result ? Promise.resolve(result) : Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
 }
 
 function toJsonSafe<T>(value: T): T {

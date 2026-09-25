@@ -110,8 +110,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		currentVersionNumber,
 		storedVersionNumber,
 		isViewingLatest,
-		goToPreviousVersion,
-		goToNextVersion,
+		goToVersion,
 		goToLatestVersion,
 	} = useStoryViewerVersions({
 		chatId,
@@ -238,11 +237,11 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		[chatId, readonlyProp],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
-	const handlePreviousVersion = useCallback(
-		() => exitGuard.requestExit(goToPreviousVersion),
-		[exitGuard, goToPreviousVersion],
+	const handleSelectVersion = useCallback(
+		(versionNumber: number) => exitGuard.requestExit(() => goToVersion(versionNumber)),
+		[exitGuard, goToVersion],
 	);
-	const handleNextVersion = useCallback(() => exitGuard.requestExit(goToNextVersion), [exitGuard, goToNextVersion]);
+	const versionDates = useMemo(() => versions.map((version) => version.createdAt), [versions]);
 
 	useEffect(() => {
 		if (viewMode !== 'code') {
@@ -316,10 +315,10 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				viewMode={viewMode}
 				onViewModeChange={transitions.requestViewMode}
 				currentVersion={currentVersionNumber}
-				totalVersions={versions.length}
+				versionDates={versionDates}
 				versionNumber={currentVersion?.version}
-				onPreviousVersion={handlePreviousVersion}
-				onNextVersion={handleNextVersion}
+				versionDate={currentVersion?.createdAt}
+				onSelectVersion={handleSelectVersion}
 				isViewingLatest={isViewingLatest}
 				onRestore={handleRestore}
 				onSave={handleSave}

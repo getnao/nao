@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { StoryHeader } from './story-header';
 import type { StoryHeaderProps } from './story-header';
+import type { StoryViewMode } from './story-viewer.types';
 import { TooltipProvider } from '@/components/ui/tooltip';
+
+type ClassicStoryHeaderProps = Extract<StoryHeaderProps, { viewMode: StoryViewMode }>;
 
 const { favoritesQuery } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
@@ -146,8 +149,8 @@ function openActionsMenu() {
 	fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions' }), { button: 0, ctrlKey: false });
 }
 
-function renderHeader(overrides: Partial<StoryHeaderProps>) {
-	const props: StoryHeaderProps = {
+function renderHeader(overrides: Partial<ClassicStoryHeaderProps>) {
+	const props: ClassicStoryHeaderProps = {
 		title: 'Revenue',
 		chatId: 'chat-1',
 		storySlug: 'revenue',
@@ -156,9 +159,8 @@ function renderHeader(overrides: Partial<StoryHeaderProps>) {
 		viewMode: 'preview',
 		onViewModeChange: vi.fn(),
 		currentVersion: 1,
-		totalVersions: 1,
-		onPreviousVersion: vi.fn(),
-		onNextVersion: vi.fn(),
+		versionDates: [],
+		onSelectVersion: vi.fn(),
 		isViewingLatest: true,
 		onRestore: vi.fn(),
 		onSave: vi.fn(),

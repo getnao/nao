@@ -22,6 +22,7 @@ export type UserStoryRow = Pick<
 	| 'cacheScheduleDescription'
 	| 'archivedAt'
 	| 'certifiedAt'
+	| 'format'
 	| 'createdAt'
 	| 'updatedAt'
 > & { code: string; version: number; certifiedByName: string | null };
@@ -123,6 +124,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			archivedAt: s.story.archivedAt,
 			certifiedAt: s.story.certifiedAt,
 			certifiedByName: storyCertifier.name,
+			format: s.story.format,
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
@@ -481,14 +483,7 @@ type StoryVersionWithStory = DBStoryVersion &
 		| 'cacheSchedule'
 		| 'cacheScheduleDescription'
 		| 'archivedAt'
-		| 'title'
-		| 'slug'
-		| 'chatId'
-		| 'isLive'
-		| 'isLiveTextDynamic'
-		| 'cacheSchedule'
-		| 'cacheScheduleDescription'
-		| 'archivedAt'
+		| 'format'
 	>;
 
 export function getLatestVersionByChatAndSlug(chatId: string, slug: string): Promise<StoryVersionWithStory | null> {
@@ -653,6 +648,7 @@ async function queryStoriesWithLatestVersion(
 			archivedAt: s.story.archivedAt,
 			certifiedAt: s.story.certifiedAt,
 			certifiedByName: storyCertifier.name,
+			format: s.story.format,
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
@@ -742,6 +738,7 @@ async function getStoryVersion(
 			cacheSchedule: s.story.cacheSchedule,
 			cacheScheduleDescription: s.story.cacheScheduleDescription,
 			archivedAt: s.story.archivedAt,
+			format: s.story.format,
 		})
 		.from(s.storyVersion)
 		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))

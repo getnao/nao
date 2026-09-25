@@ -121,6 +121,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 					end={citation.end}
 					text={citation.text}
 					storySlug={citation.storySlug}
+					block={'block' in citation ? citation.block : undefined}
 				/>
 			)}
 			{images.length > 0 && (

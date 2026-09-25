@@ -14,6 +14,7 @@ import {
 	LiveBadge,
 	SharingBadge,
 } from '@/components/item-card';
+import { CustomStoryThumbnail } from '@/components/custom-story-thumbnail';
 import { PaperSheet, StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
 import { formatRelativeDate } from '@/lib/time-ago';
@@ -66,7 +67,13 @@ function SharedStoryCard({ item, displayMode }: { item: SharedItem; displayMode:
 		<Link to='/stories/shared/$shareId' params={{ shareId: item.id }} className={GRID_CARD_CLASS}>
 			<SharedItemGrid
 				item={item}
-				thumbnail={<StoryThumbnail summary={item.summary as StoryThumbnailSummary} />}
+				thumbnail={
+					item.format === 'custom' ? (
+						<CustomStoryThumbnail />
+					) : (
+						<StoryThumbnail summary={item.summary as StoryThumbnailSummary} />
+					)
+				}
 			/>
 		</Link>
 	);

@@ -37,11 +37,6 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 		`form-action 'none'`,
 	].join('; ');
 
-	const fontLinks = input.theme.text.fontStylesheets
-		.map((href) => `<link rel="stylesheet" href="${escapeAttribute(href)}">`)
-		.join('\n');
-	const storyStyles = input.styles.map((css) => `<style>${escapeStyle(css)}</style>`).join('\n');
-
 	return `<!doctype html>
 <html>
 <head>
@@ -49,17 +44,37 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script type="importmap">${importMapScript}</script>
-${fontLinks}
-<style>${themeStyles(input.theme)}</style>
-<style>${BASE_STYLES}</style>
-<style>${KIT_STYLES}</style>
-${storyStyles}
+${storyStylesheets(input.theme, input.styles)}
 </head>
 <body>
 <div id="root"></div>
 <script type="module">${bootScript}</script>
 </body>
 </html>`;
+}
+
+/** Theme fonts and variables, base and kit styles, then the story's own CSS: shared by the frame and downloads. */
+export function storyStylesheets(theme: StoryTheme, styles: string[]): string {
+	const fontLinks = theme.text.fontStylesheets.map(
+		(href) => `<link rel="stylesheet" href="${escapeAttribute(href)}">`,
+	);
+	const storyStyles = styles.map((css) => `<style>${escapeStyle(css)}</style>`);
+	return [
+		...fontLinks,
+		`<style>${themeStyles(theme)}</style>`,
+		`<style>${BASE_STYLES}</style>`,
+		`<style>${KIT_STYLES}</style>`,
+		...storyStyles,
+	].join('\n');
+}
+
+/** JSON is valid JS, but `</script>` inside a string would still end the block; escaping `<` closes that door. */
+export function escapeScript(json: string): string {
+	return json.replaceAll('<', '\\u003c');
+}
+
+export function escapeAttribute(value: string): string {
+	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 }
 
 function importMap(runtime: StoryRuntimeLocation): { imports: Record<string, string> } {
@@ -94,15 +109,6 @@ async function sha256Source(source: string): Promise<string> {
 	return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
 }
 
-/** JSON is valid JS, but `</script>` inside a string would still end the block; escaping `<` closes that door. */
-function escapeScript(json: string): string {
-	return json.replaceAll('<', '\\u003c');
-}
-
 function escapeStyle(css: string): string {
 	return css.replaceAll(/<\/style/gi, '<\\/style');
-}
-
-function escapeAttribute(value: string): string {
-	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 }

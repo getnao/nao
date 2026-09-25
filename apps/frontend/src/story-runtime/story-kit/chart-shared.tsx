@@ -68,7 +68,15 @@ export function ChartBlock({
 			: undefined;
 
 	return (
-		<Block kind={kind} title={title} description={description} className={className} style={style} edit={edit}>
+		<Block
+			kind={kind}
+			queryId={queryId}
+			title={title}
+			description={description}
+			className={className}
+			style={style}
+			edit={edit}
+		>
 			<BlockState data={source}>
 				{(rows) =>
 					resolved && (

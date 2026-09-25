@@ -18,7 +18,7 @@ export function scaffoldCustomStoryFiles(title: string, files: StoryFileInput[])
 }
 
 function starterApp(title: string): string {
-	return `import { BarChart, DataTable, KpiCard, LineChart } from "@nao/story-kit";
+	return `import { BarChart, DataTable, KpiCard, LineChart, Narrative } from "@nao/story-kit";
 
 // Starter layout, nothing here is wired to data yet: replace every REPLACE_ME with the id
 // of a query you ran with execute_sql in this chat, rename the titles, add format/xKey/series
@@ -28,7 +28,9 @@ export default function App() {
     <main className="page">
       <header className="page__header">
         <h1>${jsxText(title)}</h1>
-        <p>One sentence on what this story answers.</p>
+        <p>
+          <Narrative id="summary">One sentence on what this story answers.</Narrative>
+        </p>
       </header>
 
       <section className="grid grid--3">

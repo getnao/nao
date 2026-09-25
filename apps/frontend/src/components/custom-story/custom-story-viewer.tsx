@@ -1,20 +1,26 @@
-import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { StoryBlockEditPayload } from '@nao/shared/story-app';
+import type { StoryBlockReference } from '@nao/shared/types';
 
-import type { CustomStoryRuntimeError } from '@/components/custom-story/custom-story-frame';
-import type { StoryBlockEditTarget } from '@/stores/story-block-edit';
-import { CustomStoryBlockEditDialog } from '@/components/custom-story/custom-story-block-edit';
-import { CustomStoryFrame } from '@/components/custom-story/custom-story-frame';
+import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import { ActionErrorBanner, CustomStoryBody } from '@/components/custom-story/custom-story-body';
+import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
+import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
+import { useCustomStory } from '@/components/custom-story/use-custom-story';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { useStoryViewerEnlarge } from '@/components/side-panel/hooks/use-story-viewer-enlarge';
+import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
+import { useStoryViewerSharing } from '@/components/side-panel/hooks/use-story-viewer-sharing';
+import { useStoryViewerSwitchStory } from '@/components/side-panel/hooks/use-story-viewer-switch-story';
+import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
-import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { StoryHeader } from '@/components/side-panel/story-header';
+import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useSidePanel } from '@/contexts/side-panel';
-import { useChatActivity } from '@/hooks/use-chat-activity';
-import { trpc } from '@/main';
+import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { storyBlockEditStore } from '@/stores/story-block-edit';
 
 interface CustomStoryViewerProps {
@@ -22,222 +28,151 @@ interface CustomStoryViewerProps {
 	storySlug: string;
 }
 
-const MAX_RUNTIME_ERRORS = 5;
-
+/** Side-panel view of a custom story */
 export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps) {
-	const { close, setCurrentStorySlug, isVisible } = useSidePanel();
-	/** No close affordance in the standalone preview page — `isVisible` is only true inside a real side panel. */
-	const showClose = isVisible;
-	const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
-	const [runtimeErrors, setRuntimeErrors] = useState<CustomStoryRuntimeError[]>([]);
-	const [runtimeErrorCount, setRuntimeErrorCount] = useState(0);
-	const [dialogTarget, setDialogTarget] = useState<StoryBlockEditTarget | null>(null);
-	const isAgentRunning = useChatActivity(chatId).running;
+	const { close, setCurrentStorySlug, isReadonlyMode, isReplay, shareId, shareType } = useSidePanel();
+	const story = useCustomStory(chatId, storySlug);
+	const { content } = story;
+	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !isReadonlyMode;
 
-	const versionsQuery = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
-	const versionNumbers = useMemo(
-		() => (versionsQuery.data?.versions ?? []).map((version) => version.version).sort((a, b) => a - b),
-		[versionsQuery.data?.versions],
+	const sharing = useStoryViewerSharing({ chatId, storySlug });
+	const live = useStoryViewerLiveSettings({ chatId, storySlug });
+	const { handleEnlarge } = useStoryViewerEnlarge({ chatId, storySlug });
+	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
+	const renderStoryViewer = useCallback(
+		(nextStorySlug: string) => <StoryViewer chatId={chatId} storySlug={nextStorySlug} />,
+		[chatId],
 	);
-	const latestVersion = versionNumbers.at(-1) ?? null;
-	const viewedVersion = selectedVersion ?? latestVersion;
-	const isViewingLatest = viewedVersion === latestVersion;
-
-	const contentQuery = useQuery({
-		...trpc.story.getCustomVersion.queryOptions({ chatId, storySlug, versionNumber: viewedVersion ?? undefined }),
-		enabled: viewedVersion !== null,
-	});
-	const content = contentQuery.data;
-	const styles = useMemo(() => content?.styles.map((style) => style.content) ?? [], [content?.styles]);
-
-	const canEditBlocks = isViewingLatest && !isAgentRunning;
+	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
+	const chatInput = useSetChatInputCallback();
 
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
-			if (!content) {
-				return;
-			}
-			const target = { chatId, storySlug, versionNumber: content.version.number, payload };
-			setSelectedVersion(null);
-			if (isVisible) {
-				storyBlockEditStore.open(target);
-			} else {
-				setDialogTarget(target);
+			if (content) {
+				storyBlockEditStore.open({ chatId, storySlug, versionNumber: content.version.number, payload });
 			}
 		},
-		[chatId, content, isVisible, storySlug],
+		[chatId, content, storySlug],
 	);
 
-	useRefreshWhenAgentStops(chatId, storySlug, isAgentRunning);
-	useEffect(() => {
-		if (!canEditBlocks) {
-			setDialogTarget(null);
-		}
-	}, [canEditBlocks]);
+	const handleAskBlock = useCallback(
+		(block: StoryBlockReference) => {
+			chatPendingCitationStore.setBlock(chatId, storySlug, block);
+			chatInput?.fire('');
+		},
+		[chatId, chatInput, storySlug],
+	);
+
+	useTrackViewDuration({
+		assetType: 'story',
+		chatId,
+		storySlug,
+		storyId,
+		versionNumber: story.viewedVersion ?? undefined,
+	});
 	useEffect(() => {
 		setCurrentStorySlug(storySlug);
 	}, [setCurrentStorySlug, storySlug]);
-	useEffect(() => {
-		setRuntimeErrors([]);
-		setRuntimeErrorCount(0);
-	}, [content?.version.id]);
-
-	const handleRuntimeError = useCallback((error: CustomStoryRuntimeError) => {
-		setRuntimeErrors((current) => [...current, error].slice(-MAX_RUNTIME_ERRORS));
-		setRuntimeErrorCount((current) => current + 1);
-	}, []);
-	const step = (delta: number) => {
-		if (viewedVersion === null) {
-			return;
-		}
-		const index = versionNumbers.indexOf(viewedVersion) + delta;
-		setSelectedVersion(versionNumbers[index] ?? viewedVersion);
-	};
 
 	return (
 		<div className='flex h-full w-full min-w-0 flex-1 flex-col'>
-			<div className='flex shrink-0 items-center gap-2 border-b px-4 py-2' data-selection-ignore>
-				{showClose && (
-					<Button
-						variant='ghost'
-						size='icon-sm'
-						className='hover:rounded-full'
-						onClick={close}
-						aria-label='Close'
-					>
-						<X className='size-3.5' strokeWidth={2.25} />
-					</Button>
-				)}
-				<div className='min-w-0 flex-1'>
-					<div className='truncate text-sm font-semibold' title={content?.title ?? versionsQuery.data?.title}>
-						{content?.title ?? versionsQuery.data?.title ?? storySlug}
-					</div>
-				</div>
-				{viewedVersion !== null && (
-					<VersionStepper
-						current={viewedVersion}
-						total={versionNumbers.length}
-						isFirst={versionNumbers[0] === viewedVersion}
-						isLast={isViewingLatest}
-						onPrevious={() => step(-1)}
-						onNext={() => step(1)}
-					/>
-				)}
-			</div>
+			<StoryHeader
+				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
+				chatId={chatId}
+				storySlug={storySlug}
+				storyId={storyId}
+				shareId={shareId}
+				shareType={shareType}
+				allStories={[]}
+				onSwitchStory={switchStory}
+				viewMode={viewMode}
+				onViewModeChange={setViewMode}
+				currentVersion={story.currentVersionIndex}
+				versionDates={story.versionDates}
+				versionNumber={story.viewedVersion ?? undefined}
+				versionDate={story.viewedVersionDate}
+				onSelectVersion={story.goToVersion}
+				isViewingLatest={story.isViewingLatest}
+				onRestore={story.restore}
+				onShare={() => sharing.setIsShareDialogOpen(true)}
+				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+				onEnlarge={handleEnlarge}
+				isShared={sharing.isShared}
+				isAgentRunning={story.isAgentRunning}
+				isStoryUpdating={false}
+				isSaving={story.isRestoring}
+				isReadonlyMode={isReadonlyMode}
+				isReplay={isReplay}
+				isLive={live.isLive}
+				isLiveUpdating={live.isUpdating}
+				isRefreshing={live.isRefreshing}
+				onRefreshData={live.handleRefreshData}
+				onOpenLiveSettings={() => setIsLiveSettingsOpen(true)}
+				onClose={close}
+				cachedAt={content?.cachedAt}
+				lastRefreshFailure={content?.lastRefreshFailure}
+				onDownload={story.download}
+			/>
 
 			{Boolean(content?.archivedAt) && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
-			{runtimeErrors.length > 0 && <RuntimeErrorBanner errors={runtimeErrors} count={runtimeErrorCount} />}
+			{story.restoreError && <ActionErrorBanner message={story.restoreError.message} />}
 
-			<div className='min-h-0 flex-1'>
-				{versionsQuery.isLoading || (latestVersion !== null && contentQuery.isLoading) ? (
-					<Centered>
-						<Spinner />
-					</Centered>
-				) : latestVersion === null ? (
-					<Centered>This story has no published version yet.</Centered>
-				) : contentQuery.error ? (
-					<Centered>{contentQuery.error.message}</Centered>
-				) : content?.bundle ? (
-					<CustomStoryFrame
-						key={content.version.id}
-						chatId={chatId}
-						bundle={content.bundle}
-						styles={styles}
-						theme={content.theme ?? DEFAULT_STORY_THEME}
-						editable={canEditBlocks}
+			<CustomStoryViewLayers
+				viewMode={viewMode}
+				app={
+					<CustomStoryBody
+						dataSource={story.dataSource}
+						content={content}
+						isLoading={story.isLoading}
+						error={story.contentQuery.error}
+						hasPublishedVersion={story.latestVersion !== null}
+						editable={canEditBlocks && viewMode === 'app'}
 						onEditBlock={handleEditBlock}
-						onError={handleRuntimeError}
+						onAskBlock={handleAskBlock}
 					/>
-				) : (
-					<BuildFailure message={content?.bundleError ?? 'This version has no build output.'} />
-				)}
-			</div>
+				}
+				files={
+					content && (
+						<CustomStoryFiles
+							key={content.version.id}
+							chatId={chatId}
+							storySlug={storySlug}
+							versionNumber={content.version.number}
+							files={content.files}
+						/>
+					)
+				}
+			/>
 
-			<CustomStoryBlockEditDialog
-				target={canEditBlocks ? dialogTarget : null}
-				onClose={() => setDialogTarget(null)}
+			<ShareStoryDialog
+				open={sharing.isShareDialogOpen}
+				onOpenChange={sharing.setIsShareDialogOpen}
+				chatId={chatId}
+				storySlug={storySlug}
+			/>
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='story'
+				chatId={chatId}
+				storyId={storyId ?? undefined}
+				storySlug={storySlug}
+			/>
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				chatId={chatId}
+				storySlug={storySlug}
+				isLive={live.isLive}
+				isLiveTextDynamic={live.isLiveTextDynamic}
+				cacheSchedule={live.cacheSchedule}
+				cacheScheduleDescription={live.cacheScheduleDescription}
+				isUpdating={live.isUpdating}
+				onSaveSettings={live.handleSaveSettings}
 			/>
 		</div>
 	);
-}
-
-function useRefreshWhenAgentStops(chatId: string, storySlug: string, isRunning: boolean) {
-	const queryClient = useQueryClient();
-	const wasRunning = useRef(isRunning);
-	useEffect(() => {
-		if (wasRunning.current && !isRunning) {
-			void queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }) });
-		}
-		wasRunning.current = isRunning;
-	}, [chatId, isRunning, queryClient, storySlug]);
-}
-
-interface VersionStepperProps {
-	current: number;
-	total: number;
-	isFirst: boolean;
-	isLast: boolean;
-	onPrevious: () => void;
-	onNext: () => void;
-}
-
-function VersionStepper({ current, total, isFirst, isLast, onPrevious, onNext }: VersionStepperProps) {
-	return (
-		<div className='flex items-center gap-0.5 text-xs text-muted-foreground'>
-			<Button
-				variant='ghost'
-				size='icon-xs'
-				onClick={onPrevious}
-				disabled={isFirst}
-				aria-label='Previous version'
-			>
-				<ChevronLeft />
-			</Button>
-			<span className='tabular-nums'>
-				v{current}
-				{total > 1 && <span className='opacity-60'> / {total}</span>}
-			</span>
-			<Button variant='ghost' size='icon-xs' onClick={onNext} disabled={isLast} aria-label='Next version'>
-				<ChevronRight />
-			</Button>
-		</div>
-	);
-}
-
-function RuntimeErrorBanner({ errors, count }: { errors: CustomStoryRuntimeError[]; count: number }) {
-	const latest = errors[errors.length - 1];
-	return (
-		<div className='flex items-start gap-2 border-b bg-red-500/5 px-4 py-2 text-xs text-red-600 dark:text-red-400'>
-			<AlertTriangle className='mt-0.5 size-3.5 shrink-0' />
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<span className='min-w-0 flex-1 truncate'>
-						{count > 1 && <span className='mr-1 font-medium'>{count} errors ·</span>}
-						{latest.message}
-					</span>
-				</TooltipTrigger>
-				<TooltipContent className='max-w-md whitespace-pre-wrap font-mono text-[11px]'>
-					{latest.stack ?? latest.message}
-				</TooltipContent>
-			</Tooltip>
-		</div>
-	);
-}
-
-function BuildFailure({ message }: { message: string }) {
-	return (
-		<div className='flex h-full flex-col gap-3 overflow-auto p-6 text-sm'>
-			<div className='flex items-center gap-2 font-medium text-red-600 dark:text-red-400'>
-				<AlertTriangle className='size-4' />
-				This version did not build
-			</div>
-			<pre className='whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs text-muted-foreground'>
-				{message}
-			</pre>
-		</div>
-	);
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-	return <div className='flex h-full items-center justify-center p-6 text-sm text-muted-foreground'>{children}</div>;
 }

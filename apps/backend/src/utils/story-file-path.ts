@@ -34,3 +34,10 @@ export function normalizeStoryFilePath(raw: string): string {
 	}
 	return segments.join('/');
 }
+
+const SENSITIVE_FILE_NAME = /(secret|credential|password|passwd|token|api[-_]?key|private[-_]?key|\benv\b)/i;
+
+export function isViewableStoryFile(path: string): boolean {
+	const name = path.split('/').pop() ?? path;
+	return !SENSITIVE_FILE_NAME.test(name);
+}

@@ -53,6 +53,7 @@ export function FileSourceEditor({ filePath, value, searchQuery, readOnly, onCha
 
 	const handleBeforeMount = useCallback((monaco: Monaco) => {
 		defineCustomThemes(monaco);
+		disableScriptDiagnostics(monaco);
 	}, []);
 
 	const handleMount = useCallback(
@@ -171,6 +172,12 @@ function defineCustomThemes(monaco: Monaco) {
 			'editor.lineHighlightBorder': '#00000000',
 		},
 	});
+}
+
+function disableScriptDiagnostics(monaco: Monaco) {
+	const diagnosticsOptions = { noSemanticValidation: true, noSyntaxValidation: true, noSuggestionDiagnostics: true };
+	monaco.typescript.typescriptDefaults.setDiagnosticsOptions(diagnosticsOptions);
+	monaco.typescript.javascriptDefaults.setDiagnosticsOptions(diagnosticsOptions);
 }
 
 function applySearchHighlights(

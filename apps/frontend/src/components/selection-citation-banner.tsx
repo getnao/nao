@@ -23,7 +23,12 @@ export const SelectionCitationBanner = () => {
 			>
 				<X className='size-3' />
 			</Button>
-			<SelectionCitationExcerpt start={citation.start} end={citation.end} text={citation.text} />
+			<SelectionCitationExcerpt
+				start={citation.start}
+				end={citation.end}
+				block={citation.block}
+				text={citation.text}
+			/>
 		</div>
 	);
 };

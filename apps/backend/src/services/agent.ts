@@ -2,7 +2,7 @@ import type { CustomBoundarySet } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
-import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { CitationData, LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -951,8 +951,7 @@ class AgentManager {
 			return messages;
 		}
 
-		const { start, end, text: citationText } = lastUserMessage.citation;
-		const context = `[The user is referring to the following text selection (chars ${start}–${end}):\n"${citationText}"]`;
+		const context = describeCitation(lastUserMessage.citation);
 		return this._transformLastUserMessageText(messages, (text) => (text ? `${context}\n\n${text}` : context));
 	}
 
@@ -1136,6 +1135,15 @@ function describeStoredAttachment(part: { url: string; mediaType: string; filena
 			: '';
 
 	return `[The user attached ${name} (${part.mediaType}) to this message. It is saved at ${part.url}. Its contents are not included here: read that path when you need them.${workbookHint}]`;
+}
+
+function describeCitation({ start, end, text, storySlug, block }: CitationData): string {
+	if (!block) {
+		return `[The user is referring to the following text selection (chars ${start}–${end}):\n"${text}"]`;
+	}
+	const title = block.title ? ` "${block.title}"` : '';
+	const query = block.queryId ? `, reading ${block.queryId}` : '';
+	return `[The user is referring to the ${block.kind} block${title}${query} of the custom story "${storySlug}". Apply their request to that block in the story's source and publish again.]`;
 }
 
 // Singleton instance of the agent service

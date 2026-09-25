@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 
 import { extractStorySummary } from '../../../../backend/src/utils/story-summary';
 import { StoryThumbnail } from '../story-thumbnail';
+import { CustomStoryThumbnail } from '../custom-story-thumbnail';
 import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Button } from '../ui/button';
@@ -105,6 +106,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		);
 	}
 
+	const isCustomStory = (latestStory?.format ?? output?.format ?? input.format) === 'custom';
 	const title = latestStory?.title ?? output?.title ?? input.title ?? input.id;
 	const labels = STORY_ACTION_LABELS[input.action ?? 'create'] ?? STORY_ACTION_LABELS.create;
 	const statusLabel = isStreaming
@@ -133,7 +135,15 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 			className='group my-2 -mx-3 flex items-center gap-3 pr-3 rounded-lg border bg-background text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
 		>
 			<div className='items-end relative h-16 w-30 shrink-0'>
-				<StoryThumbnail summary={summary} className='rounded-lg overflow-visible right-6' isToolPart={true} />
+				{isCustomStory ? (
+					<CustomStoryThumbnail isToolPart={true} />
+				) : (
+					<StoryThumbnail
+						summary={summary}
+						className='rounded-lg overflow-visible right-6'
+						isToolPart={true}
+					/>
+				)}
 			</div>
 
 			<div className='flex flex-col gap-1 min-w-0 flex-1 pl-5 py-3'>

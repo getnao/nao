@@ -302,6 +302,7 @@ function ChatInputBase({
 							end: citationSnapshot.end,
 							text: citationSnapshot.text,
 							storySlug: citationSnapshot.storySlug,
+							block: citationSnapshot.block,
 						}
 					: undefined;
 				if (hasCitation) {

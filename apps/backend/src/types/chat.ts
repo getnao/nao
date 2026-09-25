@@ -180,6 +180,7 @@ const CitationDataSchema = z.object({
 	end: z.number(),
 	text: z.string(),
 	storySlug: z.string().optional(),
+	block: z.object({ kind: z.string(), title: z.string().optional(), queryId: z.string().optional() }).optional(),
 });
 
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;

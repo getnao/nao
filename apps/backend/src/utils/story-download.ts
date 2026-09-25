@@ -61,7 +61,7 @@ async function generateStoryBuffer(
 	}
 }
 
-function formatDownloadFilename(title: string, format: DownloadFormat): string {
+export function formatDownloadFilename(title: string, format: DownloadFormat): string {
 	const slug = title
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, '-')

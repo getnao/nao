@@ -54,6 +54,7 @@ export function ViewerHome() {
 			sharedWithGroupCount: s.sharing.sharedWithGroupCount,
 			isLive: s.isLive,
 			summary: s.summary,
+			format: s.format,
 		}));
 		const chatItems: SharedItem[] = (sharedChats.data ?? [])
 			.filter((c) => c.projectId === projectId)
