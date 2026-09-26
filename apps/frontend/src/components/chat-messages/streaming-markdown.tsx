@@ -31,7 +31,13 @@ export const StreamingMarkdown = memo(({ components, text, transform }: Streamin
 				<StreamingMarkdownBlock key={index} text={block} components={components} />
 			))}
 			{transformedTail.length > 0 && (
-				<Streamdown components={components} isAnimating mode='streaming' plugins={markdownPlugins}>
+				<Streamdown
+					className='assistant-markdown'
+					components={components}
+					isAnimating
+					mode='streaming'
+					plugins={markdownPlugins}
+				>
 					{transformedTail}
 				</Streamdown>
 			)}
@@ -41,7 +47,7 @@ export const StreamingMarkdown = memo(({ components, text, transform }: Streamin
 
 const StreamingMarkdownBlock = memo(({ components, text }: { components?: Components; text: string }) => {
 	return (
-		<Streamdown components={components} mode='static' plugins={markdownPlugins}>
+		<Streamdown className='assistant-markdown' components={components} mode='static' plugins={markdownPlugins}>
 			{text}
 		</Streamdown>
 	);

@@ -36,6 +36,7 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 
 	return (
 		<Streamdown
+			className='assistant-markdown'
 			plugins={markdownPlugins}
 			allowedTags={ALLOWED_TAGS}
 			literalTagContent={LITERAL_TAG_CONTENT}
