@@ -951,6 +951,8 @@ export const story = sqliteTable(
 		cacheScheduleDescription: text('cache_schedule_description'),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+		certifiedAt: integer('certified_at', { mode: 'timestamp_ms' }),
+		certifiedBy: text('certified_by').references(() => user.id, { onDelete: 'set null' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

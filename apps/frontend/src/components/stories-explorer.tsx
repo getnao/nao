@@ -1,10 +1,15 @@
 import { Fragment } from 'react';
 import { FolderPlus } from 'lucide-react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
-import type { ExplorerEntry, FolderItem, StoryItem } from '@/lib/stories-page';
+import type { ExplorerEntry, FolderItem, StoriesScope, StoryItem } from '@/lib/stories-page';
 import { isSystemFolder } from '@/lib/stories-page';
 import { FolderCard } from '@/components/stories-folder-card';
-import { StoryCard, StoriesEmptyState, StoriesNoResults } from '@/components/stories-groups';
+import {
+	CertifiedStoriesEmptyState,
+	StoryCard,
+	StoriesEmptyState,
+	StoriesNoResults,
+} from '@/components/stories-groups';
 import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +19,7 @@ export function StoriesExplorer({
 	entries,
 	displayMode,
 	showArchived,
+	scope = 'all',
 	searchQuery,
 	currentFolderId,
 	currentUserName,
@@ -33,6 +39,7 @@ export function StoriesExplorer({
 	entries: ExplorerEntry[];
 	displayMode: StoryPanelDisplayMode;
 	showArchived: boolean;
+	scope?: StoriesScope;
 	searchQuery: string;
 	currentFolderId: string | null;
 	currentUserName: string;
@@ -51,13 +58,17 @@ export function StoriesExplorer({
 }) {
 	const { isViewer } = usePermissions();
 	const isInSharedWithMe = currentFolderId === '__shared_with_me__';
-	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe;
+	const isCertifiedScope = scope === 'certified';
+	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe && !isCertifiedScope;
 	const moveToFolderHandler = isViewer || isInSharedWithMe ? undefined : onMoveToFolder;
 	const selectionActive = selectionMode || selectedStoryIds.size + selectedFolderIds.size > 0;
 
 	if (entries.length === 0) {
 		if (searchQuery.trim()) {
 			return <StoriesNoResults query={searchQuery} />;
+		}
+		if (isCertifiedScope) {
+			return <CertifiedStoriesEmptyState />;
 		}
 		if (!showArchived) {
 			return (

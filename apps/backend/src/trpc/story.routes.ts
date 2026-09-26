@@ -38,7 +38,13 @@ import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { backfillMissingQueryData } from '../utils/story-query-data';
 import { extractStorySummary } from '../utils/story-summary';
-import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	canSendProcedure,
+	ownedResourceProcedure,
+	projectProtectedProcedure,
+	protectedProcedure,
+} from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
@@ -277,6 +283,22 @@ export const storyRoutes = {
 		.input(z.object({ storyId: z.string(), title: z.string().trim().min(1).max(255) }))
 		.mutation(async ({ input }) => {
 			await storyQueries.renameStory(input.storyId, input.title);
+		}),
+
+	getCertification: projectProtectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			await getStoryInProject(input.storyId, ctx.project.id);
+			return storyQueries.getStoryCertification(input.storyId);
+		}),
+
+	toggleCertification: adminProtectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const story = await getStoryInProject(input.storyId, ctx.project.id);
+			const certifiedBy = story.certifiedAt === null ? ctx.user.id : null;
+			const certifiedAt = await storyQueries.setStoryCertification(story.id, certifiedBy);
+			return { certifiedAt };
 		}),
 
 	createVersion: chatStoryProcedure
@@ -777,6 +799,15 @@ export const storyRoutes = {
 			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
 		}),
 };
+
+async function getStoryInProject(storyId: string, projectId: string) {
+	const story = await storyQueries.getStoryById(storyId);
+	const storyProjectId = story ? await storyQueries.getStoryProjectId(story.id) : null;
+	if (!story || storyProjectId !== projectId) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	return story;
+}
 
 async function filterStoriesByProjectAccess(
 	stories: Awaited<ReturnType<typeof storyQueries.listUserChatStories>>,

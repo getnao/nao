@@ -27,10 +27,23 @@ vi.mock('@/hooks/use-toggle-favorite', () => ({
 	useToggleFavorite: () => ({ toggle: vi.fn(), isPending: false }),
 }));
 
+vi.mock('@/hooks/use-toggle-story-certification', () => ({
+	useToggleStoryCertification: () => ({ toggle: vi.fn(), isPending: false }),
+}));
+
+vi.mock('@/hooks/use-permissions', () => ({
+	usePermissions: () => ({ isAdmin: false }),
+}));
+
 vi.mock('@/main', () => ({
 	trpc: {
 		favorite: {
 			list: {
+				queryOptions: () => ({}),
+			},
+		},
+		story: {
+			getCertification: {
 				queryOptions: () => ({}),
 			},
 		},

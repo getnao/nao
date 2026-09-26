@@ -2,7 +2,16 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { ArchiveIcon, ArchiveRestoreIcon, Circle, CircleCheck, FolderInput, Pin, Star } from 'lucide-react';
+import {
+	ArchiveIcon,
+	ArchiveRestoreIcon,
+	Circle,
+	CircleCheck,
+	FolderInput,
+	Pin,
+	ShieldCheck,
+	Star,
+} from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
@@ -10,6 +19,7 @@ import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { StoryItem } from '@/lib/stories-page';
 import {
 	AuthorDateLabel,
+	CertifiedBadge,
 	GRID_CARD_CLASS,
 	GRID_THUMBNAIL_CLASS,
 	GridCardFooter,
@@ -23,6 +33,7 @@ import { StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
 import { usePermissions } from '@/hooks/use-permissions';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
@@ -33,6 +44,21 @@ export function StoriesNoResults({ query }: { query: string }) {
 		<p className='text-muted-foreground text-sm py-12 text-center'>
 			No stories matching &ldquo;{query.trim()}&rdquo;
 		</p>
+	);
+}
+
+export function CertifiedStoriesEmptyState() {
+	const { isAdmin } = usePermissions();
+	return (
+		<div className='flex flex-col items-center justify-center py-24 text-center'>
+			<ShieldCheck className='size-10 text-muted-foreground/40 mb-4' />
+			<p className='text-muted-foreground text-sm'>No certified stories yet.</p>
+			<p className='text-muted-foreground/60 text-sm mt-1'>
+				{isAdmin
+					? 'Certify a story from its card to highlight it as a trusted source.'
+					: 'Admins can certify stories to mark them as trusted sources.'}
+			</p>
+		</div>
 	);
 }
 
@@ -137,6 +163,12 @@ export function StoryCard({
 					<div className={GRID_THUMBNAIL_CLASS}>
 						<StoryThumbnail summary={item.summary} />
 					</div>
+
+					{item.isCertified && (
+						<div className='absolute top-2 right-2 z-10'>
+							<CertifiedBadge certifiedByName={item.certifiedByName} />
+						</div>
+					)}
 
 					{!selectionActive && (
 						<Link
@@ -362,6 +394,8 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 		}),
 	);
 
+	const certification = useToggleStoryCertification();
+
 	const canOpenPinShareDialog =
 		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
 	const canTogglePin = isAdmin && !!item.sharedStoryId;
@@ -372,6 +406,12 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 		e.preventDefault();
 		e.stopPropagation();
 		favorite.toggle(item.storyId);
+	}
+
+	function handleCertify(e: MouseEvent<HTMLButtonElement>) {
+		e.preventDefault();
+		e.stopPropagation();
+		certification.toggle(item.storyId);
 	}
 
 	function handlePin(e: MouseEvent<HTMLButtonElement>) {
@@ -388,6 +428,21 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 
 	return (
 		<>
+			{isAdmin && (
+				<QuickActionButton
+					active={item.isCertified}
+					interactive
+					pending={certification.isPending}
+					onClick={handleCertify}
+					tooltip={
+						item.isCertified
+							? `Remove certification${item.certifiedByName ? ` (by ${item.certifiedByName})` : ''}`
+							: 'Certify story'
+					}
+				>
+					<ShieldCheck className='size-3' />
+				</QuickActionButton>
+			)}
 			{showPinSlot && (
 				<QuickActionButton
 					active={item.isPinned}
@@ -556,6 +611,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 }
 
 function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }) {
+	const certified = item.isCertified ? <CertifiedBadge certifiedByName={item.certifiedByName} /> : null;
 	const live = item.isLive ? <LiveBadge /> : null;
 	const sharing = item.sharing ? (
 		<SharingBadge visibility={item.sharing.visibility} sharedWithCount={item.sharing.sharedWithCount} />
@@ -577,6 +633,7 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 
 	return (
 		<>
+			{certified}
 			{item.isInPrivateContext && <PrivateBadge />}
 			{live}
 			{sharing}

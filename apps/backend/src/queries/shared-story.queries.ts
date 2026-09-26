@@ -1,9 +1,11 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
-import { and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import { aliasedTable, and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db } from '../db/db';
 import * as executeSqlQueries from './execute-sql.queries';
+
+const storyCertifier = aliasedTable(s.user, 'story_certifier');
 
 export type SharedStoryWithLatest = DBSharedStory & {
 	updatedAt: Date;
@@ -14,6 +16,8 @@ export type SharedStoryWithLatest = DBSharedStory & {
 	code: string;
 	version: number;
 	isLive: boolean;
+	certifiedAt: Date | null;
+	certifiedByName: string | null;
 	sharedWithCount: number;
 };
 
@@ -225,11 +229,14 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			code: s.storyVersion.code,
 			version: s.storyVersion.version,
 			isLive: s.story.isLive,
+			certifiedAt: s.story.certifiedAt,
+			certifiedByName: storyCertifier.name,
 			sharedWithCount: sql<number>`coalesce(${accessCounts.cnt}, 0)`,
 		})
 		.from(s.sharedStory)
 		.innerJoin(s.story, eq(s.sharedStory.storyId, s.story.id))
 		.innerJoin(s.user, eq(s.sharedStory.userId, s.user.id))
+		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
 		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
 		.innerJoin(
 			s.storyVersion,

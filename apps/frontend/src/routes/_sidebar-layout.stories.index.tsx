@@ -18,7 +18,7 @@ import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import type { BulkStoryItem, StoryPanelDisplayMode } from '@nao/shared/types';
 import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
 
-import type { FolderItem, SortState, StoryItem } from '@/lib/stories-page';
+import type { FolderItem, SortState, StoriesScope, StoryItem } from '@/lib/stories-page';
 import type { BreadcrumbNode } from '@/components/stories-folder-breadcrumb';
 import { FolderBreadcrumb } from '@/components/stories-folder-breadcrumb';
 import { StoriesSelectionBar } from '@/components/stories-selection-bar';
@@ -30,6 +30,7 @@ import { ProjectSwitcher } from '@/components/project-selector';
 import { SortHeader } from '@/components/stories-sort-header';
 import { StoriesExplorer } from '@/components/stories-explorer';
 import { PromotedSections } from '@/components/stories-pinned-favorites';
+import { StoriesSearchBar } from '@/components/stories-search-bar';
 import { StoriesToolbarControls } from '@/components/stories-toolbar-controls';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSession } from '@/lib/auth-client';
@@ -109,6 +110,7 @@ function StoriesPage() {
 	);
 	const [sort, setSort] = useState<SortState>(() => readStoredSort());
 	const [searchQuery, setSearchQuery] = useState('');
+	const [scope, setScope] = useState<StoriesScope>('all');
 	const [showArchived, setShowArchived] = useState(false);
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [activeId, setActiveId] = useState<string | null>(null);
@@ -195,7 +197,7 @@ function StoriesPage() {
 		folderTree.data,
 	]);
 
-	const filteredItems = useMemo(() => filterStories(allItems, searchQuery), [allItems, searchQuery]);
+	const filteredItems = useMemo(() => filterStories(allItems, searchQuery, scope), [allItems, searchQuery, scope]);
 
 	const folders = useMemo(
 		() => (showArchived ? archivedFolderTree.data : folderTree.data) ?? [],
@@ -222,19 +224,7 @@ function StoriesPage() {
 		favorites: promotedFavorites,
 		entries,
 	} = useMemo(() => {
-		if (showArchived) {
-			const archivedEntries = buildCurrentLevelEntries({
-				items: filteredItems,
-				folders,
-				currentFolderId: currentFolderId ?? null,
-				sort,
-				currentUserName,
-				favoriteFolderIds: favorites.data?.folderIds,
-				searchQuery,
-			});
-			return { pinned: [], favorites: [], entries: archivedEntries.entries };
-		}
-		return buildCurrentLevelEntries({
+		const levelEntries = buildCurrentLevelEntries({
 			items: filteredItems,
 			folders,
 			currentFolderId: currentFolderId ?? null,
@@ -242,8 +232,23 @@ function StoriesPage() {
 			currentUserName,
 			favoriteFolderIds: favorites.data?.folderIds,
 			searchQuery,
+			scope,
 		});
-	}, [filteredItems, folders, currentFolderId, sort, currentUserName, showArchived, favorites.data, searchQuery]);
+		if (showArchived) {
+			return { pinned: [], favorites: [], entries: levelEntries.entries };
+		}
+		return levelEntries;
+	}, [
+		filteredItems,
+		folders,
+		currentFolderId,
+		sort,
+		currentUserName,
+		showArchived,
+		favorites.data,
+		searchQuery,
+		scope,
+	]);
 
 	const breadcrumbPath = useMemo((): BreadcrumbNode[] => {
 		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : 'Root' };
@@ -287,6 +292,7 @@ function StoriesPage() {
 	function handleShowArchivedChange(value: boolean) {
 		setShowArchived(value);
 		setSearchQuery('');
+		setScope('all');
 		clearSelection();
 		if (value) {
 			navigate({ to: '/stories', search: { folderId: null } });
@@ -552,6 +558,7 @@ function StoriesPage() {
 	}, [activeId, allItems, folders]);
 
 	const showExplorerControls = !showArchived;
+	const isCertifiedScope = scope === 'certified';
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-auto'>
@@ -582,8 +589,8 @@ function StoriesPage() {
 							)}
 							{(!isEmpty || showArchived) && (
 								<StoriesToolbarControls
-									searchQuery={searchQuery}
-									onSearchQueryChange={setSearchQuery}
+									scope={scope}
+									onScopeChange={setScope}
 									displayMode={displayMode}
 									onDisplayModeChange={handleDisplayChange}
 									showArchived={showArchived}
@@ -595,7 +602,11 @@ function StoriesPage() {
 						</div>
 					</div>
 
-					{!showArchived && (
+					{!isEmpty && !showArchived && (
+						<StoriesSearchBar value={searchQuery} onChange={setSearchQuery} className='mb-6' />
+					)}
+
+					{!showArchived && !isCertifiedScope && (
 						<PromotedSections
 							pinned={pinned}
 							favorites={promotedFavorites}
@@ -624,6 +635,7 @@ function StoriesPage() {
 						entries={entries}
 						displayMode={displayMode}
 						showArchived={showArchived}
+						scope={scope}
 						searchQuery={searchQuery}
 						currentFolderId={currentFolderId ?? null}
 						currentUserName={currentUserName}

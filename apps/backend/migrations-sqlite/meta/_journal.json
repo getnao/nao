@@ -477,6 +477,13 @@
       "when": 1790175946649,
       "tag": "0067_llm_inference_created_at_index",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1790257962338,
+      "tag": "0068_story_certification",
+      "breakpoints": true
     }
   ]
 }

@@ -1,14 +1,14 @@
-import { ArchiveIcon, LayoutGrid, List, ListChecks, Search, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { ArchiveIcon, LayoutGrid, List, ListChecks, ShieldCheck, X } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
+import type { StoriesScope } from '@/lib/stories-page';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export function StoriesToolbarControls({
-	searchQuery,
-	onSearchQueryChange,
+	scope,
+	onScopeChange,
 	displayMode,
 	onDisplayModeChange,
 	showArchived,
@@ -16,8 +16,8 @@ export function StoriesToolbarControls({
 	selectionActive,
 	onToggleSelection,
 }: {
-	searchQuery: string;
-	onSearchQueryChange: (value: string) => void;
+	scope: StoriesScope;
+	onScopeChange: (value: StoriesScope) => void;
 	displayMode: StoryPanelDisplayMode;
 	onDisplayModeChange: (value: StoryPanelDisplayMode) => void;
 	showArchived: boolean;
@@ -28,7 +28,7 @@ export function StoriesToolbarControls({
 	const { isViewer } = usePermissions();
 	return (
 		<div className='flex items-center gap-3'>
-			{!showArchived && <SearchInput value={searchQuery} onChange={onSearchQueryChange} />}
+			{!showArchived && <ScopeToggle value={scope} onChange={onScopeChange} />}
 			{!isViewer && <SelectionToggle active={selectionActive} onToggle={onToggleSelection} />}
 			<Button
 				variant='ghost'
@@ -44,6 +44,37 @@ export function StoriesToolbarControls({
 	);
 }
 
+function ScopeToggle({ value, onChange }: { value: StoriesScope; onChange: (value: StoriesScope) => void }) {
+	return (
+		<div className='flex items-center gap-0.5 rounded-full border p-0.5' role='group' aria-label='Filter stories'>
+			<ScopeButton active={value === 'all'} onClick={() => onChange('all')}>
+				All
+			</ScopeButton>
+			<ScopeButton active={value === 'certified'} onClick={() => onChange('certified')}>
+				<ShieldCheck className='size-3.5' />
+				Certified
+			</ScopeButton>
+		</div>
+	);
+}
+
+function ScopeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+	return (
+		<Button
+			variant='ghost'
+			size='sm'
+			onClick={onClick}
+			aria-pressed={active}
+			className={cn(
+				'h-6 gap-1.5 rounded-full px-2.5 text-xs hover:rounded-full',
+				active ? 'bg-accent text-foreground' : 'text-muted-foreground',
+			)}
+		>
+			{children}
+		</Button>
+	);
+}
+
 function SelectionToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
 	return (
 		<Button
@@ -56,60 +87,6 @@ function SelectionToggle({ active, onToggle }: { active: boolean; onToggle: () =
 			{active ? <X className='size-4' /> : <ListChecks className='size-4' />}
 			<span className='text-xs'>{active ? 'Cancel' : 'Select'}</span>
 		</Button>
-	);
-}
-
-function SearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-	const [open, setOpen] = useState(false);
-	const inputRef = useRef<HTMLInputElement>(null);
-
-	useEffect(() => {
-		if (open) {
-			inputRef.current?.focus();
-		}
-	}, [open]);
-
-	function handleClose() {
-		setOpen(false);
-		onChange('');
-	}
-
-	function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-		if (event.key === 'Escape') {
-			handleClose();
-		}
-	}
-
-	if (!open) {
-		return (
-			<Button
-				variant='ghost'
-				size='icon-xs'
-				className='rounded-full hover:rounded-full'
-				onClick={() => setOpen(true)}
-				aria-label='Search stories'
-			>
-				<Search className='size-4' />
-			</Button>
-		);
-	}
-
-	return (
-		<div className='flex items-center gap-1.5 rounded-full border px-2 py-0.5 pt-1.5 pb-1.5'>
-			<Search className='size-4 text-foreground shrink-0' />
-			<input
-				ref={inputRef}
-				type='text'
-				value={value}
-				onChange={(event) => onChange(event.target.value)}
-				onKeyDown={handleKeyDown}
-				placeholder='Search stories or paste an ID...'
-				className='bg-transparent text-xs outline-none placeholder:text-muted-foreground w-44'
-			/>
-			<button type='button' onClick={handleClose} className='text-muted-foreground hover:text-foreground'>
-				<X className='size-4' />
-			</button>
-		</div>
 	);
 }
 
