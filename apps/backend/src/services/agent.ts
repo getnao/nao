@@ -110,7 +110,6 @@ export interface AgentRunResult {
 
 export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 	forkMetadata?: ForkMetadata | null;
-	testMode?: boolean;
 };
 
 /** Dependencies a tool resolver receives once a run's context has been resolved. */
@@ -132,15 +131,8 @@ export function shouldAddStoryMode(mentions: Mention[] | undefined, access: Agen
 }
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({
-	chat,
-	agentSettings,
-	toolContext,
-	webTools,
-	customBoundaries,
-}) =>
+export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
 	getTools(agentSettings, webTools ?? {}, {
-		testMode: chat.testMode,
 		customBoundaries,
 		semanticLayerMode: toolContext.semanticLayerMode,
 	});
@@ -148,9 +140,8 @@ export const defaultAgentTools: AgentToolsResolver = ({
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
 	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ chat, agentSettings, toolContext, webTools, customBoundaries }) =>
+	({ agentSettings, toolContext, webTools, customBoundaries }) =>
 		getTools(agentSettings, webTools ?? {}, {
-			testMode: chat.testMode,
 			excludeBuiltinTools,
 			customBoundaries,
 			semanticLayerMode: toolContext.semanticLayerMode,
@@ -161,12 +152,11 @@ export const defaultAgentToolsExcluding =
  * runs against nao's own app database when `ToolContext.adminMode` is set),
  * plus charting and follow-ups. Excludes the filesystem context tools.
  */
-export const adminAgentTools: AgentToolsResolver = ({ chat, agentSettings }) =>
+export const adminAgentTools: AgentToolsResolver = ({ agentSettings }) =>
 	getTools(
 		agentSettings,
 		{},
 		{
-			testMode: chat.testMode,
 			builtinToolAllowlist: [
 				'execute_sql',
 				'read_query_result',
@@ -321,9 +311,7 @@ export class AgentService {
 		const agentTools = resolvedTools;
 		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
 			? [stepCountIs(options.maxSteps ?? 20)]
-			: chat.testMode
-				? [hasToolCall('suggest_follow_ups')]
-				: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
+			: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -672,7 +660,6 @@ class AgentManager {
 				repoNames,
 				contextPresence,
 				timezone,
-				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),
 				options: { canGrepSavedFiles: canGrepUserFiles() },
 			}),

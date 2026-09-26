@@ -37,7 +37,6 @@ type SystemPromptProps = {
 	repoNames?: string[];
 	contextPresence?: ContextPresence;
 	timezone?: string;
-	testMode?: boolean;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
 	toolNames?: string[];
 	options?: SystemPromptOptions;
@@ -65,7 +64,6 @@ export function SystemPrompt({
 	repoNames = [],
 	contextPresence,
 	timezone,
-	testMode,
 	toolNames,
 	options = {},
 }: SystemPromptProps) {
@@ -138,15 +136,17 @@ export function SystemPrompt({
 								: 'If you can execute a SQL query, use the execute_sql tool for it.'}
 						</ListItem>
 					),
-					!testMode && (
-						<ListItem>
-							Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
-							proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear
-							time range, undefined metric). If you need to ask another clarifying question after the user
-							answers, call the <Bold>clarification</Bold> tool again instead of asking in plain text,
-							bullet lists, or examples.
-						</ListItem>
-					),
+					...(hasTool('clarification')
+						? [
+								<ListItem>
+									Use the <Bold>clarification</Bold> tool when the user's request is genuinely
+									ambiguous and proceeding would likely produce the wrong result (e.g. multiple
+									plausible tables, unclear time range, undefined metric). If you need to ask another
+									clarifying question after the user answers, call the <Bold>clarification</Bold> tool
+									again instead of asking in plain text, bullet lists, or examples.
+								</ListItem>,
+							]
+						: []),
 					...dialectToolCallRules,
 				]}
 			</List>
