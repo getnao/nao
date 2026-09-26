@@ -1031,6 +1031,7 @@ export const projectRoutes = {
 						customFormat: z.string().trim().max(64).optional(),
 					})
 					.optional(),
+				linkPreviews: z.object({ showSharedTitles: z.boolean() }).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -1039,6 +1040,7 @@ export const projectRoutes = {
 				project_id: ctx.project.id,
 				date_format_preset: next.dateFormat?.preset,
 				date_format_has_custom_pattern: Boolean(next.dateFormat?.customFormat),
+				link_preview_shared_titles: next.linkPreviews?.showSharedTitles ?? false,
 			});
 			return next;
 		}),

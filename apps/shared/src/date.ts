@@ -1,4 +1,4 @@
-import type { BudgetPeriod } from './types';
+import type { BudgetPeriod, LinkPreviewSettings } from './types';
 
 export function getCurrentPeriodStart(period: BudgetPeriod): Date {
 	const now = new Date();
@@ -38,13 +38,14 @@ export interface DateFormatSettings {
 /**
  * Project-level display settings persisted on the project row.
  *
- * Currently only carries the date format used in chart axes, tooltips,
- * legends and SQL query result tables, but is shaped as an object so we can
- * add more display preferences (number format, timezone, …) without another
- * migration.
+ * Carries the date format used in chart axes, tooltips, legends and SQL query
+ * result tables, plus how shared links unfurl in chat tools. Shaped as an
+ * object so we can add more display preferences (number format, timezone, …)
+ * without another migration.
  */
 export interface DisplaySettings {
 	dateFormat?: DateFormatSettings;
+	linkPreviews?: LinkPreviewSettings;
 }
 
 export const DEFAULT_DATE_FORMAT_SETTINGS: DateFormatSettings = {

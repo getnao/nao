@@ -230,8 +230,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/appearance',
 		pageLabel: 'Appearance',
 		title: 'Appearance',
-		description: 'Control how nao formats dates and displays map boundaries.',
-		keywords: ['look', 'format', 'display', 'date', 'map', 'geojson'],
+		description: 'Control how nao formats dates, displays map boundaries and previews shared links.',
+		keywords: ['look', 'format', 'display', 'date', 'map', 'geojson', 'link preview'],
 	},
 	{
 		page: '/settings/appearance',
@@ -250,6 +250,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'custom',
 			'pattern',
 		],
+	},
+	{
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
+		title: 'Link previews',
+		description: 'Control what Slack, Teams and other chat tools show when someone pastes a nao link.',
+		keywords: ['slack', 'teams', 'unfurl', 'open graph', 'og', 'thumbnail', 'share', 'shared story', 'shared chat'],
+		adminOnly: true,
 	},
 	// ── Project > Agent > Models ─────────────────────────────
 	{
