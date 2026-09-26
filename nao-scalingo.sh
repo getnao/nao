@@ -3,7 +3,12 @@
 # Gestion des instances nao sur Scalingo (création, déploiement, exploitation).
 # Une instance = app "nao-<produit>" + PostgreSQL + repo de contexte + clé LLM (données isolées).
 #
-# Pré-requis : CLI scalingo installée et authentifiée (`scalingo login`), accès région secnum activé.
+# Deux accès à Scalingo, choisis automatiquement :
+#   - CLI  : `scalingo` authentifié (`scalingo login`), droits complets du compte. Mode humain.
+#   - FGP  : API REST derrière le proxy fine-grained (fgp.incubateur.net), restreinte aux apps
+#            nao-*. Activé dès que FGP_BLOB est défini (typiquement via .env.fgp). Mode agent.
+# Cf. DEPLOY-SCALINGO.md § « Accès restreint via FGP ».
+#
 # Aide : ./nao-scalingo.sh help
 #
 # Principe : Scalingo est la SOURCE DE VÉRITÉ des variables d'env. `create` est idempotent
@@ -15,6 +20,8 @@ set -euo pipefail
 REGION="${SCALINGO_REGION:-osc-secnum-fr1}"
 PG_PLAN="${PG_PLAN:-postgresql-starter-512}"
 WEB_SIZE="${WEB_SIZE:-L}"
+FGP_URL="${FGP_URL:-https://fgp.incubateur.net}"
+POSTGRESQL_PROVIDER="postgresql"
 
 SCRIPT_NAME="$(basename "$0")"
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -27,6 +34,7 @@ APP_ENV_LOADED=0
 ASSUME_YES="${ASSUME_YES:-0}"
 NO_PG=0
 ENV_ARGS=()
+API_ERROR=""
 
 # Temporaires de déploiement, nettoyés par cleanup() (trap EXIT).
 DEPLOY_TMP_ROOT=""
@@ -54,7 +62,8 @@ main() {
   case "$cmd" in
     help|-h|--help) usage; return 0 ;;
   esac
-  require_scalingo
+  load_fgp_credentials
+  require_backend
   case "$cmd" in
     create)         cmd_create "$@" ;;
     deploy|update)  cmd_deploy "$@" ;;
@@ -70,6 +79,7 @@ main() {
     open)           cmd_open "$@" ;;
     cache-clear)    cmd_cache_clear "$@" ;;
     destroy)        cmd_destroy "$@" ;;
+    check)          cmd_check "$@" ;;
     *)              usage_error "commande inconnue : $cmd" ;;
   esac
 }
@@ -93,16 +103,17 @@ ${C_BOLD}COMMANDES${C_RESET}
   set-env <produit> K=V ...     Définit des variables d'env (refuse BETTER_AUTH_SECRET sans
                                 --force-secret).
   set-key <produit>             Pose les clés LLM lues dans l'env (ANTHROPIC/MISTRAL/OPENAI_API_KEY).
-  list                          Liste les apps nao-* de la région.
+  list                          Liste les apps nao-* de la région.              [CLI seulement]
   env     <produit>             Affiche les variables d'env.
-  logs    <produit>             Suit les logs (-f).
+  logs    <produit> [n]         Logs : suivi continu en CLI, n dernières lignes en FGP (déf. 100).
   restart <produit>             Redémarre l'app.
   status  <produit>             État des conteneurs (alias : ps).
   scale   <produit> <taille>    Redimensionne le web (S|M|L|XL|2XL).
-  run     <produit> <cmd...>    Exécute une commande one-off dans le contexte de l'app.
-  open    <produit>             Ouvre l'URL de l'app.
+  run     <produit> <cmd...>    Commande one-off : interactive en CLI, détachée en FGP.
+  open    <produit>             Ouvre l'URL de l'app (l'affiche en mode FGP).
   cache-clear <produit>         Vide le cache de build (si Scalingo bloque sur python-only).
-  destroy <produit> [--yes]     DÉTRUIT l'app + base (confirmation par saisie du nom).
+  destroy <produit> [--yes]     DÉTRUIT l'app + base (confirmation).            [CLI seulement]
+  check   <produit>             Vérifie l'accès Scalingo et, en FGP, l'étanchéité du blob.
   help                          Cette aide.
 
 ${C_BOLD}VARIABLES D'ENV (création)${C_RESET}
@@ -111,6 +122,10 @@ ${C_BOLD}VARIABLES D'ENV (création)${C_RESET}
   NAO_CONTEXT_GIT_BRANCH (def. main)   NAO_CONTEXT_GIT_SUBPATH   NAO_CONTEXT_GIT_TOKEN
   DB_URI                 (opt.)    DB externe (implique --no-pg)
   SCALINGO_REGION (def. $REGION)   PG_PLAN (def. $PG_PLAN)   WEB_SIZE (def. $WEB_SIZE)
+
+${C_BOLD}ACCÈS RESTREINT (FGP)${C_RESET}
+  FGP_KEY + FGP_BLOB (lus dans .env.fgp s'il existe) basculent le script sur l'API REST
+  derrière fgp.incubateur.net, limitée aux apps nao-*. Voir DEPLOY-SCALINGO.md.
 
 ${C_BOLD}CUSTOMISATION PAR INSTANCE${C_RESET}
   Dépose des fichiers dans instances/<produit>/ : ils écrasent la base au déploiement
@@ -121,7 +136,7 @@ ${C_BOLD}EXEMPLES${C_RESET}
     ./$SCRIPT_NAME create foo
   ./$SCRIPT_NAME deploy foo
   ./$SCRIPT_NAME set-key foo            # après ANTHROPIC_API_KEY=... en env
-  ./$SCRIPT_NAME logs foo
+  ./$SCRIPT_NAME logs foo 200
 EOF
 }
 
@@ -147,7 +162,7 @@ cmd_create() {
   provision
   build_create_env
   step "Variables d'environnement"
-  sc env-set "${ENV_ARGS[@]}"
+  app_env_set "${ENV_ARGS[@]}"
   deploy_archive
 
   echo >&2
@@ -186,7 +201,7 @@ cmd_set_env() {
     esac
   done
 
-  sc env-set "${pairs[@]}"
+  app_env_set "${pairs[@]}"
   ok "Variables posées. Scalingo redémarre l'app automatiquement."
 }
 
@@ -197,36 +212,51 @@ cmd_set_key() {
   [ -n "${MISTRAL_API_KEY:-}" ]   && keys+=("MISTRAL_API_KEY=$MISTRAL_API_KEY")
   [ -n "${OPENAI_API_KEY:-}" ]    && keys+=("OPENAI_API_KEY=$OPENAI_API_KEY")
   [ "${#keys[@]}" -gt 0 ] || die "aucune clé en env (ANTHROPIC_API_KEY / MISTRAL_API_KEY / OPENAI_API_KEY)"
-  sc env-set "${keys[@]}"
+  app_env_set "${keys[@]}"
   ok "Clé(s) LLM posée(s)."
 }
 
 cmd_list() {
+  ! use_fgp || die "list liste toutes les apps du compte : hors périmètre du blob FGP, réservé au CLI."
   scalingo --region "$REGION" apps | grep -E 'nao-' || info "aucune app nao-* dans $REGION"
 }
 
-cmd_env()         { resolve_app "${1:-}"; sc env; }
-cmd_logs()        { resolve_app "${1:-}"; sc logs -f; }
-cmd_restart()     { resolve_app "${1:-}"; sc restart; }
-cmd_status()      { resolve_app "${1:-}"; sc ps; }
-cmd_open()        { resolve_app "${1:-}"; sc open; }
-cmd_cache_clear() { resolve_app "${1:-}"; sc deployment-cache-delete; info "Cache vidé — relance : ./$SCRIPT_NAME deploy $PRODUCT"; }
+cmd_env()         { resolve_app "${1:-}"; app_env_lines; }
+cmd_restart()     { resolve_app "${1:-}"; app_restart; ok "$APP redémarrée."; }
+cmd_status()      { resolve_app "${1:-}"; app_containers; }
+cmd_cache_clear() { resolve_app "${1:-}"; app_cache_clear; info "Cache vidé — relance : ./$SCRIPT_NAME deploy $PRODUCT"; }
+
+cmd_logs() {
+  resolve_app "${1:-}"
+  app_logs "${2:-100}"
+}
+
+cmd_open() {
+  resolve_app "${1:-}"
+  if use_fgp; then
+    printf 'https://%s.%s.scalingo.io\n' "$APP" "$REGION"
+  else
+    sc open
+  fi
+}
 
 cmd_scale() {
   resolve_app "${1:-}"
   local size="${2:-}"
   [ -n "$size" ] || usage_error "taille requise (S|M|L|XL|2XL)"
   case "$size" in S|M|L|XL|2XL) ;; *) die "taille invalide : $size (S|M|L|XL|2XL)" ;; esac
-  sc scale "web:1:$size"
+  app_scale "$size"
+  ok "web redimensionné en $size."
 }
 
 cmd_run() {
   resolve_app "${1:-}"; shift || true
   [ "$#" -gt 0 ] || usage_error "commande requise : run <produit> <cmd...>"
-  sc run "$@"
+  app_run "$@"
 }
 
 cmd_destroy() {
+  ! use_fgp || die "destroy est irréversible : hors périmètre du blob FGP, réservé au CLI."
   local product=""
   for a in "$@"; do
     case "$a" in
@@ -245,6 +275,24 @@ cmd_destroy() {
   ok "$APP détruite."
 }
 
+# Recette de l'accès : l'app visée répond, et en mode FGP le blob ne déborde pas des apps nao-*.
+cmd_check() {
+  resolve_app "${1:-}"
+  if ! use_fgp; then
+    ok "Mode CLI — compte : $(scalingo --region "$REGION" whoami 2>/dev/null || echo inconnu)"
+    return 0
+  fi
+
+  info "Mode FGP — proxy $FGP_URL, région $REGION."
+  api GET "/v1/apps/$APP" | jq -r '"✓ app \(.app.name) — statut \(.app.status // "?")"'
+
+  if api_call GET "/v1/apps" >/dev/null; then
+    warn "GET /v1/apps a réussi : le blob voit TOUTES les apps du compte, il est trop large."
+  else
+    ok "GET /v1/apps refusé par le proxy — le blob reste cantonné aux apps nao-*."
+  fi
+}
+
 # =====================================================================================
 # Blocs partagés (cœur de la séparation create / deploy)
 # =====================================================================================
@@ -252,13 +300,13 @@ cmd_destroy() {
 # Provisionne l'app + l'addon PostgreSQL (create only, idempotent).
 provision() {
   step "Création de l'app $APP ($REGION)"
-  scalingo --region "$REGION" create "$APP" || info "app déjà créée, on continue"
+  app_create || info "création ignorée : ${API_ERROR:-app déjà créée}"
 
   if [ "$NO_PG" = 1 ] || [ -n "${DB_URI:-}" ] || env_has DB_URI; then
     info "Addon PostgreSQL ignoré (--no-pg ou DB_URI fourni : DB externe / tunnel)."
   else
     step "Addon PostgreSQL ($PG_PLAN)"
-    sc addons-add postgresql "$PG_PLAN" || info "addon déjà présent, on continue"
+    app_addon_add "$PG_PLAN" || info "addon ignoré : ${API_ERROR:-déjà présent}"
   fi
 }
 
@@ -325,7 +373,7 @@ deploy_archive() {
 
   step "Déploiement de $APP (HEAD=$sha)"
   tar -czf "$DEPLOY_ARCHIVE" -C "$DEPLOY_TMP_ROOT" "$APP"
-  sc deploy "$DEPLOY_ARCHIVE" "$sha"
+  app_deploy "$DEPLOY_ARCHIVE" "$sha"
   ok "Déployé : https://${APP}.${REGION}.scalingo.io"
 }
 
@@ -339,10 +387,240 @@ require_clean_head() {
 }
 
 # =====================================================================================
-# Helpers bas-niveau
+# Opérations sur une app : une implémentation CLI, une implémentation FGP
 # =====================================================================================
+app_env_lines() {  # → KEY=VALUE, une par ligne
+  if use_fgp; then
+    api GET "/v1/apps/$APP/variables" | jq -r '.variables[] | "\(.name)=\(.value)"'
+  else
+    sc env
+  fi
+}
+
+app_env_set() {  # KEY=VALUE...
+  if use_fgp; then
+    api PUT "/v1/apps/$APP/variables" "$(variables_payload "$@")" >/dev/null
+  else
+    sc env-set "$@"
+  fi
+}
+
+# parent_id vide et explicite : le blob FGP l'exige, sinon l'app pourrait naître enfant d'une
+# app hors périmètre et en hériter la configuration (cf. DEPLOY-SCALINGO.md).
+app_create() {
+  if use_fgp; then
+    api_call POST "/v1/apps" "$(jq -n --arg name "$APP" '{app: {name: $name, parent_id: ""}}')" >/dev/null
+  else
+    scalingo --region "$REGION" create "$APP"
+  fi
+}
+
+app_addon_add() {  # PLAN
+  local plan="$1" plan_id
+  if use_fgp; then
+    plan_id="$(postgresql_plan_id "$plan")"
+    api_call POST "/v1/apps/$APP/addons" \
+      "$(jq -n --arg provider "$POSTGRESQL_PROVIDER" --arg plan "$plan_id" \
+            '{addon: {addon_provider_id: $provider, plan_id: $plan}}')" >/dev/null
+  else
+    sc addons-add "$POSTGRESQL_PROVIDER" "$plan"
+  fi
+}
+
+app_deploy() {  # ARCHIVE SHA
+  local archive="$1" sha="$2" source upload_url download_url deployment_id
+  if ! use_fgp; then
+    sc deploy "$archive" "$sha"
+    return
+  fi
+
+  source="$(api POST "/v1/sources")"
+  upload_url="$(jq -r '.source.upload_url' <<<"$source")"
+  download_url="$(jq -r '.source.download_url' <<<"$source")"
+  # URL pré-signée : elle porte sa propre autorisation, donc elle ne passe pas par le proxy.
+  curl --silent --show-error --fail --upload-file "$archive" "$upload_url" \
+    || die "envoi de l'archive refusé par le stockage Scalingo"
+
+  deployment_id="$(api POST "/v1/apps/$APP/deployments" \
+    "$(jq -n --arg ref "$sha" --arg url "$download_url" \
+          '{deployment: {git_ref: $ref, source_url: $url}}')" | jq -r '.deployment.id')"
+  watch_deployment "$deployment_id"
+}
+
+app_restart() {
+  if use_fgp; then
+    api POST "/v1/apps/$APP/restart" '{}' >/dev/null
+  else
+    sc restart
+  fi
+}
+
+app_scale() {  # TAILLE
+  local size="$1"
+  if use_fgp; then
+    api POST "/v1/apps/$APP/scale" \
+      "$(jq -n --arg size "$size" '{containers: [{name: "web", amount: 1, size: $size}]}')" >/dev/null
+  else
+    sc scale "web:1:$size"
+  fi
+}
+
+# L'endpoint renvoie les types de conteneurs (nom, nombre, taille), pas les instances en cours.
+app_containers() {
+  if use_fgp; then
+    api GET "/v1/apps/$APP/containers" |
+      jq -r '.containers[] | "\(.name)\t\(.amount)\t\(.size)\t\(.command // "")"'
+  else
+    sc ps
+  fi
+}
+
+app_cache_clear() {
+  if use_fgp; then
+    api DELETE "/v1/apps/$APP/caches/deployment" >/dev/null
+  else
+    sc deployment-cache-delete
+  fi
+}
+
+# Le suivi continu passe par une websocket que curl ne sait pas tenir : en mode FGP on lit
+# les n dernières lignes via l'URL signée renvoyée par l'API (hôte logs.<région>.scalingo.com).
+app_logs() {  # NB_LIGNES
+  local lines="$1" logs_url separator='&'
+  if ! use_fgp; then
+    sc logs -f
+    return
+  fi
+  logs_url="$(api GET "/v1/apps/$APP/logs" | jq -r '.logs_url')"
+  case "$logs_url" in *\?*) ;; *) separator='?' ;; esac
+  curl --silent --show-error --fail "${logs_url}${separator}n=${lines}" \
+    || die "lecture des logs refusée (URL signée expirée ?)"
+}
+
+# En mode FGP la commande part en détaché : l'attachement interactif utilise un protocole
+# propre au CLI. La sortie se retrouve dans les logs de l'app.
+app_run() {  # CMD...
+  if ! use_fgp; then
+    sc run "$@"
+    return
+  fi
+  api POST "/v1/apps/$APP/run" \
+    "$(jq -n --arg cmd "$*" '{command: $cmd, detached: true}')" |
+    jq -r '"conteneur one-off \(.container.label // .container.id) lancé (détaché)"'
+  info "Sortie : ./$SCRIPT_NAME logs $PRODUCT"
+}
+
+# Suit un déploiement jusqu'à son état final et remonte la fin du log en cas d'échec.
+watch_deployment() {  # ID
+  local id="$1" status="" previous=""
+  while true; do
+    status="$(api GET "/v1/apps/$APP/deployments/$id" | jq -r '.deployment.status')"
+    [ "$status" = "$previous" ] || info "déploiement : $status"
+    previous="$status"
+    case "$status" in
+      success)                 return 0 ;;
+      queued|building|pushing|starting) sleep 5 ;;
+      *)
+        err "déploiement en échec ($status) — fin du log :"
+        api GET "/v1/apps/$APP/deployments/$id/output" | tail -40 >&2
+        exit 1 ;;
+    esac
+  done
+}
+
+variables_payload() {  # KEY=VALUE... → {"variables":[{"name":…,"value":…}]}
+  printf '%s\n' "$@" |
+    jq -R 'split("=") | {name: .[0], value: (.[1:] | join("="))}' |
+    jq -s '{variables: .}'
+}
+
+postgresql_plan_id() {  # NOM_DU_PLAN → identifiant du plan
+  local plan="$1" id
+  id="$(api GET "/v1/addon_providers/$POSTGRESQL_PROVIDER/plans" |
+        jq -r --arg plan "$plan" '.plans[] | select(.name == $plan) | .id')"
+  [ -n "$id" ] || die "plan PostgreSQL inconnu : $plan"
+  printf '%s' "$id"
+}
+
+# =====================================================================================
+# Accès bas niveau : CLI scalingo ou API REST derrière FGP
+# =====================================================================================
+use_fgp() { [ -n "${FGP_BLOB:-}" ]; }
+
 sc() { scalingo --region "$REGION" --app "$APP" "$@"; }
 
+# Appel API via le proxy. Sort du script sur erreur (cas majoritaire).
+api() {
+  api_call "$@" || die "$API_ERROR"
+}
+
+# Variante tolérante : renseigne API_ERROR et renvoie 1 au lieu de sortir.
+api_call() {  # MÉTHODE CHEMIN [CORPS_JSON]
+  local method="$1" path="$2" payload="${3:-}" response status body
+  local -a args=(
+    --silent --show-error --write-out $'\n%{http_code}' --request "$method"
+    --header "X-FGP-Key: ${FGP_KEY:-}" --header "X-FGP-Blob: ${FGP_BLOB:-}"
+  )
+  [ -n "$payload" ] && args+=(--header 'Content-Type: application/json' --data "$payload")
+
+  API_ERROR=""
+  if ! response="$(curl "${args[@]}" "$FGP_URL$path")"; then
+    API_ERROR="proxy FGP injoignable ($method $path)"
+    return 1
+  fi
+  status="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+  if [ "$status" -ge 400 ]; then
+    API_ERROR="$(api_error_message "$method" "$path" "$status" "$body")"
+    return 1
+  fi
+  printf '%s' "$body"
+}
+
+# Les erreurs du proxy (X-FGP-Source: proxy) portent un code dans le corps JSON ; tout le
+# reste vient de Scalingo et remonte tel quel.
+api_error_message() {  # MÉTHODE CHEMIN STATUT CORPS
+  local method="$1" path="$2" status="$3" body="$4" code
+  code="$(jq -r '.error // empty' <<<"$body" 2>/dev/null || true)"
+  case "$code" in
+    scope_denied)
+      printf '%s %s hors des scopes du blob FGP (HTTP 403).' "$method" "$path" ;;
+    token_expired)
+      printf 'blob FGP expiré : régénère-le (DEPLOY-SCALINGO.md § Accès restreint via FGP).' ;;
+    missing_key|invalid_credentials)
+      printf 'FGP_KEY absente ou ne correspondant pas au blob (HTTP %s).' "$status" ;;
+    auth_exchange_failed|auth_addon_failed)
+      printf 'le proxy n'\''a pas pu échanger le token Scalingo : token révoqué ou expiré.' ;;
+    *)
+      printf '%s %s → HTTP %s : %s' "$method" "$path" "$status" "$body" ;;
+  esac
+}
+
+# Charge FGP_KEY / FGP_BLOB depuis .env.fgp (jamais commité) sauf s'ils sont déjà en env.
+load_fgp_credentials() {
+  local env_file="$REPO_ROOT/.env.fgp"
+  if [ -z "${FGP_BLOB:-}" ] && [ -f "$env_file" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    . "$env_file"
+    set +a
+  fi
+}
+
+require_backend() {
+  if use_fgp; then
+    [ -n "${FGP_KEY:-}" ] || die "FGP_BLOB est défini mais pas FGP_KEY (cf. .env.fgp.example)"
+    command -v curl >/dev/null 2>&1 || die "curl introuvable"
+    command -v jq   >/dev/null 2>&1 || die "jq introuvable"
+  else
+    command -v scalingo >/dev/null 2>&1 || die "CLI scalingo introuvable — https://cli.scalingo.com"
+    scalingo --region "$REGION" whoami >/dev/null 2>&1 || die "non authentifié — lance : scalingo login"
+  fi
+}
+
+# =====================================================================================
+# Helpers bas-niveau
+# =====================================================================================
 resolve_app() {
   PRODUCT="${1:-}"
   [ -n "$PRODUCT" ] || usage_error "produit manquant"
@@ -350,14 +628,9 @@ resolve_app() {
   APP_ENV_LOADED=0   # invalide le cache d'env entre deux apps
 }
 
-require_scalingo() {
-  command -v scalingo >/dev/null 2>&1 || die "CLI scalingo introuvable — https://cli.scalingo.com"
-  scalingo --region "$REGION" whoami >/dev/null 2>&1 || die "non authentifié — lance : scalingo login"
-}
-
 # Charge l'env de l'app une seule fois (tolère une app inexistante → env vide).
 load_app_env() {
-  APP_ENV="$(sc env 2>/dev/null || true)"
+  APP_ENV="$(app_env_lines 2>/dev/null || true)"
   APP_ENV_LOADED=1
 }
 

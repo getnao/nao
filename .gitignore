@@ -34,3 +34,6 @@ example/tests/outputs/
 apps/frontend/.playwright*
 sandbox/
 .venv/
+
+# Accès Scalingo restreint (FGP) — jamais commité
+.env.fgp

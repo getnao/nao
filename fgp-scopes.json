@@ -1,0 +1,26 @@
+[
+  {
+    "methods": ["POST"],
+    "pattern": "/v1/apps",
+    "bodyFilters": [
+      {
+        "objectPath": "app.name",
+        "objectValue": [{ "type": "stringwildcard", "value": "nao-*" }]
+      },
+      {
+        "objectPath": "app.parent_id",
+        "objectValue": [{ "type": "any", "value": "" }]
+      }
+    ]
+  },
+  "GET:/v1/apps/nao-*",
+  "PUT:/v1/apps/nao-*/variables",
+  "POST:/v1/apps/nao-*/addons",
+  "POST:/v1/apps/nao-*/deployments",
+  "POST:/v1/apps/nao-*/restart",
+  "POST:/v1/apps/nao-*/scale",
+  "POST:/v1/apps/nao-*/run",
+  "DELETE:/v1/apps/nao-*/caches/deployment",
+  "POST:/v1/sources",
+  "GET:/v1/addon_providers/*"
+]
