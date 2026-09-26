@@ -329,30 +329,54 @@ def test_filter_test_cases_by_name_without_tests_dir_unchanged():
     assert filtered[0].name == "users"
 
 
-def run_test_command(monkeypatch, tmp_path, config, tables: list | None = None, **flags) -> list[dict]:
+def run_test_command(
+    monkeypatch,
+    tmp_path,
+    config,
+    tables: list | None = None,
+    saved_results: list | None = None,
+    saved_payload: list[dict] | None = None,
+    outcomes: list[bool] | None = None,
+    **flags,
+) -> list[dict]:
     """Run the `nao test` command against stubbed collaborators and report what it ran.
 
     Pass ``tables`` to also collect the (title, dataframe) pairs printed as summaries.
+    Pass ``saved_results`` to capture the results list handed to ``save_results``.
     """
     cases = [
         NaoTestCase(name="orders", prompt="p1", file_path=tmp_path / "orders.yml", sql="select 1"),
         NaoTestCase(name="users", prompt="p2", file_path=tmp_path / "users.yml", sql="select 1"),
     ]
     runs: list[dict] = []
+    real_save_results = test_runner_module.save_results
 
     def run(test_case, model, **kwargs):
         runs.append({"case": test_case, "model": model, **kwargs})
-        return NaoTestRunResult(name=test_case.name, model=str(model), passed=True, message="match")
+        passed = outcomes[len(runs) - 1] if outcomes is not None else True
+        return NaoTestRunResult(
+            name=test_case.name, model=str(model), passed=passed, message="match" if passed else "values differ"
+        )
 
     def table(df, title=None, **kwargs):
         if tables is not None:
             tables.append((title, df))
 
+    def save(results, output_dir):
+        if saved_results is not None:
+            saved_results.extend(results)
+        output_file = (
+            real_save_results(results, output_dir) if saved_payload is not None else output_dir / "results.json"
+        )
+        if saved_payload is not None:
+            saved_payload.append(json.loads(output_file.read_text()))
+        return output_file
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(test_runner_module, "NaoConfig", Mock(try_load=Mock(return_value=config)))
     monkeypatch.setattr(test_runner_module, "discover_tests", lambda project_path: cases)
     monkeypatch.setattr(test_runner_module, "run_test", run)
-    monkeypatch.setattr(test_runner_module, "save_results", lambda results, output_dir: output_dir / "results.json")
+    monkeypatch.setattr(test_runner_module, "save_results", save)
     monkeypatch.setattr(test_runner_module.UI, "table", table)
 
     test_runner_module.test(**flags)
@@ -373,10 +397,12 @@ def test_run_uses_the_test_block_defaults(tmp_path, monkeypatch):
 
 
 def test_run_falls_back_to_defaults_without_a_test_block(tmp_path, monkeypatch):
-    runs = run_test_command(monkeypatch, tmp_path, NaoConfig(project_name="test-project"))
+    saved: list[NaoTestRunResult] = []
+    runs = run_test_command(monkeypatch, tmp_path, NaoConfig(project_name="test-project"), saved_results=saved)
 
     assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"] * 2
     assert runs[0]["comparison"].decimals == 2
+    assert [r.attempt for r in saved] == [1, 1]
 
 
 def test_model_flag_overrides_the_test_block(tmp_path, monkeypatch):
@@ -388,15 +414,27 @@ def test_model_flag_overrides_the_test_block(tmp_path, monkeypatch):
     assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"]
 
 
-def test_single_model_runs_only_print_the_run_table(tmp_path, monkeypatch):
+def test_single_model_runs_keep_legacy_output_for_k1(tmp_path, monkeypatch):
     tables: list = []
 
     run_test_command(monkeypatch, tmp_path, NaoConfig(project_name="test-project"), tables=tables)
 
     assert [title for title, _ in tables] == ["Test Results"]
+    results_table = dict(tables)["Test Results"]
+    assert list(results_table.columns) == [
+        "Test",
+        "Model",
+        "Status",
+        "Message",
+        "Tokens",
+        "Cost",
+        "Time (s)",
+        "Tools",
+    ]
+    assert results_table["Message"].tolist() == ["match"] * 2
 
 
-def test_multi_model_runs_print_per_model_summaries(tmp_path, monkeypatch):
+def test_multi_model_runs_keep_legacy_output_for_k1(tmp_path, monkeypatch):
     config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1", "anthropic:claude-4-5"]))
     tables: list = []
 
@@ -408,6 +446,169 @@ def test_multi_model_runs_print_per_model_summaries(tmp_path, monkeypatch):
     matrix = dict(tables)["Pass / Fail by Test and Model"]
     assert list(matrix.columns) == ["Test", "openai\ngpt-4.1", "anthropic\nclaude-4-5"]
     assert matrix["Test"].tolist() == ["orders", "users"]
+
+
+def test_results_table_status_requires_all_attempts_to_pass(monkeypatch):
+    results = [
+        NaoTestRunResult(name="orders", model="m", passed=True, message="match"),
+        NaoTestRunResult(name="orders", model="m", passed=False, message="values differ"),
+    ]
+    tables: list = []
+
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda df, title=None, **kwargs: tables.append((title, df)))
+    test_runner_module.print_run_table(results)
+
+    table = dict(tables)["Test Results"]
+    assert table["Status"].tolist() == ["[red]✗[/red]"]
+    assert table["Success %"].tolist() == ["[yellow]50.0%[/yellow]"]
+
+
+def test_model_matrix_status_requires_all_attempts_to_pass(monkeypatch):
+    results = [
+        NaoTestRunResult(name="orders", model="m", passed=True, message="match"),
+        NaoTestRunResult(name="orders", model="m", passed=False, message="values differ"),
+    ]
+    tables: list = []
+
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda df, title=None, **kwargs: tables.append((title, df)))
+    test_runner_module.print_model_matrix(results)
+
+    table = dict(tables)["Pass / Fail by Test and Model"]
+    assert table["m"].tolist() == ["[red]✗[/red]"]
+
+
+def test_summary_table_is_one_totals_row_with_always_pass_rate(monkeypatch):
+    results = [
+        NaoTestRunResult(
+            name="orders",
+            model="m",
+            passed=True,
+            message="match",
+            tokens=100,
+            cost=0.1,
+            duration_ms=1000,
+            tool_call_count=2,
+        ),
+        NaoTestRunResult(
+            name="orders",
+            model="m",
+            passed=False,
+            message="values differ",
+            tokens=200,
+            cost=0.2,
+            duration_ms=2000,
+            tool_call_count=3,
+        ),
+        NaoTestRunResult(
+            name="users",
+            model="m",
+            passed=True,
+            message="match",
+            tokens=300,
+            cost=0.3,
+            duration_ms=3000,
+            tool_call_count=4,
+        ),
+    ]
+    tables: list = []
+
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda df, title=None, **kwargs: tables.append((title, df)))
+    test_runner_module.print_summary_table(results)
+
+    title, table = tables[0]
+    assert title == "Summary"
+    assert len(table) == 1
+    assert table.iloc[0].to_dict() == {
+        "Tests": 2,
+        "Success %": "[yellow]66.7%[/yellow]",
+        "Always Pass %": "[yellow]50.0%[/yellow]",
+        "Tokens": 600,
+        "Cost": "$0.6000",
+        "Time (s)": 6.0,
+        "Tools": 9,
+    }
+
+
+def test_k_flag_runs_each_case_k_times_with_attempt_index(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
+    saved: list[NaoTestRunResult] = []
+    tables: list = []
+
+    runs = run_test_command(monkeypatch, tmp_path, config, tables=tables, saved_results=saved, k=3)
+
+    # 2 test cases × 1 model × 3 attempts
+    assert len(runs) == 6
+    assert [(r.name, r.attempt) for r in saved] == [
+        ("orders", 1),
+        ("orders", 2),
+        ("orders", 3),
+        ("users", 1),
+        ("users", 2),
+        ("users", 3),
+    ]
+    results_table = dict(tables)["Test Results"]
+    assert len(results_table) == 2
+    assert "Success %" in results_table.columns
+    assert dict(tables)["Summary"]["Always Pass %"].tolist() == ["[green]100.0%[/green]"]
+
+
+def test_k_command_renders_mixed_pass_metrics_and_saves_aggregate(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
+    tables: list = []
+    saved_payload: list[dict] = []
+
+    with pytest.raises(SystemExit) as error:
+        run_test_command(
+            monkeypatch,
+            tmp_path,
+            config,
+            tables=tables,
+            saved_payload=saved_payload,
+            outcomes=[True, False, True],
+            k=3,
+            select="orders",
+        )
+    assert error.value.code == 1
+
+    results_table = dict(tables)["Test Results"]
+    assert results_table["Pass@k"].tolist() == ["[green]100.0%[/green]"]
+    assert dict(tables)["Summary"]["Always Pass %"].tolist() == ["[red]0.0%[/red]"]
+    assert saved_payload[0]["pass_metrics"]["aggregate"] == {
+        "pass_at_1": 2 / 3,
+        "pass_at_k": 1.0,
+        "pass_hat_k": 0.0,
+    }
+
+
+def test_k_config_default_used_when_flag_omitted(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"], k=2))
+    saved: list[NaoTestRunResult] = []
+
+    runs = run_test_command(monkeypatch, tmp_path, config, saved_results=saved)
+
+    assert len(runs) == 4
+    assert sorted(r.attempt for r in saved if r.name == "orders") == [1, 2]
+
+
+def test_k_flag_overrides_config(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"], k=5))
+    saved: list[NaoTestRunResult] = []
+
+    runs = run_test_command(monkeypatch, tmp_path, config, saved_results=saved, k=2, select="orders")
+
+    assert len(runs) == 2
+    assert [r.attempt for r in saved] == [1, 2]
+
+
+def test_invalid_k_is_rejected(tmp_path, monkeypatch):
+    errors: list[str] = []
+    monkeypatch.setattr(test_runner_module.UI, "error", lambda msg: errors.append(msg))
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
+
+    runs = run_test_command(monkeypatch, tmp_path, config, k=0)
+
+    assert runs == []
+    assert errors and "k must be >= 1" in errors[0]
 
 
 def test_threaded_runs_are_reported_grouped_by_model(tmp_path, monkeypatch):
@@ -448,6 +649,7 @@ def test_threaded_runs_are_reported_grouped_by_model(tmp_path, monkeypatch):
         ("anthropic:claude-4-5", "orders"),
         ("anthropic:claude-4-5", "users"),
     ]
+    assert [r.attempt for r in saved] == [1, 1, 1, 1]
 
 
 def test_save_results_records_per_model_summaries(tmp_path):
@@ -461,6 +663,7 @@ def test_save_results_records_per_model_summaries(tmp_path):
             cost=0.2,
             duration_ms=1000,
             tool_call_count=2,
+            attempt=1,
         ),
         NaoTestRunResult(
             name="orders",
@@ -471,6 +674,7 @@ def test_save_results_records_per_model_summaries(tmp_path):
             cost=0.1,
             duration_ms=3000,
             tool_call_count=4,
+            attempt=1,
         ),
     ]
 
@@ -481,3 +685,7 @@ def test_save_results_records_per_model_summaries(tmp_path):
     assert [model["model"] for model in data["by_model"]] == ["openai:gpt-4.1", "anthropic:claude-4-5"]
     assert data["by_model"][0]["pass_rate"] == 100.0
     assert data["by_model"][1]["avg_duration_ms"] == 3000
+    assert "pass_metrics" in data
+    assert data["pass_metrics"]["k"] == 1
+    assert set(data["pass_metrics"]["aggregate"].keys()) == {"pass_at_1", "pass_at_k", "pass_hat_k"}
+    assert data["results"][0]["attempt"] == 1
