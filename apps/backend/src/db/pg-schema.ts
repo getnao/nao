@@ -313,6 +313,7 @@ export const chatMessage = pgTable(
 		chatId: text('chat_id')
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
+		senderUserId: text('sender_user_id').references(() => user.id, { onDelete: 'set null' }),
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
 		stopReason: text('stop_reason').$type<StopReason>(),
 		errorMessage: text('error_message'),
@@ -339,6 +340,7 @@ export const chatMessage = pgTable(
 		index('chat_message_chatId_idx').on(table.chatId),
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
+		index('chat_message_senderUserId_idx').on(table.senderUserId),
 	],
 );
 
