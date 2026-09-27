@@ -137,6 +137,7 @@ export const deleteExpiredInvitations = async (now = new Date()): Promise<number
 				lt(s.user.updatedAt, cutoff),
 				sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
 				sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
+				sql`not exists(select 1 from ${s.chatMessage} where ${s.chatMessage.senderUserId} = ${s.user.id})`,
 			),
 		)
 		.returning({ id: s.user.id })
