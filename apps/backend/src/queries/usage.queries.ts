@@ -63,6 +63,8 @@ const INFERENCE_COST_EXPR = {
 
 export const TOTAL_COST_EXPR = sql<number>`${COST_EXPR.inputNoCache} + ${COST_EXPR.inputCacheRead} + ${COST_EXPR.inputCacheWrite} + ${COST_EXPR.output}`;
 
+export const MESSAGE_SENDER_EXPR = sql<string>`coalesce(${s.chatMessage.senderUserId}, ${s.chat.userId})`;
+
 export async function createCostLookup(projectId: string) {
 	const table = await buildCostValuesTable(projectId);
 	const joinCondition = sql`cost_lookup.provider = ${s.chatMessage.llmProvider} AND cost_lookup.model_id = ${s.chatMessage.llmModelId}`;
@@ -197,7 +199,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			})
 			.from(s.chatMessage)
 			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-			.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+			.innerJoin(s.user, eq(MESSAGE_SENDER_EXPR, s.user.id))
 			.leftJoin(costLookup.table, costLookup.joinCondition)
 			.where(and(...messageWhereConditions))
 			.groupBy(messageDateExpr),
@@ -288,11 +290,11 @@ export const getTotalUsage = async (projectId: string, filter: UsageFilter): Pro
 	const rows = await db
 		.select({
 			totalMessages: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`,
-			uniqueUsers: sql<number>`count(distinct ${s.chat.userId})`,
+			uniqueUsers: sql<number>`count(distinct ${MESSAGE_SENDER_EXPR})`,
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.innerJoin(s.user, eq(MESSAGE_SENDER_EXPR, s.user.id))
 		.where(and(...whereConditions));
 
 	return {

@@ -6,7 +6,7 @@ import s, { DBProjectProviderBudget } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { BudgetPeriod } from '../types/budget';
-import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+import { createCostLookup, MESSAGE_SENDER_EXPR, TOTAL_COST_EXPR } from './usage.queries';
 
 export const getProviderBudget = async (
 	projectId: string,
@@ -153,7 +153,7 @@ const queryProviderPeriodCosts = async (
 	return db
 		.select({
 			provider: s.chatMessage.llmProvider,
-			userId: s.chat.userId,
+			userId: MESSAGE_SENDER_EXPR,
 			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
 		})
 		.from(s.chatMessage)
@@ -167,10 +167,10 @@ const queryProviderPeriodCosts = async (
 					budgets.map((b) => b.provider),
 				),
 				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				options.userId ? eq(s.chat.userId, options.userId) : undefined,
+				options.userId ? eq(MESSAGE_SENDER_EXPR, options.userId) : undefined,
 			),
 		)
-		.groupBy(s.chatMessage.llmProvider, s.chat.userId);
+		.groupBy(s.chatMessage.llmProvider, MESSAGE_SENDER_EXPR);
 };
 
 export const getProviderPeriodCosts = async (
