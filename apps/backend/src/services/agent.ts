@@ -590,6 +590,7 @@ class AgentManager {
 					await chatQueries.upsertMessage({
 						...settledMessage,
 						chatId: this.chat.id,
+						senderUserId: this.chat.userId,
 						source: this._toolContext.adminMode ? 'admin' : settledMessage.source,
 						stopReason,
 						error,

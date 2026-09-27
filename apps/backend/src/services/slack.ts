@@ -1052,6 +1052,7 @@ class ProjectSlackBot {
 				role: 'user',
 				parts: [{ type: 'text', text: messageText }],
 				chatId: existingChat.id,
+				senderUserId: ctx.user!.id,
 				source: 'slack',
 			});
 			ctx.chatId = existingChat.id;

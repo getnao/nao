@@ -402,6 +402,7 @@ class ProjectMattermostBot {
 				role: 'user',
 				parts: [{ type: 'text', text }],
 				chatId: existingChat.id,
+				senderUserId: ctx.user!.id,
 				source: 'mattermost',
 			});
 			ctx.chatId = existingChat.id;
