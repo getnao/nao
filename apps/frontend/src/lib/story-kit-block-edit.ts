@@ -1,5 +1,6 @@
 import { DEFAULT_COLORS } from '@nao/shared/chart-builder';
 import { formatHex, parse } from 'culori';
+import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type {
 	StoryBlockChartConfig,
 	StoryBlockColors,
@@ -47,6 +48,19 @@ export function diffKitBlock(
 
 	const isEmpty = !componentChanged && change.unset.length === 0 && Object.keys(change.set).length === 0;
 	return isEmpty ? null : change;
+}
+
+/** Formats go on the `DataTable` as `conditionalFormats`; clearing every rule removes the prop instead of writing `{}`. */
+export function tableFormatChange(
+	current: ColumnConditionalFormats,
+	next: ColumnConditionalFormats,
+): StoryKitBlockChange | null {
+	if (isSameValue(current, next)) {
+		return null;
+	}
+	return Object.keys(next).length === 0
+		? { set: {}, unset: ['conditionalFormats'] }
+		: { set: { conditionalFormats: next }, unset: [] };
 }
 
 /** The dialog only understands hex colours, so explicit series colours are shown as the frame rendered them. */

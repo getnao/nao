@@ -2,7 +2,13 @@ import { join, resolve } from 'node:path';
 
 import { build } from 'vite';
 
-import { STORY_RUNTIME_MODULES, STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '../../shared/src/story-app';
+import {
+	STORY_FRAME_CORS_HEADERS,
+	STORY_FRAME_ORIGIN,
+	STORY_RUNTIME_MODULES,
+	STORY_RUNTIME_PATH,
+	STORY_STANDALONE_RUNTIME_FILE,
+} from '../../shared/src/story-app';
 import type { InlineConfig, Plugin, ResolvedConfig, Rollup } from 'vite';
 
 const ENTRY_DIR = 'src/story-runtime';
@@ -50,9 +56,10 @@ export function storyRuntime(): Plugin {
 				}
 			});
 			server.middlewares.use((request, response, next) => {
-				if (request.headers.origin === 'null') {
-					response.setHeader('Access-Control-Allow-Origin', 'null');
-					response.setHeader('Access-Control-Allow-Private-Network', 'true');
+				if (request.headers.origin === STORY_FRAME_ORIGIN) {
+					for (const [name, value] of Object.entries(STORY_FRAME_CORS_HEADERS)) {
+						response.setHeader(name, value);
+					}
 				}
 				if (request.method === 'OPTIONS') {
 					response.statusCode = 204;

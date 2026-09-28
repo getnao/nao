@@ -5,6 +5,8 @@ import { useMemo, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { CustomStoryFileSummary } from '@/components/custom-story/custom-story-body';
+import type { CustomStoryFileSource } from '@/components/custom-story/story-data-options';
+import { fileOptions } from '@/components/custom-story/story-data-options';
 import { buildStoryFileTree, findContentMatches } from '@/components/custom-story/story-file-tree';
 import {
 	isStoryKitPath,
@@ -17,11 +19,9 @@ import { FileTree } from '@/components/settings/file-tree';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { trpc } from '@/main';
 
 interface CustomStoryFilesProps {
-	chatId: string;
-	storySlug: string;
+	source: CustomStoryFileSource;
 	versionNumber: number;
 	files: CustomStoryFileSummary[];
 }
@@ -29,7 +29,7 @@ interface CustomStoryFilesProps {
 const MIN_CONTENT_SEARCH_LENGTH = 2;
 
 /** Read-only explorer over the files of the viewed version */
-export function CustomStoryFiles({ chatId, storySlug, versionNumber, files }: CustomStoryFilesProps) {
+export function CustomStoryFiles({ source, versionNumber, files }: CustomStoryFilesProps) {
 	const [selectedPath, setSelectedPath] = useState<string | null>(() => defaultFilePath(files));
 	const [search, setSearch] = useState('');
 	const [isContentSearchEnabled, setIsContentSearchEnabled] = useState(false);
@@ -40,10 +40,9 @@ export function CustomStoryFiles({ chatId, storySlug, versionNumber, files }: Cu
 	);
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'custom-story-files', storage: localStorage });
 
-	const fileInput = (path: string) => ({ chatId, storySlug, path, versionNumber });
 	const isKitFileSelected = isStoryKitPath(selectedPath);
 	const selectedStoryFile = useQuery({
-		...trpc.story.getCustomVersionFile.queryOptions(fileInput(selectedPath ?? '')),
+		...fileOptions(source, selectedPath ?? '', versionNumber),
 		enabled: selectedPath !== null && !isKitFileSelected,
 	});
 	const selectedKitFile = useQuery({
@@ -55,7 +54,7 @@ export function CustomStoryFiles({ chatId, storySlug, versionNumber, files }: Cu
 	const searchedFiles = useQueries({
 		queries: [
 			...files.map((file) => ({
-				...trpc.story.getCustomVersionFile.queryOptions(fileInput(file.path)),
+				...fileOptions(source, file.path, versionNumber),
 				enabled: shouldSearchContent,
 			})),
 			...STORY_KIT_FILE_PATHS.map((path) => ({

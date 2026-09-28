@@ -61,7 +61,7 @@ export function storyStylesheets(theme: StoryTheme, styles: string[]): string {
 	const storyStyles = styles.map((css) => `<style>${escapeStyle(css)}</style>`);
 	return [
 		...fontLinks,
-		`<style>${themeStyles(theme)}</style>`,
+		`<style>${escapeStyle(themeStyles(theme))}</style>`,
 		`<style>${BASE_STYLES}</style>`,
 		`<style>${KIT_STYLES}</style>`,
 		...storyStyles,

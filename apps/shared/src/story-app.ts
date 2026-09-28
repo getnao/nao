@@ -1,4 +1,5 @@
 import type { ChartType } from './chart-types';
+import type { ColumnConditionalFormats } from './conditional-formatting';
 import type { displayChart } from './tools';
 import type { StoryBlockReference } from './types';
 
@@ -30,6 +31,13 @@ export const STORY_HOST_MODULE = '@nao/story-host';
 
 export const STORY_RUNTIME_PATH = '/story-runtime';
 
+export const STORY_FRAME_ORIGIN = 'null';
+
+export const STORY_FRAME_CORS_HEADERS = {
+	'Access-Control-Allow-Origin': STORY_FRAME_ORIGIN,
+	'Access-Control-Allow-Private-Network': 'true',
+} as const;
+
 /** Bare specifier → file name (without extension) under `STORY_RUNTIME_PATH`. Every import map entry comes from here. */
 export const STORY_RUNTIME_MODULES: Record<StoryAppAllowedImport | typeof STORY_HOST_MODULE, string> = {
 	react: 'react',
@@ -41,6 +49,8 @@ export const STORY_RUNTIME_MODULES: Record<StoryAppAllowedImport | typeof STORY_
 	'@nao/story-kit': 'story-kit',
 	[STORY_HOST_MODULE]: 'story-host',
 };
+
+export type CustomStoryViewerAccess = { kind: 'sharedChat'; shareId: string } | { kind: 'replay'; chatId: string };
 
 export interface StoryQueryResult {
 	columns: string[];
@@ -73,7 +83,11 @@ export const STORY_KIT_NARRATIVE_COMPONENT = 'Narrative';
 
 export type StoryTableExportFormat = 'csv' | 'xlsx';
 
-export const STORY_KIT_EDITABLE_BLOCKS = ['BarChart', 'LineChart', 'Chart', 'KpiCard'] as const;
+export const STORY_KIT_EDITABLE_BLOCKS = ['BarChart', 'LineChart', 'Chart', 'KpiCard', 'DataTable'] as const;
+
+export const STORY_KIT_CHART_BLOCKS = ['BarChart', 'LineChart', 'Chart', 'KpiCard'] as const;
+
+export type StoryKitChartBlock = (typeof STORY_KIT_CHART_BLOCKS)[number];
 
 export type StoryKitEditableBlock = (typeof STORY_KIT_EDITABLE_BLOCKS)[number];
 
@@ -87,8 +101,15 @@ export type StoryBlockChartConfig = Omit<displayChart.KpiCardInput, 'chart_type'
 };
 
 export interface StoryBlockEditRequest {
-	block: StoryKitBlockRef;
+	block: StoryKitBlockRef & { component: StoryKitChartBlock };
 	config: StoryBlockChartConfig;
+	columns: string[];
+	rows: Record<string, unknown>[];
+}
+
+export interface StoryTableFormatEditRequest {
+	block: StoryKitBlockRef & { component: 'DataTable' };
+	formats: ColumnConditionalFormats;
 	columns: string[];
 	rows: Record<string, unknown>[];
 }
@@ -115,7 +136,7 @@ export const isStoryKitEditableBlock = (value: string): value is StoryKitEditabl
 /** Frame → host. */
 export type StoryFrameMessage =
 	| { type: 'nao-story:ready' }
-	| { type: 'nao-story:query'; requestId: string; queryId: string }
+	| { type: 'nao-story:query'; requestId: string; queryId: string; fresh?: boolean }
 	| { type: 'nao-story:narratives'; requestId: string }
 	| { type: 'nao-story:error'; message: string; stack?: string }
 	| { type: 'nao-story:copy-table'; columns: string[]; rows: Record<string, unknown>[] }
@@ -127,6 +148,7 @@ export type StoryFrameMessage =
 			rows: Record<string, unknown>[];
 	  }
 	| ({ type: 'nao-story:edit-block' } & StoryBlockEditPayload)
+	| ({ type: 'nao-story:edit-table-format' } & StoryTableFormatEditRequest)
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
 	| { type: 'nao-story:ask-block'; block: StoryBlockReference };
 
@@ -150,6 +172,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:copy-table',
 			'nao-story:export-table',
 			'nao-story:edit-block',
+			'nao-story:edit-table-format',
 			'nao-story:query-sql',
 			'nao-story:ask-block',
 		].includes(value.type)

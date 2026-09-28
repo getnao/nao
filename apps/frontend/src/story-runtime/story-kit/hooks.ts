@@ -62,9 +62,13 @@ function fetchQueryData(queryId: string, fresh: boolean): Promise<StoryQueryResu
 	if (cached) {
 		return cached;
 	}
-	const request = requestQueryData(queryId);
+	const request = requestQueryData(queryId, { fresh });
 	resultCache.set(queryId, request);
-	request.catch(() => resultCache.delete(queryId));
+	request.catch(() => {
+		if (resultCache.get(queryId) === request) {
+			resultCache.delete(queryId);
+		}
+	});
 	return request;
 }
 

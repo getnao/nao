@@ -22,10 +22,13 @@ import { useStoryViewerSwitchStory } from './hooks/use-story-viewer-switch-story
 import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-actions';
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
+import type { StoryFormat } from '@nao/shared/types';
+import type { CustomStoryViewerAccess } from '@nao/shared/story-app';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
+import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
@@ -51,16 +54,62 @@ interface StoryViewerProps {
 }
 
 export function StoryViewer(props: StoryViewerProps) {
-	const { isReadonlyMode: contextReadonlyMode, isReplay } = useSidePanel();
+	const { isReadonlyMode: contextReadonlyMode, isReplay, shareId, shareType } = useSidePanel();
 	const isReadonlyMode = isReplay ? contextReadonlyMode : (props.isReadonlyMode ?? contextReadonlyMode);
-	const { data } = useQuery({
-		...trpc.story.listVersions.queryOptions({ chatId: props.chatId, storySlug: props.storySlug }),
-		enabled: !isReadonlyMode,
-	});
-	if (data?.format === 'custom') {
+	const viewerAccess = useMemo(
+		() => (isReadonlyMode ? readonlyViewerAccess(props.chatId, shareId, shareType, isReplay) : null),
+		[isReadonlyMode, isReplay, props.chatId, shareId, shareType],
+	);
+	const format = useStoryFormat(props.chatId, props.storySlug, isReadonlyMode, viewerAccess);
+
+	if (format === null) {
+		return <StoryContentLoading />;
+	}
+	if (format === 'custom' && viewerAccess) {
+		return <ReadonlyCustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} access={viewerAccess} />;
+	}
+	if (format === 'custom' && !isReadonlyMode) {
 		return <CustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} />;
 	}
 	return <ClassicStoryViewer {...props} />;
+}
+
+function useStoryFormat(
+	chatId: string,
+	storySlug: string,
+	isReadonlyMode: boolean,
+	viewerAccess: CustomStoryViewerAccess | null,
+): StoryFormat | null {
+	const ownerQuery = useQuery({
+		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
+		enabled: !isReadonlyMode,
+	});
+	const viewerQuery = useQuery({
+		...trpc.customStoryViewer.getFormat.queryOptions({
+			access: viewerAccess ?? { kind: 'replay', chatId },
+			storySlug,
+		}),
+		enabled: viewerAccess !== null,
+	});
+	if (!isReadonlyMode) {
+		return ownerQuery.isPending ? null : (ownerQuery.data?.format ?? 'classic');
+	}
+	if (viewerAccess) {
+		return viewerQuery.isPending ? null : (viewerQuery.data?.format ?? 'classic');
+	}
+	return 'classic';
+}
+
+function readonlyViewerAccess(
+	chatId: string,
+	shareId: string | null,
+	shareType: 'chat' | 'story' | null,
+	isReplay: boolean,
+): CustomStoryViewerAccess | null {
+	if (shareType === 'chat' && shareId) {
+		return { kind: 'sharedChat', shareId };
+	}
+	return isReplay ? { kind: 'replay', chatId } : null;
 }
 
 function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {

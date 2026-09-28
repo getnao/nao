@@ -12,6 +12,7 @@ import { chatForkRoutes } from './chat-fork.routes';
 import { citationRoutes } from './citation.routes';
 import { contextExplorerRoutes } from './context-explorer.routes';
 import { contextRecommendationRoutes } from './context-recommendation.routes';
+import { customStoryViewerRoutes } from './custom-story-viewer.routes';
 import { embedRoutes } from './embed.routes';
 import { favoriteRoutes } from './favorite.routes';
 import { feedbackRoutes } from './feedback.routes';
@@ -55,6 +56,7 @@ export const trpcRouter = router({
 	map: mapRoutes,
 	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
+	customStoryViewer: customStoryViewerRoutes,
 	automation: automationRoutes,
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,

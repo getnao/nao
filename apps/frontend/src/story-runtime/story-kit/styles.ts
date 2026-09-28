@@ -39,6 +39,9 @@ export const KIT_STYLES = `
 .nao-slides__viewport>.nao-slide{transform:scale(var(--nao-slide-scale));transform-origin:top left}
 .nao-slide__heading{display:flex;flex-direction:column;gap:8px;flex:none}
 .nao-slide__title{margin:0;max-width:980px;font-family:var(--font-heading);font-size:52px;line-height:1;letter-spacing:-.04em;color:var(--foreground)}
+.nao-slide .nao-block{min-height:0;max-height:100%}
+.nao-slide .nao-block__body{display:flex;flex-direction:column;min-height:0}
+.nao-slide .nao-chart{flex:0 1 auto;min-height:0}
 .nao-slides__nav{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:16px}
 .nao-slides__step{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;font:inherit;font-size:14px;font-weight:700;color:var(--foreground);background:var(--background);border:1px solid var(--border);border-radius:999px;cursor:pointer}
 .nao-slides__step svg{width:16px;height:16px}

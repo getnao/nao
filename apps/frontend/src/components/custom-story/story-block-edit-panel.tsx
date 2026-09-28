@@ -1,7 +1,12 @@
 import { X } from 'lucide-react';
 import { useEffect, useSyncExternalStore } from 'react';
 
-import { BLOCK_EDIT_DESCRIPTION, CustomStoryBlockEditForm } from '@/components/custom-story/custom-story-block-edit';
+import {
+	BLOCK_EDIT_DESCRIPTION,
+	CustomStoryBlockEditForm,
+	CustomStoryTableFormatForm,
+	TABLE_FORMAT_EDIT_DESCRIPTION,
+} from '@/components/custom-story/custom-story-block-edit';
 import { Button } from '@/components/ui/button';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
@@ -32,8 +37,12 @@ export function StoryBlockEditPanel({ chatId }: { chatId: string }) {
 		>
 			<div className='flex shrink-0 items-start justify-between gap-2 px-6 pt-4 pb-2'>
 				<div className='min-w-0'>
-					<div className='text-sm font-semibold'>Edit chart</div>
-					<div className='text-xs text-muted-foreground'>{BLOCK_EDIT_DESCRIPTION}</div>
+					<div className='text-sm font-semibold'>
+						{target.kind === 'table' ? 'Edit table formatting' : 'Edit chart'}
+					</div>
+					<div className='text-xs text-muted-foreground'>
+						{target.kind === 'table' ? TABLE_FORMAT_EDIT_DESCRIPTION : BLOCK_EDIT_DESCRIPTION}
+					</div>
 				</div>
 				<Button
 					variant='ghost'
@@ -46,12 +55,21 @@ export function StoryBlockEditPanel({ chatId }: { chatId: string }) {
 				</Button>
 			</div>
 			<div className='min-h-0 flex-1 overflow-y-auto px-6 pb-4'>
-				<CustomStoryBlockEditForm
-					key={target.id}
-					target={target}
-					onCancel={storyBlockEditStore.close}
-					onSaved={storyBlockEditStore.close}
-				/>
+				{target.kind === 'table' ? (
+					<CustomStoryTableFormatForm
+						key={target.id}
+						target={target}
+						onCancel={storyBlockEditStore.close}
+						onSaved={storyBlockEditStore.close}
+					/>
+				) : (
+					<CustomStoryBlockEditForm
+						key={target.id}
+						target={target}
+						onCancel={storyBlockEditStore.close}
+						onSaved={storyBlockEditStore.close}
+					/>
+				)}
 			</div>
 		</div>
 	);

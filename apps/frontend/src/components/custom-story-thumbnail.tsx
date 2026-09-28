@@ -86,6 +86,7 @@ function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 }
 
 function BlockEditPanel({ isToolPart }: { isToolPart: boolean }) {
+	const adjustedTop = isToolPart ? 4 : 0;
 	return (
 		<div
 			className={cn(
@@ -107,17 +108,32 @@ function BlockEditPanel({ isToolPart }: { isToolPart: boolean }) {
 					style={animation('app-preview-editing')}
 				/>
 				<div className='absolute top-3 left-1.5 h-[1.5px] w-11 rounded-[1px] bg-foreground/12' />
-				<ChartTypeTile left={6} icon={ChartColumn} selectedAnimation='app-preview-tile-bar' />
-				<ChartTypeTile left={23} icon={ChartLine} selectedAnimation='app-preview-tile-line' />
-				<ChartTypeTile left={40} icon={ChartPie} />
-				<div className='absolute top-8 left-1.5 flex h-2 w-12 items-center rounded-[2px] border border-foreground/12 px-[3px]'>
+				<ChartTypeTile left={6} top={adjustedTop} icon={ChartColumn} selectedAnimation='app-preview-tile-bar' />
+				<ChartTypeTile left={23} top={adjustedTop} icon={ChartLine} selectedAnimation='app-preview-tile-line' />
+				<ChartTypeTile left={40} top={adjustedTop} icon={ChartPie} />
+				<div
+					className={cn(
+						'absolute left-1.5 flex h-2 w-12 items-center rounded-[2px] border border-foreground/12 px-[3px]',
+						isToolPart ? 'top-[38px]' : 'top-[32px]',
+					)}
+				>
 					<div className='h-[1.5px] w-5 bg-foreground/12' />
 				</div>
-				<ColorSwatches />
-				<div className='absolute top-[57px] left-1.5 flex h-[9px] w-[22px] items-center justify-center rounded-[3px] border border-foreground/12'>
+				<ColorSwatches isToolPart={isToolPart} />
+				<div
+					className={cn(
+						'absolute flex left-1.5 h-[9px] w-[22px] items-center justify-center rounded-[3px] border border-foreground/12',
+						isToolPart ? 'top-[70px]' : 'top-[57px]',
+					)}
+				>
 					<div className='h-[1.5px] w-2.5 bg-foreground/12' />
 				</div>
-				<div className='absolute top-[57px] left-8 flex h-[9px] w-[26px] items-center justify-center rounded-[3px] bg-primary'>
+				<div
+					className={cn(
+						'absolute flex left-8 h-[9px] w-[26px] items-center justify-center rounded-[3px] bg-primary',
+						isToolPart ? 'top-[70px]' : 'top-[57px]',
+					)}
+				>
 					<div className='h-[1.5px] w-3 bg-primary-foreground/90' />
 				</div>
 			</div>
@@ -127,17 +143,19 @@ function BlockEditPanel({ isToolPart }: { isToolPart: boolean }) {
 
 function ChartTypeTile({
 	left,
+	top,
 	icon: Icon,
 	selectedAnimation,
 }: {
 	left: number;
+	top: number;
 	icon: typeof ChartColumn;
 	selectedAnimation?: string;
 }) {
 	return (
 		<div
-			className='absolute top-[18px] flex h-2.5 w-3.5 items-center justify-center rounded-[2px] border border-foreground/12'
-			style={{ left }}
+			className='absolute flex h-2.5 w-3.5 items-center justify-center rounded-[2px] border border-foreground/12'
+			style={{ left, top: top + 18 }}
 		>
 			<Icon className='size-[7px] text-foreground/25' strokeWidth={3} />
 			{selectedAnimation && (
@@ -155,9 +173,9 @@ function ChartTypeTile({
 	);
 }
 
-function ColorSwatches() {
+function ColorSwatches({ isToolPart }: { isToolPart: boolean }) {
 	return (
-		<div className='absolute top-[45px] left-1.5 flex gap-[3px]'>
+		<div className={cn('absolute left-3.5 flex gap-[3px]', isToolPart ? 'top-[54px]' : 'top-[45px]')}>
 			<div className='size-1.5 rounded-full bg-primary ring-1 ring-primary ring-offset-1 ring-offset-card' />
 			<div className='size-1.5 rounded-full bg-primary/55' />
 			<div className='size-1.5 rounded-full bg-primary/35' />

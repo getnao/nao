@@ -2,7 +2,12 @@ import { labelize } from '@nao/shared/chart-builder';
 import { isNumericColumn } from './columns';
 import { toChartValueFormat } from './format';
 import type { ChartType } from '@nao/shared/chart-types';
-import type { StoryBlockChartConfig, StoryKitBlockRef, StoryKitEditableBlock } from '@nao/shared/story-app';
+import type {
+	StoryBlockChartConfig,
+	StoryKitBlockRef,
+	StoryKitChartBlock,
+	StoryKitEditableBlock,
+} from '@nao/shared/story-app';
 import type { displayChart } from '@nao/shared/tools';
 
 import type { Row } from './columns';
@@ -46,7 +51,7 @@ export interface ResolvedChart {
 }
 
 export interface KitBlockElement {
-	component: StoryKitEditableBlock;
+	component: StoryKitChartBlock;
 	props: Record<string, unknown>;
 }
 
@@ -64,7 +69,10 @@ export const KIT_CHART_TYPES = [
 	'kpi_card',
 ] as const satisfies readonly ChartType[];
 
-export function blockRef(component: StoryKitEditableBlock, props: object): StoryKitBlockRef {
+export function blockRef<Component extends StoryKitEditableBlock>(
+	component: Component,
+	props: object,
+): StoryKitBlockRef & { component: Component } {
 	return { component, props: { ...props } };
 }
 

@@ -20,7 +20,7 @@ import type { ChartOptions } from './block-config';
 import type { BlockProps } from './block';
 import type { displayChart } from '@nao/shared/tools';
 import type { ChartType } from '@nao/shared/chart-types';
-import type { StoryKitBlockRef } from '@nao/shared/story-app';
+import type { StoryBlockEditRequest } from '@nao/shared/story-app';
 
 export { seriesColor };
 
@@ -33,7 +33,7 @@ export interface ChartProps extends BlockProps, BlockDataSource, ChartOptions {
 interface ChartBlockProps extends ChartProps {
 	kind: string;
 	chartType: ChartType;
-	blockRef: StoryKitBlockRef;
+	blockRef: StoryBlockEditRequest['block'];
 }
 
 const DEFAULT_CHART_HEIGHT = 260;

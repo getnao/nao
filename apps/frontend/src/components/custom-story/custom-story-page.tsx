@@ -2,12 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 import type { DownloadFormat, StoryBlockReference } from '@nao/shared/types';
-import type { StoryBlockEditPayload } from '@nao/shared/story-app';
-import type { StoryBlockEditTarget } from '@/stores/story-block-edit';
+import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
+import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/story-block-edit';
 
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
-import { CustomStoryBlockEditDialog } from '@/components/custom-story/custom-story-block-edit';
+import {
+	CustomStoryBlockEditDialog,
+	CustomStoryTableFormatDialog,
+} from '@/components/custom-story/custom-story-block-edit';
 import { ActionErrorBanner, CustomStoryBody } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
 import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
@@ -42,12 +45,21 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
+	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
 	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning;
 
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
 			if (content) {
 				setEditTarget({ chatId, storySlug, versionNumber: content.version.number, payload });
+			}
+		},
+		[chatId, content, storySlug],
+	);
+	const handleEditTableFormat = useCallback(
+		(request: StoryTableFormatEditRequest) => {
+			if (content) {
+				setTableFormatTarget({ chatId, storySlug, versionNumber: content.version.number, request });
 			}
 		},
 		[chatId, content, storySlug],
@@ -111,6 +123,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 						hasPublishedVersion={story.latestVersion !== null}
 						editable={canEditBlocks && viewMode === 'app'}
 						onEditBlock={handleEditBlock}
+						onEditTableFormat={handleEditTableFormat}
 						onAskBlock={handleAskBlock}
 					/>
 				}
@@ -118,8 +131,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 					content && (
 						<CustomStoryFiles
 							key={content.version.id}
-							chatId={chatId}
-							storySlug={storySlug}
+							source={story.dataSource}
 							versionNumber={content.version.number}
 							files={content.files}
 						/>
@@ -130,6 +142,10 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 			<CustomStoryBlockEditDialog
 				target={canEditBlocks ? editTarget : null}
 				onClose={() => setEditTarget(null)}
+			/>
+			<CustomStoryTableFormatDialog
+				target={canEditBlocks ? tableFormatTarget : null}
+				onClose={() => setTableFormatTarget(null)}
 			/>
 			<ShareStoryDialog
 				open={sharing.isShareDialogOpen}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { StoryBlockEditPayload } from '@nao/shared/story-app';
+import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
 import type { StoryBlockReference } from '@nao/shared/types';
 
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
@@ -52,7 +52,27 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
 			if (content) {
-				storyBlockEditStore.open({ chatId, storySlug, versionNumber: content.version.number, payload });
+				storyBlockEditStore.open({
+					kind: 'chart',
+					chatId,
+					storySlug,
+					versionNumber: content.version.number,
+					payload,
+				});
+			}
+		},
+		[chatId, content, storySlug],
+	);
+	const handleEditTableFormat = useCallback(
+		(request: StoryTableFormatEditRequest) => {
+			if (content) {
+				storyBlockEditStore.open({
+					kind: 'table',
+					chatId,
+					storySlug,
+					versionNumber: content.version.number,
+					request,
+				});
 			}
 		},
 		[chatId, content, storySlug],
@@ -131,6 +151,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 						hasPublishedVersion={story.latestVersion !== null}
 						editable={canEditBlocks && viewMode === 'app'}
 						onEditBlock={handleEditBlock}
+						onEditTableFormat={handleEditTableFormat}
 						onAskBlock={handleAskBlock}
 					/>
 				}
@@ -138,8 +159,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 					content && (
 						<CustomStoryFiles
 							key={content.version.id}
-							chatId={chatId}
-							storySlug={storySlug}
+							source={story.dataSource}
 							versionNumber={content.version.number}
 							files={content.files}
 						/>

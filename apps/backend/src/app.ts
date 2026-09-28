@@ -3,13 +3,13 @@ import './instrumentation';
 import formbody from '@fastify/formbody';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { STORY_RUNTIME_PATH } from '@nao/shared/story-app';
+import { STORY_FRAME_CORS_HEADERS, STORY_FRAME_ORIGIN, STORY_RUNTIME_PATH } from '@nao/shared/story-app';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import fastify, { FastifyReply } from 'fastify';
+import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { existsSync } from 'fs';
-import { dirname, join, relative as relativePath } from 'path';
+import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
@@ -376,19 +376,17 @@ const isReservedBackendPath = (url: string) => {
 
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
-/** Sandboxed custom-story frames have an opaque origin, so the modules they load must be CORS-readable. */
-const isStoryRuntimeAsset = (filePath: string) => {
-	const relative = relativePath(staticRoot ?? '', filePath).replaceAll('\\', '/');
-	return relative.startsWith(`${STORY_RUNTIME_PATH.slice(1)}/`);
-};
+/** Only the sandboxed custom-story frame (opaque origin) gets CORS access, and only to the story runtime modules. */
+const isStoryFrameRuntimeRequest = (request: FastifyRequest) =>
+	request.headers.origin === STORY_FRAME_ORIGIN && request.url.startsWith(`${STORY_RUNTIME_PATH}/`);
 
-const setStoryRuntimeCorsHeaders = (reply: FastifyReply) => {
-	reply.header('Access-Control-Allow-Origin', 'null');
-	reply.header('Access-Control-Allow-Private-Network', 'true');
-};
+app.addHook('onRequest', async (request, reply) => {
+	if (isStoryFrameRuntimeRequest(request)) {
+		reply.headers(STORY_FRAME_CORS_HEADERS);
+	}
+});
 
 app.options(`${STORY_RUNTIME_PATH}/*`, (_request, reply) => {
-	setStoryRuntimeCorsHeaders(reply);
 	reply.header('Access-Control-Allow-Methods', 'GET, HEAD').status(204).send();
 });
 
@@ -397,11 +395,6 @@ if (staticRoot) {
 		root: staticRoot,
 		prefix: '/',
 		wildcard: false,
-		setHeaders: (reply, filePath) => {
-			if (isStoryRuntimeAsset(filePath)) {
-				setStoryRuntimeCorsHeaders(reply as unknown as FastifyReply);
-			}
-		},
 	});
 }
 

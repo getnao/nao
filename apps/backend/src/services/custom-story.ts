@@ -25,6 +25,7 @@ export interface CustomStoryVersionView {
 	files: CustomStoryFileSummary[];
 	queryIds: string[];
 	theme: StoryTheme | null;
+	isLive: boolean;
 	cachedAt: Date | null;
 	lastRefreshFailure: { errorMessage: string; failedAt: Date } | null;
 }
@@ -90,6 +91,7 @@ export async function getCustomStoryVersion(
 			.map((file) => ({ path: file.path, size: Buffer.byteLength(file.content, 'utf8') })),
 		queryIds: [...extractCustomStoryQueryIds(files)],
 		theme,
+		isLive: story.isLive,
 		cachedAt: cache?.cachedAt ?? null,
 		lastRefreshFailure,
 	};

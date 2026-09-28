@@ -3,7 +3,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { narrativesOptions, queryDataOptions, querySqlOptions } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
-import type { StoryBlockEditPayload, StoryFrameMessage, StoryHostMessage } from '@nao/shared/story-app';
+import type {
+	StoryBlockEditPayload,
+	StoryFrameMessage,
+	StoryHostMessage,
+	StoryTableFormatEditRequest,
+} from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
 import type { StoryBlockReference } from '@nao/shared/types';
 
@@ -27,6 +32,7 @@ interface CustomStoryFrameProps {
 	theme: StoryTheme;
 	editable?: boolean;
 	onEditBlock?: (request: StoryBlockEditPayload) => void;
+	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
 	onAskBlock?: (block: StoryBlockReference) => void;
 	onReady?: () => void;
 	onError?: (error: CustomStoryRuntimeError) => void;
@@ -42,6 +48,7 @@ export function CustomStoryFrame({
 	theme,
 	editable = false,
 	onEditBlock,
+	onEditTableFormat,
 	onAskBlock,
 	onReady,
 	onError,
@@ -60,9 +67,10 @@ export function CustomStoryFrame({
 	}, []);
 
 	const answerQuery = useCallback(
-		async (requestId: string, queryId: string) => {
+		async (requestId: string, queryId: string, fresh: boolean) => {
 			try {
-				const result = await queryClient.fetchQuery(queryDataOptions(dataSource, queryId));
+				const options = queryDataOptions(dataSource, queryId);
+				const result = await queryClient.fetchQuery(fresh ? { ...options, staleTime: 0 } : options);
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
@@ -106,7 +114,7 @@ export function CustomStoryFrame({
 					onReady?.();
 					break;
 				case 'nao-story:query':
-					void answerQuery(message.requestId, message.queryId);
+					void answerQuery(message.requestId, message.queryId, message.fresh === true);
 					break;
 				case 'nao-story:narratives':
 					void answerNarratives(message.requestId);
@@ -135,6 +143,16 @@ export function CustomStoryFrame({
 						});
 					}
 					break;
+				case 'nao-story:edit-table-format':
+					if (editable) {
+						onEditTableFormat?.({
+							block: message.block,
+							formats: message.formats,
+							columns: message.columns,
+							rows: message.rows,
+						});
+					}
+					break;
 				case 'nao-story:ask-block':
 					if (editable) {
 						onAskBlock?.(message.block);
@@ -155,6 +173,7 @@ export function CustomStoryFrame({
 		editable,
 		onAskBlock,
 		onEditBlock,
+		onEditTableFormat,
 		onError,
 		onReady,
 		reply,

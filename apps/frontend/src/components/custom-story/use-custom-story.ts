@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DownloadFormat } from '@nao/shared/types';
 
-import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
+import type { CustomStoryFileSource } from '@/components/custom-story/story-data-options';
 import { useCustomStoryDownload } from '@/components/custom-story/use-custom-story-download';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { trpc, trpcClient } from '@/main';
@@ -35,7 +35,7 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		...trpc.story.getCustomVersion.queryOptions({ chatId, storySlug, versionNumber: viewedVersion ?? undefined }),
 		enabled: viewedVersion !== null,
 	});
-	const dataSource = useMemo<CustomStoryDataSource>(
+	const dataSource = useMemo<CustomStoryFileSource>(
 		() => ({ kind: 'owner', chatId, storySlug }),
 		[chatId, storySlug],
 	);

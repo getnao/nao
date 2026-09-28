@@ -549,7 +549,8 @@ function CustomStoriesBlock() {
 					{'{ key, label?, type?, axis? }'}), <Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>,{' '}
 					<Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line), <Bold>showDataLabels</Bold>. KpiCard:{' '}
 					<Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous row. DataTable:{' '}
-					<Bold>columns</Bold>, <Bold>maxRows</Bold>.
+					<Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the same rule
+					display_chart's conditional_formats takes) to colour cells.
 				</ListItem>
 				<ListItem>
 					For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}

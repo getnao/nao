@@ -1,6 +1,6 @@
 import { colorToHex, DEFAULT_THRESHOLD_COLOR } from '@nao/shared/conditional-formatting';
 import { getFormattableColumnType } from '@nao/shared/story-table-utils';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -50,14 +50,9 @@ const DEFAULT_FALSE_COLOR = 'rgba(239, 68, 68, 0.32)';
 const DEFAULT_TRUE_HEX = '#22c55e';
 const DEFAULT_FALSE_HEX = '#ef4444';
 
-interface TableFormatEditDialogProps {
+interface TableFormatEditDialogProps extends Omit<TableFormatEditFormProps, 'onCancel' | 'onSaved'> {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	columns: string[];
-	data: Record<string, unknown>[];
-	formats: ColumnConditionalFormats;
-	onSave: (next: ColumnConditionalFormats) => Promise<void>;
-	isSaving?: boolean;
 	description?: string;
 }
 
@@ -65,13 +60,49 @@ interface TableFormatEditDialogProps {
 export function TableFormatEditDialog({
 	open,
 	onOpenChange,
+	description = 'Apply conditional formatting to table columns.',
+	...form
+}: TableFormatEditDialogProps) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
+				<DialogHeader>
+					<DialogTitle>Edit table formatting</DialogTitle>
+					<DialogDescription className='text-sm text-muted-foreground font-medium'>
+						{description}
+					</DialogDescription>
+				</DialogHeader>
+				{open && (
+					<TableFormatEditForm
+						{...form}
+						onCancel={() => onOpenChange(false)}
+						onSaved={() => onOpenChange(false)}
+					/>
+				)}
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+interface TableFormatEditFormProps {
+	columns: string[];
+	data: Record<string, unknown>[];
+	formats: ColumnConditionalFormats;
+	onSave: (next: ColumnConditionalFormats) => Promise<void>;
+	isSaving?: boolean;
+	onCancel: () => void;
+	onSaved: () => void;
+}
+
+export function TableFormatEditForm({
 	columns,
 	data,
 	formats,
 	onSave,
 	isSaving = false,
-	description = 'Apply conditional formatting to table columns.',
-}: TableFormatEditDialogProps) {
+	onCancel,
+	onSaved,
+}: TableFormatEditFormProps) {
 	const [draft, setDraft] = useState<ColumnConditionalFormats>(formats);
 	const [error, setError] = useState<string | null>(null);
 
@@ -82,13 +113,6 @@ export function TableFormatEditDialog({
 				.filter((entry): entry is { column: string; type: FormattableColumnType } => entry.type !== null),
 		[columns, data],
 	);
-
-	useEffect(() => {
-		if (open) {
-			setDraft(formats);
-			setError(null);
-		}
-	}, [open, formats]);
 
 	const setColumnRule = (column: string, rule: ConditionalFormatRule | undefined) => {
 		setDraft((prev) => {
@@ -106,61 +130,45 @@ export function TableFormatEditDialog({
 		event.preventDefault();
 		try {
 			await onSave(draft);
-			onOpenChange(false);
+			onSaved();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to update formatting.');
 		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
-				<DialogHeader>
-					<DialogTitle>Edit table formatting</DialogTitle>
-					<DialogDescription className='text-sm text-muted-foreground font-medium'>
-						{description}
-					</DialogDescription>
-				</DialogHeader>
+		<form onSubmit={handleSubmit} className='flex flex-col gap-3'>
+			{formattableColumns.length === 0 ? (
+				<p className='text-sm text-muted-foreground'>No columns available to format.</p>
+			) : (
+				formattableColumns.map(({ column, type }) => (
+					<ColumnRuleRow
+						key={column}
+						column={column}
+						columnType={type}
+						rule={draft[column]}
+						onChange={(rule) => setColumnRule(column, rule)}
+					/>
+				))
+			)}
 
-				<form onSubmit={handleSubmit} className='flex flex-col gap-3'>
-					{formattableColumns.length === 0 ? (
-						<p className='text-sm text-muted-foreground'>No columns available to format.</p>
-					) : (
-						formattableColumns.map(({ column, type }) => (
-							<ColumnRuleRow
-								key={column}
-								column={column}
-								columnType={type}
-								rule={draft[column]}
-								onChange={(rule) => setColumnRule(column, rule)}
-							/>
-						))
-					)}
+			{error && <p className='text-xs text-destructive'>{error}</p>}
 
-					{error && <p className='text-xs text-destructive'>{error}</p>}
-
-					<DialogFooter>
-						<Button
-							type='button'
-							variant='ghost'
-							className='rounded-full border'
-							onClick={() => onOpenChange(false)}
-						>
-							Cancel
-						</Button>
-						<Button
-							variant='primary-gradient'
-							type='submit'
-							className='rounded-full'
-							isLoading={isSaving}
-							disabled={isSaving}
-						>
-							Save
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogContent>
-		</Dialog>
+			<DialogFooter>
+				<Button type='button' variant='ghost' className='rounded-full border' onClick={onCancel}>
+					Cancel
+				</Button>
+				<Button
+					variant='primary-gradient'
+					type='submit'
+					className='rounded-full'
+					isLoading={isSaving}
+					disabled={isSaving}
+				>
+					Save
+				</Button>
+			</DialogFooter>
+		</form>
 	);
 }
 

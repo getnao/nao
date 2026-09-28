@@ -35,7 +35,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 
 	const finalStorySlug = output?.id ?? input?.id;
 	const canOpen = Boolean(chatId && finalStorySlug);
-	const isCreateAction = input?.action === 'create' && input.format !== 'custom';
+	const isCreateAction = input?.action === 'create' && isClassicCreate(input);
 	const mountedBeforeOutputRef = useRef(toolPart.state !== 'output-available' && toolPart.state !== 'output-error');
 	const isCustomPublished =
 		mountedBeforeOutputRef.current && output?.format === 'custom' && output.success && input?.action === 'publish';
@@ -182,4 +182,8 @@ function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
 			<TooltipContent>Updated {new Date(cachedAt).toLocaleString()}</TooltipContent>
 		</Tooltip>
 	);
+}
+
+function isClassicCreate(input: { format?: 'classic' | 'custom'; code?: string }): boolean {
+	return input.format === 'classic' || (input.format === undefined && input.code !== undefined);
 }

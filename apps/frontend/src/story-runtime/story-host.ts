@@ -8,6 +8,7 @@ import type { StoryTheme } from '@nao/shared/story-theme';
 import type { StoryBlockReference } from '@nao/shared/types';
 import type {
 	StoryBlockEditRequest,
+	StoryTableFormatEditRequest,
 	StoryExportData,
 	StoryFrameMessage,
 	StoryHostMessage,
@@ -27,9 +28,11 @@ interface PendingRequest<T> {
 	reject: (error: Error) => void;
 }
 
+const HOST_REPLY_TIMEOUT_MS = 120_000;
+
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
-const pendingNarratives = new Map<string, (narratives: StoryNarratives) => void>();
+const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
 const editingListeners = new Set<() => void>();
 let activeTheme: StoryTheme | null = null;
 let editingEnabled = false;
@@ -55,26 +58,23 @@ export async function bootStory({ source, theme, exportData: embeddedData }: Boo
 	}
 }
 
-export function requestQueryData(queryId: string): Promise<StoryQueryResult> {
+export function requestQueryData(
+	queryId: string,
+	{ fresh = false }: { fresh?: boolean } = {},
+): Promise<StoryQueryResult> {
 	if (exportData) {
 		return readExportedQuery(exportData, queryId);
 	}
-	const requestId = crypto.randomUUID();
-	return new Promise((resolve, reject) => {
-		pendingQueries.set(requestId, { resolve, reject });
-		send({ type: 'nao-story:query', requestId, queryId });
-	});
+	return awaitReply(pendingQueries, (requestId) => ({ type: 'nao-story:query', requestId, queryId, fresh }));
 }
 
 export function requestNarratives(): Promise<StoryNarratives> {
 	if (exportData) {
 		return Promise.resolve(exportData.narratives);
 	}
-	const requestId = crypto.randomUUID();
-	return new Promise((resolve) => {
-		pendingNarratives.set(requestId, resolve);
-		send({ type: 'nao-story:narratives', requestId });
-	});
+	return awaitReply(pendingNarratives, (requestId) => ({ type: 'nao-story:narratives', requestId })).catch(
+		(): StoryNarratives => ({}),
+	);
 }
 
 export function isStoryExport(): boolean {
@@ -124,16 +124,22 @@ export function requestBlockEdit({ block, config, columns, rows }: StoryBlockEdi
 	});
 }
 
+export function requestTableFormatEdit({ block, formats, columns, rows }: StoryTableFormatEditRequest): void {
+	send({
+		type: 'nao-story:edit-table-format',
+		block: { component: block.component, props: toJsonSafe(block.props) },
+		formats: toJsonSafe(formats),
+		columns,
+		rows: toJsonSafe(rows),
+	});
+}
+
 export function requestBlockAsk(block: StoryBlockReference): void {
 	send({ type: 'nao-story:ask-block', block });
 }
 
 export function requestQuerySql(queryId: string): Promise<string> {
-	const requestId = crypto.randomUUID();
-	return new Promise((resolve, reject) => {
-		pendingQuerySql.set(requestId, { resolve, reject });
-		send({ type: 'nao-story:query-sql', requestId, queryId });
-	});
+	return awaitReply(pendingQuerySql, (requestId) => ({ type: 'nao-story:query-sql', requestId, queryId }));
 }
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
@@ -146,7 +152,7 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 		return;
 	}
 	if (event.data.type === 'nao-story:narratives-result') {
-		pendingNarratives.get(event.data.requestId)?.(event.data.narratives);
+		pendingNarratives.get(event.data.requestId)?.resolve(event.data.narratives);
 		pendingNarratives.delete(event.data.requestId);
 		return;
 	}
@@ -176,6 +182,31 @@ function settleQuerySql(
 	} else {
 		pending?.reject(new Error(message.message));
 	}
+}
+
+/** A reply that never comes (host navigated away, message dropped) fails the request instead of loading forever. */
+function awaitReply<T>(
+	pending: Map<string, PendingRequest<T>>,
+	buildMessage: (requestId: string) => StoryFrameMessage,
+): Promise<T> {
+	const requestId = crypto.randomUUID();
+	return new Promise<T>((resolve, reject) => {
+		const timeout = window.setTimeout(() => {
+			pending.delete(requestId);
+			reject(new Error('The story did not get an answer in time. Retry to load it again.'));
+		}, HOST_REPLY_TIMEOUT_MS);
+		pending.set(requestId, {
+			resolve: (result) => {
+				window.clearTimeout(timeout);
+				resolve(result);
+			},
+			reject: (error) => {
+				window.clearTimeout(timeout);
+				reject(error);
+			},
+		});
+		send(buildMessage(requestId));
+	});
 }
 
 function send(message: StoryFrameMessage): void {

@@ -1,9 +1,9 @@
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { AlertTriangle } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { StoryBlockEditPayload } from '@nao/shared/story-app';
+import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
 import type { StoryBlockReference } from '@nao/shared/types';
 
 import type { CustomStoryRuntimeError } from '@/components/custom-story/custom-story-frame';
@@ -23,10 +23,12 @@ interface CustomStoryBodyProps {
 	hasPublishedVersion: boolean;
 	editable?: boolean;
 	onEditBlock?: (payload: StoryBlockEditPayload) => void;
+	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
 	onAskBlock?: (block: StoryBlockReference) => void;
 }
 
 const MAX_RUNTIME_ERRORS = 5;
+const RUNTIME_ERROR_FLUSH_MS = 500;
 
 export function CustomStoryBody({
 	dataSource,
@@ -36,6 +38,7 @@ export function CustomStoryBody({
 	hasPublishedVersion,
 	editable = false,
 	onEditBlock,
+	onEditTableFormat,
 	onAskBlock,
 }: CustomStoryBodyProps) {
 	const { runtimeErrors, runtimeErrorCount, handleRuntimeError } = useRuntimeErrors(content?.version.id);
@@ -62,6 +65,7 @@ export function CustomStoryBody({
 						theme={content.theme ?? DEFAULT_STORY_THEME}
 						editable={editable}
 						onEditBlock={onEditBlock}
+						onEditTableFormat={onEditTableFormat}
 						onAskBlock={onAskBlock}
 						onError={handleRuntimeError}
 					/>
@@ -81,18 +85,40 @@ export function ActionErrorBanner({ message }: { message: string }) {
 	);
 }
 
+/** A story stuck in a throwing render loop reports errors non-stop: they are batched so the host re-renders at most twice a second. */
 function useRuntimeErrors(versionId: string | undefined) {
 	const [runtimeErrors, setRuntimeErrors] = useState<CustomStoryRuntimeError[]>([]);
 	const [runtimeErrorCount, setRuntimeErrorCount] = useState(0);
+	const queuedRef = useRef<CustomStoryRuntimeError[]>([]);
+	const flushTimerRef = useRef<number | null>(null);
 
 	useEffect(() => {
+		queuedRef.current = [];
 		setRuntimeErrors([]);
 		setRuntimeErrorCount(0);
 	}, [versionId]);
 
+	useEffect(
+		() => () => {
+			if (flushTimerRef.current !== null) {
+				window.clearTimeout(flushTimerRef.current);
+			}
+		},
+		[],
+	);
+
 	const handleRuntimeError = useCallback((error: CustomStoryRuntimeError) => {
-		setRuntimeErrors((current) => [...current, error].slice(-MAX_RUNTIME_ERRORS));
-		setRuntimeErrorCount((current) => current + 1);
+		queuedRef.current.push(error);
+		if (flushTimerRef.current !== null) {
+			return;
+		}
+		flushTimerRef.current = window.setTimeout(() => {
+			const queued = queuedRef.current;
+			queuedRef.current = [];
+			flushTimerRef.current = null;
+			setRuntimeErrors((current) => [...current, ...queued].slice(-MAX_RUNTIME_ERRORS));
+			setRuntimeErrorCount((current) => current + queued.length);
+		}, RUNTIME_ERROR_FLUSH_MS);
 	}, []);
 
 	return { runtimeErrors, runtimeErrorCount, handleRuntimeError };
