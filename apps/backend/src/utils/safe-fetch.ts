@@ -99,12 +99,20 @@ export function isPrivateHostname(hostname: string): boolean {
 
 /** Refuses hosts that are private by name, by literal address, or by what they resolve to. */
 export async function assertSafeHost(hostname: string): Promise<void> {
+	await resolveSafeAddress(hostname);
+}
+
+/**
+ * Resolves a host once and returns an address that passed the private-range checks.
+ * Connecting to that exact address, rather than to the hostname, closes the DNS-rebinding window.
+ */
+export async function resolveSafeAddress(hostname: string): Promise<string> {
 	const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
 	if (isPrivateHostname(host)) {
 		throw new Error(`Access to private address "${hostname}" is not allowed.`);
 	}
 	if (net.isIP(host)) {
-		return;
+		return host;
 	}
 
 	let addresses: string[];
@@ -117,11 +125,10 @@ export async function assertSafeHost(hostname: string): Promise<void> {
 	if (addresses.length === 0) {
 		throw new Error(`Could not resolve hostname "${hostname}".`);
 	}
-	for (const address of addresses) {
-		if (isPrivateAddress(address)) {
-			throw new Error(`Hostname "${hostname}" resolves to a private IP address, which is not allowed.`);
-		}
+	if (addresses.some(isPrivateAddress)) {
+		throw new Error(`Hostname "${hostname}" resolves to a private IP address, which is not allowed.`);
 	}
+	return addresses[0];
 }
 
 export async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<string> {
