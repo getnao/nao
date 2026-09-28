@@ -15,7 +15,7 @@ import { scaffoldCustomStoryFiles } from '../../services/story-scaffold';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
-import { STORIES_MOUNT } from '../../utils/story-mount';
+import { isValidStorySlug, STORIES_MOUNT } from '../../utils/story-mount';
 import { createTool } from '../../utils/tools';
 
 const STORY_FILTER_DESCRIPTION = [
@@ -206,6 +206,9 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 	const authoringError = customStoryAuthoringError(context.userGroupFeatures);
 	if (authoringError) {
 		return fail(input.id, `${authoringError} Create a classic story instead.`);
+	}
+	if (!isValidStorySlug(input.id)) {
+		return fail(input.id, `"${input.id}" is not a valid story id: use lowercase letters, digits and dashes.`);
 	}
 	if (!input.title) {
 		return fail(input.id, '"title" is required for the "create" action.');

@@ -32,6 +32,13 @@ export const parseStoriesPath = (virtualPath: string): StoryMountPath => {
 	return rest.length === 0 ? { kind: 'story', slug } : { kind: 'file', slug, filePath: rest.join('/') };
 };
 
+const STORY_SLUG = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/;
+
+/** A custom story slug is one path segment of the mount, so it cannot contain `/` or start with `@`. */
+export const isValidStorySlug = (slug: string): boolean => {
+	return STORY_SLUG.test(slug);
+};
+
 /** Virtual path of a story folder, or of a file inside it. */
 export const toStoriesVirtualPath = (slug?: string, filePath?: string): string => {
 	const segments = [STORIES_MOUNT, slug, filePath].filter((segment) => segment && segment !== '');
