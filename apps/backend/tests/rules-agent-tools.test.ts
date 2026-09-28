@@ -17,6 +17,7 @@ let originalEnv: typeof process.env;
 beforeEach(() => {
 	originalEnv = { ...process.env };
 	process.env.NAO_STORAGE_BACKEND = 'none';
+	process.env.BETA_CUSTOM_STORIES_ENABLED = 'false';
 	__reloadEnvForTesting();
 	__resetStorageForTesting();
 	projectFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-rules-tools-'));

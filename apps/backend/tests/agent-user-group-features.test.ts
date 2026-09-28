@@ -68,6 +68,7 @@ describe('agent user group feature tools', () => {
 			expectedCode: '# Replaced',
 		},
 	])('allows restricted users to run Story $action', async ({ action, input, expectedCode }) => {
+		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', slug: 'existing-story', format: 'classic' });
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
 			code: '# Old',
 			version: 1,
