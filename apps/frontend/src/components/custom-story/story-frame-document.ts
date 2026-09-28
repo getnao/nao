@@ -1,8 +1,7 @@
 import { STORY_HOST_MODULE, STORY_RUNTIME_MODULES } from '@nao/shared/story-app';
-import { FONT_STYLESHEET_HOSTS, storyThemeToCssVars } from '@nao/shared/story-theme';
+import { escapeScript, storyStylesheets } from '@nao/shared/story-document';
+import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
 import type { StoryTheme } from '@nao/shared/story-theme';
-
-import { KIT_STYLES } from '@/story-runtime/story-kit/styles';
 
 export interface StoryRuntimeLocation {
 	baseUrl: string;
@@ -53,30 +52,6 @@ ${storyStylesheets(input.theme, input.styles)}
 </html>`;
 }
 
-/** Theme fonts and variables, base and kit styles, then the story's own CSS: shared by the frame and downloads. */
-export function storyStylesheets(theme: StoryTheme, styles: string[]): string {
-	const fontLinks = theme.text.fontStylesheets.map(
-		(href) => `<link rel="stylesheet" href="${escapeAttribute(href)}">`,
-	);
-	const storyStyles = styles.map((css) => `<style>${escapeStyle(css)}</style>`);
-	return [
-		...fontLinks,
-		`<style>${escapeStyle(themeStyles(theme))}</style>`,
-		`<style>${BASE_STYLES}</style>`,
-		`<style>${KIT_STYLES}</style>`,
-		...storyStyles,
-	].join('\n');
-}
-
-/** JSON is valid JS, but `</script>` inside a string would still end the block; escaping `<` closes that door. */
-export function escapeScript(json: string): string {
-	return json.replaceAll('<', '\\u003c');
-}
-
-export function escapeAttribute(value: string): string {
-	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
-}
-
 function importMap(runtime: StoryRuntimeLocation): { imports: Record<string, string> } {
 	return {
 		imports: Object.fromEntries(
@@ -88,27 +63,7 @@ function importMap(runtime: StoryRuntimeLocation): { imports: Record<string, str
 	};
 }
 
-function themeStyles(theme: StoryTheme): string {
-	const declarations = Object.entries(storyThemeToCssVars(theme))
-		.map(([name, value]) => `${name}:${value}`)
-		.join(';');
-	return `:root{${declarations}}`;
-}
-
-const BASE_STYLES = `
-*,*::before,*::after{box-sizing:border-box}
-html,body{margin:0;min-height:100%}
-body{background:var(--background);color:var(--story-body-color);font-family:var(--font-sans);font-size:var(--story-body-size);line-height:var(--story-line-height);-webkit-font-smoothing:antialiased}
-h1,h2,h3,h4,h5,h6{font-family:var(--font-heading);color:var(--foreground);letter-spacing:var(--story-heading-tracking);margin:0}
-#root{min-height:100vh}
-.nao-story-crash{margin:16px;padding:12px 16px;border-radius:8px;background:#fef2f2;color:#991b1b;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap}
-`;
-
 async function sha256Source(source: string): Promise<string> {
 	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
 	return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
-}
-
-function escapeStyle(css: string): string {
-	return css.replaceAll(/<\/style/gi, '<\\/style');
 }

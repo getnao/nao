@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
+import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
 import type { QueryClient } from '@tanstack/react-query';
@@ -10,7 +11,6 @@ import type { CustomStoryContent } from '@/components/custom-story/custom-story-
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { StoryDownloadFile } from '@/components/story-download';
 import { narrativesOptions, queryDataOptions } from '@/components/custom-story/story-data-options';
-import { buildStoryExportDocument } from '@/components/custom-story/story-export-document';
 
 type RenderExport = (format: DownloadFormat, html: string) => Promise<StoryDownloadFile>;
 

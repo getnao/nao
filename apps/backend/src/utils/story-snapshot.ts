@@ -51,7 +51,7 @@ export async function buildStorySnapshotDownload(
 	};
 }
 
-async function renderStoryPdf(html: string): Promise<Buffer> {
+export async function renderStoryPdf(html: string): Promise<Buffer> {
 	const browser = await getBrowser();
 	const page = await browser.newPage();
 	try {

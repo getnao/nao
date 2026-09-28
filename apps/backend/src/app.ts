@@ -8,9 +8,6 @@ import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapte
 import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
-import { existsSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
@@ -74,10 +71,7 @@ import { BudgetExceededError, HandlerError } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
-
-// Get the directory of the current module (works in both dev and compiled)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
@@ -346,17 +340,6 @@ app.get(HEALTH_PATH, { logLevel: 'silent' }, async (_request, reply) => {
 	return { status: 'ok' };
 });
 
-// Serve frontend static files in production
-// Look for frontend dist in multiple possible locations
-const execDir = dirname(process.execPath); // Directory containing the compiled binary
-const possibleStaticPaths = [
-	join(execDir, 'public'), // Bun compiled: public folder next to binary
-	join(__dirname, 'public'), // When bundled: public folder next to compiled code
-	join(__dirname, '../public'), // Alternative bundled location
-	join(__dirname, '../../frontend/dist'), // Development: relative to backend src
-];
-
-const staticRoot = possibleStaticPaths.find((p) => existsSync(p));
 const isReservedBackendPath = (url: string) => {
 	const pathname = url.split('?', 1)[0];
 	return (
@@ -406,7 +389,7 @@ app.setNotFoundHandler((request, reply) => {
 	} else if (staticRoot) {
 		reply.sendFile('index.html');
 	} else if (isDev) {
-		reply.redirect(`http://localhost:3000${request.url}`);
+		reply.redirect(`${FRONTEND_DEV_ORIGIN}${request.url}`);
 	} else {
 		reply.status(404).send({ error: 'Not found' });
 	}

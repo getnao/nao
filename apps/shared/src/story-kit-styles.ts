@@ -1,4 +1,4 @@
-import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from './story-app';
 
 /** Loaded by the frame document before the story's own CSS, so `app.css` overrides it and hand-rolled */
 export const KIT_STYLES = `

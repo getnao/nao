@@ -23,6 +23,8 @@
 		"./table-display": "./src/table-display.tsx",
 		"./story-tabs": "./src/story-tabs.ts",
 		"./story-app": "./src/story-app.ts",
+		"./story-document": "./src/story-document.ts",
+		"./story-kit-styles": "./src/story-kit-styles.ts",
 		"./story-theme": "./src/story-theme.ts",
 		"./story-theme-contrast": "./src/story-theme-contrast.ts",
 		"./story-theme-source": "./src/story-theme-source.ts",
