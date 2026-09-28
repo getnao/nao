@@ -275,13 +275,15 @@ class RedshiftConfig(DatabaseConfig):
         sslmode = ask_text("SSL mode:", default="require") or "require"
         schema_name = ask_text("Default schema (uses 'public' if empty):")
 
-        auth_mode = ask_select(
-            "Authentication method:",
-            choices=[
-                questionary.Choice("Username / Password", value=RedshiftAuthMode.PASSWORD),
-                questionary.Choice("IAM (temporary credentials via AWS)", value=RedshiftAuthMode.IAM),
-                questionary.Choice("Azure Entra ID", value=RedshiftAuthMode.AZURE_ENTRA_ID),
-            ],
+        auth_mode = RedshiftAuthMode(
+            ask_select(
+                "Authentication method:",
+                choices=[
+                    questionary.Choice("Username / Password", value=RedshiftAuthMode.PASSWORD),
+                    questionary.Choice("IAM (temporary credentials via AWS)", value=RedshiftAuthMode.IAM),
+                    questionary.Choice("Azure Entra ID", value=RedshiftAuthMode.AZURE_ENTRA_ID),
+                ],
+            )
         )
 
         password: str | None = None
