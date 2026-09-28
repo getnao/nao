@@ -8,6 +8,16 @@ import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
+const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
+const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
+
+export type ContextPresence = {
+	rules: boolean;
+	semantics: boolean;
+	docs: boolean;
+	notionDocs: boolean;
+	databases: boolean;
+};
 const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
@@ -18,6 +28,12 @@ export type ConfiguredDatabase = {
 	id: string;
 	type?: string;
 } & Partial<Record<DatabaseIdentifyingField, string>>;
+
+export type ConfiguredSemanticLayer = {
+	type: string;
+	manifestPath: string;
+	database: string | null;
+};
 
 export function extractRequiredEnvVars(projectFolder: string): string[] {
 	const configPath = path.join(projectFolder, 'nao_config.yaml');
@@ -51,12 +67,39 @@ function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>
 }
 
 export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo[] {
-	const configPath = path.join(projectFolder, 'nao_config.yaml');
-	if (!fs.existsSync(configPath)) {
-		return [];
-	}
+	return configuredReposFrom(loadProjectConfig(projectFolder));
+}
 
-	const config = loadConfig(configPath);
+/** Returns configured database templates, falling back to the default when unavailable. */
+export function extractConfiguredTemplates(projectFolder: string): string[] {
+	return configuredTemplatesFrom(loadProjectConfig(projectFolder));
+}
+
+export function readProjectContext(projectFolder: string): {
+	repos: LinkedContextRepo[];
+	templates: string[];
+	presence: ContextPresence;
+} {
+	const config = loadProjectConfig(projectFolder);
+	return {
+		repos: configuredReposFrom(config),
+		templates: configuredTemplatesFrom(config),
+		presence: extractContextPresence(projectFolder),
+	};
+}
+
+/** Returns which filesystem-backed project context is available to read. */
+export function extractContextPresence(projectFolder: string): ContextPresence {
+	return {
+		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
+		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
+		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
+		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
+		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
+	};
+}
+
+function configuredReposFrom(config: unknown): LinkedContextRepo[] {
 	if (!isRecord(config) || !Array.isArray(config.repos)) {
 		return [];
 	}
@@ -84,6 +127,69 @@ export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo
 			},
 		];
 	});
+}
+
+function configuredTemplatesFrom(config: unknown): string[] {
+	if (!isRecord(config) || !Array.isArray(config.databases)) {
+		return [...DEFAULT_DATABASE_TEMPLATES];
+	}
+
+	const configuredTemplates = new Set<string>();
+	for (const database of config.databases) {
+		if (!isRecord(database)) {
+			continue;
+		}
+
+		const templates = getDatabaseTemplates(database);
+		const migratedTemplates = [
+			...new Set(
+				templates
+					.filter((template) => template !== 'description')
+					.map((template) => (template === 'how_to_use' ? 'query_history' : template)),
+			),
+		];
+		const resolvedTemplates = migratedTemplates.length > 0 ? migratedTemplates : DEFAULT_DATABASE_TEMPLATES;
+		for (const template of resolvedTemplates) {
+			configuredTemplates.add(template);
+		}
+	}
+
+	const resolvedTemplates = DATABASE_TEMPLATES.filter((template) => configuredTemplates.has(template));
+	return resolvedTemplates.length > 0 ? resolvedTemplates : [...DEFAULT_DATABASE_TEMPLATES];
+}
+
+function loadProjectConfig(projectFolder: string): unknown {
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	return fs.existsSync(configPath) ? loadConfig(configPath) : null;
+}
+
+function hasDirectoryContent(directoryPath: string): boolean {
+	if (!fs.existsSync(directoryPath)) {
+		return false;
+	}
+	try {
+		return fs.readdirSync(directoryPath, { withFileTypes: true }).some((entry) => {
+			if (entry.isFile()) {
+				return true;
+			}
+			return entry.isDirectory() && hasDirectoryContent(path.join(directoryPath, entry.name));
+		});
+	} catch {
+		return false;
+	}
+}
+
+function getDatabaseTemplates(database: Record<string, unknown>): string[] {
+	if (!('templates' in database) && !('accessors' in database)) {
+		return [...DEFAULT_DATABASE_TEMPLATES];
+	}
+
+	const templates = 'templates' in database ? database.templates : database.accessors;
+	if (!Array.isArray(templates)) {
+		return [...DEFAULT_DATABASE_TEMPLATES];
+	}
+	const stringTemplates = templates.filter((template): template is string => typeof template === 'string');
+	return templates.length === 0 || stringTemplates.length > 0 ? stringTemplates : [...DEFAULT_DATABASE_TEMPLATES];
 }
 
 export function extractConfiguredDatabases(projectFolder: string): ConfiguredDatabase[] {
@@ -125,6 +231,30 @@ export function extractConfiguredDatabases(projectFolder: string): ConfiguredDat
 
 		return [configuredDatabase];
 	});
+}
+
+/** The `semantic_layer` section of nao_config.yaml, or null when the project declares none. */
+export function extractConfiguredSemanticLayer(projectFolder: string): ConfiguredSemanticLayer | null {
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	if (!fs.existsSync(configPath)) {
+		return null;
+	}
+
+	const config = loadConfig(configPath);
+	if (!isRecord(config) || !isRecord(config.semantic_layer)) {
+		return null;
+	}
+
+	const semanticLayer = config.semantic_layer;
+	const manifestPath = normalizeString(semanticLayer.manifest_path);
+	if (!manifestPath) {
+		return null;
+	}
+	return {
+		type: normalizeString(semanticLayer.type) ?? 'metricflow',
+		manifestPath,
+		database: normalizeString(semanticLayer.database),
+	};
 }
 
 function deriveDatabaseNameFromPath(databasePath: string): string {

@@ -25,6 +25,54 @@ describe('isReadOnlySqlQuery', () => {
 		expect(await isReadOnlySqlQuery('WITH cte AS (SELECT id FROM users) SELECT * FROM cte')).toBe(true);
 	});
 
+	it('allows a recursive CTE with a column list', async () => {
+		expect(
+			await isReadOnlySqlQuery(
+				'WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 5) SELECT n FROM t',
+			),
+		).toBe(true);
+	});
+
+	it('allows a CTE with a column list and a second plain CTE', async () => {
+		expect(
+			await isReadOnlySqlQuery('WITH a(x) AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a JOIN b ON a.x = b.col'),
+		).toBe(true);
+	});
+
+	it('allows multiple CTEs with column lists', async () => {
+		expect(
+			await isReadOnlySqlQuery('WITH a(x) AS (SELECT 1), b(y) AS (SELECT 2) SELECT * FROM a JOIN b ON a.x = b.y'),
+		).toBe(true);
+	});
+
+	it('still blocks a DELETE behind a CTE with a column list', async () => {
+		expect(await isReadOnlySqlQuery('WITH t(n) AS (SELECT 1) DELETE FROM t')).toBe(false);
+	});
+
+	it('still blocks a DELETE behind a column-list CTE with a second plain CTE', async () => {
+		expect(await isReadOnlySqlQuery('WITH a(x) AS (SELECT 1), b AS (SELECT 2) DELETE FROM a')).toBe(false);
+	});
+
+	it('blocks a data-modifying CTE inside a column-list CTE body', async () => {
+		expect(await isReadOnlySqlQuery('WITH a(x) AS (DELETE FROM t RETURNING *) SELECT * FROM a')).toBe(false);
+	});
+
+	it('blocks a data-modifying CTE inside a plain CTE body', async () => {
+		expect(await isReadOnlySqlQuery('WITH cte AS (DELETE FROM users RETURNING *) SELECT * FROM cte')).toBe(false);
+	});
+
+	it('blocks an INSERT inside a CTE body', async () => {
+		expect(await isReadOnlySqlQuery('WITH cte AS (INSERT INTO t VALUES (1) RETURNING *) SELECT * FROM cte')).toBe(
+			false,
+		);
+	});
+
+	it('blocks a data-modifying second CTE body alongside a read CTE', async () => {
+		expect(
+			await isReadOnlySqlQuery('WITH a(x) AS (SELECT 1), b AS (DELETE FROM t RETURNING *) SELECT * FROM a'),
+		).toBe(false);
+	});
+
 	it('blocks INSERT', async () => {
 		expect(await isReadOnlySqlQuery("INSERT INTO users (name) VALUES ('alice')")).toBe(false);
 	});

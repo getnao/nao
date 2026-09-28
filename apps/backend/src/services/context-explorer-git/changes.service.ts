@@ -183,7 +183,7 @@ async function discardPath(repo: ResolvedContextRepo, projectFolder: string, fil
 
 function resolveDiscardTarget(repo: ResolvedContextRepo, filePath: string): { root: string; target: string } {
 	const root = canonicalizeWriteRoot(getWorktreeProjectRoot(repo));
-	const target = toRealPath(filePath, root);
+	const target = toRealPath(filePath, root, { resolveSymlinks: false });
 	assertNoSymlinkInWritePath(root, path.dirname(target), filePath);
 	return { root, target };
 }
@@ -359,7 +359,7 @@ function readWorkingTreeContent(repo: ResolvedContextRepo, filePath: string): Bu
 }
 
 export function validateWorktreePath(repo: ResolvedContextRepo, filePath: string): void {
-	toRealPath(filePath, getWorktreeProjectRoot(repo));
+	toRealPath(filePath, getWorktreeProjectRoot(repo), { resolveSymlinks: false });
 }
 
 export function assertCleanWorktree(repo: ResolvedContextRepo): void {

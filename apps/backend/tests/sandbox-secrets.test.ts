@@ -75,7 +75,7 @@ describe('system prompt sandbox secrets block', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sandboxed_code'] }));
 		expect(markdown).toContain('## Sandbox Secrets');
 		expect(markdown).toContain('has not defined any secret');
-		expect(markdown).toContain('Settings → Agent → Capabilities → Sandbox secrets');
+		expect(markdown).toContain('Settings → Project → Agent → Capabilities → Sandbox secrets');
 	});
 
 	it('is omitted when the sandbox tool is not in the tool set', () => {

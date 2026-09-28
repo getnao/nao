@@ -1,5 +1,6 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
+import type { SemanticLayerMode } from '@nao/shared/types';
 
 import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills } from '../../agents/skills';
@@ -10,7 +11,7 @@ import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
 import { formatCurrentDate } from '../../utils/date';
-import type { ConfiguredDatabase } from '../../utils/nao-config';
+import type { ConfiguredDatabase, ContextPresence } from '../../utils/nao-config';
 import { groupBy } from '../../utils/utils';
 import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
 import { NaoContextStructure } from './nao-context-structure';
@@ -33,6 +34,11 @@ type SystemPromptProps = {
 	mcpServers?: string[];
 	/** Secrets the user made available to sandboxes as environment variables — names and purposes only, never values. */
 	sandboxSecrets?: SandboxSecretDefinition[];
+	/** How the run may use the project's semantic layer; null or undefined when the project has none. */
+	semanticLayerMode?: SemanticLayerMode | null;
+	templates?: string[];
+	repoNames?: string[];
+	contextPresence?: ContextPresence;
 	timezone?: string;
 	testMode?: boolean;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
@@ -58,6 +64,10 @@ export function SystemPrompt({
 	customCharts = [],
 	mcpServers = [],
 	sandboxSecrets = [],
+	semanticLayerMode = null,
+	templates,
+	repoNames = [],
+	contextPresence,
 	timezone,
 	testMode,
 	toolNames,
@@ -65,6 +75,7 @@ export function SystemPrompt({
 }: SystemPromptProps) {
 	const { canGrepSavedFiles = true } = options;
 	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
+	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const dialectToolCallRules = getDialectToolCallRules(connections);
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
@@ -89,7 +100,7 @@ export function SystemPrompt({
 				<Br />
 				Skills can be mentioned using the / trigger.
 			</Span>
-			<NaoContextStructure />
+			<NaoContextStructure templates={templates} repoNames={repoNames} contextPresence={contextPresence} />
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>
@@ -112,7 +123,25 @@ export function SystemPrompt({
 						Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
 						researching.
 					</ListItem>,
-					<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>,
+					hasTool('task') && (
+						<ListItem>
+							When a data question needs context you do not have yet (which tables, columns, joins or
+							definitions apply), delegate the discovery to the <Bold>explore</Bold> subagent with the{' '}
+							<Bold>task</Bold> tool instead of exploring the files yourself: give it a short{' '}
+							<Bold>description</Bold> as title, a self-contained prompt naming the business terms,
+							entities and time frame, and the thoroughness level to work at (quick, medium or very
+							thorough), then work from its report and read only what you must verify. Explore directly
+							when you already know where to look or a single file answers it. Pass <Bold>model_id</Bold>{' '}
+							only when the user explicitly asks for a specific model to run the subagent.
+						</ListItem>
+					),
+					hasTool('execute_sql') && semanticLayerMode !== 'exclusive' && (
+						<ListItem>
+							{hasTool('execute_semantic_query')
+								? 'If you can execute a SQL query and no semantic metric or dimension covers the question, use the execute_sql tool for it.'
+								: 'If you can execute a SQL query, use the execute_sql tool for it.'}
+						</ListItem>
+					),
 					!testMode && (
 						<ListItem>
 							Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
@@ -132,7 +161,16 @@ export function SystemPrompt({
 					canExecuteSql={hasTool('execute_sql')}
 				/>
 			)}
-			{hasTool('execute_sql') && <LocalDatabaseBlock canSaveResults={hasTool('write')} />}
+			{hasTool('execute_sql') && (
+				<LocalDatabaseBlock
+					canSaveResults={hasTool('write')}
+					hasSemanticResults={hasTool('execute_semantic_query')}
+					warehouseSqlEnabled={semanticLayerMode !== 'exclusive'}
+				/>
+			)}
+			{semanticLayerMode && (
+				<SemanticLayerBlock mode={semanticLayerMode} canQuery={hasTool('execute_semantic_query')} />
+			)}
 			<Title level={2}>Chart{hasTool('display_map') ? ' & Map' : ''} Rules</Title>
 			<List>
 				<ListItem>
@@ -242,7 +280,9 @@ export function SystemPrompt({
 				<ListItem>
 					The column_name must match the column in the SELECT output that produced the number.
 				</ListItem>
-				<ListItem>The Query ID is shown in the execute_sql tool output (e.g., Query ID: query_a1b2).</ListItem>
+				<ListItem>
+					The Query ID is shown in the {queryToolLabel} tool output (e.g., Query ID: query_a1b2).
+				</ListItem>
 			</List>
 			<Title level={2}>Formatting Rules</Title>
 			<List>
@@ -273,7 +313,9 @@ export function SystemPrompt({
 					</Block>
 				)}
 
-				{configuredDatabases.length >= 2 && <ConfiguredDatabasesBlock databases={configuredDatabases} />}
+				{configuredDatabases.length >= 2 && semanticLayerMode !== 'exclusive' && (
+					<ConfiguredDatabasesBlock databases={configuredDatabases} />
+				)}
 
 				{skills.length > 0 && (
 					<Block>
@@ -451,14 +493,24 @@ function PermanentStorageBlock({
 	);
 }
 
-function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
+function LocalDatabaseBlock({
+	canSaveResults,
+	hasSemanticResults,
+	warehouseSqlEnabled,
+}: {
+	canSaveResults: boolean;
+	hasSemanticResults: boolean;
+	warehouseSqlEnabled: boolean;
+}) {
 	return (
 		<Block>
 			<Title level={2}>The local database</Title>
 			<Span>
 				Passing <Bold>{LOCAL_DATABASE_ID}</Bold> as execute_sql's <Bold>database_id</Bold> runs the query in
-				nao's own DuckDB instead of a warehouse. It is always available, and it can do two things no warehouse
-				can.
+				nao's own DuckDB instead of a warehouse.{' '}
+				{warehouseSqlEnabled
+					? 'It is always available, and it can do two things no warehouse can.'
+					: 'It is the only database_id execute_sql accepts in this project, and it can do two things the semantic layer cannot.'}
 			</Span>
 			<List>
 				<ListItem>
@@ -471,9 +523,11 @@ function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
 					<Bold>{"sheet = 'Name'"}</Bold>, and <Bold>read</Bold> on the file lists the names to pass.
 				</ListItem>
 				<ListItem>
-					<Bold>Query an earlier result by its id.</Bold> Every execute_sql result in this chat is a table
-					named after its query id, so <Bold>{'SELECT * FROM query_ab12cd34'}</Bold> reshapes rows you already
-					have without hitting the warehouse again.
+					<Bold>Query an earlier result by its id.</Bold> Every{' '}
+					{hasSemanticResults ? 'execute_sql and execute_semantic_query' : 'execute_sql'} result in this chat
+					is a table named after its query id, so <Bold>{'SELECT * FROM query_ab12cd34'}</Bold> reshapes rows
+					you already have without hitting the warehouse again
+					{hasSemanticResults ? ': join two metrics, pivot a breakdown, compute shares or deltas.' : '.'}
 				</ListItem>
 				<ListItem>
 					<Bold>Join the two.</Bold> A file joined to a query result is the point of this database: an
@@ -502,11 +556,78 @@ function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
 			<Span>
 				It is DuckDB, so write DuckDB SQL. The query itself only reads: writing a file is what{' '}
 				{canSaveResults ? <Bold>save_to</Bold> : 'the write tool'} is for, and a <Bold>COPY … TO</Bold> in the
-				SQL is rejected. It sees only the user's own saved files and the project folder. For questions a
-				warehouse can answer on its own, keep using the warehouse — this is for files and for results you
-				already have.
+				SQL is rejected. It sees only the user's own saved files and the project folder.{' '}
+				{warehouseSqlEnabled
+					? 'For questions a warehouse can answer on its own, keep using the warehouse — this is for files and for results you already have.'
+					: 'It holds no warehouse data of its own: get the numbers from execute_semantic_query first, then reshape them here.'}
 			</Span>
 		</Block>
+	);
+}
+
+function SemanticLayerBlock({ mode, canQuery }: { mode: SemanticLayerMode; canQuery: boolean }) {
+	return (
+		<Block>
+			<Title level={2}>Semantic layer</Title>
+			<Span>
+				This project has a semantic layer (dbt MetricFlow): governed metric definitions synced under{' '}
+				<Bold>semantics/</Bold>. <Bold>semantics/metrics/{'<metric>'}.md</Bold> describes each metric and the
+				dimensions it can be grouped or filtered by; <Bold>semantics/dimensions.md</Bold> lists every dimension.
+				Discover them with grep, search, read and list like any other context.
+			</Span>
+			<List>
+				{canQuery ? (
+					<SemanticLayerQueryRules exclusive={mode === 'exclusive'} />
+				) : (
+					<ListItem>
+						The definitions are context only: querying the layer is not available here. When a question is
+						about a metric the layer defines, read its file and reproduce the definition faithfully in the
+						SQL you write with execute_sql, and say that you followed the semantic layer definition.
+					</ListItem>
+				)}
+			</List>
+		</Block>
+	);
+}
+
+function SemanticLayerQueryRules({ exclusive }: { exclusive: boolean }) {
+	return (
+		<>
+			<ListItem>
+				For any question about a metric (revenue, orders, churn, conversion...), first look for a matching
+				metric in <Bold>semantics/</Bold>. When one exists, answer with <Bold>execute_semantic_query</Bold>{' '}
+				rather than recomputing the metric with hand-written SQL: the layer holds the official definition, and a
+				hand-written version silently drifts from it.
+			</ListItem>
+			{exclusive ? (
+				<ListItem>
+					Every warehouse question <Bold>must</Bold> go through execute_semantic_query: raw SQL against the
+					warehouse is not available in this project, and you must not write it even when asked. execute_sql
+					only accepts <Bold>{LOCAL_DATABASE_ID}</Bold>, to post-process semantic results (
+					<Bold>{'SELECT * FROM <query_id>'}</Bold>) or read files. If the layer cannot express the question
+					(missing metric, dimension or filter), say so plainly and offer what the layer can answer instead.
+					To look up the values a dimension takes, query a metric grouped by that dimension.
+				</ListItem>
+			) : (
+				<ListItem>
+					Fall back to execute_sql only when no metric or dimension covers the question, or when the user says
+					the semantic result does not answer it. Say so when you fall back.
+				</ListItem>
+			)}
+			<ListItem>
+				Name group_by items as <Bold>entity__dimension</Bold> exactly as documented (e.g.{' '}
+				<Bold>customer__region</Bold>); time dimensions take a granularity suffix (
+				<Bold>metric_time__month</Bold>, <Bold>order__ordered_at__week</Bold>) and every metric supports{' '}
+				<Bold>metric_time</Bold>. In <Bold>where</Bold>, reference dimensions through templates so the layer
+				resolves the joins: <Bold>{"{{ Dimension('customer__region') }} = 'EMEA'"}</Bold>,{' '}
+				<Bold>{"{{ TimeDimension('metric_time', 'day') }} >= '2024-01-01'"}</Bold>. Prefer start_time and
+				end_time for plain date ranges.
+			</ListItem>
+			<ListItem>
+				A semantic result is a normal query result: its query id works with display_chart, stories and
+				read_query_result. To change it, call execute_semantic_query again; its SQL is not editable.
+			</ListItem>
+		</>
 	);
 }
 
@@ -586,7 +707,7 @@ function SandboxSecretsBlock({ secrets }: { secrets: SandboxSecretDefinition[] }
 				<Span>
 					The user has not defined any secret for sandboxes. When code needs an API key or another credential,
 					do not ask the user to paste it in the chat: tell them to add it under{' '}
-					<Bold>Settings → Agent → Capabilities → Sandbox secrets</Bold>, after which it becomes an
+					<Bold>Settings → Project → Agent → Capabilities → Sandbox secrets</Bold>, after which it becomes an
 					environment variable inside execute_sandboxed_code.
 				</Span>
 			) : (
@@ -598,7 +719,7 @@ function SandboxSecretsBlock({ secrets }: { secrets: SandboxSecretDefinition[] }
 						values, and any value that appears in the sandbox output is replaced with{' '}
 						<Bold>{'[REDACTED:NAME]'}</Bold> before it reaches you, so do not print, log or write them to
 						files and never ask the user to paste a secret in the chat. If a credential is missing, tell the
-						user to add it under <Bold>Settings → Agent → Capabilities → Sandbox secrets</Bold>.
+						user to add it under <Bold>Settings → Project → Agent → Capabilities → Sandbox secrets</Bold>.
 					</Span>
 					<List>
 						{secrets.map((secret) => (

@@ -10,6 +10,7 @@ import { resolveUserId } from './auth';
 import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
 import { resolveMcpProjectId } from './project';
 import { createMcpServer } from './server';
+import { withoutJsonSchemaDialect } from './tool-schema-dialect';
 
 declare module 'fastify' {
 	interface FastifyRequest {
@@ -80,7 +81,7 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 		settings,
 		isChartDataModeRequest(request),
 	);
-	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+	const transport = withoutJsonSchemaDialect(new StreamableHTTPServerTransport({ sessionIdGenerator: undefined }));
 
 	reply.raw.on('close', () => {
 		transport.close().catch(() => {});

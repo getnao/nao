@@ -6,21 +6,30 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const contextSources = ['local', 'git', 'api'] as const;
+const cloudCompatibleContextSources = ['local', 'api'] as const;
+const gitCloudError = 'NAO_CONTEXT_SOURCE=git cannot be set when NAO_MODE=cloud.';
 const envModuleUrl = new URL('../src/env.ts', import.meta.url).href;
 
-describe.each(contextSources)('NAO_CONTEXT_SOURCE=%s', (contextSource) => {
-	it('rejects the source in cloud mode', () => {
-		const result = loadEnv('cloud', contextSource);
+describe('NAO_CONTEXT_SOURCE', () => {
+	it('rejects git in cloud mode', () => {
+		const result = loadEnv('cloud', 'git');
 
 		expect(result.status).toBe(1);
-		expect(result.stderr).toContain('NAO_CONTEXT_SOURCE cannot be set when NAO_MODE=cloud.');
+		expect(result.stderr).toContain(gitCloudError);
 	});
 
-	it('accepts the source in self-hosted mode', () => {
+	it.each(cloudCompatibleContextSources)('accepts %s in cloud mode', (contextSource) => {
+		const result = loadEnv('cloud', contextSource);
+
+		expect(result.status).toBe(0);
+		expect(result.stderr).not.toContain(gitCloudError);
+	});
+
+	it.each(contextSources)('accepts %s in self-hosted mode', (contextSource) => {
 		const result = loadEnv('self-hosted', contextSource);
 
 		expect(result.status).toBe(0);
-		expect(result.stderr).not.toContain('NAO_CONTEXT_SOURCE cannot be set when NAO_MODE=cloud.');
+		expect(result.stderr).not.toContain(gitCloudError);
 	});
 });
 

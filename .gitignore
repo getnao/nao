@@ -33,3 +33,4 @@ example/tests/outputs/
 .heal/
 apps/frontend/.playwright*
 sandbox/
+.venv/

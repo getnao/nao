@@ -72,20 +72,20 @@ async function run(input: Record<string, unknown>, context: ToolContext) {
 	return tool.execute!(input as never, { toolCallId: 'call', messages: [], experimental_context: context } as never);
 }
 
+/** Housekeeping execs pass variadic string args; only user code is run with an args array. */
 function guestExecCalls() {
-	return exec.mock.calls.filter(([command]) => command !== 'mkdir');
+	return exec.mock.calls.filter(([, args]) => Array.isArray(args));
 }
 
 beforeEach(() => {
 	exec.mockReset();
 	resolve.mockReset();
 	constructed.length = 0;
-	exec.mockImplementation(async (command: string, args: string[] | string) => {
-		if (command === 'mkdir') {
+	exec.mockImplementation(async (_command: string, args: string[] | string) => {
+		if (!Array.isArray(args)) {
 			return { stdout: '', stderr: '', exitCode: 0 };
 		}
-		const code = Array.isArray(args) ? args[1] : '';
-		return { stdout: `out ${SECRET_VALUE} ${code}`, stderr: `err ${SECRET_VALUE}`, exitCode: 0 };
+		return { stdout: `out ${SECRET_VALUE} ${args[1]}`, stderr: `err ${SECRET_VALUE}`, exitCode: 0 };
 	});
 	resolve.mockResolvedValue([{ name: 'OPENWEATHER_API_KEY', value: SECRET_VALUE }]);
 });
@@ -128,8 +128,8 @@ describe('execute_sandboxed_code secrets', () => {
 	});
 
 	it('redacts secret values from execution errors', async () => {
-		exec.mockImplementation(async (command: string) => {
-			if (command === 'mkdir') {
+		exec.mockImplementation(async (_command: string, args: string[] | string) => {
+			if (!Array.isArray(args)) {
 				return { stdout: '', stderr: '', exitCode: 0 };
 			}
 			throw new ExecError(`boom ${SECRET_VALUE}`);

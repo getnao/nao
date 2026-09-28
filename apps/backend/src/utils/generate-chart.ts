@@ -1,5 +1,8 @@
+import { CHART_EMBEDDED_FONT_FAMILY, CHART_FONT_STACK } from '@nao/shared';
 import { Resvg } from '@resvg/resvg-js';
 import * as cheerio from 'cheerio';
+
+import { chartFontFiles } from './chart-fonts';
 
 function extractSvgFromHTML(html: string): string {
 	const $ = cheerio.load(html, { xmlMode: true });
@@ -95,7 +98,7 @@ function buildLegend(entries: LegendEntry[], width: number, centerY: number): st
 				'dominant-baseline': 'middle',
 				'font-size': '12',
 				'font-weight': '300',
-				'font-family': 'system-ui, sans-serif',
+				'font-family': CHART_FONT_STACK,
 				fill: '#6b7280',
 			})
 			.text(entry.label)
@@ -130,7 +133,7 @@ function buildVerticalLegend(entries: LegendEntry[], xOffset: number, rightEdge:
 				'dominant-baseline': 'middle',
 				'font-size': '12',
 				'font-weight': '300',
-				'font-family': 'system-ui, sans-serif',
+				'font-family': CHART_FONT_STACK,
 				fill: '#6b7280',
 			})
 			.text(truncateLabel(entry.label, maxChars))
@@ -159,9 +162,85 @@ export function truncateLabel(label: string, maxChars: number): string {
 }
 
 export function svgToPng(svg: string, zoom = 2): Buffer {
-	const resvg = new Resvg(svg, {
+	const resvg = new Resvg(resolveCssVariables(svg), {
 		fitTo: { mode: 'zoom' as const, value: zoom },
-		font: { loadSystemFonts: true },
+		font: {
+			fontFiles: chartFontFiles,
+			defaultFontFamily: CHART_EMBEDDED_FONT_FAMILY,
+			sansSerifFamily: CHART_EMBEDDED_FONT_FAMILY,
+			loadSystemFonts: true,
+		},
 	});
 	return Buffer.from(resvg.render().asPng());
+}
+
+const PAINT_ATTRIBUTES = ['fill', 'stroke', 'stop-color', 'color', 'style'];
+const PAINT_ATTRIBUTE_PATTERN = new RegExp(`(${PAINT_ATTRIBUTES.join('|')})="([^"]*)"`, 'g');
+
+/**
+ * resvg resolves no CSS custom property, so `var(--x, #111)` reaches the
+ * renderer verbatim and silently degrades to the SVG default fill. Only the
+ * PNG path needs this: the same markup keeps its variables when embedded in
+ * story HTML, where the browser resolves them against the active theme.
+ *
+ * Scoped to paint attributes because chart titles and labels are user data: a
+ * title reading "var(--foo, 12px)" must reach the PNG unchanged.
+ */
+export function resolveCssVariables(svg: string): string {
+	return svg.replace(PAINT_ATTRIBUTE_PATTERN, (match, attribute, value) => {
+		const resolved = resolveVarFunctions(value);
+		return resolved === value ? match : `${attribute}="${resolved}"`;
+	});
+}
+
+/**
+ * Hand-scanned rather than matched by regex: a fallback can itself be a
+ * function, as in `var(--c, rgb(0,0,0))`, which no single pattern can bracket.
+ */
+function resolveVarFunctions(value: string): string {
+	const start = value.indexOf('var(');
+	if (start === -1) {
+		return value;
+	}
+
+	const open = start + 'var('.length;
+	const close = findClosingParenthesis(value, open);
+	if (close === -1) {
+		return value;
+	}
+
+	const fallback = splitFallback(value.slice(open, close));
+	const replacement = fallback === undefined ? value.slice(start, close + 1) : resolveVarFunctions(fallback);
+	return value.slice(0, start) + replacement + resolveVarFunctions(value.slice(close + 1));
+}
+
+function findClosingParenthesis(value: string, open: number): number {
+	let depth = 1;
+	for (let index = open; index < value.length; index += 1) {
+		if (value[index] === '(') {
+			depth += 1;
+		} else if (value[index] === ')') {
+			depth -= 1;
+			if (depth === 0) {
+				return index;
+			}
+		}
+	}
+	return -1;
+}
+
+/** Returns the fallback of `--name, fallback`, or undefined when there is none. */
+function splitFallback(argumentList: string): string | undefined {
+	let depth = 0;
+	for (let index = 0; index < argumentList.length; index += 1) {
+		const character = argumentList[index];
+		if (character === '(') {
+			depth += 1;
+		} else if (character === ')') {
+			depth -= 1;
+		} else if (character === ',' && depth === 0) {
+			return argumentList.slice(index + 1).trim();
+		}
+	}
+	return undefined;
 }

@@ -161,11 +161,15 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 				const resolvedRecipients = [...new Set([...recipients, ...config.recipients])];
 				await Promise.all(
 					resolvedRecipients.map((recipient) =>
-						emailService.sendEmail(recipient, {
-							subject: resolvedSubject,
-							html: content,
-							attachments: emailAttachments,
-						}),
+						emailService.sendEmail(
+							recipient,
+							{
+								subject: resolvedSubject,
+								html: content,
+								attachments: emailAttachments,
+							},
+							{ throwOnError: true },
+						),
 					),
 				);
 				return { ok: true, recipients: resolvedRecipients, attachments: attachments.map((a) => a.filename) };

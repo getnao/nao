@@ -45,6 +45,11 @@ const settingsNavGroups: NavGroup[] = [
 				visible: ({ isViewer }) => !isViewer,
 			},
 			{
+				label: 'User Groups',
+				to: '/settings/project/user-groups',
+				visible: ({ isAdmin }) => isAdmin,
+			},
+			{
 				label: 'Agent',
 				to: '/settings/project/agent',
 				visible: ({ isViewer }) => !isViewer,

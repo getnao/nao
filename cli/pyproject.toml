@@ -79,6 +79,11 @@ notion = ["notion-client>=3.1.0,<4", "notion2md>=2.9.0,<3"]
 # body Confluence renders into the markdown the context layer stores.
 confluence = ["markdownify>=0.13.0,<2"]
 
+# Semantic layer engines
+# MetricFlow is only used as a SQL compiler (its engine class is an internal API), so the
+# minor version is pinned and bumped deliberately after re-running the compile tests.
+semantic-layer = ["metricflow>=0.213.0,<0.214"]
+
 # Secret resolution backends
 aws-secrets = ["boto3>=1.34.0", "glom>=23.0.0"]
 k8s-secrets = ["kubernetes>=29.0.0"]
@@ -88,7 +93,7 @@ all-databases = [
     "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,starrocks]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
-all = ["nao-core[all-databases,all-llms,notion,confluence,aws-secrets,k8s-secrets]"]
+all = ["nao-core[all-databases,all-llms,notion,confluence,semantic-layer,aws-secrets,k8s-secrets]"]
 dev = ["pytest>=9.0.2", "pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]

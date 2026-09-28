@@ -16,9 +16,12 @@ import type { DynamicToolName } from '@/components/tool-calls';
 /** The ID used for new chats not yet persisted to the db. */
 export const NEW_CHAT_ID = 'new-chat';
 
-/** Check if a tool has reached its final state (no more actions needed). */
-export const isToolSettled = ({ state }: UIToolPart) => {
-	return state === 'output-available' || state === 'output-denied' || state === 'output-error';
+/** Check if a tool has reached its final state (no more actions needed). A preliminary output is streamed progress, not a final state. */
+export const isToolSettled = (part: UIToolPart) => {
+	if (part.state === 'output-available') {
+		return part.preliminary !== true;
+	}
+	return part.state === 'output-denied' || part.state === 'output-error';
 };
 
 /** Check if a message part is a tool part (static or dynamic). */
@@ -58,7 +61,11 @@ export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
 	if (!lastMessage) {
 		return false;
 	}
-	return lastMessage.parts.some((part) => isToolUIPart(part) && part.state === 'input-available');
+	return lastMessage.parts.some((part) => isToolUIPart(part) && isToolExecuting(part));
+};
+
+const isToolExecuting = (part: UIToolPart) => {
+	return part.state === 'input-available' || (part.state === 'output-available' && part.preliminary === true);
 };
 
 export const isMessageStreaming = (message: UIMessage) => {
@@ -78,7 +85,9 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 	compact: ['story', 'display_chart', 'display_map', 'suggest_follow_ups', 'clarification'],
 	detailed: [
 		'story',
+		'task',
 		'execute_sql',
+		'execute_semantic_query',
 		'query_app_db',
 		'record_recommendation',
 		'display_chart',
@@ -150,6 +159,9 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 	};
 
 	for (const part of parts) {
+		if (isSettledEmptyReasoning(part)) {
+			continue;
+		}
 		if (isPartGroupable(part, density)) {
 			currentGroup.push(part);
 		} else if (
@@ -165,6 +177,11 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 
 	flushGroup();
 	return result;
+};
+
+/** Some providers emit reasoning parts without any readable text (redacted or encrypted reasoning). */
+const isSettledEmptyReasoning = (part: UIMessagePart): boolean => {
+	return isReasoningPart(part) && part.state !== 'streaming' && part.text.trim() === '';
 };
 
 /** Check if a message part should be collapsed (tool or reasoning) */

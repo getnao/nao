@@ -6,6 +6,7 @@ import { DisplayChartToolCall } from './display-chart';
 import { DisplayMapToolCall } from './display-map';
 import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
+import { ExecuteSemanticQueryToolCall } from './execute-semantic-query';
 import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
@@ -15,6 +16,7 @@ import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
 import { SearchToolCall } from './search';
+import { TaskToolCall } from './task';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
 import { WriteToolCall } from './write';
@@ -37,11 +39,13 @@ const toolComponents: Partial<{
 	execute_python: ExecutePythonToolCall,
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
+	execute_semantic_query: ExecuteSemanticQueryToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
 	search: SearchToolCall,
+	task: TaskToolCall,
 	write: WriteToolCall,
 };
 

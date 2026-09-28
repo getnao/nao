@@ -72,6 +72,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 						excludeTools: [
 							'display_chart',
 							'execute_python',
+							'execute_semantic_query',
 							'execute_sql',
 							'execute_sandboxed_code',
 							'grep',
@@ -394,7 +395,13 @@ export function fitThinkingBudget(
 
 	const anthropic = fitted.anthropic;
 	const thinking = anthropic?.thinking;
-	if (anthropic && thinking?.type === 'enabled' && thinking.budgetTokens !== undefined) {
+	if (
+		anthropic &&
+		thinking &&
+		'type' in thinking &&
+		thinking.type === 'enabled' &&
+		thinking.budgetTokens !== undefined
+	) {
 		const budget = fitBudget(thinking.budgetTokens, maxOutputTokens);
 		const rest = { ...anthropic };
 		delete rest.thinking;

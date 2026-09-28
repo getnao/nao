@@ -7,7 +7,7 @@ import { generateApiKey } from '../services/api-key.service';
 import { protectedProcedure } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
+	const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
 	if (!membership) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 	}

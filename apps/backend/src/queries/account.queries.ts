@@ -26,6 +26,27 @@ export const getIdToken = async (userId: string, providerId: string): Promise<st
 	return account?.idToken ?? null;
 };
 
+export interface LoginTokens {
+	idToken: string | null;
+	accessToken: string | null;
+	accessTokenExpiresAt: Date | null;
+}
+
+export const getLoginTokens = async (userId: string, providerId: string): Promise<LoginTokens | null> => {
+	const [account] = await db
+		.select({
+			idToken: s.account.idToken,
+			accessToken: s.account.accessToken,
+			accessTokenExpiresAt: s.account.accessTokenExpiresAt,
+		})
+		.from(s.account)
+		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, providerId)))
+		.limit(1)
+		.execute();
+
+	return account ?? null;
+};
+
 export const hasAccountForProvider = async (userId: string, providerId: string): Promise<boolean> => {
 	const [account] = await db
 		.select({ id: s.account.id })

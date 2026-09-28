@@ -1,5 +1,6 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { stripAssistantTags } from '@nao/shared';
+import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Chat, deriveChannelId, type Logger as ChatLogger, Message, Thread, ThreadImpl } from 'chat';
@@ -481,7 +482,7 @@ class ProjectMattermostBot {
 
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
 			for (const sqlPart of uiMessage.parts) {
-				if (sqlPart.type === 'tool-execute_sql') {
+				if (isQueryResultPart(sqlPart)) {
 					this._handleSqlPart(sqlPart, state);
 				}
 			}
@@ -571,7 +572,7 @@ class ProjectMattermostBot {
 		}
 	}
 
-	private _handleSqlPart(part: Extract<UIMessagePart, { type: 'tool-execute_sql' }>, state: StreamState): void {
+	private _handleSqlPart(part: Extract<UIMessagePart, { type: QueryResultPartType }>, state: StreamState): void {
 		if (part.state !== 'output-available') {
 			return;
 		}

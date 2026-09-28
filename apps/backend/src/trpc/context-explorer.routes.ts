@@ -35,6 +35,7 @@ import {
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
+import { listActiveUserGroups } from '../services/user-group-availability.service';
 import {
 	ContextProjectResolutionError,
 	resolveContextRepository,
@@ -176,6 +177,14 @@ export const contextExplorerRoutes = {
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const entries = await getFileTree(requireProjectPath(ctx.project.path));
 		return { entries };
+	}),
+
+	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const groups = await listActiveUserGroups(ctx.project.id);
+		return {
+			enforced: true as const,
+			groups: groups.map(({ id, name, isDefault }) => ({ id, name, isDefault })),
+		};
 	}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {

@@ -1,4 +1,4 @@
-export type HandlerErrorCode = 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND';
+export type HandlerErrorCode = 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT';
 
 /**
  * A general error class for route/procedure handling errors.
@@ -27,4 +27,5 @@ const httpStatusByHandlerErrorCode: Record<HandlerErrorCode, number> = {
 	UNAUTHORIZED: 401,
 	FORBIDDEN: 403,
 	NOT_FOUND: 404,
+	CONFLICT: 409,
 };

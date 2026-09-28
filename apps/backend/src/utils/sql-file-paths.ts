@@ -6,8 +6,14 @@ export interface RewrittenSql {
 	storagePaths: string[];
 }
 
+export interface SqlFilePathAccess {
+	paths: string[];
+	hasUnknownPath: boolean;
+}
+
 const FILE_READER_CALL =
 	/\b(?:read_(?:blob|csv(?:_auto)?|json(?:_auto|_objects)?|ndjson(?:_auto|_objects)?|parquet|text|xlsx))\s*\(/gi;
+const FILE_PATH_MARKER = '__nao_file_path__';
 
 /**
  * Rewrites the virtual paths in a query's string literals to the real paths DuckDB has to open.
@@ -41,6 +47,24 @@ export const rewriteStorageLiterals = (sql: string, toRealPath: (relativePath: s
 /** The saved files a query asks for, as paths inside the user's storage space. */
 export const storagePathsIn = (sql: string): string[] => {
 	return rewriteStorageLiterals(sql, (relativePath) => relativePath).storagePaths;
+};
+
+export const filePathAccessIn = (sql: string): SqlFilePathAccess => {
+	const paths: string[] = [];
+	const masked = mapStringLiterals(sql, (literal, beforeLiteral) => {
+		if (!isFilePathArgument(beforeLiteral)) {
+			return '';
+		}
+		paths.push(literal);
+		return FILE_PATH_MARKER;
+	});
+	const withoutComments = stripSqlComments(masked);
+	const calls = [...withoutComments.matchAll(FILE_READER_CALL)];
+
+	return {
+		paths,
+		hasUnknownPath: calls.some((call) => !hasKnownFilePathArgument(withoutComments, call)),
+	};
 };
 
 /**
@@ -113,6 +137,21 @@ const isFilePathArgument = (beforeLiteral: string): boolean => {
 	const afterOpenParen = withoutComments.slice(latest.index + latest[0].length);
 	const structure = afterOpenParen.replaceAll("''", '');
 	return /^\s*$/.test(structure) || /^\s*\[\s*(?:,\s*)*$/.test(structure);
+};
+
+const hasKnownFilePathArgument = (sql: string, call: RegExpMatchArray): boolean => {
+	if (call.index === undefined) {
+		return false;
+	}
+	const argument = sql.slice(call.index + call[0].length);
+	const marker = `'${FILE_PATH_MARKER}'`;
+	if (new RegExp(`^\\s*${marker}\\s*(?=[,)])`).test(argument)) {
+		return true;
+	}
+	const array = argument.match(/^\s*\[([^\]]*)\]\s*(?=[,)])/);
+	return (
+		array !== null && array[1]!.split(',').every((item) => item.trim() === marker) && array[1]!.trim().length > 0
+	);
 };
 
 const stripSqlComments = (sql: string): string => {

@@ -3,18 +3,22 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
+import {
+	assertProjectContextPathAllowed,
+	isDocsProjectPath,
+	isProjectContextPathAllowed,
+} from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
 import {
 	isStoragePath,
+	resolveCanonicalProjectPath,
 	shouldExcludeEntry,
 	STORAGE_MOUNT,
-	toRealPath,
 	toStorageRelativePath,
 	toStorageScope,
 	toStorageVirtualPath,
-	toVirtualPath,
 } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
@@ -47,17 +51,24 @@ const listStorage = async (virtualPath: string, context: ToolContext): Promise<l
 
 const listProjectFolder = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	const projectFolder = context.projectFolder;
-	const realPath = toRealPath(virtualPath, projectFolder);
+	const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
+	assertProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory');
+	const realPath = canonical.realPath;
 
 	// Get the relative path of the parent directory for naoignore matching
-	const parentRelativePath = path.relative(projectFolder, realPath);
+	const parentRelativePath = canonical.virtualPath.replace(/^\/+/, '');
 
 	const dirEntries = await fs.readdir(realPath, { withFileTypes: true });
 
 	// Filter out excluded entries (including .naoignore patterns)
-	const filteredEntries = dirEntries.filter(
-		(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder),
-	);
+	const filteredEntries = dirEntries.filter((entry) => {
+		const childPath = path.posix.join(canonical.virtualPath, entry.name);
+		return (
+			!shouldExcludeEntry(entry.name, parentRelativePath, projectFolder) &&
+			!(entry.isSymbolicLink() && isDocsProjectPath(childPath)) &&
+			isAllowedProjectEntry(childPath, context, entry.isDirectory() ? 'directory' : 'file')
+		);
+	});
 
 	const entries = await Promise.all(
 		filteredEntries.map(async (entry) => {
@@ -75,15 +86,23 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 			let itemCount: number | undefined;
 			if (type === 'directory') {
 				try {
-					const subEntries = await fs.readdir(fullRealPath);
-					itemCount = subEntries.length;
+					const subEntries = await fs.readdir(fullRealPath, { withFileTypes: true });
+					const childParentPath = path.posix.join(parentRelativePath, entry.name);
+					itemCount = subEntries.filter((subEntry) => {
+						const childPath = path.posix.join(canonical.virtualPath, entry.name, subEntry.name);
+						return (
+							!shouldExcludeEntry(subEntry.name, childParentPath, projectFolder) &&
+							!(subEntry.isSymbolicLink() && isDocsProjectPath(childPath)) &&
+							isAllowedProjectEntry(childPath, context, subEntry.isDirectory() ? 'directory' : 'file')
+						);
+					}).length;
 				} catch {
 					// If we can't read the directory, leave itemCount undefined
 				}
 			}
 
 			return {
-				path: toVirtualPath(fullRealPath, projectFolder),
+				path: path.posix.join(canonical.virtualPath, entry.name),
 				name: entry.name,
 				type,
 				size,
@@ -95,6 +114,15 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	const isRoot = parentRelativePath === '';
 	return isRoot && isStorageEnabled() ? [...entries, storageMountEntry()] : entries;
 };
+
+function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
+	try {
+		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, kind);
+	} catch {
+		return false;
+	}
+}
 
 /** Permanent storage shows up as an ordinary folder at the root of the tree. */
 const storageMountEntry = (): list.Entry => {
