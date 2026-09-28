@@ -161,6 +161,14 @@ export type StoryHostMessage =
 	| { type: 'nao-story:narratives-result'; requestId: string; narratives: StoryNarratives }
 	| { type: 'nao-story:editing'; enabled: boolean };
 
+/**
+ * A random secret the host embeds in the frame document it builds; the frame stamps it on every message,
+ * so a document the story navigated to cannot pass for the story.
+ */
+export const isFromStoryChannel = (value: unknown, channel: string): boolean => {
+	return typeof value === 'object' && value !== null && (value as { channel?: unknown }).channel === channel;
+};
+
 export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage => {
 	return (
 		isStoryMessage(value) &&

@@ -21,6 +21,7 @@ interface BootOptions {
 	source: string;
 	theme: StoryTheme;
 	exportData?: StoryExportData;
+	channel?: string;
 }
 
 interface PendingRequest<T> {
@@ -37,9 +38,11 @@ const editingListeners = new Set<() => void>();
 let activeTheme: StoryTheme | null = null;
 let editingEnabled = false;
 let exportData: StoryExportData | null = null;
+let frameChannel: string | undefined;
 
-export async function bootStory({ source, theme, exportData: embeddedData }: BootOptions): Promise<void> {
+export async function bootStory({ source, theme, exportData: embeddedData, channel }: BootOptions): Promise<void> {
 	activeTheme = theme;
+	frameChannel = channel;
 	exportData = embeddedData ?? null;
 	installGlobalErrorReporting();
 	const container = document.getElementById('root');
@@ -210,7 +213,7 @@ function awaitReply<T>(
 }
 
 function send(message: StoryFrameMessage): void {
-	window.parent.postMessage(message, '*');
+	window.parent.postMessage({ ...message, channel: frameChannel }, '*');
 }
 
 function readExportedQuery(data: StoryExportData, queryId: string): Promise<StoryQueryResult> {

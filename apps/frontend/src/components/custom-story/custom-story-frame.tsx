@@ -1,4 +1,4 @@
-import { isStoryFrameMessage, STORY_RUNTIME_PATH } from '@nao/shared/story-app';
+import { isFromStoryChannel, isStoryFrameMessage, STORY_RUNTIME_PATH } from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { narrativesOptions, queryDataOptions, querySqlOptions } from './story-data-options';
@@ -60,7 +60,9 @@ export function CustomStoryFrame({
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
 	const dateFormat = useDateFormat();
-	const srcDoc = useStoryFrameDocument(bundle, styles, theme, onError);
+	const frameDocument = useStoryFrameDocument(bundle, styles, theme, onError);
+	const srcDoc = frameDocument?.html ?? null;
+	const channel = frameDocument?.channel;
 
 	const reply = useCallback((message: StoryHostMessage) => {
 		iframeRef.current?.contentWindow?.postMessage(message, '*');
@@ -101,7 +103,12 @@ export function CustomStoryFrame({
 
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent<unknown>) => {
-			if (event.source !== iframeRef.current?.contentWindow || !isStoryFrameMessage(event.data)) {
+			const isFromStory =
+				event.source === iframeRef.current?.contentWindow &&
+				loadCountRef.current <= 1 &&
+				channel !== undefined &&
+				isFromStoryChannel(event.data, channel);
+			if (!isFromStory || !isStoryFrameMessage(event.data)) {
 				return;
 			}
 			dispatch(event.data);
@@ -169,6 +176,7 @@ export function CustomStoryFrame({
 		answerNarratives,
 		answerQuery,
 		answerQuerySql,
+		channel,
 		dateFormat,
 		editable,
 		onAskBlock,
@@ -230,16 +238,17 @@ function useStoryFrameDocument(
 	styles: string[],
 	theme: StoryTheme,
 	onError?: (error: CustomStoryRuntimeError) => void,
-): string | null {
-	const [srcDoc, setSrcDoc] = useState<string | null>(null);
+): { html: string; channel: string } | null {
+	const [frameDocument, setFrameDocument] = useState<{ html: string; channel: string } | null>(null);
 	const reportError = useEffectEvent((error: unknown) => onError?.({ message: describeError(error) }));
 	useEffect(() => {
 		let cancelled = false;
-		setSrcDoc(null);
-		buildStoryFrameDocument({ bundle, styles, theme, runtime: storyRuntimeLocation() }).then(
+		setFrameDocument(null);
+		const channel = crypto.randomUUID();
+		buildStoryFrameDocument({ bundle, styles, theme, runtime: storyRuntimeLocation(), channel }).then(
 			(html) => {
 				if (!cancelled) {
-					setSrcDoc(html);
+					setFrameDocument({ html, channel });
 				}
 			},
 			(error: unknown) => {
@@ -252,7 +261,7 @@ function useStoryFrameDocument(
 			cancelled = true;
 		};
 	}, [bundle, styles, theme]);
-	return srcDoc;
+	return frameDocument;
 }
 
 function storyRuntimeLocation(): StoryRuntimeLocation {

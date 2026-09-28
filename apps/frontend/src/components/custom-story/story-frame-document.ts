@@ -13,6 +13,7 @@ export interface StoryFrameDocumentInput {
 	styles: string[];
 	theme: StoryTheme;
 	runtime: StoryRuntimeLocation;
+	channel: string;
 }
 
 /** Assembles the HTML a custom story runs in. */
@@ -20,7 +21,7 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 	const runtimeOrigin = new URL(input.runtime.baseUrl).origin;
 	const importMapScript = escapeScript(JSON.stringify(importMap(input.runtime)));
 	const bootScript = `\nimport { bootStory } from ${JSON.stringify(STORY_HOST_MODULE)};\nbootStory(${escapeScript(
-		JSON.stringify({ source: input.bundle, theme: input.theme }),
+		JSON.stringify({ source: input.bundle, theme: input.theme, channel: input.channel }),
 	)});\n`;
 	const [importMapHash, bootHash] = await Promise.all([sha256Source(importMapScript), sha256Source(bootScript)]);
 
