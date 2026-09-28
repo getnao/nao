@@ -33,7 +33,7 @@ describe('user group configuration', () => {
 				canChange: false,
 			},
 		});
-		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'automationCreation']);
+		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'customStoryCreation', 'automationCreation']);
 	});
 
 	it('reads canonical v2 configuration', () => {

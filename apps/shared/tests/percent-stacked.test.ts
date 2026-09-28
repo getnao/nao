@@ -8,7 +8,7 @@ import {
 	percentStackSeries,
 	sumPercentStackBase,
 } from '../src/chart-builder';
-import { chartTypeRequiresXAxisKey, isPercentStackedChartType, isStackedChartType } from '../src/tools/display-chart';
+import { chartTypeRequiresXAxisKey, isPercentStackedChartType, isStackedChartType } from '../src/chart-types';
 
 describe('isStackedChartType', () => {
 	it('recognises absolute and normalized stacked types', () => {

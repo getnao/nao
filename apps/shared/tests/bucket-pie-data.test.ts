@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { bucketPieData, DEFAULT_COLORS } from '../src/chart-builder';
-import { isPieChart } from '../src/tools/display-chart';
+import { isPieChart } from '../src/chart-types';
 
 const rowsOf = (values: number[]) => values.map((value, index) => ({ category: `cat-${index}`, total: value }));
 
