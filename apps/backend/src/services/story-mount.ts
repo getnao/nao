@@ -1,5 +1,5 @@
 import type { UserGroupFeature } from '@nao/shared';
-import type { grep, list, searchFiles } from '@nao/shared/tools';
+import type { list, searchFiles } from '@nao/shared/tools';
 import { minimatch } from 'minimatch';
 import path from 'path';
 
@@ -23,14 +23,6 @@ interface MountedStory {
 }
 
 type MountedFile = Pick<DBStoryDraftFile, 'path' | 'content'>;
-
-interface GrepOptions {
-	pattern: string;
-	glob?: string;
-	caseInsensitive?: boolean;
-	contextLines?: number;
-	maxResults: number;
-}
 
 export const isCustomStoriesEnabled = (): boolean => {
 	return env.BETA_CUSTOM_STORIES_ENABLED;
@@ -108,31 +100,20 @@ export async function findStoryMountFiles(
 	);
 }
 
-export async function grepStoryMount(
+/** Draft files a grep over `virtualPath` covers, addressed by their virtual path. */
+export async function listStoryMountFilesToGrep(
 	chatId: string,
 	virtualPath: string | undefined,
-	options: GrepOptions,
-): Promise<{ matches: grep.Match[]; totalMatches: number }> {
-	const regex = compilePattern(options);
+	glob: string | undefined,
+): Promise<{ virtualPath: string; content: string }[]> {
 	const scope = virtualPath === undefined ? { kind: 'root' as const } : parseStoriesPath(virtualPath);
 	const stories =
 		scope.kind === 'root' ? await loadMountedStories(chatId) : [await loadMountedStory(chatId, scope.slug)];
-
-	const matches: grep.Match[] = [];
-	let totalMatches = 0;
-	for (const { story, files } of stories) {
-		for (const file of files) {
-			if (!isInGrepScope(file, scope) || !matchesGlob(story.slug, file, options.glob)) {
-				continue;
-			}
-			const found = grepFile(regex, file.content, options.contextLines);
-			totalMatches += found.length;
-			for (const match of found.slice(0, Math.max(0, options.maxResults - matches.length))) {
-				matches.push({ ...match, path: toStoriesVirtualPath(story.slug, file.path) });
-			}
-		}
-	}
-	return { matches, totalMatches };
+	return stories.flatMap(({ story, files }) =>
+		files
+			.filter((file) => isInGrepScope(file, scope) && matchesGlob(story.slug, file, glob))
+			.map((file) => ({ virtualPath: toStoriesVirtualPath(story.slug, file.path), content: file.content })),
+	);
 }
 
 async function listMountRoot(chatId: string): Promise<list.Entry[]> {
@@ -253,39 +234,10 @@ function requireFilePath(virtualPath: string): Extract<StoryMountPath, { kind: '
 	return target;
 }
 
-function compilePattern({ pattern, caseInsensitive }: GrepOptions): RegExp {
-	try {
-		return new RegExp(pattern, caseInsensitive ? 'i' : '');
-	} catch (error) {
-		throw new Error(`Invalid pattern '${pattern}': ${(error as Error).message}`);
-	}
-}
-
 function isInGrepScope(file: MountedFile, scope: StoryMountPath): boolean {
 	return scope.kind !== 'file' || file.path === scope.filePath || file.path.startsWith(`${scope.filePath}/`);
 }
 
 function matchesGlob(slug: string, file: MountedFile, glob: string | undefined): boolean {
 	return !glob || minimatch(toStoriesMountRelativePath(slug, file.path), glob, { matchBase: true, dot: true });
-}
-
-function grepFile(regex: RegExp, content: string, contextLines: number | undefined): Omit<grep.Match, 'path'>[] {
-	const lines = content.split('\n');
-	const matches: Omit<grep.Match, 'path'>[] = [];
-	lines.forEach((line, index) => {
-		if (!regex.test(line)) {
-			return;
-		}
-		matches.push({
-			line_number: index + 1,
-			line_content: line,
-			...(contextLines && contextLines > 0
-				? {
-						context_before: lines.slice(Math.max(0, index - contextLines), index),
-						context_after: lines.slice(index + 1, index + 1 + contextLines),
-					}
-				: {}),
-		});
-	});
-	return matches;
 }
