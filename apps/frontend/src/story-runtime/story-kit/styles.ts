@@ -95,7 +95,7 @@ html[${STORY_PRINT_SLIDES_ATTRIBUTE}] #root{display:none}
 .nao-chart-tooltip__value{font-family:ui-monospace,monospace;font-weight:500;font-variant-numeric:tabular-nums;color:var(--foreground)}
 .nao-chart-tooltip__total{display:flex;width:100%;align-items:center;gap:8px;margin-top:2px;padding-top:6px;border-top:1px solid color-mix(in srgb, var(--border) 50%, transparent)}
 .nao-chart-tooltip__total .nao-chart-tooltip__name{font-weight:500}
-.nao-chart-legend{display:flex;width:100%;align-items:center;justify-content:center;gap:16px;padding-top:12px}
+.nao-chart-legend{display:flex;flex-wrap:wrap;width:100%;align-items:center;justify-content:center;gap:6px 16px;padding-top:12px}
 .nao-chart-legend__item{display:flex;flex:none;align-items:center;gap:6px;white-space:nowrap;color:var(--muted-foreground);user-select:none}
 .nao-chart-legend__item--clickable{cursor:pointer}
 .nao-chart-legend__item--clickable:hover{color:var(--foreground)}

@@ -153,7 +153,6 @@ interface ChartConfigEditFormProps {
 	onSaved: () => void;
 	isSaving?: boolean;
 	data?: Record<string, unknown>[];
-	chartTypes?: readonly ChartType[];
 	palette?: string[];
 	enforceExportSafeFormats?: boolean;
 }
@@ -167,7 +166,6 @@ export function ChartConfigEditForm({
 	onSaved,
 	isSaving = false,
 	data,
-	chartTypes,
 	palette,
 	enforceExportSafeFormats = true,
 }: ChartConfigEditFormProps) {
@@ -202,11 +200,6 @@ export function ChartConfigEditForm({
 		[draft.chart_type, draft.x_axis_key, draft.series, data],
 	);
 	const isCombo = chartTypeSupportsComboSeries(draft.chart_type);
-	const chartTypeOptions = useMemo(
-		() =>
-			chartTypes ? CHART_TYPE_OPTIONS.filter((option) => chartTypes.includes(option.value)) : CHART_TYPE_OPTIONS,
-		[chartTypes],
-	);
 	const hasRightAxis = isCombo && displayChart.hasRightAxisSeries(draft.series);
 	const hasLeftAxis = !isCombo || draft.series.some((s) => s.y_axis !== 'right');
 
@@ -381,7 +374,7 @@ export function ChartConfigEditForm({
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-						{chartTypeOptions.map((option) => (
+						{CHART_TYPE_OPTIONS.map((option) => (
 							<SelectItem key={option.value} value={option.value}>
 								{option.label}
 							</SelectItem>

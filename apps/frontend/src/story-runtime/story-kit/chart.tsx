@@ -1,10 +1,10 @@
 import { blockRef } from './block-config';
 import { ChartBlock } from './chart-shared';
 import type { ChartProps } from './chart-shared';
-import type { KIT_CHART_TYPES } from './block-config';
+import type { ChartType } from '@nao/shared/chart-types';
 
 export interface GenericChartProps extends ChartProps {
-	type: Exclude<(typeof KIT_CHART_TYPES)[number], 'kpi_card'>;
+	type: Exclude<ChartType, 'kpi_card'>;
 }
 
 export function Chart(props: GenericChartProps) {

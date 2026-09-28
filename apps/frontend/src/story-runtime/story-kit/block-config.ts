@@ -55,20 +55,6 @@ export interface KitBlockElement {
 	props: Record<string, unknown>;
 }
 
-export const KIT_CHART_TYPES = [
-	'bar',
-	'stacked_bar',
-	'stacked_bar_100',
-	'horizontal_bar',
-	'horizontal_bar_100',
-	'line',
-	'area',
-	'stacked_area',
-	'stacked_area_100',
-	'mixed',
-	'kpi_card',
-] as const satisfies readonly ChartType[];
-
 export function blockRef<Component extends StoryKitEditableBlock>(
 	component: Component,
 	props: object,
@@ -76,8 +62,13 @@ export function blockRef<Component extends StoryKitEditableBlock>(
 	return { component, props: { ...props } };
 }
 
-export function resolveChart(rows: Row[], columns: string[], { xKey, series }: ChartOptions): ResolvedChart {
-	const xAxisKey = resolveXKey(rows, columns, xKey);
+export function resolveChart(
+	rows: Row[],
+	columns: string[],
+	{ xKey, series }: ChartOptions,
+	chartType?: ChartType,
+): ResolvedChart {
+	const xAxisKey = chartType === 'scatter' ? (xKey ?? columns[0]) : resolveXKey(rows, columns, xKey);
 	const inputs = series ?? columns.filter((column) => column !== xAxisKey && isNumericColumn(rows, column));
 	return { xAxisKey, series: inputs.map(toSeriesSpec) };
 }

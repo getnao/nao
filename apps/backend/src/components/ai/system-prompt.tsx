@@ -541,16 +541,17 @@ function CustomStoriesBlock() {
 				</ListItem>
 				<ListItem>
 					Build with <Bold>@nao/story-kit</Bold> blocks — <Bold>KpiCard</Bold>, <Bold>BarChart</Bold>,{' '}
-					<Bold>LineChart</Bold>, <Bold>{'<Chart type="mixed">'}</Bold>, <Bold>DataTable</Bold> — which match
-					display_chart and handle loading and errors themselves. Every block takes <Bold>queryId</Bold> (or{' '}
-					<Bold>data</Bold>) and <Bold>title</Bold>; KpiCard and charts also take <Bold>format</Bold>{' '}
-					("number" | "compact" | "percent" with fractions | "currency"), <Bold>currency</Bold>,{' '}
-					<Bold>decimals</Bold>. Charts: <Bold>xKey</Bold>, <Bold>series</Bold> (names or{' '}
-					{'{ key, label?, type?, axis? }'}), <Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>,{' '}
-					<Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line), <Bold>showDataLabels</Bold>. KpiCard:{' '}
-					<Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous row. DataTable:{' '}
-					<Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the same rule
-					display_chart's conditional_formats takes) to colour cells.
+					<Bold>LineChart</Bold>, <Bold>{'<Chart type="...">'}</Bold> for every other display_chart type
+					(mixed, pie, donut, scatter, radar), <Bold>DataTable</Bold> — which match display_chart and handle
+					loading and errors themselves. Every block takes <Bold>queryId</Bold> (or <Bold>data</Bold>) and{' '}
+					<Bold>title</Bold>; KpiCard and charts also take <Bold>format</Bold> ("number" | "compact" |
+					"percent" with fractions | "currency"), <Bold>currency</Bold>, <Bold>decimals</Bold>. Charts:{' '}
+					<Bold>xKey</Bold>, <Bold>series</Bold> (names or {'{ key, label?, type?, axis? }'}),{' '}
+					<Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>, <Bold>horizontal</Bold> (bar),{' '}
+					<Bold>area</Bold> (line), <Bold>showDataLabels</Bold>. KpiCard: <Bold>valueKey</Bold>,{' '}
+					<Bold>comparison</Bold> against the previous row. DataTable: <Bold>columns</Bold>,{' '}
+					<Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the same rule display_chart's
+					conditional_formats takes) to colour cells.
 				</ListItem>
 				<ListItem>
 					For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
@@ -562,8 +563,8 @@ function CustomStoriesBlock() {
 					PDF downloads open each tab in turn and print them one after the other.
 				</ListItem>
 				<ListItem>
-					Users edit KpiCard and chart blocks through a pencil that rewrites their props in your source: pass
-					literal props and give each block a distinct title.
+					Users edit KpiCard, chart and DataTable blocks through a pencil that rewrites their props in your
+					source: pass literal props and give each block a distinct title.
 				</ListItem>
 				<ListItem>
 					Wrap prose that states numbers or trends in <Bold>{'<Narrative id="...">text</Narrative>'}</Bold>{' '}
@@ -572,7 +573,7 @@ function CustomStoriesBlock() {
 					is already live and needs no Narrative.
 				</ListItem>
 				<ListItem>
-					For anything else (pie, scatter, bespoke visuals), wrap Recharts or your own markup in{' '}
+					For bespoke visuals the kit has no block for, wrap Recharts or your own markup in{' '}
 					<Bold>{'<Block kind="..." queryId="...">'}</Bold> (the queryId it reads, so users can view its SQL)
 					with <Bold>{'<div className="nao-chart">'}</Bold>, <Bold>seriesColor(i)</Bold> and a plain Recharts{' '}
 					<Bold>{'<Tooltip />'}</Bold> (already themed; format values with{' '}

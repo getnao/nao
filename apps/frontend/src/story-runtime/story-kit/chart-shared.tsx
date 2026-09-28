@@ -6,7 +6,7 @@ import {
 	useSeriesVisibility,
 } from '@nao/shared/chart-series';
 import { ChartConfigProvider, ChartLegendContent, ChartTooltipContent } from '@nao/shared/chart-tooltip';
-import { isComboChart, isPercentStackedChartType } from '@nao/shared/chart-types';
+import { isComboChart, isPercentStackedChartType, isPieChart } from '@nao/shared/chart-types';
 import { toFiniteNumber } from '@nao/shared/chart-values';
 import { useId } from 'react';
 import { Legend, ResponsiveContainer, Tooltip } from 'recharts';
@@ -14,6 +14,7 @@ import { Legend, ResponsiveContainer, Tooltip } from 'recharts';
 import { Block, BlockState } from './block';
 import { chartBlockConfig, resolveChart, toSeriesConfigs } from './block-config';
 import { useStoryTheme } from './hooks';
+import { piePresentation, pieTooltipLabel } from './pie';
 import { useBlockData } from './use-block-data';
 import type { BlockDataSource, Row } from './use-block-data';
 import type { ChartOptions } from './block-config';
@@ -56,7 +57,7 @@ export function ChartBlock({
 	...options
 }: ChartBlockProps) {
 	const source = useBlockData({ queryId, data });
-	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options) : null;
+	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options, chartType) : null;
 	const edit =
 		resolved && source.status === 'ready'
 			? {
@@ -86,7 +87,7 @@ export function ChartBlock({
 							xAxisKey={resolved.xAxisKey}
 							series={toSeriesConfigs(resolved.series, options)}
 							height={height}
-							showLegend={showLegend ?? resolved.series.length > 1}
+							showLegend={showLegend ?? (isPieChart(chartType) || resolved.series.length > 1)}
 							showGrid={showGrid}
 							options={options}
 						/>
@@ -113,12 +114,17 @@ function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, show
 	const gradientIdPrefix = useId();
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
 	const isDualAxis = isComboChart(chartType) && visibleSeries.some((item) => item.y_axis === 'right');
+	const pie = isPieChart(chartType) && series[0] ? piePresentation(rows, xAxisKey, series[0]) : null;
+
+	if (isPieChart(chartType) && !pie) {
+		return <div className='nao-block__state'>No numeric column to chart.</div>;
+	}
 
 	const chart = buildChart({
-		data: rows,
+		data: pie?.rows ?? rows,
 		chartType,
 		xAxisKey,
-		xAxisType: options.xAxisType === 'number' ? 'number' : 'category',
+		xAxisType: resolveXAxisType(chartType, options.xAxisType),
 		xAxisLabel: options.xAxisLabel,
 		yAxisMin: options.yAxisMin,
 		yAxisMax: options.yAxisMax,
@@ -128,7 +134,7 @@ function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, show
 		yAxisRightLabel: options.yAxisRightLabel,
 		showDataLabels: options.showDataLabels,
 		series: visibleSeries,
-		colorFor: seriesColorLookup(series),
+		colorFor: pie?.colorFor ?? seriesColorLookup(series),
 		showGrid,
 		margin: CHART_MARGIN,
 		backgroundColor: 'var(--card)',
@@ -145,25 +151,25 @@ function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, show
 						percent={isPercentStackedChartType(chartType)}
 						isDualAxis={isDualAxis}
 						hideTotal={options.hideTotal}
-						labelFormatter={(value) => labelize(value)}
+						labelFormatter={(value, items) => (pie ? pieTooltipLabel(items) : labelize(value))}
 					/>
 				}
 			/>,
 			showLegend && (
 				<Legend
 					key='legend'
-					payload={buildSeriesLegendPayload(series, hiddenSeriesKeys, labelize)}
+					payload={pie?.legendPayload ?? buildSeriesLegendPayload(series, hiddenSeriesKeys, labelize)}
 					layout='horizontal'
 					align='center'
 					verticalAlign='bottom'
-					content={<ChartLegendContent onItemClick={handleToggleSeriesVisibility} />}
+					content={<ChartLegendContent onItemClick={pie ? undefined : handleToggleSeriesVisibility} />}
 				/>
 			),
 		].filter(Boolean),
 	});
 
 	return (
-		<ChartConfigProvider config={buildSeriesChartConfig(series, labelize)}>
+		<ChartConfigProvider config={pie?.config ?? buildSeriesChartConfig(series, labelize)}>
 			<div className='nao-chart' style={{ height }}>
 				<ResponsiveContainer width='100%' height='100%'>
 					{chart}
@@ -171,6 +177,13 @@ function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, show
 			</div>
 		</ChartConfigProvider>
 	);
+}
+
+function resolveXAxisType(chartType: ChartType, xAxisType: ChartOptions['xAxisType']): 'number' | 'category' {
+	if (xAxisType === 'number' || xAxisType === 'category') {
+		return xAxisType;
+	}
+	return chartType === 'scatter' ? 'number' : 'category';
 }
 
 function toChartRows(rows: Row[], series: { key: string }[]): Row[] {

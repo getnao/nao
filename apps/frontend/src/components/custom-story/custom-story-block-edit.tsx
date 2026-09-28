@@ -14,7 +14,6 @@ import {
 	toHexColors,
 } from '@/lib/story-kit-block-edit';
 import { trpc } from '@/main';
-import { KIT_CHART_TYPES } from '@/story-runtime/story-kit/block-config';
 
 export const BLOCK_EDIT_DESCRIPTION = 'Changes are saved to the story as a new version.';
 export const TABLE_FORMAT_EDIT_DESCRIPTION = `Apply conditional formatting to columns. ${BLOCK_EDIT_DESCRIPTION}`;
@@ -116,7 +115,6 @@ function useChartConfigEdit(target: StoryBlockEditTarget | null) {
 		config,
 		availableColumns: payload.columns,
 		data: payload.rows,
-		chartTypes: KIT_CHART_TYPES,
 		palette: colors.palette,
 		enforceExportSafeFormats: false,
 		isSaving: saveMutation.isPending,
