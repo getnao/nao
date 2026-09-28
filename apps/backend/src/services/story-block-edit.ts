@@ -4,6 +4,7 @@ import { db } from '../db/db';
 import * as storyQueries from '../queries/story.queries';
 import type { StoryFileInput } from '../queries/story-file.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
+import { isViewableStoryFile, normalizeStoryFilePath } from '../utils/story-file-path';
 import { applyKitBlockChange, matchesKitBlock, parseKitSource } from '../utils/story-kit-jsx';
 import { CustomStoryNotFoundError } from './custom-story';
 import { buildStoryApp } from './story-app-build';
@@ -22,6 +23,15 @@ interface StoryVersionRestoreInput {
 	versionNumber: number;
 	restoreVersionNumber: number;
 }
+
+interface StoryFilesSaveInput {
+	chatId: string;
+	storySlug: string;
+	versionNumber: number;
+	files: StoryFileInput[];
+}
+
+type StoryFilesSaveResult = { success: true; version: number } | { success: false; buildErrors: string[] };
 
 type LatestVersionInput = Pick<StoryBlockEditInput, 'chatId' | 'storySlug' | 'versionNumber'>;
 
@@ -59,6 +69,40 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 		return cut.version;
 	});
 	return { version: version.version };
+}
+
+export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<StoryFilesSaveResult> {
+	const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+	if (!story || story.format !== 'custom') {
+		throw new CustomStoryNotFoundError();
+	}
+	const draft = await loadDraftMatchingLatestVersion(story.id, input);
+	const edits = normalizeFileEdits(draft, input.files);
+	if (edits.size === 0) {
+		throw new StoryBlockEditError('Nothing changed.');
+	}
+	const files = draft.map((file) => ({ path: file.path, content: edits.get(file.path) ?? file.content }));
+
+	const build = await buildStoryApp(files);
+	if (!build.ok) {
+		return { success: false, buildErrors: build.errors };
+	}
+
+	const version = await db.transaction(async (tx) => {
+		if (!hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
+			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
+		}
+		for (const [path, content] of edits) {
+			await storyFileQueries.writeDraftFile(story.id, { path, content }, tx);
+		}
+		const cut = await storyFileQueries.cutVersionFromDraft(
+			{ storyId: story.id, action: 'update', source: 'user' },
+			tx,
+		);
+		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
+		return cut.version;
+	});
+	return { success: true, version: version.version };
 }
 
 /** Restoring re-publishes an older version's files and bundle as the new latest version. */
@@ -136,6 +180,26 @@ function locateBlock(files: StoryFileInput[], block: StoryKitBlockRef) {
 		);
 	}
 	return matches[0];
+}
+
+function normalizeFileEdits(draft: StoryFileInput[], files: StoryFileInput[]): Map<string, string> {
+	const current = new Map(draft.map((file) => [file.path, file.content]));
+	const edits = new Map<string, string>();
+	for (const file of files) {
+		const path = normalizeStoryFilePath(file.path);
+		if (!current.has(path) || !isViewableStoryFile(path)) {
+			throw new StoryBlockEditError(`${path} is not a file of this story that can be edited.`);
+		}
+		if (Buffer.byteLength(file.content, 'utf8') > storyFileQueries.MAX_STORY_FILE_BYTES) {
+			throw new StoryBlockEditError(
+				`${path} is larger than the ${storyFileQueries.MAX_STORY_FILE_BYTES / 1024} KB limit.`,
+			);
+		}
+		if (current.get(path) !== file.content) {
+			edits.set(path, file.content);
+		}
+	}
+	return edits;
 }
 
 function hasSameFiles(left: StoryFileInput[], right: StoryFileInput[]): boolean {

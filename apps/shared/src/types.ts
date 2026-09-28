@@ -257,6 +257,7 @@ export type FileTreeEntry = {
 	path: string;
 	type: 'file' | 'directory';
 	children?: FileTreeEntry[];
+	readOnly?: boolean;
 };
 
 export type ContextGitUnavailableReason =

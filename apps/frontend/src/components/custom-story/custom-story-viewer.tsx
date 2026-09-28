@@ -162,6 +162,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 							source={story.dataSource}
 							versionNumber={content.version.number}
 							files={content.files}
+							editable={canEditBlocks}
 						/>
 					)
 				}

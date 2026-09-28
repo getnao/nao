@@ -134,6 +134,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 							source={story.dataSource}
 							versionNumber={content.version.number}
 							files={content.files}
+							editable={canEditBlocks}
 						/>
 					)
 				}

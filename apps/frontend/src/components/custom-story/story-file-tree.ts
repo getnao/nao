@@ -2,12 +2,15 @@ import type { FileTreeEntry } from '@nao/shared/types';
 import type { ContentMatch } from '@/components/settings/file-tree';
 
 /** Folders first, then files, each alphabetically — the order the Settings file explorer uses. */
-export function buildStoryFileTree(paths: string[]): FileTreeEntry[] {
+export function buildStoryFileTree(
+	paths: string[],
+	isReadOnly: (path: string) => boolean = () => false,
+): FileTreeEntry[] {
 	const root: FileTreeEntry[] = [];
 	for (const path of paths) {
 		insertPath(root, path.split('/'), '');
 	}
-	return sortEntries(root);
+	return markReadOnly(sortEntries(root), isReadOnly);
 }
 
 /** Case-insensitive, like the context explorer's content search: first matching line plus the match count. */
@@ -41,6 +44,24 @@ function insertPath(entries: FileTreeEntry[], segments: string[], parentPath: st
 		entries.push(directory);
 	}
 	insertPath(directory.children!, rest, path);
+}
+
+/** A folder is read-only when every file in it is; the lock then sits on the folder only, not on each file. */
+function markReadOnly(entries: FileTreeEntry[], isReadOnly: (path: string) => boolean): FileTreeEntry[] {
+	return entries.map((entry) => {
+		if (!entry.children) {
+			return isReadOnly(entry.path) ? { ...entry, readOnly: true } : entry;
+		}
+		const children = markReadOnly(entry.children, isReadOnly);
+		if (children.length > 0 && children.every((child) => child.readOnly)) {
+			return { ...entry, readOnly: true, children: children.map(withoutFileLock) };
+		}
+		return { ...entry, children };
+	});
+}
+
+function withoutFileLock(entry: FileTreeEntry): FileTreeEntry {
+	return entry.children ? entry : { ...entry, readOnly: undefined };
 }
 
 function sortEntries(entries: FileTreeEntry[]): FileTreeEntry[] {

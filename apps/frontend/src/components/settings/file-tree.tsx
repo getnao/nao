@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, Search, TextSearch } from 'lucide-react';
+import { ChevronRight, Lock, Search, TextSearch } from 'lucide-react';
 import type { FileTreeEntry } from '@nao/shared/types';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { Spinner } from '@/components/ui/spinner';
@@ -245,6 +245,11 @@ function FileTreeNode({
 					</>
 				)}
 				<span className='truncate'>{entry.name}</span>
+				{entry.readOnly && (
+					<SimpleTooltip content='Read-only'>
+						<Lock className='size-3 shrink-0 text-muted-foreground/70' aria-label='Read-only' />
+					</SimpleTooltip>
+				)}
 				{contentMatch && (
 					<span className='ml-auto shrink-0 rounded bg-muted px-1 text-[10px] leading-4 text-muted-foreground'>
 						{contentMatch.count}

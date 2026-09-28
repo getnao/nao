@@ -30,7 +30,12 @@ import {
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
-import { editCustomStoryBlock, restoreCustomStoryVersion, StoryBlockEditError } from '../services/story-block-edit';
+import {
+	editCustomStoryBlock,
+	restoreCustomStoryVersion,
+	saveCustomStoryFiles,
+	StoryBlockEditError,
+} from '../services/story-block-edit';
 import {
 	assertValidDeliverySchedule,
 	disableStoryDelivery,
@@ -418,6 +423,35 @@ export const storyRoutes = {
 				return await editCustomStoryBlock(input);
 			} catch (error) {
 				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	saveCustomStoryFiles: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				files: z
+					.array(z.object({ path: z.string(), content: z.string() }))
+					.min(1)
+					.max(60),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Save your changes once it is done.',
+				});
+			}
+			try {
+				return await saveCustomStoryFiles(input);
+			} catch (error) {
+				if (error instanceof StoryBlockEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 				}
 				throw toCustomStoryTrpcError(error);
