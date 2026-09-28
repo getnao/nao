@@ -23,6 +23,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "cli"))
 
 from nao_core.config import NaoConfig  # noqa: E402
+from nao_core.config.confluence import ConfluenceConfig  # noqa: E402
 from nao_core.config.databases import (  # noqa: E402
     AthenaConfig,
     BigQueryConfig,
@@ -46,7 +47,6 @@ from nao_core.config.llm import (  # noqa: E402
     LLMConfig,
     LLMProvider,
 )
-from nao_core.config.confluence import ConfluenceConfig  # noqa: E402
 from nao_core.config.mcp import McpConfig  # noqa: E402
 from nao_core.config.notion import NotionConfig  # noqa: E402
 from nao_core.config.obsidian import ObsidianConfig  # noqa: E402

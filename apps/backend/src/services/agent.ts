@@ -138,7 +138,7 @@ export function resolveStoryMode(
 		return null;
 	}
 	const mentioned = (id: string) => Boolean(mentions?.some((mention) => mention.id === id));
-	if (env.BETA_CUSTOM_STORIES_ENABLED && mentioned(story.CUSTOM_MENTION_ID)) {
+	if (env.BETA_CUSTOM_STORIES_ENABLED && access.features.customStoryCreation && mentioned(story.CUSTOM_MENTION_ID)) {
 		return 'custom';
 	}
 	return mentioned(story.MENTION_ID) ? 'classic' : null;
@@ -692,7 +692,8 @@ class AgentManager {
 				options: {
 					savedFilesEnabled: isStorageEnabled(),
 					canGrepSavedFiles: canGrepUserFiles(),
-					customStoriesEnabled: isCustomStoriesEnabled(),
+					customStoriesEnabled:
+						isCustomStoriesEnabled() && this._toolContext.userGroupFeatures.includes('customStoryCreation'),
 				},
 			}),
 		);

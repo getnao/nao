@@ -1023,6 +1023,7 @@ describe('user group routes', () => {
 		await expect(createCaller().effectiveAccess()).resolves.toEqual({
 			features: {
 				storyCreation: true,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
@@ -1039,6 +1040,7 @@ describe('user group routes', () => {
 		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).resolves.toEqual({
 			features: {
 				storyCreation: true,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
@@ -1084,6 +1086,7 @@ describe('user group routes', () => {
 		await expect(createCaller().effectiveAccess()).resolves.toEqual({
 			features: {
 				storyCreation: true,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			toolCallDensityPolicy: {

@@ -103,7 +103,7 @@ describe('user group queries', () => {
 			isDefault: true,
 			featureGrants: {
 				version: 2,
-				features: ['storyCreation', 'automationCreation'],
+				features: ['storyCreation', 'customStoryCreation', 'automationCreation'],
 				toolCallDensity: {
 					defaultDensity: 'detailed',
 					canChange: true,
@@ -121,7 +121,7 @@ describe('user group queries', () => {
 
 		expect(defaultGroup).toMatchObject({
 			name: 'All Users',
-			featureGrants: ['storyCreation', 'automationCreation'],
+			featureGrants: ['storyCreation', 'customStoryCreation', 'automationCreation'],
 			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: { mode: 'all' },
 			toolCallDensityPolicy: {
@@ -986,6 +986,7 @@ describe('user group queries', () => {
 	it('resolves every feature for an untouched project', async () => {
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
 			'storyCreation',
+			'customStoryCreation',
 			'automationCreation',
 		]);
 	});

@@ -441,13 +441,18 @@ export const storyRoutes = {
 					.max(60),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			if (agentService.get(input.chatId)) {
 				throw new TRPCError({
 					code: 'CONFLICT',
 					message: 'The agent is working on this chat. Save your changes once it is done.',
 				});
 			}
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+			await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'customStoryCreation');
 			try {
 				return await saveCustomStoryFiles(input);
 			} catch (error) {

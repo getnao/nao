@@ -28,6 +28,7 @@ import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
 	useLicenseFeatures: vi.fn(),
+	useCustomStoriesEnabled: vi.fn(() => false),
 	useQuery: vi.fn(),
 	useMutation: vi.fn(),
 	invalidateQueries: vi.fn(),
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-license', () => ({ useLicenseFeatures: mocks.useLicenseFeatures }));
+vi.mock('@/hooks/use-custom-stories-enabled', () => ({ useCustomStoriesEnabled: mocks.useCustomStoriesEnabled }));
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: mocks.useQuery,
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
@@ -285,6 +287,7 @@ const overview = {
 };
 
 beforeEach(() => {
+	mocks.useCustomStoriesEnabled.mockReturnValue(false);
 	mocks.mutate.mockReset();
 	mocks.mutateAsync.mockReset();
 	mocks.invalidateQueries.mockReset();
@@ -1639,6 +1642,35 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
 	});
 
+	it('keeps Custom stories unavailable until Stories is granted', () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		renderEditor('features', vi.fn(), { ...analysts, featureGrants: [] });
+		const customStories = screen.getByRole('button', { name: /^Custom stories\./ }) as HTMLButtonElement;
+
+		expect(customStories.disabled).toBe(true);
+		expect(customStories.title).toBe('Requires Stories.');
+
+		fireEvent.click(screen.getByRole('button', { name: /^Stories\./ }));
+
+		expect((screen.getByRole('button', { name: /^Custom stories\./ }) as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	it('removes Custom stories when Stories is unchecked', () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		renderEditor('features', vi.fn(), { ...analysts, featureGrants: ['storyCreation', 'customStoryCreation'] });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Stories\./ }));
+
+		const customStories = screen.getByRole('button', { name: /^Custom stories\./ });
+		expect(customStories.getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('hides Custom stories while the instance does not offer them', () => {
+		renderEditor('features');
+
+		expect(screen.queryByRole('button', { name: /^Custom stories\./ })).toBeNull();
+	});
+
 	it('shows actions immediately for a new group with save disabled', () => {
 		renderEditor('features', vi.fn(), 'new');
 
@@ -1818,7 +1850,7 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: true, automationCreation: true },
+				features: { storyCreation: true, customStoryCreation: false, automationCreation: true },
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
@@ -1857,7 +1889,7 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: true, automationCreation: false },
+				features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
 				toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 				databaseAccess: {
 					mode: 'restricted',
@@ -1907,7 +1939,7 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: false, automationCreation: false },
+				features: { storyCreation: false, customStoryCreation: false, automationCreation: false },
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
@@ -2199,7 +2231,7 @@ function renderUserDetail({
 	securityState = 'ready',
 	onRetrySecurity,
 	effectiveAccess = {
-		features: { storyCreation: true, automationCreation: false },
+		features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 		docsAccess: { mode: 'restricted', grants: [] },
@@ -2272,7 +2304,7 @@ function createEffectiveAccess(
 	rowPolicies: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess']['rowPolicies'],
 ): ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] {
 	return {
-		features: { storyCreation: true, automationCreation: false },
+		features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'all', strict: true },
 		docsAccess: { mode: 'restricted', grants: [] },

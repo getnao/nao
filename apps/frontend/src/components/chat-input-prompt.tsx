@@ -9,6 +9,7 @@ import StoryIcon from './ui/story-icon';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
 import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -31,7 +32,9 @@ export const customStoryMentionOption: MentionOption = {
 };
 
 export function useStoryMentionOptions(storyCreationEnabled: boolean): MentionOption[] {
-	const customStoriesEnabled = useCustomStoriesEnabled();
+	const instanceOffersCustomStories = useCustomStoriesEnabled();
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
+	const customStoriesEnabled = instanceOffersCustomStories && customStoryCreationEnabled;
 	if (!storyCreationEnabled) {
 		return [];
 	}

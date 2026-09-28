@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	resolveUserGroupAccess: vi.fn(),
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
+import { env } from '../src/env';
 import {
 	appendAgentUserGroupRestrictions,
 	assertUserGroupFeature,
@@ -18,6 +19,14 @@ import {
 } from '../src/services/user-group-feature-access.service';
 
 describe('user group feature access service', () => {
+	const initialCustomStories = env.BETA_CUSTOM_STORIES_ENABLED;
+	beforeEach(() => {
+		env.BETA_CUSTOM_STORIES_ENABLED = false;
+	});
+	afterEach(() => {
+		env.BETA_CUSTOM_STORIES_ENABLED = initialCustomStories;
+	});
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.resolveUserGroupAccess.mockResolvedValue({
@@ -36,6 +45,7 @@ describe('user group feature access service', () => {
 		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toEqual({
 			features: {
 				storyCreation: true,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
@@ -51,6 +61,7 @@ describe('user group feature access service', () => {
 	it('returns typed flags for effective grants', async () => {
 		await expect(getEffectiveUserGroupFeatureFlags('project-id', 'user-id')).resolves.toEqual({
 			storyCreation: true,
+			customStoryCreation: false,
 			automationCreation: false,
 		});
 		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toMatchObject({
@@ -81,6 +92,7 @@ describe('user group feature access service', () => {
 		expect(resolveAgentUserGroupAccess([], { story: {}, execute_sql: {} })).toEqual({
 			features: {
 				storyCreation: false,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			restrictedFeatures: ['storyCreation', 'automationCreation'],
@@ -88,6 +100,7 @@ describe('user group feature access service', () => {
 		expect(resolveAgentUserGroupAccess([], { execute_sql: {}, custom: {} })).toEqual({
 			features: {
 				storyCreation: false,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			restrictedFeatures: ['automationCreation'],
@@ -105,6 +118,16 @@ describe('user group feature access service', () => {
 		expect(prompt).toContain('Automation creation is unavailable');
 		expect(prompt).toContain('user can still view and manage existing Automations');
 		expect(prompt.match(/## User group permissions/g)).toHaveLength(1);
+	});
+
+	it('restricts custom stories only while the instance offers them', () => {
+		const storiesOnly = resolveAgentUserGroupAccess(['storyCreation', 'automationCreation'], { story: {} });
+		expect(storiesOnly.restrictedFeatures).toEqual([]);
+
+		env.BETA_CUSTOM_STORIES_ENABLED = true;
+		expect(
+			resolveAgentUserGroupAccess(['storyCreation', 'automationCreation'], { story: {} }).restrictedFeatures,
+		).toEqual(['customStoryCreation']);
 	});
 
 	it('omits allowed and tool-irrelevant agent restrictions', () => {

@@ -206,6 +206,12 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 	if (!isCustomStoriesEnabled()) {
 		return fail(input.id, 'Custom stories are disabled on this instance. Create a classic story instead.');
 	}
+	if (!context.userGroupFeatures.includes('customStoryCreation')) {
+		return fail(
+			input.id,
+			'Custom story creation is unavailable for this user in this project. Create a classic story instead.',
+		);
+	}
 	if (!input.title) {
 		return fail(input.id, '"title" is required for the "create" action.');
 	}

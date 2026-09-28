@@ -19,6 +19,7 @@ import { StoryHeader } from '@/components/side-panel/story-header';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { storyBlockEditStore } from '@/stores/story-block-edit';
@@ -32,6 +33,7 @@ interface CustomStoryViewerProps {
 export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps) {
 	const { close, setCurrentStorySlug, isReadonlyMode, isReplay, shareId, shareType } = useSidePanel();
 	const story = useCustomStory(chatId, storySlug);
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
 	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !isReadonlyMode;
@@ -162,7 +164,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 							source={story.dataSource}
 							versionNumber={content.version.number}
 							files={content.files}
-							editable={canEditBlocks}
+							editable={canEditBlocks && customStoryCreationEnabled}
 						/>
 					)
 				}

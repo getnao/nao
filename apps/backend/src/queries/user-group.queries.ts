@@ -26,6 +26,7 @@ import {
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
 	type UserGroupSsoMappings,
+	withSatisfiedFeatureDependencies,
 } from '@nao/shared';
 import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 
@@ -155,7 +156,9 @@ export const resolveUserGroupAccess = async (
 
 	return {
 		groupNames: applicableGroups.map((group) => group.name),
-		features: USER_GROUP_FEATURES.filter((feature) => grantedFeatures.has(feature)),
+		features: withSatisfiedFeatureDependencies(
+			USER_GROUP_FEATURES.filter((feature) => grantedFeatures.has(feature)),
+		),
 		toolCallDensityPolicy: {
 			defaultDensity:
 				densitySource?.config.toolCallDensity.defaultDensity ?? DEFAULT_TOOL_CALL_DENSITY_POLICY.defaultDensity,

@@ -42,16 +42,19 @@ describe('agent user group feature tools', () => {
 		expect(resolveStoryMode(mentions, allowedAccess)).toBe('classic');
 	});
 
-	it('picks the custom story mode only while custom stories are enabled', () => {
+	it('picks the custom story mode only when the instance and the user group allow it', () => {
 		const custom = { id: '__custom_story__', label: 'Custom story mode', trigger: '#' };
 		const classic = { id: '__story__', label: 'Story mode', trigger: '#' };
-		const access = resolveAgentUserGroupAccess(['storyCreation'], { story: {} });
+		const access = resolveAgentUserGroupAccess(['storyCreation', 'customStoryCreation'], { story: {} });
+		const withoutCustom = resolveAgentUserGroupAccess(['storyCreation'], { story: {} });
 
 		const initial = env.BETA_CUSTOM_STORIES_ENABLED;
 		try {
 			env.BETA_CUSTOM_STORIES_ENABLED = true;
 			expect(resolveStoryMode([custom], access)).toBe('custom');
 			expect(resolveStoryMode([classic, custom], access)).toBe('custom');
+			expect(resolveStoryMode([custom], withoutCustom)).toBeNull();
+			expect(resolveStoryMode([classic, custom], withoutCustom)).toBe('classic');
 
 			env.BETA_CUSTOM_STORIES_ENABLED = false;
 			expect(resolveStoryMode([custom], access)).toBeNull();

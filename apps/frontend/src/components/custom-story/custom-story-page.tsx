@@ -23,6 +23,7 @@ import { useStoryViewerSharing } from '@/components/side-panel/hooks/use-story-v
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
 import { StoryPageHeader } from '@/components/story-page-header';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { trpc, trpcClient } from '@/main';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
@@ -37,6 +38,7 @@ interface CustomStoryPreviewPageProps {
 export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: CustomStoryPreviewPageProps) {
 	const navigate = useNavigate();
 	const story = useCustomStory(chatId, storySlug);
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
 	const sharing = useStoryViewerSharing({ chatId, storySlug });
@@ -134,7 +136,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 							source={story.dataSource}
 							versionNumber={content.version.number}
 							files={content.files}
-							editable={canEditBlocks}
+							editable={canEditBlocks && customStoryCreationEnabled}
 						/>
 					)
 				}
