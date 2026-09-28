@@ -537,7 +537,9 @@ function CustomStoriesBlock() {
 					it, replace every <Bold>REPLACE_ME</Bold> queryId with a real query id and every placeholder title
 					with one that fits the data, keep its page/grid layout. Imports are limited to{' '}
 					{STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths. On build_errors nothing was published:
-					fix and publish again. "update"/"replace" do not apply.
+					fix and publish again. "update"/"replace" do not apply; "delete_files" removes draft files and
+					"revert" resets the draft to a published version. Published versions are readable, not writable, at
+					/stories/&lt;id&gt;/@v&lt;N&gt;/&lt;path&gt;.
 				</ListItem>
 				<ListItem>
 					Build with <Bold>@nao/story-kit</Bold> blocks — <Bold>KpiCard</Bold>, <Bold>BarChart</Bold>,{' '}

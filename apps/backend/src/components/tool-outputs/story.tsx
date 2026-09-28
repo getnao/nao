@@ -76,6 +76,7 @@ function CustomStoryOutput({ output }: { output: StoryModelOutput }) {
 
 	return (
 		<Block>
+			{output.message && <Block>{output.message}</Block>}
 			Custom story "{output.title}" ({output.id}) — {state}. Files under /stories/{output.id}/:
 			{files.length === 0 ? (
 				<Block>(no files yet — add them with the write tool, then "publish")</Block>

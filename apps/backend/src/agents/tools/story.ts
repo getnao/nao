@@ -14,6 +14,7 @@ import { isCustomStoriesEnabled } from '../../services/story-mount';
 import { scaffoldCustomStoryFiles } from '../../services/story-scaffold';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
+import { normalizeStoryFilePath } from '../../utils/story-file-path';
 import { STORIES_MOUNT } from '../../utils/story-mount';
 import { createTool } from '../../utils/tools';
 
@@ -76,15 +77,13 @@ export default createTool<story.Input, story.Output>({
 			return fail(input.id, `Story "${input.id}" does not exist. Use "create" first.`);
 		}
 		if (existingStory.format === 'custom') {
-			return input.action === 'publish'
-				? publishCustomStory(existingStory, context)
-				: fail(
-						input.id,
-						`Story "${input.id}" is a custom story: edit its files under /${STORIES_MOUNT}/${input.id}/ with the write tool, then use "publish".`,
-					);
+			return runCustomStoryAction(input, existingStory, context);
 		}
-		if (input.action === 'publish') {
-			return fail(input.id, `"publish" only applies to custom stories; "${input.id}" is a classic story.`);
+		if (input.action === 'publish' || input.action === 'delete_files' || input.action === 'revert') {
+			return fail(
+				input.id,
+				`"${input.action}" only applies to custom stories; "${input.id}" is a classic story.`,
+			);
 		}
 
 		const existing = await storyQueries.getLatestVersionByChatAndSlug(context.chatId, input.id);
@@ -234,6 +233,104 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 }
 
 /** The draft is built before any version is cut, so a published version always carries a working bundle. */
+function runCustomStoryAction(input: story.Input, existingStory: DBStory, context: ToolContext): Promise<story.Output> {
+	switch (input.action) {
+		case 'publish':
+			return publishCustomStory(existingStory, context);
+		case 'delete_files':
+			return deleteCustomStoryFiles(existingStory, input.paths ?? []);
+		case 'revert':
+			return revertCustomStoryDraft(existingStory, input.version);
+		default:
+			return Promise.resolve(
+				fail(
+					input.id,
+					`Story "${input.id}" is a custom story: edit its files under /${STORIES_MOUNT}/${input.id}/ with the write tool, then use "publish".`,
+				),
+			);
+	}
+}
+
+async function deleteCustomStoryFiles(existingStory: DBStory, paths: string[]): Promise<story.Output> {
+	const { slug } = existingStory;
+	const published = await publishedState(existingStory);
+	if (paths.length === 0) {
+		return fail(slug, '"paths" is required for "delete_files".', published);
+	}
+	let targets: string[];
+	try {
+		targets = paths.map((path) => normalizeStoryFilePath(toStoryFilePath(slug, path)));
+	} catch (error) {
+		return fail(slug, (error as Error).message, published);
+	}
+	const draft = new Set((await storyFileQueries.listDraftFiles(existingStory.id)).map((file) => file.path));
+	const missing = targets.filter((path) => !draft.has(path));
+	if (missing.length > 0) {
+		return fail(slug, `Not in the draft of "${slug}": ${missing.join(', ')}. Nothing was deleted.`, published);
+	}
+
+	await db.transaction(async (tx) => {
+		for (const path of targets) {
+			await storyFileQueries.deleteDraftFile(existingStory.id, path, tx);
+		}
+	});
+	const files = await storyFileQueries.listDraftFiles(existingStory.id);
+	return {
+		...customResult(
+			slug,
+			published,
+			files.map((file) => file.path),
+		),
+		message: `Deleted ${targets.join(', ')} from the draft. Publish to make the change live.`,
+	};
+}
+
+async function revertCustomStoryDraft(
+	existingStory: DBStory,
+	versionNumber: number | undefined,
+): Promise<story.Output> {
+	const { slug, chatId } = existingStory;
+	const published = await publishedState(existingStory);
+	const target =
+		versionNumber === undefined
+			? await storyQueries.getLatestVersionByChatAndSlug(chatId!, slug)
+			: await storyQueries.getVersionByNumber(chatId!, slug, versionNumber);
+	if (!target) {
+		return fail(
+			slug,
+			versionNumber === undefined
+				? `Story "${slug}" has no published version to revert to.`
+				: `Story "${slug}" has no version ${versionNumber}.`,
+			published,
+		);
+	}
+
+	const files = await storyFileQueries.restoreDraftFromVersion(existingStory.id, target.id);
+	const isLatest = target.version === published.version;
+	return {
+		...customResult(
+			slug,
+			published,
+			files.map((file) => file.path),
+		),
+		message: isLatest
+			? `The draft is back to the published v${target.version}; there is nothing to publish.`
+			: `The draft now holds the files of v${target.version}. Publish to make them live as a new version.`,
+	};
+}
+
+async function publishedState(existingStory: DBStory): Promise<ExistingStory> {
+	const latest = await storyQueries.getLatestVersionByChatAndSlug(existingStory.chatId!, existingStory.slug);
+	return { code: '', version: latest?.version ?? 0, title: existingStory.title };
+}
+
+/** Accepts a path relative to the story root or the full `/stories/<id>/…` path the file tools use. */
+function toStoryFilePath(slug: string, path: string): string {
+	const prefix = `/${STORIES_MOUNT}/${slug}/`;
+	const trimmed = path.trim();
+	return trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed.replace(/^\.?\//, '');
+}
+
 async function publishCustomStory(existingStory: DBStory, context: ToolContext): Promise<story.Output> {
 	const unpublished = { code: '', version: 0, title: existingStory.title };
 	try {

@@ -21,6 +21,8 @@ const STORY_ACTION_LABELS = {
 	update: { pending: 'Updating...', done: 'Updated' },
 	replace: { pending: 'Replacing...', done: 'Replaced' },
 	publish: { pending: 'Publishing...', done: 'Published' },
+	delete_files: { pending: 'Deleting files...', done: 'Deleted draft files' },
+	revert: { pending: 'Reverting draft...', done: 'Reverted draft' },
 } as const;
 
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {

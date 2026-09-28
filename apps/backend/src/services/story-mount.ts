@@ -7,6 +7,7 @@ import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import {
+	parsePublishedVersionPath,
 	parseStoriesPath,
 	STORIES_MOUNT,
 	type StoryMountPath,
@@ -14,11 +15,13 @@ import {
 	toStoriesVirtualPath,
 } from '../utils/story-mount';
 
-/** The draft files of one story, addressed by their path inside the story. */
+/** The files of one story (its draft, or a published version), addressed by their path inside the story. */
 interface MountedStory {
 	story: DBStory;
-	files: DBStoryDraftFile[];
+	files: MountedFile[];
 }
+
+type MountedFile = Pick<DBStoryDraftFile, 'path' | 'content'>;
 
 interface GrepOptions {
 	pattern: string;
@@ -38,8 +41,10 @@ export async function listStoryMount(chatId: string, virtualPath: string): Promi
 		return listMountRoot(chatId);
 	}
 
-	const mounted = await loadMountedStory(chatId, target.slug);
 	const directory = target.kind === 'file' ? target.filePath : '';
+	const mounted = parsePublishedVersionPath(directory)
+		? await loadPublishedVersion(chatId, target.slug, directory)
+		: await loadMountedStory(chatId, target.slug);
 	const entries = entriesInDirectory(mounted, directory);
 	if (entries.length === 0 && directory !== '') {
 		throw new Error(`No folder '${virtualPath}' in story "${target.slug}".`);
@@ -49,6 +54,9 @@ export async function listStoryMount(chatId: string, virtualPath: string): Promi
 
 export async function readStoryMountFile(chatId: string, virtualPath: string): Promise<string> {
 	const target = requireFilePath(virtualPath);
+	if (parsePublishedVersionPath(target.filePath)) {
+		return readPublishedVersionFile(chatId, target.slug, target.filePath, virtualPath);
+	}
 	const story = await requireCustomStory(chatId, target.slug);
 	const file = await storyFileQueries.getDraftFile(story.id, target.filePath);
 	if (!file) {
@@ -65,6 +73,12 @@ export async function writeStoryMountFile(
 	content: string,
 ): Promise<{ path: string; size: number }> {
 	const target = requireFilePath(virtualPath);
+	const published = parsePublishedVersionPath(target.filePath);
+	if (published) {
+		throw new Error(
+			`Published versions are read-only. Edit the draft at ${toStoriesVirtualPath(target.slug, published.filePath)} instead.`,
+		);
+	}
 	const story = await requireCustomStory(chatId, target.slug);
 	const file = await storyFileQueries.writeDraftFile(story.id, { path: target.filePath, content });
 	return { path: toStoriesVirtualPath(target.slug, file.path), size: Buffer.byteLength(file.content, 'utf8') };
@@ -147,13 +161,46 @@ function entriesInDirectory({ story, files }: MountedStory, directory: string): 
 	return [...folderEntries, ...entries];
 }
 
-function fileEntry(slug: string, file: DBStoryDraftFile): searchFiles.File {
+function fileEntry(slug: string, file: MountedFile): searchFiles.File {
 	const virtualPath = toStoriesVirtualPath(slug, file.path);
 	return {
 		path: virtualPath,
 		dir: path.posix.dirname(virtualPath),
 		size: String(Buffer.byteLength(file.content, 'utf8')),
 	};
+}
+
+/** A published version's files, placed under their `@vN/` segment so folder listing works unchanged. */
+async function loadPublishedVersion(chatId: string, slug: string, directory: string): Promise<MountedStory> {
+	const story = await requireCustomStory(chatId, slug);
+	const { versionNumber } = parsePublishedVersionPath(directory)!;
+	const version = await requirePublishedVersion(story, versionNumber);
+	const files = await storyFileQueries.listVersionFiles(version.id);
+	return { story, files: files.map((file) => ({ path: `@v${versionNumber}/${file.path}`, content: file.content })) };
+}
+
+async function readPublishedVersionFile(
+	chatId: string,
+	slug: string,
+	filePath: string,
+	virtualPath: string,
+): Promise<string> {
+	const story = await requireCustomStory(chatId, slug);
+	const published = parsePublishedVersionPath(filePath)!;
+	const version = await requirePublishedVersion(story, published.versionNumber);
+	const file = await storyFileQueries.getVersionFile(version.id, published.filePath);
+	if (!file) {
+		throw new Error(`No file '${virtualPath}' in version ${published.versionNumber} of story "${slug}".`);
+	}
+	return file.content;
+}
+
+async function requirePublishedVersion(story: DBStory, versionNumber: number) {
+	const version = await storyQueries.getVersionByNumber(story.chatId!, story.slug, versionNumber);
+	if (!version) {
+		throw new Error(`Story "${story.slug}" has no published version ${versionNumber}.`);
+	}
+	return version;
 }
 
 async function loadMountedStories(chatId: string): Promise<MountedStory[]> {
@@ -202,11 +249,11 @@ function compilePattern({ pattern, caseInsensitive }: GrepOptions): RegExp {
 	}
 }
 
-function isInGrepScope(file: DBStoryDraftFile, scope: StoryMountPath): boolean {
+function isInGrepScope(file: MountedFile, scope: StoryMountPath): boolean {
 	return scope.kind !== 'file' || file.path === scope.filePath || file.path.startsWith(`${scope.filePath}/`);
 }
 
-function matchesGlob(slug: string, file: DBStoryDraftFile, glob: string | undefined): boolean {
+function matchesGlob(slug: string, file: MountedFile, glob: string | undefined): boolean {
 	return !glob || minimatch(toStoriesMountRelativePath(slug, file.path), glob, { matchBase: true, dot: true });
 }
 

@@ -11,9 +11,9 @@ export const FileSchema = z.object({
 
 export const InputSchema = z.object({
 	action: z
-		.enum(['create', 'update', 'replace', 'publish'])
+		.enum(['create', 'update', 'replace', 'publish', 'delete_files', 'revert'])
 		.describe(
-			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version). "publish" (custom stories only) builds the draft files under /stories/<id>/ and, if they compile, snapshots them into a new version; build errors come back in build_errors and nothing is published.',
+			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version). Custom stories only: "publish" builds the draft files under /stories/<id>/ and, if they compile, snapshots them into a new version (build errors come back in build_errors and nothing is published); "delete_files" removes "paths" from the draft; "revert" resets the whole draft to the latest published version, or to "version" — publish afterwards to make an older version live again.',
 		),
 	id: z
 		.string()
@@ -39,6 +39,18 @@ export const InputSchema = z.object({
 		.describe(
 			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid>...</grid> to lay out 2–4 charts/tables side by side, optionally with widths="2,1" (comma-separated positive integers, one per column) for unequal column widths. Use <tab title="...">...</tab> blocks for a tabbed layout.',
 		),
+	paths: z
+		.array(z.string())
+		.optional()
+		.describe(
+			'Only for "delete_files": the draft files to remove, relative to the story root (e.g. "old-chart.jsx").',
+		),
+	version: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe('Only for "revert": the published version to reset the draft to. Defaults to the latest one.'),
 	search: z.string().optional().describe('The exact text to find in the current story code. Required for "update".'),
 	replace: z.string().optional().describe('The replacement text. Required for "update".'),
 });
@@ -55,6 +67,7 @@ export const OutputSchema = z.object({
 	error: z.string().optional(),
 	template_warnings: z.array(z.string()).optional(),
 	build_errors: z.array(z.string()).optional().describe('Why a custom story failed to build; nothing was published.'),
+	message: z.string().optional().describe('What the action did to a custom story draft, and what to do next.'),
 });
 
 export type Input = z.infer<typeof InputSchema>;

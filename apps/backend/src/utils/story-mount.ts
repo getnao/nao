@@ -46,3 +46,10 @@ export const toStoriesMountRelativePath = (slug: string, filePath: string): stri
 const trimSlashes = (value: string): string => {
 	return value.trim().replace(/^\/+|\/+$/g, '');
 };
+
+const PUBLISHED_VERSION_SEGMENT = /^@v(\d+)(?:\/(.*))?$/;
+
+export const parsePublishedVersionPath = (filePath: string): { versionNumber: number; filePath: string } | null => {
+	const match = PUBLISHED_VERSION_SEGMENT.exec(filePath);
+	return match ? { versionNumber: Number(match[1]), filePath: match[2] ?? '' } : null;
+};
