@@ -10,7 +10,7 @@ import * as storyQueries from '../../queries/story.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { buildStoryApp } from '../../services/story-app-build';
-import { isCustomStoriesEnabled } from '../../services/story-mount';
+import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
 import { scaffoldCustomStoryFiles } from '../../services/story-scaffold';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
@@ -203,14 +203,9 @@ async function classicResult(
 /** A custom story starts as a draft under /stories/<id>/; it has no version until it is published. */
 async function createCustomStory(input: story.Input, context: ToolContext): Promise<story.Output> {
 	const { chatId, userId, projectId } = context;
-	if (!isCustomStoriesEnabled()) {
-		return fail(input.id, 'Custom stories are disabled on this instance. Create a classic story instead.');
-	}
-	if (!context.userGroupFeatures.includes('customStoryCreation')) {
-		return fail(
-			input.id,
-			'Custom story creation is unavailable for this user in this project. Create a classic story instead.',
-		);
+	const authoringError = customStoryAuthoringError(context.userGroupFeatures);
+	if (authoringError) {
+		return fail(input.id, `${authoringError} Create a classic story instead.`);
 	}
 	if (!input.title) {
 		return fail(input.id, '"title" is required for the "create" action.');
@@ -240,6 +235,10 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 
 /** The draft is built before any version is cut, so a published version always carries a working bundle. */
 function runCustomStoryAction(input: story.Input, existingStory: DBStory, context: ToolContext): Promise<story.Output> {
+	const authoringError = customStoryAuthoringError(context.userGroupFeatures);
+	if (authoringError) {
+		return Promise.resolve(fail(input.id, authoringError));
+	}
 	switch (input.action) {
 		case 'publish':
 			return publishCustomStory(existingStory, context);

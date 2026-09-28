@@ -1,3 +1,4 @@
+import type { UserGroupFeature } from '@nao/shared';
 import type { grep, list, searchFiles } from '@nao/shared/tools';
 import { minimatch } from 'minimatch';
 import path from 'path';
@@ -34,6 +35,17 @@ interface GrepOptions {
 export const isCustomStoriesEnabled = (): boolean => {
 	return env.BETA_CUSTOM_STORIES_ENABLED;
 };
+
+/** Why the user cannot author custom story source, or null when they can. */
+export function customStoryAuthoringError(userGroupFeatures: UserGroupFeature[]): string | null {
+	if (!isCustomStoriesEnabled()) {
+		return 'Custom stories are disabled on this instance.';
+	}
+	if (!userGroupFeatures.includes('customStoryCreation')) {
+		return 'Custom story authoring is unavailable for this user in this project.';
+	}
+	return null;
+}
 
 export async function listStoryMount(chatId: string, virtualPath: string): Promise<list.Entry[]> {
 	const target = parseStoriesPath(virtualPath);

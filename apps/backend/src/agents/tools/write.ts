@@ -4,7 +4,7 @@ import { renderToModelOutput, WriteOutput } from '../../components/tool-outputs'
 import { env } from '../../env';
 import { isStorageEnabled, relativePathFromKey } from '../../services/storage';
 import { writeUserFile } from '../../services/storage/user-files';
-import { isCustomStoriesEnabled, writeStoryMountFile } from '../../services/story-mount';
+import { customStoryAuthoringError, isCustomStoriesEnabled, writeStoryMountFile } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { isStoriesPath, STORIES_MOUNT } from '../../utils/story-mount';
 import {
@@ -39,6 +39,10 @@ export default createTool<writeFile.Input, writeFile.Output>({
 	outputSchema: writeFile.OutputSchema,
 	execute: async ({ file_path, content }, context) => {
 		if (isStoriesPath(file_path)) {
+			const authoringError = customStoryAuthoringError(context.userGroupFeatures);
+			if (authoringError) {
+				throw new Error(`Cannot write '${file_path}': ${authoringError}`);
+			}
 			return { _version: '1' as const, ...(await writeStoryMountFile(context.chatId, file_path, content)) };
 		}
 		if (isStoragePath(file_path)) {
