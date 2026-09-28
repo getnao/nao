@@ -42,17 +42,47 @@ function isPrivateIPv6(ip: string): boolean {
 	if (!net.isIPv6(ip)) {
 		return false;
 	}
-	const normalized = ip.toLowerCase();
-	if (normalized.startsWith('::ffff:')) {
-		return isPrivateIPv4(normalized.slice('::ffff:'.length));
+	const hextets = expandIPv6(ip.toLowerCase());
+	const embeddedIPv4 = embeddedIPv4Of(hextets);
+	if (embeddedIPv4 !== null) {
+		return isPrivateIPv4(embeddedIPv4);
 	}
-	return (
-		normalized === '::1' ||
-		normalized === '::' ||
-		normalized === '0:0:0:0:0:0:0:1' ||
-		/^f[cd]/.test(normalized) ||
-		/^fe[89ab]/.test(normalized)
-	);
+	const [first] = hextets;
+	const isUniqueLocal = (first & 0xfe00) === 0xfc00;
+	const isLinkLocal = (first & 0xffc0) === 0xfe80;
+	const isMulticast = (first & 0xff00) === 0xff00;
+	return isUniqueLocal || isLinkLocal || isMulticast;
+}
+
+/** Returns the IPv4 address carried by IPv4-mapped, IPv4-compatible (incl. `::` and `::1`) and NAT64 forms. */
+function embeddedIPv4Of(hextets: number[]): string | null {
+	const prefix = hextets.slice(0, 6);
+	const isMapped = prefix.slice(0, 5).every((hextet) => hextet === 0) && prefix[5] === 0xffff;
+	const isCompatible = prefix.every((hextet) => hextet === 0);
+	const isNat64 = prefix[0] === 0x64 && prefix[1] === 0xff9b && prefix.slice(2).every((hextet) => hextet === 0);
+	if (!isMapped && !isCompatible && !isNat64) {
+		return null;
+	}
+	const [high, low] = [hextets[6], hextets[7]];
+	return [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.');
+}
+
+function expandIPv6(ip: string): number[] {
+	const withoutZone = ip.split('%')[0];
+	const dottedSuffix = withoutZone.match(/(\d+\.\d+\.\d+\.\d+)$/);
+	const hexOnly = dottedSuffix
+		? withoutZone.slice(0, -dottedSuffix[1].length) + ipv4ToHextets(dottedSuffix[1])
+		: withoutZone;
+	const [head, tail] = hexOnly.split('::');
+	const headParts = head ? head.split(':') : [];
+	const tailParts = tail ? tail.split(':') : [];
+	const missing = hexOnly.includes('::') ? 8 - headParts.length - tailParts.length : 0;
+	return [...headParts, ...Array<string>(missing).fill('0'), ...tailParts].map((part) => parseInt(part, 16));
+}
+
+function ipv4ToHextets(ip: string): string {
+	const value = ip4ToInt(ip);
+	return `${(value >>> 16).toString(16)}:${(value & 0xffff).toString(16)}`;
 }
 
 export function isPrivateAddress(address: string): boolean {
