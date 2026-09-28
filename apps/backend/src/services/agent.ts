@@ -28,6 +28,7 @@ import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
+import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
@@ -129,9 +130,25 @@ export interface AgentToolsContext {
 /** Builds the tool set a run should expose. Callers pass one to `create` to customise tools. */
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
-export function shouldAddStoryMode(mentions: Mention[] | undefined, access: AgentUserGroupAccess): boolean {
-	return access.features.storyCreation && Boolean(mentions?.some((mention) => mention.id === story.MENTION_ID));
+export function resolveStoryMode(
+	mentions: Mention[] | undefined,
+	access: AgentUserGroupAccess,
+): 'classic' | 'custom' | null {
+	if (!access.features.storyCreation) {
+		return null;
+	}
+	const mentioned = (id: string) => Boolean(mentions?.some((mention) => mention.id === id));
+	if (env.BETA_CUSTOM_STORIES_ENABLED && mentioned(story.CUSTOM_MENTION_ID)) {
+		return 'custom';
+	}
+	return mentioned(story.MENTION_ID) ? 'classic' : null;
 }
+
+const STORY_MODE_INSTRUCTIONS = {
+	classic:
+		'[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts]',
+	custom: '[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks]',
+} as const;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
 export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
@@ -956,13 +973,12 @@ class AgentManager {
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		if (!shouldAddStoryMode(mentions, this._userGroupAccess)) {
+		const mode = resolveStoryMode(mentions, this._userGroupAccess);
+		if (!mode) {
 			return messages;
 		}
-
-		const STORY_INSTRUCTION =
-			'[Story mode: present your response as an interactive nao Story using the story tool, combining markdown and charts]';
-		return this._transformLastUserMessageText(messages, (text) => `${STORY_INSTRUCTION}\n\n${text}`);
+		const instruction = STORY_MODE_INSTRUCTIONS[mode];
+		return this._transformLastUserMessageText(messages, (text) => `${instruction}\n\n${text}`);
 	}
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

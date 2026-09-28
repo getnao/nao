@@ -1,6 +1,7 @@
 import z from 'zod/v3';
 
 export const MENTION_ID = '__story__';
+export const CUSTOM_MENTION_ID = '__custom_story__';
 export const MENTION_TRIGGER = '#';
 
 export const FileSchema = z.object({

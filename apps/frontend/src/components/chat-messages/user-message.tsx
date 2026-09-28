@@ -21,8 +21,7 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
-import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
-import StoryIcon from '@/components/ui/story-icon';
+import { customStoryMentionOption, storyMentionOption } from '@/components/chat-input-prompt';
 import MattermostIcon from '@/components/icons/mattermost.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
@@ -89,9 +88,7 @@ function useMentionConfigs(): MessageMentionConfig[] {
 			label: skill.name,
 		}));
 
-		const storyOptions: MentionOption[] = [
-			{ id: STORY_MENTION_ID, label: 'Story mode', icon: <StoryIcon className='size-4' strokeWidth={2.25} /> },
-		];
+		const storyOptions: MentionOption[] = [storyMentionOption, customStoryMentionOption];
 
 		return [
 			{ trigger: '@', options: dbOptions },

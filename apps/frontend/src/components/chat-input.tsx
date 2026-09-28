@@ -5,7 +5,7 @@ import { Plus, PencilRuler, Database, Paperclip, AlertTriangle, Shield, Check } 
 import { ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
-import { ChatPrompt, STORY_MENTION_ID, DATABASE_MENTION_TRIGGER } from './chat-input-prompt';
+import { ChatPrompt, DATABASE_MENTION_TRIGGER, useStoryMentionOptions } from './chat-input-prompt';
 import { ChatInputModelSelect } from './chat-input-model-select';
 import { ChatInputMessageQueue } from './chat-input-message-queue';
 import { ChatInputAttachmentPreview } from './chat-input-attachment-preview';
@@ -16,8 +16,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import StoryIcon from './ui/story-icon';
-import type { PromptHandle, SelectedMention } from 'prompt-mentions';
+import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
 import type { AgentHelpers } from '@/hooks/use-agent';
 import { ContextWindowRing } from '@/components/ui/chat-input-context-window-ring';
@@ -117,6 +116,7 @@ function ChatInputBase({
 	const navigate = useNavigate();
 	const { canChatWithNaoData } = usePermissions();
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
+	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const chatId = useChatId();
 	const storyBeforeAgentSend = useStoryBeforeAgentSend();
 
@@ -447,17 +447,14 @@ function ChatInputBase({
 							<ChatInputPlusMenu
 								hasDatabases={hasDatabases}
 								hasSkills={hasSkills}
-								storyCreationEnabled={storyCreationEnabled}
 								canChatWithNaoData={canChatWithNaoData}
 								isAdminMode={isAdminMode}
 								adminModeLocked={adminModeLocked}
 								onSelectAdminMode={handleSelectAdminMode}
 								onAddAttachment={attachmentUpload.openFilePicker}
-								onAddStory={() => {
-									promptRef.current?.appendMention(
-										{ id: STORY_MENTION_ID, label: 'Story mode' },
-										'#',
-									);
+								storyMentions={storyMentionOptions}
+								onAddStory={(mention) => {
+									promptRef.current?.appendMention({ id: mention.id, label: mention.label }, '#');
 								}}
 								onOpenSkills={openSkillsMenu}
 								onOpenDatabase={openDatabaseMenu}
@@ -671,7 +668,7 @@ function BudgetBanner() {
 function ChatInputPlusMenu({
 	hasDatabases,
 	hasSkills,
-	storyCreationEnabled,
+	storyMentions,
 	canChatWithNaoData,
 	isAdminMode,
 	adminModeLocked,
@@ -684,13 +681,13 @@ function ChatInputPlusMenu({
 }: {
 	hasDatabases: boolean;
 	hasSkills: boolean;
-	storyCreationEnabled: boolean;
+	storyMentions: MentionOption[];
 	canChatWithNaoData: boolean;
 	isAdminMode: boolean;
 	adminModeLocked: boolean;
 	onSelectAdminMode: () => void;
 	onAddAttachment: () => void;
-	onAddStory: () => void;
+	onAddStory: (mention: MentionOption) => void;
 	onOpenSkills: () => void;
 	onOpenDatabase: () => void;
 	onFocusPrompt: () => void;
@@ -726,12 +723,12 @@ function ChatInputPlusMenu({
 						<span>Database tables</span>
 					</DropdownMenuItem>
 				)}
-				{storyCreationEnabled && (
-					<DropdownMenuItem onSelect={onAddStory}>
-						<StoryIcon className='size-4' />
-						<span>Story mode</span>
+				{storyMentions.map((mention) => (
+					<DropdownMenuItem key={mention.id} onSelect={() => onAddStory(mention)}>
+						{mention.icon}
+						<span>{mention.label}</span>
 					</DropdownMenuItem>
-				)}
+				))}
 				{hasSkills && (
 					<DropdownMenuItem onSelect={onOpenSkills}>
 						<PencilRuler className='size-4' />
