@@ -56,12 +56,12 @@ const stylesheetRefCounts = new Map<string, number>();
  * another one is still using.
  */
 function useFontStylesheets(hrefs: string[]) {
-	const key = hrefs.join('|');
+	const key = hrefs.length > 0 ? JSON.stringify(hrefs) : '';
 	useEffect(() => {
 		if (!key) {
 			return;
 		}
-		const urls = key.split('|');
+		const urls = JSON.parse(key) as string[];
 		for (const href of urls) {
 			stylesheetRefCounts.set(href, (stylesheetRefCounts.get(href) ?? 0) + 1);
 			if (!findStylesheetLink(href)) {
