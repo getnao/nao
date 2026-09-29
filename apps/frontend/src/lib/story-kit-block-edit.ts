@@ -12,6 +12,8 @@ import { kitBlockFromConfig } from '@/story-runtime/story-kit/block-config';
 /** Props that pick the chart variant of a component; they are meaningless once the component changes. */
 const VARIANT_PROPS = ['type', 'stacked', 'horizontal', 'percent', 'area'];
 
+const FORMAT_SHORTHAND_PROPS = ['format', 'currency', 'decimals'];
+
 /**
  * Turns a dialog edit into the smallest JSX change: only props whose kit value actually differs are
  * touched, so everything the dialog does not model (className, height, derived data…) stays as written.
@@ -44,6 +46,9 @@ export function diffKitBlock(
 	}
 	if (componentChanged) {
 		change.component = after.component;
+	}
+	if (!isSameValue(valueFormatsOf(before.props), valueFormatsOf(after.props))) {
+		change.unset.push(...FORMAT_SHORTHAND_PROPS.filter((key) => !(key in change.set)));
 	}
 
 	const isEmpty = !componentChanged && change.unset.length === 0 && Object.keys(change.set).length === 0;
@@ -106,6 +111,16 @@ export function toHexColors({ palette, resolved }: StoryBlockColors): StoryBlock
 function toHex(color: string): string | undefined {
 	const parsed = parse(color);
 	return parsed ? formatHex(parsed) : undefined;
+}
+
+function valueFormatsOf(props: Record<string, unknown>): unknown[] {
+	const series = Array.isArray(props.series) ? props.series : [];
+	return [
+		props.valueFormat,
+		...series.map((spec: unknown) =>
+			typeof spec === 'object' && spec !== null ? (spec as { valueFormat?: unknown }).valueFormat : undefined,
+		),
+	];
 }
 
 function isSameValue(left: unknown, right: unknown): boolean {
