@@ -11,7 +11,11 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
-import { assertShareableUserGroupIds, listShareableUserGroups } from '../services/shareable-user-groups.service';
+import {
+	assertShareableUserGroupIds,
+	filterShareableUserGroupIds,
+	listShareableUserGroups,
+} from '../services/shareable-user-groups.service';
 import { teardownStoryDelivery } from '../services/story-delivery.service';
 import {
 	assertStoryFiltersEnabled,
@@ -327,7 +331,7 @@ export const sharedStoryRoutes = {
 				shareId: access.shareId,
 				visibility: access.visibility,
 				allowedUserIds: access.allowedUserIds,
-				allowedGroupIds: access.allowedGroupIds,
+				allowedGroupIds: await filterShareableUserGroupIds(ctx.project.id, access.allowedGroupIds),
 			};
 		}),
 

@@ -197,7 +197,7 @@ async function grantShareAccessToRecipients(
 	if (access.visibility !== 'specific') {
 		return;
 	}
-	const missing = recipientUserIds.filter((id) => !access.recipientUserIds.includes(id));
+	const missing = recipientUserIds.filter((id) => !access.allowedUserIds.includes(id));
 	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
 }
 

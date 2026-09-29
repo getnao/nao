@@ -899,7 +899,7 @@ async function grantSpecificShareAccess(storyId: string, projectId: string, user
 	if (access?.visibility !== 'specific') {
 		return;
 	}
-	const missing = userIds.filter((id) => !access.recipientUserIds.includes(id));
+	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
 	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
 }
 

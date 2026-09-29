@@ -1,5 +1,6 @@
 import '../src/env';
 
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
@@ -88,6 +89,20 @@ describe('sharing a story with user groups', () => {
 			allowedUserIds: [DIRECT_USER_ID],
 			allowedGroupIds: [GROUP_ID],
 		});
+	});
+
+	it('follows group membership changes after the story is shared', async () => {
+		const shared = await shareWithGroupAndDirectUser();
+
+		await db.insert(s.userGroupMember).values({ groupId: GROUP_ID, userId: OUTSIDER_ID });
+		expect(await canUserAccessSharedStory(shared.id, OUTSIDER_ID)).toBe(true);
+		expect(await getSharedStoryRecipientUserIds(shared.id)).toContain(OUTSIDER_ID);
+
+		await db
+			.delete(s.userGroupMember)
+			.where(and(eq(s.userGroupMember.groupId, GROUP_ID), eq(s.userGroupMember.userId, OUTSIDER_ID)));
+		expect(await canUserAccessSharedStory(shared.id, OUTSIDER_ID)).toBe(false);
+		expect(await getSharedStoryRecipientUserIds(shared.id)).not.toContain(OUTSIDER_ID);
 	});
 
 	it('lists group shares for members with user and group counts', async () => {

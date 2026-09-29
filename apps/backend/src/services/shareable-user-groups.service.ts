@@ -31,13 +31,18 @@ export async function listShareableUserGroups(projectId: string): Promise<Sharea
 }
 
 export async function assertShareableUserGroupIds(projectId: string, groupIds: string[]): Promise<void> {
-	if (groupIds.length === 0) {
-		return;
-	}
-	const shareableGroupIds = new Set((await listShareableUserGroups(projectId)).map((group) => group.id));
-	if (groupIds.some((groupId) => !shareableGroupIds.has(groupId))) {
+	const shareableGroupIds = await filterShareableUserGroupIds(projectId, groupIds);
+	if (shareableGroupIds.length !== groupIds.length) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'One or more user groups cannot be shared with.' });
 	}
+}
+
+export async function filterShareableUserGroupIds(projectId: string, groupIds: string[]): Promise<string[]> {
+	if (groupIds.length === 0) {
+		return [];
+	}
+	const shareableGroupIds = new Set((await listShareableUserGroups(projectId)).map((group) => group.id));
+	return groupIds.filter((groupId) => shareableGroupIds.has(groupId));
 }
 
 function groupMemberIdsByGroup(
