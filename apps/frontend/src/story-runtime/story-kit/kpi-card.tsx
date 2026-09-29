@@ -1,4 +1,4 @@
-import { computeKpiComparison, KpiCard as ChartKpiCard } from '@nao/shared/chart-builder';
+import { computeKpiComparison, KpiCard as ChartKpiCard, sortByDateKey } from '@nao/shared/chart-builder';
 import { Block, BlockState } from './block';
 import { blockRef, kpiBlockConfig, resolveXKey } from './block-config';
 import { isNumericColumn, withNumericValues } from './columns';
@@ -52,7 +52,10 @@ export function KpiCard(props: KpiCardProps) {
 					if (!resolved) {
 						return null;
 					}
-					const numericRows = withNumericValues(rows, [resolved.valueKey]);
+					const numericRows = inChronologicalOrder(
+						withNumericValues(rows, [resolved.valueKey]),
+						resolved.xAxisKey,
+					);
 					return (
 						<ChartKpiCard
 							value={numericRows[numericRows.length - 1]?.[resolved.valueKey]}
@@ -70,6 +73,11 @@ export function KpiCard(props: KpiCardProps) {
 			</BlockState>
 		</Block>
 	);
+}
+
+/** The latest period is the last row, whatever order the query returned: rows without a date keep their order. */
+function inChronologicalOrder(rows: Row[], xAxisKey: string | undefined): Row[] {
+	return xAxisKey ? sortByDateKey(rows, xAxisKey) : rows;
 }
 
 function resolveValueKey(rows: Row[], columns: string[], valueKey?: string): string {
