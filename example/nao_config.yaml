@@ -22,6 +22,3 @@ semantic_layer:
 notion: null
 llm: null
 slack: null
-metabase:
-  url: "{{ env('METABASE_URL') }}"
-  api_key: "{{ env('METABASE_API_KEY') }}"
