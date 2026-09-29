@@ -18,7 +18,7 @@ class TableauClient:
         self._client = httpx.Client(
             base_url=config.server,
             timeout=timeout,
-            follow_redirects=True,
+            follow_redirects=False,
             transport=transport,
         )
         self._token = ""

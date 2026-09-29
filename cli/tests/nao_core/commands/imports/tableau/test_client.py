@@ -129,6 +129,42 @@ def test_tableau_json_error_is_sanitized() -> None:
         raise_for_tableau_status(response)
 
 
+def test_authenticated_requests_do_not_follow_redirects() -> None:
+    requested_hosts: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested_hosts.append(request.url.host)
+        if request.url.path.endswith("/auth/signin"):
+            return httpx.Response(
+                200,
+                json={"credentials": {"token": "token", "site": {"id": "site-id"}}},
+                request=request,
+            )
+        if request.url.path.endswith("/auth/signout"):
+            return httpx.Response(204, request=request)
+        return httpx.Response(
+            302,
+            headers={"Location": "https://attacker.example/steal"},
+            request=request,
+        )
+
+    client = TableauClient(
+        TableauConfig(
+            server="https://tableau.example.com",
+            site_name="site",
+            pat_name="name",
+            pat_value="value",
+        ),
+        transport=httpx.MockTransport(respond),
+    )
+
+    with client:
+        with pytest.raises(ValueError, match="Tableau API request failed with status 302"):
+            client.download_view_data("view-id")
+
+    assert "attacker.example" not in requested_hosts
+
+
 def test_find_workbook_uses_consistent_name_normalization() -> None:
     client = TableauClient(
         TableauConfig(

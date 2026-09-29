@@ -7,6 +7,7 @@ from nao_core.commands.migrate.tableau.workbook import (
     chart_orientation,
     parse_field_reference,
     parse_workbook,
+    select_dashboards,
     source_chart_type,
 )
 
@@ -86,6 +87,22 @@ def test_parse_workbook_reads_dashboard_layout_and_visualizations() -> None:
     assert visualizations["Sales Trend"]["source_chart_type"] == "line"
     assert visualizations["Sales by Region"]["source_chart_type"] == "bar"
     assert visualizations["Sales by Region"]["orientation"] == "vertical"
+
+
+def test_select_dashboards_prefers_an_exact_name() -> None:
+    dashboards: list[dict[str, object]] = [{"name": "North-Sales"}, {"name": "NorthSales"}]
+
+    assert select_dashboards(dashboards, "North-Sales") == [{"name": "North-Sales"}]
+
+
+def test_select_dashboards_rejects_ambiguous_normalized_names() -> None:
+    dashboards: list[dict[str, object]] = [{"name": "North-Sales"}, {"name": "NorthSales"}]
+
+    with pytest.raises(
+        ValueError,
+        match='Dashboard name "north sales" is ambiguous. Matching dashboards: North-Sales, NorthSales.',
+    ):
+        select_dashboards(dashboards, "north sales")
 
 
 @pytest.mark.parametrize(

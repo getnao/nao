@@ -120,7 +120,7 @@ After validating the chart, delete the CLI migration JSON and its `assets_direct
 
 Do this for every dashboard story migration:
 
-1. Treat `interactions.controls` as the complete allowlist of visible controls. Use each control's `dashboard`, `id`, `mode`, and `mappings`; never infer additional controls from images, CSV columns, names, or common dashboard patterns.
+1. Treat `interactions.controls` as the complete allowlist of visible controls. Use each control's `dashboard`, `id`, and `mappings`; use `mode` for filters and `allowed_values` for parameters. Never infer additional controls from images, CSV columns, names, or common dashboard patterns.
 2. Resolve every mapping's `source_field` to an exact column in the configured source database. Verify its table and required joins through nao context. Apply the control only to the mapping's worksheet.
 3. Build and validate each worksheet's source query against the shared database. Compare its unfiltered result with the Tableau CSV before adding filters.
 4. Obtain categorical options with `SELECT DISTINCT` from the mapped database column. Parser values may represent only Tableau's current selection, not the complete domain.

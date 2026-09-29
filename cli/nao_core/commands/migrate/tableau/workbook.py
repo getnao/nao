@@ -70,14 +70,17 @@ def select_dashboards(
     if not requested:
         return dashboards
 
-    match = next(
-        (dashboard for dashboard in dashboards if normalize(str(dashboard["name"])) == normalize(requested)),
-        None,
-    )
-    if not match:
+    exact_matches = [dashboard for dashboard in dashboards if dashboard["name"] == requested]
+    matches = exact_matches or [
+        dashboard for dashboard in dashboards if normalize(str(dashboard["name"])) == normalize(requested)
+    ]
+    if not matches:
         available = ", ".join(str(dashboard["name"]) for dashboard in dashboards) or "none"
         raise ValueError(f'No dashboard named "{requested}" was found. Available dashboards: {available}.')
-    return [match]
+    if len(matches) > 1:
+        names = ", ".join(str(dashboard["name"]) for dashboard in matches)
+        raise ValueError(f'Dashboard name "{requested}" is ambiguous. Matching dashboards: {names}.')
+    return matches
 
 
 def build_warnings(

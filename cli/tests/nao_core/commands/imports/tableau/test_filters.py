@@ -47,10 +47,11 @@ def test_parse_filters_builds_effective_worksheet_mappings() -> None:
     interactions = parse_filters(WORKBOOK)
     controls = cast(list[dict[str, object]], interactions["controls"])
     mappings = cast(list[dict[str, object]], interactions["worksheet_mappings"])
+    region_id = control_identifier("filter", "Overview", "[sales].[none:Region:nk]")
 
     assert controls == [
         {
-            "id": "filter_overview_sales_region",
+            "id": region_id,
             "type": "filter",
             "dashboard": "Overview",
             "caption": "Region",
@@ -78,8 +79,8 @@ def test_parse_filters_builds_effective_worksheet_mappings() -> None:
         }
     ]
     assert [mapping["effective_filter_ids"] for mapping in mappings] == [
-        ["filter_overview_sales_region"],
-        ["filter_overview_sales_region"],
+        [region_id],
+        [region_id],
     ]
 
 
@@ -119,19 +120,61 @@ def test_parse_filters_keeps_same_caption_controls_from_different_data_sources()
     controls = cast(list[dict[str, object]], parse_filters(workbook)["controls"])
 
     assert [control["id"] for control in controls] == [
-        "filter_overview_sales_region",
-        "filter_overview_returns_region",
+        control_identifier("filter", "Overview", "[sales].[none:Region:nk]"),
+        control_identifier("filter", "Overview", "[returns].[none:Region:nk]"),
     ]
 
 
+def test_parse_filters_keeps_fields_with_distinct_separators() -> None:
+    fields = [
+        "[sales].[none:North Sales:nk]",
+        "[sales].[none:North-Sales:nk]",
+        "[sales].[none:North_Sales:nk]",
+    ]
+    filters = "\n".join(
+        f"""
+        <filter class="categorical" column="{field}">
+          <groupfilter function="member" member="&quot;Value {index}&quot;" />
+        </filter>
+        """
+        for index, field in enumerate(fields)
+    )
+    controls = "\n".join(f'<zone type-v2="filter" name="Sales" param="{field}" />' for field in fields)
+    workbook = f"""
+    <workbook>
+      <worksheets>
+        <worksheet name="Sales">{filters}</worksheet>
+      </worksheets>
+      <dashboards>
+        <dashboard name="Overview">
+          <zones>
+            <zone type-v2="worksheet" name="Sales" />
+            {controls}
+          </zones>
+        </dashboard>
+      </dashboards>
+    </workbook>
+    """.encode()
+
+    interactions = parse_filters(workbook)
+    parsed_controls = cast(list[dict[str, object]], interactions["controls"])
+    mappings = cast(list[dict[str, object]], interactions["worksheet_mappings"])
+
+    assert [control["field"] for control in parsed_controls] == fields
+    assert len({str(control["id"]) for control in parsed_controls}) == 3
+    assert [
+        cast(list[dict[str, object]], control["mappings"])[0]["source_field"] for control in parsed_controls
+    ] == fields
+    assert mappings[0]["effective_filter_ids"] == [control["id"] for control in parsed_controls]
+
+
 def test_control_identifier_includes_control_type() -> None:
-    assert (
-        control_identifier("filter", "123 Overview", "[sales].[none:Region:nk]") == "filter_123_overview_sales_region"
-    )
-    assert (
-        control_identifier("parameter", "123 Overview", "[sales].[none:Region:nk]")
-        == "parameter_123_overview_sales_region"
-    )
+    filter_id = control_identifier("filter", "123 Overview", "[sales].[none:Region:nk]")
+    parameter_id = control_identifier("parameter", "123 Overview", "[sales].[none:Region:nk]")
+
+    assert filter_id.startswith("filter_123_overview_sales_region_")
+    assert parameter_id.startswith("parameter_123_overview_sales_region_")
+    assert filter_id != parameter_id
 
 
 def test_worksheet_mappings_include_all_control_types() -> None:

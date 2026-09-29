@@ -1,4 +1,5 @@
 import re
+from hashlib import sha256
 from pathlib import Path
 from typing import cast
 from xml.etree import ElementTree
@@ -14,8 +15,6 @@ from nao_core.commands.migrate.tableau.workbook import (
     section_children,
     unique,
 )
-
-from .utils import normalize
 
 TRUE_VALUES = {"1", "true", "yes"}
 
@@ -96,13 +95,12 @@ def extract_categorical_filters(
         if not values:
             warnings.append(f"{worksheet_name} categorical filter {field} has no explicit member values.")
 
-        parts = bracketed_parts(field)
         definitions.append(
             compact(
                 {
                     "field": field,
                     "caption": field_display_name(field),
-                    "data_source": parts[0] if parts else None,
+                    "data_source": field_data_source(field),
                     "filter_type": filter_type,
                     "context": any(
                         attribute(filter_element, name).lower() in TRUE_VALUES
@@ -151,7 +149,7 @@ def extract_parameters(
             for worksheet in worksheets
             if field in ElementTree.tostring(worksheet, encoding="unicode")
         ]
-        key = normalize(field)
+        key = field.casefold()
         existing = parameters.get(key, {})
 
         parameters[key] = compact(
@@ -371,8 +369,8 @@ def extract_worksheet_mappings(
 def fields_match(left: str, right: str) -> bool:
     left_source = field_data_source(left)
     right_source = field_data_source(right)
-    return normalize(field_display_name(left)) == normalize(field_display_name(right)) and (
-        not left_source or not right_source or normalize(left_source) == normalize(right_source)
+    return field_display_name(left).casefold() == field_display_name(right).casefold() and (
+        not left_source or not right_source or left_source.casefold() == right_source.casefold()
     )
 
 
@@ -383,11 +381,13 @@ def field_data_source(field: str) -> str | None:
 
 def control_identifier(control_type: str, dashboard: str, field: str) -> str:
     data_source = field_data_source(field)
-    return re.sub(
+    prefix = re.sub(
         r"[^a-z0-9]+",
         "_",
         "_".join(part for part in (control_type, dashboard, data_source, field_display_name(field)) if part).lower(),
     ).strip("_")
+    identity = "\0".join((control_type.casefold(), dashboard.casefold(), field.casefold()))
+    return f"{prefix}_{sha256(identity.encode()).hexdigest()[:12]}"
 
 
 def elements_named(
