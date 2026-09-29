@@ -64,7 +64,7 @@ export function StoryThemeInspiration({
 	const generateTheme = useMutation({ ...trpc.storyTheme.generate.mutationOptions(), onError });
 	const sourceLocked = disabled || running;
 	const hasSource = Boolean(url.trim() || image || zip || pdf);
-	const canGenerate = hasSource && !running;
+	const canGenerate = hasSource && !sourceLocked;
 
 	const generate = () => {
 		if (!canGenerate) {
@@ -124,7 +124,7 @@ export function StoryThemeInspiration({
 					</p>
 					<GenerateButton
 						pending={running}
-						disabled={!hasSource}
+						disabled={!hasSource || disabled}
 						onClick={generate}
 						label={pendingLabel(url, image, pdf, zip)}
 					/>
