@@ -301,6 +301,9 @@ function declaredBackgroundColor(declared: string): string | null {
 }
 
 function lengthToPx(value: string): number | null {
+	if (/^0(?:\.0+)?$/.test(value)) {
+		return 0;
+	}
 	const px = /^(\d+(?:\.\d+)?)px$/.exec(value);
 	if (px) {
 		return Number(px[1]);
