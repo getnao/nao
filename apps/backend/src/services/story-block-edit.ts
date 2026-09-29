@@ -57,7 +57,7 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 	}
 
 	const version = await db.transaction(async (tx) => {
-		if (!hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
+		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
 		await storyFileQueries.writeDraftFile(story.id, { path: target.file.path, content }, tx);
@@ -89,7 +89,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 	}
 
 	const version = await db.transaction(async (tx) => {
-		if (!hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
+		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
 		for (const [path, content] of edits) {
@@ -126,7 +126,7 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 	}
 
 	const version = await db.transaction(async (tx) => {
-		if (!hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
+		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
 		await storyFileQueries.replaceDraftFiles(
@@ -153,7 +153,7 @@ async function loadDraftMatchingLatestVersion(storyId: string, input: LatestVers
 		storyFileQueries.listDraftFiles(storyId),
 		storyFileQueries.listVersionFiles(latest.id),
 	]);
-	if (!hasSameFiles(draft, published)) {
+	if (!storyFileQueries.hasSameFiles(draft, published)) {
 		throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 	}
 	return draft.map((file) => ({ path: file.path, content: file.content }));
@@ -200,9 +200,4 @@ function normalizeFileEdits(draft: StoryFileInput[], files: StoryFileInput[]): M
 		}
 	}
 	return edits;
-}
-
-function hasSameFiles(left: StoryFileInput[], right: StoryFileInput[]): boolean {
-	const contents = new Map(right.map((file) => [file.path, file.content]));
-	return left.length === right.length && left.every((file) => contents.get(file.path) === file.content);
 }

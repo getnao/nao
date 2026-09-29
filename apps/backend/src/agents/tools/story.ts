@@ -365,12 +365,17 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 			};
 		}
 
-		const { version, files } = await storyFileQueries.cutVersionFromDraft({
-			storyId: existingStory.id,
-			action: 'publish',
-			source: 'assistant',
+		const { version, files } = await db.transaction(async (tx) => {
+			if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(existingStory.id, tx), draft)) {
+				throw new Error('The draft changed while it was being built. Publish again.');
+			}
+			const cut = await storyFileQueries.cutVersionFromDraft(
+				{ storyId: existingStory.id, action: 'publish', source: 'assistant' },
+				tx,
+			);
+			await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
+			return cut;
 		});
-		await storyFileQueries.setVersionBundle(version.id, { bundle: build.bundle, bundleError: null });
 		rememberStoryArtifact(context, existingStory.slug, existingStory.title);
 		return customResult(
 			existingStory.slug,

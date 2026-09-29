@@ -233,6 +233,11 @@ export async function setVersionBundle(
 		.execute();
 }
 
+export function hasSameFiles(left: StoryFileInput[], right: StoryFileInput[]): boolean {
+	const contents = new Map(right.map((file) => [file.path, file.content]));
+	return left.length === right.length && left.every((file) => contents.get(file.path) === file.content);
+}
+
 export function hashContent(content: string): string {
 	return createHash('sha256').update(content).digest('hex');
 }
