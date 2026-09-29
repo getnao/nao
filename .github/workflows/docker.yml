@@ -191,6 +191,10 @@ jobs:
         runs-on: ubuntu-latest
         needs: merge
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || endsWith(github.ref, 'docker'))
+        # Every ref deploys to the same blue/green slots: overlapping runs would remove each other's container.
+        concurrency:
+            group: deploy-moon
+            cancel-in-progress: false
 
         steps:
             - name: Deploy with remote ssh commands using ssh key
@@ -217,7 +221,7 @@ jobs:
                       docker pull "$IMAGE"
                       docker rm -f "$NEW" 2>/dev/null || true
                       docker volume create nao-chat-storage >/dev/null
-                      docker run -p "$NEW_PORT:5005" \
+                      docker run -p "127.0.0.1:$NEW_PORT:5005" \
                         --restart unless-stopped \
                         --stop-timeout 150 \
                         -v nao-chat-storage:/app/storage \
@@ -279,6 +283,9 @@ jobs:
         runs-on: ubuntu-latest
         needs: merge
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/cloud' || endsWith(github.ref, 'cloud'))
+        concurrency:
+            group: deploy-cloud
+            cancel-in-progress: false
 
         steps:
             - name: Deploy to cloud server
