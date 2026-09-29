@@ -93,7 +93,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		);
 	}
 
-	const title = output?.title ?? input.title ?? input.id;
+	const title = latestStory?.title ?? output?.title ?? input.title ?? input.id;
 	const actionLabel = input.action === 'create' ? 'Created' : input.action === 'update' ? 'Updated' : 'Replaced';
 	const statusLabel = isStreaming
 		? input.action === 'create'

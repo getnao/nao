@@ -107,3 +107,10 @@ set secrets.dbUri manually with the full connection string.
 {{- .Values.secrets.dbUri -}}
 {{- end -}}
 {{- end }}
+{{/*
+Name of the Secret the pod loads env vars from: the chart-rendered Secret,
+or a pre-existing one when existingSecret is set.
+*/}}
+{{- define "nao.secretName" -}}
+{{- default (include "nao.fullname" .) .Values.existingSecret -}}
+{{- end }}

@@ -42,6 +42,7 @@ export class MemoryExtractorLLM {
 		const { output, usage } = await generateText({
 			...this.model,
 			output: Output.object({ schema: ExtractorOutputSchema }),
+			system: MEMORY_EXTRACTION_SYSTEM_PROMPT,
 			messages: modelMessages,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			experimental_telemetry: llmTelemetry('nao-memory-extraction'),
@@ -53,11 +54,7 @@ export class MemoryExtractorLLM {
 	}
 
 	private _buildModelMessages(memories: DBMemory[], uiMessages: UIMessage[]): ModelMessage[] {
-		return [
-			{ role: 'system', content: MEMORY_EXTRACTION_SYSTEM_PROMPT },
-			...this._buildConversationMessages(uiMessages),
-			this._buildUserMemoryMessage(memories),
-		];
+		return [...this._buildConversationMessages(uiMessages), this._buildUserMemoryMessage(memories)];
 	}
 
 	private _buildConversationMessages(uiMessages: UIMessage[]): ModelMessage[] {

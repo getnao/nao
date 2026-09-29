@@ -72,7 +72,7 @@ export const gitlabRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitLab is not connected' });
 			}
 
-			const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
+			const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
 			if (!membership) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 			}

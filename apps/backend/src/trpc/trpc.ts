@@ -5,7 +5,7 @@ import superjson from 'superjson';
 
 import { getSession } from '../auth';
 import * as projectQueries from '../queries/project.queries';
-import { isGroupRoleMappingActive } from '../services/sso-group-mapping.service';
+import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
@@ -18,6 +18,7 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
 	return {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),
+		selectedOrganizationId: headers.get('x-nao-organization-id'),
 	};
 };
 
@@ -73,6 +74,15 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ne
 	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
 
 	return next({ ctx: { project, userRole } });
+});
+
+/** Grants project access to admins, users, and context admins. */
+export const nonViewerProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user' && ctx.userRole !== 'context_admin') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot access this resource' });
+	}
+
+	return next({ ctx });
 });
 
 export const canSendProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
@@ -140,12 +150,12 @@ export const contextAdminProtectedProcedure = projectProtectedProcedure.use(asyn
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
 });
 
-/** Roles mapped from identity provider groups are re-applied on every sign-in, so manual edits would silently revert. */
-export async function assertRolesAreEditable(): Promise<void> {
-	if (await isGroupRoleMappingActive()) {
+/** Organization roles mapped from identity provider groups are re-applied on every sign-in. */
+export async function assertOrganizationRolesAreEditable(): Promise<void> {
+	if (await isOrganizationRoleMappingActive()) {
 		throw new TRPCError({
 			code: 'FORBIDDEN',
-			message: 'Roles are managed by your identity provider and cannot be changed here.',
+			message: 'Organization roles are managed by your identity provider and cannot be changed here.',
 		});
 	}
 }

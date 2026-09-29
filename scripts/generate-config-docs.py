@@ -171,7 +171,14 @@ DATABASE_CONFIGS: list[tuple[str, str, type[DatabaseConfig]]] = [
     ("Amazon Athena", "athena", AthenaConfig),
 ]
 
-BASE_DB_FIELDS = {"type", "name", "include", "exclude", "accessors"}
+BASE_DB_FIELDS = {
+    "type",
+    "name",
+    "include",
+    "exclude",
+    "allow_listed_only",
+    "accessors",
+}
 
 
 def _section_databases() -> str:

@@ -6,7 +6,7 @@ import s, { DBProjectProviderBudget } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { BudgetPeriod } from '../types/budget';
-import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+import { createCostLookup, MESSAGE_SENDER_EXPR, TOTAL_COST_EXPR } from './usage.queries';
 
 export const getProviderBudget = async (
 	projectId: string,
@@ -20,15 +20,16 @@ export const getProviderBudget = async (
 	return row ?? null;
 };
 
-export type ProviderPeriod = { provider: LlmProvider; period: BudgetPeriod };
+export type ProviderPeriod = { provider: LlmProvider; period: BudgetPeriod; periodStart?: Date };
 
 export const getProviderBudgetSpend = async (
 	projectId: string,
 	provider: LlmProvider,
 	period: BudgetPeriod,
 	userId?: string,
+	periodStart?: Date,
 ): Promise<{ projectSpend: number; userSpend: number }> => {
-	const rows = await queryProviderPeriodCosts(projectId, [{ provider, period }]);
+	const rows = await queryProviderPeriodCosts(projectId, [{ provider, period, periodStart }]);
 
 	let projectTotal = 0;
 	let userTotal = 0;
@@ -145,14 +146,14 @@ const queryProviderPeriodCosts = async (
 
 	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
 	const periodStartCases = budgets.map(
-		(b) => sql`WHEN ${b.provider} THEN ${toParam(getCurrentPeriodStart(b.period))}`,
+		(b) => sql`WHEN ${b.provider} THEN ${toParam(b.periodStart ?? getCurrentPeriodStart(b.period))}`,
 	);
 	const periodStartExpr = sql`CASE ${s.chatMessage.llmProvider} ${sql.join(periodStartCases, sql` `)} END`;
 
 	return db
 		.select({
 			provider: s.chatMessage.llmProvider,
-			userId: s.chat.userId,
+			userId: MESSAGE_SENDER_EXPR,
 			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
 		})
 		.from(s.chatMessage)
@@ -166,10 +167,10 @@ const queryProviderPeriodCosts = async (
 					budgets.map((b) => b.provider),
 				),
 				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				options.userId ? eq(s.chat.userId, options.userId) : undefined,
+				options.userId ? eq(MESSAGE_SENDER_EXPR, options.userId) : undefined,
 			),
 		)
-		.groupBy(s.chatMessage.llmProvider, s.chat.userId);
+		.groupBy(s.chatMessage.llmProvider, MESSAGE_SENDER_EXPR);
 };
 
 export const getProviderPeriodCosts = async (
@@ -210,25 +211,34 @@ export const getProviderPeriodCostsByUser = async (
 	return result;
 };
 
-export const claimBudgetNotification = async (budget: DBProjectProviderBudget): Promise<boolean> => {
-	const notifiedCondition = budget.notifiedAt
-		? sql`${s.projectProviderBudget.notifiedAt} = ${budget.notifiedAt}`
-		: sql`${s.projectProviderBudget.notifiedAt} IS NULL`;
+export type BudgetNotificationKey = {
+	projectId: string;
+	provider: LlmProvider;
+	scope: string;
+	periodStart: Date;
+};
 
+export const claimBudgetNotification = async (key: BudgetNotificationKey): Promise<boolean> => {
 	const rows = await db
-		.update(s.projectProviderBudget)
-		.set({ notifiedAt: new Date() })
-		.where(and(eq(s.projectProviderBudget.id, budget.id), notifiedCondition))
-		.returning({ id: s.projectProviderBudget.id })
+		.insert(s.budgetNotification)
+		.values(key)
+		.onConflictDoNothing()
+		.returning({ id: s.budgetNotification.id })
 		.execute();
 
 	return rows.length > 0;
 };
 
-export const rollbackBudgetNotification = async (budget: DBProjectProviderBudget): Promise<void> => {
+export const releaseBudgetNotification = async (key: BudgetNotificationKey): Promise<void> => {
 	await db
-		.update(s.projectProviderBudget)
-		.set({ notifiedAt: budget.notifiedAt })
-		.where(eq(s.projectProviderBudget.id, budget.id))
+		.delete(s.budgetNotification)
+		.where(
+			and(
+				eq(s.budgetNotification.projectId, key.projectId),
+				eq(s.budgetNotification.provider, key.provider),
+				eq(s.budgetNotification.scope, key.scope),
+				eq(s.budgetNotification.periodStart, key.periodStart),
+			),
+		)
 		.execute();
 };

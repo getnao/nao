@@ -1,23 +1,16 @@
-import { LlmProviderKind } from '@nao/shared/types';
 import { z } from 'zod/v4';
 
-import { PROVIDER_META } from '../agents/provider-meta';
 import * as budgetQueries from '../queries/budget.queries';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setBudgetsInputSchema } from '../types/budget';
 import { llmProviderSchema } from '../types/llm';
-import { checkBudgetStatus, getEffectiveProviderBudgets } from '../utils/budget';
+import { checkBudgetStatus, getEffectiveProviderBudgets, getProvidersCostSupport } from '../utils/budget';
 import { getProjectConfigLlm } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const budgetRoutes = {
-	getProvidersCostSupport: projectProtectedProcedure.query(async () => {
-		return Object.fromEntries(
-			Object.entries(PROVIDER_META).map(([provider, meta]) => [
-				provider,
-				meta.models.some((m) => m.costPerM !== undefined),
-			]),
-		) as Record<LlmProviderKind, boolean>;
+	getProvidersCostSupport: projectProtectedProcedure.query(async ({ ctx }) => {
+		return getProvidersCostSupport(ctx.project.id);
 	}),
 
 	getBudgets: projectProtectedProcedure.query(async ({ ctx }) => {

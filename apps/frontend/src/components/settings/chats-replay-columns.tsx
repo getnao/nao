@@ -5,6 +5,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import MattermostIcon from '@/components/icons/mattermost.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import SlackIcon from '@/components/icons/slack.svg';
@@ -16,6 +17,7 @@ const sourceConfig = {
 	slack: { label: 'Slack', icon: <SlackIcon className='size-3.5' /> },
 	teams: { label: 'Teams', icon: <TeamsIcon className='size-3.5' /> },
 	telegram: { label: 'Telegram', icon: <TelegramIcon className='size-3.5' /> },
+	mattermost: { label: 'Mattermost', icon: <MattermostIcon className='size-3.5' /> },
 	whatsapp: { label: 'WhatsApp', icon: <WhatsAppIcon className='size-3.5' /> },
 	admin: { label: 'Admin mode', icon: <Shield className='size-3.5' /> },
 	mcp: { label: 'MCP', icon: <McpIcon className='size-3.5' /> },

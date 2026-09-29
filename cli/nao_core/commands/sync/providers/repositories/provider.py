@@ -8,10 +8,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 
 from nao_core.commands.sync.cleanup import cleanup_stale_repos
 from nao_core.config import NaoConfig
 from nao_core.config.repos import RepoConfig
+from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
 
@@ -26,11 +28,11 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
     try:
         # Guard against path traversal via malicious repo.name (e.g. "../other")
         if not repo_path.resolve().is_relative_to(base_path.resolve()):
-            console.print(f"  [yellow]⚠[/yellow] Invalid repo path: {repo.name}")
+            UI.print(f"  [yellow]⚠[/yellow] Invalid repo path: {escape(repo.name)}")
             return False
 
         action = "Re-cloning" if repo_path.exists() else "Cloning"
-        console.print(f"  [dim]{action}[/dim] {repo.name}")
+        UI.print(f"  [dim]{action}[/dim] {escape(repo.name)}")
 
         if tmp_path.exists():
             shutil.rmtree(tmp_path)
@@ -49,7 +51,7 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         )
 
         if result.returncode != 0:
-            console.print(f"  [yellow]⚠[/yellow] Failed to clone {repo.name}: {result.stderr.strip()}")
+            UI.print(f"  [yellow]⚠[/yellow] Failed to clone {escape(repo.name)}: {result.stderr.strip()}")
             shutil.rmtree(tmp_path, ignore_errors=True)
             return False
 
@@ -68,7 +70,7 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         return True
 
     except Exception as e:
-        console.print(f"  [yellow]⚠[/yellow] Error syncing {repo.name}: {e}")
+        UI.print(f"  [yellow]⚠[/yellow] Error syncing {escape(repo.name)}: {e}")
         shutil.rmtree(tmp_path, ignore_errors=True)
         return False
 
@@ -170,14 +172,14 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
 
     try:
         if not source_path.exists():
-            console.print(f"  [yellow]⚠[/yellow] Local path does not exist: {source_path}")
+            UI.print(f"  [yellow]⚠[/yellow] Local path does not exist: {source_path}")
             return False
 
         if not source_path.is_dir():
-            console.print(f"  [yellow]⚠[/yellow] Local path is not a directory: {source_path}")
+            UI.print(f"  [yellow]⚠[/yellow] Local path is not a directory: {source_path}")
             return False
 
-        console.print(f"  [dim]Syncing local path[/dim] {repo.name} [dim]from[/dim] {source_path}")
+        UI.print(f"  [dim]Syncing local path[/dim] {escape(repo.name)} [dim]from[/dim] {source_path}")
 
         if repo_path.exists():
             shutil.rmtree(repo_path)
@@ -185,7 +187,14 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
         has_filters = bool(repo.include or repo.exclude)
 
         if not has_filters:
-            shutil.copytree(source_path, repo_path, dirs_exist_ok=True)
+            # Skip .git/ so a source that happens to be a git checkout doesn't turn
+            # repo_path into a nested repo (which git records as a gitlink, not files).
+            shutil.copytree(
+                source_path,
+                repo_path,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(".git"),
+            )
         else:
             repo_path.mkdir(parents=True, exist_ok=True)
             for file_path in source_path.rglob("*"):
@@ -193,6 +202,8 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
                     continue
 
                 relative = PurePosixPath(file_path.relative_to(source_path)).as_posix()
+                if relative == ".git" or relative.startswith(".git/"):
+                    continue
                 if not _matches_patterns(relative, repo.include, repo.exclude):
                     continue
 
@@ -203,7 +214,7 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
         return True
 
     except Exception as e:
-        console.print(f"  [yellow]⚠[/yellow] Error syncing local path {repo.name}: {e}")
+        UI.print(f"  [yellow]⚠[/yellow] Error syncing local path {escape(repo.name)}: {e}")
         return False
 
 
@@ -248,17 +259,20 @@ class RepositorySyncProvider(SyncProvider):
 
         output_path.mkdir(parents=True, exist_ok=True)
         success_count = 0
+        failed_repositories: list[str] = []
 
-        console.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
-        console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
+        UI.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
+        UI.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
 
         if threads <= 1 or len(items) == 1:
             for repo in items:
                 if sync_repo(repo, output_path):
                     success_count += 1
-                    console.print(f"  [green]✓[/green] {repo.name}")
+                    UI.print(f"  [green]✓[/green] {escape(repo.name)}")
+                else:
+                    failed_repositories.append(repo.name)
         else:
-            console.print(f"[dim]Threads:[/dim] {threads}\n")
+            UI.print(f"[dim]Threads:[/dim] {threads}\n")
             with ThreadPoolExecutor(max_workers=min(threads, len(items))) as executor:
                 futures = {executor.submit(sync_repo, repo, output_path): repo for repo in items}
                 for future in as_completed(futures):
@@ -266,8 +280,17 @@ class RepositorySyncProvider(SyncProvider):
                     try:
                         if future.result():
                             success_count += 1
-                            console.print(f"  [green]✓[/green] {repo.name}")
+                            UI.print(f"  [green]✓[/green] {escape(repo.name)}")
+                        else:
+                            failed_repositories.append(repo.name)
                     except Exception as e:
-                        console.print(f"  [yellow]⚠[/yellow] Error syncing {repo.name}: {e}")
+                        failed_repositories.append(repo.name)
+                        UI.print(f"  [yellow]⚠[/yellow] Error syncing {escape(repo.name)}: {e}")
 
-        return SyncResult(provider_name=self.name, items_synced=success_count)
+        error = None
+        if failed_repositories:
+            failed_names = ", ".join(escape(name) for name in sorted(failed_repositories))
+            repository_label = "repository" if len(failed_repositories) == 1 else "repositories"
+            error = f"Failed to sync {len(failed_repositories)} {repository_label}: {failed_names}"
+
+        return SyncResult(provider_name=self.name, items_synced=success_count, error=error)

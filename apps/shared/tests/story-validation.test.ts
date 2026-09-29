@@ -103,6 +103,27 @@ describe('validateStoryCode', () => {
 			const errors = validateStoryCode(code);
 			expect(errors.some((e) => e.message.includes('self-closing'))).toBe(true);
 		});
+
+		it('accepts a chart tag whose attributes span several lines', () => {
+			const code = [
+				'<chart query_id="q1" chart_type="line"',
+				'  x_axis_key="month" data_key="revenue"',
+				'  title="Revenue" />',
+			].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags a chart tag that is never closed', () => {
+			const code = [
+				'<chart query_id="q1" chart_type="line" x_axis_key="month" data_key="revenue"',
+				'',
+				'Next',
+			].join('\n');
+			const errors = validateStoryCode(code);
+			expect(errors).toHaveLength(1);
+			expect(errors[0]).toMatchObject({ line: 1, column: 1 });
+			expect(errors[0].message).toMatch(/<chart> tag is not properly closed/);
+		});
 	});
 
 	describe('table validation', () => {
@@ -135,6 +156,11 @@ describe('validateStoryCode', () => {
 			const code = '<table query_id="q" title="t">';
 			const errors = validateStoryCode(code);
 			expect(errors.some((e) => e.message.includes('self-closing'))).toBe(true);
+		});
+
+		it('accepts a table tag whose attributes span several lines', () => {
+			const code = '<table\n  query_id="q"\n  title="Details" />';
+			expect(validateStoryCode(code)).toEqual([]);
 		});
 	});
 
@@ -304,6 +330,11 @@ describe('validateStoryCode', () => {
 				'<filter id="country" column="region" type="select" table="orders" />',
 			].join('\n');
 			expect(validateStoryCode(code).some((e) => /must be unique/.test(e.message))).toBe(true);
+		});
+
+		it('accepts a filter tag whose attributes span several lines', () => {
+			const code = '<filter id="country" column="country"\n  type="multi_select" table="orders" />';
+			expect(validateStoryCode(code)).toEqual([]);
 		});
 	});
 

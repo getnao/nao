@@ -26,6 +26,11 @@ jobs:
 
         permissions:
             pull-requests: read
+            id-token: write
+
+        env:
+            GCP_PROJECT_ID: nao-previews
+            GCP_REGION: europe-west9
 
         steps:
             - name: Get open PR numbers
@@ -42,46 +47,49 @@ jobs:
                       core.setOutput('numbers', numbers.join(','));
                       console.log(`Open PRs: ${numbers.join(', ') || 'none'}`);
 
-            - name: Cleanup stale preview deployments
-              uses: appleboy/ssh-action@master
+            - name: Authenticate to Google Cloud
+              uses: google-github-actions/auth@v2
               with:
-                  host: ${{ secrets.VM_HOST }}
-                  username: github-actions-demo
-                  key: ${{ secrets.PRIVATE_KEY }}
-                  script: |
-                      OPEN_PRS="${{ steps.open-prs.outputs.numbers }}"
+                  workload_identity_provider: projects/996255898595/locations/global/workloadIdentityPools/github/providers/github
+                  service_account: github-preview-deployer@nao-previews.iam.gserviceaccount.com
 
-                      CONTAINERS=$(docker ps -a --filter "name=nao-preview-" --format "{{.Names}}" 2>/dev/null || true)
+            - name: Set up gcloud
+              uses: google-github-actions/setup-gcloud@v2
 
-                      if [ -z "$CONTAINERS" ]; then
-                          echo "No preview containers found"
-                          exit 0
+            - name: Cleanup stale preview deployments
+              run: |
+                  OPEN_PRS="${{ steps.open-prs.outputs.numbers }}"
+
+                  SERVICES=$(gcloud run services list \
+                      --project "$GCP_PROJECT_ID" \
+                      --region "$GCP_REGION" \
+                      --filter="metadata.labels.app=nao-preview" \
+                      --format="value(metadata.name)")
+
+                  if [ -z "$SERVICES" ]; then
+                      echo "No preview services found"
+                      exit 0
+                  fi
+
+                  CLEANED=0
+                  for SERVICE in $SERVICES; do
+                      PR_NUMBER="${SERVICE#pr-}"
+
+                      if echo ",$OPEN_PRS," | grep -q ",$PR_NUMBER,"; then
+                          echo "PR #${PR_NUMBER} is still open — keeping preview"
+                          continue
                       fi
 
-                      CLEANED=0
-                      for CONTAINER in $CONTAINERS; do
-                          PR_NUMBER=$(echo "$CONTAINER" | sed 's/nao-preview-//')
+                      echo "PR #${PR_NUMBER} is merged or closed — deleting ${SERVICE}..."
+                      gcloud run services delete "$SERVICE" \
+                          --project "$GCP_PROJECT_ID" \
+                          --region "$GCP_REGION" \
+                          --quiet || true
 
-                          if echo ",$OPEN_PRS," | grep -q ",$PR_NUMBER,"; then
-                              echo "PR #${PR_NUMBER} is still open — keeping preview"
-                              continue
-                          fi
+                      CLEANED=$((CLEANED + 1))
+                  done
 
-                          echo "PR #${PR_NUMBER} is merged or closed — cleaning up..."
-
-                          docker rm -f "nao-preview-${PR_NUMBER}" 2>/dev/null || true
-                          rm -f /home/github-actions-demo/nginx/preview.d/pr-${PR_NUMBER}-*.conf
-                          docker images --format "{{.Repository}}:{{.Tag}}" | grep "preview:pr-${PR_NUMBER}" | xargs -r docker rmi 2>/dev/null || true
-
-                          CLEANED=$((CLEANED + 1))
-                      done
-
-                      if [ "$CLEANED" -gt 0 ]; then
-                          docker exec nginx nginx -s reload 2>/dev/null || true
-                          echo "Cleaned up $CLEANED stale preview(s)"
-                      else
-                          echo "No stale previews to clean up"
-                      fi
+                  echo "Cleaned up $CLEANED stale preview(s)"
 
     cleanup-docker-images:
         runs-on: ubuntu-latest

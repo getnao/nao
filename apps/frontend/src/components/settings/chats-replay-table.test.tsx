@@ -51,6 +51,7 @@ function TestTable({ onRowClick }: { onRowClick: (chat: ProjectChatListItem) => 
 		data: [chat],
 		columns,
 		getCoreRowModel: getCoreRowModel(),
+		initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
 	});
 
 	return <ChatsReplayTable table={table} onRowClick={onRowClick} />;

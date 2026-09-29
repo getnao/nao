@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 
 interface FileExplorerIconProps {
 	name: string;
-	type: 'file' | 'directory';
+	type: 'file' | 'directory' | 'table';
 	className?: string;
 }
 
@@ -39,6 +39,11 @@ type IconDefinition = {
 const FOLDER_ICON: IconDefinition = {
 	icon: IconFolder,
 	color: 'text-blue-600 dark:text-blue-400',
+};
+
+const TABLE_ICON: IconDefinition = {
+	icon: IconTable,
+	color: 'text-emerald-600 dark:text-emerald-400',
 };
 
 const FILE_NAME_ICONS: Record<string, IconDefinition> = {
@@ -120,7 +125,7 @@ const CODE_EXTENSIONS = new Set([
 ]);
 
 export function FileExplorerIcon({ name, type, className }: FileExplorerIconProps) {
-	const definition = type === 'directory' ? FOLDER_ICON : getFileIconDefinition(name);
+	const definition = type === 'directory' ? FOLDER_ICON : type === 'table' ? TABLE_ICON : getFileIconDefinition(name);
 	const Icon = definition.icon;
 
 	return (

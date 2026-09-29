@@ -10,6 +10,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import { compactionService } from '../services/compaction';
 import { memoryService } from '../services/memory';
+import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
 import { tokenCounter } from '../services/token-counter';
 import type { ContextUsage, UIMessage } from '../types/chat';
 
@@ -23,8 +24,12 @@ export async function getChatContextUsage(opts: {
 	if (!projectId) {
 		return null;
 	}
-	const agentSettings = await projectQueries.getAgentSettings(projectId);
-	const tools = getTools(agentSettings);
+	const [project, agentSettings] = await Promise.all([
+		projectQueries.getProjectById(projectId),
+		projectQueries.getAgentSettings(projectId),
+	]);
+	const semanticLayerMode = project?.path ? resolveSemanticLayerMode(project.path, agentSettings) : null;
+	const tools = getTools(agentSettings, undefined, { semanticLayerMode });
 	const messages = await getChatAsModelMessages({ ...opts, projectId, tools });
 	const messageTokens = tokenCounter.estimateMessages(messages);
 	const toolTokens = await tokenCounter.estimateTools(tools);

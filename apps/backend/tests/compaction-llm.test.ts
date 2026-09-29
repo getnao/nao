@@ -2,6 +2,7 @@ import type { ModelMessage } from 'ai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CompactionLLM } from '../src/agents/compaction/compaction-llm';
+import { COMPACTION_SYSTEM_PROMPT } from '../src/components/ai/compaction-system-prompt';
 import type { ITokenCounter } from '../src/services/token-counter';
 import { selectMessagesInBudget } from '../src/utils/ai';
 
@@ -145,10 +146,11 @@ describe('CompactionLLM', () => {
 
 		await llm.compact(messages);
 
-		const { messages: sent } = mocks.generateText.mock.calls[0][0];
-		expect(sent[0].role).toBe('system');
+		const { messages: sent, system } = mocks.generateText.mock.calls[0][0];
+		expect(system).toBe(COMPACTION_SYSTEM_PROMPT);
+		expect(sent[0]).toEqual(messages[0]);
 		expect(sent[sent.length - 1].role).toBe('user');
-		expect(sent.slice(1, -1)).toEqual(messages);
+		expect(sent.slice(0, -1)).toEqual(messages);
 	});
 
 	it('returns summary text and usage from generateText', async () => {
@@ -177,7 +179,7 @@ describe('CompactionLLM', () => {
 		await llm.compact(messages);
 
 		const { messages: sent } = mocks.generateText.mock.calls[0][0];
-		const body = sent.slice(1, -1); // strip system + user prompts
+		const body = sent.slice(0, -1);
 		expect(body).toHaveLength(1);
 		expect(body[0]).toEqual(messages[2]);
 	});

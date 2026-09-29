@@ -7,6 +7,9 @@ export const USER_ROLES = ['admin', 'user', 'viewer', 'context_admin'] as const 
 /** Project roles available when editing organization members (org roles never include context_admin). */
 export const ORG_MEMBER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly UserRole[];
 
+/** `invited` until the user replaces their temporary password on first sign-in. */
+export type MemberStatus = 'invited' | 'active';
+
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
 	admin: 'Admin',
 	user: 'User',
@@ -19,9 +22,113 @@ export const TOOL_CALL_DENSITIES = ['compact', 'detailed'] as const;
 /** How much detail to show for tool calls in the chat. */
 export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 
+export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
+	budget: 'Budget alerts',
+	feedback: 'Feedback alerts',
+	story_refresh: 'Story refreshes',
+	shared: 'Shared with you',
+	subscription: 'Subscriptions',
+};
+
+export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
+	budget: 'Alerts when a provider budget limit is reached.',
+	feedback: 'Alerts when users leave positive or negative feedback.',
+	story_refresh: 'Results of your story refreshes.',
+	shared: 'When someone shares a story or chat with you.',
+	subscription: "When you're added to a story's scheduled delivery.",
+};
+
+export type SharedItemLabel = 'story' | 'chat';
+
+export type FeedbackNotificationPayload = {
+	kind: 'feedback';
+	vote: 'up' | 'down';
+	submitterName: string;
+	chatTitle: string | null;
+	explanation: string | null;
+};
+
+export type SharedNotificationPayload = {
+	kind: 'shared';
+	sharerName: string;
+	itemLabel: SharedItemLabel;
+	itemTitle: string;
+	visibility: Visibility;
+};
+
+export type StoryRefreshNotificationPayload = {
+	kind: 'story_refresh';
+	storyId: string;
+	status: 'refreshed' | 'failed';
+	queriesRefreshed?: number;
+	trigger?: 'manual' | 'schedule';
+	ownerName?: string;
+	storyTitle?: string;
+};
+
+export type StorySubscriptionNotificationPayload = {
+	kind: 'story_subscription';
+	storyId: string;
+	storyTitle: string;
+	ownerName: string;
+	/** Share id used to render the live story (charts, tables, maps) as a preview in the notification card. */
+	shareId: string | null;
+};
+
 export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
 export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
 export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
+
+/** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
+export const SANDBOX_SECRET_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
+export const SANDBOX_SECRET_NAME_MAX_LENGTH = 64;
+/** Anything shorter is not a secret, and would be masked from sandbox output far too eagerly. */
+export const SANDBOX_SECRET_VALUE_MIN_LENGTH = 4;
+export const SANDBOX_SECRET_VALUE_MAX_LENGTH = 8192;
+export const SANDBOX_SECRET_DESCRIPTION_MAX_LENGTH = 200;
+
+/** Environment variables the guest runtime relies on; a secret shadowing one would break the sandbox. */
+export const SANDBOX_SECRET_RESERVED_NAMES = new Set([
+	'PATH',
+	'HOME',
+	'USER',
+	'SHELL',
+	'PWD',
+	'TERM',
+	'LANG',
+	'LC_ALL',
+	'TMPDIR',
+	'HOSTNAME',
+	'LD_PRELOAD',
+	'LD_LIBRARY_PATH',
+	'PYTHONPATH',
+	'PYTHONHOME',
+	'PYTHONSTARTUP',
+	'NODE_OPTIONS',
+	'NODE_PATH',
+]);
+
+export function isReservedSandboxSecretName(name: string): boolean {
+	return SANDBOX_SECRET_RESERVED_NAMES.has(name) || name.startsWith('LD_') || name.startsWith('LC_');
+}
+
+export const SEMANTIC_LAYER_MODES = ['exclusive', 'prioritized', 'disabled'] as const;
+
+/**
+ * How the agent routes metric questions when the project declares a semantic layer.
+ * - `exclusive`: every question goes through the layer; raw SQL is not exposed at all.
+ * - `prioritized` (default): try the layer first, fall back to SQL when it cannot answer.
+ * - `disabled`: definitions stay readable as context, but the semantic tool is not exposed.
+ */
+export type SemanticLayerMode = (typeof SEMANTIC_LAYER_MODES)[number];
+
+export const DEFAULT_SEMANTIC_LAYER_MODE: SemanticLayerMode = 'prioritized';
 
 export interface UserPreferences {
 	toolCallDensity?: ToolCallDensity;
@@ -43,6 +150,7 @@ export const LLM_PROVIDERS = [
 	'google',
 	'mistral',
 	'openrouter',
+	'requesty',
 	'ollama',
 	'bedrock',
 	'vertex',
@@ -59,6 +167,7 @@ export const providerLabels: Record<LlmProviderKind, string> = {
 	google: 'Google',
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
+	requesty: 'Requesty',
 	ollama: 'Ollama',
 	bedrock: 'Amazon Bedrock',
 	vertex: 'Vertex AI',
@@ -153,6 +262,7 @@ export type FileTreeEntry = {
 export type ContextGitUnavailableReason =
 	| 'github-unavailable'
 	| 'git-unavailable'
+	| 'repository-mismatch'
 	| 'no-token'
 	| 'no-repo'
 	| 'unsupported-provider'

@@ -4,6 +4,8 @@ export const BUILTIN_CHART_TYPES = [
 	'bar',
 	'stacked_bar',
 	'stacked_bar_100',
+	'horizontal_bar',
+	'horizontal_bar_100',
 	'line',
 	'area',
 	'stacked_area',
@@ -22,7 +24,7 @@ const ChartTypeNameSchema = z
 	.string()
 	.regex(/^[a-z][a-z0-9_-]*$/, 'Chart type must use lowercase letters, numbers, underscores, or hyphens.');
 const CustomChartTypeSchema = ChartTypeNameSchema.refine(
-	(type) => type !== 'table' && !(BUILTIN_CHART_TYPES as readonly string[]).includes(type),
+	(type) => !isNativeDisplayType(type),
 ).brand<'CustomChartType'>();
 const ChartTypeSchema = z.union([ChartTypeEnum, CustomChartTypeSchema]);
 
@@ -316,10 +318,19 @@ export type ConditionalFormatRule = z.infer<typeof ConditionalFormatRuleSchema>;
 export type ColumnConditionalFormats = z.infer<typeof ColumnConditionalFormatsSchema>;
 export type Output = z.infer<typeof OutputSchema>;
 
-const STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar', 'stacked_bar_100', 'stacked_area', 'stacked_area_100']);
-const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'stacked_area_100']);
+const STACKED_CHART_TYPES = new Set<ChartType>([
+	'stacked_bar',
+	'stacked_bar_100',
+	'horizontal_bar',
+	'horizontal_bar_100',
+	'stacked_area',
+	'stacked_area_100',
+]);
+const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'horizontal_bar_100', 'stacked_area_100']);
 const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'bar',
+	'horizontal_bar',
+	'horizontal_bar_100',
 	'line',
 	'area',
 	'stacked_area',
@@ -334,6 +345,11 @@ export type BuiltinChartInput = Omit<ChartInput, 'chart_type'> & { chart_type: C
 
 export function isBuiltinChartType(type: string): type is ChartType {
 	return (BUILTIN_CHART_TYPES as readonly string[]).includes(type);
+}
+
+/** Display types nao renders natively (as opposed to project-defined custom charts): builtins plus `table`. */
+export function isNativeDisplayType(type: string): boolean {
+	return type === 'table' || isBuiltinChartType(type);
 }
 
 export function isTableInput(input: Input): input is TableInput {
@@ -360,10 +376,21 @@ export function isPieChart(chartType: string): boolean {
 	return chartType === 'pie' || chartType === 'donut';
 }
 
-const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>(['pie', 'donut', 'kpi_card', 'radar']);
+const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>([
+	'pie',
+	'donut',
+	'kpi_card',
+	'radar',
+	'horizontal_bar',
+	'horizontal_bar_100',
+]);
 
 export function chartTypeSupportsAxisLabels(type: string): boolean {
 	return isBuiltinChartType(type) && !AXIS_LABEL_UNSUPPORTED_CHART_TYPES.has(type);
+}
+
+export function resolveShowDataLabels(type: string, showDataLabels?: boolean): boolean {
+	return showDataLabels ?? type === 'horizontal_bar';
 }
 
 export function chartTypeSupportsComboSeries(type: ChartType): boolean {

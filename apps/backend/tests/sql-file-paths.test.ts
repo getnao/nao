@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../src/utils/sql-file-paths';
+import {
+	filePathAccessIn,
+	referencedQueryIds,
+	rewriteStorageLiterals,
+	storagePathsIn,
+} from '../src/utils/sql-file-paths';
 
 const toRealPath = (relativePath: string): string => `/var/data/users/u1/${relativePath}`;
 
@@ -103,5 +108,29 @@ describe('referencedQueryIds', () => {
 		expect(
 			referencedQueryIds('SELECT * FROM query_real -- JOIN query_not_real\n/* query_also_not_real */'),
 		).toEqual(['query_real']);
+	});
+});
+
+describe('filePathAccessIn', () => {
+	it('distinguishes direct paths from computed paths', () => {
+		expect(filePathAccessIn("SELECT * FROM read_csv('/project/a.csv')")).toEqual({
+			paths: ['/project/a.csv'],
+			hasUnknownPath: false,
+		});
+		expect(filePathAccessIn("SELECT * FROM read_csv(concat('/project/', 'a.csv'))")).toEqual({
+			paths: [],
+			hasUnknownPath: true,
+		});
+		expect(filePathAccessIn("SELECT * FROM read_csv('/project/' || 'a.csv')")).toEqual({
+			paths: ['/project/'],
+			hasUnknownPath: true,
+		});
+	});
+
+	it('finds every direct path in an array', () => {
+		expect(filePathAccessIn("SELECT * FROM read_parquet(['/project/a.parquet', '/home/b.parquet'])")).toEqual({
+			paths: ['/project/a.parquet', '/home/b.parquet'],
+			hasUnknownPath: false,
+		});
 	});
 });

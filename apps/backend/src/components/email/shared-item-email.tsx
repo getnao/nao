@@ -1,5 +1,7 @@
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
+import { EmailParagraph } from './email-text';
+import { emailColors } from './email-theme';
 
 interface SharedItemEmailProps {
 	userName: string;
@@ -7,28 +9,34 @@ interface SharedItemEmailProps {
 	itemLabel: string;
 	itemTitle: string;
 	itemUrl: string;
+	unsubscribeUrl?: string;
 }
 
-export function SharedItemEmail({ userName, sharerName, itemLabel, itemTitle, itemUrl }: SharedItemEmailProps) {
+export function SharedItemEmail({
+	userName,
+	sharerName,
+	itemLabel,
+	itemTitle,
+	itemUrl,
+	unsubscribeUrl,
+}: SharedItemEmailProps) {
 	return (
-		<EmailLayout>
-			<p>Hi {userName},</p>
+		<EmailLayout title={`${sharerName} shared "${itemTitle}" with you on nao`}>
+			<EmailParagraph>Hi {userName},</EmailParagraph>
 
-			<p>
-				<strong>{sharerName}</strong> has shared a {itemLabel} with you on nao.
-			</p>
+			<EmailParagraph>
+				<strong>{sharerName}</strong> shared the {itemLabel} <strong>{itemTitle}</strong> with you on nao.
+			</EmailParagraph>
 
-			<div className='info-box'>
-				<p>
-					<strong>{itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)}:</strong> {itemTitle}
-				</p>
-			</div>
+			<EmailButton href={itemUrl}>View {itemLabel}</EmailButton>
 
-			<EmailButton href={itemUrl}>View {itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)}</EmailButton>
-
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-			</div>
+			{unsubscribeUrl && (
+				<EmailParagraph muted>
+					<a href={unsubscribeUrl} style={{ color: emailColors.muted }}>
+						Unsubscribe from these emails
+					</a>
+				</EmailParagraph>
+			)}
 		</EmailLayout>
 	);
 }

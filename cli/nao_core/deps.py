@@ -42,6 +42,8 @@ _EXTRAS: dict[str, list[str]] = {
     # Integrations
     "notion": ["notion_client", "notion2md"],
     "confluence": ["markdownify"],
+    # Semantic layer engines
+    "semantic-layer": ["metricflow"],
     # Secret resolution backends
     "aws-secrets": ["boto3", "glom"],
     "k8s-secrets": ["kubernetes"],
@@ -50,6 +52,7 @@ _EXTRAS: dict[str, list[str]] = {
 # Providers whose extra name differs from their config value.
 _PROVIDER_ALIASES: dict[str, str] = {
     "openrouter": "openai",
+    "requesty": "openai",
     "vertex": "gemini",
     "qwen": "openai",
     "minimax": "openai",
@@ -130,6 +133,10 @@ def get_required_extras(config: NaoConfig) -> list[str]:
     if config.confluence and "confluence" not in seen:
         extras.append("confluence")
         seen.add("confluence")
+
+    if config.semantic_layer and "semantic-layer" not in seen:
+        extras.append("semantic-layer")
+        seen.add("semantic-layer")
 
     return extras
 

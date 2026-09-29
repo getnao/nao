@@ -1,13 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { McpSettings } from '@/components/settings/display-mcp';
-import { usePermissions } from '@/hooks/use-permissions';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/mcp-servers')({
-	component: ProjectMcpServersTabPage,
+	beforeLoad: () => {
+		throw redirect({
+			to: '/settings/project/agent',
+			search: { tab: 'mcp-servers' },
+		});
+	},
 });
-
-function ProjectMcpServersTabPage() {
-	const { isAdmin } = usePermissions();
-
-	return <McpSettings isAdmin={isAdmin} />;
-}

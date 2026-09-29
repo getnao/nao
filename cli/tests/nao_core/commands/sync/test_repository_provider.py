@@ -1,9 +1,11 @@
 """Unit tests for the repository sync provider."""
 
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from nao_core.commands.sync.providers.repositories.provider import (
     RepositorySyncProvider,
@@ -115,7 +117,7 @@ class TestRepositorySyncProvider:
 
     @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_sync_counts_successful_repos(self, mock_console, mock_sync, tmp_path: Path):
+    def test_sync_counts_successful_repos_and_reports_failures(self, mock_console, mock_sync, tmp_path: Path):
         provider = RepositorySyncProvider()
         repos = [
             RepoConfig(name="repo1", url="https://github.com/test/repo1"),
@@ -127,6 +129,21 @@ class TestRepositorySyncProvider:
         result = provider.sync(repos, tmp_path)
 
         assert result.items_synced == 2
+        assert result.error == "Failed to sync 1 repository: repo2"
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=False)
+    def test_sync_escapes_repository_name_markup(self, mock_sync, tmp_path: Path):
+        provider = RepositorySyncProvider()
+        output = StringIO()
+        console = Console(file=output, force_terminal=False)
+        repo = RepoConfig(name="my[b]db", url="https://github.com/test/repo")
+
+        with patch("nao_core.commands.sync.providers.repositories.provider.console", console):
+            result = provider.sync([repo], tmp_path)
+            console.print(result.error)
+
+        assert "my[b]db" in output.getvalue()
+        mock_sync.assert_called_once()
 
     @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=True)
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
@@ -510,6 +527,42 @@ class TestSyncLocalRepo:
         assert result is True
         assert (output / "local-repo" / "new.txt").exists()
         assert not (output / "local-repo" / "old.txt").exists()
+
+    def test_strips_git_dir_without_filters(self, tmp_path: Path):
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("hello")
+        git_dir = source / ".git"
+        git_dir.mkdir()
+        (git_dir / "HEAD").write_text("ref: refs/heads/main")
+
+        output = tmp_path / "output"
+        output.mkdir()
+
+        repo = RepoConfig(name="local-repo", local_path=str(source))
+        result = sync_local_repo(repo, output)
+
+        assert result is True
+        assert (output / "local-repo" / "file1.txt").read_text() == "hello"
+        assert not (output / "local-repo" / ".git").exists()
+
+    def test_strips_git_dir_with_filters(self, tmp_path: Path):
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "model.sql").write_text("SELECT 1")
+        git_dir = source / ".git"
+        git_dir.mkdir()
+        (git_dir / "HEAD").write_text("ref: refs/heads/main")
+
+        output = tmp_path / "output"
+        output.mkdir()
+
+        repo = RepoConfig(name="filtered", local_path=str(source), exclude=["*.pyc"])
+        result = sync_local_repo(repo, output)
+
+        assert result is True
+        assert (output / "filtered" / "model.sql").exists()
+        assert not (output / "filtered" / ".git").exists()
 
     def test_returns_false_for_missing_path(self, tmp_path: Path):
         output = tmp_path / "output"

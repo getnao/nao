@@ -43,12 +43,16 @@ spec:
               value: {{ .Values.config.gitSync.branch | quote }}
             - name: GIT_URL
               value: {{ .Values.config.gitSync.url | quote }}
-            {{- if .Values.secrets.contextGitToken }}
+            {{- if or .Values.secrets.contextGitToken .Values.existingSecret }}
             - name: GIT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "nao.fullname" . }}
+                  name: {{ include "nao.secretName" . }}
                   key: NAO_CONTEXT_GIT_TOKEN
+                  {{- if .Values.existingSecret }}
+                  # The pre-existing secret may not carry a git token (e.g. public repo)
+                  optional: true
+                  {{- end }}
             - name: GIT_ASKPASS
               value: /bin/true
             - name: GIT_TERMINAL_PROMPT
@@ -82,11 +86,18 @@ spec:
             - name: http
               containerPort: {{ .Values.config.serverPort | int }}
               protocol: TCP
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "nao.fullname" . }}
             - secretRef:
-                name: {{ include "nao.fullname" . }}
+                name: {{ include "nao.secretName" . }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

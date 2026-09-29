@@ -6,16 +6,16 @@ import { env, isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
 import * as userQueries from '../queries/user.queries';
-import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { emailService } from '../services/email';
+import { putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
 import { ORG_ROLES } from '../types/organization';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
-import { assertRolesAreEditable, protectedProcedure } from './trpc';
+import { assertOrganizationRolesAreEditable, protectedProcedure } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
+	const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
 	if (!membership) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 	}
@@ -31,11 +31,21 @@ const orgAdminOnlyProcedure = orgAdminProcedure.use(async ({ ctx, next }) => {
 });
 
 export const organizationRoutes = {
+	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
+		return orgQueries.listUserOrgMemberships(ctx.user.id);
+	}),
+
 	get: orgAdminProcedure.query(async ({ ctx }) => ({
 		id: ctx.org.id,
 		name: ctx.org.name,
 		role: ctx.orgRole,
 	})),
+
+	rename: orgAdminOnlyProcedure
+		.input(z.object({ name: z.string().trim().min(1).max(100) }))
+		.mutation(async ({ input, ctx }) => {
+			await orgQueries.updateOrganizationName(ctx.org.id, input.name);
+		}),
 
 	getProjects: orgAdminProcedure.query(async ({ ctx }) => {
 		return orgQueries.listOrgProjectsWithAccess(ctx.org.id, ctx.user.id);
@@ -72,22 +82,8 @@ export const organizationRoutes = {
 	updateMemberRole: orgAdminOnlyProcedure
 		.input(z.object({ userId: z.string(), role: z.enum(ORG_ROLES) }))
 		.mutation(async ({ input, ctx }) => {
-			await assertRolesAreEditable();
-
-			const currentRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
-			if (input.role !== 'admin') {
-				const adminCount = await orgQueries.countOrgAdmins(ctx.org.id);
-				if (currentRole === 'admin' && adminCount <= 1) {
-					throw new TRPCError({
-						code: 'BAD_REQUEST',
-						message: 'The organization must have at least one admin.',
-					});
-				}
-			}
-			await orgQueries.updateOrgMemberRole(ctx.org.id, input.userId, input.role);
-			if (currentRole === 'admin' && input.role !== 'admin') {
-				await cleanupLostOrgContextAccess(ctx.org.id, input.userId);
-			}
+			await assertOrganizationRolesAreEditable();
+			await putOrganizationMember(ctx.org.id, input.userId, input.role, { addIfMissing: false });
 		}),
 
 	addMember: orgAdminOnlyProcedure
@@ -102,7 +98,8 @@ export const organizationRoutes = {
 				addMember: async (userId) => {
 					await orgQueries.addOrgMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
 				},
-				buildEmail: (user, password) => buildUserAddedEmail(user, ctx.org.name, 'organization', password),
+				buildEmail: (user, password) =>
+					buildUserAddedEmail(user, ctx.org.name, 'organization', password, ctx.user.email),
 			});
 		}),
 
@@ -116,7 +113,7 @@ export const organizationRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			if (input.newRole) {
-				await assertRolesAreEditable();
+				await assertOrganizationRolesAreEditable();
 			}
 
 			const currentRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
@@ -125,19 +122,7 @@ export const organizationRoutes = {
 			}
 
 			if (input.newRole && input.newRole !== currentRole) {
-				if (currentRole === 'admin' && input.newRole !== 'admin') {
-					const adminCount = await orgQueries.countOrgAdmins(ctx.org.id);
-					if (adminCount <= 1) {
-						throw new TRPCError({
-							code: 'BAD_REQUEST',
-							message: 'The organization must have at least one admin.',
-						});
-					}
-				}
-				await orgQueries.updateOrgMemberRole(ctx.org.id, input.userId, input.newRole);
-				if (currentRole === 'admin' && input.newRole !== 'admin') {
-					await cleanupLostOrgContextAccess(ctx.org.id, input.userId);
-				}
+				await putOrganizationMember(ctx.org.id, input.userId, input.newRole);
 			}
 
 			if (input.name) {
@@ -151,6 +136,10 @@ export const organizationRoutes = {
 	resetMemberPassword: orgAdminOnlyProcedure
 		.input(z.object({ userId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
+			if (isCloud) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin password resets are disabled in nao cloud.' });
+			}
+
 			const memberRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
 			if (!memberRole) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this organization.' });
@@ -181,29 +170,9 @@ export const organizationRoutes = {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'You cannot remove yourself from the organization.' });
 		}
 
-		const adminCount = await orgQueries.countOrgAdmins(ctx.org.id);
-		const targetRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
-		if (targetRole === 'admin' && adminCount <= 1) {
-			throw new TRPCError({
-				code: 'BAD_REQUEST',
-				message: 'Cannot remove the last admin from the organization.',
-			});
-		}
-
-		await orgQueries.removeOrgMemberFromProjects(ctx.org.id, input.userId);
-		await orgQueries.removeOrgMember(ctx.org.id, input.userId);
-		await cleanupLostOrgContextAccess(ctx.org.id, input.userId);
+		await removeOrganizationMember(ctx.org.id, input.userId, { ignoreMissing: true });
 	}),
 };
-
-async function cleanupLostOrgContextAccess(orgId: string, userId: string): Promise<void> {
-	const projects = await orgQueries.listOrgProjectsForContextCleanup(orgId, userId);
-	for (const project of projects) {
-		if (project.path && project.role !== 'admin' && project.role !== 'context_admin') {
-			await cleanupContextWorktree(project.id, project.path, userId);
-		}
-	}
-}
 
 /**
  * Cross-tenant guard for cloud sign-in domains. An organization may only claim a

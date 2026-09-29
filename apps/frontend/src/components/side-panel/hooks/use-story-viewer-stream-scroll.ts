@@ -1,22 +1,42 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import type { StoryViewMode } from '../story-viewer.types';
 
+const STREAM_SCROLL_BOTTOM_THRESHOLD = 64;
+
 interface UseStoryViewerStreamScrollParams {
 	scrollContainerRef: RefObject<HTMLDivElement | null>;
-	isStreaming: boolean;
+	isAppendingContent: boolean;
 	code?: string;
 	viewMode: StoryViewMode;
 }
 
 export const useStoryViewerStreamScroll = ({
 	scrollContainerRef,
-	isStreaming,
+	isAppendingContent,
 	code,
 	viewMode,
 }: UseStoryViewerStreamScrollParams) => {
+	const isNearBottomRef = useRef(true);
+	const hasContent = Boolean(code);
+
 	useEffect(() => {
-		if (!isStreaming) {
+		const container = scrollContainerRef.current;
+		if (!container) {
+			return;
+		}
+
+		const handleScroll = () => {
+			isNearBottomRef.current = isContainerNearBottom(container);
+		};
+
+		container.addEventListener('scroll', handleScroll);
+
+		return () => container.removeEventListener('scroll', handleScroll);
+	}, [scrollContainerRef, hasContent]);
+
+	useEffect(() => {
+		if (!isAppendingContent || !isNearBottomRef.current) {
 			return;
 		}
 
@@ -30,9 +50,19 @@ export const useStoryViewerStreamScroll = ({
 		}
 
 		const animationFrameId = requestAnimationFrame(() => {
-			container.scrollTop = container.scrollHeight;
+			if (isNearBottomRef.current) {
+				container.scrollTop = container.scrollHeight;
+			}
 		});
 
 		return () => cancelAnimationFrame(animationFrameId);
-	}, [scrollContainerRef, isStreaming, code, viewMode]);
+	}, [scrollContainerRef, isAppendingContent, code, viewMode]);
+};
+
+const isContainerNearBottom = (container: HTMLDivElement) => {
+	if (container.scrollHeight <= container.clientHeight) {
+		return true;
+	}
+
+	return container.scrollHeight - container.scrollTop - container.clientHeight <= STREAM_SCROLL_BOTTOM_THRESHOLD;
 };

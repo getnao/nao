@@ -145,7 +145,7 @@ The chart creates the following resources. Resources marked *(conditional)* are 
 | `Deployment` | `<release>-nao` | Always |
 | `Service` | `<release>-nao` | Always |
 | `ConfigMap` | `<release>-nao` | Always |
-| `Secret` | `<release>-nao` | Always |
+| `Secret` | `<release>-nao` | `existingSecret` unset |
 | `ServiceAccount` | `<release>-nao` | `serviceAccount.create=true` |
 | `PersistentVolumeClaim` (context) | `<release>-nao-context` | `contextSource=local` + `persistence.enabled=true` + no `existingClaim` |
 | `PersistentVolumeClaim` (projects) | `<release>-nao-projects` | `contextSource=api` + `projectsPersistence.enabled=true` + no `existingClaim` |
@@ -228,7 +228,7 @@ Environment variables are split between a `ConfigMap` (non-sensitive) and a `Sec
 - SMTP credentials, OAuth client secrets (Google, GitHub)
 - `NOTION_API_KEY`
 
-> In production, manage Secret values with an external secret manager (External Secrets Operator, AWS Secrets Manager, Sealed Secrets) rather than hardcoding them in values files.
+> In production, manage Secret values with an external secret manager (External Secrets Operator, AWS Secrets Manager, Sealed Secrets) rather than hardcoding them in values files. Set `existingSecret` to point the deployment at such a pre-existing Secret — the chart then renders no Secret of its own and the `secrets.*` values are ignored. The pod-template checksum only tracks the chart-rendered Secret, so rotate-and-roll of an external Secret needs its own trigger (stakater/reloader, ESO templated annotations, or `kubectl rollout restart`). Env vars the chart has no key for can be injected with `extraEnv` / `extraEnvFrom`.
 
 ---
 

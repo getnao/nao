@@ -21,6 +21,7 @@ interface EditMemberDialogProps {
 	onOpenChange: (open: boolean) => void;
 	member: TeamMember | null;
 	isAdmin: boolean;
+	roleScope: 'organization' | 'project';
 	availableRoles?: readonly UserRole[];
 	onSubmit: (data: { userId: string; name?: string; newRole?: UserRole }) => Promise<void>;
 }
@@ -30,12 +31,14 @@ export function EditMemberDialog({
 	onOpenChange,
 	member,
 	isAdmin,
+	roleScope,
 	availableRoles = USER_ROLES,
 	onSubmit,
 }: EditMemberDialogProps) {
 	const [error, setError] = useState('');
-	const { rolesManagedByIdp, providerName, isLoading } = useSsoRoleMapping();
-	const isRoleEditingDisabled = rolesManagedByIdp || isLoading;
+	const { organizationRolesManagedByIdp, providerName, isLoading } = useSsoRoleMapping();
+	const isOrganizationRole = roleScope === 'organization';
+	const isRoleEditingDisabled = isOrganizationRole && (organizationRolesManagedByIdp || isLoading);
 
 	const form = useForm({
 		defaultValues: {
@@ -129,10 +132,10 @@ export function EditMemberDialog({
 											))}
 										</DropdownMenuContent>
 									</DropdownMenu>
-									{rolesManagedByIdp && (
+									{isOrganizationRole && organizationRolesManagedByIdp && (
 										<p className='text-xs text-muted-foreground'>
-											Roles are assigned from {providerName} groups and refresh when the user
-											signs in again.
+											Organization roles are assigned from {providerName} groups and refresh when
+											the user signs in again.
 										</p>
 									)}
 								</div>

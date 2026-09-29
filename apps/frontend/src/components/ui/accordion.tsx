@@ -17,9 +17,14 @@ function AccordionItem({ className, ...props }: React.ComponentProps<typeof Acco
 	);
 }
 
-function AccordionTrigger({ className, children, ...props }: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
+function AccordionTrigger({
+	className,
+	headerClassName,
+	children,
+	...props
+}: React.ComponentProps<typeof AccordionPrimitive.Trigger> & { headerClassName?: string }) {
 	return (
-		<AccordionPrimitive.Header className='flex min-w-0 overflow-hidden w-full'>
+		<AccordionPrimitive.Header className={cn('flex min-w-0 overflow-hidden', headerClassName ?? 'w-full')}>
 			<AccordionPrimitive.Trigger
 				data-slot='accordion-trigger'
 				className={cn(

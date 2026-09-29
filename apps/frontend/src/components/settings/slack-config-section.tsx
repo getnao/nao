@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil, Trash2 } from 'lucide-react';
 import { SlackForm } from './slack-form';
 import { Button } from '@/components/ui/button';
+import { Callout } from '@/components/ui/callout';
 import { CopyableUrl } from '@/components/ui/copyable-url';
 import { FormError } from '@/components/ui/form-fields';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,9 +16,10 @@ import { trpc } from '@/main';
 
 interface SlackConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
+export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -65,6 +67,14 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const handleDelete = async () => {
 		await deleteSlackConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getSlackConfig.queryOptions());
+	};
+
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
 	};
 
 	const handleStartEditing = () => {
@@ -146,7 +156,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				webhookUrl={webhookUrl}
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertSlackConfig.isPending}
 			/>
 		);
@@ -156,6 +166,21 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 
 	return (
 		<div className='flex flex-col gap-6'>
+			{projectConfig.dmScopeMissing && (
+				<Callout variant='warning'>
+					The Slack app needs to be reinstalled to apply new permissions, then update the bot token above.{' '}
+					<a
+						href='https://api.slack.com/apps'
+						target='_blank'
+						rel='noopener noreferrer'
+						className='inline-flex items-center gap-1 underline hover:text-foreground'
+					>
+						Reinstall the app
+						<ExternalLink className='size-3' />
+					</a>
+				</Callout>
+			)}
+
 			<SettingsCard title='Connection' description='Your Slack app credentials'>
 				<div className='flex items-center gap-4'>
 					<div className='flex-1 grid gap-1'>

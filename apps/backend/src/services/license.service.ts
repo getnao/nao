@@ -5,12 +5,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { errors as joseErrors, importSPKI, jwtVerify, type KeyObject } from 'jose';
 
 import { env } from '../env';
-import { LICENSE_FEATURES, type LicenseFeature, type NaoLicense } from '../types/license';
+import { LICENSE_ALL_FEATURES, LICENSE_FEATURES, type LicenseFeature, type NaoLicense } from '../types/license';
 import { LICENSES_BASE_URL } from './license-endpoints';
 import { getBundledPublicKey } from './license-public-key';
 
 export type { LicenseFeature, LicenseStatus, NaoLicense } from '../types/license';
-export { LICENSE_FEATURES, LICENSE_STATUSES } from '../types/license';
+export { LICENSE_ALL_FEATURES, LICENSE_FEATURES, LICENSE_STATUSES } from '../types/license';
 
 const LICENSE_ISSUER = 'getnao';
 const LICENSE_ALGORITHM = 'EdDSA';
@@ -299,8 +299,12 @@ function parseFeatures(value: unknown): LicenseFeature[] {
 	if (!Array.isArray(value)) {
 		return [];
 	}
-	const known = new Set<string>(Object.values(LICENSE_FEATURES));
-	return value.filter((item): item is LicenseFeature => typeof item === 'string' && known.has(item));
+	const known = Object.values(LICENSE_FEATURES);
+	if (value.includes(LICENSE_ALL_FEATURES)) {
+		return [...known];
+	}
+	const knownSet = new Set<string>(known);
+	return value.filter((item): item is LicenseFeature => typeof item === 'string' && knownSet.has(item));
 }
 
 function parseOptionalExpiresAt(value: unknown): Date | undefined {

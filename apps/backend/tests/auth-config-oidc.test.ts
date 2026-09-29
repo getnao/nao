@@ -89,7 +89,7 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 		expect(result).toEqual({
 			providerId: 'oidc',
 			providerName: 'SSO',
-			rolesManagedByIdp: false,
+			organizationRolesManagedByIdp: false,
 		});
 	});
 
@@ -114,7 +114,7 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 		expect(result).toEqual({
 			providerId: 'okta',
 			providerName: 'Okta',
-			rolesManagedByIdp: false,
+			organizationRolesManagedByIdp: false,
 		});
 	});
 
@@ -122,18 +122,66 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 		mockEnv.OIDC_CLIENT_ID = 'client-id';
 		mockEnv.OIDC_CLIENT_SECRET = 'secret';
 		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
-		mockEnv.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:admin';
+		mockEnv.OIDC_GROUP_NAO_ROLE_MAPPING = 'nao-admins:admin';
 
-		await expect(callGetConfig()).resolves.toMatchObject({ rolesManagedByIdp: true });
+		await expect(callGetConfig()).resolves.toMatchObject({ organizationRolesManagedByIdp: true });
 	});
 
 	it('reports roles as editable when the group mapping has no usable entry', async () => {
 		mockEnv.OIDC_CLIENT_ID = 'client-id';
 		mockEnv.OIDC_CLIENT_SECRET = 'secret';
 		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
-		mockEnv.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:superuser';
+		mockEnv.OIDC_GROUP_NAO_ROLE_MAPPING = 'nao-context:context_admin,nao-admins:superuser';
 
-		await expect(callGetConfig()).resolves.toMatchObject({ rolesManagedByIdp: false });
+		await expect(callGetConfig()).resolves.toMatchObject({ organizationRolesManagedByIdp: false });
+	});
+});
+
+describe('authConfigRoutes.sso.getStatus', () => {
+	beforeEach(() => {
+		Object.keys(mockEnv).forEach((key) => delete mockEnv[key]);
+		mockSsoEnabled = true;
+	});
+
+	it('reports Entra-managed organization roles only when configured and licensed', async () => {
+		Object.assign(mockEnv, {
+			AZURE_AD_CLIENT_ID: 'client-id',
+			AZURE_AD_CLIENT_SECRET: 'secret',
+			AZURE_AD_TENANT_ID: 'tenant-id',
+			AZURE_AD_GROUP_NAO_ROLE_MAPPING: 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin',
+		});
+
+		await expect(callSsoStatus()).resolves.toEqual({
+			organizationRolesManagedByIdp: true,
+			providerName: 'Microsoft Entra',
+		});
+
+		mockSsoEnabled = false;
+		await expect(callSsoStatus()).resolves.toMatchObject({ organizationRolesManagedByIdp: false });
+	});
+
+	it('uses a neutral provider name when OIDC and Entra role mappings are active', async () => {
+		Object.assign(mockEnv, {
+			OIDC_CLIENT_ID: 'client-id',
+			OIDC_CLIENT_SECRET: 'secret',
+			OIDC_DISCOVERY_URL: 'https://example.com/.well-known/openid-configuration',
+			OIDC_PROVIDER_NAME: 'Okta',
+			OIDC_GROUP_NAO_ROLE_MAPPING: 'nao-admins:admin',
+			AZURE_AD_CLIENT_ID: 'client-id',
+			AZURE_AD_CLIENT_SECRET: 'secret',
+			AZURE_AD_TENANT_ID: 'tenant-id',
+			AZURE_AD_GROUP_NAO_ROLE_MAPPING: 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin',
+		});
+
+		await expect(callSsoStatus()).resolves.toEqual({
+			organizationRolesManagedByIdp: true,
+			providerName: 'SSO',
+		});
+	});
+
+	it('does not activate Entra role mapping without the Microsoft provider', async () => {
+		mockEnv.AZURE_AD_GROUP_NAO_ROLE_MAPPING = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin';
+		await expect(callSsoStatus()).resolves.toMatchObject({ organizationRolesManagedByIdp: false });
 	});
 });
 
@@ -226,6 +274,15 @@ async function callInspectToken(userId: string) {
 		ctx: { project: { id: 'project-id' }, user: { id: 'current-user' } },
 		input: { userId },
 	});
+}
+
+async function callSsoStatus() {
+	vi.resetModules();
+	const { authConfigRoutes } = await import('../src/trpc/auth-config.routes');
+	const procedure = authConfigRoutes.sso.getStatus;
+	// @ts-expect-error accessing internal tRPC structure for testing
+	const resolver = procedure._def.query ?? procedure._def.resolver;
+	return resolver({ ctx: {}, input: undefined });
 }
 
 async function callGoogleIsSetup() {

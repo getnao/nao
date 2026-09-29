@@ -479,15 +479,23 @@ function RecommendationsPage() {
 	if (systemConfig.data && !isEnabled) {
 		return (
 			<SettingsPageWrapper>
-				<SettingsCard title='Context Recommendations' titleSize='lg' description={PAGE_DESCRIPTION}>
-					<Empty className='whitespace-normal'>
-						This feature is currently in beta. To enable it, set the environment variable{' '}
-						<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs'>
-							BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true
-						</code>{' '}
-						on your nao instance and restart it.
-					</Empty>
-				</SettingsCard>
+				<div className='flex flex-col gap-5'>
+					<div>
+						<h1 className='text-lg font-semibold text-foreground'>Context Recommendations</h1>
+						<p className='text-sm text-muted-foreground'>{PAGE_DESCRIPTION}</p>
+					</div>
+					<div className='flex flex-col gap-12'>
+						<SettingsCard>
+							<Empty className='whitespace-normal'>
+								This feature is currently in beta. To enable it, set the environment variable{' '}
+								<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs'>
+									BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true
+								</code>{' '}
+								on your nao instance and restart it.
+							</Empty>
+						</SettingsCard>
+					</div>
+				</div>
 			</SettingsPageWrapper>
 		);
 	}
@@ -512,10 +520,10 @@ function RecommendationsPage() {
 		>
 			<div ref={containerRef} className='flex h-full min-h-0'>
 				<SettingsPageWrapper>
-					<div className='flex flex-col gap-6'>
+					<div className='flex flex-col gap-5'>
 						<div className='flex items-start justify-between gap-4'>
-							<div className='space-y-1'>
-								<h1 className='text-xl font-semibold text-foreground'>Context Recommendations</h1>
+							<div>
+								<h1 className='text-lg font-semibold text-foreground'>Context Recommendations</h1>
 								<p className='text-sm text-muted-foreground'>{PAGE_DESCRIPTION}</p>
 							</div>
 							<div className='flex flex-col items-end gap-1'>

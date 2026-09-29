@@ -17,9 +17,7 @@ export function TextField({ form, name, label, type = 'text', placeholder, hint,
 	return (
 		<form.Field
 			name={name}
-			validators={
-				required ? { onChange: ({ value }: { value: string }) => (!value ? 'Required' : undefined) } : undefined
-			}
+			validators={required ? { onChange: validateRequired, onSubmit: validateRequired } : undefined}
 		>
 			{(field: {
 				state: { value: string; meta: { errors: string[] } };
@@ -39,6 +37,7 @@ export function TextField({ form, name, label, type = 'text', placeholder, hint,
 						value={field.state.value ?? ''}
 						onChange={(e) => field.handleChange(e.target.value)}
 						onBlur={field.handleBlur}
+						required={required}
 					/>
 					{field.state.meta.errors.length > 0 && (
 						<p className='text-xs text-destructive'>{field.state.meta.errors[0]}</p>
@@ -47,6 +46,10 @@ export function TextField({ form, name, label, type = 'text', placeholder, hint,
 			)}
 		</form.Field>
 	);
+}
+
+function validateRequired({ value }: { value: string }): string | undefined {
+	return value.trim() ? undefined : 'Required';
 }
 
 interface PasswordFieldProps {
@@ -157,6 +160,10 @@ export function FormError({ error, form }: FormErrorProps) {
 		return null;
 	}
 	return <p className='text-red-500 text-center text-base'>{error}</p>;
+}
+
+export function getSubmitErrorMessage(error: unknown, fallback: string): string {
+	return error instanceof Error && error.message ? error.message : fallback;
 }
 
 interface FormActionsProps {

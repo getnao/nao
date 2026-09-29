@@ -1,3 +1,4 @@
+import { resolveDataKey } from '@nao/shared';
 import { Code, Pencil } from 'lucide-react';
 import { memo, useContext, useMemo, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
@@ -40,7 +41,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	const data = useMemo(
 		() =>
 			sourceData?.data && chart.xAxisType === 'date'
-				? sortByDateKey(sourceData.data, chart.xAxisKey)
+				? sortByDateKey(sourceData.data, resolveDataKey(sourceData.data, chart.xAxisKey))
 				: (sourceData?.data ?? []),
 		[sourceData?.data, chart.xAxisType, chart.xAxisKey],
 	);

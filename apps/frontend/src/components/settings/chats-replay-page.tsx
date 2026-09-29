@@ -33,7 +33,7 @@ export function ChatsReplayPage({
 	const [sorting, setSorting] = useState<SortingState>([]);
 	const [pagination, setPagination] = useState<PaginationState>({
 		pageIndex: 0,
-		pageSize: 30,
+		pageSize: 20,
 	});
 	const columns = useMemo(() => getChatsReplayColumns(), []);
 
@@ -75,6 +75,7 @@ export function ChatsReplayPage({
 	const projectChatsQuery = useQuery({
 		...trpc.project.getProjectChats.queryOptions(queryInput),
 		placeholderData: keepPreviousData,
+		refetchOnWindowFocus: 'always',
 	});
 	const chats = projectChatsQuery.data?.chats ?? [];
 	const total = projectChatsQuery.data?.total ?? 0;

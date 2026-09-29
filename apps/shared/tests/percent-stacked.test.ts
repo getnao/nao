@@ -14,6 +14,8 @@ describe('isStackedChartType', () => {
 	it('recognises absolute and normalized stacked types', () => {
 		expect(isStackedChartType('stacked_bar')).toBe(true);
 		expect(isStackedChartType('stacked_bar_100')).toBe(true);
+		expect(isStackedChartType('horizontal_bar')).toBe(true);
+		expect(isStackedChartType('horizontal_bar_100')).toBe(true);
 		expect(isStackedChartType('stacked_area')).toBe(true);
 		expect(isStackedChartType('stacked_area_100')).toBe(true);
 	});
@@ -28,7 +30,9 @@ describe('isStackedChartType', () => {
 describe('isPercentStackedChartType', () => {
 	it('matches only the 100% variants', () => {
 		expect(isPercentStackedChartType('stacked_bar_100')).toBe(true);
+		expect(isPercentStackedChartType('horizontal_bar_100')).toBe(true);
 		expect(isPercentStackedChartType('stacked_area_100')).toBe(true);
+		expect(isPercentStackedChartType('horizontal_bar')).toBe(false);
 		expect(isPercentStackedChartType('stacked_bar')).toBe(false);
 		expect(isPercentStackedChartType('stacked_area')).toBe(false);
 		expect(isPercentStackedChartType('bar')).toBe(false);
@@ -36,8 +40,9 @@ describe('isPercentStackedChartType', () => {
 });
 
 describe('chartTypeRequiresXAxisKey', () => {
-	it('requires an x-axis key for both 100% stacked variants', () => {
+	it('requires an x-axis key for all 100% stacked variants', () => {
 		expect(chartTypeRequiresXAxisKey('stacked_bar_100')).toBe(true);
+		expect(chartTypeRequiresXAxisKey('horizontal_bar_100')).toBe(true);
 		expect(chartTypeRequiresXAxisKey('stacked_area_100')).toBe(true);
 	});
 

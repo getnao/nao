@@ -175,6 +175,34 @@ config:
 # =============================================================================
 # Secrets
 # =============================================================================
+# -- Name of a pre-existing Secret to load env vars from INSTEAD of the
+#    chart-rendered one. When set, the chart renders no Secret at all and the
+#    whole `secrets:` block below is ignored — the referenced Secret must carry
+#    the same env var keys (BETTER_AUTH_SECRET, DB_URI, provider API keys, ...).
+#    Useful with GitOps (ArgoCD/Flux), where plaintext helm values would land in
+#    the rendered Application manifests, and with external secret operators.
+#    NOTE: the pod-template checksum only tracks the chart-rendered Secret, so
+#    rotating an external Secret does NOT restart pods — pair it with a rollout
+#    trigger (e.g. stakater/reloader, ESO's templated annotations) or run
+#    `kubectl rollout restart` after rotation.
+existingSecret: ""
+
+# -- Extra env vars appended verbatim to the nao container (list of
+#    corev1.EnvVar). Lets you inject deployment-specific configuration the
+#    chart has no first-class key for, e.g. NAO_STORAGE_* or SNOWFLAKE_*
+#    referenced from nao_config.yaml via {{ env('...') }}.
+extraEnv: []
+# extraEnv:
+#   - name: NAO_STORAGE_BACKEND
+#     value: s3
+
+# -- Extra envFrom sources (configMapRef/secretRef) appended after the
+#    chart's own ConfigMap and Secret.
+extraEnvFrom: []
+# extraEnvFrom:
+#   - secretRef:
+#       name: my-extra-secret
+
 secrets:
   # -- Required. Generate with: openssl rand -base64 32
   betterAuthSecret: ""
@@ -274,6 +302,32 @@ service:
   port: 80
   targetPort: 5005
   annotations: {}
+
+# =============================================================================
+# Ingress
+# =============================================================================
+
+# -- Expose nao through an Ingress controller. Remember to set
+#    config.betterAuthUrl (and the OAuth redirect URIs of your SSO provider)
+#    to the public URL served by the ingress.
+ingress:
+  enabled: false
+  # -- IngressClass name (e.g. nginx, traefik, alb)
+  className: ""
+  # -- Controller-specific annotations (cert-manager issuer, ALB scheme, ...),
+  #    merged on top of commonAnnotations
+  annotations: {}
+  hosts:
+    - host: nao.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration; reference a pre-existing certificate Secret or let
+  #    cert-manager populate it via annotations
+  tls: []
+  #  - secretName: nao-tls
+  #    hosts:
+  #      - nao.example.com
 
 # =============================================================================
 # Resources

@@ -12,9 +12,9 @@
       }
     },
     "notion": {
-			"transport": "streamable-http",
-			"url": "https://mcp.notion.com/mcp"
-		},
+      "transport": "streamable-http",
+      "url": "https://mcp.notion.com/mcp"
+    },
     "linear": {
       "transport": "streamable-http",
       "url": "https://mcp.linear.app/mcp"

@@ -21,6 +21,7 @@ const badgeVariants = cva(
 				user: 'bg-blue-500/10 text-blue-500',
 				viewer: 'bg-muted text-muted-foreground',
 				context_admin: 'bg-amber-500/10 text-amber-600 dark:text-amber-500',
+				success: 'bg-green-500/10 text-green-600 dark:text-green-500',
 			},
 		},
 		defaultVariants: {

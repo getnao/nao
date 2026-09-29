@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, Copy } from 'lucide-react';
-import { Fragment, useState } from 'react';
+import { Check, ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsToggleRow } from '@/components/ui/settings-toggle-row';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -99,6 +103,8 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 
 			<ConnectionCard />
 
+			{isAdmin && <OAuthClientsCard />}
+
 			{isAdmin && (
 				<CallLogsCard
 					logs={callLogsQuery.data ?? []}
@@ -126,8 +132,17 @@ type Provider = {
 const TOKEN_PLACEHOLDER = '<token>';
 
 function ConnectionCard() {
-	const endpointUrl = `${window.location.origin}/mcp`;
+	const projectQuery = useQuery(trpc.project.getCurrent.queryOptions());
+	const project = projectQuery.data;
 
+	if (!project) {
+		return null;
+	}
+
+	return <ConnectionGuide projectName={project.name} endpointUrl={`${window.location.origin}/mcp/${project.id}`} />;
+}
+
+function ConnectionGuide({ projectName, endpointUrl }: { projectName: string; endpointUrl: string }) {
 	const cursorConfig = JSON.stringify({ mcpServers: { nao: { type: 'http', url: endpointUrl } } }, null, 2);
 
 	const claudeDesktopConfig = JSON.stringify(
@@ -264,6 +279,21 @@ function ConnectionCard() {
 			],
 		},
 		{
+			id: 'dust',
+			label: 'Dust',
+			methods: [
+				{
+					steps: [
+						'Open {Spaces > Tools} and click `Add Tool > Add MCP Server`.',
+						'Paste the URL below into the `MCP server URL` field — keep the `?chart_output=data` parameter: it returns chart config and data so Dust agents can render charts as interactive frames.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: `${endpointUrl}?chart_output=data`,
+					configLabel: 'MCP Endpoint URL',
+				},
+			],
+		},
+		{
 			id: 'cli',
 			label: 'CLI',
 			methods: [
@@ -298,7 +328,10 @@ function ConnectionCard() {
 	const goNext = () => setActive((i) => (i === providers.length - 1 ? 0 : i + 1));
 
 	return (
-		<SettingsCard title='Connection guide'>
+		<SettingsCard
+			title='Connection guide'
+			description={`The endpoint URL is scoped to ${projectName}. Switch project to get the URL of another one.`}
+		>
 			<div className='flex flex-col gap-4'>
 				<div className='flex gap-2 flex-wrap items-center'>
 					{providers.map((p, i) => (
@@ -420,6 +453,304 @@ function CopyButton({ text }: { text: string }) {
 	);
 }
 
+type CreatedClient = { clientId: string; clientSecret: string | null };
+
+function OAuthClientsCard() {
+	const queryClient = useQueryClient();
+	// OAuth clients are deployment-wide (no per-workspace scoping), so this is self-hosted only —
+	// the backend enforces the same restriction. Wait for the config to resolve before deciding, so
+	// on cloud we neither fire the list request nor flash the card (naoMode is unknown until then).
+	const configQuery = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const isCloud = configQuery.data?.naoMode === 'cloud';
+	const clientsQuery = useQuery({
+		...trpc.mcpOAuthClients.list.queryOptions(),
+		enabled: configQuery.isSuccess && !isCloud,
+	});
+	const listKey = trpc.mcpOAuthClients.list.queryOptions().queryKey;
+
+	const [addOpen, setAddOpen] = useState(false);
+	const [created, setCreated] = useState<CreatedClient | null>(null);
+	const [deleteClientId, setDeleteClientId] = useState<string | null>(null);
+
+	const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
+
+	const createMutation = useMutation(
+		trpc.mcpOAuthClients.create.mutationOptions({
+			onSuccess: (result) => {
+				setAddOpen(false);
+				setCreated(result);
+				invalidate();
+			},
+		}),
+	);
+
+	const deleteMutation = useMutation(
+		trpc.mcpOAuthClients.delete.mutationOptions({
+			onSuccess: () => {
+				setDeleteClientId(null);
+				invalidate();
+			},
+		}),
+	);
+
+	const clients = clientsQuery.data ?? [];
+
+	// Render nothing until the mode is known, and never on cloud.
+	if (!configQuery.isSuccess || isCloud) {
+		return null;
+	}
+
+	return (
+		<SettingsCard
+			title='Connected apps'
+			description='OAuth clients external MCP tools use to connect to this workspace (Claude, Cursor, dust.tt, …).'
+		>
+			<div className='flex justify-end'>
+				<Button size='sm' variant='outline' onClick={() => setAddOpen(true)}>
+					<Plus className='size-3.5 mr-1.5' />
+					Add client
+				</Button>
+			</div>
+
+			{clientsQuery.isLoading ? (
+				<p className='text-sm text-muted-foreground text-center py-4'>Loading…</p>
+			) : clientsQuery.isError ? (
+				<p className='text-sm text-destructive text-center py-4'>Failed to load OAuth clients.</p>
+			) : clients.length === 0 ? (
+				<p className='text-sm text-muted-foreground text-center py-4'>No OAuth clients yet.</p>
+			) : (
+				<Table>
+					<TableHeader>
+						<TableRow>
+							<TableHead>Name</TableHead>
+							<TableHead>Client ID</TableHead>
+							<TableHead>Type</TableHead>
+							<TableHead className='w-8' />
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{clients.map((client) => (
+							<TableRow key={client.clientId}>
+								<TableCell className='text-sm'>{client.name ?? '—'}</TableCell>
+								<TableCell>
+									<code className='text-xs'>{client.clientId}</code>
+								</TableCell>
+								<TableCell>
+									<Badge variant='outline'>{client.isPublic ? 'Public' : 'Confidential'}</Badge>
+								</TableCell>
+								<TableCell>
+									<Button
+										variant='ghost'
+										size='icon-sm'
+										aria-label='Delete client'
+										onClick={() => setDeleteClientId(client.clientId)}
+									>
+										<Trash2 className='size-3.5' />
+									</Button>
+								</TableCell>
+							</TableRow>
+						))}
+					</TableBody>
+				</Table>
+			)}
+
+			<AddClientDialog
+				open={addOpen}
+				onOpenChange={(open) => {
+					// Don't let a close race an in-flight create — the one-time secret would be lost.
+					if (!open && createMutation.isPending) {
+						return;
+					}
+					setAddOpen(open);
+					if (!open) {
+						createMutation.reset();
+					}
+				}}
+				onCreate={(input) => createMutation.mutate(input)}
+				pending={createMutation.isPending}
+				error={createMutation.error?.message ?? null}
+			/>
+
+			<CreatedClientDialog created={created} onOpenChange={(open) => !open && setCreated(null)} />
+
+			<ConfirmationDialog
+				open={deleteClientId !== null}
+				preventCloseWhilePending
+				onOpenChange={(open) => {
+					// preventCloseWhilePending blocks closing mid-delete; still guard the reset.
+					if (!open && !deleteMutation.isPending) {
+						setDeleteClientId(null);
+						deleteMutation.reset();
+					}
+				}}
+				title='Delete OAuth client?'
+				description='Apps using this client will immediately lose access to the MCP endpoint. This cannot be undone.'
+				confirmLabel='Delete'
+				isPending={deleteMutation.isPending}
+				error={deleteMutation.error?.message}
+				onConfirm={() => {
+					if (deleteClientId) {
+						deleteMutation.mutate({ clientId: deleteClientId });
+					}
+				}}
+			/>
+		</SettingsCard>
+	);
+}
+
+function AddClientDialog({
+	open,
+	onOpenChange,
+	onCreate,
+	pending,
+	error,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onCreate: (input: { name: string; redirectUris: string[]; confidential: boolean }) => void;
+	pending: boolean;
+	error: string | null;
+}) {
+	const [name, setName] = useState('');
+	const [redirectUri, setRedirectUri] = useState('');
+	const [confidential, setConfidential] = useState(true);
+
+	// Reset once the dialog is closed (the parent closes it only on success), so a fresh open never
+	// shows the previous client's values. Inputs are kept while it stays open — e.g. after an error.
+	useEffect(() => {
+		if (!open) {
+			setName('');
+			setRedirectUri('');
+			setConfidential(true);
+		}
+	}, [open]);
+
+	const canSubmit = name.trim().length > 0 && redirectUri.trim().length > 0 && !pending;
+
+	const submit = () => {
+		if (!canSubmit) {
+			return;
+		}
+		onCreate({ name: name.trim(), redirectUris: [redirectUri.trim()], confidential });
+	};
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className='sm:max-w-md'>
+				<DialogHeader>
+					<DialogTitle>Add OAuth client</DialogTitle>
+					<DialogDescription>
+						Register a client for an external MCP tool. The secret is shown once after creation.
+					</DialogDescription>
+				</DialogHeader>
+
+				<div className='grid gap-4'>
+					<div className='grid gap-2'>
+						<label htmlFor='oauth-client-name' className='text-sm font-medium text-foreground'>
+							Name
+						</label>
+						<Input
+							id='oauth-client-name'
+							placeholder='dust.tt'
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+						/>
+					</div>
+					<div className='grid gap-2'>
+						<label htmlFor='oauth-client-redirect' className='text-sm font-medium text-foreground'>
+							Redirect URI
+						</label>
+						<Input
+							id='oauth-client-redirect'
+							placeholder='https://eu.dust.tt/oauth/mcp_static/finalize'
+							value={redirectUri}
+							onChange={(e) => setRedirectUri(e.target.value)}
+						/>
+					</div>
+					<div className='flex items-center justify-between'>
+						<div>
+							<label htmlFor='oauth-client-confidential' className='text-sm font-medium text-foreground'>
+								Confidential client
+							</label>
+							<p className='text-xs text-muted-foreground'>
+								Issues a client secret (server-to-server). Turn off for PKCE-only public clients.
+							</p>
+						</div>
+						<Switch
+							id='oauth-client-confidential'
+							checked={confidential}
+							onCheckedChange={setConfidential}
+						/>
+					</div>
+
+					{error && <p className='text-sm text-destructive'>{error}</p>}
+				</div>
+
+				<div className='flex justify-end gap-2'>
+					<Button variant='outline' onClick={() => onOpenChange(false)}>
+						Cancel
+					</Button>
+					<Button onClick={submit} disabled={!canSubmit}>
+						Create
+					</Button>
+				</div>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function CreatedClientDialog({
+	created,
+	onOpenChange,
+}: {
+	created: CreatedClient | null;
+	onOpenChange: (open: boolean) => void;
+}) {
+	return (
+		<Dialog open={created !== null} onOpenChange={onOpenChange}>
+			<DialogContent className='sm:max-w-md'>
+				<DialogHeader>
+					<DialogTitle>Client created</DialogTitle>
+					<DialogDescription>
+						{created?.clientSecret
+							? 'Copy the secret now — it is not shown again.'
+							: 'Public client — no secret is issued (PKCE only).'}
+					</DialogDescription>
+				</DialogHeader>
+
+				{created && (
+					<div className='grid gap-3'>
+						<div className='grid gap-1'>
+							<span className='text-xs font-medium text-muted-foreground'>Client ID</span>
+							<div className='flex items-center gap-2'>
+								<code className='text-xs bg-muted p-2 rounded flex-1 break-all'>
+									{created.clientId}
+								</code>
+								<CopyButton text={created.clientId} />
+							</div>
+						</div>
+						{created.clientSecret && (
+							<div className='grid gap-1'>
+								<span className='text-xs font-medium text-muted-foreground'>Client secret</span>
+								<div className='flex items-center gap-2'>
+									<code className='text-xs bg-muted p-2 rounded flex-1 break-all'>
+										{created.clientSecret}
+									</code>
+									<CopyButton text={created.clientSecret} />
+								</div>
+							</div>
+						)}
+					</div>
+				)}
+
+				<div className='flex justify-end'>
+					<Button onClick={() => onOpenChange(false)}>Done</Button>
+				</div>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 type CallLog = {
 	id: string;
 	userId: string;
@@ -438,13 +769,13 @@ function CallLogsCard({ logs, isLoading, isError }: { logs: CallLog[]; isLoading
 	const toggle = (id: string) => setExpandedId((current) => (current === id ? null : id));
 
 	return (
-		<SettingsCard title='Recent MCP calls' description='Last 50 calls from external clients.'>
+		<SettingsCard title='Recent MCP calls' description='Last 50 calls from external clients.' flush>
 			{isLoading ? (
-				<p className='text-sm text-muted-foreground text-center py-4'>Loading…</p>
+				<p className='p-4 text-sm text-muted-foreground text-center'>Loading…</p>
 			) : isError ? (
-				<p className='text-sm text-destructive text-center py-4'>Failed to load MCP call logs.</p>
+				<p className='p-4 text-sm text-destructive text-center'>Failed to load MCP call logs.</p>
 			) : logs.length === 0 ? (
-				<p className='text-sm text-muted-foreground text-center py-4'>No MCP calls recorded yet.</p>
+				<p className='p-4 text-sm text-muted-foreground text-center'>No MCP calls recorded yet.</p>
 			) : (
 				<Table>
 					<TableHeader>

@@ -57,7 +57,6 @@ export function SettingsDisplayMap({ isAdmin }: SettingsDisplayMapProps) {
 		<SettingsCard
 			title='Maps'
 			description='Allow the agent to render query results on an interactive map (web chat only).'
-			divide
 		>
 			<SettingsControlRow
 				id='display-map'
@@ -72,7 +71,7 @@ export function SettingsDisplayMap({ isAdmin }: SettingsDisplayMapProps) {
 					/>
 				}
 			/>
-			{displayMapEnabled && <MapBoundariesLibrary isAdmin={isAdmin} />}
+			<MapBoundariesLibrary isAdmin={isAdmin} />
 		</SettingsCard>
 	);
 }

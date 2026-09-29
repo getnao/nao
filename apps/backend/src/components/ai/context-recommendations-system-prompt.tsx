@@ -3,12 +3,15 @@ import dbConfig, { Dialect } from '../../db/dbConfig';
 import { Block, Bold, Br, Code, CodeBlock, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import type { LinkedContextRepo } from '../../types/context-recommendation';
 import { ALLOWED_APP_DB_VIEWS } from '../../utils/app-db-allowlist';
+import type { ContextPresence } from '../../utils/nao-config';
 import { AppDbTimestamps } from './app-db-timestamps';
 import { NaoContextStructure } from './nao-context-structure';
 
 export function renderContextRecommendationsSystemPrompt(options?: {
 	proposeFixes?: boolean;
 	linkedRepos?: LinkedContextRepo[];
+	templates?: string[];
+	contextPresence?: ContextPresence;
 	contextRepoConnected?: boolean;
 	customInstructions?: string;
 }): string {
@@ -18,6 +21,8 @@ export function renderContextRecommendationsSystemPrompt(options?: {
 		<ContextRecommendationsSystemPrompt
 			proposeFixes={options?.proposeFixes ?? false}
 			linkedRepos={options?.linkedRepos ?? []}
+			templates={options?.templates}
+			contextPresence={options?.contextPresence}
 			contextRepoConnected={options?.contextRepoConnected ?? false}
 			customInstructions={customInstructions}
 		/>,
@@ -27,11 +32,15 @@ export function renderContextRecommendationsSystemPrompt(options?: {
 function ContextRecommendationsSystemPrompt({
 	proposeFixes,
 	linkedRepos,
+	templates,
+	contextPresence,
 	contextRepoConnected,
 	customInstructions,
 }: {
 	proposeFixes: boolean;
 	linkedRepos: LinkedContextRepo[];
+	templates?: string[];
+	contextPresence?: ContextPresence;
 	contextRepoConnected: boolean;
 	customInstructions?: string;
 }) {
@@ -50,7 +59,11 @@ function ContextRecommendationsSystemPrompt({
 				context that you may recommend improving, correcting, or extending.
 			</Span>
 
-			<NaoContextStructure />
+			<NaoContextStructure
+				templates={templates}
+				repoNames={linkedRepos.map((repo) => repo.name)}
+				contextPresence={contextPresence}
+			/>
 			<Span>
 				<Code>RULES.md</Code> and <Code>semantics/*.md</Code> hold the project-wide rules and metric definitions
 				the agent relies on — the most common place a fix belongs.

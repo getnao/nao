@@ -27,6 +27,7 @@ import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -180,6 +181,7 @@ export function AutomationForm({
 	onDirtyChange,
 	onSubmit,
 }: AutomationFormProps) {
+	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 	const form = useAutomationFormController({
 		initialValue,
 		isPending,
@@ -229,6 +231,7 @@ export function AutomationForm({
 					promptRef={form.promptRef}
 					promptValue={form.value.prompt}
 					promptHasError={form.promptError}
+					storyCreationEnabled={storyCreationEnabled}
 					onPromptChange={form.handlePromptChange}
 					modelValue={form.selectedModelValue}
 					modelName={form.selectedModelName}
@@ -850,6 +853,7 @@ function AgentInstructionsSection({
 	promptRef,
 	promptValue,
 	promptHasError,
+	storyCreationEnabled,
 	onPromptChange,
 	modelValue,
 	modelName,
@@ -863,6 +867,7 @@ function AgentInstructionsSection({
 	promptRef: RefObject<PromptHandle | null>;
 	promptValue: string;
 	promptHasError: boolean;
+	storyCreationEnabled: boolean;
 	onPromptChange: (value: string) => void;
 	modelValue: string;
 	modelName: string | undefined;
@@ -880,6 +885,7 @@ function AgentInstructionsSection({
 				promptRef={promptRef}
 				value={promptValue}
 				hasError={promptHasError}
+				storyCreationEnabled={storyCreationEnabled}
 				onChange={onPromptChange}
 				footer={
 					<AutomationModelSelect
@@ -892,7 +898,11 @@ function AgentInstructionsSection({
 					/>
 				}
 			/>
-			<PromptMentionHints email={email} onInsertTrigger={onInsertPromptTrigger} />
+			<PromptMentionHints
+				email={email}
+				storyCreationEnabled={storyCreationEnabled}
+				onInsertTrigger={onInsertPromptTrigger}
+			/>
 		</section>
 	);
 }
@@ -901,12 +911,14 @@ function AutomationPromptInput({
 	promptRef,
 	value,
 	hasError,
+	storyCreationEnabled,
 	onChange,
 	footer,
 }: {
 	promptRef: RefObject<PromptHandle | null>;
 	value: string;
 	hasError: boolean;
+	storyCreationEnabled: boolean;
 	onChange: (value: string) => void;
 	footer?: ReactNode;
 }) {
@@ -946,6 +958,7 @@ function AutomationPromptInput({
 					placeholder='Type @ for tools, / for commands...'
 					minHeight='10rem'
 					submitOnEnter={false}
+					storyCreationEnabled={storyCreationEnabled}
 					onChange={handleChange}
 				/>
 				{footer && <div className='flex items-center justify-between gap-2 px-3 pb-2.5'>{footer}</div>}
@@ -1006,9 +1019,11 @@ function AutomationModelSelect({
 function PromptMentionHints({
 	onInsertTrigger,
 	email,
+	storyCreationEnabled,
 }: {
 	onInsertTrigger: (trigger: string) => void;
 	email?: string;
+	storyCreationEnabled: boolean;
 }) {
 	return (
 		<>
@@ -1021,9 +1036,13 @@ function PromptMentionHints({
 				/>
 				<span>for table context,</span>
 				<PromptTriggerButton trigger={SKILL_MENTION_TRIGGER} label='skills' onClick={onInsertTrigger} />
-				<span>for skills, or</span>
-				<PromptTriggerButton trigger={MODE_MENTION_TRIGGER} label='modes' onClick={onInsertTrigger} />
-				<span>for modes.</span>
+				<span>{storyCreationEnabled ? 'for skills, or' : 'for skills.'}</span>
+				{storyCreationEnabled && (
+					<>
+						<PromptTriggerButton trigger={MODE_MENTION_TRIGGER} label='modes' onClick={onInsertTrigger} />
+						<span>for modes.</span>
+					</>
+				)}
 			</p>
 			<p className='text-xs text-muted-foreground'>
 				The LLM knows your email address{email ? ` (${email})` : ''}, so you can say "send an email to me".

@@ -11,9 +11,10 @@ import { trpc } from '@/main';
 
 interface TeamsConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
+export function TeamsConfigSection({ isAdmin, onCancelSetup }: TeamsConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const teamsConfig = useQuery(trpc.project.getTeamsConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -53,6 +54,14 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 	const handleDelete = async () => {
 		await deleteTeamsConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getTeamsConfig.queryOptions());
+	};
+
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
 	};
 
 	const handleStartEditing = () => {
@@ -107,7 +116,7 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 			<TeamsForm
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertTeamsConfig.isPending}
 				teamsRedirectUrl={teamsConfig.data?.redirectUrl}
 			/>

@@ -1,5 +1,5 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, SystemModelMessage } from 'ai';
 
 import { CACHE_1H, CACHE_5M } from '../agents/providers';
 
@@ -9,6 +9,15 @@ const BEDROCK_CACHE_5M = { type: 'default' } as const;
 type AnthropicCache = typeof CACHE_1H | typeof CACHE_5M;
 type BedrockCache = typeof BEDROCK_CACHE_1H | typeof BEDROCK_CACHE_5M;
 type PromptCacheProvider = 'anthropic' | 'bedrock';
+
+export function cachedSystemInstructions(text: string, modelSelection: LlmSelectedModel): string | SystemModelMessage {
+	const cacheProvider = getPromptCacheProvider(modelSelection);
+	if (!cacheProvider) {
+		return text;
+	}
+
+	return withPromptCache({ role: 'system', content: text }, cacheProvider, '1h') as SystemModelMessage;
+}
 
 export function addPromptCache(messages: ModelMessage[], modelSelection: LlmSelectedModel): ModelMessage[] {
 	const cacheProvider = getPromptCacheProvider(modelSelection);

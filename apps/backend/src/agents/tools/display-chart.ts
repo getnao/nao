@@ -64,7 +64,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		// Stacked charts require at least two series
-		if (displayChart.isStackedChartType(chartType) && series.length < 2) {
+		if (displayChart.isStackedChartType(chartType) && chartType !== 'horizontal_bar' && series.length < 2) {
 			return {
 				_version: '1',
 				success: false,

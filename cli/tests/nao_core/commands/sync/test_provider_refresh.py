@@ -58,7 +58,7 @@ def run_sync(config, engine, tmp_path):
             "nao_core.commands.sync.providers.databases.provider.get_template_engine",
             return_value=engine,
         ),
-        patch("nao_core.commands.sync.providers.databases.provider.console"),
+        patch("nao_core.commands.sync.providers.databases.provider.UI._console"),
     ):
         sync_database(config, tmp_path, progress)
 

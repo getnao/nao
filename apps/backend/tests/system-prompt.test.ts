@@ -5,6 +5,10 @@ import { SystemPrompt } from '../src/components/ai/system-prompt';
 import { renderToMarkdown } from '../src/lib/markdown';
 import { formatCurrentDate, resolveTimezone } from '../src/utils/date';
 
+function getTemplateLine(markdown: string, template: string): string {
+	return markdown.split('\n').find((line) => line.includes(`\`${template}.md\` —`)) ?? '';
+}
+
 describe('resolveTimezone', () => {
 	it('returns UTC when no timezone is provided', () => {
 		expect(resolveTimezone()).toBe('UTC');
@@ -114,6 +118,122 @@ describe('SystemPrompt timezone rendering', () => {
 	});
 });
 
+describe('SystemPrompt context structure', () => {
+	it('describes all table templates when templates are omitted or empty', () => {
+		const withoutTemplates = renderToMarkdown(SystemPrompt({ internalSkills: [] }));
+		const withEmptyTemplates = renderToMarkdown(SystemPrompt({ templates: [], internalSkills: [] }));
+
+		for (const contextPath of ['RULES.md', 'semantics/', 'docs/', 'docs/notion/', 'databases/']) {
+			expect(withoutTemplates).toContain(`\`${contextPath}\``);
+		}
+		for (const template of ['columns.md', 'preview.md', 'profiling.md', 'query_history.md', 'ai_summary.md']) {
+			expect(withoutTemplates).toContain(`\n\t- \`${template}\``);
+			expect(withEmptyTemplates).toContain(`\n\t- \`${template}\``);
+		}
+		expect(withoutTemplates).toContain('\n\t- `annotations.md` —');
+		expect(withoutTemplates).toContain('Inside each table folder:');
+		expect(withoutTemplates).toContain('table description, row count, columns with types and descriptions');
+		expect(withoutTemplates).toContain('tiny, non-representative sample');
+		expect(withoutTemplates).toContain('per-column statistics as JSONL');
+		expect(withoutTemplates).toContain('common joins, and top queries as SQL');
+		expect(withoutTemplates).toContain('an LLM-written overview of the table');
+	});
+
+	it('describes only the configured table templates plus annotations', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ templates: ['columns'], internalSkills: [] }));
+
+		expect(markdown).toContain('\n\t- `annotations.md` —');
+		expect(markdown).toContain('\n\t- `columns.md` —');
+		expect(markdown).not.toContain('`preview.md`');
+		expect(markdown).not.toContain('`profiling.md`');
+		expect(markdown).not.toContain('`query_history.md`');
+		expect(markdown).not.toContain('`ai_summary.md`');
+	});
+
+	it('references only visible source files from the ai_summary description', () => {
+		const bothVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary', 'columns', 'profiling'], internalSkills: [] })),
+			'ai_summary',
+		);
+		const columnsVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary', 'columns'], internalSkills: [] })),
+			'ai_summary',
+		);
+		const neitherVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary'], internalSkills: [] })),
+			'ai_summary',
+		);
+
+		expect(bothVisible).toContain('verify specifics against `columns.md` and `profiling.md`.');
+		expect(columnsVisible).toContain('verify specifics against `columns.md`.');
+		expect(columnsVisible).not.toContain('`profiling.md`');
+		expect(neitherVisible).not.toContain('`columns.md`');
+		expect(neitherVisible).not.toContain('`profiling.md`');
+		expect(neitherVisible).toContain('use for orientation, but do not treat it as ground truth.');
+	});
+
+	it('always shows rules and only optional context reported as present', () => {
+		const absent = renderToMarkdown(
+			SystemPrompt({
+				contextPresence: {
+					rules: false,
+					semantics: false,
+					docs: false,
+					notionDocs: false,
+					databases: false,
+				},
+				internalSkills: [],
+			}),
+		);
+		const present = renderToMarkdown(
+			SystemPrompt({
+				contextPresence: {
+					rules: true,
+					semantics: true,
+					docs: true,
+					notionDocs: true,
+					databases: true,
+				},
+				internalSkills: [],
+			}),
+		);
+		const docsWithoutNotion = renderToMarkdown(
+			SystemPrompt({
+				contextPresence: {
+					rules: false,
+					semantics: false,
+					docs: true,
+					notionDocs: false,
+					databases: false,
+				},
+				internalSkills: [],
+			}),
+		);
+
+		expect(absent).toContain('\n- `RULES.md`');
+		for (const contextPath of ['semantics/', 'docs/', 'docs/notion/', 'databases/']) {
+			expect(absent).not.toContain(`\n- \`${contextPath}\``);
+			expect(present).toContain(`\`${contextPath}\``);
+		}
+		expect(present).toContain('`RULES.md`');
+		expect(docsWithoutNotion).toContain('`docs/` —');
+		expect(docsWithoutNotion).not.toContain('`docs/notion/`');
+	});
+
+	it('names configured repositories', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ repoNames: ['dbt', 'api'], internalSkills: [] }));
+
+		expect(markdown).toContain('`repos/dbt/, repos/api/` —');
+	});
+
+	it('omits repositories when none are configured', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ repoNames: [], internalSkills: [] }));
+
+		expect(markdown).not.toContain('`repos/<name>/`');
+		expect(markdown).not.toContain('— source repositories;');
+	});
+});
+
 describe('SystemPrompt saved files rules', () => {
 	it('tells the agent grep also searches inside saved files on a filesystem backend', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ options: { canGrepSavedFiles: true } }));
@@ -161,6 +281,52 @@ describe('SystemPrompt saved files rules', () => {
 			'**save_files**',
 		);
 		expect(renderToMarkdown(SystemPrompt({ toolNames: ['write'] }))).not.toContain('**save_files**');
+	});
+});
+
+describe('SystemPrompt configured database ids', () => {
+	it('renders every configured database when several are configured', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				configuredDatabases: [
+					{
+						id: 'duckdb-jaffle-shop',
+						type: 'duckdb',
+						database: 'jaffle_shop',
+					},
+					{
+						id: 'bigquery-prod',
+						type: 'bigquery',
+						project_id: 'nao-corp',
+						dataset_id: 'nao-corp.movies_silver',
+					},
+				],
+			}),
+		);
+
+		expect(markdown).toContain(
+			[
+				'## Databases',
+				'',
+				"execute_sql's **database_id** must be one of:",
+				'',
+				'- **duckdb-jaffle-shop** — type=duckdb, database=jaffle_shop',
+				'- **bigquery-prod** — type=bigquery, project_id=nao-corp, dataset_id=nao-corp.movies_silver',
+			].join('\n'),
+		);
+	});
+
+	it('renders no configured database block for zero or one database', () => {
+		const withoutDatabases = renderToMarkdown(SystemPrompt({ configuredDatabases: [] }));
+		const withOneDatabase = renderToMarkdown(
+			SystemPrompt({
+				configuredDatabases: [{ id: 'duckdb-jaffle-shop', type: 'duckdb', database: 'jaffle_shop' }],
+			}),
+		);
+
+		expect(withoutDatabases).not.toContain('## Databases');
+		expect(withOneDatabase).not.toContain('## Databases');
+		expect(withOneDatabase).not.toContain('duckdb-jaffle-shop');
 	});
 });
 
@@ -244,6 +410,17 @@ describe('SystemPrompt built-in skills', () => {
 	it('lists the real skills by default, so a new one needs no wiring', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('**pdf-handling**');
+	});
+});
+
+describe('SystemPrompt SQL query rules', () => {
+	it('forbids citing table documentation statistics as answers to data questions', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+
+		expect(markdown).toContain('never present them as the answer to a data question');
+		expect(markdown).toContain(
+			'must come from a query executed in this conversation, or be computed from such results',
+		);
 	});
 });
 

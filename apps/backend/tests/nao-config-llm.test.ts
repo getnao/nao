@@ -189,6 +189,33 @@ describe('readProjectConfigLlm', () => {
 		expect(findConfigLlmProvider(config, 'google')?.apiKey).toBe('gm-key');
 	});
 
+	it('reads named endpoints declared with a sibling name key', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai-compatible',
+			'    name: llmProxy',
+			'    api_key: sk-litellm',
+			'    base_url: http://litellm:4000/v1',
+			'    models:',
+			'    - id: gpt-5.5',
+			'  - provider: openai-compatible',
+			'    name: vllm',
+			'    base_url: http://vllm:8000/v1',
+			'    models:',
+			'    - id: llama-3.3-70b',
+		]);
+
+		const config = readProjectConfigLlm(dir);
+
+		expect(config?.providers.map((p) => p.provider)).toEqual([
+			'openaiCompatible/llmproxy',
+			'openaiCompatible/vllm',
+		]);
+		expect(findConfigLlmProvider(config, 'openaiCompatible/llmproxy')?.enabledModels).toEqual(['gpt-5.5']);
+		expect(findConfigLlmProvider(config, 'openaiCompatible/vllm')?.enabledModels).toEqual(['llama-3.3-70b']);
+	});
+
 	it('reads several named endpoints of the same provider', () => {
 		const dir = writeConfig([
 			'llm:',

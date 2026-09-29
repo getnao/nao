@@ -6,12 +6,21 @@ on:
 
 permissions:
     contents: read
-    packages: write
+    id-token: write
     pull-requests: write
 
+# Previews run on Cloud Run in the dedicated `nao-previews` GCP project, behind a
+# global load balancer that maps `<service>.preview.getnao.io` to the Cloud Run
+# service of the same name. GitHub Actions authenticates via Workload Identity
+# Federation, so no long-lived GCP credentials are stored in the repository.
 env:
-    REGISTRY: ghcr.io
-    IMAGE_NAME: ${{ github.repository }}/preview
+    GCP_PROJECT_ID: nao-previews
+    GCP_REGION: europe-west9
+    GCP_WORKLOAD_IDENTITY_PROVIDER: projects/996255898595/locations/global/workloadIdentityPools/github/providers/github
+    GCP_DEPLOYER_SERVICE_ACCOUNT: github-preview-deployer@nao-previews.iam.gserviceaccount.com
+    GCP_RUNTIME_SERVICE_ACCOUNT: nao-preview-runtime@nao-previews.iam.gserviceaccount.com
+    IMAGE: europe-west9-docker.pkg.dev/nao-previews/previews/nao
+    PREVIEW_DOMAIN: preview.getnao.io
 
 jobs:
     # Security gate: pull_request_target runs with repo secrets, and the deploy
@@ -102,21 +111,31 @@ jobs:
             - name: Set preview name
               id: preview
               run: |
-                  PREVIEW_NAME="pr-${{ github.event.pull_request.number }}-${{ steps.sha.outputs.short_sha }}"
-                  PREVIEW_PORT=$((5100 + ${{ github.event.pull_request.number }}))
-                  echo "name=${PREVIEW_NAME}" >> $GITHUB_OUTPUT
-                  echo "port=${PREVIEW_PORT}" >> $GITHUB_OUTPUT
-                  echo "url=https://${PREVIEW_NAME}.preview.getnao.io" >> $GITHUB_OUTPUT
+                  SERVICE_NAME="pr-${{ github.event.pull_request.number }}"
+                  echo "service=${SERVICE_NAME}" >> $GITHUB_OUTPUT
+                  echo "url=https://${SERVICE_NAME}.${PREVIEW_DOMAIN}" >> $GITHUB_OUTPUT
+                  echo "image=${IMAGE}:${SERVICE_NAME}-${{ steps.sha.outputs.short_sha }}" >> $GITHUB_OUTPUT
+
+            - name: Authenticate to Google Cloud
+              id: gcp-auth
+              uses: google-github-actions/auth@v2
+              with:
+                  workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+                  service_account: ${{ env.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+                  token_format: access_token
+
+            - name: Set up gcloud
+              uses: google-github-actions/setup-gcloud@v2
+
+            - name: Log in to Artifact Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.GCP_REGION }}-docker.pkg.dev
+                  username: oauth2accesstoken
+                  password: ${{ steps.gcp-auth.outputs.access_token }}
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
-
-            - name: Log in to GitHub Container Registry
-              uses: docker/login-action@v3
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build and push preview image
               uses: docker/build-push-action@v6
@@ -124,72 +143,59 @@ jobs:
                   context: .
                   push: true
                   tags: |
-                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
-                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.preview.outputs.name }}
+                      ${{ env.IMAGE }}:${{ steps.preview.outputs.service }}
+                      ${{ steps.preview.outputs.image }}
                   cache-from: |
-                      type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache
-                      type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
-                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache,mode=max
+                      type=registry,ref=${{ env.IMAGE }}:cache
+                      type=registry,ref=${{ env.IMAGE }}:${{ steps.preview.outputs.service }}
+                  cache-to: type=registry,ref=${{ env.IMAGE }}:cache,mode=max,image-manifest=true,oci-mediatypes=true
                   build-args: |
-                      APP_VERSION=pr-${{ github.event.pull_request.number }}
+                      APP_VERSION=${{ steps.preview.outputs.service }}
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
 
-            - name: Deploy to preview server
-              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
-              with:
-                  host: ${{ secrets.VM_HOST }}
-                  username: github-actions-demo
-                  key: ${{ secrets.PRIVATE_KEY }}
-                  envs: PREVIEW_NAME,PREVIEW_PORT,PREVIEW_IMAGE
-                  script: |
-                      export PREVIEW_NAME="${{ steps.preview.outputs.name }}"
-                      export PREVIEW_PORT="${{ steps.preview.outputs.port }}"
-                      export PREVIEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.preview.outputs.name }}"
-                      export PR_NUMBER="${{ github.event.pull_request.number }}"
+            - name: Write preview environment
+              run: |
+                  cat > "$RUNNER_TEMP/preview-env.yaml" <<EOF
+                  BETTER_AUTH_URL: "${{ steps.preview.outputs.url }}"
+                  BETTER_AUTH_SECRET: "$(openssl rand -hex 32)"
+                  SEED_ON_START: "true"
+                  NAO_CONTEXT_SOURCE: "local"
+                  NAO_DEFAULT_PROJECT_PATH: "/app/example"
+                  GITHUB_CLIENT_ID: "${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}"
+                  GITHUB_CLIENT_SECRET: "${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}"
+                  GITHUB_SSO: "true"
+                  GITHUB_ALLOWED_USERS: "${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }},${{ github.event.pull_request.user.login }}"
+                  DEFAULT_USER_ROLE: "admin"
+                  NOTION_API_KEY: "something-random"
+                  OPENAI_API_KEY: "${{ secrets.PREVIEW_OPENAI_API_KEY }}"
+                  POSTHOG_DISABLED: "true"
+                  EOF
 
-                      # Login to ghcr.io
-                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            - name: Deploy to Cloud Run
+              run: |
+                  gcloud run deploy "${{ steps.preview.outputs.service }}" \
+                      --project "$GCP_PROJECT_ID" \
+                      --region "$GCP_REGION" \
+                      --platform managed \
+                      --image "${{ steps.preview.outputs.image }}" \
+                      --service-account "$GCP_RUNTIME_SERVICE_ACCOUNT" \
+                      --port 5005 \
+                      --cpu 2 \
+                      --memory 2Gi \
+                      --cpu-boost \
+                      --no-cpu-throttling \
+                      --execution-environment gen2 \
+                      --min-instances 0 \
+                      --max-instances 1 \
+                      --concurrency 80 \
+                      --timeout 3600 \
+                      --allow-unauthenticated \
+                      --ingress internal-and-cloud-load-balancing \
+                      --labels "app=nao-preview,pr=${{ github.event.pull_request.number }},commit=${{ steps.sha.outputs.short_sha }}" \
+                      --env-vars-file "$RUNNER_TEMP/preview-env.yaml" \
+                      --quiet
 
-                      # Pull the new image
-                      docker pull "$PREVIEW_IMAGE"
-
-                      # Stop existing container if running
-                      docker rm -f "nao-preview-${PR_NUMBER}" 2>/dev/null || true
-
-
-                      # Run the preview container
-                      docker run -d \
-                          --name "nao-preview-${PR_NUMBER}" \
-                          -p "${PREVIEW_PORT}:5005" \
-                          -e "BETTER_AUTH_URL=https://${PREVIEW_NAME}.preview.getnao.io" \
-                          -e "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" \
-                          -e "NAO_CONTEXT_SOURCE=local" \
-                          -e "NAO_DEFAULT_PROJECT_PATH=/app/example" \
-                          -e "GITHUB_CLIENT_ID=${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}" \
-                          -e "GITHUB_CLIENT_SECRET=${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}" \
-                          -e "GITHUB_SSO=true" \
-                          -e "GITHUB_ALLOWED_USERS=${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }},${{ github.event.pull_request.user.login }}" \
-                          -e "DEFAULT_USER_ROLE=admin" \
-                          -e "NOTION_API_KEY=something-random" \
-                          -e "OPENAI_API_KEY=${{ secrets.PREVIEW_OPENAI_API_KEY }}" \
-                          -e "POSTHOG_DISABLED=true" \
-                          "$PREVIEW_IMAGE"
-
-                      # Wait for container to be healthy
-                      echo "Waiting for container to start..."
-                      sleep 10
-
-                      # Run database seedp
-                      echo "Seeding database..."
-                      docker exec "nao-preview-${PR_NUMBER}" bun run apps/backend/scripts/db.seed.ts || true
-
-                      # Create nginx config for this preview
-                      echo "\"~^${PREVIEW_NAME}\" ${PREVIEW_PORT};" > "/home/github-actions-demo/nginx/preview.d/${PREVIEW_NAME}.conf"
-
-                      # Reload nginx
-                      docker exec nginx nginx -s reload
-
-                      echo "Preview deployed at https://${PREVIEW_NAME}.preview.getnao.io"
+                  echo "Preview deployed at ${{ steps.preview.outputs.url }}"
 
             - name: Comment on PR with preview URL
               uses: actions/github-script@v7
@@ -208,7 +214,7 @@ jobs:
                       > ⚠️ No LLM API keys configured - you'll see the API key setup flow when trying to chat.
 
                       ---
-                      <sub>Preview will be automatically removed when this PR is closed.</sub>`;
+                      <sub>Runs on Cloud Run and scales to zero: the first request after idle takes a few seconds. Data is reset on every push. Preview will be automatically removed when this PR is closed.</sub>`;
 
                       // Find existing comment
                       const { data: comments } = await github.rest.issues.listComments({
@@ -245,38 +251,36 @@ jobs:
         if: github.event.action == 'closed' && needs.gate.outputs.approved == 'true'
 
         steps:
-            - name: Set preview name
-              id: preview
-              run: |
-                  # Get the SHA from the PR head (not available directly on close)
-                  PREVIEW_NAME="pr-${{ github.event.pull_request.number }}"
-                  echo "name=${PREVIEW_NAME}" >> $GITHUB_OUTPUT
+            - name: Authenticate to Google Cloud
+              uses: google-github-actions/auth@v2
+              with:
+                  workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+                  service_account: ${{ env.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+            - name: Set up gcloud
+              uses: google-github-actions/setup-gcloud@v2
 
             - name: Remove preview deployment
-              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
-              with:
-                  host: ${{ secrets.VM_HOST }}
-                  username: github-actions-demo
-                  key: ${{ secrets.PRIVATE_KEY }}
-                  script: |
-                      PR_NUMBER="${{ github.event.pull_request.number }}"
+              run: |
+                  SERVICE_NAME="pr-${{ github.event.pull_request.number }}"
+                  echo "Cleaning up preview ${SERVICE_NAME}..."
 
-                      echo "Cleaning up preview for PR #${PR_NUMBER}..."
+                  gcloud run services delete "$SERVICE_NAME" \
+                      --project "$GCP_PROJECT_ID" \
+                      --region "$GCP_REGION" \
+                      --quiet 2>/dev/null || true
 
-                      # Stop and remove container
-                      docker rm -f "nao-preview-${PR_NUMBER}" 2>/dev/null || true
+                  TAGS=$(gcloud artifacts docker tags list "$IMAGE" \
+                      --project "$GCP_PROJECT_ID" \
+                      --format="value(tag.basename())" 2>/dev/null \
+                      | grep -E "^${SERVICE_NAME}(-|$)" || true)
+                  for TAG in $TAGS; do
+                      gcloud artifacts docker images delete "${IMAGE}:${TAG}" \
+                          --project "$GCP_PROJECT_ID" \
+                          --delete-tags --quiet 2>/dev/null || true
+                  done
 
-                      # Remove nginx configs for this PR (handles any commit SHA)
-                      rm -f /home/github-actions-demo/nginx/preview.d/pr-${PR_NUMBER}-*.conf
-
-                      # Reload nginx
-                      docker exec nginx nginx -s reload 2>/dev/null || true
-
-
-                      # Clean up old images for this PR
-                      docker images --format "{{.Repository}}:{{.Tag}}" | grep "preview:pr-${PR_NUMBER}" | xargs -r docker rmi 2>/dev/null || true
-
-                      echo "Preview cleanup complete"
+                  echo "Preview cleanup complete"
 
             - name: Comment on PR
               uses: actions/github-script@v7

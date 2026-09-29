@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 import s, { MessageFeedback, NewMessageFeedback } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -19,6 +19,13 @@ export const upsertFeedback = async (feedback: NewMessageFeedback): Promise<Mess
 		.returning()
 		.execute();
 	return result;
+};
+
+export const deleteFeedbackVote = async (messageId: string, vote: 'up' | 'down'): Promise<void> => {
+	await db
+		.delete(s.messageFeedback)
+		.where(and(eq(s.messageFeedback.messageId, messageId), eq(s.messageFeedback.vote, vote)))
+		.execute();
 };
 
 export const listRecentFeedbacks = async (projectId: string, limit = 10): Promise<FeedbackWithDetails[]> => {

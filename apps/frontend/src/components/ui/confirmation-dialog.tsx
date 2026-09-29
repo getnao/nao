@@ -1,3 +1,5 @@
+import type { ComponentProps } from 'react';
+
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -11,6 +13,7 @@ interface ConfirmationDialogProps {
 	isPending?: boolean;
 	error?: string;
 	preventCloseWhilePending?: boolean;
+	confirmVariant?: ComponentProps<typeof Button>['variant'];
 }
 
 export function ConfirmationDialog({
@@ -23,6 +26,7 @@ export function ConfirmationDialog({
 	isPending = false,
 	error,
 	preventCloseWhilePending = false,
+	confirmVariant = 'destructive',
 }: ConfirmationDialogProps) {
 	const handleOpenChange = (nextOpen: boolean) => {
 		if (!nextOpen && preventCloseWhilePending && isPending) {
@@ -49,7 +53,7 @@ export function ConfirmationDialog({
 						Cancel
 					</Button>
 					<Button
-						variant='destructive'
+						variant={confirmVariant}
 						className='rounded-full'
 						disabled={isPending}
 						isLoading={isPending}

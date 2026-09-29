@@ -67,10 +67,10 @@ export function TabBar<Id extends string>({
 						tabIndex={isActive ? 0 : -1}
 						onClick={() => onTabChange(tab.id)}
 						className={cn(
-							'-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm transition-colors',
+							'-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
 							fitted ? 'w-full justify-center' : 'shrink-0 whitespace-nowrap',
 							isActive
-								? 'border-primary font-medium text-foreground'
+								? 'border-primary text-foreground'
 								: 'border-transparent text-muted-foreground hover:text-foreground',
 						)}
 					>
