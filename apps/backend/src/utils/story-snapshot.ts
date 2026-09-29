@@ -72,6 +72,7 @@ export async function renderStoryPdf(html: string): Promise<Buffer> {
 
 /** A kit deck prints one slide per 16:9 page; any other story is walked through its own tabs or slides first. */
 async function layOutForPrint(page: Page): Promise<PDFOptions> {
+	await delay(RENDER_SETTLE_MS);
 	const isKitDeck = await page.evaluate(
 		(attribute) => document.documentElement.hasAttribute(attribute),
 		STORY_PRINT_SLIDES_ATTRIBUTE,
@@ -81,7 +82,6 @@ async function layOutForPrint(page: Page): Promise<PDFOptions> {
 		await delay(RENDER_SETTLE_MS);
 		return deckPdfOptions();
 	}
-	await delay(RENDER_SETTLE_MS);
 	const layout = await expandStoryViews(page, {
 		settleMs: VIEW_SETTLE_MS,
 		slidePageHeightPx: printableLayoutHeight(true),
