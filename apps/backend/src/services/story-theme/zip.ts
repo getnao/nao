@@ -194,7 +194,7 @@ function kindOf(base: string): EntryKind | null {
 	if (TOKEN_EXTENSIONS.test(base)) {
 		return 'token';
 	}
-	return extensionOf(base) in IMAGE_EXTENSIONS ? 'image' : null;
+	return Object.hasOwn(IMAGE_EXTENSIONS, extensionOf(base)) ? 'image' : null;
 }
 
 function decodeText(bytes: Uint8Array): string {
@@ -205,11 +205,11 @@ function readImage(name: string, bytes: Uint8Array): ZipImage | null {
 	if (bytes.byteLength === 0) {
 		return null;
 	}
-	const mediaType = imageMediaType(name, bytes);
+	const mediaType = imageMediaType(bytes);
 	return mediaType ? { name, mediaType, data: bytes } : null;
 }
 
-function imageMediaType(name: string, bytes: Uint8Array): ZipImage['mediaType'] | null {
+function imageMediaType(bytes: Uint8Array): ZipImage['mediaType'] | null {
 	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
 		return 'image/jpeg';
 	}
@@ -229,7 +229,7 @@ function imageMediaType(name: string, bytes: Uint8Array): ZipImage['mediaType'] 
 	) {
 		return 'image/webp';
 	}
-	return IMAGE_EXTENSIONS[extensionOf(name)] ?? null;
+	return null;
 }
 
 function extensionOf(name: string): string {
