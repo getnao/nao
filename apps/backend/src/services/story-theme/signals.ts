@@ -289,9 +289,15 @@ function mergeColors(a: ColorCandidate[], b: ColorCandidate[]): ColorCandidate[]
 function looksDarkGround(css: string, colors: ColorCandidate[]): boolean {
 	const bodyBlock = /(?:^|[\s,}])(?:html|body)\s*\{([^}]*)\}/i.exec(css)?.[1] ?? '';
 	const declared = /background(?:-color)?\s*:\s*([^;]+)/i.exec(bodyBlock)?.[1];
-	const hex = declared ? normalizeColor(declared.trim().split(/\s+/)[0]) : null;
+	const hex = declared ? declaredBackgroundColor(declared) : null;
 	const target = hex ?? colors.find((c) => c.properties.includes('background-color'))?.hex;
 	return target ? isDarkSurface(target) : false;
+}
+
+/** The colour of a `background` shorthand comes after any image or gradient layers, so the last colour wins. */
+function declaredBackgroundColor(declared: string): string | null {
+	const lastToken = declared.match(COLOR_TOKEN)?.at(-1);
+	return normalizeColor(lastToken ?? declared.trim().split(/\s+/).at(-1) ?? '');
 }
 
 function lengthToPx(value: string): number | null {
