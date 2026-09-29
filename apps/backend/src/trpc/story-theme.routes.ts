@@ -92,11 +92,6 @@ export const storyThemeRoutes = {
 		return { ok: true };
 	}),
 
-	reset: storyThemeAdminProcedure.mutation(async ({ ctx }) => {
-		await storyThemeQueries.resetStoryTheme(ctx.project.id);
-		return { ok: true };
-	}),
-
 	/** Generation never persists: the result lands in the editor for the admin to review and save. */
 	generate: storyThemeAdminProcedure
 		.input(

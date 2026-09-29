@@ -96,10 +96,6 @@ export async function setStoryThemeEnabled(projectId: string, enabled: boolean):
 	await db.update(s.projectStoryTheme).set({ enabled }).where(eq(s.projectStoryTheme.id, latest.id)).execute();
 }
 
-export async function resetStoryTheme(projectId: string): Promise<void> {
-	await db.delete(s.projectStoryTheme).where(eq(s.projectStoryTheme.projectId, projectId)).execute();
-}
-
 async function getLatest(projectId: string): Promise<DBProjectStoryTheme | null> {
 	const [row] = await db
 		.select()
