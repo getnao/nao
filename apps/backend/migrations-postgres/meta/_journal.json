@@ -505,6 +505,13 @@
       "when": 1790775949653,
       "tag": "0071_story_certification",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1790858714078,
+      "tag": "0072_custom_stories",
+      "breakpoints": true
     }
   ]
 }
