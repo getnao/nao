@@ -96,7 +96,7 @@ export function applyKitBlockChange(
 	const edits: SourceEdit[] = [];
 	const insertions: string[] = [];
 
-	for (const name of change.unset) {
+	for (const name of change.unset.filter((unsetName) => !Object.hasOwn(change.set, unsetName))) {
 		const attribute = findEditableAttribute(element, name);
 		if (attribute) {
 			edits.push({ start: startOfLeadingWhitespace(source, attribute.start), end: attribute.end, text: '' });
