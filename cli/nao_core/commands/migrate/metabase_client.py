@@ -65,7 +65,9 @@ class MetabaseClient:
             if not isinstance(total, int) or isinstance(total, bool) or total < 0:
                 raise MetabaseError("Metabase returned collection pagination without a valid total.")
 
-            page_items = [item for item in page["data"] if isinstance(item, dict)]
+            page_items = page["data"]
+            if not all(isinstance(item, dict) for item in page_items):
+                raise MetabaseError("Metabase returned an unexpected collection item.")
             items.extend(page_items)
             offset += len(page["data"])
             if not page["data"] and offset < total:

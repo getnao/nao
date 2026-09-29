@@ -40,7 +40,7 @@ class NaoConfigError(Exception):
 # config (e.g. `nao sync` with the databases provider) can load with
 # drop_invalid_optional_sections=True so an unresolvable block here — typically an
 # unset env('...') secret — is ignored with a warning instead of failing the run.
-OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test", "semantic_layer")
+OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "metabase", "skills", "test", "semantic_layer")
 
 
 class NaoConfig(BaseModel):

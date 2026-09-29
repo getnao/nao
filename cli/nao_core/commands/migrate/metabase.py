@@ -10,6 +10,7 @@ from urllib.parse import ParseResult, urlparse, urlunparse
 
 import yaml
 from cyclopts import App, Parameter
+from pydantic import SecretStr
 
 from nao_core.commands.migrate.metabase_client import MetabaseClient
 from nao_core.commands.migrate.metabase_client import MetabaseError as MetabaseCliError
@@ -81,7 +82,7 @@ def configure() -> None:
 
     try:
         metabase_url = _normalize_metabase_url(metabase_url)
-        _save_metabase_config(MetabaseConfig(url=metabase_url, api_key=api_key))
+        _save_metabase_config(MetabaseConfig(url=metabase_url, api_key=SecretStr(api_key)))
     except (MetabaseCliError, OSError) as error:
         UI.error(str(error))
         raise SystemExit(1)
@@ -266,7 +267,9 @@ def _save_metabase_config(metabase_config: MetabaseConfig) -> None:
     data = yaml.safe_load(config_path.read_text())
     if not isinstance(data, dict):
         raise MetabaseCliError("nao_config.yaml must contain a YAML object.")
-    data["metabase"] = metabase_config.model_dump(mode="json")
+    serialized_config = metabase_config.model_dump(mode="json")
+    serialized_config["api_key"] = metabase_config.api_key.get_secret_value()
+    data["metabase"] = serialized_config
     config_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
 
 
@@ -729,7 +732,7 @@ def _metabase_client(base_url: str, resource: str) -> MetabaseClient:
 
 
 def _configured_metabase_api_key(resource: str) -> str:
-    return _configured_metabase(resource).api_key
+    return _configured_metabase(resource).api_key.get_secret_value()
 
 
 def _configured_metabase(resource: str) -> MetabaseConfig:

@@ -60,6 +60,16 @@ def test_configure_masks_api_key_input_and_saves_credentials_to_nao_config(monke
     }
 
 
+def test_metabase_config_masks_api_key_from_repr_and_dumps():
+    config = metabase_commands.MetabaseConfig.model_validate(
+        {"url": "https://metabase.example.com", "api_key": "secret-key"}
+    )
+
+    assert "secret-key" not in repr(config)
+    assert config.model_dump(mode="json")["api_key"] == "**********"
+    assert config.api_key.get_secret_value() == "secret-key"
+
+
 def test_configure_requires_nao_config_in_current_directory(monkeypatch, tmp_path):
     (tmp_path / "nao_config.yaml").write_text("project_name: test-project\n")
     nested_path = tmp_path / "nested"
@@ -740,7 +750,6 @@ def test_dashboard_batch_applies_parameter_overrides_only_where_consumed(monkeyp
     )
     monkeypatch.setattr(metabase_commands, "_metabase_client", Mock(return_value=client))
     client.fetch_dashboard.side_effect = fetch_dashboard
-    client.compile_question.return_value = _compiled_response("SELECT 1", [])
 
     metabase_commands.dashboard(
         ["7", "8"],
@@ -856,6 +865,21 @@ def test_collection_pagination_requires_total(monkeypatch):
     monkeypatch.setattr(metabase_client.httpx, "Client", Mock(return_value=http_client))
 
     with pytest.raises(metabase_commands.MetabaseCliError, match="pagination"):
+        with metabase_client.MetabaseClient("https://metabase.example.com", "test-key") as client:
+            client.fetch_collection_items(3)
+
+
+def test_collection_pagination_rejects_malformed_items(monkeypatch):
+    response = Mock()
+    response.json.return_value = {
+        "data": [{"model": "dashboard", "id": 7}, "malformed"],
+        "total": 2,
+    }
+    http_client = MagicMock()
+    http_client.request.return_value = response
+    monkeypatch.setattr(metabase_client.httpx, "Client", Mock(return_value=http_client))
+
+    with pytest.raises(metabase_commands.MetabaseCliError, match="unexpected collection item"):
         with metabase_client.MetabaseClient("https://metabase.example.com", "test-key") as client:
             client.fetch_collection_items(3)
 

@@ -101,8 +101,7 @@ For story delivery from a dashboard:
 - Use the dashboard name and description for the title and introduction.
 - Preserve virtual text cards as Markdown, repeated dashcards, and every linked series in source order.
 - Sort tabs by position and cards within each tab by row then column. Group cards sharing a source row into `<grid>` blocks and derive relative `widths` from `layout.width`.
-- Translate every dashboard filter for which nao documents a matching filter type.
-- Preserve each dashboard filter only when nao documents a matching filter type. Apply only the `effective_filter_ids` listed on each card or linked series; leave an empty list unfiltered. Use `parameter_mappings` for original targets and never infer wiring from another card.
+- Translate each dashboard filter only when nao documents a matching filter type; otherwise leave it inactive and report it in `Source limitations`. Apply only the `effective_filter_ids` listed on each card or linked series; leave an empty list unfiltered. Use `parameter_mappings` for original targets and never infer wiring from another card.
 - Story-filter translation is the only exception to executing `question.sql` unchanged. Translate only `question.native_sql`, never SQL compiled from MBQL, and only when every Metabase `{{tag}}` and `[[...]]` construct belongs to an ID listed in `effective_filter_ids` with an explicit `parameter_mappings` target. Replace complete, structurally clear predicates with documented nao filter blocks; never guess a column, operator, or clause boundary. The translated SQL must contain no Metabase template syntax.
 - A Metabase filter `default` is the current selection, never its complete option list. Do not turn a default into hardcoded options.
 

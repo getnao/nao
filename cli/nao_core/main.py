@@ -45,14 +45,16 @@ app.command(upgrade)
 
 
 def main():
+    arguments = sys.argv[1:]
+    is_metabase_json_command = _is_metabase_json_command(arguments)
     if len(sys.argv) == 1 and should_show_banner():
         banner(console, __version__)
-    check_for_updates()
-    if not _is_metabase_json_command(sys.argv[1:]):
+    if not is_metabase_json_command:
+        check_for_updates()
         app()
         return
     try:
-        app(sys.argv[1:], exit_on_error=False, print_error=False)
+        app(arguments, exit_on_error=False, print_error=False)
     except CycloptsError as error:
         print(json.dumps({"success": False, "error": str(error)}, ensure_ascii=False, separators=(",", ":")))
         raise SystemExit(1) from error

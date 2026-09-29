@@ -34,6 +34,12 @@ slack:
   signing_secret: {{ env('TEST_OPTIONAL_SECTIONS_SLACK_SECRET') }}
 """
 
+METABASE_WITH_INVALID_KEY = """
+metabase:
+  url: https://metabase.example.com
+  api_key:
+"""
+
 
 def write_config(path: Path, content: str) -> None:
     (path / "nao_config.yaml").write_text(content)
@@ -47,8 +53,8 @@ def test_strict_load_still_fails_on_unresolved_llm_secret(tmp_path):
             NaoConfig.load(tmp_path)
 
 
-def test_invalid_llm_and_slack_are_dropped_with_flag(tmp_path):
-    write_config(tmp_path, VALID_CORE + LLM_WITH_ENV_KEY + SLACK_WITH_ENV_TOKENS)
+def test_invalid_optional_sections_are_dropped_with_flag(tmp_path):
+    write_config(tmp_path, VALID_CORE + LLM_WITH_ENV_KEY + SLACK_WITH_ENV_TOKENS + METABASE_WITH_INVALID_KEY)
     with patch.dict(os.environ):
         for var in (
             "TEST_OPTIONAL_SECTIONS_ANTHROPIC_KEY",
@@ -61,6 +67,7 @@ def test_invalid_llm_and_slack_are_dropped_with_flag(tmp_path):
 
     assert config.llm is None
     assert config.slack is None
+    assert config.metabase is None
     assert config.project_name == "test-project"
     assert [db.name for db in config.databases] == ["local"]
 
