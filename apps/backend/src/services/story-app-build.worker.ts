@@ -108,7 +108,34 @@ export async function storyBuildWorker(): Promise<void> {
 		return diagnostics;
 	};
 
-	const importDiagnostics = scanImports();
+	/** The runtime renders the entry's default export, so an entry without one would only fail in the viewer. */
+	const scanEntryExport = (): StoryBuildDiagnostic[] => {
+		const extension = extensionOf(request.entry);
+		if (!SCRIPT_EXTENSIONS.includes(extension)) {
+			return [
+				{
+					file: request.entry,
+					message: `The entry "${request.entry}" must be a .jsx, .tsx, .js or .ts file that default-exports the root React component.`,
+				},
+			];
+		}
+		try {
+			const transpiler = new Bun.Transpiler({ loader: extension as 'jsx' | 'tsx' | 'js' | 'ts' });
+			if (transpiler.scan(files[request.entry]).exports.includes('default')) {
+				return [];
+			}
+			return [
+				{
+					file: request.entry,
+					message: `"${request.entry}" must default-export the root React component, e.g. "export default function App() { … }".`,
+				},
+			];
+		} catch {
+			return [];
+		}
+	};
+
+	const importDiagnostics = [...scanImports(), ...scanEntryExport()];
 	if (importDiagnostics.length > 0) {
 		respond({ ok: false, diagnostics: importDiagnostics });
 		return;
