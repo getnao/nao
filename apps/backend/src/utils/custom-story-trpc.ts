@@ -10,7 +10,12 @@ import {
 import { InvalidStoryFilePathError } from './story-file-path';
 import { MAX_STORY_SNAPSHOT_BYTES } from './story-snapshot';
 
-export const storySnapshotHtml = z.string().min(1).max(MAX_STORY_SNAPSHOT_BYTES);
+export const storySnapshotHtml = z
+	.string()
+	.min(1)
+	.refine((html) => Buffer.byteLength(html, 'utf8') <= MAX_STORY_SNAPSHOT_BYTES, {
+		message: `The story snapshot exceeds ${MAX_STORY_SNAPSHOT_BYTES / 1024 / 1024} MB.`,
+	});
 
 export function toCustomStoryTrpcError(error: unknown): unknown {
 	if (
