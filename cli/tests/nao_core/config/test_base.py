@@ -75,6 +75,21 @@ def test_default_example_config_only_contains_duckdb(repo_root):
     assert [database.name for database in config.databases] == ["duckdb-jaffle-shop"]
 
 
+def test_save_preserves_metabase_api_key(tmp_path):
+    config = NaoConfig.model_validate(
+        {
+            "project_name": "test-project",
+            "metabase": {"url": "https://metabase.example.com", "api_key": "secret-key"},
+        }
+    )
+
+    config.save(tmp_path)
+
+    saved_config = NaoConfig.load(tmp_path)
+    assert saved_config.metabase is not None
+    assert saved_config.metabase.api_key.get_secret_value() == "secret-key"
+
+
 def test_threads_must_be_positive():
     with pytest.raises(ValidationError):
         NaoConfig.model_validate({"project_name": "test-project", "threads": 0})

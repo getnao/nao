@@ -187,13 +187,16 @@ class NaoConfig(BaseModel):
     def save(self, path: Path) -> None:
         """Save the configuration to a YAML file."""
         config_file = path / "nao_config.yaml"
+        serialized_config = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if self.metabase is not None:
+            serialized_config["metabase"]["api_key"] = self.metabase.api_key.get_secret_value()
         with config_file.open("w") as f:
             # Documentation Link
             f.write("# Configuration documentation:\n")
             f.write("# https://docs.getnao.io/nao-agent/context-builder/configuration#nao_config-yaml\n\n")
 
             yaml.dump(
-                self.model_dump(mode="json", by_alias=True, exclude_none=True),
+                serialized_config,
                 f,
                 default_flow_style=False,
                 sort_keys=False,
