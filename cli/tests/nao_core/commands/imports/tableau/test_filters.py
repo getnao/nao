@@ -1,6 +1,12 @@
 from typing import cast
 
-from nao_core.commands.imports.tableau.filters import parse_filters
+import pytest
+
+from nao_core.commands.migrate.tableau.filters import (
+    control_identifier,
+    extract_worksheet_mappings,
+    parse_filters,
+)
 
 WORKBOOK = b"""
 <workbook>
@@ -38,13 +44,13 @@ WORKBOOK = b"""
 
 
 def test_parse_filters_builds_effective_worksheet_mappings() -> None:
-    definition = parse_filters(WORKBOOK)
-    controls = cast(list[dict[str, object]], definition["controls"])
-    mappings = cast(list[dict[str, object]], definition["worksheet_mappings"])
+    interactions = parse_filters(WORKBOOK)
+    controls = cast(list[dict[str, object]], interactions["controls"])
+    mappings = cast(list[dict[str, object]], interactions["worksheet_mappings"])
 
     assert controls == [
         {
-            "id": "overview_sales_region",
+            "id": "filter_overview_sales_region",
             "type": "filter",
             "dashboard": "Overview",
             "caption": "Region",
@@ -72,9 +78,14 @@ def test_parse_filters_builds_effective_worksheet_mappings() -> None:
         }
     ]
     assert [mapping["effective_filter_ids"] for mapping in mappings] == [
-        ["overview_sales_region"],
-        ["overview_sales_region"],
+        ["filter_overview_sales_region"],
+        ["filter_overview_sales_region"],
     ]
+
+
+def test_parse_filters_rejects_an_unknown_dashboard() -> None:
+    with pytest.raises(ValueError, match='No dashboard named "Missing"'):
+        parse_filters(WORKBOOK, "Missing")
 
 
 def test_parse_filters_keeps_same_caption_controls_from_different_data_sources() -> None:
@@ -108,6 +119,57 @@ def test_parse_filters_keeps_same_caption_controls_from_different_data_sources()
     controls = cast(list[dict[str, object]], parse_filters(workbook)["controls"])
 
     assert [control["id"] for control in controls] == [
-        "overview_sales_region",
-        "overview_returns_region",
+        "filter_overview_sales_region",
+        "filter_overview_returns_region",
+    ]
+
+
+def test_control_identifier_includes_control_type() -> None:
+    assert (
+        control_identifier("filter", "123 Overview", "[sales].[none:Region:nk]") == "filter_123_overview_sales_region"
+    )
+    assert (
+        control_identifier("parameter", "123 Overview", "[sales].[none:Region:nk]")
+        == "parameter_123_overview_sales_region"
+    )
+
+
+def test_worksheet_mappings_include_all_control_types() -> None:
+    mappings = extract_worksheet_mappings(
+        [
+            {
+                "id": "filter_overview_sales_region",
+                "type": "filter",
+                "dashboard": "Overview",
+                "mappings": [{"worksheet": "Sales", "source_field": "[sales].[none:Region:nk]"}],
+            },
+            {
+                "id": "parameter_overview_sales_date",
+                "type": "parameter",
+                "dashboard": "Overview",
+                "mappings": [{"worksheet": "Sales", "source_field": "[sales].[Parameters].[Date]"}],
+            },
+        ]
+    )
+
+    assert mappings == [
+        {
+            "dashboard": "Overview",
+            "worksheet": "Sales",
+            "effective_filter_ids": ["filter_overview_sales_region"],
+            "control_mappings": [
+                {
+                    "control_id": "filter_overview_sales_region",
+                    "type": "filter",
+                    "worksheet": "Sales",
+                    "source_field": "[sales].[none:Region:nk]",
+                },
+                {
+                    "control_id": "parameter_overview_sales_date",
+                    "type": "parameter",
+                    "worksheet": "Sales",
+                    "source_field": "[sales].[Parameters].[Date]",
+                },
+            ],
+        }
     ]

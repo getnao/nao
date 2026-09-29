@@ -1,6 +1,6 @@
 ---
 name: migrate-tableau-workbook
-description: Import or migrate Tableau workbooks, dashboards, worksheets, reports, and views into nao charts or stories according to user intent. Uses the nao CLI for Tableau export and nao MCP for delivery. Requires a shell with the nao CLI and Tableau environment variables.
+description: Import or migrate Tableau workbooks, dashboards, worksheets, reports, and views into nao charts or stories according to user intent. Uses the nao CLI for Tableau export and nao MCP for delivery. Requires a shell with the nao CLI and a nao_config.yaml project.
 ---
 
 # migrate-tableau-workbook
@@ -20,9 +20,9 @@ Use the nao CLI as the only source for Tableau content, then use nao MCP to crea
 
 Do not search for or call Tableau MCP tools. The nao CLI owns Tableau authentication, workbook discovery, downloading, worksheet CSV export, and worksheet image export.
 
-Do not read, print, or return `.env` contents. If the CLI reports missing Tableau environment variables, stop and tell the user:
+Do not read, print, return, or ask the user to paste Tableau credentials or `nao_config.yaml` contents. If the CLI reports that Tableau is not configured, stop and tell the user:
 
-> Tableau access is not configured. Please make sure `TABLEAU_SERVER`, `TABLEAU_PAT_NAME`, and `TABLEAU_PAT_VALUE` are set in your `.env` file, then retry. Set `TABLEAU_SITE_NAME` for a named site; leave it unset or empty for Tableau Server's Default site. `TABLEAU_API_VERSION` is optional. Do not paste credential values into chat.
+> Tableau access is not configured. In a terminal at the nao project root, run `nao migrate tableau configure` and complete its secure prompts. Then tell me when configuration is complete. Do not paste credential values into chat.
 
 Report the CLI's sanitized error if Tableau rejects authentication.
 
@@ -32,7 +32,7 @@ Use the supplied published workbook name. Use `--project` when the user supplied
 
 - A Tableau migration must use the exact requested Tableau workbook. Never substitute an unrelated local CSV, database, example dataset, workbook, or similarly named file.
 - Local `.twb` and `.twbx` files cannot provide the required rendered worksheet CSV and image assets. If the user supplies a local path, ask them to publish that workbook to Tableau Cloud or Server and provide its workbook name.
-- Pass the requested workbook name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud or Server.
+- Pass the requested workbook name to `nao migrate tableau` so the CLI resolves and downloads it from Tableau Cloud or Server.
 - If the workbook exists only as a local file or the CLI reports that local migration is unsupported, stop and tell the user:
 
 > This workbook cannot be migrated because it is unpublished. Publish it to Tableau Cloud or Tableau Server, then retry with its workbook name.
@@ -52,18 +52,21 @@ The CLI returns workbook composition, worksheet visualization metadata, filter d
 1. Choose a unique temporary JSON path and run:
 
 ```sh
-nao migrate-tableau "<workbook-name>" --output "<temporary-migration-json-path>"
+nao migrate tableau "<workbook-name>" --output "<temporary-migration-json-path>"
 ```
+
+The CLI writes assets to `<temporary-migration-json-stem>-assets` beside the JSON file by default. Pass `--assets-dir "<temporary-assets-path>"` to override that location.
 
 2. If the CLI reports duplicate workbook names, rerun it with the exact Tableau project:
 
 ```sh
-nao migrate-tableau "<workbook-name>" --project "<project-name>" --output "<temporary-migration-json-path>"
+nao migrate tableau "<workbook-name>" --project "<project-name>" --output "<temporary-migration-json-path>"
 ```
 
-3. Read the generated JSON file. Require `_version` to be `"2"` and `success` to be `true`; otherwise stop and report its `error`. Use `workbook.dashboards` for dashboard composition, `workbook.worksheet_visualizations` for Tableau marks, shelves, encodings, colors, and formatting, `definition.controls` for normalized visible controls, `definition.worksheet_mappings` for each worksheet's explicit `effective_filter_ids` and parameter mappings, and `worksheet_assets` for exported CSV and image paths.
-4. Require each migrated worksheet asset to have `success: true`, `data_path`, and `image_path`. Skip a failed worksheet and report its exact `data_error`, `image_error`, or `error`; do not fall back to Tableau MCP or guessed metadata.
-5. Keep the migration JSON and `temporary_directory` until validation is complete, then delete both. They are temporary derived artifacts, not user deliverables.
+3. If the user requested one dashboard, add `--dashboard "<dashboard-name>"`. The CLI then exports assets, controls, and mappings only for that dashboard.
+4. Read the generated JSON file. Require `version` to be `"1"` and `success` to be `true`; otherwise stop and report its `errors`. Use `workbook.dashboards` for dashboard composition, `workbook.worksheet_visualizations` for parsed visualization metadata including Tableau marks, shelves, encodings, colors, and formatting, `interactions.controls` for normalized visible controls, `interactions.worksheet_mappings` for each worksheet's explicit `effective_filter_ids` and control mappings, and `worksheet_assets` for exported CSV and image paths.
+5. Require each migrated worksheet asset to have `success: true`, `data_path`, and `image_path`. Skip a failed worksheet and report its exact `errors`; do not fall back to Tableau MCP or guessed metadata.
+6. Keep the migration JSON and `assets_directory` until validation is complete, then delete both. They are temporary derived artifacts, not user deliverables.
 
 | Tableau                           | nao                                                           |
 | --------------------------------- | ------------------------------------------------------------- |
@@ -81,7 +84,7 @@ nao migrate-tableau "<workbook-name>" --project "<project-name>" --output "<temp
 | Marks card                        | Chart type and series encoding                                |
 | Set, group, or bin                | SQL expression or lookup                                      |
 
-Use only the `dashboards[].worksheets` lists the composition parser returns for dashboard membership. During a whole-workbook migration, treat `skipped_worksheets` as standalone worksheet tabs; when there are no dashboards, this includes every worksheet. Do not put those worksheets inside a dashboard tab. If an unplaced worksheet has no successful `worksheet_assets` entry, skip it and report the exact asset error instead of guessing or substituting another view. For a request scoped to one dashboard, ignore `skipped_worksheets`. The parser extracts explicit categorical filters and parameter definitions, but a control is reproducible only when the available data can implement its Tableau behavior.
+Use only the `dashboards[].worksheets` lists the workbook parser returns for dashboard membership. During a whole-workbook migration, treat `skipped_worksheets` as standalone worksheet tabs; when there are no dashboards, this includes every worksheet. Do not put those worksheets inside a dashboard tab. If an unplaced worksheet has no successful `worksheet_assets` entry, skip it and report the exact asset error instead of guessing or substituting another view. For a request scoped to one dashboard, ignore `skipped_worksheets`. The parser extracts explicit categorical filters and parameter definitions, but a control is reproducible only when the available data can implement its Tableau behavior.
 
 ### 4. Prepare each selected worksheet
 
@@ -89,17 +92,17 @@ Prepare the requested worksheet for chart delivery, or each unique worksheet sel
 
 - Match each worksheet to its exact `worksheet_assets` entry.
 - Before creating any nao file, query, chart, or story, read every selected worksheet's `image_path`. Complete this visual preflight for the whole migration first.
-- Require a successful, readable image for every worksheet that will be migrated. If an image is unavailable, skip that worksheet and report its exact asset error; never infer its presentation from its name, CSV columns, values, dashboard image, or another worksheet.
-- From each worksheet image, record the source presentation: chart or table, exact chart type, orientation, stacking or grouping, axes, measures, dimensions, color series, and visible labels. If nao has no exact equivalent, record the closest supported type and the specific approximation.
-- Match that record against the worksheet's `worksheet_visualizations` entry. Use its mark type, rows, columns, encoding channels, stacking mode, explicit color assignments, and formatting as machine-readable evidence; if the XML metadata and image disagree, treat the image as authoritative and report the discrepancy.
+- Require a successful, readable image for every worksheet that will be migrated. If an image is unavailable, skip that worksheet and report its exact asset error; never infer its rendered presentation from its name, CSV columns, values, dashboard image, or another worksheet.
+- From each worksheet image, record the rendered presentation: chart or table, exact chart type, orientation, stacking or grouping, axes, measures, dimensions, color series, and visible labels. If nao has no exact equivalent, record the closest supported type and the specific approximation.
+- Match that rendered presentation against the worksheet's parsed visualization metadata in `workbook.worksheet_visualizations`. Use its Tableau mark type, rows, columns, encoding channels, stacking mode, explicit color assignments, and formatting as machine-readable evidence; if the metadata and image disagree, treat the image as authoritative and report the discrepancy.
 - Treat an encoding with `channel: "lod"` as Tableau Detail: it identifies individual marks even when it is not drawn on an axis. Preserve every Detail field in the chart-ready query and use it as the point identity or tooltip label when nao supports that encoding. Never replace a Detail value with the numeric X-axis value.
 - Treat a categorical `channel: "color"` field as a per-mark grouping dimension. Preserve its original values and colors. For scatter plots, keep Detail, Color, X, and Y fields in long-form rows; do not pivot the Color values into separate measure columns when that would discard the Detail field or remove Color from each point.
 - `display_chart` does not currently accept chart `tooltip_label_key` or `tooltip_keys` inputs. Keep Tableau Detail, Color, and tooltip fields in the query output, but report that they cannot be exposed in the scatter tooltip. Do not pass unsupported attributes or claim that the interaction matches Tableau.
 - After completing the visual preflight, read each worksheet's exported CSV from `data_path` and require non-empty data. Use it as the Tableau result to match when validating database queries.
 - Require a configured nao database that contains the same source data Tableau used. Query that database directly with its real `database_id` for both chart and story delivery. A CLI temporary file is not available in nao storage merely by assigning it a `/home` path.
 - Alias every chart-ready SQL output column to a machine-safe lowercase snake-case identifier. Use human-readable labels in chart configuration instead of spaces or punctuation in `data_key`; unsafe keys can break series colors.
-- Preserve explicit Tableau palette assignments from `worksheet_visualizations[].colors` whenever nao supports per-series colors. Never replace a readable Tableau color with black merely because a color could not be resolved.
-- Build each query and chart from the recorded Tableau presentation, not from an inference based on the exported data. Preserve a Tableau chart as a chart; use a table only when the verified source worksheet is a text table/crosstab or the user explicitly requested a table.
+- Preserve explicit Tableau palette assignments from `workbook.worksheet_visualizations[].colors` whenever nao supports per-series colors. Never replace a readable Tableau color with black merely because a color could not be resolved.
+- Build each query and chart from the recorded rendered presentation, not from an inference based on the exported data. Preserve a Tableau chart as a chart; use a table only when the verified source worksheet is a text table/crosstab or the user explicitly requested a table.
 
 Before delivery, compare each database query with the corresponding Tableau CSV using the same fixed and default filter state. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
 
@@ -111,13 +114,13 @@ For chart delivery, call `display_chart` with the requested worksheet's chart-re
 
 Automatically preserve every verified fixed worksheet filter in SQL. A chart displayed directly in chat cannot expose story-style interactive controls; report that limitation instead of silently dropping the source filter state. Apply additional ad hoc filters only when the user requests them. After the chart, add a concise `Migration notes` summary covering each requested feature that was skipped, approximated, or could not be verified.
 
-After validating the chart, delete the CLI migration JSON and its `temporary_directory`.
+After validating the chart, delete the CLI migration JSON and its `assets_directory`.
 
 ### 6. Recreate Tableau controls against the shared database
 
 Do this for every dashboard story migration:
 
-1. Treat `definition.controls` as the complete allowlist of visible controls. Use each control's `dashboard`, `id`, `mode`, and `mappings`; never infer additional controls from images, CSV columns, names, or common dashboard patterns.
+1. Treat `interactions.controls` as the complete allowlist of visible controls. Use each control's `dashboard`, `id`, `mode`, and `mappings`; never infer additional controls from images, CSV columns, names, or common dashboard patterns.
 2. Resolve every mapping's `source_field` to an exact column in the configured source database. Verify its table and required joins through nao context. Apply the control only to the mapping's worksheet.
 3. Build and validate each worksheet's source query against the shared database. Compare its unfiltered result with the Tableau CSV before adding filters.
 4. Obtain categorical options with `SELECT DISTINCT` from the mapped database column. Parser values may represent only Tableau's current selection, not the complete domain.
@@ -183,7 +186,7 @@ Apply these story requirements in either path:
 - Follow `layout_rows` from top to bottom. Render a one-item row normally and a multi-item row as a `<grid>`; use zone widths as relative grid widths when available.
 - Preserve dashboard and standalone worksheet names as tab titles, and worksheet names as chart titles. If tab names collide, add the smallest clear dashboard or worksheet suffix needed to distinguish them.
 - Add every supported allowlisted dashboard control during the initial story creation. Add no other story filters.
-- Generate a valid `<chart>` block with `display_chart` for every worksheet whose intended presentation is a chart, then embed that returned block in the story.
+- Generate a valid `<chart>` block with `display_chart` for every worksheet whose intended rendered presentation is a chart, then embed that returned block in the story.
 - When anything was skipped, approximated, or could not be verified, add one final `<tab title="Migration notes">` containing the concise limitation summary described below. Do not add this tab when there are no known limitations.
 - Story updates replace the full content. Carry every existing valid chart block into each replacement unless deliberately regenerating that chart. Never substitute `<table>` for `<chart>` to work around a rendering, query, axis, series, or template problem; fix the problem and regenerate the chart block instead.
 - Carry every valid `<filter>` block into each full-content replacement. Do not drop, rename, or add filters while troubleshooting unrelated story content.
@@ -199,7 +202,7 @@ Create exactly one story through the selected path. Do not create a chat-linked 
 4. Resolve every `template_warnings` result before finishing.
 5. Fix data discrepancies before styling.
 6. Update the existing story instead of creating duplicates.
-7. After the final story update, compare its chart/table blocks with the recorded intended presentations. Do not finish if a source chart became a table or disappeared. Temporary diagnostic tables must not remain in the finished story.
+7. After the final story update, compare its chart/table blocks with each worksheet's recorded rendered presentation. Do not finish if a source chart became a table or disappeared. Temporary diagnostic tables must not remain in the finished story.
 8. Compare the final story's `<filter>` blocks with the supported allowlist for each dashboard. Do not finish with a missing allowlisted filter or any filter that was not returned as a dashboard control.
 9. For a whole-workbook request, account for every parsed worksheet: it must appear in at least one dashboard tab, appear in a standalone tab, or be listed as skipped with a concrete access or export reason.
 
@@ -221,24 +224,7 @@ Finish with a delivery summary. For one worksheet, report the chart created, sou
 
 ## Guardrails
 
-- Run only when the user explicitly requests a Tableau import, analysis, chart, or migration.
-- When the user requests Tableau, use only data and metadata exported from that exact Tableau workbook or a verified warehouse source mapped from it. Never build the migration from an arbitrary local CSV or example database.
-- Respect Tableau permissions; never ask for credentials in chat.
-- Never read or expose Tableau credentials. The nao CLI owns authentication.
-- Do not use Tableau MCP during this workflow.
-- Use the nao CLI output for workbook composition and filter metadata; do not search for backend parser tools or infer the metadata from Tableau view names.
-- Never fabricate dashboard membership.
-- During a whole-workbook migration, import worksheets not used by any dashboard only as standalone tabs.
-- During a dashboard-scoped migration, do not expand the request to other dashboards or unplaced worksheets.
-- During worksheet delivery, create only the requested chart and do not create a story unless the user explicitly asks for one.
-- Do not claim that a hidden, unpublished, or inaccessible worksheet was migrated; report why it was skipped.
-- Never infer a worksheet's chart type from its name, CSV fields, or values. Verify it from that worksheet's Tableau view image before creating any nao artifact.
-- Never aggregate away or discard a Tableau `lod`/Detail field that identifies individual marks.
-- Never use spaces or punctuation in SQL aliases referenced by chart `data_key` values.
-- Never silently replace an explicit Tableau series color with a default or black fallback.
-- Never silently downgrade a Tableau chart to a table.
-- Never invent a story filter or expose a hidden worksheet filter as a dashboard control.
+- Run only for an explicit Tableau request.
+- Treat exported Tableau data as a snapshot, not a live sync.
 - Do not claim pixel-identical reproduction.
-- Treat imported view data as a snapshot, not a live sync.
 - Do not migrate Tableau permissions, subscriptions, alerts, or user groups.
-- Verify LOD expressions and context filters against Tableau numbers.

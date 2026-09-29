@@ -1,37 +1,25 @@
-import os
-import re
-from dataclasses import dataclass
 from xml.etree import ElementTree
 
 import httpx
 
+from nao_core.config import TableauConfig
 
-@dataclass(frozen=True)
-class TableauConfig:
-    server: str
-    site_name: str
-    pat_name: str
-    pat_value: str
-    api_version: str
-
-    @classmethod
-    def from_environment(cls) -> "TableauConfig":
-        return cls(
-            server=required_environment("TABLEAU_SERVER").rstrip("/"),
-            site_name=os.environ.get("TABLEAU_SITE_NAME", "").strip(),
-            pat_name=required_environment("TABLEAU_PAT_NAME"),
-            pat_value=required_environment("TABLEAU_PAT_VALUE"),
-            api_version=os.environ.get("TABLEAU_API_VERSION", "3.21"),
-        )
+from .utils import normalize
 
 
 class TableauClient:
-    def __init__(self, config: TableauConfig, timeout: float = 60.0):
+    def __init__(
+        self,
+        config: TableauConfig,
+        timeout: float = 60.0,
+        transport: httpx.BaseTransport | None = None,
+    ):
         self._config = config
         self._client = httpx.Client(
             base_url=config.server,
             timeout=timeout,
             follow_redirects=True,
+            transport=transport,
         )
         self._token = ""
         self._site_id = ""
@@ -210,13 +198,6 @@ class TableauClient:
         return {"X-Tableau-Auth": self._token}
 
 
-def required_environment(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise ValueError(f"Missing required Tableau environment variable {name}.")
-    return value
-
-
 def raise_for_tableau_status(response: httpx.Response) -> None:
     if response.is_success:
         return
@@ -290,7 +271,3 @@ def integer_attribute(
         return int(value)
     except ValueError:
         return None
-
-
-def normalize(value: str) -> str:
-    return re.sub(r"[\s_-]+", "", value.lower())

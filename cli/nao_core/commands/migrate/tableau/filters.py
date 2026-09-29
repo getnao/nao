@@ -3,24 +3,26 @@ from pathlib import Path
 from typing import cast
 from xml.etree import ElementTree
 
-from nao_core.commands.imports.tableau.workbook import (
+from nao_core.commands.migrate.tableau.workbook import (
     MAX_DEFINITION_BYTES,
     attribute,
     compact,
     field_display_name,
     local_name,
-    normalize,
     parse_workbook,
     read_workbook_xml,
     section_children,
     unique,
 )
 
+from .utils import normalize
+
 TRUE_VALUES = {"1", "true", "yes"}
 
 
 def parse_filters(
     workbook: Path | bytes,
+    dashboard_name: str | None = None,
 ) -> dict[str, object]:
     data = workbook.read_bytes() if isinstance(workbook, Path) else workbook
     xml_bytes = read_workbook_xml(data)
@@ -51,7 +53,7 @@ def parse_filters(
         for filter_definition in extract_categorical_filters(worksheet, warnings)
     ]
     parameters = extract_parameters(root, worksheet_elements)
-    controls = extract_controls(xml_bytes, filters, parameters, warnings)
+    controls = extract_controls(xml_bytes, filters, parameters, warnings, dashboard_name)
     worksheet_mappings = extract_worksheet_mappings(controls)
 
     return {
@@ -181,9 +183,10 @@ def extract_controls(
     filters: list[dict[str, object]],
     parameters: list[dict[str, object]],
     warnings: list[str],
+    dashboard_name: str | None,
 ) -> list[dict[str, object]]:
-    composition = parse_workbook(xml_bytes)
-    dashboards = cast(list[dict[str, object]], composition["dashboards"])
+    parsed_workbook = parse_workbook(xml_bytes, dashboard_name)
+    dashboards = cast(list[dict[str, object]], parsed_workbook["dashboards"])
     definitions: list[dict[str, object]] = []
     seen_ids: set[str] = set()
 
@@ -225,6 +228,7 @@ def extract_controls(
                     )
 
                 identifier = control_identifier(
+                    "parameter",
                     name,
                     str(parameter["field"]),
                 )
@@ -284,7 +288,7 @@ def extract_controls(
                 warnings.append(f"{name} filter control {field} has conflicting include and exclude behavior.")
                 continue
 
-            identifier = control_identifier(name, field)
+            identifier = control_identifier("filter", name, field)
             if identifier in seen_ids:
                 continue
             seen_ids.add(identifier)
@@ -342,14 +346,14 @@ def extract_worksheet_mappings(
                     "dashboard": dashboard,
                     "worksheet": worksheet,
                     "effective_filter_ids": [],
-                    "parameter_mappings": [],
+                    "control_mappings": [],
                 },
             )
             if control_type == "filter":
                 cast(list[str], context["effective_filter_ids"]).append(control_id)
-            cast(list[dict[str, object]], context["parameter_mappings"]).append(
+            cast(list[dict[str, object]], context["control_mappings"]).append(
                 {
-                    "filter_id": control_id,
+                    "control_id": control_id,
                     "type": control_type,
                     **mapping,
                 }
@@ -377,14 +381,13 @@ def field_data_source(field: str) -> str | None:
     return parts[0] if len(parts) > 1 else None
 
 
-def control_identifier(dashboard: str, field: str) -> str:
+def control_identifier(control_type: str, dashboard: str, field: str) -> str:
     data_source = field_data_source(field)
-    identifier = re.sub(
+    return re.sub(
         r"[^a-z0-9]+",
         "_",
-        "_".join(part for part in (dashboard, data_source, field_display_name(field)) if part).lower(),
+        "_".join(part for part in (control_type, dashboard, data_source, field_display_name(field)) if part).lower(),
     ).strip("_")
-    return identifier if identifier and not identifier[0].isdigit() else f"filter_{identifier}"
 
 
 def elements_named(

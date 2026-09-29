@@ -6,18 +6,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, cast
 
+import httpx
 from cyclopts import Parameter
 
+from nao_core.config import NaoConfig, TableauConfig, resolve_project_path
 from nao_core.tracking import track_command
 
-from .client import TableauClient, TableauConfig
+from .client import TableauClient
 from .filters import parse_filters
+from .utils import normalize
 from .workbook import parse_workbook
 
 
-def workbook_output(
+def export_workbook(
     workbook: str | Path,
     project: str | None = None,
+    dashboard: str | None = None,
+    assets_dir: Path | None = None,
 ) -> dict[str, object]:
     try:
         path = Path(workbook)
@@ -30,36 +35,38 @@ def workbook_output(
             )
         if path.suffix.lower() in {".twb", ".twbx"}:
             raise ValueError(f"Workbook {path} does not exist")
-        return tableau_workbook_output(str(workbook), project)
-    except Exception as error:
+        return tableau_export_workbook(str(workbook), project, dashboard, assets_dir)
+    except (ValueError, httpx.HTTPError, OSError) as error:
         return {
-            "_version": "2",
+            "version": "1",
             "success": False,
-            "error": str(error),
+            "errors": [str(error)],
         }
 
 
-def tableau_workbook_output(
+def tableau_export_workbook(
     workbook_name: str,
     project_name: str | None,
+    dashboard_name: str | None = None,
+    assets_dir: Path | None = None,
 ) -> dict[str, object]:
-    temporary_directory = Path(tempfile.mkdtemp(prefix="nao-tableau-migration-"))
+    assets_directory = create_assets_directory(assets_dir)
     try:
-        with TableauClient(TableauConfig.from_environment()) as client:
+        with TableauClient(load_tableau_config()) as client:
             workbook = client.find_workbook(workbook_name, project_name)
             workbook_bytes = client.download_workbook(workbook["id"])
-            composition = parse_workbook(workbook_bytes)
-            definition = parse_filters(workbook_bytes)
+            parsed_workbook = parse_workbook(workbook_bytes, dashboard_name)
+            interactions = parse_filters(workbook_bytes, dashboard_name)
             views = client.list_views(workbook["id"])
             assets = export_worksheet_assets(
                 client,
-                cast(list[str], composition["worksheets"]),
+                selected_worksheet_names(parsed_workbook, dashboard_name),
                 views,
-                temporary_directory,
+                assets_directory,
             )
 
         return {
-            "_version": "2",
+            "version": "1",
             "success": True,
             "source": {
                 "type": "tableau",
@@ -68,14 +75,45 @@ def tableau_workbook_output(
                 "project_id": workbook.get("project_id"),
                 "project_name": workbook.get("project_name"),
             },
-            "temporary_directory": str(temporary_directory),
-            "workbook": composition,
-            "definition": definition,
+            "assets_directory": str(assets_directory),
+            "workbook": parsed_workbook,
+            "interactions": interactions,
             "worksheet_assets": assets,
+            "errors": [],
         }
     except Exception:
-        shutil.rmtree(temporary_directory, ignore_errors=True)
+        shutil.rmtree(assets_directory, ignore_errors=True)
         raise
+
+
+def load_tableau_config() -> TableauConfig:
+    config = NaoConfig.load(resolve_project_path(), drop_invalid_optional_sections=True)
+    if config.tableau is None:
+        raise ValueError("Tableau is not configured. Run `nao migrate tableau configure` from your nao project.")
+    return config.tableau
+
+
+def create_assets_directory(assets_dir: Path | None) -> Path:
+    if assets_dir is None:
+        return Path(tempfile.mkdtemp(prefix="nao-tableau-migration-"))
+
+    directory = assets_dir.expanduser().resolve()
+    directory.mkdir(parents=True, exist_ok=False)
+    return directory
+
+
+def selected_worksheet_names(
+    parsed_workbook: dict[str, object],
+    dashboard_name: str | None,
+) -> list[str]:
+    if dashboard_name is None:
+        return cast(list[str], parsed_workbook["worksheets"])
+
+    return [
+        worksheet
+        for dashboard in cast(list[dict[str, object]], parsed_workbook["dashboards"])
+        for worksheet in cast(list[str], dashboard["worksheets"])
+    ]
 
 
 def export_worksheet_assets(
@@ -100,7 +138,7 @@ def export_worksheet_assets(
                 {
                     "worksheet": worksheet_name,
                     "success": False,
-                    "error": reason,
+                    "errors": [reason],
                 }
             )
             continue
@@ -110,19 +148,18 @@ def export_worksheet_assets(
             "worksheet": worksheet_name,
             "view_id": view["id"],
             "success": True,
+            "errors": [],
         }
         filename = f"{safe_filename(worksheet_name)}-{safe_filename(view['id'])}"
         export_asset(
             asset,
             "data_path",
-            "data_error",
             directory / f"{filename}.csv",
             lambda: client.download_view_data(view["id"]),
         )
         export_asset(
             asset,
             "image_path",
-            "image_error",
             directory / f"{filename}.png",
             lambda: client.download_view_image(view["id"]),
         )
@@ -135,7 +172,6 @@ def export_worksheet_assets(
 def export_asset(
     asset: dict[str, object],
     path_key: str,
-    error_key: str,
     path: Path,
     download: Callable[[], bytes],
 ) -> None:
@@ -145,8 +181,8 @@ def export_asset(
             raise ValueError("Tableau returned an empty response.")
         path.write_bytes(data)
         asset[path_key] = str(path)
-    except Exception as error:
-        asset[error_key] = str(error)
+    except (ValueError, httpx.HTTPError, OSError) as error:
+        cast(list[str], asset["errors"]).append(str(error))
 
 
 def safe_filename(value: str) -> str:
@@ -154,20 +190,25 @@ def safe_filename(value: str) -> str:
     return filename or "worksheet"
 
 
-def normalize(value: str) -> str:
-    return re.sub(r"[\s_-]+", "", value.lower())
-
-
 @track_command("migrate-tableau")
-def migrate_tableau(
+def tableau(
     workbook: str,
     output: Annotated[Path | None, Parameter(name=["-o", "--output"])] = None,
-    project: Annotated[str | None, Parameter(name=["--project"])] = None,
+    dashboard: Annotated[str | None, Parameter(name="--dashboard")] = None,
+    assets_dir: Annotated[Path | None, Parameter(name="--assets-dir")] = None,
+    project: Annotated[str | None, Parameter(name="--project")] = None,
 ) -> None:
-    result = json.dumps(workbook_output(workbook, project), indent=2)
+    assets_dir = assets_dir or default_assets_directory(workbook, output)
+    result = json.dumps(export_workbook(workbook, project, dashboard, assets_dir), indent=2)
     if output is None:
         print(result)
         return
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(f"{result}\n", encoding="utf-8")
+
+
+def default_assets_directory(workbook: str, output: Path | None) -> Path:
+    if output is not None:
+        return output.parent / f"{output.stem}-assets"
+    return Path.cwd() / f"{safe_filename(workbook)}-assets"

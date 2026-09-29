@@ -26,6 +26,7 @@ from .secrets import process_secrets
 from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
 from .slack import SlackConfig
+from .tableau import TableauConfig
 from .test import TestConfig
 
 
@@ -39,7 +40,7 @@ class NaoConfigError(Exception):
 # config (e.g. `nao sync` with the databases provider) can load with
 # drop_invalid_optional_sections=True so an unresolvable block here — typically an
 # unset env('...') secret — is ignored with a warning instead of failing the run.
-OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test", "semantic_layer")
+OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test", "semantic_layer", "tableau")
 
 
 class NaoConfig(BaseModel):
@@ -59,6 +60,7 @@ class NaoConfig(BaseModel):
     semantic_layer: SemanticLayerConfig | None = Field(
         default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
     )
+    tableau: TableauConfig | None = Field(default=None, description="The Tableau connection")
 
     _missing_secrets: dict[str, None] = {}
 
@@ -256,7 +258,7 @@ class NaoConfig(BaseModel):
         UI.warn(
             "nao_config.yaml declares a single inline `llm` provider, which is deprecated. Move it "
             "under `llm.providers` to configure several providers, the models each one exposes and "
-            "their costs. Run `nao migrate` to rewrite it automatically."
+            "their costs."
         )
 
     def get_connection(self, name: str) -> BaseBackend:

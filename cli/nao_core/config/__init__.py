@@ -26,6 +26,7 @@ from .llm import (
     ProviderConfig,
 )
 from .slack import SlackConfig
+from .tableau import TableauConfig
 from .test import ComparisonConfig, TestConfig
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     "ProviderAuthConfig",
     "ProviderConfig",
     "SlackConfig",
+    "TableauConfig",
     "ConfluenceConfig",
     "ComparisonConfig",
     "TestConfig",

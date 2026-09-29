@@ -6,6 +6,8 @@ from typing import cast
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
+from .utils import normalize
+
 MAX_DEFINITION_BYTES = 32 * 1024 * 1024
 NON_WORKSHEET_ZONE_TYPES = {
     "color",
@@ -100,10 +102,6 @@ def build_warnings(
                     f"{dashboard_name} has incomplete worksheet coordinates; its layout_rows are approximate."
                 )
     return warnings
-
-
-def normalize(value: str) -> str:
-    return re.sub(r"[\s_-]+", "", value.lower())
 
 
 def read_workbook_xml(data: bytes) -> bytes:
