@@ -16,6 +16,7 @@ import { StoryHeader } from '@/components/side-panel/story-header';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { isNotFoundError } from '@/lib/trpc-error';
 import { trpc, trpcClient } from '@/main';
 
 interface ReadonlyCustomStoryViewerProps {
@@ -106,7 +107,7 @@ export function ReadonlyCustomStoryViewer({ chatId, storySlug, access }: Readonl
 						content={content}
 						isLoading={contentQuery.isLoading}
 						error={contentQuery.error}
-						hasPublishedVersion
+						hasPublishedVersion={!isNotFoundError(contentQuery.error)}
 					/>
 				}
 				files={
