@@ -20,6 +20,11 @@ const PRIVATE_IPV4_RANGES = [
 
 const PRIVATE_HOSTNAME_SUFFIXES = ['.localhost', '.internal', '.local', '.arpa'];
 
+export interface SafeFetchResult {
+	text: string;
+	url: string;
+}
+
 export interface SafeFetchOptions {
 	allowHttp?: boolean;
 	maxBytes?: number;
@@ -132,10 +137,18 @@ export async function resolveSafeAddress(hostname: string): Promise<string> {
 }
 
 export async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<string> {
+	return (await safeFetchWithUrl(url, options)).text;
+}
+
+export async function safeFetchWithUrl(url: string, options: SafeFetchOptions = {}): Promise<SafeFetchResult> {
 	return fetchFollowingRedirects(url, options, 0);
 }
 
-async function fetchFollowingRedirects(url: string, options: SafeFetchOptions, redirectCount: number): Promise<string> {
+async function fetchFollowingRedirects(
+	url: string,
+	options: SafeFetchOptions,
+	redirectCount: number,
+): Promise<SafeFetchResult> {
 	if (redirectCount > MAX_REDIRECTS) {
 		throw new Error(`Too many redirects (more than ${MAX_REDIRECTS}).`);
 	}
@@ -183,7 +196,7 @@ async function fetchFollowingRedirects(url: string, options: SafeFetchOptions, r
 		throw new Error(`HTTP ${response.status} from "${url}".`);
 	}
 
-	return readBodyText(response, options.maxBytes ?? MAX_BYTES);
+	return { text: await readBodyText(response, options.maxBytes ?? MAX_BYTES), url: parsed.toString() };
 }
 
 async function readBodyText(response: Response, maxBytes: number): Promise<string> {

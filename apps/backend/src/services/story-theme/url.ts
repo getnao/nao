@@ -1,7 +1,7 @@
 import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
 import * as cheerio from 'cheerio';
 
-import { assertSafeHost, safeFetch } from '../../utils/safe-fetch';
+import { assertSafeHost, safeFetch, safeFetchWithUrl } from '../../utils/safe-fetch';
 import { ProbeRefusedError, type ProbeResult, probeWithBrowser } from './probe';
 import { type DesignSignals, DesignSourceError, emptySignals, rankBrandCandidates, signalsFromCss } from './signals';
 
@@ -117,13 +117,18 @@ export function signalsFromProbe(probe: ProbeResult, url: string): DesignSignals
 }
 
 async function staticSignals(url: URL): Promise<DesignSignals> {
-	const $ = cheerio.load(await fetchText(url.toString(), MAX_HTML_BYTES));
+	const page = await safeFetchWithUrl(url.toString(), {
+		allowHttp: true,
+		maxBytes: MAX_HTML_BYTES,
+		headers: FETCH_HEADERS,
+	});
+	const $ = cheerio.load(page.text);
 	const title = $('title').first().text().trim().slice(0, 200) || null;
 	const inline = $('style')
 		.map((_, element) => $(element).text())
 		.get()
 		.join('\n');
-	const sheetUrls = resolveStylesheetUrls($, url).slice(0, MAX_STYLESHEETS);
+	const sheetUrls = resolveStylesheetUrls($, new URL(page.url)).slice(0, MAX_STYLESHEETS);
 
 	const warnings: string[] = [];
 	const sheets: string[] = [];
