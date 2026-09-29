@@ -11,6 +11,7 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
+import { assertShareableUserGroupIds, listShareableUserGroups } from '../services/shareable-user-groups.service';
 import { teardownStoryDelivery } from '../services/story-delivery.service';
 import {
 	assertStoryFiltersEnabled,
@@ -54,6 +55,7 @@ export const sharedStoryRoutes = {
 			sharing: {
 				visibility: story.visibility,
 				sharedWithCount: story.sharedWithCount,
+				sharedWithGroupCount: story.sharedWithGroupCount,
 				isPinned: story.isPinned,
 			},
 		}));
@@ -66,6 +68,7 @@ export const sharedStoryRoutes = {
 				storySlug: z.string(),
 				visibility: z.enum(SHARE_VISIBILITY).default('project'),
 				allowedUserIds: z.array(z.string()).optional(),
+				allowedGroupIds: z.array(z.string()).optional(),
 				pinAfterCreate: z.boolean().optional(),
 				notify: z.boolean().default(false),
 			}),
@@ -90,6 +93,8 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
 			}
 
+			await assertShareableUserGroupIds(ctx.project.id, input.allowedGroupIds ?? []);
+
 			if (input.visibility === 'project') {
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
 					storyOwnerId,
@@ -109,7 +114,7 @@ export const sharedStoryRoutes = {
 					userId: ctx.user.id,
 					visibility: input.visibility,
 				},
-				input.allowedUserIds,
+				{ userIds: input.allowedUserIds, groupIds: input.allowedGroupIds },
 				{ pinned: input.pinAfterCreate === true },
 			);
 
@@ -121,6 +126,10 @@ export const sharedStoryRoutes = {
 				sharedStoryId: created.id,
 			});
 
+			const recipientUserIds =
+				input.visibility === 'specific'
+					? await sharedStoryQueries.getSharedStoryRecipientUserIds(created.id)
+					: undefined;
 			notifySharedItem({
 				projectId: ctx.project.id,
 				sharerId: ctx.user.id,
@@ -129,7 +138,7 @@ export const sharedStoryRoutes = {
 				itemLabel: 'story',
 				itemTitle: story.title,
 				visibility: input.visibility,
-				allowedUserIds: input.allowedUserIds,
+				allowedUserIds: recipientUserIds,
 				deliverExternally: input.notify,
 			}).catch((err) => console.error('Failed to notify shared story recipients', err));
 
@@ -300,37 +309,58 @@ export const sharedStoryRoutes = {
 	getSharedStoryInfo: projectProtectedProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input, ctx }) => {
+			const notShared = { shareId: null, visibility: null, allowedUserIds: [], allowedGroupIds: [] };
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
-				return { shareId: null, visibility: null, allowedUserIds: [] };
+				return notShared;
 			}
 			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
 			if (storyProjectId !== ctx.project.id) {
-				return { shareId: null, visibility: null, allowedUserIds: [] };
+				return notShared;
 			}
-			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.project.id);
-			if (!share) {
-				return { shareId: null, visibility: null, allowedUserIds: [] };
+			const access = await sharedStoryQueries.getStoryShareAccess(story.id, ctx.project.id);
+			if (!access) {
+				return notShared;
 			}
 
-			const allowedUserIds =
-				share.visibility === 'specific' ? await sharedStoryQueries.getSharedStoryAllowedUserIds(share.id) : [];
-
-			return { shareId: share.id, visibility: share.visibility, allowedUserIds };
+			return {
+				shareId: access.shareId,
+				visibility: access.visibility,
+				allowedUserIds: access.allowedUserIds,
+				allowedGroupIds: access.allowedGroupIds,
+			};
 		}),
 
+	listShareableGroups: projectProtectedProcedure.query(async ({ ctx }) => {
+		return listShareableUserGroups(ctx.project.id);
+	}),
+
 	updateAccess: shareProcedure
-		.input(z.object({ shareId: z.string(), allowedUserIds: z.array(z.string()) }))
+		.input(
+			z.object({
+				shareId: z.string(),
+				allowedUserIds: z.array(z.string()),
+				allowedGroupIds: z.array(z.string()).default([]),
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
 			const shared = ctx.resource;
 
 			if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
-			const previousAllowedUserIds = await sharedStoryQueries.getSharedStoryAllowedUserIds(input.shareId);
-			await sharedStoryQueries.updateSharedStoryAllowedUsers(input.shareId, input.allowedUserIds);
+			await assertShareableUserGroupIds(shared.projectId, input.allowedGroupIds);
 
-			const newlyAddedUserIds = input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id));
+			const previousRecipientIds = new Set(
+				await sharedStoryQueries.getSharedStoryRecipientUserIds(input.shareId),
+			);
+			await sharedStoryQueries.updateSharedStoryRecipients(input.shareId, {
+				userIds: input.allowedUserIds,
+				groupIds: input.allowedGroupIds,
+			});
+			const currentRecipientIds = await sharedStoryQueries.getSharedStoryRecipientUserIds(input.shareId);
+
+			const newlyAddedUserIds = currentRecipientIds.filter((id) => !previousRecipientIds.has(id));
 			if (newlyAddedUserIds.length > 0) {
 				await notifySharedItem({
 					projectId: shared.projectId,

@@ -34,7 +34,7 @@ const sharedItemAcl: Record<SharedItemLabel, (shareId: string) => Promise<Commit
 		}
 		const visibility = share.visibility as Visibility;
 		const allowedUserIds =
-			visibility === 'specific' ? await sharedStoryQueries.getSharedStoryAllowedUserIds(shareId) : [];
+			visibility === 'specific' ? await sharedStoryQueries.getSharedStoryRecipientUserIds(shareId) : [];
 		return { visibility, allowedUserIds };
 	},
 	chat: async (shareId) => {

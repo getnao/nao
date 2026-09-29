@@ -491,6 +491,13 @@
       "when": 1790616312708,
       "tag": "0069_message_sender_user_id",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1790691341425,
+      "tag": "0070_shared_story_group_access",
+      "breakpoints": true
     }
   ]
 }

@@ -351,6 +351,7 @@ export type Visibility = (typeof SHARE_VISIBILITY)[number];
 export type StorySharingInfo = {
 	visibility: Visibility;
 	sharedWithCount: number;
+	sharedWithGroupCount: number;
 	isPinned: boolean;
 };
 

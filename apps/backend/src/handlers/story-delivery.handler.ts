@@ -185,7 +185,7 @@ async function resolveStoryLink(
 	}
 	const shared = await sharedStoryQueries.createSharedStory(
 		{ storyId, projectId, userId: ownerId, visibility: 'specific' },
-		recipientUserIds,
+		{ userIds: recipientUserIds },
 	);
 	return sharedStoryPath(shared.id);
 }
@@ -197,11 +197,8 @@ async function grantShareAccessToRecipients(
 	if (access.visibility !== 'specific') {
 		return;
 	}
-	const missing = recipientUserIds.filter((id) => !access.allowedUserIds.includes(id));
-	if (missing.length === 0) {
-		return;
-	}
-	await sharedStoryQueries.updateSharedStoryAllowedUsers(access.shareId, [...access.allowedUserIds, ...missing]);
+	const missing = recipientUserIds.filter((id) => !access.recipientUserIds.includes(id));
+	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
 }
 
 function parseSkipDeliveries(skipDeliveries: ChannelDeliveryAttempt[] | undefined): ChannelDeliveryAttempt[] {

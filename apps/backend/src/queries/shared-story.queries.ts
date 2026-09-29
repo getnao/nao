@@ -15,11 +15,17 @@ export type SharedStoryWithLatest = DBSharedStory & {
 	version: number;
 	isLive: boolean;
 	sharedWithCount: number;
+	sharedWithGroupCount: number;
+};
+
+export type ShareRecipients = {
+	userIds: string[];
+	groupIds: string[];
 };
 
 export async function createSharedStory(
 	data: Pick<DBSharedStory, 'storyId' | 'projectId' | 'userId' | 'visibility'>,
-	allowedUserIds?: string[],
+	recipients?: Partial<ShareRecipients>,
 	options?: { pinned?: boolean },
 ): Promise<DBSharedStory> {
 	const pinned = options?.pinned === true;
@@ -40,7 +46,7 @@ export async function createSharedStory(
 			.returning()
 			.execute();
 		saved = updated;
-		await db.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, existing.id)).execute();
+		await deleteSharedStoryRecipients(existing.id);
 	} else {
 		const [created] = await db
 			.insert(s.sharedStory)
@@ -53,12 +59,8 @@ export async function createSharedStory(
 		saved = created;
 	}
 
-	if (data.visibility === 'specific' && allowedUserIds && allowedUserIds.length > 0) {
-		const accessRows = allowedUserIds.map((userId) => ({
-			sharedStoryId: saved.id,
-			userId,
-		}));
-		await db.insert(s.sharedStoryAccess).values(accessRows).execute();
+	if (data.visibility === 'specific') {
+		await insertSharedStoryRecipients(saved.id, recipients);
 	}
 
 	return saved;
@@ -71,11 +73,26 @@ export async function getSharedStory(id: string): Promise<SharedStoryWithLatest 
 
 export async function canUserAccessSharedStory(sharedStoryId: string, userId: string): Promise<boolean> {
 	const [row] = await db
-		.select({ sharedStoryId: s.sharedStoryAccess.sharedStoryId })
-		.from(s.sharedStoryAccess)
-		.where(and(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId), eq(s.sharedStoryAccess.userId, userId)))
+		.select({ id: s.sharedStory.id })
+		.from(s.sharedStory)
+		.where(and(eq(s.sharedStory.id, sharedStoryId), sharedStoryGrantsUser(userId)))
+		.limit(1)
 		.execute();
 	return !!row;
+}
+
+/** Matches `shared_story` rows granted to the user directly or through one of their user groups. */
+export function sharedStoryGrantsUser(userId: string): SQL {
+	return sql`(exists (
+		select 1 from ${s.sharedStoryAccess}
+		where ${s.sharedStoryAccess.sharedStoryId} = ${s.sharedStory.id}
+		  and ${s.sharedStoryAccess.userId} = ${userId}
+	) or exists (
+		select 1 from ${s.sharedStoryGroupAccess}
+		inner join ${s.userGroupMember} on ${s.userGroupMember.groupId} = ${s.sharedStoryGroupAccess.groupId}
+		where ${s.sharedStoryGroupAccess.sharedStoryId} = ${s.sharedStory.id}
+		  and ${s.userGroupMember.userId} = ${userId}
+	))`;
 }
 
 export async function listUserSharedStories(
@@ -87,17 +104,15 @@ export async function listUserSharedStories(
 		return [];
 	}
 
-	const hasUserAccess = sql`exists (
-		select 1 from ${s.sharedStoryAccess}
-		where ${s.sharedStoryAccess.sharedStoryId} = ${s.sharedStory.id}
-		  and ${s.sharedStoryAccess.userId} = ${userId}
-	)`;
-
 	return querySharedStories(
 		and(
 			eq(s.sharedStory.projectId, projectId),
 			isNull(s.story.archivedAt),
-			or(eq(s.sharedStory.visibility, 'project'), eq(s.sharedStory.userId, userId), hasUserAccess),
+			or(
+				eq(s.sharedStory.visibility, 'project'),
+				eq(s.sharedStory.userId, userId),
+				sharedStoryGrantsUser(userId),
+			),
 		)!,
 	);
 }
@@ -170,6 +185,8 @@ export type StoryShareAccess = {
 	shareId: string;
 	visibility: string;
 	allowedUserIds: string[];
+	allowedGroupIds: string[];
+	recipientUserIds: string[];
 };
 
 export async function getStoryShareAccess(storyId: string, projectId: string): Promise<StoryShareAccess | null> {
@@ -177,8 +194,21 @@ export async function getStoryShareAccess(storyId: string, projectId: string): P
 	if (!info) {
 		return null;
 	}
-	const allowedUserIds = info.visibility === 'specific' ? await getSharedStoryAllowedUserIds(info.id) : [];
-	return { shareId: info.id, visibility: info.visibility, allowedUserIds };
+	if (info.visibility !== 'specific') {
+		return {
+			shareId: info.id,
+			visibility: info.visibility,
+			allowedUserIds: [],
+			allowedGroupIds: [],
+			recipientUserIds: [],
+		};
+	}
+	const [allowedUserIds, allowedGroupIds, recipientUserIds] = await Promise.all([
+		getSharedStoryAllowedUserIds(info.id),
+		getSharedStoryAllowedGroupIds(info.id),
+		getSharedStoryRecipientUserIds(info.id),
+	]);
+	return { shareId: info.id, visibility: info.visibility, allowedUserIds, allowedGroupIds, recipientUserIds };
 }
 
 export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promise<string[]> {
@@ -191,22 +221,84 @@ export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promi
 	return rows.map((r) => r.userId);
 }
 
-export async function updateSharedStoryAllowedUsers(sharedStoryId: string, userIds: string[]): Promise<void> {
-	await db.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId)).execute();
+export async function getSharedStoryAllowedGroupIds(sharedStoryId: string): Promise<string[]> {
+	const rows = await db
+		.select({ groupId: s.sharedStoryGroupAccess.groupId })
+		.from(s.sharedStoryGroupAccess)
+		.where(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId))
+		.execute();
 
-	if (userIds.length > 0) {
-		const rows = userIds.map((userId) => ({ sharedStoryId, userId }));
-		await db.insert(s.sharedStoryAccess).values(rows).execute();
+	return rows.map((r) => r.groupId);
+}
+
+/** Users granted directly plus the current members of every granted user group. */
+export async function getSharedStoryRecipientUserIds(sharedStoryId: string): Promise<string[]> {
+	const [directUserIds, groupMembers] = await Promise.all([
+		getSharedStoryAllowedUserIds(sharedStoryId),
+		db
+			.selectDistinct({ userId: s.userGroupMember.userId })
+			.from(s.sharedStoryGroupAccess)
+			.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.sharedStoryGroupAccess.groupId))
+			.where(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId))
+			.execute(),
+	]);
+
+	return [...new Set([...directUserIds, ...groupMembers.map((member) => member.userId)])];
+}
+
+export async function updateSharedStoryRecipients(sharedStoryId: string, recipients: ShareRecipients): Promise<void> {
+	await deleteSharedStoryRecipients(sharedStoryId);
+	await insertSharedStoryRecipients(sharedStoryId, recipients);
+}
+
+export async function addSharedStoryAllowedUsers(sharedStoryId: string, userIds: string[]): Promise<void> {
+	if (userIds.length === 0) {
+		return;
 	}
+	await db
+		.insert(s.sharedStoryAccess)
+		.values(userIds.map((userId) => ({ sharedStoryId, userId })))
+		.onConflictDoNothing()
+		.execute();
+}
+
+export async function deleteSharedStoryRecipients(sharedStoryId: string): Promise<void> {
+	await db.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId)).execute();
+	await db
+		.delete(s.sharedStoryGroupAccess)
+		.where(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId))
+		.execute();
 }
 
 export async function deleteSharedStory(id: string): Promise<void> {
 	await db.delete(s.sharedStory).where(eq(s.sharedStory.id, id)).execute();
 }
 
+async function insertSharedStoryRecipients(
+	sharedStoryId: string,
+	recipients: Partial<ShareRecipients> | undefined,
+): Promise<void> {
+	const userIds = [...new Set(recipients?.userIds ?? [])];
+	const groupIds = [...new Set(recipients?.groupIds ?? [])];
+
+	if (userIds.length > 0) {
+		await db
+			.insert(s.sharedStoryAccess)
+			.values(userIds.map((userId) => ({ sharedStoryId, userId })))
+			.execute();
+	}
+	if (groupIds.length > 0) {
+		await db
+			.insert(s.sharedStoryGroupAccess)
+			.values(groupIds.map((groupId) => ({ sharedStoryId, groupId })))
+			.execute();
+	}
+}
+
 function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[]> {
 	const latestVersions = latestVersionsSubquery();
 	const accessCounts = accessCountsSubquery();
+	const groupAccessCounts = groupAccessCountsSubquery();
 
 	return db
 		.select({
@@ -226,6 +318,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			version: s.storyVersion.version,
 			isLive: s.story.isLive,
 			sharedWithCount: sql<number>`coalesce(${accessCounts.cnt}, 0)`,
+			sharedWithGroupCount: sql<number>`coalesce(${groupAccessCounts.cnt}, 0)`,
 		})
 		.from(s.sharedStory)
 		.innerJoin(s.story, eq(s.sharedStory.storyId, s.story.id))
@@ -236,6 +329,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
 		)
 		.leftJoin(accessCounts, eq(accessCounts.sharedStoryId, s.sharedStory.id))
+		.leftJoin(groupAccessCounts, eq(groupAccessCounts.sharedStoryId, s.sharedStory.id))
 		.where(whereCondition)
 		.orderBy(desc(s.sharedStory.createdAt))
 		.execute();
@@ -261,4 +355,15 @@ function accessCountsSubquery() {
 		.from(s.sharedStoryAccess)
 		.groupBy(s.sharedStoryAccess.sharedStoryId)
 		.as('access_counts');
+}
+
+function groupAccessCountsSubquery() {
+	return db
+		.select({
+			sharedStoryId: s.sharedStoryGroupAccess.sharedStoryId,
+			cnt: count(s.sharedStoryGroupAccess.groupId).as('group_cnt'),
+		})
+		.from(s.sharedStoryGroupAccess)
+		.groupBy(s.sharedStoryGroupAccess.sharedStoryId)
+		.as('group_access_counts');
 }

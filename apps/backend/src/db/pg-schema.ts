@@ -648,6 +648,22 @@ export const sharedStoryAccess = pgTable(
 	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
 
+export const sharedStoryGroupAccess = pgTable(
+	'shared_story_group_access',
+	{
+		sharedStoryId: text('shared_story_id')
+			.notNull()
+			.references(() => sharedStory.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [
+		primaryKey({ columns: [t.sharedStoryId, t.groupId] }),
+		index('shared_story_group_access_groupId_idx').on(t.groupId),
+	],
+);
+
 export const projectSavedPrompt = pgTable(
 	'project_saved_prompt',
 	{

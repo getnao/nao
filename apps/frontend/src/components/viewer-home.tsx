@@ -51,6 +51,7 @@ export function ViewerHome() {
 			createdAt: new Date(s.createdAt),
 			visibility: s.sharing.visibility,
 			sharedWithCount: s.sharing.sharedWithCount,
+			sharedWithGroupCount: s.sharing.sharedWithGroupCount,
 			isLive: s.isLive,
 			summary: s.summary,
 		}));
