@@ -224,6 +224,8 @@ const baseRawEnvSchema = z.object({
 	SLACK_TRANSPORT_MODE: z.enum(['webhook', 'socket']).optional(),
 
 	FASTAPI_PORT: z.coerce.number().default(8005),
+	/** On SIGTERM, how long /api/health reports unhealthy while still serving, so a load balancer can move traffic away. */
+	SHUTDOWN_DRAIN_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
 	APP_VERSION: z.string().default('dev'),
 	APP_COMMIT: z.string().default('unknown'),
 	APP_BUILD_DATE: z.string().default(''),
