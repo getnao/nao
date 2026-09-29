@@ -107,13 +107,23 @@ export async function listStoryMountFilesToGrep(
 	glob: string | undefined,
 ): Promise<{ virtualPath: string; content: string }[]> {
 	const scope = virtualPath === undefined ? { kind: 'root' as const } : parseStoriesPath(virtualPath);
-	const stories =
-		scope.kind === 'root' ? await loadMountedStories(chatId) : [await loadMountedStory(chatId, scope.slug)];
+	const stories = await loadGrepScope(chatId, scope);
 	return stories.flatMap(({ story, files }) =>
 		files
 			.filter((file) => isInGrepScope(file, scope) && matchesGlob(story.slug, file, glob))
 			.map((file) => ({ virtualPath: toStoriesVirtualPath(story.slug, file.path), content: file.content })),
 	);
+}
+
+/** A scope under `@vN/` searches that published version; any other scope searches the drafts. */
+async function loadGrepScope(chatId: string, scope: StoryMountPath): Promise<MountedStory[]> {
+	if (scope.kind === 'root') {
+		return loadMountedStories(chatId);
+	}
+	if (scope.kind === 'file' && parsePublishedVersionPath(scope.filePath)) {
+		return [await loadPublishedVersion(chatId, scope.slug, scope.filePath)];
+	}
+	return [await loadMountedStory(chatId, scope.slug)];
 }
 
 async function listMountRoot(chatId: string): Promise<list.Entry[]> {
