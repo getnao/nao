@@ -12,8 +12,9 @@ import {
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
 import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
+import { executeWarehouseSql } from '../../services/warehouse-sql.service';
 import { ToolContext } from '../../types/tools';
-import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
+import { containsBlockedPassthroughCall, detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
@@ -34,6 +35,12 @@ export async function executeQuery(
 	const effectiveSql = stripSqlFilterBlocks(sql_query);
 	if (templateWarnings.length > 0 && sqlIncludesFilterTemplate(effectiveSql)) {
 		throw new Error(`Invalid story filter SQL template: ${templateWarnings.join(' ')}`);
+	}
+	if (containsBlockedPassthroughCall(effectiveSql)) {
+		throw new Error(
+			'Query calls a catalog/server-passthrough function (e.g. postgres_query, mysql_query, sqlite_query) — ' +
+				"blocked regardless of write permissions, since these open a connection to another server rather than write to this database's data.",
+		);
 	}
 	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
 	if (!writePermEnabled && !(await isReadOnlySqlQuery(effectiveSql))) {
@@ -65,33 +72,22 @@ export async function executeQuery(
 	}
 
 	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
-	const naoProjectFolder = context.projectFolder;
-	const envVars = context.envVars;
-	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
-		},
-		body: JSON.stringify({
-			sql: effectiveSql,
-			nao_project_folder: naoProjectFolder,
-			enforce_excluded_columns: enforceExcludedColumns,
-			...(database_id && { database_id }),
-			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
-			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),
-		}),
+	const data = await executeWarehouseSql(effectiveSql, {
+		projectFolder: context.projectFolder,
+		databaseId: database_id,
+		envVars: context.envVars,
+		azureAccessToken: context.azureAccessToken,
+		enforceExcludedColumns,
+		tableAccess: context.warehouseTableAccess,
+		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
-
-	if (!response.ok) {
-		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-		throw new Error(`Error executing SQL query: ${JSON.stringify(errorData.detail)}`);
-	}
-
-	const data = await response.json();
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 
-	context.queryResults.set(id, { columns: data.columns, data: data.data });
+	context.queryResults.set(id, {
+		columns: data.columns,
+		data: data.data,
+		...(options.compiledBySemanticLayer && { compiledBySemanticLayer: true }),
+	});
 
 	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
@@ -165,14 +161,10 @@ async function updateExistingQuery(
 ): Promise<executeSql.Output> {
 	const existing = await getExecuteSqlPartByQueryIdInChat(context.chatId, input.query_id);
 	if (!existing) {
-		throw new Error(
-			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
-		);
+		return updateSameTurnQuery(input, context);
 	}
 	if (existing.toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
-		throw new Error(
-			`Query ${input.query_id} is a semantic query and cannot be edited as SQL. Call execute_semantic_query again with the adjusted metrics, group_by or where.`,
-		);
+		throw semanticQueryNotEditableError(input.query_id);
 	}
 
 	const saveTo = input.save_to ?? existing.toolInput.save_to;
@@ -186,6 +178,33 @@ async function updateExistingQuery(
 	const output = await executeQuery({ ...nextInput, query_id: input.query_id }, context);
 	await updateExecuteSqlPart(existing.toolCallId, nextInput, output);
 	return output;
+}
+
+/**
+ * A query created earlier in the current turn is not persisted yet: it only lives in
+ * the in-memory results. Re-running it under the same id is enough, the new part is
+ * saved with the rest of the turn and wins over the older one as the latest.
+ */
+async function updateSameTurnQuery(
+	input: executeSql.Input & { query_id: `query_${string}` },
+	context: ToolContext,
+): Promise<executeSql.Output> {
+	const sameTurnResult = context.queryResults.get(input.query_id);
+	if (!sameTurnResult) {
+		throw new Error(
+			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
+		);
+	}
+	if (sameTurnResult.compiledBySemanticLayer) {
+		throw semanticQueryNotEditableError(input.query_id);
+	}
+	return executeQuery(input, context);
+}
+
+function semanticQueryNotEditableError(queryId: string): Error {
+	return new Error(
+		`Query ${queryId} is a semantic query and cannot be edited as SQL. Call execute_semantic_query again with the adjusted metrics, group_by or where.`,
+	);
 }
 
 /** Semantics-only mode: the warehouse is reached through the layer, raw SQL stays for the local database. */

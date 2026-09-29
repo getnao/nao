@@ -58,6 +58,7 @@ export type SlackSettings = {
 	// ownership to the UI so the seed stops overwriting). Edits to UI-managed
 	// fields (model, reply mode, auto-create users) leave ownership untouched.
 	slackSettingsSource?: 'env';
+	slackDmScopeMissing?: boolean;
 };
 
 export type TeamsSettings = {

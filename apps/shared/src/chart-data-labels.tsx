@@ -1,13 +1,14 @@
 import React from 'react';
 
 import { barYAxisDomainIsPadded, collectAxisValues, collectStackedAxisValues } from './chart-domain';
+import { CHART_FONT_STACK } from './chart-fonts';
 import { formatChartValue, getChartLevelValueFormat, niceAxisMax, toFiniteNumber } from './chart-values';
 import * as displayChart from './tools/display-chart';
 
 const DATA_LABEL_PROPS = {
 	fill: 'var(--foreground, #111827)',
 	fontSize: 11,
-	fontFamily: 'system-ui, sans-serif',
+	fontFamily: CHART_FONT_STACK,
 };
 export const DATA_LABEL_MARGIN_TOP = 24;
 export const DATA_LABEL_X_AXIS_FOOTROOM = 24;

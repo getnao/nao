@@ -41,6 +41,10 @@ export const usageRoutes = {
 		return usageQueries.getMessagesUsage(ctx.project.id, input);
 	}),
 
+	getMessagesUsageByUser: adminProtectedProcedure.input(usageChartFilterSchema).query(async ({ ctx, input }) => {
+		return usageQueries.getMessagesUsageByUser(ctx.project.id, input);
+	}),
+
 	getTotalUsage: adminProtectedProcedure.input(usageFilterSchema).query(async ({ ctx, input }) => {
 		return usageQueries.getTotalUsage(ctx.project.id, input);
 	}),

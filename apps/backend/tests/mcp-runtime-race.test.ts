@@ -53,6 +53,7 @@ vi.mock('../src/queries/project.queries', () => ({
 	retrieveProjectById: async () => ({ path: projectPath }),
 	getDisabledMcpServers: async () => [],
 	getDisabledMcpTools: async () => [],
+	getEnvVars: async () => ({}),
 }));
 
 vi.mock('../src/queries/mcp-oauth.queries', () => ({

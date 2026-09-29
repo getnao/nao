@@ -10,11 +10,14 @@ import {
 	type Granularity,
 	resolveUsageChartGranularity,
 	type TotalUsageRecord,
+	type UsageByUserRecord,
 	type UsageFilter,
+	type UsagePeriodRange,
 	type UsageRecord,
 	type UsageSource,
+	type UserUsageBreakdown,
 } from '../types/usage';
-import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
+import { fillMissingDates, generateDateSeries, getLookbackTimestamp } from '../utils/date';
 import { getProjectDeclaredModels } from '../utils/llm';
 
 const COST_COLS = [
@@ -25,6 +28,8 @@ const COST_COLS = [
 	'input_cache_write',
 	'output',
 ] as const;
+
+type UsageByUserRow = UserUsageBreakdown & { date: string };
 
 type CostLookupTuple = readonly [
 	provider: string,
@@ -62,6 +67,10 @@ const INFERENCE_COST_EXPR = {
 };
 
 export const TOTAL_COST_EXPR = sql<number>`${COST_EXPR.inputNoCache} + ${COST_EXPR.inputCacheRead} + ${COST_EXPR.inputCacheWrite} + ${COST_EXPR.output}`;
+
+const INFERENCE_TOTAL_COST_EXPR = sql<number>`${INFERENCE_COST_EXPR.inputNoCache} + ${INFERENCE_COST_EXPR.inputCacheRead} + ${INFERENCE_COST_EXPR.inputCacheWrite} + ${INFERENCE_COST_EXPR.output}`;
+
+export const MESSAGE_SENDER_EXPR = sql<string>`coalesce(${s.chatMessage.senderUserId}, ${s.chat.userId})`;
 
 export async function createCostLookup(projectId: string) {
 	const table = await buildCostValuesTable(projectId);
@@ -115,30 +124,11 @@ const INFERENCE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`(
 )`;
 
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
-	const { period, provider } = filter;
+	const { period } = filter;
 	const granularity = filter.granularity ?? resolveUsageChartGranularity(period);
 	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
-	const lookbackTs = getLookbackTimestamp(period);
-	const messageLookbackFilter =
-		dbConfig.dialect === Dialect.Postgres
-			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
-			: sql`${s.chatMessage.createdAt} >= ${lookbackTs}`;
-	const inferenceLookbackFilter =
-		dbConfig.dialect === Dialect.Postgres
-			? sql`${s.llmInference.createdAt} >= ${new Date(lookbackTs).toISOString()}`
-			: sql`${s.llmInference.createdAt} >= ${lookbackTs}`;
-
-	const messageWhereConditions = [eq(s.chat.projectId, projectId), messageLookbackFilter];
-	const inferenceWhereConditions = [eq(s.llmInference.projectId, projectId), inferenceLookbackFilter];
-	if (provider) {
-		messageWhereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
-		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, provider));
-	}
-	addUserNameFilter(messageWhereConditions, filter.userNames);
-	addUserNameFilter(inferenceWhereConditions, filter.userNames);
-	addSourceFilter(messageWhereConditions, filter.sources);
-	addInferenceSourceFilter(inferenceWhereConditions, filter.sources);
+	const { messageWhereConditions, inferenceWhereConditions } = buildUsageWhereConditions(projectId, filter);
 
 	const costLookup = await createCostLookup(projectId);
 	const messageUsage = db.$with('message_usage').as(
@@ -197,7 +187,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			})
 			.from(s.chatMessage)
 			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-			.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+			.innerJoin(s.user, eq(MESSAGE_SENDER_EXPR, s.user.id))
 			.leftJoin(costLookup.table, costLookup.joinCondition)
 			.where(and(...messageWhereConditions))
 			.groupBy(messageDateExpr),
@@ -270,6 +260,69 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	return fillMissingDates(rows.map(normalizeMessageUsageRow), period, granularity);
 };
 
+export const getMessagesUsageByUser = async (projectId: string, filter: UsageFilter): Promise<UsageByUserRecord[]> => {
+	const { period } = filter;
+	const granularity = filter.granularity ?? resolveUsageChartGranularity(period);
+	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
+	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
+	const { messageWhereConditions, inferenceWhereConditions } = buildUsageWhereConditions(projectId, filter);
+
+	const costLookup = await createCostLookup(projectId);
+	const messageUsage = db.$with('message_usage_by_user').as(
+		db
+			.select({
+				date: messageDateExpr.as('date'),
+				userName: sql<string>`${s.user.name}`.as('user_name'),
+				messageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`.as(
+						'message_count',
+					),
+				totalTokens: sum(s.chatMessage.totalTokens).as('total_tokens'),
+				totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`.as('total_cost'),
+			})
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+			.innerJoin(s.user, eq(MESSAGE_SENDER_EXPR, s.user.id))
+			.leftJoin(costLookup.table, costLookup.joinCondition)
+			.where(and(...messageWhereConditions))
+			.groupBy(messageDateExpr, s.user.name),
+	);
+	const inferenceUsage = db.$with('inference_usage_by_user').as(
+		db
+			.select({
+				date: inferenceDateExpr.as('date'),
+				userName: sql<string>`${s.user.name}`.as('user_name'),
+				messageCount: sql<number>`0`.as('message_count'),
+				totalTokens: sum(s.llmInference.totalTokens).as('total_tokens'),
+				totalCost: sql<number>`sum(${INFERENCE_TOTAL_COST_EXPR})`.as('total_cost'),
+			})
+			.from(s.llmInference)
+			.innerJoin(s.user, eq(s.llmInference.userId, s.user.id))
+			.leftJoin(
+				costLookup.table,
+				sql`cost_lookup.provider = ${s.llmInference.llmProvider} AND cost_lookup.model_id = ${s.llmInference.llmModelId}`,
+			)
+			.where(and(...inferenceWhereConditions))
+			.groupBy(inferenceDateExpr, s.user.name),
+	);
+	const combinedUsage = db
+		.$with('combined_usage_by_user')
+		.as(db.select().from(messageUsage).unionAll(db.select().from(inferenceUsage)));
+	const rows = await db
+		.with(messageUsage, inferenceUsage, combinedUsage)
+		.select({
+			date: combinedUsage.date,
+			userName: combinedUsage.userName,
+			messageCount: sum(combinedUsage.messageCount),
+			totalTokens: sum(combinedUsage.totalTokens),
+			totalCost: sum(combinedUsage.totalCost),
+		})
+		.from(combinedUsage)
+		.groupBy(({ date, userName }) => [date, userName]);
+
+	return groupUsageByDate(rows.map(normalizeUserUsageRow), period, granularity);
+};
+
 export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
 	const { period, provider } = filter;
 	const lookbackTs = getLookbackTimestamp(period);
@@ -288,11 +341,11 @@ export const getTotalUsage = async (projectId: string, filter: UsageFilter): Pro
 	const rows = await db
 		.select({
 			totalMessages: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`,
-			uniqueUsers: sql<number>`count(distinct ${s.chat.userId})`,
+			uniqueUsers: sql<number>`count(distinct ${MESSAGE_SENDER_EXPR})`,
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+		.innerJoin(s.user, eq(MESSAGE_SENDER_EXPR, s.user.id))
 		.where(and(...whereConditions));
 
 	return {
@@ -375,6 +428,63 @@ function normalizeMessageUsageRow(row: {
 		outputCost,
 		totalCost: inputNoCacheCost + inputCacheReadCost + inputCacheWriteCost + outputCost,
 	};
+}
+
+function normalizeUserUsageRow(row: {
+	date: string;
+	userName: string;
+	messageCount: unknown;
+	totalTokens: unknown;
+	totalCost: unknown;
+}): UsageByUserRow {
+	return {
+		date: row.date,
+		userName: row.userName,
+		messageCount: Number(row.messageCount ?? 0),
+		totalTokens: Number(row.totalTokens ?? 0),
+		totalCost: Number(row.totalCost ?? 0),
+	};
+}
+
+function groupUsageByDate(
+	rows: UsageByUserRow[],
+	period: UsagePeriodRange,
+	granularity: Granularity,
+): UsageByUserRecord[] {
+	const usersByDate = new Map<string, UserUsageBreakdown[]>();
+	for (const { date, ...user } of rows) {
+		const users = usersByDate.get(date) ?? [];
+		users.push(user);
+		usersByDate.set(date, users);
+	}
+
+	return generateDateSeries(period, granularity).map((date) => ({ date, users: usersByDate.get(date) ?? [] }));
+}
+
+function buildUsageWhereConditions(projectId: string, filter: UsageFilter) {
+	const { period, provider } = filter;
+	const lookbackTs = getLookbackTimestamp(period);
+	const messageLookbackFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
+			: sql`${s.chatMessage.createdAt} >= ${lookbackTs}`;
+	const inferenceLookbackFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.llmInference.createdAt} >= ${new Date(lookbackTs).toISOString()}`
+			: sql`${s.llmInference.createdAt} >= ${lookbackTs}`;
+
+	const messageWhereConditions = [eq(s.chat.projectId, projectId), messageLookbackFilter];
+	const inferenceWhereConditions = [eq(s.llmInference.projectId, projectId), inferenceLookbackFilter];
+	if (provider) {
+		messageWhereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
+		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, provider));
+	}
+	addUserNameFilter(messageWhereConditions, filter.userNames);
+	addUserNameFilter(inferenceWhereConditions, filter.userNames);
+	addSourceFilter(messageWhereConditions, filter.sources);
+	addInferenceSourceFilter(inferenceWhereConditions, filter.sources);
+
+	return { messageWhereConditions, inferenceWhereConditions };
 }
 
 function addUserNameFilter(whereConditions: SQL<unknown>[], userNames: string[] | undefined) {

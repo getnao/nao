@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { BudgetSettings } from '@/components/settings/budget-settings';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
+import { ProjectIdentifier } from '@/components/settings/project-identifier';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -26,6 +27,7 @@ function ProjectSettingsPage() {
 					<>
 						<DetailRow label='Name' value={<Skeleton className='h-4 w-40' />} />
 						<DetailRow label='Path' value={<Skeleton className='h-3 w-96 max-w-full' />} />
+						<DetailRow label='Project ID' value={<Skeleton className='h-3 w-72 max-w-full' />} />
 					</>
 				) : project.data ? (
 					<>
@@ -36,6 +38,7 @@ function ProjectSettingsPage() {
 								value={<code className='font-mono text-xs'>{project.data.path}</code>}
 							/>
 						)}
+						<DetailRow label='Project ID' value={<ProjectIdentifier projectId={project.data.id} />} />
 					</>
 				) : null}
 			</SettingsCard>

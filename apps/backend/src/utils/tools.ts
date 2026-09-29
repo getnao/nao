@@ -1,4 +1,4 @@
-import { asSchema, type JSONSchema7, Tool, tool } from 'ai';
+import { asSchema, type JSONSchema7, Tool, tool, type ToolCallOptions } from 'ai';
 import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
@@ -18,16 +18,23 @@ export const STORAGE_MOUNT = 'home';
 /** Shorthand the model is likely to reach for, accepted on input but never emitted. */
 const STORAGE_MOUNT_ALIAS = '~';
 
-/** Creates a tool with a typed execution `context` */
+/**
+ * Creates a tool with a typed execution `context`. An async-generator `execute` streams
+ * preliminary outputs to the client (progress), its last yield being the final output.
+ */
 export const createTool = <TInput, TOutput>(
 	opts: Omit<Tool<TInput, TOutput>, 'execute'> & {
-		execute: (input: TInput, context: ToolContext) => Promise<TOutput>;
+		execute: (
+			input: TInput,
+			context: ToolContext,
+			options: ToolCallOptions,
+		) => Promise<TOutput> | AsyncIterable<TOutput>;
 	},
 ): Tool<TInput, TOutput> => {
 	return tool<TInput, TOutput>({
 		...opts,
-		execute: (input, { experimental_context }) => {
-			return opts.execute(input, experimental_context as ToolContext);
+		execute: (input, options) => {
+			return opts.execute(input, options.experimental_context as ToolContext, options);
 		},
 	} as Tool<TInput, TOutput>);
 };
@@ -374,6 +381,47 @@ const isMissingPathError = (error: unknown): boolean => {
 	const code = (error as NodeJS.ErrnoException).code;
 	return code === 'ENOENT' || code === 'ENOTDIR';
 };
+
+export const resolveCanonicalProjectPath = (
+	virtualPath: string,
+	projectFolder: string,
+): { realPath: string; virtualPath: string } => {
+	const projectRoot = path.resolve(projectFolder);
+	const canonicalProjectRoot = fs.realpathSync.native(projectRoot);
+	const candidatePath = toRealPath(virtualPath, projectFolder);
+	const realPath = resolveExistingAncestor(candidatePath);
+
+	if (!isWithinProjectFolder(realPath, canonicalProjectRoot)) {
+		throw new Error(`Access denied: path '${virtualPath}' resolves outside the project folder`);
+	}
+
+	const relativePath = path.relative(canonicalProjectRoot, realPath).replaceAll(path.sep, '/');
+	return {
+		realPath,
+		virtualPath: relativePath ? `/${relativePath}` : '/',
+	};
+};
+
+function resolveExistingAncestor(candidatePath: string): string {
+	const missingSegments: string[] = [];
+	let existingPath = candidatePath;
+
+	while (true) {
+		try {
+			return path.resolve(fs.realpathSync.native(existingPath), ...missingSegments);
+		} catch (error) {
+			if (!isMissingPathError(error)) {
+				throw error;
+			}
+			const parentPath = path.dirname(existingPath);
+			if (parentPath === existingPath) {
+				throw error;
+			}
+			missingSegments.unshift(path.basename(existingPath));
+			existingPath = parentPath;
+		}
+	}
+}
 
 /**
  * Converts a real filesystem path to a virtual path (where / = project folder).

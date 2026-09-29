@@ -1,9 +1,12 @@
 import { Link } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { PanelLeft } from 'lucide-react';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { Button } from '@/components/ui/button';
 import { useSidebar } from '@/contexts/sidebar';
+import { usePermissions } from '@/hooks/use-permissions';
+import { trpc } from '@/main';
 
 export function MobileHeader({
 	chatId,
@@ -15,6 +18,9 @@ export function MobileHeader({
 	automationId?: string;
 }) {
 	const { isMobile, openMobile } = useSidebar();
+	const { role } = usePermissions();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const showAutomationLink = role !== undefined && role !== 'viewer' && config.data?.betaAutomationsEnabled === true;
 
 	if (!isMobile) {
 		return null;
@@ -35,7 +41,7 @@ export function MobileHeader({
 				</>
 			)}
 			<div className='ml-auto flex shrink-0 items-center gap-1'>
-				{automationId && (
+				{showAutomationLink && automationId && (
 					<Button variant='ghost' size='sm' asChild>
 						<Link to='/automations/$automationId' params={{ automationId }}>
 							Automation

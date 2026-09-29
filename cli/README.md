@@ -42,6 +42,8 @@ pip install 'nao-core[notion]'
 pip install 'nao-core[semantic-layer]'
 ```
 
+Obsidian support is included in the core package and does not require an extra.
+
 Combine multiple extras in a single install:
 
 ```bash
@@ -87,7 +89,7 @@ nao init
 
 This will create a new nao project in the current directory. It will prompt you for a project name and ask you to configure:
 
-- **Database connections** (BigQuery, DuckDB, MotherDuck, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
+- **Database connections** (BigQuery, DuckDB, MotherDuck, DuckLake, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
 - **Git repositories** to sync
 - **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Requesty, Ollama)
 - **`ai_summary` template + model** (prompted only when you enable `ai_summary` for databases)
@@ -149,6 +151,31 @@ databases:
     token: "{{ env('MOTHERDUCK_TOKEN') }}"
 YAML
 nao init --yes
+
+# DuckLake — a postgres or mysql catalog is recommended for concurrent access;
+# file-based catalogs (duckdb/sqlite) allow only a single connection at a time.
+# The session denies local filesystem and network access once the lake is
+# attached, so queries can only read the configured lake, not arbitrary files.
+cat > nao_config.yaml <<'YAML'
+project_name: my-project
+databases:
+  - type: ducklake
+    name: lake
+    catalog:
+      type: postgres
+      host: localhost
+      port: 5432
+      database: ducklake_catalog
+      user: "{{ env('DUCKLAKE_CATALOG_USER') }}"
+      password: "{{ env('DUCKLAKE_CATALOG_PASSWORD') }}"
+    data_path: "s3://my-bucket/lake/"
+    storage:
+      type: s3
+      key_id: "{{ env('AWS_ACCESS_KEY_ID') }}"
+      secret: "{{ env('AWS_SECRET_ACCESS_KEY') }}"
+      region: eu-west-1
+YAML
+nao init --yes
 ```
 
 In non-interactive mode, `nao init` never asks for input. Configure databases, LLM provider, and integrations by editing `nao_config.yaml` directly (or by pre-writing it before `nao init`).
@@ -185,6 +212,7 @@ Syncs configured resources to local files:
 - **Databases** - generates configured markdown docs for each table into `databases/` (`columns.md` and `preview.md` by default; optional `profiling.md`, `query_history.md`, and `ai_summary.md`)
 - **Git repositories** — clones or pulls repos into `repos/`
 - **Notion pages** — exports pages as markdown into `docs/notion/`. Databases are exported as markdown tables, whether configured directly or embedded inline in a page. A database embedded in a page is exported through one of its views — Notion exposes no way to tell which view a page renders, so the first one listed is used — applying that view's filters, sorts and visible columns rather than dumping the whole data source. A database configured by URL exports every row and column, unless the URL carries `?v=<view_id>`, in which case that view applies. When a database cannot be exported, its page fails to sync and the previously synced markdown is left untouched, rather than being rewritten without its table.
+- **Obsidian notes** — copies markdown notes from a local vault into `docs/obsidian/`, skipping hidden folders such as `.obsidian/` and `.trash/`
 
 After syncing, any Jinja templates (`*.j2` files) in the project directory are rendered with the nao context.
 
@@ -209,6 +237,14 @@ databases:
           interval_days: 7
 ```
 
+### Log in
+
+```bash
+nao login
+```
+
+Connects the CLI to your nao account: it opens the app in your browser, asks you to approve the CLI, and stores the resulting session. Commands that talk to the backend (like `nao test`) trigger the same browser flow automatically when you are not logged in yet, and fall back to an email/password prompt when no browser is available. Use `nao logout` to revoke the stored session.
+
 ### Run tests
 
 ```bash
@@ -222,7 +258,7 @@ Options:
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
 - `--select` / `-s`: Run only selected tests by name, yaml stem, or subfolder. Comma-separated.
-- `--username` / `-u`, `--password`: Credentials for the nao backend. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`.
+- `--username` / `-u`, `--password`: Credentials for the nao backend, for non-interactive runs. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`. When omitted, the CLI uses your stored login or opens the browser login flow.
 
 Examples:
 

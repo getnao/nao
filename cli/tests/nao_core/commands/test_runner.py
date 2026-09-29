@@ -185,7 +185,7 @@ def test_client_sends_the_test_case_database_as_database_id(monkeypatch):
     client = AgentClient(backend_url="http://backend")
     session = Mock()
     session.post.return_value = _successful_run_response()
-    monkeypatch.setattr(client, "_get_session", lambda: session)
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
 
     client.run_test(test_case)
 
@@ -198,7 +198,7 @@ def test_client_omits_database_id_when_the_test_case_has_none(monkeypatch):
     client = AgentClient(backend_url="http://backend")
     session = Mock()
     session.post.return_value = _successful_run_response()
-    monkeypatch.setattr(client, "_get_session", lambda: session)
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
 
     client.run_test(test_case)
 

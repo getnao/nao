@@ -35,6 +35,17 @@ export const getUserNames = async (userIds: string[]): Promise<Map<string, strin
 	return new Map(users.map((user) => [user.id, user.name]));
 };
 
+export const getUsersByIds = async (userIds: string[]): Promise<Array<{ id: string; name: string; email: string }>> => {
+	if (userIds.length === 0) {
+		return [];
+	}
+	return db
+		.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+		.from(s.user)
+		.where(inArray(s.user.id, userIds))
+		.execute();
+};
+
 export const updateUser = async (id: string, name: string): Promise<void> => {
 	await db.update(s.user).set({ name }).where(eq(s.user.id, id)).execute();
 };
@@ -54,6 +65,10 @@ export const setUserMemoryEnabled = async (userId: string, memoryEnabled: boolea
 export const countUsers = async (): Promise<number> => {
 	const [result] = await db.select({ count: count() }).from(s.user).execute();
 	return result?.count ?? 0;
+};
+
+export const listAllUsers = async (): Promise<Array<{ id: string; name: string; email: string }>> => {
+	return db.select({ id: s.user.id, name: s.user.name, email: s.user.email }).from(s.user).execute();
 };
 
 export const getFirstUser = async (): Promise<User | null> => {
@@ -122,6 +137,7 @@ export const deleteExpiredInvitations = async (now = new Date()): Promise<number
 				lt(s.user.updatedAt, cutoff),
 				sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
 				sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
+				sql`not exists(select 1 from ${s.chatMessage} where ${s.chatMessage.senderUserId} = ${s.user.id})`,
 			),
 		)
 		.returning({ id: s.user.id })

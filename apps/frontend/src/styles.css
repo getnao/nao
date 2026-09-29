@@ -590,6 +590,12 @@ code.dollar:before {
 	overscroll-behavior: contain;
 }
 
+.nao-input-resizable .prompt-input {
+	min-height: var(--prompt-min-height);
+	max-height: none;
+	resize: vertical;
+}
+
 /* Mention pills: outlined chip, matching the "Share chat" button */
 .prompt-container .mention-pill,
 .message-container .mention-pill {
@@ -913,9 +919,9 @@ code.dollar:before {
 	}
 }
 
-.sql-query-display code {
+.sql-query-display code,
+.assistant-markdown [data-streamdown='code-block-body'] code {
 	background: transparent;
 	border-radius: 0;
-	font-family: inherit;
 	padding: 0;
 }

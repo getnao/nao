@@ -12,6 +12,7 @@ import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
 import { canSendProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 const shareTypeSchema = z.enum(['chat', 'story']);
 const selectionSchema = z.object({ start: z.number(), end: z.number(), text: z.string() });
@@ -84,6 +85,9 @@ export const chatForkRoutes = {
 	getSelectionForks: protectedProcedure
 		.input(z.object({ shareId: z.string(), type: shareTypeSchema }))
 		.query(async ({ input, ctx }) => {
+			if (input.type === 'story') {
+				await resolveSharedStory(input.shareId, ctx.user.id);
+			}
 			const forkType = input.type === 'chat' ? 'chat_selection' : 'story_selection';
 			return chatQueries.getSelectionForksByShareId(ctx.user.id, input.shareId, forkType);
 		}),
@@ -131,6 +135,9 @@ async function forkSharedStoryItem(
 ): Promise<{ chatId: string }> {
 	const share = await resolveSharedStory(shareId, userId);
 	const projectId = share.projectId;
+	if (userId !== share.userId) {
+		await assertUserGroupFeatureForTrpc(projectId, userId, 'storyCreation');
+	}
 
 	const forkMetadata: ForkMetadata = selection
 		? buildSelectionMetadata('story_selection', shareId, share.title, share.authorName, selection)

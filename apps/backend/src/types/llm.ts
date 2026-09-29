@@ -204,7 +204,7 @@ export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'reques
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
 	openai: OpenAIResponsesProviderOptions;
-	anthropic: AnthropicProviderOptions;
+	anthropic: Omit<AnthropicProviderOptions, 'fallbacks'>;
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;
 	ollama: Flatten<OllamaChatProviderOptions>;
@@ -290,5 +290,6 @@ export const LLM_INFERENCE_TYPES = [
 	'compaction',
 	'title_generation',
 	'live_story_refresh',
+	'subagent',
 ] as const;
 export type LlmInferenceType = (typeof LLM_INFERENCE_TYPES)[number];

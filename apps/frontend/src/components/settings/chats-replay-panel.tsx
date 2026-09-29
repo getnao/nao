@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Info } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { formatDate } from 'date-fns';
-import type { ReactNode } from 'react';
 import type { StickToBottomContext } from 'use-stick-to-bottom';
 
+import type { ReplayCrumb } from '@/components/settings/replay-breadcrumb';
 import type { ReplayHighlight } from '@/components/settings/usage-route-search';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
-import { SettingsCard } from '@/components/ui/settings-card';
+import { Spinner } from '@/components/ui/spinner';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
-import { Button } from '@/components/ui/button';
 import { InlineStatusBar } from '@/components/settings/chats-replay-inline-status-bar';
+import { CopyReplayLinkButton, ReplayHeader, ReplayIconButton } from '@/components/settings/replay-header';
 import { ReplayContextWindowRing } from '@/components/ui/chat-input-context-window-ring';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { ChatViewProvider } from '@/contexts/chat-view';
@@ -24,13 +24,12 @@ import { useSession } from '@/lib/auth-client';
 
 type ChatsReplayPanelProps = {
 	chatId: string;
-	onBack: () => void;
-	metadataAction?: ReactNode;
+	origin: ReplayCrumb;
 	highlightOnLoad?: ReplayHighlight;
 	targetId?: string;
 };
 
-export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLoad, targetId }: ChatsReplayPanelProps) {
+export function ChatsReplayPanel({ chatId, origin, highlightOnLoad, targetId }: ChatsReplayPanelProps) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const chatReplayQuery = useQuery(
 		trpc.project.getChatReplay.queryOptions(
@@ -115,38 +114,12 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
 	return (
-		<div className='w-full h-full min-h-0 flex flex-col p-4 bg-background'>
-			<div className='flex items-center justify-between'>
-				<div className='flex items-center gap-3 md:p-4 min-w-0'>
-					<Button size='sm' variant='ghost' onClick={onBack}>
-						<ArrowLeft className='size-4' />
-						Back
-					</Button>
-					<div className='flex min-w-0 flex-col'>
-						<div className='flex items-center gap-3'>
-							<h2 className='truncate text-foreground font-semibold text-xl leading-none'>{title}</h2>
-							{chatReplayQuery.data && <ReplayContextWindowRing chatId={chatId} />}
-						</div>
-						<div className='flex items-center gap-2'>
-							{chatReplayQuery.data && (
-								<button
-									className='hover:rounded-full hover:text-foreground size-[12px] text-muted-foreground'
-									onClick={() => setIsAnalyticsOpen(true)}
-									aria-label='Analytics'
-								>
-									<Info className='size-3' />
-								</button>
-							)}
-							<span className='text-muted-foreground text-xs font-semibold'>
-								{updatedAt != null ? formatDate(new Date(updatedAt), 'yyyy-MM-dd') : '—'}
-							</span>
-							{metadataAction}
-						</div>
-					</div>
-				</div>
-				<div className='flex items-center gap-2'>
-					{chatReplayQuery.data && (
+		<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden bg-background'>
+			<ReplayHeader crumbs={[origin, { label: title }]}>
+				{chatReplayQuery.data && (
+					<>
 						<InlineStatusBar
+							className='mr-2'
 							feedbackCurrent={feedbackCurrent}
 							feedbackTotal={feedbackTotal}
 							feedbackVote={currentFeedbackVote}
@@ -157,16 +130,25 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 							onPrevError={goToPrevToolError}
 							onNextError={goToNextToolError}
 						/>
-					)}
-				</div>
-			</div>
+						{updatedAt != null && (
+							<span className='px-2 text-xs text-muted-foreground'>
+								{formatDate(new Date(updatedAt), 'yyyy-MM-dd')}
+							</span>
+						)}
+						<ReplayContextWindowRing chatId={chatId} />
+						<ReplayIconButton label='Analytics' onClick={() => setIsAnalyticsOpen(true)}>
+							<Info className='size-3.5' />
+						</ReplayIconButton>
+						<CopyReplayLinkButton />
+					</>
+				)}
+			</ReplayHeader>
 
-			<SettingsCard
-				rootClassName='flex-1 min-h-0'
-				className='flex-1 min-h-0 overflow-hidden bg-background border p-0'
-			>
+			<div className='flex flex-col flex-1 min-h-0 overflow-hidden'>
 				{chatReplayQuery.isLoading ? (
-					<div className='flex-1 overflow-auto p-4 text-sm text-muted-foreground'>Loading chat…</div>
+					<div className='flex flex-1 items-center justify-center'>
+						<Spinner />
+					</div>
 				) : chatReplayQuery.isError ? (
 					<div className='flex-1 overflow-auto p-4 text-sm text-destructive'>Failed to load chat.</div>
 				) : chatReplayQuery.data ? (
@@ -214,7 +196,7 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 						Select a chat to preview.
 					</div>
 				)}
-			</SettingsCard>
+			</div>
 
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}

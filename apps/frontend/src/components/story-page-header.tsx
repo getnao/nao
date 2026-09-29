@@ -1,12 +1,11 @@
 import {
 	Activity,
-	CircleAlert,
 	ChevronLeft,
 	ChevronRight,
+	CircleAlert,
 	Code,
 	Ellipsis,
 	Eye,
-	Globe,
 	Info,
 	Loader2,
 	MessageSquare,
@@ -14,15 +13,12 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Save,
-	Star,
-	Upload,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import { EditableStoryTitle } from '@/components/editable-story-title';
-import { useTimeAgo } from '@/hooks/use-time-ago';
-import { StoryDownload } from '@/components/story-download';
+import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
+import { ShareButton, StoryFavoriteMenuItem, StoryFavoritedButton } from '@/components/story-header-actions';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -33,20 +29,22 @@ import {
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
-import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 interface LiveControls {
 	isLive: boolean;
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
 	isRefreshing?: boolean;
+	canRefresh?: boolean;
 	isUpdating?: boolean;
 	onRefresh?: () => void;
-	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
+	/** When provided, clicking the badge opens settings. Otherwise the badge is read-only. */
 	onOpenSettings?: () => void;
+	/** Overrides the tooltip shown on the clickable badge (e.g. for viewers managing notifications). */
+	isDialogNotifManager?: boolean;
 }
 
 export interface StoryRefreshFailure {
@@ -121,6 +119,8 @@ export function StoryPageHeader({
 		'toggle-story-chat': onOpenChat && !isOpeningChat ? onOpenChat : undefined,
 	});
 
+	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics;
+
 	return (
 		<div className='shrink-0'>
 			<header className='flex items-center gap-2 border-b bg-background px-4 py-2.5 md:px-6'>
@@ -170,44 +170,34 @@ export function StoryPageHeader({
 
 					{live && <LiveStoryControls live={live} />}
 
-					<div>
-						{download && <StoryDownload iconOnly {...download} />}
+					{storyId && <StoryFavoritedButton storyId={storyId} />}
 
-						{storyId && <FavoriteButton storyId={storyId} />}
+					{onShare && <ShareButton isShared={isShared} onShare={onShare} />}
 
-						{(onShare || onOpenAnalytics) && (
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button
-										variant='ghost'
-										size='icon-sm'
-										className='hover:rounded-full'
-										aria-label='More actions'
-									>
-										<Ellipsis className='size-3.5' strokeWidth={2.25} />
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align='end' className='w-auto min-w-20'>
-									{onShare && (
-										<DropdownMenuItem onSelect={onShare}>
-											{isShared ? (
-												<Globe className='text-primary' strokeWidth={2.25} />
-											) : (
-												<Upload strokeWidth={2.25} />
-											)}
-											<span>Share</span>
-										</DropdownMenuItem>
-									)}
-									{onOpenAnalytics && (
-										<DropdownMenuItem onSelect={onOpenAnalytics}>
-											<Info className='size-3' />
-											<span>Analytics</span>
-										</DropdownMenuItem>
-									)}
-								</DropdownMenuContent>
-							</DropdownMenu>
-						)}
-					</div>
+					{showActionsMenu && (
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant='ghost'
+									size='icon-sm'
+									className='hover:rounded-full'
+									aria-label='More actions'
+								>
+									<Ellipsis className='size-3.5' strokeWidth={2.25} />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align='end' className='w-auto min-w-20'>
+								{download && <StoryDownloadMenu {...download} />}
+								{storyId && <StoryFavoriteMenuItem storyId={storyId} />}
+								{onOpenAnalytics && (
+									<DropdownMenuItem onSelect={onOpenAnalytics}>
+										<Info strokeWidth={2.25} />
+										<span>Analytics</span>
+									</DropdownMenuItem>
+								)}
+							</DropdownMenuContent>
+						</DropdownMenu>
+					)}
 				</div>
 			</header>
 
@@ -355,7 +345,16 @@ function StorySubHeader({
 }
 
 function LiveStoryControls({ live }: { live: LiveControls }) {
-	const { isLive, cachedAt, isRefreshing = false, isUpdating = false, onRefresh, onOpenSettings } = live;
+	const {
+		isLive,
+		cachedAt,
+		isRefreshing = false,
+		canRefresh = Boolean(live.onRefresh),
+		isUpdating = false,
+		onRefresh,
+		onOpenSettings,
+		isDialogNotifManager,
+	} = live;
 
 	if (!onOpenSettings) {
 		if (!isLive) {
@@ -374,7 +373,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					<TooltipContent>Live story</TooltipContent>
 				</Tooltip>
 				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+				{canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			</>
 		);
 	}
@@ -406,11 +405,17 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					</span>
 				</TooltipTrigger>
 				<TooltipContent>
-					{isUpdating ? 'Updating...' : isLive ? 'Live story settings' : 'Enable live mode'}
+					{isDialogNotifManager
+						? 'Manage notifications'
+						: isLive
+							? isUpdating
+								? 'Updating...'
+								: 'Live story settings'
+							: 'Enable live mode'}
 				</TooltipContent>
 			</Tooltip>
 			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+			{isLive && canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 		</>
 	);
 }
@@ -435,33 +440,6 @@ function RefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onR
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>Refresh data</TooltipContent>
-		</Tooltip>
-	);
-}
-
-function FavoriteButton({ storyId }: { storyId: string }) {
-	const { toggle: toggleFavorite, isPending } = useToggleFavorite('story');
-	const { data: favorites } = useQuery(trpc.favorite.list.queryOptions());
-	const isFavorited = favorites?.storyIds.includes(storyId) ?? false;
-
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={() => toggleFavorite(storyId)}
-					disabled={isPending}
-					aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-				>
-					<Star
-						className={cn('size-3.5', isFavorited && 'fill-foreground text-foreground')}
-						strokeWidth={2.25}
-					/>
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
 		</Tooltip>
 	);
 }

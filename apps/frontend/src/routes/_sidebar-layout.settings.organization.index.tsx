@@ -9,6 +9,7 @@ import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { GoogleConfigSection } from '@/components/settings/google-credentials-section';
 import { EditableOrganizationName } from '@/components/settings/editable-organization-name';
+import { OrganizationHeading } from '@/components/settings/organization-heading';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
 import { SsoSettingsSection } from '@/components/settings/sso-settings-section';
@@ -27,6 +28,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/')(
 
 function OrganizationSettingsPage() {
 	const org = useQuery(trpc.organization.get.queryOptions());
+	const organizations = useQuery(trpc.organization.listForCurrentUser.queryOptions());
 	const projectsQuery = useQuery(trpc.organization.getProjects.queryOptions());
 	const { isOrgAdmin } = usePermissions();
 	const isCloud = useIsCloud();
@@ -88,7 +90,15 @@ function OrganizationSettingsPage() {
 	return (
 		<SettingsPageWrapper>
 			<div className='flex flex-col gap-5'>
-				<EditableOrganizationName name={org.data?.name ?? 'Organization'} canEdit={isOrgAdmin && !!org.data} />
+				{org.data ? (
+					<OrganizationHeading
+						organization={org.data}
+						organizations={organizations.data ?? [org.data]}
+						canEdit={isOrgAdmin}
+					/>
+				) : (
+					<EditableOrganizationName name='Organization' canEdit={false} />
+				)}
 				<div className='flex flex-col gap-12'>
 					<SettingsCard title='Projects' action={projectsAction} flush>
 						{projectsQuery.isLoading ? (
@@ -106,11 +116,7 @@ function OrganizationSettingsPage() {
 										<TableRow key={project.id}>
 											<TableCell>
 												<div className='font-medium'>{project.name}</div>
-												{project.path && (
-													<div className='font-mono text-xs text-muted-foreground'>
-														{project.path}
-													</div>
-												)}
+												<ProjectIdentifier project={project} isCloud={isCloud} />
 											</TableCell>
 											<TableCell>
 												<Badge variant={project.role}>{USER_ROLE_LABELS[project.role]}</Badge>
@@ -144,4 +150,12 @@ function OrganizationSettingsPage() {
 			<GitLabRepoPicker open={gitlabPickerOpen} onOpenChange={setGitlabPickerOpen} />
 		</SettingsPageWrapper>
 	);
+}
+
+function ProjectIdentifier({ project, isCloud }: { project: { id: string; path: string | null }; isCloud: boolean }) {
+	const identifier = isCloud ? project.id : project.path;
+	if (!identifier) {
+		return null;
+	}
+	return <div className='font-mono text-xs text-muted-foreground'>{identifier}</div>;
 }

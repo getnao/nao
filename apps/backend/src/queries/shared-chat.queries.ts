@@ -148,6 +148,17 @@ export async function getShareIdByChatId(
 	return row ?? null;
 }
 
+export async function getSharedChatVisibilityById(shareId: string): Promise<{ visibility: string } | null> {
+	const [row] = await db
+		.select({ visibility: s.sharedChat.visibility })
+		.from(s.sharedChat)
+		.where(eq(s.sharedChat.id, shareId))
+		.limit(1)
+		.execute();
+
+	return row ?? null;
+}
+
 export async function getShareAllowedUserIds(shareId: string): Promise<string[]> {
 	const rows = await db
 		.select({ userId: s.sharedChatAccess.userId })

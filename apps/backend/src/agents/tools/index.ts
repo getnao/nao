@@ -5,6 +5,7 @@ import type { CustomBoundarySet } from '@nao/shared';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
+import { env } from '../../env';
 import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
@@ -26,6 +27,7 @@ import readQueryResult from './read-query-result';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import suggestFollowUps from './suggest-follow-ups';
+import task from './task';
 import write from './write';
 
 /**
@@ -49,6 +51,7 @@ export const tools = {
 	load_skill: loadSkill,
 	read,
 	search,
+	task,
 	write,
 	suggest_follow_ups: suggestFollowUps,
 };
@@ -106,11 +109,13 @@ export const getTools = (
 		execute_sql,
 		clarification: clarificationTool,
 		suggest_follow_ups,
+		task: taskTool,
 		write: writeTool,
 		...rest
 	} = tools;
 	const baseTools = {
 		...rest,
+		...(env.BETA_SUBAGENTS_ENABLED && { task: taskTool }),
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
 		...(isStorageEnabled() && { write: writeTool }),

@@ -29,6 +29,7 @@ import {
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
@@ -39,8 +40,10 @@ import { attachmentRoutes } from './routes/attachment';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { automationWebhookRoutes } from './routes/automation-webhook';
+import { backofficeRoutes } from './routes/backoffice';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
+import { cliAuthRoutes } from './routes/cli-auth';
 import { deployRoutes } from './routes/deploy';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
@@ -49,6 +52,7 @@ import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
+import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
@@ -60,7 +64,7 @@ import { logLicenseStatus } from './services/license-startup';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
-import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
+import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { TrpcRouter, trpcRouter } from './trpc/router';
@@ -68,12 +72,14 @@ import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
+import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
 
 // Get the directory of the current module (works in both dev and compiled)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const isDev = env.MODE !== 'prod';
+const HEALTH_PATH = '/api/health';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -102,6 +108,8 @@ export type App = typeof app;
 app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
+trackInFlightRequests(app);
+
 // Map HandlerError to HTTP status code
 app.setErrorHandler((error, request, reply) => {
 	const message = error instanceof Error ? error.message : String(error);
@@ -124,7 +132,7 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs')) {
+	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
 		done();
 		return;
 	}
@@ -183,6 +191,10 @@ app.register(testRoutes, {
 	prefix: '/api/test',
 });
 
+app.register(cliAuthRoutes, {
+	prefix: '/api/cli-auth',
+});
+
 app.register(chartRoutes, {
 	prefix: '/c',
 });
@@ -205,6 +217,10 @@ app.register(authErrorRedirectRoutes, {
 
 app.register(embedStoryDownloadRoutes, {
 	prefix: '/api/embed',
+});
+
+app.register(notificationUnsubscribeRoutes, {
+	prefix: '/api/notifications',
 });
 
 app.register(authRoutes, {
@@ -238,6 +254,13 @@ app.register(whatsappRoutes, {
 app.register(deployRoutes, {
 	prefix: '/api',
 });
+
+if (isCloud && env.NAO_BACKOFFICE_API_KEY) {
+	app.register(backofficeRoutes, {
+		prefix: '/api/backoffice',
+	});
+	logger.info('Cloud backoffice API enabled', { source: 'system' });
+}
 
 app.register(automationWebhookRoutes, {
 	prefix: '/api',
@@ -313,6 +336,13 @@ app.get('/.well-known/openid-configuration', relayOpenIdConfigMetadata);
  */
 app.get('/api', async () => {
 	return 'Welcome to the API!';
+});
+
+app.get(HEALTH_PATH, { logLevel: 'silent' }, async (_request, reply) => {
+	if (isDraining()) {
+		return reply.status(503).send({ status: 'draining' });
+	}
+	return { status: 'ok' };
 });
 
 // Serve frontend static files in production
@@ -396,6 +426,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
+	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler);
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({
@@ -442,8 +473,18 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		process.exit(0);
 	};
 
+	const handleGracefulShutdown = async () => {
+		if (isDraining()) {
+			return;
+		}
+		stopScheduler();
+		await drainInFlightRequests(env.SHUTDOWN_DRAIN_DELAY_MS);
+		await handleShutdown();
+	};
+
+	// SIGINT (Ctrl-C) skips draining so stopping a dev server with an open stream stays instant.
 	process.on('SIGINT', handleShutdown);
-	process.on('SIGTERM', handleShutdown);
+	process.on('SIGTERM', handleGracefulShutdown);
 };
 
 export default app;

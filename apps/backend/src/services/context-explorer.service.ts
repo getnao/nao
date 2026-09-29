@@ -177,7 +177,8 @@ export function getFileEditability(
 	if (
 		projectPath.startsWith('repos/') ||
 		projectPath.startsWith('docs/notion/') ||
-		projectPath.startsWith('docs/confluence/')
+		projectPath.startsWith('docs/confluence/') ||
+		projectPath.startsWith('docs/obsidian/')
 	) {
 		return readOnly('synced-source', {
 			message: 'This path is replaced by nao sync. Change its source in nao_config.yaml.',

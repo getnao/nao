@@ -240,6 +240,7 @@ class TelegramService {
 				role: 'user',
 				parts: [{ type: 'text', text }],
 				chatId: existingChat.id,
+				senderUserId: ctx.user!.id,
 				source: 'telegram',
 			});
 			ctx.chatId = existingChat.id;

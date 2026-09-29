@@ -5,19 +5,20 @@ import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/sh
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
-import { SidePanel } from '@/components/side-panel/side-panel';
-import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
-import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
-import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
-import { StoryPageBody } from '@/components/story-page-body';
-import { StoryPageHeader } from '@/components/story-page-header';
+import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
+import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
+import { SidePanel } from '@/components/side-panel/side-panel';
+import { StorySubscriptionDialog } from '@/components/side-panel/story-subscription-dialog';
 import { StoryRouteError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryPageBody } from '@/components/story-page-body';
+import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
-import { Spinner } from '@/components/ui/spinner';
+import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useSidePanel } from '@/hooks/use-side-panel';
@@ -29,17 +30,17 @@ import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,
+	pendingComponent: StoryContentLoading,
 	errorComponent: StoryRouteError,
 });
 
-function SharedStoryPage() {
+export function SharedStoryPage() {
 	const { shareId } = Route.useParams();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
-	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
-	const isViewer = story?.userRole === 'viewer';
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -64,6 +65,7 @@ function SharedStoryPage() {
 	);
 
 	const isOwner = Boolean(session?.user?.id) && session?.user?.id === story?.userId;
+	const canFork = story?.canFork === true;
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -88,14 +90,6 @@ function SharedStoryPage() {
 		latestQueryData: (story?.queryData as QueryDataMap | null | undefined) ?? null,
 		shareId,
 	});
-
-	if (isLoading) {
-		return (
-			<div className='flex flex-1 items-center justify-center'>
-				<Spinner />
-			</div>
-		);
-	}
 
 	const isEditing = isOwner && Boolean(story.chatId) && editor.viewMode !== 'preview';
 
@@ -137,23 +131,18 @@ function SharedStoryPage() {
 				}}
 			/>
 		) : (
-			<StoryPageHeader
+			<SharedStoryViewerHeader
 				title={story.title}
 				authorName={story.authorName}
-				openChatLabel='Discuss story'
-				onOpenChat={isViewer ? undefined : () => forkMutation.mutate({ shareId, type: 'story' })}
+				onOpenChat={canFork ? () => forkMutation.mutate({ shareId, type: 'story' }) : undefined}
 				isOpeningChat={forkMutation.isPending}
-				live={
-					story.isLive
-						? {
-								isLive: true,
-								cachedAt: story.cachedAt,
-								lastRefreshFailure: story.lastRefreshFailure,
-								isRefreshing: refreshMutation.isPending,
-								onRefresh: () => refreshMutation.mutate({ shareId }),
-							}
-						: undefined
-				}
+				isLive={story.isLive}
+				cachedAt={story.cachedAt}
+				lastRefreshFailure={story.lastRefreshFailure}
+				isRefreshing={refreshMutation.isPending}
+				canRefresh={story.canRefresh}
+				onRefresh={() => refreshMutation.mutate({ shareId })}
+				storyId={session?.user?.id ? story.storyId : null}
 				download={{ chatId: story.chatId!, storySlug: story.slug, shareId, isOwner: false }}
 			/>
 		);
@@ -176,8 +165,8 @@ function SharedStoryPage() {
 				{header}
 
 				<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'story' }}>
-					{!isViewer && !isEditing && <ForkBubble shareId={shareId} contentType='story' />}
-					{!isViewer && !isEditing && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
+					{canFork && !isEditing && <ForkBubble shareId={shareId} contentType='story' />}
+					{canFork && !isEditing && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
 					<div className='flex flex-1 min-h-0 min-w-0'>
 						<div ref={contentAreaRef} className='flex flex-col flex-1 min-w-0 min-h-0'>
 							<StoryPageBody
@@ -287,6 +276,8 @@ function SharedStoryOwnerHeader({
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
+				chatId={chatId}
+				storySlug={storySlug}
 				isLive={isLive}
 				isLiveTextDynamic={isLiveTextDynamic}
 				cacheSchedule={cacheSchedule}
@@ -309,6 +300,74 @@ function SharedStoryOwnerHeader({
 				storyId={storyId ?? undefined}
 				chatId={chatId}
 			/>
+		</>
+	);
+}
+
+interface SharedStoryViewerHeaderProps {
+	title: string;
+	authorName: string;
+	onOpenChat?: () => void;
+	isOpeningChat: boolean;
+	isLive: boolean;
+	cachedAt?: string | Date | null;
+	lastRefreshFailure?: StoryRefreshFailure | null;
+	isRefreshing: boolean;
+	canRefresh: boolean;
+	onRefresh: () => void;
+	storyId: string | null;
+	download: StoryPageHeaderProps['download'];
+}
+
+function SharedStoryViewerHeader({
+	title,
+	authorName,
+	onOpenChat,
+	isOpeningChat,
+	isLive,
+	cachedAt,
+	lastRefreshFailure,
+	isRefreshing,
+	canRefresh,
+	onRefresh,
+	storyId,
+	download,
+}: SharedStoryViewerHeaderProps) {
+	const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
+	const canManageNotifications = isLive && Boolean(storyId);
+
+	return (
+		<>
+			<StoryPageHeader
+				title={title}
+				authorName={authorName}
+				openChatLabel='Discuss story'
+				onOpenChat={onOpenChat}
+				isOpeningChat={isOpeningChat}
+				live={
+					isLive
+						? {
+								isLive: true,
+								cachedAt,
+								lastRefreshFailure,
+								isRefreshing,
+								canRefresh,
+								onRefresh,
+								onOpenSettings: canManageNotifications ? () => setIsSubscriptionOpen(true) : undefined,
+								isDialogNotifManager: true,
+							}
+						: undefined
+				}
+				download={download}
+			/>
+
+			{storyId && (
+				<StorySubscriptionDialog
+					open={isSubscriptionOpen}
+					onOpenChange={setIsSubscriptionOpen}
+					storyId={storyId}
+				/>
+			)}
 		</>
 	);
 }

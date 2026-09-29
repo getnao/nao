@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { basename } from 'node:path';
 
 import { cardToBlockKit, createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
@@ -24,6 +25,7 @@ import * as projectQueries from '../queries/project.queries';
 import {
 	getProjectSlackConfig,
 	listSocketModeSlackConfigs,
+	setSlackDmScopeMissing,
 	SlackConfig,
 } from '../queries/project-slack-config.queries';
 import { getUser } from '../queries/user.queries';
@@ -41,6 +43,7 @@ import {
 	createImageBlock,
 	createLiveToolCall,
 	createMapLinkCard,
+	createNotificationCard,
 	createSlackTableRenderState,
 	createStopButtonActions,
 	createSummaryToolCalls,
@@ -57,10 +60,12 @@ import {
 	type TruncationNotice,
 } from '../utils/messaging-provider';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
+import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
+import { readUserFileBytes } from './storage/user-files';
 import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
@@ -122,7 +127,7 @@ type SlackUserAuthorization =
 	| { status: 'user-not-found'; email: string }
 	| { status: 'no-permission' };
 
-class ProjectSlackBot {
+export class ProjectSlackBot {
 	public readonly projectId: string;
 	private _bot: Chat;
 	private _slackClient: WebClient;
@@ -388,9 +393,71 @@ class ProjectSlackBot {
 		}
 	}
 
+	public async sendDirectMessageByEmail(
+		email: string,
+		text: string,
+		files: SlackFileUpload[] = [],
+		button?: { url: string; label: string },
+		unsubscribeUrl?: string,
+	): Promise<void> {
+		const userResponse = await this._slackClient.users.lookupByEmail({ email });
+		const userId = userResponse.user?.id;
+		if (!userId) {
+			return;
+		}
+
+		const buttons: { url: string; label: string }[] = [];
+		if (button) {
+			buttons.push(button);
+		}
+		if (unsubscribeUrl) {
+			buttons.push({ url: unsubscribeUrl, label: 'Unsubscribe' });
+		}
+
+		const thread = await this._openDirectMessageThread(userId);
+		const message = buttons.length > 0 ? createNotificationCard(text, buttons) : text;
+		const sent = await thread.post(message);
+
+		if (files.length > 0) {
+			const [, channelId] = thread.id.split(':');
+			for (const file of files) {
+				await this._slackClient.files.uploadV2({
+					channel_id: channelId,
+					thread_ts: sent.id,
+					filename: file.filename,
+					title: file.title ?? file.filename,
+					file: file.content,
+				});
+			}
+		}
+	}
+
+	private async _openDirectMessageThread(slackUserId: string): Promise<Thread> {
+		await this._bot.initialize();
+		const adapter = this._bot.getAdapter('slack');
+		if (!adapter.openDM) {
+			throw new Error('Slack adapter does not support direct messages.');
+		}
+		const threadId = await adapter.openDM(slackUserId);
+		return new ThreadImpl({
+			adapter,
+			stateAdapter: this._bot.getState(),
+			id: threadId,
+			channelId: deriveChannelId(adapter, threadId),
+			isDM: true,
+		});
+	}
+
 	private _registerHandlers(): void {
 		this._bot.onSlashCommand('/new', async (event) => {
 			await this._handleNewCommand(event);
+		});
+
+		this._bot.onAction(async (event) => {
+			logger.info(`Slack action received: ${event.actionId}`, {
+				source: 'system',
+				context: { projectId: this.projectId, actionId: event.actionId, threadId: event.threadId },
+			});
 		});
 
 		this._bot.onNewMention(async (thread, message) => {
@@ -988,6 +1055,7 @@ class ProjectSlackBot {
 				role: 'user',
 				parts: [{ type: 'text', text: messageText }],
 				chatId: existingChat.id,
+				senderUserId: ctx.user!.id,
 				source: 'slack',
 			});
 			ctx.chatId = existingChat.id;
@@ -1193,7 +1261,9 @@ class ProjectSlackBot {
 			} else if (part.type === 'tool-display_map') {
 				await this._handleMapPart(part, state, ctx);
 			} else if (part.type === 'tool-clarification') {
-				await this._handleClarificationPart(part, ctx);
+				await this._handleClarificationPart(part, state, ctx);
+			} else if (part.type === 'tool-write') {
+				await this._handleWritePart(part, state, ctx);
 			}
 		}
 
@@ -1203,11 +1273,13 @@ class ProjectSlackBot {
 
 	private async _handleClarificationPart(
 		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
+		state: StreamState,
 		ctx: ConversationContext,
 	): Promise<void> {
-		if (part.state === 'input-streaming' || !part.input) {
+		if (part.state === 'input-streaming' || !part.input || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
 		}
+		state.renderedToolCallIds.add(part.toolCallId);
 		this._closeCurrentTextRun(ctx);
 		ctx.blocks.push(...createTextBlocks(formatClarificationText(part.input.question, part.input.options)));
 		await this._editConversationCard(ctx, ctx.blocks);
@@ -1337,12 +1409,40 @@ class ProjectSlackBot {
 	}
 
 	private async _uploadChartImageFile(png: Buffer, name: string | null, ctx: ConversationContext): Promise<void> {
-		const { channelId, threadTs } = parseSlackThreadId(ctx.thread.id);
 		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.png` : 'chart.png';
+		await this._uploadFileToThread({ filename, content: png }, ctx);
+	}
+
+	private async _handleWritePart(
+		part: Extract<UIMessagePart, { type: 'tool-write' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId) || !ctx.user) {
+			return;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		try {
+			const content = await readUserFileBytes(
+				{ projectId: this.projectId, userId: ctx.user.id },
+				toStorageRelativePath(part.output.path),
+			);
+			await this._uploadFileToThread({ filename: basename(part.output.path), content }, ctx);
+		} catch (error) {
+			logger.error(`Written file upload failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId, path: part.output.path },
+			});
+		}
+	}
+
+	private async _uploadFileToThread(file: SlackFileUpload, ctx: ConversationContext): Promise<void> {
+		const { channelId, threadTs } = parseSlackThreadId(ctx.thread.id);
 		const upload = {
 			channel_id: channelId!,
-			filename,
-			file: png,
+			filename: file.filename,
+			title: file.title,
+			file: file.content,
 		};
 		if (threadTs) {
 			await this._slackClient.files.uploadV2({ ...upload, thread_ts: threadTs });
@@ -1564,6 +1664,38 @@ class SlackService {
 		await bot.uploadFiles(threadId, files);
 	}
 
+	public async sendDirectMessageByEmail(
+		projectId: string,
+		email: string,
+		text: string,
+		files: SlackFileUpload[] = [],
+		button?: { url: string; label: string },
+		unsubscribeUrl?: string,
+	): Promise<void> {
+		const config = await getProjectSlackConfig(projectId);
+		if (!config) {
+			return;
+		}
+		const bot = await this._getOrCreateBot(config);
+		try {
+			await bot.sendDirectMessageByEmail(email, text, files, button, unsubscribeUrl);
+		} catch (error) {
+			if (isMissingScopeError(error)) {
+				if (!config.dmScopeMissing) {
+					await setSlackDmScopeMissing(projectId, true);
+				}
+				throw new Error(
+					`Slack bot token is missing a required scope for direct messages. Reinstall the Slack app to grant it. (${describeSlackScopeError(error)})`,
+					{ cause: error },
+				);
+			}
+			throw error;
+		}
+		if (config.dmScopeMissing) {
+			await setSlackDmScopeMissing(projectId, false);
+		}
+	}
+
 	public async getWebhooks(config: SlackConfig): Promise<SlackBotWebhooks | undefined> {
 		const bot = await this._getOrCreateBot(config);
 		return bot.webhooks;
@@ -1654,6 +1786,26 @@ class SlackService {
 
 function getSlackThreadId(channelId: string, threadTs: string): string {
 	return `slack:${channelId}:${threadTs}`;
+}
+
+function isMissingScopeError(error: unknown): boolean {
+	const data = (error as { data?: { error?: string } })?.data;
+	if (data?.error === 'missing_scope') {
+		return true;
+	}
+	return String((error as { message?: string })?.message ?? error).includes('missing_scope');
+}
+
+/** Extracts the useful detail from a Slack scope error (which scope is needed) for admin-facing logs. */
+function describeSlackScopeError(error: unknown): string {
+	const data = (error as { data?: { error?: string; needed?: string; provided?: string } })?.data;
+	if (data?.needed) {
+		return `missing scope: ${data.needed}`;
+	}
+	if (data?.error) {
+		return data.error;
+	}
+	return error instanceof Error ? error.message : String(error);
 }
 
 function parseSlackThreadId(threadId: string): { channelId?: string; threadTs?: string } {

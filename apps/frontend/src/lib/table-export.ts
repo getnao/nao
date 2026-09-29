@@ -6,28 +6,46 @@ import { triggerDownload } from '@/lib/download';
 
 type TableRow = Record<string, unknown>;
 
-const neutralizeFormula = (value: string) => (/^[=+\-@\t\r]/.test(value) ? `'${value}` : value);
+const neutralizeFormula = (value: string, preserveNegativeNumericValue = false) =>
+	/^[=+\-@\t\r]/.test(value) && !(preserveNegativeNumericValue && value.startsWith('-')) ? `'${value}` : value;
 
-const escapeCsvCell = (value: string) => {
-	const safe = neutralizeFormula(value);
+const escapeCsvCell = (value: string, preserveNegativeNumericValue = false) => {
+	const safe = neutralizeFormula(value, preserveNegativeNumericValue);
 	return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 
 export function tableToCsv(columns: string[], rows: TableRow[], dateFormat: DateFormatSettings | null): string {
 	return [
-		columns.map(escapeCsvCell).join(','),
+		columns.map((column) => escapeCsvCell(column)).join(','),
 		...rows.map((row) =>
-			columns.map((column) => escapeCsvCell(formatCellValue(row[column], dateFormat))).join(','),
+			columns
+				.map((column) => {
+					const value = row[column];
+					return escapeCsvCell(formatCellValue(value, dateFormat), isNegativeNumber(value));
+				})
+				.join(','),
 		),
 	].join('\n');
 }
 
 export function tableToTsv(columns: string[], rows: TableRow[], dateFormat: DateFormatSettings | null): string {
-	const clean = (value: string) => neutralizeFormula(value).replace(/[\t\n]/g, ' ');
+	const clean = (value: string, preserveNegativeNumericValue = false) =>
+		neutralizeFormula(value, preserveNegativeNumericValue).replace(/[\t\n]/g, ' ');
 	return [
-		columns.map(clean).join('\t'),
-		...rows.map((row) => columns.map((column) => clean(formatCellValue(row[column], dateFormat))).join('\t')),
+		columns.map((column) => clean(column)).join('\t'),
+		...rows.map((row) =>
+			columns
+				.map((column) => {
+					const value = row[column];
+					return clean(formatCellValue(value, dateFormat), isNegativeNumber(value));
+				})
+				.join('\t'),
+		),
 	].join('\n');
+}
+
+function isNegativeNumber(value: unknown): boolean {
+	return typeof value === 'number' && Number.isFinite(value) && value < 0;
 }
 
 function tableToXlsxBlob(columns: string[], rows: TableRow[], dateFormat: DateFormatSettings | null): Promise<Blob> {

@@ -2,7 +2,9 @@ import { useEffect } from 'react';
 import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
+import type { UsageChartData } from '@/components/settings/usage-chart-card';
 import type { displayChart } from '@nao/shared/tools';
+import type { UsageRecord } from '@nao/backend/usage';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
@@ -16,6 +18,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useUsagePeriodSettings } from '@/hooks/use-usage-period-settings';
 import { trpc } from '@/main';
 import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { buildUserUsageChart } from '@/lib/usage-by-user';
 import { formatUsageBucketLabel } from '@/lib/usage-date';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
@@ -29,6 +32,12 @@ const USD_VALUE_FORMAT = {
 	prefix: '$',
 	compact: 'financial',
 } satisfies displayChart.ValueFormat;
+
+interface UsageChart {
+	data: UsageChartData;
+	series: displayChart.SeriesConfig[];
+	showLegend: boolean;
+}
 
 const tokenChartDisplayOptions: { value: TokenChartDisplayMode; label: string }[] = [
 	{ value: 'tokens', label: 'Show in tokens' },
@@ -109,7 +118,7 @@ function UsageOverview({
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
 }) {
-	const { provider, users, feedback, tools, sources, tokenView } = usageSearch;
+	const { provider, users, feedback, tools, sources, splitByUser, tokenView } = usageSearch;
 	const { canViewUsage } = usePermissions();
 	const periodState = useUsagePeriodSettings({ canViewUsage, usageSearch, onUpdateSearch });
 	const { period, granularity } = periodState;
@@ -125,16 +134,22 @@ function UsageOverview({
 		}),
 		placeholderData: keepPreviousData,
 	});
+	const chartFilter = {
+		period,
+		granularity,
+		provider: provider === 'all' ? undefined : provider,
+		userNames: users,
+		sources,
+	};
 	const messagesUsage = useQuery({
-		...trpc.usage.getMessagesUsage.queryOptions({
-			period,
-			granularity,
-			provider: provider === 'all' ? undefined : provider,
-			userNames: users,
-			sources,
-		}),
+		...trpc.usage.getMessagesUsage.queryOptions(chartFilter),
 		placeholderData: keepPreviousData,
-		enabled: canViewUsage && periodState.isReady,
+		enabled: canViewUsage && periodState.isReady && !splitByUser,
+	});
+	const usageByUser = useQuery({
+		...trpc.usage.getMessagesUsageByUser.queryOptions(chartFilter),
+		placeholderData: keepPreviousData,
+		enabled: canViewUsage && periodState.isReady && splitByUser,
 	});
 	const totalUsage = useQuery({
 		...trpc.usage.getTotalUsage.queryOptions({
@@ -148,13 +163,20 @@ function UsageOverview({
 	});
 
 	const chartData = messagesUsage.data ?? [];
+	const chartDataByUser = usageByUser.data ?? [];
+	const chartQuery = splitByUser ? usageByUser : messagesUsage;
 	const totalUsageChartData = totalUsage.data ? [totalUsage.data] : [];
 	const showCost = tokenView === 'dollars';
-	const activeMessageSeries = messageSeries.filter(({ data_key }) =>
-		chartData.some((record) => record[data_key] > 0),
-	);
-	const displayedMessageSeries = activeMessageSeries.length > 0 ? activeMessageSeries : [...messageSeries];
-	const showMessageLegend = displayedMessageSeries.some(({ data_key }) => data_key !== 'webMessageCount');
+	const messagesChart: UsageChart = splitByUser
+		? buildUserUsageChart(chartDataByUser, 'messageCount')
+		: buildMessagesBySourceChart(chartData);
+	const tokensChart: UsageChart = splitByUser
+		? buildUserUsageChart(
+				chartDataByUser,
+				showCost ? 'totalCost' : 'totalTokens',
+				showCost ? USD_VALUE_FORMAT : undefined,
+			)
+		: { data: chartData, series: showCost ? costSeries : tokenSeries, showLegend: true };
 
 	const filtersComponent = (
 		<UsageFilters
@@ -176,6 +198,8 @@ function UsageOverview({
 			onSelectedUserNamesChange={(value) => onUpdateSearch({ users: value })}
 			selectedSources={sources}
 			onSelectedSourcesChange={(value) => onUpdateSearch({ sources: value })}
+			splitByUser={splitByUser}
+			onSplitByUserChange={(value) => onUpdateSearch({ splitByUser: value })}
 		/>
 	);
 
@@ -212,29 +236,32 @@ function UsageOverview({
 
 							<UsageChartCard
 								title='Messages'
-								isLoading={periodState.isLoading || messagesUsage.isLoading}
-								isFetching={messagesUsage.isFetching}
-								isError={messagesUsage.isError}
-								data={chartData}
+								isLoading={periodState.isLoading || chartQuery.isLoading}
+								isFetching={chartQuery.isFetching}
+								isError={chartQuery.isError}
+								data={messagesChart.data}
 								chartType='stacked_bar'
 								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
 								titleAccessory={
-									<span className='text-xs text-muted-foreground'>Number of messages by source</span>
+									<span className='text-xs text-muted-foreground'>
+										{splitByUser ? 'Number of messages by user' : 'Number of messages by source'}
+									</span>
 								}
-								series={displayedMessageSeries}
-								showLegend={showMessageLegend}
+								series={messagesChart.series}
+								showLegend={messagesChart.showLegend}
 							/>
 
 							<UsageChartCard
 								title={showCost ? 'Cost' : 'Tokens'}
-								isLoading={periodState.isLoading || messagesUsage.isLoading}
-								isFetching={messagesUsage.isFetching}
-								isError={messagesUsage.isError}
-								data={chartData}
+								isLoading={periodState.isLoading || chartQuery.isLoading}
+								isFetching={chartQuery.isFetching}
+								isError={chartQuery.isError}
+								data={tokensChart.data}
 								chartType='stacked_bar'
 								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
 								valueFormatter={showCost ? formatUsd : undefined}
-								series={showCost ? costSeries : tokenSeries}
+								series={tokensChart.series}
+								showLegend={tokensChart.showLegend}
 								titleAccessory={
 									<Select
 										value={tokenView}
@@ -281,6 +308,19 @@ function UsageOverview({
 			</div>
 		</div>
 	);
+}
+
+function buildMessagesBySourceChart(chartData: UsageRecord[]): UsageChart {
+	const activeMessageSeries = messageSeries.filter(({ data_key }) =>
+		chartData.some((record) => record[data_key] > 0),
+	);
+	const series = activeMessageSeries.length > 0 ? activeMessageSeries : [...messageSeries];
+
+	return {
+		data: chartData,
+		series,
+		showLegend: series.some(({ data_key }) => data_key !== 'webMessageCount'),
+	};
 }
 
 function formatUsd(value: number): string {
