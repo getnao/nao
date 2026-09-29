@@ -309,7 +309,7 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 
 	const all = Array.from(document.body.querySelectorAll<HTMLElement>('*')).filter(visible).slice(0, 4000);
 	const bodyStyle = getComputedStyle(document.body);
-	const pageBg = opaque(bodyStyle.backgroundColor) ?? 'rgb(255, 255, 255)';
+	const pageBg = opaque(bodyStyle.backgroundColor) ?? opaque(rootStyle.backgroundColor) ?? 'rgb(255, 255, 255)';
 
 	const area = (el: Element) => {
 		const r = el.getBoundingClientRect();
