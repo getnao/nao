@@ -52,6 +52,8 @@ const MAX_BLOCK_STEP = 1.22;
 const SUBTLE_LINE = { min: 1.12, max: 1.75 };
 const DERIVED_SERIES_COUNT = 6;
 const DARK_INK = { headingColor: '#f5f5f7', bodyColor: '#c9cbd3', mutedColor: '#8a8d9c' };
+const PURE_WHITE = '#ffffff';
+const PURE_BLACK = '#000000';
 const GOOGLE_FONT_FAMILY = /^[A-Za-z][A-Za-z0-9 ]{1,40}$/;
 
 export function applyGuards(proposal: ThemeProposal, context: GuardContext = {}): GenerateResult {
@@ -138,14 +140,32 @@ function guardText(theme: StoryTheme, pageIsDark: boolean, notes: string[]) {
 			theme.text[key] = neutral;
 			notes.push(`${labelFor(key)} carried too much brand hue for text, so it was pulled back to neutral.`);
 		}
-		const worst = Math.min(...surfaces.map((surface) => contrastRatio(theme.text[key], surface)));
+		const worst = worstContrast(theme.text[key], surfaces);
 		if (worst < minimums[key]) {
-			theme.text[key] = fallback[key];
+			const replacement = mostReadableInk([fallback[key], PURE_WHITE, PURE_BLACK], surfaces, minimums[key]);
+			const reached = worstContrast(replacement, surfaces);
+			theme.text[key] = replacement;
 			notes.push(
-				`${labelFor(key)} fell below ${minimums[key]}:1 against one of the surfaces (${worst.toFixed(1)}:1), so a readable default is used.`,
+				reached >= minimums[key]
+					? `${labelFor(key)} fell below ${minimums[key]}:1 against one of the surfaces (${worst.toFixed(1)}:1), so a readable default is used.`
+					: `${labelFor(key)} fell below ${minimums[key]}:1 against one of the surfaces (${worst.toFixed(1)}:1); no ink reaches it on these surfaces, so the most readable one (${reached.toFixed(1)}:1) is used.`,
 			);
 		}
 	}
+}
+
+/** Mid-tone surfaces can defeat the polarity-based default, so the first ink that clears the bar wins, else the best one. */
+function mostReadableInk(candidates: string[], surfaces: string[], minimum: number): string {
+	return (
+		candidates.find((candidate) => worstContrast(candidate, surfaces) >= minimum) ??
+		candidates.reduce((best, candidate) =>
+			worstContrast(candidate, surfaces) > worstContrast(best, surfaces) ? candidate : best,
+		)
+	);
+}
+
+function worstContrast(color: string, surfaces: string[]): number {
+	return Math.min(...surfaces.map((surface) => contrastRatio(color, surface)));
 }
 
 function guardAccent(theme: StoryTheme, candidates: BrandCandidate[], notes: string[]) {
