@@ -71,6 +71,7 @@ describe('publishing a custom story', () => {
 
 		expect(output).toMatchObject({ success: true, version: 1 });
 		expect(await db.select().from(s.storyBundle)).toHaveLength(1);
+		expect(await db.select().from(s.storyFolderItem)).toHaveLength(1);
 	});
 
 	it('refuses to publish when the draft changes during the build', async () => {

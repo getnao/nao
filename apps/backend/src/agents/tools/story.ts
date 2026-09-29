@@ -200,9 +200,12 @@ async function classicResult(
 	};
 }
 
-/** A custom story starts as a draft under /stories/<id>/; it has no version until it is published. */
+/**
+ * A custom story starts as a draft under /stories/<id>/; it has no version, and stays out of the
+ * story library, until it is first published.
+ */
 async function createCustomStory(input: story.Input, context: ToolContext): Promise<story.Output> {
-	const { chatId, userId, projectId } = context;
+	const { chatId } = context;
 	const authoringError = customStoryAuthoringError(context.userGroupFeatures);
 	if (authoringError) {
 		return fail(input.id, `${authoringError} Create a classic story instead.`);
@@ -222,7 +225,6 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 	try {
 		const files = await db.transaction(async (tx) => {
 			const created = await storyQueries.createCustomStory({ chatId, slug: input.id, title }, tx);
-			await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.id, tx);
 			return storyFileQueries.seedDraftFiles(created.id, scaffoldCustomStoryFiles(title, input.files ?? []), tx);
 		});
 		rememberStoryArtifact(context, input.id, title);
@@ -374,6 +376,14 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 				tx,
 			);
 			await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
+			if (cut.version.version === 1) {
+				await storyFolderQueries.saveStoryInPrivateRoot(
+					context.userId,
+					context.projectId,
+					existingStory.id,
+					tx,
+				);
+			}
 			return cut;
 		});
 		rememberStoryArtifact(context, existingStory.slug, existingStory.title);
