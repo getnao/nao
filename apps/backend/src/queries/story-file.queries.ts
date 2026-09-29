@@ -53,6 +53,10 @@ export async function writeDraftFile(
 	const path = normalizeStoryFilePath(file.path);
 	assertFileSize(path, file.content);
 	await assertFileCount(storyId, path, executor);
+	assertNoFolderCollision(
+		path,
+		(await listDraftFiles(storyId, executor)).map((draft) => draft.path),
+	);
 
 	const [row] = await executor
 		.insert(s.storyDraftFile)
@@ -275,6 +279,7 @@ function normalizeFileSet(files: StoryFileInput[]): StoryFileInput[] {
 		if (seen.has(path)) {
 			throw new StoryFileLimitError(`Duplicate file path "${path}".`);
 		}
+		assertNoFolderCollision(path, [...seen]);
 		seen.add(path);
 		assertFileSize(path, file.content);
 		return { path, content: file.content };
@@ -286,6 +291,15 @@ function assertFileSize(path: string, content: string) {
 	if (bytes > MAX_STORY_FILE_BYTES) {
 		throw new StoryFileLimitError(
 			`"${path}" is ${Math.round(bytes / 1024)}KB; files are capped at ${MAX_STORY_FILE_BYTES / 1024}KB.`,
+		);
+	}
+}
+
+function assertNoFolderCollision(path: string, otherPaths: string[]): void {
+	const collision = otherPaths.find((other) => other.startsWith(`${path}/`) || path.startsWith(`${other}/`));
+	if (collision) {
+		throw new StoryFileLimitError(
+			`"${path}" cannot sit next to "${collision}": one would be both a file and a folder.`,
 		);
 	}
 }
