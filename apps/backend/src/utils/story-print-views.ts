@@ -68,6 +68,7 @@ async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryVie
 
 	const views: HTMLElement[] = [];
 	let layout = 'sections';
+	let truncated = false;
 	const hideSlideControls = () => {
 		for (const control of root.querySelectorAll('button')) {
 			const label = labelOf(control);
@@ -91,6 +92,7 @@ async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryVie
 	if (switcher) {
 		const isDeck = switcher.items.some((item) => /slide/i.test(labelOf(item)));
 		layout = isDeck ? 'slides' : 'sections';
+		truncated = switcher.items.length > MAX_VIEWS;
 		for (let index = 0; index < Math.min(switcher.items.length, MAX_VIEWS); index += 1) {
 			const current = findSwitcher()?.items[index] ?? switcher.items[index];
 			current.click();
@@ -100,20 +102,24 @@ async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryVie
 	} else if (findNext()) {
 		layout = 'slides';
 		const seen = new Set<string>();
+		truncated = true;
 		for (let index = 0; index < MAX_VIEWS; index += 1) {
 			const markup = root.innerHTML;
 			if (seen.has(markup)) {
+				truncated = false;
 				break;
 			}
 			seen.add(markup);
 			capture();
 			const next = findNext();
 			if (!next) {
+				truncated = false;
 				break;
 			}
 			next.click();
 			await wait();
 		}
+		truncated = truncated && !seen.has(root.innerHTML);
 	}
 
 	if (views.length <= 1) {
@@ -122,7 +128,7 @@ async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryVie
 	const style = document.createElement('style');
 	style.textContent = '[data-nao-print-hidden]{display:none!important}';
 	document.head.append(style);
-	const pages = layout === 'slides' ? views.map(fitOnPage) : views;
+	const pages = [...(layout === 'slides' ? views.map(fitOnPage) : views), ...(truncated ? [truncationNotice()] : [])];
 	pages.forEach((page, index) => {
 		if (index < pages.length - 1) {
 			page.style.breakAfter = 'page';
@@ -137,6 +143,14 @@ async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryVie
 		views.forEach(shrinkToPage);
 	}
 	return layout;
+
+	/** The cap keeps an endless "next" loop bounded; the PDF says so instead of silently dropping the rest. */
+	function truncationNotice(): HTMLElement {
+		const notice = document.createElement('p');
+		notice.style.cssText = 'padding:48px;font:14px/1.5 system-ui,sans-serif;color:#555';
+		notice.textContent = `Only the first ${MAX_VIEWS} views of this story are included in this PDF. Open the story to see the rest.`;
+		return notice;
+	}
 
 	/** Copies replay the story's CSS entrance animations (often from `opacity: 0`): jump them to their end state. */
 	function finishAnimation(animation: Animation): void {
