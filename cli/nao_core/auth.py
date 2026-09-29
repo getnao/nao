@@ -153,7 +153,11 @@ def browser_login(backend_url: str, timeout: float = BROWSER_LOGIN_TIMEOUT_SECON
     state = secrets.token_urlsafe(32)
 
     handler = type("BoundCallbackHandler", (_CallbackHandler,), {"expected_state": state, "result": _CallbackResult()})
-    server = HTTPServer(("127.0.0.1", 0), handler)
+    try:
+        server = HTTPServer(("127.0.0.1", 0), handler)
+    except OSError:
+        UI.warn("Could not start a local callback server.")
+        return None
 
     try:
         port = server.server_address[1]
@@ -271,11 +275,11 @@ def interactive_login(backend_url: str) -> bool:
     Stores the resulting credentials on success and returns whether login
     succeeded.
     """
-    UI.info("\n?? Authentication required\n")
+    UI.info("\n🔐 Authentication required\n")
 
     try:
         return browser_login(backend_url) is not None
-    except BrowserUnavailableError:
+    except (BrowserUnavailableError, webbrowser.Error):
         UI.warn("Could not open a browser on this machine.")
 
     UI.print("[dim]Falling back to email and password login.[/dim]")

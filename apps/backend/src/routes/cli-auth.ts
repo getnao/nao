@@ -25,7 +25,7 @@ export const cliAuthRoutes = async (app: App) => {
 		'/token',
 		{
 			schema: {
-				body: z.object({ code: z.string().min(1) }),
+				body: z.object({ code: z.string().min(1).max(43) }),
 			},
 		},
 		async (request, reply) => {
