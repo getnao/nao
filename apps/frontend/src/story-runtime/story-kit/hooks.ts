@@ -19,33 +19,31 @@ export function useQueryData(
 	queryId: string,
 	{ enabled = true }: UseQueryDataOptions = {},
 ): QueryDataState & { refetch: () => void } {
-	const [state, setState] = useState<QueryDataState>(LOADING);
 	const [attempt, setAttempt] = useState(0);
+	const [settled, setSettled] = useState<{ requestKey: string; state: QueryDataState } | null>(null);
+	const requestKey = `${attempt}:${queryId}`;
 
 	useEffect(() => {
 		if (!enabled) {
 			return;
 		}
 		let cancelled = false;
-		setState(LOADING);
+		const settle = (state: QueryDataState) => {
+			if (!cancelled) {
+				setSettled({ requestKey, state });
+			}
+		};
 		fetchQueryData(queryId, attempt > 0).then(
-			(result) => {
-				if (!cancelled) {
-					setState({ status: 'success', data: result.data, columns: result.columns, error: null });
-				}
-			},
-			(error: unknown) => {
-				if (!cancelled) {
-					setState({ status: 'error', data: null, columns: null, error: describeError(error) });
-				}
-			},
+			(result) => settle({ status: 'success', data: result.data, columns: result.columns, error: null }),
+			(error: unknown) => settle({ status: 'error', data: null, columns: null, error: describeError(error) }),
 		);
 		return () => {
 			cancelled = true;
 		};
-	}, [queryId, attempt, enabled]);
+	}, [queryId, attempt, enabled, requestKey]);
 
 	const refetch = useCallback(() => setAttempt((current) => current + 1), []);
+	const state = enabled && settled?.requestKey === requestKey ? settled.state : LOADING;
 	return { ...state, refetch };
 }
 
