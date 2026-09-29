@@ -17,6 +17,7 @@ from nao_core.ui import UI, ask_text
 AUTH_FILE = Path.home() / ".nao" / "auth.json"
 
 BROWSER_LOGIN_TIMEOUT_SECONDS = 300
+REQUEST_TIMEOUT_SECONDS = 30
 
 CALLBACK_SUCCESS_PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -53,6 +54,8 @@ def _read_auth_file() -> dict:
 
 def _write_auth_file(data: dict) -> None:
     AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AUTH_FILE.touch(mode=0o600, exist_ok=True)
+    AUTH_FILE.chmod(0o600)
     AUTH_FILE.write_text(json.dumps(data))
 
 
@@ -81,6 +84,10 @@ def clear_stored_auth() -> None:
     """Remove any stored session token or cookies."""
     if AUTH_FILE.exists():
         AUTH_FILE.unlink()
+
+
+class BrowserUnavailableError(Exception):
+    """Raised when no browser can be opened to complete the login."""
 
 
 class _CallbackResult:
@@ -140,7 +147,9 @@ def browser_login(backend_url: str, timeout: float = BROWSER_LOGIN_TIMEOUT_SECON
     Opens the browser on the app's CLI authorization page, waits for the
     redirect back to a localhost callback, and exchanges the one-time code
     for a session token. Returns the token on success, None otherwise.
+    Raises BrowserUnavailableError when no browser can be opened.
     """
+    backend_url = backend_url.rstrip("/")
     state = secrets.token_urlsafe(32)
 
     handler = type("BoundCallbackHandler", (_CallbackHandler,), {"expected_state": state, "result": _CallbackResult()})
@@ -149,11 +158,10 @@ def browser_login(backend_url: str, timeout: float = BROWSER_LOGIN_TIMEOUT_SECON
     try:
         port = server.server_address[1]
         query = urlencode({"port": port, "state": state})
-        login_url = f"{backend_url.rstrip('/')}/cli-login?{query}"
+        login_url = f"{backend_url}/cli-login?{query}"
 
         if not webbrowser.open(login_url):
-            UI.warn("Could not open a browser on this machine.")
-            return None
+            raise BrowserUnavailableError
 
         UI.print("[dim]Waiting for login in your browser...[/dim]")
         UI.print(f"[dim]If it did not open, visit: {login_url}[/dim]")
@@ -179,7 +187,11 @@ def browser_login(backend_url: str, timeout: float = BROWSER_LOGIN_TIMEOUT_SECON
 
 def _exchange_code_for_token(backend_url: str, code: str) -> str | None:
     try:
-        response = requests.post(f"{backend_url}/api/cli-auth/token", json={"code": code})
+        response = requests.post(
+            f"{backend_url}/api/cli-auth/token",
+            json={"code": code},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
     except requests.RequestException as e:
         UI.error(f"Connection error: {e}")
         return None
@@ -259,10 +271,12 @@ def interactive_login(backend_url: str) -> bool:
     Stores the resulting credentials on success and returns whether login
     succeeded.
     """
-    UI.info("\n🔐 Authentication required\n")
+    UI.info("\n?? Authentication required\n")
 
-    if browser_login(backend_url):
-        return True
+    try:
+        return browser_login(backend_url) is not None
+    except BrowserUnavailableError:
+        UI.warn("Could not open a browser on this machine.")
 
     UI.print("[dim]Falling back to email and password login.[/dim]")
     return prompt_password_login(backend_url) is not None

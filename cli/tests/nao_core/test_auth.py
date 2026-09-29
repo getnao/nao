@@ -26,6 +26,12 @@ def test_token_storage_round_trip():
     assert auth.get_stored_token() is None
 
 
+def test_auth_file_is_owner_only():
+    auth.store_token("my-token")
+
+    assert auth.AUTH_FILE.stat().st_mode & 0o777 == 0o600
+
+
 def test_stored_cookies_still_readable():
     auth.AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
     auth.AUTH_FILE.write_text(json.dumps({"cookies": {"session": "abc"}}))
@@ -87,6 +93,7 @@ def test_browser_login_success(mock_open, mock_post):
     mock_post.assert_called_once_with(
         "http://localhost:5005/api/cli-auth/token",
         json={"code": "one-time-code"},
+        timeout=auth.REQUEST_TIMEOUT_SECONDS,
     )
 
 
@@ -110,10 +117,30 @@ def test_browser_login_rejects_invalid_state(mock_open, mock_post):
 
 
 @patch("nao_core.auth.webbrowser.open")
-def test_browser_login_returns_none_when_browser_unavailable(mock_open):
+def test_browser_login_raises_when_browser_unavailable(mock_open):
     mock_open.return_value = False
 
-    assert auth.browser_login("http://localhost:5005", timeout=10) is None
+    with pytest.raises(auth.BrowserUnavailableError):
+        auth.browser_login("http://localhost:5005", timeout=10)
+
+
+@patch("nao_core.auth.prompt_password_login")
+@patch("nao_core.auth.browser_login")
+def test_interactive_login_falls_back_to_password_without_browser(mock_browser_login, mock_password_login):
+    mock_browser_login.side_effect = auth.BrowserUnavailableError
+    mock_password_login.return_value = {"session": "abc"}
+
+    assert auth.interactive_login("http://localhost:5005") is True
+    mock_password_login.assert_called_once()
+
+
+@patch("nao_core.auth.prompt_password_login")
+@patch("nao_core.auth.browser_login")
+def test_interactive_login_does_not_fall_back_when_denied(mock_browser_login, mock_password_login):
+    mock_browser_login.return_value = None
+
+    assert auth.interactive_login("http://localhost:5005") is False
+    mock_password_login.assert_not_called()
 
 
 @patch("nao_core.auth.requests.post")

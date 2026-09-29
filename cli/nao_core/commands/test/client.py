@@ -84,6 +84,7 @@ class AgentClient:
         self._session: requests.Session | None = None
         self._auth_lock = threading.Lock()
         self._auth_generation = 0
+        self._reauth_failed = False
 
     def _get_session(self) -> tuple[requests.Session, int]:
         """Get or create an authenticated session, with its auth generation."""
@@ -101,6 +102,8 @@ class AgentClient:
         with self._auth_lock:
             if self._auth_generation != generation:
                 return True
+            if self._reauth_failed:
+                return False
 
             UI.warn("Session expired or unauthorized.")
             clear_stored_auth()
@@ -113,6 +116,8 @@ class AgentClient:
 
             if authenticated:
                 self._auth_generation += 1
+            else:
+                self._reauth_failed = True
             return authenticated
 
     def run_test(

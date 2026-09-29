@@ -41,12 +41,21 @@ def logout(
     """Log out of nao and revoke the stored session."""
     url = (backend_url or BACKEND_URL).rstrip("/")
 
-    token = auth.get_stored_token()
-    if token:
-        try:
-            requests.post(f"{url}/api/auth/sign-out", headers={"Authorization": f"Bearer {token}"})
-        except requests.RequestException:
-            pass
+    session = requests.Session()
+    if auth.apply_stored_auth(session) and not _revoke_session(session, url):
+        UI.warn("Could not revoke the session on the server; it was only removed locally.")
 
     auth.clear_stored_auth()
     UI.success("Logged out.")
+
+
+def _revoke_session(session: requests.Session, url: str) -> bool:
+    try:
+        response = session.post(
+            f"{url}/api/auth/sign-out",
+            headers={"Origin": url},
+            timeout=auth.REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return False
+    return response.ok
