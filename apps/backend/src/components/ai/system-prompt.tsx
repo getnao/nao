@@ -169,7 +169,7 @@ export function SystemPrompt({
 			{customStoriesEnabled && hasTool('story') && hasTool('write') && <CustomStoriesBlock />}
 			{hasTool('execute_sql') && (
 				<LocalDatabaseBlock
-					canSaveResults={hasTool('write')}
+					canSaveResults={hasTool('write') && savedFilesEnabled}
 					hasSemanticResults={hasTool('execute_semantic_query')}
 					warehouseSqlEnabled={semanticLayerMode !== 'exclusive'}
 				/>

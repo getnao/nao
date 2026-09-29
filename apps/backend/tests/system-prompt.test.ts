@@ -257,6 +257,16 @@ describe('SystemPrompt saved files rules', () => {
 		expect(markdown).not.toContain('**save_to**');
 	});
 
+	it('does not recommend save_to when write only serves custom stories', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				toolNames: ['execute_sql', 'write', 'story'],
+				options: { savedFilesEnabled: false, customStoriesEnabled: true },
+			}),
+		);
+		expect(markdown).not.toContain('**save_to**');
+	});
+
 	it('explains that an attachment arrives as a path, not as content', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('**/home/uploads**');
