@@ -33,8 +33,9 @@ export const parseStoriesPath = (virtualPath: string): StoryMountPath => {
 };
 
 const STORY_SLUG = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/;
+export const STORY_SLUG_RULE = 'up to 100 letters, digits, dashes or underscores, starting with a letter or digit';
 
-/** A custom story slug is one path segment of the mount, so it cannot contain `/` or start with `@`. */
+/** A custom story slug names a single folder of the mount, so it must never contain `/` or `@`. */
 export const isValidStorySlug = (slug: string): boolean => {
 	return STORY_SLUG.test(slug);
 };
