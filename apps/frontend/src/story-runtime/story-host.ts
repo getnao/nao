@@ -1,4 +1,4 @@
-import { isStoryHostMessage, STORY_PRINT_FLAG } from '@nao/shared/story-app';
+import { isStoryConnectMessage, isStoryHostMessage, STORY_PRINT_FLAG } from '@nao/shared/story-app';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -39,6 +39,7 @@ let activeTheme: StoryTheme | null = null;
 let editingEnabled = false;
 let exportData: StoryExportData | null = null;
 let frameChannel: string | undefined;
+let hostPort: MessagePort | null = null;
 
 export async function bootStory({ source, theme, exportData: embeddedData, channel }: BootOptions): Promise<void> {
 	activeTheme = theme;
@@ -146,34 +147,47 @@ export function requestQuerySql(queryId: string): Promise<string> {
 }
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
-	if (event.source !== window.parent || !isStoryHostMessage(event.data)) {
+	const isConnect =
+		event.source === window.parent &&
+		hostPort === null &&
+		event.ports.length === 1 &&
+		isStoryConnectMessage(event.data);
+	if (!isConnect) {
 		return;
 	}
-	if (event.data.type === 'nao-story:editing') {
-		editingEnabled = event.data.enabled;
+	hostPort = event.ports[0];
+	hostPort.onmessage = (portEvent: MessageEvent<unknown>) => handleHostMessage(portEvent.data);
+});
+
+function handleHostMessage(message: unknown): void {
+	if (!isStoryHostMessage(message)) {
+		return;
+	}
+	if (message.type === 'nao-story:editing') {
+		editingEnabled = message.enabled;
 		editingListeners.forEach((listener) => listener());
 		return;
 	}
-	if (event.data.type === 'nao-story:narratives-result') {
-		pendingNarratives.get(event.data.requestId)?.resolve(event.data.narratives);
-		pendingNarratives.delete(event.data.requestId);
+	if (message.type === 'nao-story:narratives-result') {
+		pendingNarratives.get(message.requestId)?.resolve(message.narratives);
+		pendingNarratives.delete(message.requestId);
 		return;
 	}
-	if (event.data.type === 'nao-story:query-sql-result' || event.data.type === 'nao-story:query-sql-error') {
-		settleQuerySql(event.data);
+	if (message.type === 'nao-story:query-sql-result' || message.type === 'nao-story:query-sql-error') {
+		settleQuerySql(message);
 		return;
 	}
-	const pending = pendingQueries.get(event.data.requestId);
+	const pending = pendingQueries.get(message.requestId);
 	if (!pending) {
 		return;
 	}
-	pendingQueries.delete(event.data.requestId);
-	if (event.data.type === 'nao-story:query-result') {
-		pending.resolve(event.data.result);
+	pendingQueries.delete(message.requestId);
+	if (message.type === 'nao-story:query-result') {
+		pending.resolve(message.result);
 	} else {
-		pending.reject(new Error(event.data.message));
+		pending.reject(new Error(message.message));
 	}
-});
+}
 
 function settleQuerySql(
 	message: Extract<StoryHostMessage, { type: 'nao-story:query-sql-result' | 'nao-story:query-sql-error' }>,
@@ -213,7 +227,11 @@ function awaitReply<T>(
 }
 
 function send(message: StoryFrameMessage): void {
-	window.parent.postMessage({ ...message, channel: frameChannel }, '*');
+	if (hostPort) {
+		hostPort.postMessage(message);
+	} else {
+		window.parent.postMessage({ ...message, channel: frameChannel }, '*');
+	}
 }
 
 function readExportedQuery(data: StoryExportData, queryId: string): Promise<StoryQueryResult> {

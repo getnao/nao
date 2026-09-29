@@ -1,5 +1,5 @@
 import { isDarkSurface } from '@nao/shared/story-theme-contrast';
-import type { HTTPRequest, Page } from 'puppeteer-core';
+import type { BrowserContext, HTTPRequest, Page } from 'puppeteer-core';
 
 import { getBrowser } from '../../utils/headless-browser';
 import { startSafeEgressProxy } from '../../utils/safe-egress-proxy';
@@ -39,8 +39,9 @@ export class ProbeRefusedError extends Error {}
 export async function probeWithBrowser(url: string, allowedFontHosts: string[]): Promise<ProbeResult> {
 	const browser = await getBrowser();
 	const proxy = await startSafeEgressProxy();
-	const context = await browser.createBrowserContext({ proxyServer: proxy.url });
+	let context: BrowserContext | undefined;
 	try {
+		context = await browser.createBrowserContext({ proxyServer: proxy.url });
 		const page = await context.newPage();
 		await page.setViewport(VIEWPORT);
 		await page.setUserAgent(USER_AGENT);
@@ -69,7 +70,7 @@ export async function probeWithBrowser(url: string, allowedFontHosts: string[]):
 		const screenshot = await captureScreenshot(page);
 		return applyDocumentGround(normalizeProbe(raw), screenshot);
 	} finally {
-		await context.close().catch(() => undefined);
+		await context?.close().catch(() => undefined);
 		await proxy.close();
 	}
 }
