@@ -13,6 +13,7 @@ import { Legend, ResponsiveContainer, Tooltip } from 'recharts';
 
 import { Block, BlockState } from './block';
 import { chartBlockConfig, resolveChart, toSeriesConfigs } from './block-config';
+import { withNumericValues } from './columns';
 import { useStoryTheme } from './hooks';
 import { piePresentation, pieTooltipLabel } from './pie';
 import { useBlockData } from './use-block-data';
@@ -82,7 +83,7 @@ export function ChartBlock({
 				{(rows) =>
 					resolved && (
 						<ChartBody
-							rows={toChartRows(rows, resolved.series)}
+							rows={toChartRows(rows, resolved, resolveXAxisType(chartType, options.xAxisType))}
 							chartType={chartType}
 							xAxisKey={resolved.xAxisKey}
 							series={toSeriesConfigs(resolved.series, options)}
@@ -186,14 +187,19 @@ function resolveXAxisType(chartType: ChartType, xAxisType: ChartOptions['xAxisTy
 	return chartType === 'scatter' ? 'number' : 'category';
 }
 
-function toChartRows(rows: Row[], series: { key: string }[]): Row[] {
-	return rows.map((row) => {
+function toChartRows(
+	rows: Row[],
+	{ xAxisKey, series }: { xAxisKey: string; series: { key: string }[] },
+	xAxisType: 'number' | 'category',
+): Row[] {
+	const chartRows = rows.map((row) => {
 		const next: Row = { ...row };
 		for (const { key } of series) {
 			next[key] = toFiniteNumber(row[key]);
 		}
 		return next;
 	});
+	return xAxisType === 'number' ? withNumericValues(chartRows, [xAxisKey]) : chartRows;
 }
 
 function seriesColorLookup(series: displayChart.SeriesConfig[]): (key: string, index: number) => string {
