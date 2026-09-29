@@ -12,6 +12,7 @@ export interface RenderedPdf {
 const MAX_PAGE_WIDTH_PX = 1600;
 const MAX_PAGE_SCALE = 2;
 const JPEG_QUALITY = 0.85;
+const MAX_ZIP_PDF_BYTES = 2 * MAX_PDF_BYTES;
 
 /** Pages are spread across the document: covers rarely carry the palette, style-guide pages further in do. */
 export async function renderPdfPages(
@@ -35,12 +36,22 @@ export async function renderPdfPages(
 
 /** PDFs inside a brand ZIP are rendered here too, sharing the same page budget as a standalone PDF. */
 export async function renderZipPdfs(zip: Uint8Array, maxPages: number): Promise<RenderedPdf[]> {
+	let acceptedCount = 0;
+	let acceptedBytes = 0;
 	const entries = unzipSync(zip, {
-		filter: (file) =>
-			/\.pdf$/i.test(file.name) &&
-			!file.name.includes('__MACOSX') &&
-			!basename(file.name).startsWith('.') &&
-			file.originalSize <= MAX_PDF_BYTES,
+		filter: (file) => {
+			const isCandidate =
+				/\.pdf$/i.test(file.name) &&
+				!file.name.includes('__MACOSX') &&
+				!basename(file.name).startsWith('.') &&
+				file.originalSize <= MAX_PDF_BYTES;
+			if (!isCandidate || acceptedCount >= maxPages || acceptedBytes + file.originalSize > MAX_ZIP_PDF_BYTES) {
+				return false;
+			}
+			acceptedCount += 1;
+			acceptedBytes += file.originalSize;
+			return true;
+		},
 	});
 	const rendered: RenderedPdf[] = [];
 	let remaining = maxPages;
