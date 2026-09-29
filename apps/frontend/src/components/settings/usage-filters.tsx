@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckIcon, Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
+import { CheckIcon, Radio, Split, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
 import type { SavedUsagePeriod, SavedUsagePeriodInput, UsagePeriodSelection, UsageSource } from '@nao/backend/usage';
@@ -37,6 +37,8 @@ interface UsageFiltersProps {
 	onSelectedUserNamesChange: (value: string[] | undefined) => void;
 	selectedSources: UsageSource[] | undefined;
 	onSelectedSourcesChange: (value: UsageSource[] | undefined) => void;
+	splitByUser?: boolean;
+	onSplitByUserChange?: (value: boolean) => void;
 }
 
 export function UsageFilters({
@@ -58,6 +60,8 @@ export function UsageFilters({
 	onSelectedUserNamesChange,
 	selectedSources,
 	onSelectedSourcesChange,
+	splitByUser = false,
+	onSplitByUserChange,
 }: UsageFiltersProps) {
 	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
 		value: name,
@@ -114,7 +118,37 @@ export function UsageFilters({
 				selectedValues={selectedUserNames}
 				onChange={onSelectedUserNamesChange}
 			/>
+			{showUsageControls && onSplitByUserChange && (
+				<ToggleFilter
+					label='Split per user'
+					icon={Split}
+					pressed={splitByUser}
+					onPressedChange={onSplitByUserChange}
+				/>
+			)}
 		</div>
+	);
+}
+
+type ToggleFilterProps = {
+	label: string;
+	icon: LucideIcon;
+	pressed: boolean;
+	onPressedChange: (value: boolean) => void;
+};
+
+function ToggleFilter({ label, icon: Icon, pressed, onPressedChange }: ToggleFilterProps) {
+	return (
+		<Button
+			variant='ghost'
+			size='sm'
+			aria-pressed={pressed}
+			className={cn(pressed && 'text-primary')}
+			onClick={() => onPressedChange(!pressed)}
+		>
+			<Icon className='size-4' />
+			{label}
+		</Button>
 	);
 }
 

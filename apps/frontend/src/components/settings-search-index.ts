@@ -907,6 +907,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/usage',
 		pageLabel: 'Usage, costs & replay',
+		title: 'Split per user',
+		description: 'Break down messages, tokens and cost per user instead of per source or token category.',
+		keywords: ['per user', 'by user', 'user breakdown', 'who spends', 'top users', 'split'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/usage',
+		pageLabel: 'Usage, costs & replay',
 		title: 'Feedbacks',
 		description: 'Feedbacks users have given to the agent during their sessions.',
 		keywords: ['thumbs up', 'thumbs down', 'rating', 'review'],
