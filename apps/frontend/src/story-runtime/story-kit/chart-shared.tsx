@@ -140,6 +140,7 @@ function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, show
 		margin: CHART_MARGIN,
 		backgroundColor: 'var(--card)',
 		gradientIdPrefix,
+		idPrefix: gradientIdPrefix,
 		chartStyle: theme ? { barRadius: theme.charts.barRadius } : undefined,
 		children: [
 			<Tooltip
