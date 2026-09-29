@@ -57,6 +57,8 @@ def update_tableau_section(source: str, tableau: TableauConfig) -> str:
     _, section = sections[0]
     if not isinstance(section, MappingNode) or section.flow_style:
         replacement = json.dumps(values, ensure_ascii=False)
+        if section.start_mark.index == section.end_mark.index:
+            replacement = f" {replacement}"
         return f"{source[: section.start_mark.index]}{replacement}{source[section.end_mark.index :]}"
 
     edits: list[tuple[int, int, str]] = []

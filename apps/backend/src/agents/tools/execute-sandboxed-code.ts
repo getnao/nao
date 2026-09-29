@@ -401,7 +401,7 @@ async function runWithSecrets(
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
 	const [command, args] = language === 'python' ? [PYTHON_BIN, ['-c', code]] : ['sh', ['-c', code]];
 	const env = secrets.length > 0 ? toSandboxEnv(secrets) : undefined;
-	const result = env ? await box.exec(command, args, env) : await box.exec(command, ...args);
+	const result = await box.exec(command, args, env as Record<string, string>);
 	return {
 		stdout: redactSecretValues(result.stdout, secrets),
 		stderr: redactSecretValues(result.stderr, secrets),
