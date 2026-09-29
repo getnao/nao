@@ -103,6 +103,11 @@ export async function generateStoryThemeFromSources(
 	}
 
 	const vision = images.slice(0, MAX_SOURCE_IMAGES);
+	if (images.length > vision.length) {
+		extraWarnings.push(
+			`Only ${MAX_SOURCE_IMAGES} images can be read at once, so the last ${images.length - vision.length} (after the image, the PDF pages, the website screenshot and then the ZIP images) were left out.`,
+		);
+	}
 	if (parts.length === 0) {
 		if (!hasVisualSource) {
 			throw new DesignSourceError('Add a website, an image, a PDF or a ZIP.');
@@ -179,7 +184,13 @@ async function proposeOrExplain(
 	warnings: string[],
 	{ consequence }: { consequence: string },
 ): Promise<ThemeProposal | null> {
-	const model = await resolveModel(projectId);
+	let model: ResolvedModel | null;
+	try {
+		model = await resolveModel(projectId);
+	} catch (error) {
+		warnings.push(`The configured model could not be loaded (${describeError(error)}), so ${consequence}.`);
+		return null;
+	}
 	if (!model) {
 		warnings.push(`No model is configured for this project, so ${consequence}.`);
 		return null;
@@ -219,12 +230,13 @@ async function groundInImages(
 	}
 }
 
+/** A few greys in the CSS name no brand colour, so the image's candidates are kept until the CSS offers its own. */
 function mergePixelSignals(signals: DesignSignals, pixels: DesignSignals): DesignSignals {
 	const hasOwnColors = signals.colors.length > 0;
 	return {
 		...signals,
 		colors: [...signals.colors, ...pixels.colors],
-		brandCandidates: hasOwnColors ? signals.brandCandidates : pixels.brandCandidates,
+		brandCandidates: signals.brandCandidates.length > 0 ? signals.brandCandidates : pixels.brandCandidates,
 		surfaces: hasOwnColors ? signals.surfaces : pixels.surfaces,
 		prefersDarkGround: hasOwnColors ? signals.prefersDarkGround : pixels.prefersDarkGround,
 	};
