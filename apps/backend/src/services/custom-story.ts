@@ -123,7 +123,6 @@ export async function getCustomStoryQueryData(
 	return queryData?.[queryId] ?? executeLiveQuery(chatId, queryId);
 }
 
-/** Narratives come with the data they describe: an expired cache waits on the same refresh as the story's queries. */
 export async function getCustomStoryNarratives(chatId: string, storySlug: string): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
 	if (!story.isLive || !story.isLiveTextDynamic) {
@@ -132,7 +131,9 @@ export async function getCustomStoryNarratives(chatId: string, storySlug: string
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	const cachedNarratives = cache?.analysisResults ?? {};
-	if (story.cacheSchedule === NO_CACHE_SCHEDULE || (cache && !isCacheExpired(cache.cachedAt, story.cacheSchedule))) {
+	const isCacheUsable =
+		cache && (story.cacheSchedule === NO_CACHE_SCHEDULE || !isCacheExpired(cache.cachedAt, story.cacheSchedule));
+	if (isCacheUsable) {
 		return cachedNarratives;
 	}
 	return refreshOnce(chatId, storySlug).then(
