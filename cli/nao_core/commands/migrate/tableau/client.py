@@ -1,4 +1,4 @@
-from xml.etree import ElementTree
+from typing import Any
 
 import httpx
 
@@ -37,33 +37,25 @@ class TableauClient:
             self._client.close()
 
     def sign_in(self) -> None:
-        request = ElementTree.Element("tsRequest")
-        credentials = ElementTree.SubElement(
-            request,
-            "credentials",
-            {
-                "personalAccessTokenName": self._config.pat_name,
-                "personalAccessTokenSecret": self._config.pat_value,
-            },
-        )
-        ElementTree.SubElement(
-            credentials,
-            "site",
-            {"contentUrl": self._config.site_name},
-        )
         response = self._client.post(
             self._api_path("auth/signin"),
-            content=ElementTree.tostring(request, encoding="utf-8"),
-            headers={"Content-Type": "application/xml", "Accept": "application/xml"},
+            json={
+                "credentials": {
+                    "personalAccessTokenName": self._config.pat_name,
+                    "personalAccessTokenSecret": self._config.pat_value,
+                    "site": {"contentUrl": self._config.site_name},
+                }
+            },
+            headers={"Accept": "application/json"},
         )
         raise_for_tableau_status(response)
-        root = parse_xml_response(response)
-        response_credentials = first_named(root, "credentials")
-        site = first_named(root, "site")
-        if response_credentials is None or site is None:
+        payload = parse_json_response(response)
+        credentials = payload.get("credentials")
+        site = credentials.get("site") if isinstance(credentials, dict) else None
+        if not isinstance(credentials, dict) or not isinstance(site, dict):
             raise ValueError("Tableau sign-in returned no credentials or site identifier.")
-        self._token = response_credentials.attrib.get("token", "")
-        self._site_id = site.attrib.get("id", "")
+        self._token = credentials.get("token", "")
+        self._site_id = site.get("id", "")
         if not self._token or not self._site_id:
             raise ValueError("Tableau sign-in returned incomplete authentication metadata.")
 
@@ -107,25 +99,27 @@ class TableauClient:
             response = self._client.get(
                 self._site_path("workbooks"),
                 params={"pageNumber": page_number, "pageSize": 1000},
-                headers=self._headers(),
+                headers={**self._headers(), "Accept": "application/json"},
             )
             raise_for_tableau_status(response)
-            root = parse_xml_response(response)
-            for workbook in elements_named(root, "workbook"):
-                project = first_named(workbook, "project")
+            payload = parse_json_response(response)
+            workbook_items = payload.get("workbooks", {}).get("workbook", [])
+            if not isinstance(workbook_items, list):
+                raise ValueError("Tableau API returned an invalid workbook list.")
+            for workbook in workbook_items:
+                if not isinstance(workbook, dict):
+                    continue
+                project = workbook.get("project", {})
                 workbooks.append(
                     {
-                        "id": workbook.attrib.get("id", ""),
-                        "name": workbook.attrib.get("name", ""),
-                        "content_url": workbook.attrib.get("contentUrl", ""),
-                        "project_id": project.attrib.get("id", "") if project is not None else "",
-                        "project_name": project.attrib.get("name", "") if project is not None else "",
+                        "id": workbook.get("id", ""),
+                        "name": workbook.get("name", ""),
+                        "content_url": workbook.get("contentUrl", ""),
+                        "project_id": project.get("id", ""),
+                        "project_name": project.get("name", ""),
                     }
                 )
-            pagination = first_named(root, "pagination")
-            total = integer_attribute(pagination, "totalAvailable")
-            page_size = integer_attribute(pagination, "pageSize") or 1000
-            if total is None or page_number * page_size >= total:
+            if not has_next_page(payload, page_number):
                 return workbooks
             page_number += 1
 
@@ -137,23 +131,27 @@ class TableauClient:
             response = self._client.get(
                 self._site_path(f"workbooks/{workbook_id}/views"),
                 params={"pageNumber": page_number, "pageSize": 1000},
-                headers=self._headers(),
+                headers={**self._headers(), "Accept": "application/json"},
             )
             raise_for_tableau_status(response)
-            root = parse_xml_response(response)
-            views.extend(
-                {
-                    "id": view.attrib["id"],
-                    "name": view.attrib["name"],
-                    "content_url": view.attrib.get("contentUrl", ""),
-                }
-                for view in elements_named(root, "view")
-                if view.attrib.get("id") and view.attrib.get("name")
-            )
-            pagination = first_named(root, "pagination")
-            total = integer_attribute(pagination, "totalAvailable")
-            page_size = integer_attribute(pagination, "pageSize") or 1000
-            if total is None or page_number * page_size >= total:
+            payload = parse_json_response(response)
+            view_items = payload.get("views", {}).get("view", [])
+            if not isinstance(view_items, list):
+                raise ValueError("Tableau API returned an invalid view list.")
+            for view in view_items:
+                if not isinstance(view, dict):
+                    continue
+                view_id = view.get("id")
+                name = view.get("name")
+                if view_id and name:
+                    views.append(
+                        {
+                            "id": view_id,
+                            "name": name,
+                            "content_url": view.get("contentUrl", ""),
+                        }
+                    )
+            if not has_next_page(payload, page_number):
                 return views
             page_number += 1
 
@@ -205,13 +203,12 @@ def raise_for_tableau_status(response: httpx.Response) -> None:
     summary = ""
     detail = ""
     try:
-        root = ElementTree.fromstring(response.content)
-        error = first_named(root, "error")
-        summary_element = first_named(error, "summary") if error is not None else None
-        detail_element = first_named(error, "detail") if error is not None else None
-        summary = element_text(summary_element)
-        detail = element_text(detail_element)
-    except ElementTree.ParseError:
+        payload = response.json()
+        error = payload.get("error", {})
+        if isinstance(error, dict):
+            summary = error.get("summary", "")
+            detail = error.get("detail", "")
+    except (AttributeError, ValueError):
         pass
 
     message = ": ".join(
@@ -226,48 +223,27 @@ def raise_for_tableau_status(response: httpx.Response) -> None:
     raise ValueError(message)
 
 
-def parse_xml_response(response: httpx.Response) -> ElementTree.Element:
+def parse_json_response(response: httpx.Response) -> dict[str, Any]:
     try:
-        return ElementTree.fromstring(response.content)
-    except ElementTree.ParseError as error:
-        raise ValueError("Tableau API returned invalid XML.") from error
+        payload = response.json()
+    except ValueError as error:
+        raise ValueError("Tableau API returned invalid JSON.") from error
+    if not isinstance(payload, dict):
+        raise ValueError("Tableau API returned invalid JSON.")
+    return payload
 
 
-def elements_named(
-    root: ElementTree.Element,
-    name: str,
-) -> list[ElementTree.Element]:
-    return [element for element in root.iter() if local_name(element) == name]
+def has_next_page(payload: dict[str, Any], page_number: int) -> bool:
+    pagination = payload.get("pagination", {})
+    if not isinstance(pagination, dict):
+        return False
+    total = integer_value(pagination.get("totalAvailable"))
+    page_size = integer_value(pagination.get("pageSize")) or 1000
+    return total is not None and page_number * page_size < total
 
 
-def first_named(
-    root: ElementTree.Element,
-    name: str,
-) -> ElementTree.Element | None:
-    return next(
-        (element for element in root.iter() if local_name(element) == name),
-        None,
-    )
-
-
-def local_name(element: ElementTree.Element) -> str:
-    return element.tag.rsplit("}", 1)[-1].rsplit(":", 1)[-1].lower()
-
-
-def element_text(element: ElementTree.Element | None) -> str:
-    if element is None:
-        return ""
-    return " ".join(text.strip() for text in element.itertext() if text.strip())
-
-
-def integer_attribute(
-    element: ElementTree.Element | None,
-    name: str,
-) -> int | None:
-    if element is None:
-        return None
-    value = element.attrib.get(name, "")
+def integer_value(value: object) -> int | None:
     try:
-        return int(value)
+        return int(str(value))
     except ValueError:
         return None
