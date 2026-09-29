@@ -20,7 +20,8 @@ env:
     CACHE_IMAGE: ${{ github.repository }}/build-cache
     CLOUD_CONTAINER_NAME: nao-cloud
     CLOUD_DOMAIN: app.getnao.io
-    CLOUD_PORT: 5050
+    CLOUD_BLUE_PORT: 5050
+    CLOUD_GREEN_PORT: 5051
 
 jobs:
     build:
@@ -199,9 +200,29 @@ jobs:
                   username: github-actions-demo
                   key: ${{ secrets.PRIVATE_KEY }}
                   script: |
-                      docker pull getnao/nao:${{ needs.merge.outputs.image-tag }}
-                      docker rm -f nao-chat 2>/dev/null || true
-                      docker run -p 5005:5005 \
+                      set -e
+                      APP=nao-chat
+                      IMAGE=getnao/nao:${{ needs.merge.outputs.image-tag }}
+
+                      # Blue listens on 5005 and green on 5006, Caddy routes to whichever is healthy.
+                      # The legacy single container holds the blue port, so it is replaced by green.
+                      if [ "$(docker inspect -f '{{.State.Running}}' "$APP-blue" 2>/dev/null)" = "true" ]; then
+                        NEW="$APP-green"; NEW_PORT=5006; OLD="$APP-blue"
+                      elif [ "$(docker inspect -f '{{.State.Running}}' "$APP-green" 2>/dev/null)" = "true" ]; then
+                        NEW="$APP-blue"; NEW_PORT=5005; OLD="$APP-green"
+                      else
+                        NEW="$APP-green"; NEW_PORT=5006; OLD="$APP"
+                      fi
+
+                      docker pull "$IMAGE"
+                      docker rm -f "$NEW" 2>/dev/null || true
+                      docker volume create nao-chat-storage >/dev/null
+                      docker run -p "$NEW_PORT:5005" \
+                        --restart unless-stopped \
+                        --stop-timeout 150 \
+                        -v nao-chat-storage:/app/storage \
+                        -e "NAO_STORAGE_LOCAL_PATH=/app/storage" \
+                        -e "SHUTDOWN_DRAIN_DELAY_MS=10000" \
                         -e "BETTER_AUTH_URL=https://moon.getnao.io" \
                         -e "DB_SSL=true" \
                         -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/${{ secrets.POSTGRES_DB }}" \
@@ -230,8 +251,28 @@ jobs:
                         -e "GITHUB_CLIENT_ID=${{ secrets.MOON_GITHUB_CLIENT_ID }}" \
                         -e "GITHUB_CLIENT_SECRET=${{ secrets.MOON_GITHUB_CLIENT_SECRET }}" \
                         --device /dev/kvm \
-                        --name nao-chat \
-                        -d getnao/nao:${{ needs.merge.outputs.image-tag }}
+                        --name "$NEW" \
+                        -d "$IMAGE"
+
+                      HEALTHY=false
+                      for _ in $(seq 1 90); do
+                        if curl -fsS -o /dev/null "http://127.0.0.1:$NEW_PORT/api/health"; then
+                          HEALTHY=true
+                          break
+                        fi
+                        sleep 2
+                      done
+                      if [ "$HEALTHY" != "true" ]; then
+                        echo "$NEW did not become healthy, keeping $OLD live"
+                        docker logs --tail 50 "$NEW"
+                        docker rm -f "$NEW"
+                        exit 1
+                      fi
+
+                      echo "$NEW is healthy, draining $OLD"
+                      docker stop -t 150 "$OLD" 2>/dev/null || true
+                      docker rm "$OLD" 2>/dev/null || true
+                      echo "Deployed $NEW at https://moon.getnao.io"
 
     deploy-cloud:
         name: Deploy Cloud
@@ -247,16 +288,37 @@ jobs:
                   username: github-actions-demo
                   key: ${{ secrets.PRIVATE_KEY }}
                   script: |
-                      docker pull getnao/nao:${{ needs.merge.outputs.image-tag }}
-                      docker rm -f "${{ env.CLOUD_CONTAINER_NAME }}" 2>/dev/null || true
-                      docker volume create nao-app-preview-projects 2>/dev/null || true
+                      set -e
+                      APP="${{ env.CLOUD_CONTAINER_NAME }}"
+                      IMAGE=getnao/nao:${{ needs.merge.outputs.image-tag }}
+
+                      # Blue and green share the projects and storage volumes, Caddy routes to whichever is healthy.
+                      # The legacy single container holds the blue port, so it is replaced by green.
+                      if [ "$(docker inspect -f '{{.State.Running}}' "$APP-blue" 2>/dev/null)" = "true" ]; then
+                        NEW="$APP-green"; NEW_PORT=${{ env.CLOUD_GREEN_PORT }}; OLD="$APP-blue"
+                      elif [ "$(docker inspect -f '{{.State.Running}}' "$APP-green" 2>/dev/null)" = "true" ]; then
+                        NEW="$APP-blue"; NEW_PORT=${{ env.CLOUD_BLUE_PORT }}; OLD="$APP-green"
+                      else
+                        NEW="$APP-green"; NEW_PORT=${{ env.CLOUD_GREEN_PORT }}; OLD="$APP"
+                      fi
+
+                      docker pull "$IMAGE"
+                      docker rm -f "$NEW" 2>/dev/null || true
+                      docker volume create nao-app-preview-projects >/dev/null
+                      docker volume create nao-cloud-storage >/dev/null
                       docker network create nao-internal 2>/dev/null || true
                       docker run -d \
-                          --name "${{ env.CLOUD_CONTAINER_NAME }}" \
+                          --name "$NEW" \
+                          --restart unless-stopped \
+                          --stop-timeout 150 \
                           --network nao-internal \
-                          -p "127.0.0.1:${{ env.CLOUD_PORT }}:5005" \
+                          --network-alias "$APP" \
+                          -p "127.0.0.1:$NEW_PORT:5005" \
                           -v nao-app-preview-projects:/app/projects \
+                          -v nao-cloud-storage:/app/storage \
                           -e "NAO_PROJECTS_DIR=/app/projects" \
+                          -e "NAO_STORAGE_LOCAL_PATH=/app/storage" \
+                          -e "SHUTDOWN_DRAIN_DELAY_MS=10000" \
                           -e "BETTER_AUTH_URL=https://${{ env.CLOUD_DOMAIN }}" \
                           -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                           -e "NAO_BACKOFFICE_API_KEY=${{ secrets.NAO_BACKOFFICE_API_KEY }}" \
@@ -284,9 +346,24 @@ jobs:
                           -e "BETA_STORY_FILTERS_ENABLED=true" \
                           -e "GOOGLE_CLIENT_ID=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_ID }}" \
                           -e "GOOGLE_CLIENT_SECRET=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_SECRET }}" \
-                          getnao/nao:${{ needs.merge.outputs.image-tag }}
+                          "$IMAGE"
 
-                      echo "Waiting for container to start..."
-                      sleep 10
+                      HEALTHY=false
+                      for _ in $(seq 1 90); do
+                        if curl -fsS -o /dev/null "http://127.0.0.1:$NEW_PORT/api/health"; then
+                          HEALTHY=true
+                          break
+                        fi
+                        sleep 2
+                      done
+                      if [ "$HEALTHY" != "true" ]; then
+                        echo "$NEW did not become healthy, keeping $OLD live"
+                        docker logs --tail 50 "$NEW"
+                        docker rm -f "$NEW"
+                        exit 1
+                      fi
 
-                      echo "Deployed at https://${{ env.CLOUD_DOMAIN }}"
+                      echo "$NEW is healthy, draining $OLD"
+                      docker stop -t 150 "$OLD" 2>/dev/null || true
+                      docker rm "$OLD" 2>/dev/null || true
+                      echo "Deployed $NEW at https://${{ env.CLOUD_DOMAIN }}"
