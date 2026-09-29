@@ -21,6 +21,7 @@ export const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<LlmProviderKind, string
 	qwen: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
 	minimax: 'https://api.minimax.io/v1',
 	moonshot: 'https://api.moonshot.ai/v1',
+	requesty: 'https://router.requesty.ai/v1',
 };
 
 /** Claude effort vocabulary: no `minimal` (Anthropic's effort enum is low/medium/high/max). */
@@ -141,7 +142,7 @@ const OPENAI_REASONING_CUSTOM: ModelCapabilities = {
 	...OPENAI_REASONING,
 	effortOptions: undefined,
 };
-/** GPT-5.6 (Sol/Terra/Luna): same surface as GPT-5.x, on the wider none…max effort scale. */
+/** GPT-5.6 (Sol/Terra/Luna) and GPT-6 (Astra/Sol/Luna): same surface as GPT-5.x, on the wider none…max effort scale. */
 const OPENAI_5_6_REASONING: ModelCapabilities = {
 	...OPENAI_REASONING,
 	effortOptions: OPENAI_5_6_EFFORTS,
@@ -331,6 +332,28 @@ export const PROVIDER_META: ProviderMetaMap = {
 				capabilities: ANTHROPIC_ADAPTIVE,
 			},
 			{
+				id: 'claude-fable-5-1',
+				name: 'Claude Fable 5.1',
+				contextWindow: 300_000,
+				costPerM: { inputNoCache: 10, inputCacheRead: 0.25, inputCacheWrite: 12.5, output: 50 },
+				capabilities: ANTHROPIC_ADAPTIVE,
+			},
+			{
+				id: 'claude-opus-5-5',
+				name: 'Claude Opus 5.5',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 5, output: 20 },
+				capabilities: ANTHROPIC_ADAPTIVE,
+			},
+			{
+				id: 'claude-sonnet-5',
+				name: 'Claude Sonnet 5',
+				default: true,
+				contextWindow: 200_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: ANTHROPIC_ADAPTIVE,
+			},
+			{
 				id: 'claude-opus-5',
 				name: 'Claude Opus 5',
 				contextWindow: 1_000_000,
@@ -397,6 +420,28 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: 'gpt-4.1-mini',
 		models: [
 			{
+				id: 'gpt-6-astra',
+				name: 'GPT 6 Astra',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
+				id: 'gpt-6-sol',
+				name: 'GPT 6 Sol',
+				default: true,
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
+				id: 'gpt-6-luna',
+				name: 'GPT 6 Luna',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 0.1, inputCacheRead: 0.01, inputCacheWrite: 0.125, output: 0.5 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
 				id: 'gpt-5.6-sol',
 				name: 'GPT 5.6 Sol',
 				contextWindow: 1_050_000,
@@ -421,7 +466,6 @@ export const PROVIDER_META: ProviderMetaMap = {
 			{
 				id: 'gpt-5.5',
 				name: 'GPT 5.5',
-				default: true,
 				contextWindow: 400_000,
 				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 30 },
 				capabilities: OPENAI_REASONING,
@@ -560,6 +604,45 @@ export const PROVIDER_META: ProviderMetaMap = {
 				contextWindow: 400_000,
 				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
 				capabilities: OPENROUTER_EFFORT,
+			},
+		],
+	},
+	requesty: {
+		auth: { apiKey: 'required' },
+		envVar: 'REQUESTY_API_KEY',
+		baseUrlEnvVar: 'REQUESTY_BASE_URL',
+		defaultBaseUrl: OPENAI_COMPATIBLE_BASE_URLS.requesty,
+		extractorModelId: 'anthropic/claude-haiku-4-5',
+		summaryModelId: 'anthropic/claude-haiku-4-5',
+		models: [
+			{
+				id: 'openai/gpt-4o-mini',
+				name: 'GPT-4o mini',
+				default: true,
+				contextWindow: 128_000,
+				costPerM: { inputNoCache: 0.15, inputCacheRead: 0.075, inputCacheWrite: 0, output: 0.6 },
+				capabilities: OPENAI_COMPATIBLE_CUSTOM,
+			},
+			{
+				id: 'deepseek/deepseek-chat',
+				name: 'DeepSeek Chat',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 0.14, inputCacheRead: 0.028, inputCacheWrite: 0, output: 0.28 },
+				capabilities: OPENAI_COMPATIBLE_CUSTOM,
+			},
+			{
+				id: 'anthropic/claude-haiku-4-5',
+				name: 'Claude Haiku 4.5 (Requesty)',
+				contextWindow: 200_000,
+				costPerM: { inputNoCache: 1, inputCacheRead: 0.1, inputCacheWrite: 1.25, output: 5 },
+				capabilities: OPENAI_COMPATIBLE_CUSTOM,
+			},
+			{
+				id: 'anthropic/claude-sonnet-4-5',
+				name: 'Claude Sonnet 4.5 (Requesty)',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
+				capabilities: OPENAI_COMPATIBLE_CUSTOM,
 			},
 		],
 	},
@@ -908,6 +991,7 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 			return MINIMAX_SAMPLING;
 		case 'moonshot':
 			return MOONSHOT_ADAPTIVE;
+		case 'requesty':
 		case 'openaiCompatible':
 			return OPENAI_COMPATIBLE_CUSTOM;
 		default:

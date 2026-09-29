@@ -56,6 +56,63 @@ describe('UsageFilters', () => {
 		expect(screen.queryByRole('dialog', { name: 'Create period filter' })).toBeNull();
 	});
 
+	it('toggles the split per user view from the toolbar', () => {
+		const onSplitByUserChange = vi.fn();
+		render(
+			<UsageFilters
+				provider='all'
+				onProviderChange={vi.fn()}
+				periodSelection={DEFAULT_USAGE_PERIOD_SELECTION}
+				onPeriodSelectionChange={vi.fn()}
+				savedPeriods={[]}
+				onCreateSavedPeriod={vi.fn()}
+				onUpdateSavedPeriod={vi.fn()}
+				onDeleteSavedPeriod={vi.fn()}
+				availableProviders={[]}
+				chatFacets={undefined}
+				selectedUserNames={undefined}
+				onSelectedUserNamesChange={vi.fn()}
+				selectedSources={undefined}
+				onSelectedSourcesChange={vi.fn()}
+				splitByUser={false}
+				onSplitByUserChange={onSplitByUserChange}
+			/>,
+		);
+
+		const toggle = screen.getByRole('button', { name: 'Split per user' });
+		expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+		fireEvent.click(toggle);
+
+		expect(onSplitByUserChange).toHaveBeenCalledWith(true);
+	});
+
+	it('hides the split per user toggle when usage controls are hidden', () => {
+		render(
+			<UsageFilters
+				showUsageControls={false}
+				provider='all'
+				onProviderChange={vi.fn()}
+				periodSelection={DEFAULT_USAGE_PERIOD_SELECTION}
+				onPeriodSelectionChange={vi.fn()}
+				savedPeriods={[]}
+				onCreateSavedPeriod={vi.fn()}
+				onUpdateSavedPeriod={vi.fn()}
+				onDeleteSavedPeriod={vi.fn()}
+				availableProviders={[]}
+				chatFacets={undefined}
+				selectedUserNames={undefined}
+				onSelectedUserNamesChange={vi.fn()}
+				selectedSources={undefined}
+				onSelectedSourcesChange={vi.fn()}
+				splitByUser
+				onSplitByUserChange={vi.fn()}
+			/>,
+		);
+
+		expect(screen.queryByRole('button', { name: 'Split per user' })).toBeNull();
+	});
+
 	it('opens an add-period dialog without a maximum day limit', () => {
 		const onCreateSavedPeriod = vi.fn();
 		render(

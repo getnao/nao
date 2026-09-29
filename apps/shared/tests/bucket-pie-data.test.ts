@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { bucketPieData } from '../src/chart-builder';
+import { bucketPieData, DEFAULT_COLORS } from '../src/chart-builder';
 import { isPieChart } from '../src/tools/display-chart';
 
 const rowsOf = (values: number[]) => values.map((value, index) => ({ category: `cat-${index}`, total: value }));
@@ -24,6 +24,14 @@ describe('bucketPieData', () => {
 		const other = bucketed[bucketed.length - 1];
 		expect(other.category).toBe('Other');
 		expect(other.total).toBe(8);
+	});
+
+	it('limits default output to the available palette colors', () => {
+		const rows = rowsOf([120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10]);
+		const bucketed = bucketPieData(rows, 'category', 'total');
+
+		expect(bucketed).toHaveLength(DEFAULT_COLORS.length);
+		expect(bucketed.at(-1)).toEqual({ category: 'Other', total: 30 });
 	});
 
 	it('keeps the largest slices regardless of input order', () => {

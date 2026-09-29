@@ -10,6 +10,7 @@ import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { DeploymentManagedGitSettings } from '@/components/settings/deployment-managed-git-settings';
 import { GithubRepoList } from '@/components/settings/github-repo-list';
 import { GitlabRepoList } from '@/components/settings/gitlab-repo-list';
+import { LiveContextUpdateSettings } from '@/components/settings/live-context-update-settings';
 import { ConnectedProviderAccount, ProviderConnectionCard } from '@/components/settings/provider-connection-card';
 import {
 	AlertDialog,
@@ -304,6 +305,7 @@ function GitSettingsPage() {
 								{showDeploymentPanel && (
 									<DeploymentManagedGitSettings
 										contextSource={status.contextSource}
+										configurationError={status.liveContextUpdate.configurationError}
 										recommendedSetupVisible={showRecommendedSetup}
 										onToggleRecommendedSetup={() => {
 											setShowRecommendedSetup((visible) => !visible);
@@ -522,6 +524,13 @@ function GitSettingsPage() {
 							</>
 						)}
 					</SettingsCard>
+					{status?.liveContextUpdate.enabled && (
+						<LiveContextUpdateSettings
+							status={status.liveContextUpdate}
+							repository={status.liveContextRepository}
+							isAdmin={isAdmin}
+						/>
+					)}
 
 					<AlertDialog
 						open={providerSwitchRequest !== null}
@@ -822,6 +831,7 @@ async function invalidateRepositoryQueries(queryClient: QueryClient): Promise<vo
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getChangedFiles.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.readFile.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileDiff.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getLiveContextPullHistory.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.getRepo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.gitlab.getProjectGitInfo.queryKey() }),

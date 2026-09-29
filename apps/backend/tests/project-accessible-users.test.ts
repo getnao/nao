@@ -20,6 +20,7 @@ import {
 	listProjectMembersWithRoles,
 	listUserProjectsWithRoles,
 	listUsersWithProjectAccess,
+	listUsersWithProjectAccessDetails,
 } from '../src/queries/project.queries';
 
 vi.mock('../src/db/db', async () => {
@@ -113,6 +114,16 @@ describe('project accessible users', () => {
 		expect(rolesById.get('pau-org-admin')).toBe('admin');
 		expect(rolesById.get('pau-both')).toBe('viewer');
 		expect(rolesById.get('pau-ctx')).toBe('context_admin');
+	});
+
+	it('identifies direct, inherited, and combined access without duplicating users', async () => {
+		const users = await listUsersWithProjectAccessDetails('pau-proj');
+		const usersById = new Map(users.map((user) => [user.id, user]));
+
+		expect(usersById.get('pau-direct')).toMatchObject({ role: 'admin', source: 'project' });
+		expect(usersById.get('pau-org-only')).toMatchObject({ role: 'user', source: 'organization' });
+		expect(usersById.get('pau-both')).toMatchObject({ role: 'viewer', source: 'both' });
+		expect(users.filter(({ id }) => id === 'pau-both')).toHaveLength(1);
 	});
 
 	it('team listing still excludes org-only members', async () => {

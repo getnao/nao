@@ -6,6 +6,8 @@ export const TOOL_LABELS: Record<string, string> = {
 	'tool-grep': 'search',
 	'tool-list': 'folder',
 	'tool-execute_sql': 'query',
+	'tool-execute_semantic_query': 'query',
+	'tool-task': 'subagent',
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,6 +1,8 @@
 import pytest
 
-from nao_core.deps import MissingDependencyError, require_database_backend, require_dependency
+from nao_core.config import NaoConfig
+from nao_core.config.semantic_layer import SemanticLayerConfig
+from nao_core.deps import MissingDependencyError, get_required_extras, require_database_backend, require_dependency
 
 
 def test_require_database_backend_uses_public_extra_for_shared_ibis_backend(monkeypatch):
@@ -36,3 +38,10 @@ def test_require_dependency_raises_missing_dependency_with_extra(monkeypatch):
         require_dependency("anthropic", "anthropic", "for Anthropic LLM provider")
 
     assert "pip install 'nao-core[anthropic]'" in str(exc_info.value)
+
+
+def test_semantic_layer_config_requires_semantic_layer_extra():
+    config = NaoConfig(project_name="p", semantic_layer=SemanticLayerConfig(manifest_path="m.json"))
+
+    assert "semantic-layer" in get_required_extras(config)
+    assert "semantic-layer" not in get_required_extras(NaoConfig(project_name="p"))

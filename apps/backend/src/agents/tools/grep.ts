@@ -1,9 +1,18 @@
+import type { RenderedConditionalGroupBlocks } from '@nao/shared/rules-template';
 import { grep } from '@nao/shared/tools';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
+import {
+	getAgentVisibleRulesView,
+	isAgentVisibleRootRulesPath,
+} from '../../services/agent-visible-project-file.service';
+import {
+	assertProjectContextPathAllowed,
+	isProjectContextPathAllowed,
+} from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
@@ -12,19 +21,23 @@ import {
 	isStoragePath,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
-	toRealPath,
+	resolveCanonicalProjectPath,
 	toStorageRelativePath,
 	toStorageScope,
 	toStorageVirtualPath,
-	toVirtualPath,
 } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 interface RipgrepMatch {
 	path: string;
 	line_number: number;
 	line_content: string;
-	context_before?: string[];
-	context_after?: string[];
+	context_before?: RipgrepContextLine[];
+	context_after?: RipgrepContextLine[];
+}
+
+interface RipgrepContextLine {
+	line_number: number;
+	line_content: string;
 }
 
 /** A directory ripgrep walks, and how its absolute paths map back to the file tree. */
@@ -36,11 +49,18 @@ interface SearchTarget {
 	/** Returns null when a match must be dropped because it sits outside the target. */
 	toDisplayPath: (absolutePath: string) => string | null;
 	toAbsolutePath: (displayPath: string) => string;
+	isAllowedDisplayPath: (displayPath: string) => boolean;
+	getRulesView: (displayPath: string) => SearchRulesView | null | undefined;
 }
 
 interface TargetResult {
 	matches: RipgrepMatch[];
 	totalMatches: number;
+}
+
+interface SearchRulesView {
+	lines: RenderedConditionalGroupBlocks['lines'];
+	renderedLineIndexBySourceLine: Map<number, number>;
 }
 
 export default createTool<grep.Input, grep.Output>({
@@ -75,24 +95,78 @@ const resolveTargets = (searchPath: string | undefined, context: ToolContext): S
 		return [storageTarget(searchPath!, context)];
 	}
 	if (searchPath) {
-		return [projectTarget(searchPath, context.projectFolder)];
+		return [projectTarget(searchPath, context)];
 	}
 
 	const storage = isStorageEnabled() && canGrepUserFiles() ? [storageTarget(toStorageVirtualPath(''), context)] : [];
-	return [projectTarget(undefined, context.projectFolder), ...storage];
+	return [projectTarget(undefined, context), ...storage];
 };
 
-const projectTarget = (searchPath: string | undefined, projectFolder: string): SearchTarget => {
+const projectTarget = (searchPath: string | undefined, context: ToolContext): SearchTarget => {
+	const projectFolder = context.projectFolder;
+	const canonicalRoot = resolveCanonicalProjectPath('/', projectFolder).realPath;
+	const root = searchPath
+		? resolveCanonicalProjectPath(searchPath, projectFolder)
+		: { realPath: canonicalRoot, virtualPath: '/' };
+	let cachedRulesView: SearchRulesView | null | undefined;
+	let rulesViewLoaded = false;
+	if (searchPath && fs.existsSync(root.realPath)) {
+		const kind = fs.statSync(root.realPath).isDirectory() ? 'directory' : 'file';
+		assertProjectContextPathAllowed(context, searchPath, root.virtualPath, kind);
+	}
+	const displayPathCache = new Map<string, string | null>();
 	return {
-		root: searchPath ? toRealPath(searchPath, projectFolder) : projectFolder,
+		root: root.realPath,
 		cwd: projectFolder,
 		ignoreGlobs: loadNaoignorePatterns(projectFolder),
 		includeHidden: false,
-		toDisplayPath: (absolutePath) =>
-			isWithinProjectFolder(absolutePath, projectFolder) ? toVirtualPath(absolutePath, projectFolder) : null,
-		toAbsolutePath: (displayPath) => toRealPath(displayPath, projectFolder),
+		toDisplayPath: (absolutePath) => {
+			const cacheKey = path.resolve(absolutePath);
+			if (!displayPathCache.has(cacheKey)) {
+				displayPathCache.set(cacheKey, canonicalAllowedDisplayPath(cacheKey, canonicalRoot, context));
+			}
+			return displayPathCache.get(cacheKey) ?? null;
+		},
+		toAbsolutePath: (displayPath) => resolveCanonicalProjectPath(displayPath, projectFolder).realPath,
+		isAllowedDisplayPath: () => true,
+		getRulesView: (displayPath) => {
+			if (!isAgentVisibleRootRulesPath(displayPath)) {
+				return undefined;
+			}
+			if (!rulesViewLoaded) {
+				rulesViewLoaded = true;
+				try {
+					const canonical = resolveCanonicalProjectPath(displayPath, projectFolder);
+					const rendered = getAgentVisibleRulesView(
+						canonical.virtualPath,
+						fs.readFileSync(canonical.realPath, 'utf-8'),
+						context,
+					);
+					cachedRulesView = rendered ? toSearchRulesView(rendered) : null;
+				} catch {
+					cachedRulesView = null;
+				}
+			}
+			return cachedRulesView;
+		},
 	};
 };
+
+function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string, context: ToolContext): string | null {
+	try {
+		if (!isWithinProjectFolder(absolutePath, canonicalRoot)) {
+			return null;
+		}
+		const relativePath = path.relative(canonicalRoot, absolutePath).replaceAll(path.sep, '/');
+		const virtualPath = relativePath ? `/${relativePath}` : '/';
+		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')
+			? canonical.virtualPath
+			: null;
+	} catch {
+		return null;
+	}
+}
 
 const storageTarget = (searchPath: string, context: ToolContext): SearchTarget => {
 	const scope = toStorageScope(context);
@@ -111,8 +185,17 @@ const storageTarget = (searchPath: string, context: ToolContext): SearchTarget =
 			return toStorageVirtualPath(relativePath.replaceAll(path.sep, '/'));
 		},
 		toAbsolutePath: (displayPath) => grepRootForUser(scope, toStorageRelativePath(displayPath)),
+		isAllowedDisplayPath: () => true,
+		getRulesView: () => undefined,
 	};
 };
+
+function toSearchRulesView(rendered: RenderedConditionalGroupBlocks): SearchRulesView {
+	return {
+		lines: rendered.lines,
+		renderedLineIndexBySourceLine: new Map(rendered.lines.map((line, index) => [line.sourceLineNumber, index])),
+	};
+}
 
 function searchTarget(
 	rgPath: string,
@@ -197,7 +280,16 @@ function searchTarget(
 
 					// Security check: ensure the file belongs to the target
 					const displayPath = target.toDisplayPath(data.path.text);
-					if (!displayPath) {
+					if (!displayPath || !target.isAllowedDisplayPath(displayPath)) {
+						continue;
+					}
+					const visibleLine = getVisibleMatchLine(
+						target,
+						displayPath,
+						data.line_number,
+						data.lines.text.replace(/\n$/, ''),
+					);
+					if (visibleLine === null) {
 						continue;
 					}
 
@@ -208,7 +300,7 @@ function searchTarget(
 							matches.push({
 								path: displayPath,
 								line_number: data.line_number,
-								line_content: data.lines.text.replace(/\n$/, ''),
+								line_content: visibleLine,
 							});
 						}
 					}
@@ -231,6 +323,23 @@ function searchTarget(
 	});
 }
 
+function getVisibleMatchLine(
+	target: SearchTarget,
+	displayPath: string,
+	sourceLineNumber: number,
+	sourceContent: string,
+): string | null {
+	const rulesView = target.getRulesView(displayPath);
+	if (rulesView === undefined) {
+		return sourceContent;
+	}
+	if (rulesView === null) {
+		return null;
+	}
+	const lineIndex = rulesView.renderedLineIndexBySourceLine.get(sourceLineNumber);
+	return lineIndex === undefined ? null : rulesView.lines[lineIndex].content;
+}
+
 /**
  * Add context lines to matches by reading the files.
  */
@@ -245,6 +354,14 @@ function addContextToMatches(matches: RipgrepMatch[], contextLines: number, targ
 
 	for (const [displayPath, fileMatches] of matchesByFile) {
 		try {
+			const rulesView = target.getRulesView(displayPath);
+			if (rulesView === null) {
+				continue;
+			}
+			if (rulesView) {
+				addRulesContextToMatches(fileMatches, contextLines, rulesView);
+				continue;
+			}
 			const content = fs.readFileSync(target.toAbsolutePath(displayPath), 'utf-8');
 			const lines = content.split('\n');
 
@@ -253,14 +370,39 @@ function addContextToMatches(matches: RipgrepMatch[], contextLines: number, targ
 
 				// Get context before
 				const beforeStart = Math.max(0, lineIndex - contextLines);
-				match.context_before = lines.slice(beforeStart, lineIndex);
+				match.context_before = lines.slice(beforeStart, lineIndex).map((line, index) => ({
+					line_number: beforeStart + index + 1,
+					line_content: line,
+				}));
 
 				// Get context after
 				const afterEnd = Math.min(lines.length, lineIndex + 1 + contextLines);
-				match.context_after = lines.slice(lineIndex + 1, afterEnd);
+				match.context_after = lines.slice(lineIndex + 1, afterEnd).map((line, index) => ({
+					line_number: lineIndex + index + 2,
+					line_content: line,
+				}));
 			}
 		} catch {
 			// Skip files that can't be read
 		}
+	}
+}
+
+function addRulesContextToMatches(matches: RipgrepMatch[], contextLines: number, rulesView: SearchRulesView): void {
+	for (const match of matches) {
+		const lineIndex = rulesView.renderedLineIndexBySourceLine.get(match.line_number);
+		if (lineIndex === undefined) {
+			continue;
+		}
+		const beforeStart = Math.max(0, lineIndex - contextLines);
+		match.context_before = rulesView.lines.slice(beforeStart, lineIndex).map((line) => ({
+			line_number: line.sourceLineNumber,
+			line_content: line.content,
+		}));
+		const afterEnd = Math.min(rulesView.lines.length, lineIndex + 1 + contextLines);
+		match.context_after = rulesView.lines.slice(lineIndex + 1, afterEnd).map((line) => ({
+			line_number: line.sourceLineNumber,
+			line_content: line.content,
+		}));
 	}
 }

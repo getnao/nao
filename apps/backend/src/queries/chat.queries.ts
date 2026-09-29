@@ -510,6 +510,7 @@ export const createChat = async (
 			.values({
 				id: messageId,
 				chatId: savedChat.id,
+				senderUserId: savedChat.userId,
 				role: 'user',
 				source: newUserMessage.source,
 				citation: newUserMessage.citation ?? null,
@@ -575,6 +576,7 @@ export const upsertMessage = async (
 	message: Omit<UIMessage, 'id'> & {
 		id?: string;
 		chatId: string;
+		senderUserId?: string;
 		stopReason?: StopReason;
 		error?: unknown;
 		tokenUsage?: TokenUsage;
@@ -589,6 +591,7 @@ export const upsertMessage = async (
 		const messageValues = {
 			id: messageId,
 			chatId: message.chatId,
+			senderUserId: message.senderUserId,
 			role: message.role,
 			stopReason: message.stopReason,
 			errorMessage: getErrorMessage(message.error),
@@ -1026,7 +1029,7 @@ export const getQueryResultByQueryIdInProject = async (
 				eq(s.chat.projectId, projectId),
 				eq(s.chat.userId, userId),
 				isNull(s.chatMessage.supersededAt),
-				eq(s.messagePart.toolName, executeSqlQueries.EXECUTE_SQL_TOOL_NAME),
+				executeSqlQueries.isQueryToolPart(),
 				executeSqlQueries.messagePartToolOutputIdEquals(queryId),
 			),
 		)

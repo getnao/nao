@@ -8,6 +8,7 @@ import { Prompt } from 'prompt-mentions';
 import StoryIcon from './ui/story-icon';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const STORY_MENTION_ID = story.MENTION_ID;
@@ -25,7 +26,9 @@ type ChatPromptProps = {
 	placeholder: string;
 	initialValue?: string;
 	minHeight?: string;
+	resizable?: boolean;
 	submitOnEnter?: boolean;
+	storyCreationEnabled: boolean;
 	onChange: (value: string, mentions: SelectedMention[]) => void;
 	onEnter?: (value: string, mentions: SelectedMention[]) => void;
 };
@@ -74,7 +77,9 @@ export function ChatPrompt({
 	placeholder,
 	initialValue,
 	minHeight,
+	resizable = false,
 	submitOnEnter = true,
+	storyCreationEnabled,
 	onChange,
 	onEnter,
 }: ChatPromptProps) {
@@ -100,11 +105,15 @@ export function ChatPrompt({
 						})) ?? []),
 					],
 				},
-				{
-					trigger: story.MENTION_TRIGGER,
-					menuPosition: 'above',
-					options: [storyMentionOption],
-				},
+				...(storyCreationEnabled
+					? [
+							{
+								trigger: story.MENTION_TRIGGER,
+								menuPosition: 'above' as const,
+								options: [storyMentionOption],
+							},
+						]
+					: []),
 				{
 					trigger: DATABASE_MENTION_TRIGGER,
 					menuPosition: 'above',
@@ -114,7 +123,7 @@ export function ChatPrompt({
 			onChange={onChange}
 			onEnter={onEnter}
 			submitOnEnter={submitOnEnter}
-			className='w-full nao-input'
+			className={cn('w-full nao-input', resizable && 'nao-input-resizable')}
 			style={
 				{
 					'--prompt-min-height': minHeight || '70px',

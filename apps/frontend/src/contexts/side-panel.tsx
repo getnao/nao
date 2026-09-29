@@ -12,6 +12,7 @@ interface SidePanelContext {
 	shareId: string | null;
 	shareType: ShareType | null;
 	isReadonlyMode: boolean;
+	isReplay: boolean;
 	open: (content: React.ReactNode, storySlug?: string) => void;
 	close: () => void;
 	registerBeforeChange: (guard: (continueChange: () => void) => void) => () => void;
@@ -29,6 +30,7 @@ const noopSidePanel: SidePanelContext = {
 	shareId: null,
 	shareType: null,
 	isReadonlyMode: false,
+	isReplay: false,
 	open: () => {},
 	close: () => {},
 	registerBeforeChange: () => () => {},
@@ -49,6 +51,7 @@ export const SidePanelProvider = ({
 	shareId = null,
 	shareType = null,
 	isReadonlyMode = false,
+	isReplay = false,
 	open,
 	close,
 }: {
@@ -62,6 +65,7 @@ export const SidePanelProvider = ({
 	shareId?: string | null;
 	shareType?: ShareType | null;
 	isReadonlyMode?: boolean;
+	isReplay?: boolean;
 	open: (content: React.ReactNode, storySlug?: string) => void;
 	close: () => void;
 }) => {
@@ -102,6 +106,7 @@ export const SidePanelProvider = ({
 			shareId,
 			shareType,
 			isReadonlyMode,
+			isReplay,
 			open: guardedOpen,
 			close: guardedClose,
 			registerBeforeChange,
@@ -116,6 +121,7 @@ export const SidePanelProvider = ({
 			shareId,
 			shareType,
 			isReadonlyMode,
+			isReplay,
 			guardedOpen,
 			guardedClose,
 			registerBeforeChange,

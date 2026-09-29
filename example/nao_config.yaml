@@ -13,8 +13,12 @@ databases:
   path: ./jaffle_shop.duckdb
 repos:
 - name: dbt
-  url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
+  url: https://github.com/getnao/jaffle_shop_duckdb.git
   branch: null
+semantic_layer:
+  type: metricflow
+  manifest_path: ./repos/dbt/target/semantic_manifest.json
+  database: duckdb-jaffle-shop
 notion: null
 llm: null
 slack: null

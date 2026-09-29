@@ -2,6 +2,7 @@ import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { EditorContent } from '@tiptap/react';
 import { memo } from 'react';
 import { StoryBlockActionGrip } from './story-editor-block-drag';
+import { getStoryEditorMarkdown } from './story-editor-utils';
 import { useStoryEditor } from './hooks/use-story-editor';
 import { BlockSelectionContext, SelectedBlockPositionsContext } from './story-block-selection-context';
 import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
@@ -87,5 +88,5 @@ export const StoryEditor = memo(function StoryEditor({
 });
 
 export function getEditorMarkdown(editor: Editor): string {
-	return editor.getMarkdown();
+	return getStoryEditorMarkdown(editor);
 }

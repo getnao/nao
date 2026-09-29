@@ -1,5 +1,5 @@
-import { executeSql } from '@nao/shared/tools';
-import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { executeSemanticQuery, executeSql } from '@nao/shared/tools';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -7,6 +7,40 @@ import dbConfig, { Dialect } from '../db/dbConfig';
 import { takeFirstOrThrow } from '../utils/queries';
 
 export const EXECUTE_SQL_TOOL_NAME = 'execute_sql';
+export const EXECUTE_SEMANTIC_QUERY_TOOL_NAME = 'execute_semantic_query';
+
+/** Tools whose output is a query result addressable by `query_id` (charts, stories, read_query_result). */
+export const QUERY_TOOL_NAMES = [EXECUTE_SQL_TOOL_NAME, EXECUTE_SEMANTIC_QUERY_TOOL_NAME] as const;
+export type QueryToolName = (typeof QUERY_TOOL_NAMES)[number];
+
+export function isQueryToolPart() {
+	return inArray(s.messagePart.toolName, [...QUERY_TOOL_NAMES]);
+}
+
+type QueryPart = { toolInput: executeSql.Input; toolOutput: executeSql.Output };
+
+/**
+ * Reads a stored query part as plain SQL whichever tool produced it: a semantic query
+ * resolves to the SQL the layer compiled, on the database the layer chose.
+ */
+function readQueryPart(toolName: string, toolInput: unknown, toolOutput: unknown): QueryPart {
+	if (toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
+		const input = executeSemanticQuery.InputSchema.parse(toolInput);
+		const output = executeSemanticQuery.OutputSchema.parse(toolOutput);
+		return {
+			toolInput: { sql_query: output.compiled_sql, database_id: output.database_id, name: input.name },
+			toolOutput: output,
+		};
+	}
+	return {
+		toolInput: executeSql.InputSchema.parse(toolInput),
+		toolOutput: executeSql.OutputSchema.parse(toolOutput),
+	};
+}
+
+function toQueryToolName(toolName: string): QueryToolName {
+	return toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME ? EXECUTE_SEMANTIC_QUERY_TOOL_NAME : EXECUTE_SQL_TOOL_NAME;
+}
 
 export function messagePartToolOutputIdEquals(queryId: string) {
 	return dbConfig.dialect === Dialect.Postgres
@@ -23,12 +57,13 @@ export type LatestExecuteSqlRow = {
 	userId: string;
 	chatId: string;
 	toolCallId: string;
+	toolName: QueryToolName;
 	toolInput: executeSql.Input;
 	toolOutput: executeSql.Output;
 	adminMode: boolean;
 };
 
-/** Latest non-superseded execute_sql part for a query id (global). */
+/** Latest non-superseded query part for a query id (global), read as SQL. */
 export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<LatestExecuteSqlRow | null> {
 	const [row] = await db
 		.select({
@@ -36,6 +71,7 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 			userId: s.chat.userId,
 			chatId: s.chat.id,
 			toolCallId: s.messagePart.toolCallId,
+			toolName: s.messagePart.toolName,
 			toolInput: s.messagePart.toolInput,
 			toolOutput: s.messagePart.toolOutput,
 			messageSource: s.chatMessage.source,
@@ -43,18 +79,12 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.where(
-			and(
-				eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME),
-				isNull(s.chatMessage.supersededAt),
-				messagePartToolOutputIdEquals(queryId),
-			),
-		)
+		.where(and(isQueryToolPart(), isNull(s.chatMessage.supersededAt), messagePartToolOutputIdEquals(queryId)))
 		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
 		.limit(1)
 		.execute();
 
-	if (!row?.toolCallId || !row.toolInput || !row.toolOutput) {
+	if (!row?.toolCallId || !row.toolName || !row.toolInput || !row.toolOutput) {
 		return null;
 	}
 
@@ -63,8 +93,8 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 		userId: row.userId,
 		chatId: row.chatId,
 		toolCallId: row.toolCallId,
-		toolInput: executeSql.InputSchema.parse(row.toolInput),
-		toolOutput: executeSql.OutputSchema.parse(row.toolOutput),
+		toolName: toQueryToolName(row.toolName),
+		...readQueryPart(row.toolName, row.toolInput, row.toolOutput),
 		adminMode: row.messageSource === 'admin',
 	};
 }
@@ -84,12 +114,13 @@ export async function getExecuteSqlOwnerByQueryId(
 	};
 }
 
-/** Latest non-superseded execute_sql part for a query id within a chat. */
+/** Latest non-superseded query part for a query id within a chat, read as SQL. */
 export async function getExecuteSqlPartByQueryIdInChat(
 	chatId: string,
 	queryId: string,
 ): Promise<{
 	toolCallId: string;
+	toolName: QueryToolName;
 	toolInput: executeSql.Input;
 	toolOutput: executeSql.Output;
 	adminMode: boolean;
@@ -97,6 +128,7 @@ export async function getExecuteSqlPartByQueryIdInChat(
 	const [row] = await db
 		.select({
 			toolCallId: s.messagePart.toolCallId,
+			toolName: s.messagePart.toolName,
 			toolInput: s.messagePart.toolInput,
 			toolOutput: s.messagePart.toolOutput,
 			messageSource: s.chatMessage.source,
@@ -107,7 +139,7 @@ export async function getExecuteSqlPartByQueryIdInChat(
 			and(
 				eq(s.chatMessage.chatId, chatId),
 				isNull(s.chatMessage.supersededAt),
-				eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME),
+				isQueryToolPart(),
 				messagePartToolOutputIdEquals(queryId),
 			),
 		)
@@ -115,14 +147,14 @@ export async function getExecuteSqlPartByQueryIdInChat(
 		.limit(1)
 		.execute();
 
-	if (!row?.toolCallId || !row.toolInput || !row.toolOutput) {
+	if (!row?.toolCallId || !row.toolName || !row.toolInput || !row.toolOutput) {
 		return null;
 	}
 
 	return {
 		toolCallId: row.toolCallId,
-		toolInput: executeSql.InputSchema.parse(row.toolInput),
-		toolOutput: executeSql.OutputSchema.parse(row.toolOutput),
+		toolName: toQueryToolName(row.toolName),
+		...readQueryPart(row.toolName, row.toolInput, row.toolOutput),
 		adminMode: row.messageSource === 'admin',
 	};
 }
@@ -145,6 +177,7 @@ export async function updateExecuteSqlPart(
 async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) {
 	return db
 		.select({
+			toolName: s.messagePart.toolName,
 			toolInput: s.messagePart.toolInput,
 			toolOutput: s.messagePart.toolOutput,
 			messageSource: s.chatMessage.source,
@@ -155,7 +188,7 @@ async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) 
 			and(
 				eq(s.chatMessage.chatId, chatId),
 				isNull(s.chatMessage.supersededAt),
-				eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME),
+				isQueryToolPart(),
 				messagePartToolOutputIdIn(queryIds),
 			),
 		)
@@ -179,16 +212,33 @@ export async function getLatestSqlQueriesByIds(
 	const queries: Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }> = {};
 	for (const part of parts) {
 		const output = part.toolOutput as { id?: string } | null;
-		const input = part.toolInput as { sql_query?: string; database_id?: string } | null;
-		if (output?.id && queryIds.has(output.id) && input?.sql_query) {
+		if (!output?.id || !queryIds.has(output.id) || !part.toolName) {
+			continue;
+		}
+		const { sqlQuery, databaseId } = readStoredSql(part.toolName, part.toolInput, part.toolOutput);
+		if (sqlQuery) {
 			queries[output.id] = {
-				sqlQuery: input.sql_query,
-				...(input.database_id && { databaseId: input.database_id }),
+				sqlQuery,
+				...(databaseId && { databaseId }),
 				adminMode: part.messageSource === 'admin',
 			};
 		}
 	}
 	return queries;
+}
+
+/** Loose read of the SQL a stored part ran, tolerant of parts written by older versions. */
+function readStoredSql(
+	toolName: string,
+	toolInput: unknown,
+	toolOutput: unknown,
+): { sqlQuery?: string; databaseId?: string } {
+	if (toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
+		const output = toolOutput as { compiled_sql?: string; database_id?: string } | null;
+		return { sqlQuery: output?.compiled_sql, databaseId: output?.database_id };
+	}
+	const input = toolInput as { sql_query?: string; database_id?: string } | null;
+	return { sqlQuery: input?.sql_query, databaseId: input?.database_id };
 }
 
 /**

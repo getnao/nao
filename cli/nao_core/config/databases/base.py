@@ -61,6 +61,12 @@ class DatabaseTemplate(str, Enum):
     QUERY_HISTORY = "query_history"
 
 
+DEFAULT_DATABASE_TEMPLATES = [
+    DatabaseTemplate.COLUMNS,
+    DatabaseTemplate.PREVIEW,
+]
+
+
 # Backward-compatible alias
 DatabaseAccessor = DatabaseTemplate
 
@@ -105,6 +111,10 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+    allow_listed_only: bool = Field(
+        default=False,
+        description="When enabled, SQL may only query tables present in synced context for this database.",
+    )
     exclude_columns: list[str] = Field(
         default_factory=list,
         description=(
@@ -114,15 +124,11 @@ class DatabaseConfig(BaseModel, ABC):
         ),
     )
     templates: list[DatabaseTemplate] = Field(
-        default_factory=lambda: [
-            DatabaseTemplate.COLUMNS,
-            DatabaseTemplate.QUERY_HISTORY,
-            DatabaseTemplate.PREVIEW,
-        ],
+        default_factory=lambda: list(DEFAULT_DATABASE_TEMPLATES),
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'query_history', 'profiling', 'ai_summary']). "
-            "Defaults to ['columns', 'query_history', 'preview']."
+            "(e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). "
+            "Defaults to ['columns', 'preview']; an empty list uses this default."
         ),
     )
     query_history_days: int | None = Field(
@@ -181,6 +187,8 @@ class DatabaseConfig(BaseModel, ABC):
                 if template != "description"
             ]
             data["templates"] = list(dict.fromkeys(migrated_templates))
+            if not data["templates"]:
+                data["templates"] = list(DEFAULT_DATABASE_TEMPLATES)
         return data
 
     profiling: ProfilingConfig = Field(
@@ -203,11 +211,13 @@ class DatabaseConfig(BaseModel, ABC):
         """Create an Ibis connection for this database."""
         ...
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
         """Execute arbitrary SQL and return results as a DataFrame."""
         import pandas as pd  # noqa: F811
 
-        conn = self.connect()
+        owns_connection = conn is None
+        if conn is None:
+            conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
 
@@ -232,7 +242,8 @@ class DatabaseConfig(BaseModel, ABC):
                 "Expected cursor with fetchdf, to_dataframe, to_pandas, result_rows/column_names, or description/fetchall."
             )
         finally:
-            conn.disconnect()
+            if owns_connection:
+                conn.disconnect()
 
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.

@@ -2,6 +2,20 @@ type MessageWithParts<TPart> = {
 	parts: TPart[];
 };
 
+/** Tool parts whose output is a query result addressable by its query id. */
+export const QUERY_RESULT_PART_TYPES = ['tool-execute_sql', 'tool-execute_semantic_query'] as const;
+export type QueryResultPartType = (typeof QUERY_RESULT_PART_TYPES)[number];
+
+export function isQueryResultPartType(type: string): type is QueryResultPartType {
+	return (QUERY_RESULT_PART_TYPES as readonly string[]).includes(type);
+}
+
+export function isQueryResultPart<TPart extends { type: string }>(
+	part: TPart,
+): part is Extract<TPart, { type: QueryResultPartType }> {
+	return isQueryResultPartType(part.type);
+}
+
 /**
  * Parts whose query id was re-run later in the conversation (in-place edits).
  * Identity is by object reference — call before cloning parts.
@@ -74,7 +88,10 @@ export function markSupersededExecuteSqlParts<TPart, TMessage extends MessageWit
 }
 
 function getExecuteSqlQueryId(part: unknown): string | null {
-	if (!part || typeof part !== 'object' || !('type' in part) || part.type !== 'tool-execute_sql') {
+	if (!part || typeof part !== 'object' || !('type' in part) || typeof part.type !== 'string') {
+		return null;
+	}
+	if (!isQueryResultPartType(part.type)) {
 		return null;
 	}
 	if (!('output' in part) || !part.output || typeof part.output !== 'object' || !('id' in part.output)) {

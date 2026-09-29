@@ -122,7 +122,7 @@ export async function writeFileContent(
 	try {
 		writeFileAtomically({
 			beforeRename: () => {
-				const latestContent = readValidatedFileSync(realPath, filePath);
+				const latestContent = readValidatedContextFileSync(realPath, filePath);
 				assertExpectedHash(latestContent, expectedHash);
 			},
 			content,
@@ -402,7 +402,7 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
-		const realPath = toRealPath(virtualPath, root);
+		const realPath = toRealPath(virtualPath, root, { resolveSymlinks: false });
 		assertNoSymlinkInWritePath(root, realPath, virtualPath);
 		return { realPath, root };
 	} catch (error) {
@@ -427,7 +427,7 @@ async function readValidatedFile(filePath: string, displayPath: string): Promise
 	}
 }
 
-function readValidatedFileSync(filePath: string, displayPath: string): Buffer {
+export function readValidatedContextFileSync(filePath: string, displayPath: string): Buffer {
 	let fileDescriptor: number | null = null;
 	try {
 		fileDescriptor = fsSync.openSync(filePath, fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW);
@@ -550,6 +550,12 @@ function guidanceForReason(
 			actionKind: null,
 			actionPath: null,
 			actionLabel: null,
+		},
+		'repository-mismatch': {
+			message: "The connected repository does not match the live project's Git repository.",
+			actionKind: 'route',
+			actionPath: '/settings/git',
+			actionLabel: 'Open Git settings',
 		},
 		'no-token': {
 			message: `Connect your ${providerName} account to edit context files.`,

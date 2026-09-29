@@ -5,13 +5,21 @@ import os from 'os';
 import path from 'path';
 
 import { ChatImage, getImagesByChatId } from '../../queries/image.queries';
+import {
+	getAgentVisibleRulesView,
+	isAgentVisibleRootRulesPath,
+} from '../../services/agent-visible-project-file.service';
+import { isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { getQueryResult } from '../../services/query-result.service';
 import { sandboxRuntime } from '../../services/sandbox-runtime';
+import { ResolvedSandboxSecret, sandboxSecretService } from '../../services/sandbox-secret.service';
 import { readUserFileBytes, writeUserFileBytes } from '../../services/storage/user-files';
 import { QueryResult, ToolContext } from '../../types/tools';
+import { redactSecretValues, toSandboxEnv } from '../../utils/sandbox-secrets';
 import {
 	createTool,
 	isStoragePath,
+	resolveCanonicalProjectPath,
 	shouldExcludeEntry,
 	toStorageRelativePath,
 	toStorageScope,
@@ -24,22 +32,33 @@ export { isSandboxAvailable } from '../../services/sandbox-runtime';
 
 const WORKING_DIR = '/root';
 const SANDBOX_TTL_MS = 5 * 60 * 1000;
+/** Same interpreter boxlite's `CodeBox.run` uses; called through `exec` so secrets can be passed as env. */
+const PYTHON_BIN = '/usr/local/bin/python';
 
 type CodeBox = InstanceType<NonNullable<typeof boxliteModule>['CodeBox']>;
+interface ContextSandbox {
+	exec: (...args: string[]) => Promise<unknown>;
+	copyIn: (source: string, destination: string) => Promise<void>;
+}
 
 interface PooledSandbox {
 	box: CodeBox;
-	timeout: ReturnType<typeof setTimeout>;
+	/** The user and project the sandbox was created for; its secrets and files must never reach another. */
+	ownerKey: string;
+	timeout?: ReturnType<typeof setTimeout>;
 }
 
 const sandboxPool = new Map<string, PooledSandbox>();
+const sandboxLocks = new Map<string, Promise<void>>();
 
-function evictSandbox(id: string) {
+function evictSandbox(id: string, expectedEntry?: PooledSandbox) {
 	const entry = sandboxPool.get(id);
-	if (!entry) {
+	if (!entry || (expectedEntry && entry !== expectedEntry)) {
 		return;
 	}
-	clearTimeout(entry.timeout);
+	if (entry.timeout) {
+		clearTimeout(entry.timeout);
+	}
 	sandboxPool.delete(id);
 	// Do NOT call box.stop() — boxlite v0.3.0 has a bug where stopping a box
 	// corrupts the runtime, causing all subsequent box creations to fail with
@@ -47,20 +66,65 @@ function evictSandbox(id: string) {
 	// The runtime will clean up the VM resources when the box is GC'd.
 }
 
-function resetSandboxTTL(id: string) {
-	const entry = sandboxPool.get(id);
-	if (!entry) {
-		return;
+function clearSandboxTTL(entry: PooledSandbox) {
+	if (entry.timeout) {
+		clearTimeout(entry.timeout);
+		entry.timeout = undefined;
 	}
-	clearTimeout(entry.timeout);
-	entry.timeout = setTimeout(() => evictSandbox(id), SANDBOX_TTL_MS);
 }
 
-function registerSandbox(box: CodeBox): string {
+function resetSandboxTTL(id: string, entry: PooledSandbox) {
+	if (sandboxPool.get(id) !== entry) {
+		return;
+	}
+	clearSandboxTTL(entry);
+	const timeout = setTimeout(() => {
+		void withSandboxLock(id, async () => {
+			if (sandboxPool.get(id) === entry && entry.timeout === timeout) {
+				evictSandbox(id, entry);
+			}
+		});
+	}, SANDBOX_TTL_MS);
+	entry.timeout = timeout;
+}
+
+async function withSandboxLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
+	const previous = sandboxLocks.get(id) ?? Promise.resolve();
+	let release = () => {};
+	const current = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const tail = previous.then(() => current);
+	sandboxLocks.set(id, tail);
+
+	await previous;
+	try {
+		return await operation();
+	} finally {
+		release();
+		if (sandboxLocks.get(id) === tail) {
+			sandboxLocks.delete(id);
+		}
+	}
+}
+
+function getPooledSandbox(id: string, ownerKey: string): PooledSandbox | undefined {
+	const entry = sandboxPool.get(id);
+	if (!entry || entry.ownerKey !== ownerKey) {
+		return undefined;
+	}
+	clearSandboxTTL(entry);
+	return entry;
+}
+
+function registerSandbox(box: CodeBox, ownerKey: string): string {
 	const id = `sbx_${crypto.randomBytes(6).toString('hex')}`;
-	const timeout = setTimeout(() => evictSandbox(id), SANDBOX_TTL_MS);
-	sandboxPool.set(id, { box, timeout });
+	sandboxPool.set(id, { box, ownerKey });
 	return id;
+}
+
+function sandboxOwnerKey({ userId, projectId }: ToolContext): string {
+	return `${userId}:${projectId}`;
 }
 
 function queryResultToCsv({ columns, data }: QueryResult): string {
@@ -84,11 +148,11 @@ async function getOrCreateSandbox(
 	sandboxId: string | undefined,
 	image: string,
 	vmSize: schemas.VmSize,
+	ownerKey: string,
 ): Promise<{ id: string; box: CodeBox; reused: boolean }> {
 	if (sandboxId) {
-		const existing = sandboxPool.get(sandboxId);
+		const existing = getPooledSandbox(sandboxId, ownerKey);
 		if (existing) {
-			resetSandboxTTL(sandboxId);
 			return { id: sandboxId, box: existing.box, reused: true };
 		}
 	}
@@ -107,7 +171,7 @@ async function getOrCreateSandbox(
 		},
 	});
 
-	const id = registerSandbox(box);
+	const id = registerSandbox(box, ownerKey);
 	return { id, box, reused: false };
 }
 
@@ -116,7 +180,10 @@ const IMAGES_DIR = `${WORKING_DIR}/images`;
 const STORAGE_FILES_DIR = `${WORKING_DIR}/files`;
 const OUTPUT_DIR = `${WORKING_DIR}/${schemas.SANDBOX_OUTPUT_DIR}`;
 
-async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir: string): Promise<void> {
+async function copyProjectToSandbox(box: ContextSandbox, context: ToolContext, tmpDir: string): Promise<void> {
+	const projectFolder = context.projectFolder;
+	const contextTmpDir = path.join(tmpDir, 'context');
+	fs.rmSync(contextTmpDir, { recursive: true, force: true });
 	const walkDir = (dir: string, relativeDir: string): void => {
 		const entries = fs.readdirSync(dir, { withFileTypes: true });
 		for (const entry of entries) {
@@ -125,19 +192,43 @@ async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir:
 			}
 			const fullPath = path.join(dir, entry.name);
 			const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+			const virtualPath = `/${relativePath}`;
+			if (entry.isSymbolicLink()) {
+				continue;
+			}
 			if (entry.isDirectory()) {
-				walkDir(fullPath, relativePath);
+				const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
+				if (isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory')) {
+					walkDir(fullPath, relativePath);
+				}
 			} else if (entry.isFile()) {
+				const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
+				if (!isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')) {
+					continue;
+				}
 				const tmpPath = path.join(tmpDir, 'context', relativePath);
 				fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
-				fs.copyFileSync(fullPath, tmpPath);
+				if (!isAgentVisibleRootRulesPath(canonical.virtualPath)) {
+					fs.copyFileSync(fullPath, tmpPath);
+					continue;
+				}
+				const rulesView = getAgentVisibleRulesView(
+					canonical.virtualPath,
+					fs.readFileSync(fullPath, 'utf-8'),
+					context,
+				);
+				if (rulesView === null) {
+					continue;
+				}
+				if (rulesView) {
+					fs.writeFileSync(tmpPath, rulesView.content, 'utf-8');
+				}
 			}
 		}
 	};
 
 	walkDir(projectFolder, '');
 
-	const contextTmpDir = path.join(tmpDir, 'context');
 	if (!fs.existsSync(contextTmpDir)) {
 		return;
 	}
@@ -158,6 +249,15 @@ async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir:
 	};
 
 	await Promise.all(copyFiles(contextTmpDir, CONTEXT_DIR));
+}
+
+export async function refreshProjectContextInSandbox(
+	box: ContextSandbox,
+	context: ToolContext,
+	tmpDir: string,
+): Promise<void> {
+	await box.exec('sh', '-c', `rm -rf ${CONTEXT_DIR} && mkdir -p ${CONTEXT_DIR}`);
+	await copyProjectToSandbox(box, context, tmpDir);
 }
 
 const MEDIA_TYPE_EXTENSIONS: Record<string, string> = {
@@ -288,18 +388,49 @@ const savedFiles = async (
 	return { saved_files: await saveSandboxFilesToStorage(box, files, context, tmpDir) };
 };
 
-async function executeSandboxedCode(
+/**
+ * Runs the code with the user's secrets in its environment. They travel host → guest only, and every
+ * output the model reads is scrubbed of their values, so the only way a secret reaches the model is code
+ * that deliberately prints it.
+ */
+async function runWithSecrets(
+	box: CodeBox,
+	code: string,
+	language: schemas.Input['language'],
+	secrets: ResolvedSandboxSecret[],
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+	const [command, args] = language === 'python' ? [PYTHON_BIN, ['-c', code]] : ['sh', ['-c', code]];
+	const env = secrets.length > 0 ? toSandboxEnv(secrets) : undefined;
+	const result = await box.exec(command, args, env);
+	return {
+		stdout: redactSecretValues(result.stdout, secrets),
+		stderr: redactSecretValues(result.stderr, secrets),
+		exitCode: result.exitCode,
+	};
+}
+
+async function executeSandboxedCode(input: schemas.Input, context: ToolContext): Promise<schemas.Output> {
+	const lockId = input.sandbox_id ?? `new_${crypto.randomBytes(6).toString('hex')}`;
+	return withSandboxLock(lockId, () => executeSandboxedCodeLocked(input, context));
+}
+
+async function executeSandboxedCodeLocked(
 	{ sandbox_id, code, language, image, vm_size, packages, data_files, storage_files, save_files }: schemas.Input,
 	context: ToolContext,
 ): Promise<schemas.Output> {
-	const { projectFolder, chatId } = context;
+	const { chatId, userId, projectId } = context;
 	if (!boxliteModule) {
 		throw new Error('Sandbox execution is not available on this platform');
 	}
 
 	const { ExecError, TimeoutError } = boxliteModule;
 
-	const { id, box, reused } = await getOrCreateSandbox(sandbox_id, image ?? 'python:3.12-slim', vm_size ?? 'xxs');
+	const { id, box, reused } = await getOrCreateSandbox(
+		sandbox_id,
+		image ?? 'python:3.12-slim',
+		vm_size ?? 'xxs',
+		sandboxOwnerKey(context),
+	);
 
 	let tmpDir: string | undefined;
 	const stderrParts: string[] = [];
@@ -307,6 +438,8 @@ async function executeSandboxedCode(
 	if (sandbox_id && !reused) {
 		stderrParts.push(`Sandbox "${sandbox_id}" expired — created a new one.`);
 	}
+
+	const secrets = await sandboxSecretService.resolve(userId, projectId);
 
 	try {
 		if (packages?.length) {
@@ -326,10 +459,9 @@ async function executeSandboxedCode(
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-sandbox-'));
 
 		if (!reused) {
-			// Exists from the start so that code writing to out/ never has to create it first.
 			await box.exec('mkdir', '-p', OUTPUT_DIR);
-			await copyProjectToSandbox(box, projectFolder, tmpDir);
 		}
+		await refreshProjectContextInSandbox(box, context, tmpDir);
 
 		const chatImages = await getImagesByChatId(chatId);
 		if (chatImages.length > 0) {
@@ -359,18 +491,7 @@ async function executeSandboxedCode(
 			}
 		}
 
-		if (language === 'python') {
-			const stdout = await box.run(code);
-			return {
-				sandbox_id: id,
-				stdout,
-				stderr: stderrParts.join('\n'),
-				exitCode: 0,
-				...(await savedFiles(box, save_files, context, tmpDir)),
-			};
-		}
-
-		const result = await box.exec('sh', '-c', code);
+		const result = await runWithSecrets(box, code, language, secrets);
 		return {
 			sandbox_id: id,
 			stdout: result.stdout,
@@ -380,7 +501,7 @@ async function executeSandboxedCode(
 		};
 	} catch (err) {
 		if (err instanceof ExecError) {
-			return { sandbox_id: id, stdout: '', stderr: err.message, exitCode: 1 };
+			return { sandbox_id: id, stdout: '', stderr: redactSecretValues(err.message, secrets), exitCode: 1 };
 		}
 		if (err instanceof TimeoutError) {
 			evictSandbox(id);
@@ -401,6 +522,10 @@ async function executeSandboxedCode(
 	} finally {
 		if (tmpDir) {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+		const entry = sandboxPool.get(id);
+		if (entry?.box === box) {
+			resetSandboxTTL(id, entry);
 		}
 	}
 }

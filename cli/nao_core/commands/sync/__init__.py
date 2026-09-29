@@ -72,7 +72,11 @@ def sync(
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
-    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
+    # Sync only reads the provider sections it runs (databases, repos, notion,
+    # confluence): an integration block that fails validation — typically an unset
+    # env('...') secret for llm or slack — is dropped with a warning instead of
+    # failing a run that never touches it.
+    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True, drop_invalid_optional_sections=True)
     assert config is not None  # Help type checker after exit_on_error=True
 
     project_path = Path.cwd()

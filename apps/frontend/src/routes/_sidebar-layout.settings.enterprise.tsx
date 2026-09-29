@@ -18,6 +18,7 @@ import {
 	ShieldCheck,
 	TriangleAlert,
 	UserCheck,
+	UsersRound,
 } from 'lucide-react';
 import type { LicenseStatus } from '@nao/backend/license-types';
 
@@ -229,7 +230,7 @@ function LicenseDetails({
 	);
 }
 
-const ENTERPRISE_FEATURES = [
+export const ENTERPRISE_FEATURES = [
 	{
 		key: 'sso',
 		label: 'Company sign-in (SSO)',
@@ -250,6 +251,12 @@ const ENTERPRISE_FEATURES = [
 		icon: CircleDollarSign,
 	},
 	{
+		key: 'user-groups',
+		label: 'Unlimited user groups',
+		description: 'Create more than the 3 custom groups included with the free plan.',
+		icon: UsersRound,
+	},
+	{
 		key: 'multi-project',
 		label: 'Multiple projects',
 		description: 'Keep separate data contexts for different teams and use cases.',
@@ -262,6 +269,7 @@ const ENTERPRISE_FEATURES = [
 		icon: Columns3,
 	},
 	{
+		key: 'row-level-security',
 		label: 'Row-level security',
 		description: "Restrict which rows each person can see, using your warehouse's own rules.",
 		icon: ShieldCheck,

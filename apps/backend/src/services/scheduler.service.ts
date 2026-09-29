@@ -136,16 +136,19 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 }
 
 async function onJobSuccess(job: DBScheduledJob): Promise<void> {
-	if (!job.cron) {
-		await scheduledJobQueries.deleteJob(job.id);
+	// Re-read the row: the cron may have been edited (or the job promoted to one-off)
+	// while it was running, and the next run must reflect the current definition.
+	const current = (await scheduledJobQueries.getJobById(job.id)) ?? job;
+	if (!current.cron) {
+		await scheduledJobQueries.deleteJob(current.id);
 		return;
 	}
-	const next = nextCronTick(job.cron, new Date());
+	const next = nextCronTick(current.cron, new Date());
 	if (!next) {
-		await scheduledJobQueries.markJobFailed(job.id, `Cron expression became invalid: ${job.cron}`, null);
+		await scheduledJobQueries.markJobFailed(current.id, `Cron expression became invalid: ${current.cron}`, null);
 		return;
 	}
-	await scheduledJobQueries.rescheduleJob(job.id, next);
+	await scheduledJobQueries.rescheduleJob(current.id, next);
 }
 
 async function onJobFailure(job: DBScheduledJob, err: unknown): Promise<void> {
@@ -156,8 +159,9 @@ async function onJobFailure(job: DBScheduledJob, err: unknown): Promise<void> {
 	});
 
 	if (job.attempts >= job.maxAttempts) {
-		if (job.cron) {
-			const next = nextCronTick(job.cron, new Date());
+		const cron = (await scheduledJobQueries.getJobById(job.id))?.cron ?? job.cron;
+		if (cron) {
+			const next = nextCronTick(cron, new Date());
 			if (next) {
 				await scheduledJobQueries.rescheduleJob(job.id, next);
 				return;

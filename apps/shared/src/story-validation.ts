@@ -472,11 +472,11 @@ function findMatchingClose(code: string, startIndex: number): number {
 
 function validateUnterminatedTags(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
-	const tagRegex = /<(chart|table|filter)\b[^>]*$/gm;
+	const tagRegex = /<(chart|table|filter)\b(?:[^<>"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*(>)?/g;
 	let match: RegExpExecArray | null;
 
 	while ((match = tagRegex.exec(code)) !== null) {
-		if (match[0].includes('>')) {
+		if (match[2] !== undefined) {
 			continue;
 		}
 		const position = getPosition(code, match.index);
@@ -484,7 +484,7 @@ function validateUnterminatedTags(code: string): StoryValidationError[] {
 			message: `<${match[1]}> tag is not properly closed — did you forget "/>"?`,
 			line: position.line,
 			column: position.column,
-			length: match[0].length,
+			length: getLineContentLength(code, match.index),
 		});
 	}
 

@@ -16,9 +16,10 @@ async function loadTools(variant: 'posix' | 'win32') {
 		throw err;
 	};
 	vi.doMock('fs', () => ({
-		default: { existsSync: () => false, readFileSync: () => '', statSync },
+		default: { existsSync: () => false, readFileSync: () => '', realpathSync: statSync, statSync },
 		existsSync: () => false,
 		readFileSync: () => '',
+		realpathSync: statSync,
 		statSync,
 	}));
 

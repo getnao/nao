@@ -165,6 +165,7 @@ export function OrgMembers() {
 				onOpenChange={(open) => !open && setEditMember(null)}
 				member={editMember}
 				isAdmin={isOrgAdmin}
+				roleScope='organization'
 				availableRoles={ORG_MEMBER_ROLES}
 				onSubmit={handleEdit}
 			/>

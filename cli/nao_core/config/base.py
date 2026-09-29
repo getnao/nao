@@ -24,6 +24,7 @@ from .metabase import MetabaseConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
+from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
 from .slack import SlackConfig
 from .test import TestConfig
@@ -33,6 +34,13 @@ class NaoConfigError(Exception):
     """Raised when nao config loading fails."""
 
     pass
+
+
+# Integration blocks a command can run without. Commands that only read part of the
+# config (e.g. `nao sync` with the databases provider) can load with
+# drop_invalid_optional_sections=True so an unresolvable block here — typically an
+# unset env('...') secret — is ignored with a warning instead of failing the run.
+OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test", "semantic_layer")
 
 
 class NaoConfig(BaseModel):
@@ -50,6 +58,9 @@ class NaoConfig(BaseModel):
     metabase: MetabaseConfig | None = Field(default=None, description="The Metabase configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
     test: TestConfig | None = Field(default=None, description="The defaults used by `nao test`")
+    semantic_layer: SemanticLayerConfig | None = Field(
+        default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
+    )
 
     _missing_secrets: dict[str, None] = {}
 
@@ -108,6 +119,8 @@ class NaoConfig(BaseModel):
             UI.print("  Skills: configured")
         if existing.test:
             UI.print("  Test: configured")
+        if existing.semantic_layer:
+            UI.print("  Semantic layer: configured")
         UI.print()
 
         new_databases = cls._prompt_databases(has_existing=bool(existing.databases))
@@ -192,15 +205,49 @@ class NaoConfig(BaseModel):
         cls,
         path: Path,
         extra_env: dict[str, str] | None = None,
+        drop_invalid_optional_sections: bool = False,
     ) -> "NaoConfig":
-        """Load the configuration from a YAML file."""
+        """Load the configuration from a YAML file.
+
+        With drop_invalid_optional_sections=True, a section from OPTIONAL_SECTIONS that
+        fails validation is replaced by None and reported as a warning, so commands that
+        do not use it can still run. Errors anywhere else fail the load as usual.
+        """
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
         processed_content, missing = process_secrets(content, extra_env=extra_env)
         cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
         data = yaml.safe_load(processed_content)
         cls._warn_on_legacy_llm(data)
-        return cls.model_validate(data)
+        if not drop_invalid_optional_sections:
+            return cls.model_validate(data)
+        return cls._validate_dropping_optional_sections(data)
+
+    @classmethod
+    def _validate_dropping_optional_sections(cls, data: Any) -> "NaoConfig":
+        try:
+            return cls.model_validate(data)
+        except ValidationError as e:
+            if not isinstance(data, dict):
+                raise
+
+            dropped: dict[str, str] = {}
+            for error in e.errors():
+                section = error["loc"][0] if error["loc"] else None
+                if not isinstance(section, str) or section not in OPTIONAL_SECTIONS:
+                    raise
+                dropped.setdefault(section, str(error["msg"]))
+
+            config = cls.model_validate({**data, **{section: None for section in dropped}})
+            for section, reason in dropped.items():
+                hint = ""
+                if cls._missing_secrets:
+                    hint = f" (unset environment variables: {', '.join(cls._missing_secrets)})"
+                UI.warn(
+                    f"Ignoring invalid `{section}` config for this command: {reason}{hint}. "
+                    f"Commands that use `{section}` will keep failing until it validates."
+                )
+            return config
 
     @staticmethod
     def _warn_on_legacy_llm(data: Any) -> None:
@@ -233,6 +280,7 @@ class NaoConfig(BaseModel):
         exit_on_error: bool = False,
         raise_on_error: bool = False,
         extra_env: dict[str, str] | None = None,
+        drop_invalid_optional_sections: bool = False,
     ) -> "NaoConfig | None":
         """Try to load config from path.
 
@@ -241,6 +289,8 @@ class NaoConfig(BaseModel):
             exit_on_error: If True, prints error message and calls sys.exit(1) on failure.
             raise_on_error: If True, raises NaoConfigError on failure.
             extra_env: Optional env vars that take precedence over os.environ during template resolution.
+            drop_invalid_optional_sections: If True, an invalid OPTIONAL_SECTIONS block is
+                nulled with a warning instead of failing the load (see `load`).
         Returns:
             NaoConfig if loaded successfully, None if failed and both flags are False.
         """
@@ -261,7 +311,11 @@ class NaoConfig(BaseModel):
 
         try:
             os.chdir(path)
-            return cls.load(path, extra_env=extra_env)
+            return cls.load(
+                path,
+                extra_env=extra_env,
+                drop_invalid_optional_sections=drop_invalid_optional_sections,
+            )
         except yaml.YAMLError as e:
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")
             return None
