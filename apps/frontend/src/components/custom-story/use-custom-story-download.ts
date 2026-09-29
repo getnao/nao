@@ -11,6 +11,7 @@ import type { CustomStoryContent } from '@/components/custom-story/custom-story-
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { StoryDownloadFile } from '@/components/story-download';
 import { narrativesOptions, queryDataOptions } from '@/components/custom-story/story-data-options';
+import { isForbiddenError, isNotFoundError } from '@/lib/trpc-error';
 
 type RenderExport = (format: DownloadFormat, html: string) => Promise<StoryDownloadFile>;
 
@@ -70,7 +71,12 @@ async function fetchExportData(
 			queryIds.map((queryId) =>
 				queryClient.fetchQuery(queryDataOptions(dataSource, queryId)).then(
 					(result): [string, StoryQueryResult] => [queryId, result],
-					() => null,
+					(error: unknown) => {
+						if (isUnknownQueryError(error)) {
+							return null;
+						}
+						throw error;
+					},
 				),
 			),
 		),
@@ -80,4 +86,8 @@ async function fetchExportData(
 		queries: Object.fromEntries(results.filter((entry) => entry !== null)),
 		narratives,
 	};
+}
+
+function isUnknownQueryError(error: unknown): boolean {
+	return isNotFoundError(error) || isForbiddenError(error);
 }
