@@ -2,7 +2,6 @@ from nao_core.commands.chat import chat
 from nao_core.commands.debug import debug
 from nao_core.commands.deploy import deploy
 from nao_core.commands.docs import docs
-from nao_core.commands.imports import import_app
 from nao_core.commands.init import init
 from nao_core.commands.migrate import migrate
 from nao_core.commands.reset_password import reset_password
@@ -16,7 +15,6 @@ __all__ = [
     "debug",
     "deploy",
     "docs",
-    "import_app",
     "init",
     "migrate",
     "reset_password",

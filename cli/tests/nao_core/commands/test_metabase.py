@@ -1,25 +1,47 @@
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, call
 
 import pytest
+import yaml
 
-import nao_core.commands.metabase as metabase_commands
+from nao_core.commands.migrate import metabase as metabase_commands
+from nao_core.commands.migrate import metabase_client
 
 
-def test_configure_masks_api_key_input_and_saves_credentials_to_project_env(monkeypatch, tmp_path):
-    project_path = tmp_path / "project"
-    nested_path = project_path / "agent"
-    nested_path.mkdir(parents=True)
-    (tmp_path / ".env").write_text("PARENT=true\n")
-    (project_path / "nao_config.yaml").touch()
-    (project_path / ".gitignore").write_text("!.env\n")
-    env_path = project_path / ".env"
+def _compiled_response(sql, parameters):
+    return {"data": {"native_form": {"query": sql, "params": parameters}}}
+
+
+@pytest.mark.parametrize("command", ["dashboard", "question", "collection"])
+def test_export_commands_share_flattened_options(command):
+    _, bound, _ = metabase_commands.metabase.parse_args(
+        [
+            command,
+            "42",
+            "--parameter",
+            "period=1",
+            "--allow-query-execution",
+            "--json",
+            "--output",
+            "manifest",
+        ]
+    )
+
+    assert bound.arguments["options"] == metabase_commands.ExportOptions(
+        parameters=["period=1"],
+        allow_query_execution=True,
+        json_output=True,
+        output=Path("manifest"),
+    )
+
+
+def test_configure_masks_api_key_input_and_saves_credentials_to_nao_config(monkeypatch, tmp_path):
+    config_path = tmp_path / "nao_config.yaml"
+    config_path.write_text("project_name: test-project\nthreads: 4\n")
     ask_text = Mock(side_effect=["https://metabase.example.com/", "secret-key"])
-    set_key = Mock()
-    monkeypatch.chdir(nested_path)
-    monkeypatch.delenv("METABASE_URL", raising=False)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(metabase_commands, "ask_text", ask_text)
-    monkeypatch.setattr(metabase_commands, "set_key", set_key)
     monkeypatch.setattr(metabase_commands.UI, "success", Mock())
 
     metabase_commands.configure()
@@ -28,18 +50,23 @@ def test_configure_masks_api_key_input_and_saves_credentials_to_project_env(monk
         call("Metabase URL:", default="", required_field=True),
         call("Metabase API key:", password=True, required_field=True),
     ]
-    assert set_key.call_args_list == [
-        call(env_path, "METABASE_URL", "https://metabase.example.com", quote_mode="always"),
-        call(env_path, "METABASE_API_KEY", "secret-key", quote_mode="always"),
-    ]
-    assert (project_path / ".gitignore").read_text() == "!.env\n.env\n"
-    assert (tmp_path / ".env").read_text() == "PARENT=true\n"
+    assert yaml.safe_load(config_path.read_text()) == {
+        "project_name": "test-project",
+        "threads": 4,
+        "metabase": {
+            "url": "https://metabase.example.com",
+            "api_key": "secret-key",
+        },
+    }
 
 
-def test_configure_rejects_directories_outside_a_nao_project(monkeypatch, tmp_path):
+def test_configure_requires_nao_config_in_current_directory(monkeypatch, tmp_path):
+    (tmp_path / "nao_config.yaml").write_text("project_name: test-project\n")
+    nested_path = tmp_path / "nested"
+    nested_path.mkdir()
     ask_text = Mock()
     error = Mock()
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(nested_path)
     monkeypatch.setattr(metabase_commands, "ask_text", ask_text)
     monkeypatch.setattr(metabase_commands.UI, "error", error)
 
@@ -47,59 +74,42 @@ def test_configure_rejects_directories_outside_a_nao_project(monkeypatch, tmp_pa
         metabase_commands.configure()
 
     ask_text.assert_not_called()
-    error.assert_called_once_with(
-        "No nao_config.yaml found. Run 'nao import metabase configure' from inside a nao project."
+    error.assert_called_once_with("No nao_config.yaml found in current directory")
+
+
+def test_metabase_credentials_are_loaded_from_nao_config(monkeypatch, tmp_path):
+    (tmp_path / "nao_config.yaml").write_text(
+        "project_name: test-project\nmetabase:\n  url: https://metabase.example.com\n  api_key: test-key\n"
     )
-
-
-def test_configure_rejects_tracked_project_env_before_prompting(monkeypatch, tmp_path):
-    (tmp_path / "nao_config.yaml").touch()
-    ask_text = Mock()
-    error = Mock()
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(metabase_commands, "_is_git_tracked", lambda _path: True)
-    monkeypatch.setattr(metabase_commands, "ask_text", ask_text)
-    monkeypatch.setattr(metabase_commands.UI, "error", error)
 
-    with pytest.raises(SystemExit):
-        metabase_commands.configure()
-
-    ask_text.assert_not_called()
-    error.assert_called_once_with(
-        f"Refusing to write Metabase credentials to tracked file {tmp_path / '.env'}. "
-        "Remove it from Git tracking before configuring Metabase."
-    )
+    assert metabase_commands._configured_metabase_url() == "https://metabase.example.com"
+    assert metabase_commands._configured_metabase_api_key("question") == "test-key"
 
 
 @pytest.mark.parametrize(
     ("url", "normalized_url"),
     [
-        ("https://METABASE.example.com:443/metabase/", "https://metabase.example.com:443/metabase"),
+        ("https://METABASE.example.com:443/metabase/", "https://METABASE.example.com:443/metabase"),
         ("http://localhost:3000/", "http://localhost:3000"),
         ("http://127.0.0.1:3000/", "http://127.0.0.1:3000"),
         ("http://[::1]:3000/", "http://[::1]:3000"),
+        ("http://metabase.internal/metabase", "http://metabase.internal/metabase"),
+        ("https://user:password@metabase.example.com", "https://user:password@metabase.example.com"),
+        ("https://metabase.example.com?foo=bar", "https://metabase.example.com"),
+        ("https://metabase.example.com#fragment", "https://metabase.example.com"),
     ],
 )
-def test_metabase_url_normalization_accepts_https_and_loopback_http(url, normalized_url):
+def test_metabase_url_normalization_accepts_http_and_reverse_proxy_urls(url, normalized_url):
     assert metabase_commands._normalize_metabase_url(url) == normalized_url
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "http://metabase.example.com",
-        "https://user:password@metabase.example.com",
-        "https://metabase.example.com?foo=bar",
-        "https://metabase.example.com#fragment",
-    ],
-)
-def test_metabase_url_normalization_rejects_unsafe_components(url):
-    with pytest.raises(metabase_commands.MetabaseCliError):
-        metabase_commands._normalize_metabase_url(url)
-
-
 def test_metabase_sources_accept_ids_or_urls(monkeypatch):
-    monkeypatch.setenv("METABASE_URL", "https://configured.example.com/metabase/")
+    monkeypatch.setattr(
+        metabase_commands,
+        "_configured_metabase_url",
+        lambda _resource="resource": "https://configured.example.com/metabase",
+    )
 
     assert metabase_commands._resolve_dashboard_source("42") == (
         "https://configured.example.com/metabase",
@@ -127,15 +137,26 @@ def test_metabase_sources_accept_ids_or_urls(monkeypatch):
     )
 
 
-def test_metabase_source_url_rejects_unconfigured_origin(monkeypatch):
-    monkeypatch.setenv("METABASE_URL", "https://configured.example.com/metabase")
+def test_metabase_source_url_warns_on_unconfigured_origin(monkeypatch):
+    warn = Mock()
+    monkeypatch.setattr(
+        metabase_commands,
+        "_configured_metabase_url",
+        lambda _resource="resource": "https://configured.example.com/metabase",
+    )
+    monkeypatch.setattr(metabase_commands.UI, "warn", warn)
 
-    with pytest.raises(metabase_commands.MetabaseCliError, match="configured by METABASE_URL"):
-        metabase_commands._resolve_dashboard_source("https://attacker.example.com/dashboard/7")
-    with pytest.raises(metabase_commands.MetabaseCliError, match="configured by METABASE_URL"):
-        metabase_commands._resolve_dashboard_source("http://configured.example.com/dashboard/7")
-    with pytest.raises(metabase_commands.MetabaseCliError, match="base path"):
-        metabase_commands._resolve_dashboard_source("https://configured.example.com/other/dashboard/7")
+    assert metabase_commands._resolve_dashboard_source("https://other.example.com/dashboard/7") == (
+        "https://configured.example.com/metabase",
+        7,
+    )
+    assert metabase_commands._resolve_dashboard_source("https://configured.example.com/other/dashboard/8") == (
+        "https://configured.example.com/metabase",
+        8,
+    )
+    warn.assert_called_once_with(
+        "Dashboard URL uses a different server; reading it from the Metabase configured in nao_config.yaml."
+    )
 
 
 @pytest.mark.parametrize(
@@ -146,11 +167,14 @@ def test_metabase_source_url_rejects_unconfigured_origin(monkeypatch):
         "https://configured.example.com/metabase/dashboard/7#fragment",
     ],
 )
-def test_metabase_source_url_rejects_unsafe_components(monkeypatch, url):
-    monkeypatch.setenv("METABASE_URL", "https://configured.example.com/metabase")
+def test_metabase_source_url_ignores_non_path_components(monkeypatch, url):
+    monkeypatch.setattr(
+        metabase_commands,
+        "_configured_metabase_url",
+        lambda _resource="resource": "https://configured.example.com/metabase",
+    )
 
-    with pytest.raises(metabase_commands.MetabaseCliError, match="must not include"):
-        metabase_commands._resolve_dashboard_source(url)
+    assert metabase_commands._resolve_dashboard_source(url) == ("https://configured.example.com/metabase", 7)
 
 
 @pytest.mark.parametrize(
@@ -162,11 +186,12 @@ def test_metabase_source_url_rejects_unsafe_components(monkeypatch, url):
         {"id": 42, "dashcards": [{"card_id": 9, "card": {"id": 9}}]},
     ],
 )
-def test_fetch_dashboard_rejects_malformed_responses(monkeypatch, dashboard):
-    monkeypatch.setattr(metabase_commands, "_fetch_metabase_object", lambda _url, _resource: dashboard)
+def test_fetch_dashboard_rejects_malformed_responses(dashboard):
+    client = Mock()
+    client.fetch_dashboard.return_value = dashboard
 
-    with pytest.raises(metabase_commands.MetabaseCliError, match="unexpected dashboard response"):
-        metabase_commands._fetch_dashboard("https://metabase.example.com", 42)
+    with pytest.raises(metabase_commands.MetabaseCliError, match="unexpected"):
+        metabase_commands._fetch_dashboard(client, 42)
 
 
 @pytest.mark.parametrize(
@@ -178,11 +203,12 @@ def test_fetch_dashboard_rejects_malformed_responses(monkeypatch, dashboard):
         {"id": 11, "dataset_query": {}, "result_metadata": {}},
     ],
 )
-def test_fetch_question_rejects_malformed_responses(monkeypatch, question):
-    monkeypatch.setattr(metabase_commands, "_fetch_metabase_object", lambda _url, _resource: question)
+def test_fetch_question_rejects_malformed_responses(question):
+    client = Mock()
+    client.fetch_question.return_value = question
 
     with pytest.raises(metabase_commands.MetabaseCliError, match="unexpected question response"):
-        metabase_commands._fetch_question("https://metabase.example.com", 11)
+        metabase_commands._fetch_question(client, 11)
 
 
 def test_manifest_preserves_layout_visualization_and_query():
@@ -191,7 +217,7 @@ def test_manifest_preserves_layout_visualization_and_query():
         "database": 2,
         "native": {"query": "SELECT month, revenue FROM sales"},
     }
-    manifest = metabase_commands._build_manifest(
+    manifest = metabase_commands._build_dashboard_manifest(
         "https://metabase.example.com",
         {
             "id": 42,
@@ -263,17 +289,17 @@ def test_manifest_preserves_layout_visualization_and_query():
     mbql_question = manifest["dashboard"]["cards"][1]["question"]
     assert manifest["databases"] == [{"id": 2, "name": "Analytics", "engine": "postgres"}]
     assert card["layout"] == {"row": 1, "column": 2, "width": 12, "height": 6}
-    assert card["visualizationSettings"] == {"graph.show_values": True}
-    assert card["effectiveFilterIds"] == ["period"]
-    assert card["question"]["datasetQuery"] == dataset_query
-    assert card["question"]["nativeSql"] == "SELECT month, revenue FROM sales"
+    assert card["visualization_settings"] == {"graph.show_values": True}
+    assert card["effective_filter_ids"] == ["period"]
+    assert card["question"]["dataset_query"] == dataset_query
+    assert card["question"]["native_sql"] == "SELECT month, revenue FROM sales"
     assert card["question"]["sql"] == "SELECT month, revenue FROM sales"
-    assert card["series"][0]["question"]["nativeSql"] == "SELECT month, forecast FROM forecast"
+    assert card["series"][0]["question"]["native_sql"] == "SELECT month, forecast FROM forecast"
     assert mbql_question["mbql"]["query"] == {"source-table": 3}
     assert mbql_question["sql"] == "SELECT category, count(*) FROM orders GROUP BY category"
 
 
-def test_dashboard_preserves_inaccessible_card_as_limitation(monkeypatch):
+def test_dashboard_preserves_inaccessible_card_as_limitation():
     dashboard = {
         "id": 42,
         "parameters": [{"id": "period", "type": "date/single"}],
@@ -301,25 +327,26 @@ def test_dashboard_preserves_inaccessible_card_as_limitation(monkeypatch):
             },
         ],
     }
-    compile_question = Mock()
-    monkeypatch.setattr(metabase_commands, "_fetch_metabase_object", lambda _url, _resource: dashboard)
-    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
+    client = Mock()
+    client.fetch_dashboard.return_value = dashboard
 
     manifest = metabase_commands._export_dashboard(
+        client,
         "https://metabase.example.com",
         42,
         {"period": "2026-09-01"},
     )
 
-    assert [card["questionId"] for card in manifest["dashboard"]["cards"]] == [9, 10]
+    assert [card["question_id"] for card in manifest["dashboard"]["cards"]] == [9, 10]
     assert manifest["dashboard"]["cards"][0]["question"] is None
     assert manifest["dashboard"]["cards"][1]["question"]["name"] == "Orders"
-    compile_question.assert_not_called()
+    client.compile_question.assert_not_called()
     assert manifest["limitations"] == [
         {
-            "placementId": 7,
-            "questionId": 9,
-            "questionName": None,
+            "kind": "question",
+            "dashcard_id": 7,
+            "question_id": 9,
+            "question_name": None,
             "reason": metabase_commands.INACCESSIBLE_CARD_LIMITATION,
         }
     ]
@@ -358,32 +385,33 @@ def test_compile_question_requests_sql_from_metabase(monkeypatch, dashboard_id, 
             }
         }
     }
-    post = Mock(return_value=response)
-    monkeypatch.setenv("METABASE_API_KEY", "test-key")
-    monkeypatch.setattr(metabase_commands.httpx, "post", post)
+    http_client = MagicMock()
+    http_client.request.return_value = response
+    monkeypatch.setattr(metabase_client.httpx, "Client", Mock(return_value=http_client))
 
-    compiled = metabase_commands._compile_question("https://metabase.example.com", dashboard_id, 11)
+    with metabase_client.MetabaseClient("https://metabase.example.com", "test-key") as client:
+        compiled = metabase_commands._compile_question(client, dashboard_id, 11)
 
     assert compiled["sql"] == "SELECT category, count(*) FROM orders GROUP BY category"
-    post.assert_called_once_with(
+    http_client.request.assert_called_once_with(
+        "POST",
         "https://metabase.example.com/api/card/11/query",
-        headers={"x-api-key": "test-key"},
         json=body,
-        timeout=metabase_commands.HTTP_TIMEOUT,
     )
+    http_client.close.assert_called_once_with()
 
 
-def test_failed_mbql_compilation_identifies_the_placement(monkeypatch):
-    compile_question = Mock(side_effect=metabase_commands.MetabaseCliError("Compilation failed"))
-    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
+def test_failed_query_compilation_identifies_the_dashcard():
+    client = Mock()
+    client.compile_question.side_effect = metabase_commands.MetabaseCliError("Compilation failed")
     question = {
         "id": 11,
         "name": "Orders",
         "dataset_query": {"type": "query", "query": {"source-table": 3}},
     }
 
-    compiled, limitations = metabase_commands._compile_mbql_queries(
-        "https://metabase.example.com",
+    compiled, limitations = metabase_commands._compile_queries(
+        client,
         42,
         {"dashcards": [{"id": 7, "card": question}]},
         allow_query_execution=True,
@@ -391,22 +419,27 @@ def test_failed_mbql_compilation_identifies_the_placement(monkeypatch):
 
     assert compiled == {}
     assert limitations == [
-        {"placementId": 7, "questionId": 11, "questionName": "Orders", "reason": "Compilation failed"}
+        {
+            "kind": "question",
+            "dashcard_id": 7,
+            "question_id": 11,
+            "question_name": "Orders",
+            "reason": "Compilation failed",
+        }
     ]
-    compile_question.assert_called_once_with("https://metabase.example.com", 42, 11, [])
+    client.compile_question.assert_called_once_with(11, 42, [])
 
 
-def test_dashboard_compilation_requires_explicit_query_execution(monkeypatch):
-    compile_question = Mock()
-    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
+def test_dashboard_compilation_requires_explicit_query_execution():
+    client = Mock()
     question = {
         "id": 11,
         "name": "Orders",
         "dataset_query": {"type": "query", "query": {"source-table": 3}},
     }
 
-    compiled, limitations = metabase_commands._compile_mbql_queries(
-        "https://metabase.example.com",
+    compiled, limitations = metabase_commands._compile_queries(
+        client,
         42,
         {"dashcards": [{"id": 7, "card": question}]},
     )
@@ -414,23 +447,22 @@ def test_dashboard_compilation_requires_explicit_query_execution(monkeypatch):
     assert compiled == {}
     assert limitations == [
         {
-            "placementId": 7,
-            "questionId": 11,
-            "questionName": "Orders",
+            "kind": "question",
+            "dashcard_id": 7,
+            "question_id": 11,
+            "question_name": "Orders",
             "reason": metabase_commands.QUERY_EXECUTION_REQUIRED_LIMITATION,
         }
     ]
-    compile_question.assert_not_called()
+    client.compile_question.assert_not_called()
 
 
-def test_dashboard_compilation_preserves_each_placement_parameter_context(monkeypatch):
-    compile_question = Mock(
-        side_effect=[
-            {"sql": "SELECT * FROM orders WHERE period = ?", "parameters": ["2026-09-01"]},
-            {"sql": "SELECT * FROM orders WHERE region = ?", "parameters": ["France"]},
-        ]
-    )
-    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
+def test_dashboard_compilation_preserves_each_dashcard_parameter_context():
+    client = Mock()
+    client.compile_question.side_effect = [
+        _compiled_response("SELECT * FROM orders WHERE period = ?", ["2026-09-01"]),
+        _compiled_response("SELECT * FROM orders WHERE region = ?", ["France"]),
+    ]
     question = {
         "id": 11,
         "name": "Orders",
@@ -461,8 +493,8 @@ def test_dashboard_compilation_preserves_each_placement_parameter_context(monkey
         ],
     }
 
-    compiled, limitations = metabase_commands._compile_mbql_queries(
-        "https://metabase.example.com",
+    compiled, limitations = metabase_commands._compile_queries(
+        client,
         42,
         dashboard,
         {"period": "2026-09-01"},
@@ -471,23 +503,24 @@ def test_dashboard_compilation_preserves_each_placement_parameter_context(monkey
 
     assert limitations == [
         {
-            "placementId": 7,
-            "questionId": 11,
-            "questionName": "Orders",
+            "kind": "question",
+            "dashcard_id": 7,
+            "question_id": 11,
+            "question_name": "Orders",
             "reason": metabase_commands.BOUND_SQL_PARAMETERS_LIMITATION,
         },
         {
-            "placementId": 8,
-            "questionId": 11,
-            "questionName": "Orders",
+            "kind": "question",
+            "dashcard_id": 8,
+            "question_id": 11,
+            "question_name": "Orders",
             "reason": metabase_commands.BOUND_SQL_PARAMETERS_LIMITATION,
         },
     ]
-    assert compile_question.call_args_list == [
+    assert client.compile_question.call_args_list == [
         call(
-            "https://metabase.example.com",
-            42,
             11,
+            42,
             [
                 {
                     "id": "period",
@@ -498,9 +531,8 @@ def test_dashboard_compilation_preserves_each_placement_parameter_context(monkey
             ],
         ),
         call(
-            "https://metabase.example.com",
-            42,
             11,
+            42,
             [
                 {
                     "id": "region",
@@ -511,19 +543,19 @@ def test_dashboard_compilation_preserves_each_placement_parameter_context(monkey
             ],
         ),
     ]
-    manifest = metabase_commands._build_manifest(
+    manifest = metabase_commands._build_dashboard_manifest(
         "https://metabase.example.com",
         dashboard,
         compiled,
     )
     assert manifest["dashboard"]["cards"][0]["question"]["sql"] is None
     assert manifest["dashboard"]["cards"][1]["question"]["sql"] is None
-    assert manifest["dashboard"]["cards"][0]["question"]["sqlParameters"] == ["2026-09-01"]
-    assert manifest["dashboard"]["cards"][1]["question"]["sqlParameters"] == ["France"]
+    assert manifest["dashboard"]["cards"][0]["question"]["sql_parameters"] == ["2026-09-01"]
+    assert manifest["dashboard"]["cards"][1]["question"]["sql_parameters"] == ["France"]
 
     with pytest.raises(metabase_commands.MetabaseCliError, match="Unknown or unused.*typo"):
-        metabase_commands._compile_mbql_queries(
-            "https://metabase.example.com",
+        metabase_commands._compile_queries(
+            client,
             42,
             dashboard,
             {"typo": "2026-09-01"},
@@ -543,23 +575,23 @@ def test_parameter_values_require_unique_ids_and_json():
 
 
 def test_dashboard_prints_compact_json(monkeypatch, capsys):
-    manifest = {"schemaVersion": 1, "dashboard": {"id": 42}}
+    manifest = {"version": 1, "dashboard": {"id": 42}}
     monkeypatch.setattr(
         metabase_commands,
         "export_dashboard",
         lambda _source, _parameters, _consumed_parameter_ids, _allow_query_execution: manifest,
     )
 
-    metabase_commands.dashboard(["42"], json_output=True)
+    metabase_commands.dashboard(["42"], options=metabase_commands.ExportOptions(json_output=True))
 
     output = capsys.readouterr().out
     batch = {
-        "schemaVersion": 1,
-        "type": "metabase-dashboard-batch",
+        "version": 1,
+        "type": "metabase-batch",
+        "resource": "dashboard",
         "selection": {"mode": "explicit", "sources": ["42"]},
-        "dashboards": [manifest],
-        "failures": [],
-        "summary": {"selected": 1, "exported": 1, "failed": 0},
+        "items": [manifest],
+        "errors": [],
     }
     assert json.loads(output) == batch
     assert output == json.dumps(batch, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -567,15 +599,19 @@ def test_dashboard_prints_compact_json(monkeypatch, capsys):
 
 def test_dashboard_returns_json_for_command_errors(monkeypatch, capsys):
     with pytest.raises(SystemExit):
-        metabase_commands.dashboard(["42"], parameters=["invalid"], json_output=True)
+        metabase_commands.dashboard(
+            ["42"],
+            options=metabase_commands.ExportOptions(parameters=["invalid"], json_output=True),
+        )
 
     manifest = json.loads(capsys.readouterr().out)
-    assert manifest["dashboards"] == []
-    assert manifest["failures"] == [{"source": "42", "reason": "Parameters must use ID=JSON format."}]
+    assert manifest["resource"] == "dashboard"
+    assert manifest["items"] == []
+    assert manifest["errors"] == [{"source": "42", "reason": "Parameters must use ID=JSON format."}]
 
 
 def test_dashboard_writes_manifest_to_output(monkeypatch, tmp_path):
-    manifest = {"schemaVersion": 1, "dashboard": {"id": 42}}
+    manifest = {"version": 1, "dashboard": {"id": 42}}
     destination = tmp_path / "exports" / "dashboard.json"
     monkeypatch.setattr(
         metabase_commands,
@@ -584,9 +620,9 @@ def test_dashboard_writes_manifest_to_output(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(metabase_commands.UI, "success", lambda _message: None)
 
-    metabase_commands.dashboard(["42"], output=destination)
+    metabase_commands.dashboard(["42"], options=metabase_commands.ExportOptions(output=destination))
 
-    assert json.loads(destination.read_text())["dashboards"] == [manifest]
+    assert json.loads(destination.read_text())["items"] == [manifest]
 
 
 def test_dashboard_json_output_write_failure_returns_json(monkeypatch, tmp_path, capsys):
@@ -594,7 +630,7 @@ def test_dashboard_json_output_write_failure_returns_json(monkeypatch, tmp_path,
         metabase_commands,
         "export_dashboard",
         lambda _source, _parameters, _consumed_parameter_ids, _allow_query_execution: {
-            "schemaVersion": 1,
+            "version": 1,
             "dashboard": {"id": 42},
         },
     )
@@ -605,7 +641,13 @@ def test_dashboard_json_output_write_failure_returns_json(monkeypatch, tmp_path,
     )
 
     with pytest.raises(SystemExit):
-        metabase_commands.dashboard(["42"], json_output=True, output=tmp_path / "dashboard.json")
+        metabase_commands.dashboard(
+            ["42"],
+            options=metabase_commands.ExportOptions(
+                json_output=True,
+                output=tmp_path / "dashboard.json",
+            ),
+        )
 
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {"success": False, "error": "Could not write output file"}
@@ -624,7 +666,7 @@ def test_manifest_write_failure_does_not_leave_partial_output(monkeypatch, tmp_p
     destination = tmp_path / "dashboard.json"
     monkeypatch.setattr(
         metabase_commands.os,
-        "link",
+        "replace",
         Mock(side_effect=OSError("could not install output")),
     )
 
@@ -635,25 +677,38 @@ def test_manifest_write_failure_does_not_leave_partial_output(monkeypatch, tmp_p
     assert list(tmp_path.iterdir()) == []
 
 
-def test_dashboard_exports_multiple_sources_and_reports_failures(monkeypatch, capsys):
+def test_manifest_atomically_overwrites_any_output_filename(monkeypatch, tmp_path):
+    destination = tmp_path / "manifest"
+    destination.write_text("old")
+    monkeypatch.setattr(metabase_commands.UI, "success", Mock())
+
+    metabase_commands._write_manifest(destination, "new")
+
+    assert destination.read_text() == "new"
+
+
+def test_dashboard_exports_multiple_sources_and_reports_errors(monkeypatch, capsys):
     def export(source, _parameters, _consumed_parameter_ids, _allow_query_execution):
         if source == "8":
             raise metabase_commands.MetabaseCliError("Dashboard is inaccessible")
-        return {"schemaVersion": 1, "dashboard": {"id": int(source)}}
+        return {"version": 1, "dashboard": {"id": int(source)}}
 
     monkeypatch.setattr(metabase_commands, "export_dashboard", export)
 
     with pytest.raises(SystemExit):
-        metabase_commands.dashboard(["7", "7", "8"], json_output=True)
+        metabase_commands.dashboard(["7", "7", "8"], options=metabase_commands.ExportOptions(json_output=True))
 
     manifest = json.loads(capsys.readouterr().out)
-    assert manifest["dashboards"] == [{"schemaVersion": 1, "dashboard": {"id": 7}}]
-    assert manifest["failures"] == [{"source": "8", "reason": "Dashboard is inaccessible"}]
-    assert manifest["summary"] == {"selected": 2, "exported": 1, "failed": 1}
+    assert manifest["items"] == [{"version": 1, "dashboard": {"id": 7}}]
+    assert manifest["errors"] == [{"source": "8", "reason": "Dashboard is inaccessible"}]
+    assert manifest["summary"] == {"total": 2, "success": 1, "errors": 1}
 
 
 def test_dashboard_batch_applies_parameter_overrides_only_where_consumed(monkeypatch, capsys):
-    def fetch_dashboard(_base_url, dashboard_id):
+    client = MagicMock()
+    client.__enter__.return_value = client
+
+    def fetch_dashboard(dashboard_id):
         parameter_id = "period" if dashboard_id == 7 else "region"
         question_id = dashboard_id + 10
         return {
@@ -678,20 +733,26 @@ def test_dashboard_batch_applies_parameter_overrides_only_where_consumed(monkeyp
             ],
         }
 
-    monkeypatch.setenv("METABASE_URL", "https://metabase.example.com")
-    monkeypatch.setattr(metabase_commands, "_fetch_dashboard", fetch_dashboard)
     monkeypatch.setattr(
         metabase_commands,
-        "_compile_question",
-        Mock(return_value={"sql": "SELECT 1", "parameters": []}),
+        "_configured_metabase_url",
+        lambda _resource="resource": "https://metabase.example.com",
     )
-    monkeypatch.setattr(metabase_commands, "_fetch_database_metadata", Mock(return_value=([], [])))
+    monkeypatch.setattr(metabase_commands, "_metabase_client", Mock(return_value=client))
+    client.fetch_dashboard.side_effect = fetch_dashboard
+    client.compile_question.return_value = _compiled_response("SELECT 1", [])
 
-    metabase_commands.dashboard(["7", "8"], parameters=['period="2026-09-01"'], json_output=True)
+    metabase_commands.dashboard(
+        ["7", "8"],
+        options=metabase_commands.ExportOptions(
+            parameters=['period="2026-09-01"'],
+            json_output=True,
+        ),
+    )
 
     manifest = json.loads(capsys.readouterr().out)
-    assert [item["dashboard"]["id"] for item in manifest["dashboards"]] == [7, 8]
-    assert manifest["failures"] == []
+    assert [item["dashboard"]["id"] for item in manifest["items"]] == [7, 8]
+    assert manifest["errors"] == []
 
 
 def test_dashboard_batch_preserves_exports_when_parameter_override_is_unused(monkeypatch, capsys):
@@ -699,18 +760,21 @@ def test_dashboard_batch_preserves_exports_when_parameter_override_is_unused(mon
         metabase_commands,
         "export_dashboard",
         lambda source, _parameters, _consumed_parameter_ids, _allow_query_execution: {
-            "schemaVersion": 1,
+            "version": 1,
             "dashboard": {"id": int(source)},
         },
     )
 
     with pytest.raises(SystemExit):
-        metabase_commands.dashboard(["7", "8"], parameters=["typo=true"], json_output=True)
+        metabase_commands.dashboard(
+            ["7", "8"],
+            options=metabase_commands.ExportOptions(parameters=["typo=true"], json_output=True),
+        )
 
     manifest = json.loads(capsys.readouterr().out)
-    assert [item["dashboard"]["id"] for item in manifest["dashboards"]] == [7, 8]
-    assert manifest["failures"][0]["source"] == "parameters"
-    assert "typo" in manifest["failures"][0]["reason"]
+    assert [item["dashboard"]["id"] for item in manifest["items"]] == [7, 8]
+    assert manifest["errors"][0]["source"] == "parameters"
+    assert "typo" in manifest["errors"][0]["reason"]
 
 
 def test_dashboard_single_failure_returns_batch_manifest(monkeypatch, capsys):
@@ -720,12 +784,12 @@ def test_dashboard_single_failure_returns_batch_manifest(monkeypatch, capsys):
     monkeypatch.setattr(metabase_commands, "export_dashboard", export)
 
     with pytest.raises(SystemExit):
-        metabase_commands.dashboard(["8"], json_output=True)
+        metabase_commands.dashboard(["8"], options=metabase_commands.ExportOptions(json_output=True))
 
     manifest = json.loads(capsys.readouterr().out)
-    assert manifest["dashboards"] == []
-    assert manifest["failures"] == [{"source": "8", "reason": "Dashboard is inaccessible"}]
-    assert manifest["summary"] == {"selected": 1, "exported": 0, "failed": 1}
+    assert manifest["items"] == []
+    assert manifest["errors"] == [{"source": "8", "reason": "Dashboard is inaccessible"}]
+    assert "summary" not in manifest
 
 
 def test_collection_recursively_discovers_dashboards(monkeypatch):
@@ -739,18 +803,19 @@ def test_collection_recursively_discovers_dashboards(monkeypatch):
             {"model": "dashboard", "id": 7},
         ],
     }
-    monkeypatch.setattr(
-        metabase_commands,
-        "_fetch_collection_items",
-        lambda _base_url, collection_id: collection_items[collection_id],
-    )
+    client = Mock()
+    client.fetch_collection_items.side_effect = collection_items.__getitem__
 
-    assert metabase_commands._collection_dashboard_ids("https://metabase.example.com", 3, recursive=False) == [7]
-    assert metabase_commands._collection_dashboard_ids("https://metabase.example.com", 3, recursive=True) == [7, 8]
+    assert metabase_commands._collection_dashboard_ids(client, 3, recursive=False) == [7]
+    assert metabase_commands._collection_dashboard_ids(client, 3, recursive=True) == [7, 8]
 
 
 def test_collection_accepts_override_consumed_by_only_one_dashboard(monkeypatch, capsys):
+    client = MagicMock()
+    client.__enter__.return_value = client
+
     def export_dashboard(
+        _client,
         _base_url,
         dashboard_id,
         _parameter_values,
@@ -759,42 +824,53 @@ def test_collection_accepts_override_consumed_by_only_one_dashboard(monkeypatch,
     ):
         if dashboard_id == 7:
             consumed_parameter_ids.add("period")
-        return {"schemaVersion": 1, "dashboard": {"id": dashboard_id}}
+        return {"version": 1, "dashboard": {"id": dashboard_id}}
 
     monkeypatch.setattr(
         metabase_commands,
         "_resolve_collection_source",
         Mock(return_value=("https://metabase.example.com", 3)),
     )
+    monkeypatch.setattr(metabase_commands, "_metabase_client", Mock(return_value=client))
     monkeypatch.setattr(metabase_commands, "_collection_dashboard_ids", Mock(return_value=[7, 8]))
     monkeypatch.setattr(metabase_commands, "_export_dashboard", export_dashboard)
 
-    metabase_commands.collection("3", parameters=['period="2026-09-01"'], json_output=True)
+    metabase_commands.collection(
+        "3",
+        options=metabase_commands.ExportOptions(
+            parameters=['period="2026-09-01"'],
+            json_output=True,
+        ),
+    )
 
     manifest = json.loads(capsys.readouterr().out)
-    assert [item["dashboard"]["id"] for item in manifest["dashboards"]] == [7, 8]
-    assert manifest["failures"] == []
+    assert [item["dashboard"]["id"] for item in manifest["items"]] == [7, 8]
+    assert manifest["errors"] == []
 
 
 def test_collection_pagination_requires_total(monkeypatch):
     response = Mock()
     response.json.return_value = {"data": []}
-    monkeypatch.setenv("METABASE_API_KEY", "test-key")
-    monkeypatch.setattr(metabase_commands, "_metabase_get", Mock(return_value=response))
+    http_client = MagicMock()
+    http_client.request.return_value = response
+    monkeypatch.setattr(metabase_client.httpx, "Client", Mock(return_value=http_client))
 
     with pytest.raises(metabase_commands.MetabaseCliError, match="pagination"):
-        metabase_commands._fetch_collection_items("https://metabase.example.com", 3)
+        with metabase_client.MetabaseClient("https://metabase.example.com", "test-key") as client:
+            client.fetch_collection_items(3)
 
 
 def test_collection_pagination_rejects_an_early_empty_page(monkeypatch):
     responses = [Mock(), Mock()]
     responses[0].json.return_value = {"data": [{"model": "dashboard", "id": 7}], "total": 2}
     responses[1].json.return_value = {"data": [], "total": 2}
-    monkeypatch.setenv("METABASE_API_KEY", "test-key")
-    monkeypatch.setattr(metabase_commands, "_metabase_get", Mock(side_effect=responses))
+    http_client = MagicMock()
+    http_client.request.side_effect = responses
+    monkeypatch.setattr(metabase_client.httpx, "Client", Mock(return_value=http_client))
 
     with pytest.raises(metabase_commands.MetabaseCliError, match="ended before"):
-        metabase_commands._fetch_collection_items("https://metabase.example.com", 3)
+        with metabase_client.MetabaseClient("https://metabase.example.com", "test-key") as client:
+            client.fetch_collection_items(3)
 
 
 def test_collection_discovery_failure_returns_batch_manifest(monkeypatch, capsys):
@@ -805,13 +881,18 @@ def test_collection_discovery_failure_returns_batch_manifest(monkeypatch, capsys
     )
 
     with pytest.raises(SystemExit):
-        metabase_commands.collection("3", recursive=True, json_output=True)
+        metabase_commands.collection(
+            "3",
+            recursive=True,
+            options=metabase_commands.ExportOptions(json_output=True),
+        )
 
     manifest = json.loads(capsys.readouterr().out)
     assert manifest["selection"] == {"mode": "collection", "source": "3", "recursive": True}
-    assert manifest["dashboards"] == []
-    assert manifest["failures"] == [{"source": "3", "reason": "Collection is inaccessible"}]
-    assert manifest["summary"] == {"selected": 1, "exported": 0, "failed": 1}
+    assert manifest["resource"] == "dashboard"
+    assert manifest["items"] == []
+    assert manifest["errors"] == [{"source": "3", "reason": "Collection is inaccessible"}]
+    assert "summary" not in manifest
 
 
 def test_collection_discovery_failure_is_human_readable(monkeypatch, capsys):
@@ -830,25 +911,28 @@ def test_collection_discovery_failure_is_human_readable(monkeypatch, capsys):
     error.assert_called_once_with("Collection is inaccessible")
 
 
-def test_metabase_get_enables_connection_retries(monkeypatch):
+def test_metabase_client_configures_auth_timeout_and_connection_retries(monkeypatch):
     response = Mock()
-    client = MagicMock()
-    client.__enter__.return_value = client
-    client.get.return_value = response
+    response.json.return_value = {}
+    http_client = MagicMock()
+    http_client.request.return_value = response
     transport = object()
     transport_factory = Mock(return_value=transport)
-    client_factory = Mock(return_value=client)
-    monkeypatch.setattr(metabase_commands.httpx, "HTTPTransport", transport_factory)
-    monkeypatch.setattr(metabase_commands.httpx, "Client", client_factory)
+    client_factory = Mock(return_value=http_client)
+    monkeypatch.setattr(metabase_client.httpx, "HTTPTransport", transport_factory)
+    monkeypatch.setattr(metabase_client.httpx, "Client", client_factory)
 
-    assert metabase_commands._metabase_get("https://metabase.example.com/api/card/11", "test-key") is response
-    transport_factory.assert_called_once_with(retries=metabase_commands.HTTP_RETRIES)
+    with metabase_client.MetabaseClient("https://metabase.example.com", "test-key") as client:
+        assert client.fetch_question(11) == {}
+
+    transport_factory.assert_called_once_with(retries=metabase_client.HTTP_RETRIES)
     client_factory.assert_called_once_with(
         headers={"x-api-key": "test-key"},
-        timeout=metabase_commands.HTTP_TIMEOUT,
+        timeout=metabase_client.HTTP_TIMEOUT,
         transport=transport,
     )
-    client.get.assert_called_once_with("https://metabase.example.com/api/card/11")
+    http_client.request.assert_called_once_with("GET", "https://metabase.example.com/api/card/11")
+    http_client.close.assert_called_once_with()
 
 
 def test_database_metadata_preserves_accessible_databases_and_failures(monkeypatch):
@@ -858,56 +942,56 @@ def test_database_metadata_preserves_accessible_databases_and_failures(monkeypat
             metabase_commands.MetabaseCliError("Metabase database request failed (403): forbidden"),
         ]
     )
-    monkeypatch.setattr(metabase_commands, "_fetch_metabase_object", fetch)
+    client = Mock()
+    client.fetch_database = fetch
 
     databases, limitations = metabase_commands._fetch_database_metadata(
-        "https://metabase.example.com",
+        client,
         [2, 3],
     )
 
     assert databases == [{"id": 2, "name": "Analytics", "engine": "postgres"}]
     assert limitations == [
         {
-            "databaseId": 3,
+            "kind": "database",
+            "database_id": 3,
             "reason": "Metabase database request failed (403): forbidden",
         }
     ]
     assert fetch.call_args_list == [
-        call("https://metabase.example.com/api/database/2", "database"),
-        call("https://metabase.example.com/api/database/3", "database"),
+        call(2),
+        call(3),
     ]
 
 
 def test_question_export_preserves_compiled_sql(monkeypatch):
+    client = MagicMock()
+    client.__enter__.return_value = client
+    monkeypatch.setattr(metabase_commands, "_metabase_client", Mock(return_value=client))
     monkeypatch.setattr(
         metabase_commands,
         "_resolve_question_source",
         lambda _source: ("https://metabase.example.com", 11),
     )
-    monkeypatch.setattr(
-        metabase_commands,
-        "_fetch_question",
-        lambda _base_url, _question_id: {
-            "id": 11,
-            "name": "Orders",
-            "display": "bar",
-            "database_id": 2,
-            "dataset_query": {"type": "query", "database": 2, "query": {"source-table": 3}},
-            "parameters": [
-                {
-                    "id": "period",
-                    "type": "date/single",
-                    "target": ["dimension", ["field", 1, None]],
-                }
-            ],
-        },
+    client.fetch_question.return_value = {
+        "id": 11,
+        "name": "Orders",
+        "display": "bar",
+        "database_id": 2,
+        "dataset_query": {"type": "query", "database": 2, "query": {"source-table": 3}},
+        "parameters": [
+            {
+                "id": "period",
+                "type": "date/single",
+                "target": ["dimension", ["field", 1, None]],
+            }
+        ],
+    }
+    client.compile_question.return_value = _compiled_response(
+        "SELECT category, count(*) FROM orders GROUP BY category",
+        [],
     )
-    compile_question = Mock(
-        return_value={"sql": "SELECT category, count(*) FROM orders GROUP BY category", "parameters": []}
-    )
-    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
-    fetch_database_metadata = Mock(return_value=([{"id": 2, "name": "Analytics", "engine": "postgres"}], []))
-    monkeypatch.setattr(metabase_commands, "_fetch_database_metadata", fetch_database_metadata)
+    client.fetch_database.return_value = {"id": 2, "name": "Analytics", "engine": "postgres"}
 
     manifest = metabase_commands.export_question(
         "11",
@@ -915,15 +999,14 @@ def test_question_export_preserves_compiled_sql(monkeypatch):
         allow_query_execution=True,
     )
 
-    assert manifest["source"]["questionId"] == 11
+    assert manifest["source"]["question_id"] == 11
     assert manifest["databases"] == [{"id": 2, "name": "Analytics", "engine": "postgres"}]
     assert manifest["question"]["sql"] == "SELECT category, count(*) FROM orders GROUP BY category"
     assert manifest["limitations"] == []
-    fetch_database_metadata.assert_called_once_with("https://metabase.example.com", [2])
-    compile_question.assert_called_once_with(
-        "https://metabase.example.com",
-        None,
+    client.fetch_database.assert_called_once_with(2)
+    client.compile_question.assert_called_once_with(
         11,
+        None,
         [
             {
                 "id": "period",
@@ -936,37 +1019,33 @@ def test_question_export_preserves_compiled_sql(monkeypatch):
 
 
 def test_native_question_parameter_overrides_are_compiled(monkeypatch):
+    client = MagicMock()
+    client.__enter__.return_value = client
+    monkeypatch.setattr(metabase_commands, "_metabase_client", Mock(return_value=client))
     monkeypatch.setattr(
         metabase_commands,
         "_resolve_question_source",
         lambda _source: ("https://metabase.example.com", 11),
     )
-    monkeypatch.setattr(
-        metabase_commands,
-        "_fetch_question",
-        lambda _base_url, _question_id: {
-            "id": 11,
-            "name": "Orders",
-            "dataset_query": {
-                "type": "native",
-                "native": {"query": "SELECT * FROM orders WHERE created_at >= {{period}}"},
-            },
-            "parameters": [
-                {
-                    "id": "period",
-                    "type": "date/single",
-                    "target": ["variable", ["template-tag", "period"]],
-                }
-            ],
+    client.fetch_question.return_value = {
+        "id": 11,
+        "name": "Orders",
+        "dataset_query": {
+            "type": "native",
+            "native": {"query": "SELECT * FROM orders WHERE created_at >= {{period}}"},
         },
+        "parameters": [
+            {
+                "id": "period",
+                "type": "date/single",
+                "target": ["variable", ["template-tag", "period"]],
+            }
+        ],
+    }
+    client.compile_question.return_value = _compiled_response(
+        "SELECT * FROM orders WHERE created_at >= ?",
+        ["2026-09-01"],
     )
-    compile_question = Mock(
-        return_value={
-            "sql": "SELECT * FROM orders WHERE created_at >= ?",
-            "parameters": ["2026-09-01"],
-        }
-    )
-    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
 
     manifest = metabase_commands.export_question(
         "11",
@@ -975,18 +1054,18 @@ def test_native_question_parameter_overrides_are_compiled(monkeypatch):
     )
 
     assert manifest["question"]["sql"] is None
-    assert manifest["question"]["sqlParameters"] == ["2026-09-01"]
+    assert manifest["question"]["sql_parameters"] == ["2026-09-01"]
     assert manifest["limitations"] == [
         {
-            "questionId": 11,
-            "questionName": "Orders",
+            "kind": "question",
+            "question_id": 11,
+            "question_name": "Orders",
             "reason": metabase_commands.BOUND_SQL_PARAMETERS_LIMITATION,
         }
     ]
-    compile_question.assert_called_once_with(
-        "https://metabase.example.com",
-        None,
+    client.compile_question.assert_called_once_with(
         11,
+        None,
         [
             {
                 "id": "period",
@@ -1015,57 +1094,54 @@ def test_native_question_parameter_overrides_are_compiled(monkeypatch):
     ],
 )
 def test_unresolved_native_question_template_syntax_is_not_executable(monkeypatch, native_sql, parameters):
+    client = MagicMock()
+    client.__enter__.return_value = client
+    monkeypatch.setattr(metabase_commands, "_metabase_client", Mock(return_value=client))
     monkeypatch.setattr(
         metabase_commands,
         "_resolve_question_source",
         lambda _source: ("https://metabase.example.com", 11),
     )
-    monkeypatch.setattr(
-        metabase_commands,
-        "_fetch_question",
-        lambda _base_url, _question_id: {
-            "id": 11,
-            "name": "Orders",
-            "dataset_query": {
-                "type": "native",
-                "native": {"query": native_sql},
-            },
-            "parameters": parameters,
+    client.fetch_question.return_value = {
+        "id": 11,
+        "name": "Orders",
+        "dataset_query": {
+            "type": "native",
+            "native": {"query": native_sql},
         },
-    )
-    compile_question = Mock(side_effect=metabase_commands.MetabaseCliError("Required parameter is missing"))
-    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
-    monkeypatch.setattr(metabase_commands, "_fetch_database_metadata", Mock(return_value=([], [])))
+        "parameters": parameters,
+    }
+    client.compile_question.side_effect = metabase_commands.MetabaseCliError("Required parameter is missing")
 
     manifest = metabase_commands.export_question("11", allow_query_execution=True)
 
-    assert manifest["question"]["nativeSql"] == native_sql
+    assert manifest["question"]["native_sql"] == native_sql
     assert manifest["question"]["sql"] is None
-    assert manifest["question"]["sqlParameters"] == []
+    assert manifest["question"]["sql_parameters"] == []
     assert manifest["limitations"] == [
         {
-            "questionId": 11,
-            "questionName": "Orders",
+            "kind": "question",
+            "question_id": 11,
+            "question_name": "Orders",
             "reason": "Required parameter is missing",
         }
     ]
-    compile_question.assert_called_once_with("https://metabase.example.com", None, 11, [])
+    client.compile_question.assert_called_once_with(11, None, [])
 
 
 def test_unmatched_parameter_override_is_rejected(monkeypatch):
+    client = MagicMock()
+    client.__enter__.return_value = client
+    monkeypatch.setattr(metabase_commands, "_metabase_client", Mock(return_value=client))
     monkeypatch.setattr(
         metabase_commands,
         "_resolve_question_source",
         lambda _source: ("https://metabase.example.com", 11),
     )
-    monkeypatch.setattr(
-        metabase_commands,
-        "_fetch_question",
-        lambda _base_url, _question_id: {
-            "id": 11,
-            "dataset_query": {"type": "native", "native": {"query": "SELECT * FROM orders"}},
-        },
-    )
+    client.fetch_question.return_value = {
+        "id": 11,
+        "dataset_query": {"type": "native", "native": {"query": "SELECT * FROM orders"}},
+    }
 
     with pytest.raises(metabase_commands.MetabaseCliError, match="Unknown or unused.*typo"):
         metabase_commands.export_question("11", {"typo": "2026-09-01"})

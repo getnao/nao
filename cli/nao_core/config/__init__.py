@@ -25,6 +25,7 @@ from .llm import (
     ProviderAuthConfig,
     ProviderConfig,
 )
+from .metabase import MetabaseConfig
 from .slack import SlackConfig
 from .test import ComparisonConfig, TestConfig
 
@@ -52,6 +53,7 @@ __all__ = [
     "ProviderAuthConfig",
     "ProviderConfig",
     "SlackConfig",
+    "MetabaseConfig",
     "ConfluenceConfig",
     "ComparisonConfig",
     "TestConfig",

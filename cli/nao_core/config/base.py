@@ -20,6 +20,7 @@ from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTempl
 from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
 from .mcp import McpConfig
+from .metabase import MetabaseConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
@@ -46,6 +47,7 @@ class NaoConfig(BaseModel):
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
+    metabase: MetabaseConfig | None = Field(default=None, description="The Metabase configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
     test: TestConfig | None = Field(default=None, description="The defaults used by `nao test`")
 
@@ -209,7 +211,7 @@ class NaoConfig(BaseModel):
         UI.warn(
             "nao_config.yaml declares a single inline `llm` provider, which is deprecated. Move it "
             "under `llm.providers` to configure several providers, the models each one exposes and "
-            "their costs. Run `nao migrate` to rewrite it automatically."
+            "their costs."
         )
 
     def get_connection(self, name: str) -> BaseBackend:
