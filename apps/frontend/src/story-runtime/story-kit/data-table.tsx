@@ -45,15 +45,8 @@ const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export function DataTable(props: DataTableProps) {
-	const {
-		queryId,
-		data,
-		columns,
-		maxRows = DEFAULT_PAGE_SIZE,
-		maxHeight = 420,
-		conditionalFormats,
-		...block
-	} = props;
+	const { queryId, data, columns, maxRows, maxHeight = 420, conditionalFormats, ...block } = props;
+	const pageSize = toPageSize(maxRows);
 	const source = useBlockData({ queryId, data });
 	const editingEnabled = useStoryEditing();
 	const [fullscreen, setFullscreen] = useState(false);
@@ -87,7 +80,7 @@ export function DataTable(props: DataTableProps) {
 								rows={rows}
 								columns={visible}
 								formats={formats}
-								pageSize={maxRows}
+								pageSize={pageSize}
 								maxHeight={maxHeight}
 							/>
 							{fullscreen && (
@@ -104,7 +97,12 @@ export function DataTable(props: DataTableProps) {
 												<XIcon />
 											</button>
 										</div>
-										<TableView rows={rows} columns={visible} formats={formats} pageSize={maxRows} />
+										<TableView
+											rows={rows}
+											columns={visible}
+											formats={formats}
+											pageSize={pageSize}
+										/>
 									</div>
 								</div>
 							)}
@@ -225,6 +223,10 @@ function TableView({ rows, columns, formats, pageSize, maxHeight }: TableViewPro
 			/>
 		</div>
 	);
+}
+
+function toPageSize(maxRows: number | undefined): number {
+	return maxRows !== undefined && Number.isInteger(maxRows) && maxRows > 0 ? maxRows : DEFAULT_PAGE_SIZE;
 }
 
 function columnLabelsOf(columns: ResolvedColumn[]): Record<string, string> {
