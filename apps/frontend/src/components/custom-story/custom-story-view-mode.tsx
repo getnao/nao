@@ -1,4 +1,5 @@
 import { Code, Eye } from 'lucide-react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,10 @@ interface CustomStoryViewLayersProps {
 }
 
 export function CustomStoryViewLayers({ viewMode, app, files }: CustomStoryViewLayersProps) {
+	const [hasOpenedFiles, setHasOpenedFiles] = useState(viewMode === 'files');
+	if (viewMode === 'files' && !hasOpenedFiles) {
+		setHasOpenedFiles(true);
+	}
 	return (
 		<div className='relative min-h-0 flex-1'>
 			<div
@@ -57,7 +62,14 @@ export function CustomStoryViewLayers({ viewMode, app, files }: CustomStoryViewL
 			>
 				{app}
 			</div>
-			{viewMode === 'files' && <div className='absolute inset-0 bg-background'>{files}</div>}
+			{hasOpenedFiles && (
+				<div
+					className={cn('absolute inset-0 bg-background', viewMode !== 'files' && 'invisible')}
+					aria-hidden={viewMode !== 'files'}
+				>
+					{files}
+				</div>
+			)}
 		</div>
 	);
 }
