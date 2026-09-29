@@ -1,4 +1,9 @@
-import { isFromStoryChannel, isStoryFrameMessage, STORY_RUNTIME_PATH } from '@nao/shared/story-app';
+import {
+	isFromStoryChannel,
+	isStoryFrameMessage,
+	STORY_CONNECT_MESSAGE,
+	STORY_RUNTIME_PATH,
+} from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { narrativesOptions, queryDataOptions, querySqlOptions } from './story-data-options';
@@ -57,6 +62,7 @@ export function CustomStoryFrame({
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const loadCountRef = useRef(0);
 	const isFrameReadyRef = useRef(false);
+	const portRef = useRef<MessagePort | null>(null);
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
 	const dateFormat = useDateFormat();
@@ -65,7 +71,20 @@ export function CustomStoryFrame({
 	const channel = frameDocument?.channel;
 
 	const reply = useCallback((message: StoryHostMessage) => {
-		iframeRef.current?.contentWindow?.postMessage(message, '*');
+		portRef.current?.postMessage(message);
+	}, []);
+
+	const connectPort = useCallback((onMessage: (event: MessageEvent<unknown>) => void) => {
+		portRef.current?.close();
+		const { port1, port2 } = new MessageChannel();
+		port1.onmessage = onMessage;
+		portRef.current = port1;
+		iframeRef.current?.contentWindow?.postMessage({ type: STORY_CONNECT_MESSAGE }, '*', [port2]);
+	}, []);
+
+	const closePort = useCallback(() => {
+		portRef.current?.close();
+		portRef.current = null;
 	}, []);
 
 	const answerQuery = useCallback(
@@ -113,10 +132,16 @@ export function CustomStoryFrame({
 			}
 			dispatch(event.data);
 		};
+		const handlePortMessage = (event: MessageEvent<unknown>) => {
+			if (isStoryFrameMessage(event.data)) {
+				dispatch(event.data);
+			}
+		};
 		const dispatch = (message: StoryFrameMessage) => {
 			switch (message.type) {
 				case 'nao-story:ready':
 					isFrameReadyRef.current = true;
+					connectPort(handlePortMessage);
 					reply({ type: 'nao-story:editing', enabled: editable });
 					onReady?.();
 					break;
@@ -170,6 +195,9 @@ export function CustomStoryFrame({
 					break;
 			}
 		};
+		if (portRef.current) {
+			portRef.current.onmessage = handlePortMessage;
+		}
 		window.addEventListener('message', handleMessage);
 		return () => window.removeEventListener('message', handleMessage);
 	}, [
@@ -177,6 +205,7 @@ export function CustomStoryFrame({
 		answerQuery,
 		answerQuerySql,
 		channel,
+		connectPort,
 		dateFormat,
 		editable,
 		onAskBlock,
@@ -196,18 +225,22 @@ export function CustomStoryFrame({
 	const handleLoad = useCallback(() => {
 		loadCountRef.current += 1;
 		if (loadCountRef.current > 1) {
+			closePort();
 			setNavigatedAway(true);
 			onError?.({ message: NAVIGATED_AWAY_MESSAGE });
 		}
-	}, [onError]);
+	}, [closePort, onError]);
+
+	useEffect(() => closePort, [closePort]);
 
 	useEffect(() => {
 		if (srcDoc !== null) {
+			closePort();
 			loadCountRef.current = 0;
 			isFrameReadyRef.current = false;
 			setNavigatedAway(false);
 		}
-	}, [srcDoc]);
+	}, [closePort, srcDoc]);
 
 	if (srcDoc === null) {
 		return null;

@@ -162,6 +162,16 @@ export type StoryHostMessage =
 	| { type: 'nao-story:editing'; enabled: boolean };
 
 /**
+ * Answers the frame's `ready` once, transferring the MessagePort every later message travels on.
+ * The port belongs to the story's document, so a document the story navigates to never receives replies.
+ */
+export const STORY_CONNECT_MESSAGE = 'nao-story:connect';
+
+export const isStoryConnectMessage = (value: unknown): boolean => {
+	return isStoryMessage(value) && value.type === STORY_CONNECT_MESSAGE;
+};
+
+/**
  * A random secret the host embeds in the frame document it builds; the frame stamps it on every message,
  * so a document the story navigated to cannot pass for the story.
  */
