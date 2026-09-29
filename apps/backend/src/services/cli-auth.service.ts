@@ -9,12 +9,11 @@ export async function createCliAuthorizationCode(userId: string): Promise<string
 	const auth = await getAuth();
 	const context = await auth.$context;
 
-	const session = await context.internalAdapter.createSession(userId, false, { userAgent: 'nao-cli' });
 	const code = randomBytes(32).toString('base64url');
 
 	await context.internalAdapter.createVerificationValue({
 		identifier: codeIdentifier(code),
-		value: session.token,
+		value: userId,
 		expiresAt: new Date(Date.now() + CODE_TTL_MS),
 	});
 
@@ -36,7 +35,17 @@ export async function exchangeCliAuthorizationCode(code: string): Promise<string
 		return null;
 	}
 
-	return verification.value;
+	const session = await context.internalAdapter.createSession(verification.value, false, { userAgent: 'nao-cli' });
+	return session.token;
+}
+
+export async function isTrustedOrigin(origin: string | undefined): Promise<boolean> {
+	if (!origin) {
+		return false;
+	}
+	const auth = await getAuth();
+	const context = await auth.$context;
+	return context.isTrustedOrigin(origin);
 }
 
 function codeIdentifier(code: string): string {

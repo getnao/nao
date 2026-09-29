@@ -1,8 +1,13 @@
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod/v4';
 
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
-import { createCliAuthorizationCode, exchangeCliAuthorizationCode } from '../services/cli-auth.service';
+import {
+	createCliAuthorizationCode,
+	exchangeCliAuthorizationCode,
+	isTrustedOrigin,
+} from '../services/cli-auth.service';
 
 /**
  * Browser-based login flow for the nao CLI. The CLI opens /cli-login in the
@@ -11,7 +16,7 @@ import { createCliAuthorizationCode, exchangeCliAuthorizationCode } from '../ser
  * CLI then exchanges the code for a session token via /token.
  */
 export const cliAuthRoutes = async (app: App) => {
-	app.post('/authorize', { preHandler: authMiddleware }, async (request) => {
+	app.post('/authorize', { preHandler: [requireBrowserRequest, authMiddleware] }, async (request) => {
 		const code = await createCliAuthorizationCode(request.user.id);
 		return { code };
 	});
@@ -32,3 +37,17 @@ export const cliAuthRoutes = async (app: App) => {
 		},
 	);
 };
+
+/**
+ * Only a cookie session from the web app may mint CLI codes: bearer tokens are
+ * rejected so a session cannot renew itself indefinitely, and the origin check
+ * guards against cross-site requests.
+ */
+async function requireBrowserRequest(request: FastifyRequest, reply: FastifyReply) {
+	if (request.headers.authorization) {
+		return reply.status(403).send({ error: 'CLI authorization requires a browser session' });
+	}
+	if (!(await isTrustedOrigin(request.headers.origin))) {
+		return reply.status(403).send({ error: 'Untrusted origin' });
+	}
+}
