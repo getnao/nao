@@ -808,7 +808,11 @@ function UserGroupFeatures({
 							key={feature.key}
 							feature={feature}
 							selected={featureGrants.includes(feature.key)}
-							disabledReason={missingPrerequisiteReason(feature, featureGrants)}
+							disabledReason={
+								featureGrants.includes(feature.key)
+									? undefined
+									: missingPrerequisiteReason(feature, featureGrants)
+							}
 							onSelectedChange={(selected) =>
 								onFeatureGrantsChange(toggleFeatureGrant(featureGrants, feature.key, selected))
 							}
