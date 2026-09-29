@@ -27,6 +27,7 @@ import {
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
 import { flushTelemetry } from './instrumentation';
@@ -431,6 +432,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		name: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
 		cron: '0 4 * * *',
 		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+	});
+
+	registerJob(STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler);
+	await ensureRecurring({
+		name: STORY_BLOB_CLEANUP_JOB_NAME,
+		cron: '30 4 * * *',
+		uniqueKey: STORY_BLOB_CLEANUP_JOB_NAME,
 	});
 
 	registerJob(CONTEXT_BRANCH_CLEANUP_JOB_NAME, contextBranchCleanupHandler);

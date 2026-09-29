@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { and, asc, eq, getTableColumns, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, lt, notExists, sql } from 'drizzle-orm';
 
 import s, {
 	type DBStoryBundle,
@@ -185,6 +185,29 @@ async function cutVersion(
 		.execute();
 
 	return { version, files };
+}
+
+/**
+ * Blobs are shared by content hash, so deleting a story leaves the ones no other version uses behind.
+ * Only blobs older than `createdBefore` go, so a publish still inserting its files never loses a fresh blob.
+ */
+export async function deleteUnreferencedFileBlobs(createdBefore: Date): Promise<number> {
+	const deleted = await db
+		.delete(s.storyFileBlob)
+		.where(
+			and(
+				lt(s.storyFileBlob.createdAt, createdBefore),
+				notExists(
+					db
+						.select({ contentHash: s.storyFile.contentHash })
+						.from(s.storyFile)
+						.where(eq(s.storyFile.contentHash, s.storyFileBlob.contentHash)),
+				),
+			),
+		)
+		.returning({ contentHash: s.storyFileBlob.contentHash })
+		.execute();
+	return deleted.length;
 }
 
 async function upsertFileBlobs(contents: string[], executor: DBExecutor): Promise<void> {
