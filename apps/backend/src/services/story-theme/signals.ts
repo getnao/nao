@@ -69,7 +69,9 @@ export interface DesignSignals {
 }
 
 const COLOR_PROPERTIES = ['background-color', 'background', 'color', 'border-color', 'border', 'fill', 'stroke'];
-const COLOR_TOKEN = /#[0-9a-f]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)/gi;
+const COLOR_TOKEN_PATTERN = String.raw`#[0-9a-f]{3,8}|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)`;
+const COLOR_TOKEN = new RegExp(COLOR_TOKEN_PATTERN, 'gi');
+const COLOR_DECLARATION = new RegExp(String.raw`([a-z-]+)\s*:\s*([^;{}]*(?:${COLOR_TOKEN_PATTERN})[^;{}]*)[;}]`, 'gi');
 
 export function emptySignals(source: SignalSource, mode: ExtractionMode, label: string): DesignSignals {
 	return {
@@ -169,9 +171,7 @@ export function collectColors(css: string, customProperties: Record<string, stri
 		tally.set(hex, entry);
 	};
 
-	for (const [, property, value] of css.matchAll(
-		/([a-z-]+)\s*:\s*([^;{}]*(?:#[0-9a-f]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\))[^;{}]*)[;}]/gi,
-	)) {
+	for (const [, property, value] of css.matchAll(COLOR_DECLARATION)) {
 		const prop = property.toLowerCase();
 		if (!COLOR_PROPERTIES.includes(prop) && !prop.startsWith('--')) {
 			continue;
