@@ -9,7 +9,7 @@ import { trpc, trpcClient } from '@/main';
 
 export function useCustomStory(chatId: string, storySlug: string) {
 	const queryClient = useQueryClient();
-	const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+	const { selectedVersion, setSelectedVersion } = useSelectedVersion(chatId, storySlug);
 	const isAgentRunning = useChatActivity(chatId).running;
 
 	const versionsQuery = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
@@ -42,9 +42,9 @@ export function useCustomStory(chatId: string, storySlug: string) {
 
 	const goToVersion = useCallback(
 		(position: number) => setSelectedVersion(versionNumbers[position - 1] ?? null),
-		[versionNumbers],
+		[setSelectedVersion, versionNumbers],
 	);
-	const goToLatest = useCallback(() => setSelectedVersion(null), []);
+	const goToLatest = useCallback(() => setSelectedVersion(null), [setSelectedVersion]);
 
 	const restoreMutation = useMutation(
 		trpc.story.restoreCustomVersion.mutationOptions({
@@ -103,7 +103,20 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		restoreError: restoreMutation.error,
 		download,
 		isLoading: versionsQuery.isLoading || (latestVersion !== null && contentQuery.isLoading),
+		error: versionsQuery.error ?? contentQuery.error,
+		hasPublishedVersion: versionsQuery.isError || latestVersion !== null,
 	};
+}
+
+function useSelectedVersion(chatId: string, storySlug: string) {
+	const storyKey = `${chatId}:${storySlug}`;
+	const [selection, setSelection] = useState<{ storyKey: string; version: number } | null>(null);
+	const selectedVersion = selection?.storyKey === storyKey ? selection.version : null;
+	const setSelectedVersion = useCallback(
+		(version: number | null) => setSelection(version === null ? null : { storyKey, version }),
+		[storyKey],
+	);
+	return { selectedVersion, setSelectedVersion };
 }
 
 function useRefreshWhenAgentStops(chatId: string, storySlug: string, isRunning: boolean) {

@@ -121,8 +121,8 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 						dataSource={story.dataSource}
 						content={content}
 						isLoading={story.isLoading}
-						error={story.contentQuery.error}
-						hasPublishedVersion={story.latestVersion !== null}
+						error={story.error}
+						hasPublishedVersion={story.hasPublishedVersion}
 						editable={canEditBlocks && viewMode === 'app'}
 						onEditBlock={handleEditBlock}
 						onEditTableFormat={handleEditTableFormat}
