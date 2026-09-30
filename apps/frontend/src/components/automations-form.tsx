@@ -957,6 +957,7 @@ function AutomationPromptInput({
 					initialValue={value}
 					placeholder='Type @ for tools, / for commands...'
 					minHeight='10rem'
+					resizable
 					submitOnEnter={false}
 					storyCreationEnabled={storyCreationEnabled}
 					onChange={handleChange}

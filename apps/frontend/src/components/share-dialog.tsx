@@ -20,14 +20,16 @@ export function ShareLoadingDialog({
 	open,
 	onOpenChange,
 	title,
+	className = 'sm:max-w-md',
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	title: string;
+	className?: string;
 }) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className='sm:max-w-md'>
+			<DialogContent className={className}>
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>Loading sharing settings...</DialogDescription>
@@ -74,9 +76,11 @@ export function ShareErrorDialog({
 export function VisibilityPicker({
 	visibility,
 	onChange,
+	specificLabel = 'Specific people',
 }: {
 	visibility: Visibility;
 	onChange: (v: Visibility) => void;
+	specificLabel?: string;
 }) {
 	return (
 		<div className='flex gap-3'>
@@ -90,7 +94,7 @@ export function VisibilityPicker({
 			<VisibilityOption
 				active={visibility === 'specific'}
 				icon={<Users className='size-5' />}
-				label='Specific people'
+				label={specificLabel}
 				description='Choose who can view'
 				onClick={() => onChange('specific')}
 			/>
@@ -123,10 +127,12 @@ export function NotifyPeopleToggle({
 export function VisibilitySummary({
 	visibility,
 	selectedUserIds,
+	selectedGroupIds,
 	itemLabel,
 }: {
 	visibility: Visibility;
 	selectedUserIds: Set<string>;
+	selectedGroupIds?: Set<string>;
 	itemLabel: string;
 }) {
 	return (
@@ -148,7 +154,7 @@ export function VisibilitySummary({
 					</div>
 					<div className='flex-1 min-w-0'>
 						<p className='text-md font-medium'>
-							Shared with {selectedUserIds.size} {selectedUserIds.size === 1 ? 'person' : 'people'}
+							Shared with {formatRecipientCount(selectedUserIds.size, selectedGroupIds?.size ?? 0)}
 						</p>
 						<p className='text-xs text-muted-foreground'>Only selected members can view this {itemLabel}</p>
 					</div>
@@ -239,6 +245,12 @@ export function VisibilityOption({
 	);
 }
 
+export interface ShareableGroup {
+	id: string;
+	name: string;
+	memberCount: number;
+}
+
 export function MemberPicker({
 	members,
 	selectedUserIds,
@@ -246,6 +258,9 @@ export function MemberPicker({
 	search,
 	onSearchChange,
 	onToggleUser,
+	groups = [],
+	selectedGroupIds = new Set(),
+	onToggleGroup,
 }: {
 	members: { id: string; name: string; email: string }[];
 	selectedUserIds: Set<string>;
@@ -253,13 +268,20 @@ export function MemberPicker({
 	search: string;
 	onSearchChange: (value: string) => void;
 	onToggleUser: (userId: string) => void;
+	groups?: ShareableGroup[];
+	selectedGroupIds?: Set<string>;
+	onToggleGroup?: (groupId: string) => void;
 }) {
+	const showGroups = onToggleGroup !== undefined && groups.length > 0;
+	const hasResults = members.length > 0 || showGroups;
+	const selectedCount = selectedUserIds.size + selectedGroupIds.size;
+
 	return (
 		<div className='flex flex-col gap-2 relative'>
 			<SearchIcon className='absolute translate-x-2 translate-y-2 size-4' />
 			<Input
 				type='search'
-				placeholder='Search members...'
+				placeholder={onToggleGroup ? 'Search members or groups...' : 'Search members...'}
 				value={search}
 				onChange={(e) => onSearchChange(e.target.value)}
 				className='h-8 text-sm bg-panel pl-8'
@@ -269,25 +291,42 @@ export function MemberPicker({
 					<div className='flex items-center justify-center py-6'>
 						<Loader2 className='size-4 animate-spin text-muted-foreground' />
 					</div>
-				) : members.length === 0 ? (
+				) : !hasResults ? (
 					<div className='py-6 text-center text-sm text-muted-foreground'>
 						{search ? 'No members found' : 'No other members in this project'}
 					</div>
 				) : (
-					members.map((member) => (
-						<MemberRow
-							key={member.id}
-							name={member.name}
-							email={member.email}
-							selected={selectedUserIds.has(member.id)}
-							onClick={() => onToggleUser(member.id)}
-						/>
-					))
+					<>
+						{showGroups && (
+							<>
+								<PickerSectionLabel>Groups</PickerSectionLabel>
+								{groups.map((group) => (
+									<GroupRow
+										key={group.id}
+										name={group.name}
+										memberCount={group.memberCount}
+										selected={selectedGroupIds.has(group.id)}
+										onClick={() => onToggleGroup(group.id)}
+									/>
+								))}
+								{members.length > 0 && <PickerSectionLabel>People</PickerSectionLabel>}
+							</>
+						)}
+						{members.map((member) => (
+							<MemberRow
+								key={member.id}
+								name={member.name}
+								email={member.email}
+								selected={selectedUserIds.has(member.id)}
+								onClick={() => onToggleUser(member.id)}
+							/>
+						))}
+					</>
 				)}
 			</div>
-			{selectedUserIds.size > 0 && (
+			{selectedCount > 0 && (
 				<p className='text-xs text-muted-foreground'>
-					{selectedUserIds.size} {selectedUserIds.size === 1 ? 'person' : 'people'} selected
+					{formatRecipientCount(selectedUserIds.size, selectedGroupIds.size)} selected
 				</p>
 			)}
 		</div>
@@ -306,6 +345,52 @@ export function MemberRow({
 	onClick: () => void;
 }) {
 	return (
+		<PickerRow selected={selected} onClick={onClick}>
+			<Avatar username={name} size='sm' />
+			<div className='min-w-0 flex-1'>
+				<div className='text-sm font-medium truncate'>{name}</div>
+				<div className='text-xs text-muted-foreground truncate'>{email}</div>
+			</div>
+		</PickerRow>
+	);
+}
+
+function GroupRow({
+	name,
+	memberCount,
+	selected,
+	onClick,
+}: {
+	name: string;
+	memberCount: number;
+	selected: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<PickerRow selected={selected} onClick={onClick}>
+			<div className='flex size-6 shrink-0 items-center justify-center rounded-full bg-muted'>
+				<Users className='size-3.5' />
+			</div>
+			<div className='min-w-0 flex-1'>
+				<div className='text-sm font-medium truncate'>{name}</div>
+				<div className='text-xs text-muted-foreground truncate'>
+					{memberCount} {memberCount === 1 ? 'member' : 'members'}
+				</div>
+			</div>
+		</PickerRow>
+	);
+}
+
+function PickerRow({
+	selected,
+	onClick,
+	children,
+}: {
+	selected: boolean;
+	onClick: () => void;
+	children: React.ReactNode;
+}) {
+	return (
 		<button
 			type='button'
 			onClick={onClick}
@@ -315,11 +400,7 @@ export function MemberRow({
 				'hover:bg-muted/50',
 			)}
 		>
-			<Avatar username={name} size='sm' />
-			<div className='min-w-0 flex-1'>
-				<div className='text-sm font-medium truncate'>{name}</div>
-				<div className='text-xs text-muted-foreground truncate'>{email}</div>
-			</div>
+			{children}
 			<div
 				className={cn(
 					'flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors',
@@ -332,22 +413,42 @@ export function MemberRow({
 	);
 }
 
+function PickerSectionLabel({ children }: { children: React.ReactNode }) {
+	return <div className='px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground'>{children}</div>;
+}
+
 export function hasAccessChanges(
 	visibility: Visibility,
 	allowedUserIds: string[],
 	selectedUserIds: Set<string>,
+	allowedGroupIds: string[] = [],
+	selectedGroupIds: Set<string> = new Set(),
 ): boolean {
 	if (visibility !== 'specific') {
 		return false;
 	}
-	const original = new Set(allowedUserIds);
-	if (original.size !== selectedUserIds.size) {
-		return true;
+	return (
+		!isSameSet(new Set(allowedUserIds), selectedUserIds) || !isSameSet(new Set(allowedGroupIds), selectedGroupIds)
+	);
+}
+
+function isSameSet(left: Set<string>, right: Set<string>): boolean {
+	if (left.size !== right.size) {
+		return false;
 	}
-	for (const id of selectedUserIds) {
-		if (!original.has(id)) {
-			return true;
+	for (const id of right) {
+		if (!left.has(id)) {
+			return false;
 		}
 	}
-	return false;
+	return true;
+}
+
+function formatRecipientCount(peopleCount: number, groupCount: number): string {
+	const people = `${peopleCount} ${peopleCount === 1 ? 'person' : 'people'}`;
+	if (groupCount === 0) {
+		return people;
+	}
+	const groups = `${groupCount} ${groupCount === 1 ? 'group' : 'groups'}`;
+	return peopleCount === 0 ? groups : `${people} and ${groups}`;
 }

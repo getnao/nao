@@ -12,8 +12,10 @@ import {
 import { isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { getQueryResult } from '../../services/query-result.service';
 import { sandboxRuntime } from '../../services/sandbox-runtime';
+import { ResolvedSandboxSecret, sandboxSecretService } from '../../services/sandbox-secret.service';
 import { readUserFileBytes, writeUserFileBytes } from '../../services/storage/user-files';
 import { QueryResult, ToolContext } from '../../types/tools';
+import { redactSecretValues, toSandboxEnv } from '../../utils/sandbox-secrets';
 import {
 	createTool,
 	isStoragePath,
@@ -30,6 +32,8 @@ export { isSandboxAvailable } from '../../services/sandbox-runtime';
 
 const WORKING_DIR = '/root';
 const SANDBOX_TTL_MS = 5 * 60 * 1000;
+/** Same interpreter boxlite's `CodeBox.run` uses; called through `exec` so secrets can be passed as env. */
+const PYTHON_BIN = '/usr/local/bin/python';
 
 type CodeBox = InstanceType<NonNullable<typeof boxliteModule>['CodeBox']>;
 interface ContextSandbox {
@@ -39,6 +43,8 @@ interface ContextSandbox {
 
 interface PooledSandbox {
 	box: CodeBox;
+	/** The user and project the sandbox was created for; its secrets and files must never reach another. */
+	ownerKey: string;
 	timeout?: ReturnType<typeof setTimeout>;
 }
 
@@ -102,19 +108,23 @@ async function withSandboxLock<T>(id: string, operation: () => Promise<T>): Prom
 	}
 }
 
-function getPooledSandbox(id: string): PooledSandbox | undefined {
+function getPooledSandbox(id: string, ownerKey: string): PooledSandbox | undefined {
 	const entry = sandboxPool.get(id);
-	if (!entry) {
+	if (!entry || entry.ownerKey !== ownerKey) {
 		return undefined;
 	}
 	clearSandboxTTL(entry);
 	return entry;
 }
 
-function registerSandbox(box: CodeBox): string {
+function registerSandbox(box: CodeBox, ownerKey: string): string {
 	const id = `sbx_${crypto.randomBytes(6).toString('hex')}`;
-	sandboxPool.set(id, { box });
+	sandboxPool.set(id, { box, ownerKey });
 	return id;
+}
+
+function sandboxOwnerKey({ userId, projectId }: ToolContext): string {
+	return `${userId}:${projectId}`;
 }
 
 function queryResultToCsv({ columns, data }: QueryResult): string {
@@ -138,9 +148,10 @@ async function getOrCreateSandbox(
 	sandboxId: string | undefined,
 	image: string,
 	vmSize: schemas.VmSize,
+	ownerKey: string,
 ): Promise<{ id: string; box: CodeBox; reused: boolean }> {
 	if (sandboxId) {
-		const existing = getPooledSandbox(sandboxId);
+		const existing = getPooledSandbox(sandboxId, ownerKey);
 		if (existing) {
 			return { id: sandboxId, box: existing.box, reused: true };
 		}
@@ -160,7 +171,7 @@ async function getOrCreateSandbox(
 		},
 	});
 
-	const id = registerSandbox(box);
+	const id = registerSandbox(box, ownerKey);
 	return { id, box, reused: false };
 }
 
@@ -377,6 +388,27 @@ const savedFiles = async (
 	return { saved_files: await saveSandboxFilesToStorage(box, files, context, tmpDir) };
 };
 
+/**
+ * Runs the code with the user's secrets in its environment. They travel host → guest only, and every
+ * output the model reads is scrubbed of their values, so the only way a secret reaches the model is code
+ * that deliberately prints it.
+ */
+async function runWithSecrets(
+	box: CodeBox,
+	code: string,
+	language: schemas.Input['language'],
+	secrets: ResolvedSandboxSecret[],
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+	const [command, args] = language === 'python' ? [PYTHON_BIN, ['-c', code]] : ['sh', ['-c', code]];
+	const env = secrets.length > 0 ? toSandboxEnv(secrets) : undefined;
+	const result = await box.exec(command, args, env);
+	return {
+		stdout: redactSecretValues(result.stdout, secrets),
+		stderr: redactSecretValues(result.stderr, secrets),
+		exitCode: result.exitCode,
+	};
+}
+
 async function executeSandboxedCode(input: schemas.Input, context: ToolContext): Promise<schemas.Output> {
 	const lockId = input.sandbox_id ?? `new_${crypto.randomBytes(6).toString('hex')}`;
 	return withSandboxLock(lockId, () => executeSandboxedCodeLocked(input, context));
@@ -386,14 +418,19 @@ async function executeSandboxedCodeLocked(
 	{ sandbox_id, code, language, image, vm_size, packages, data_files, storage_files, save_files }: schemas.Input,
 	context: ToolContext,
 ): Promise<schemas.Output> {
-	const { chatId } = context;
+	const { chatId, userId, projectId } = context;
 	if (!boxliteModule) {
 		throw new Error('Sandbox execution is not available on this platform');
 	}
 
 	const { ExecError, TimeoutError } = boxliteModule;
 
-	const { id, box, reused } = await getOrCreateSandbox(sandbox_id, image ?? 'python:3.12-slim', vm_size ?? 'xxs');
+	const { id, box, reused } = await getOrCreateSandbox(
+		sandbox_id,
+		image ?? 'python:3.12-slim',
+		vm_size ?? 'xxs',
+		sandboxOwnerKey(context),
+	);
 
 	let tmpDir: string | undefined;
 	const stderrParts: string[] = [];
@@ -401,6 +438,8 @@ async function executeSandboxedCodeLocked(
 	if (sandbox_id && !reused) {
 		stderrParts.push(`Sandbox "${sandbox_id}" expired — created a new one.`);
 	}
+
+	const secrets = await sandboxSecretService.resolve(userId, projectId);
 
 	try {
 		if (packages?.length) {
@@ -452,18 +491,7 @@ async function executeSandboxedCodeLocked(
 			}
 		}
 
-		if (language === 'python') {
-			const stdout = await box.run(code);
-			return {
-				sandbox_id: id,
-				stdout,
-				stderr: stderrParts.join('\n'),
-				exitCode: 0,
-				...(await savedFiles(box, save_files, context, tmpDir)),
-			};
-		}
-
-		const result = await box.exec('sh', '-c', code);
+		const result = await runWithSecrets(box, code, language, secrets);
 		return {
 			sandbox_id: id,
 			stdout: result.stdout,
@@ -473,7 +501,7 @@ async function executeSandboxedCodeLocked(
 		};
 	} catch (err) {
 		if (err instanceof ExecError) {
-			return { sandbox_id: id, stdout: '', stderr: err.message, exitCode: 1 };
+			return { sandbox_id: id, stdout: '', stderr: redactSecretValues(err.message, secrets), exitCode: 1 };
 		}
 		if (err instanceof TimeoutError) {
 			evictSandbox(id);

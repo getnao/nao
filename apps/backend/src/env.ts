@@ -224,6 +224,8 @@ const baseRawEnvSchema = z.object({
 	SLACK_TRANSPORT_MODE: z.enum(['webhook', 'socket']).optional(),
 
 	FASTAPI_PORT: z.coerce.number().default(8005),
+	/** On SIGTERM, how long /api/health reports unhealthy while still serving, so a load balancer can move traffic away. */
+	SHUTDOWN_DRAIN_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
 	APP_VERSION: z.string().default('dev'),
 	APP_COMMIT: z.string().default('unknown'),
 	APP_BUILD_DATE: z.string().default(''),
@@ -231,6 +233,12 @@ const baseRawEnvSchema = z.object({
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
+	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
+	NAO_BACKOFFICE_API_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.string().min(32).optional()),
 	NAO_CORE_VERSION: z.string().optional(),
 	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
 	NAO_CONTEXT_GIT_URL: z.string().optional(),

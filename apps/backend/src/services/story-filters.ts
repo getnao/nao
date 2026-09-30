@@ -5,12 +5,13 @@ import {
 	stripSqlFilterBlocks,
 } from '@nao/shared/sql-template';
 import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { TRPCError } from '@trpc/server';
 
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
-import { createStoryExecutionContext, executeRawSql } from './live-story';
+import { createStoryExecutionContext, executeRawSql, executeStoryQueries } from './live-story';
 
 const FILTER_OPTIONS_LIMIT = 100;
 
@@ -69,19 +70,11 @@ export async function getFilteredStoryQueryData(
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
 	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
 	const types = filterTypesFromCode(code);
-	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
-	await Promise.all(
-		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
-			const renderedSql = renderStorySql(sqlQuery, selections, types);
-			queryData[queryId] = await executeRawSql(renderedSql, {
-				executionContext,
-				databaseId,
-			});
-		}),
-	);
-
-	return queryData;
+	return executeStoryQueries(chatId, sqlQueries, {
+		executionContext,
+		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, types),
+	});
 }
 
 export async function getStoryQuerySql(
@@ -117,7 +110,8 @@ async function loadStoryExecutionContext(chatId: string, storySlug: string) {
 		loadStoryCodeAndQueries(chatId, storySlug),
 		createStoryExecutionContext(chatId),
 	]);
-	const databaseId = Object.values(sqlQueries).find((query) => query.databaseId)?.databaseId;
+	const databaseIds = Object.values(sqlQueries).flatMap((query) => (query.databaseId ? [query.databaseId] : []));
+	const databaseId = databaseIds.find((id) => id !== LOCAL_DATABASE_ID) ?? databaseIds[0];
 
 	return {
 		code,

@@ -28,6 +28,7 @@ import { notificationRoutes } from './notification.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
+import { sandboxSecretRoutes } from './sandbox-secret.routes';
 import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
@@ -82,6 +83,7 @@ export const trpcRouter = router({
 	mcp: mcpRoutes,
 	mcpEndpoint: mcpEndpointRoutes,
 	mcpOAuthClients: mcpOAuthClientsRoutes,
+	sandboxSecret: sandboxSecretRoutes,
 	system: systemRoutes,
 	skill: skillRoutes,
 	transcribe: transcribeRoutes,

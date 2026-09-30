@@ -10,6 +10,7 @@ import { AgentSettings } from './agent-settings';
 export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
+	compiledBySemanticLayer?: boolean;
 }
 
 export interface GeneratedArtifacts {

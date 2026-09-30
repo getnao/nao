@@ -76,6 +76,9 @@ export type NewSharedStory = typeof sqliteSchema.sharedStory.$inferInsert;
 export type DBSharedStoryAccess = typeof sqliteSchema.sharedStoryAccess.$inferSelect;
 export type NewSharedStoryAccess = typeof sqliteSchema.sharedStoryAccess.$inferInsert;
 
+export type DBSharedStoryGroupAccess = typeof sqliteSchema.sharedStoryGroupAccess.$inferSelect;
+export type NewSharedStoryGroupAccess = typeof sqliteSchema.sharedStoryGroupAccess.$inferInsert;
+
 export type StoryVisibility = DBSharedStory['visibility'];
 
 export type DBStory = typeof sqliteSchema.story.$inferSelect;
@@ -176,5 +179,8 @@ export type NewMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferInsert;
 
 export type DBMcpUserToken = typeof sqliteSchema.mcpUserToken.$inferSelect;
 export type NewMcpUserToken = typeof sqliteSchema.mcpUserToken.$inferInsert;
+
+export type DBSandboxSecret = typeof sqliteSchema.sandboxSecret.$inferSelect;
+export type NewSandboxSecret = typeof sqliteSchema.sandboxSecret.$inferInsert;
 
 export default allSchema as typeof sqliteSchema;

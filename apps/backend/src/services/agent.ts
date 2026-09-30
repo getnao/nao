@@ -77,6 +77,7 @@ import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
+import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
@@ -577,6 +578,7 @@ class AgentManager {
 					await chatQueries.upsertMessage({
 						...settledMessage,
 						chatId: this.chat.id,
+						senderUserId: this.chat.userId,
 						source: this._toolContext.adminMode ? 'admin' : settledMessage.source,
 						stopReason,
 						error,
@@ -645,7 +647,13 @@ class AgentManager {
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
-		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
+		const toolNames = Object.keys(this._agentTools);
+		const [mcpServers, sandboxSecrets] = await Promise.all([
+			mcpService.getEnabledServers(this.chat.projectId),
+			toolNames.includes('execute_sandboxed_code')
+				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
+				: Promise.resolve([]),
+		]);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
 				memories,
@@ -655,12 +663,15 @@ class AgentManager {
 				skills,
 				customCharts,
 				mcpServers,
+				sandboxSecrets,
 				semanticLayerMode: this._toolContext.semanticLayerMode,
 				templates,
 				repoNames,
 				contextPresence,
 				timezone,
 				toolNames: Object.keys(this._agentTools),
+				testMode: this.chat.testMode,
+				toolNames,
 				options: { canGrepSavedFiles: canGrepUserFiles() },
 			}),
 		);

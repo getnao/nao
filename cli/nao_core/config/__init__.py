@@ -25,6 +25,7 @@ from .llm import (
     ProviderAuthConfig,
     ProviderConfig,
 )
+from .obsidian import ObsidianConfig
 from .slack import SlackConfig
 from .test import ComparisonConfig, TestConfig
 
@@ -53,6 +54,7 @@ __all__ = [
     "ProviderConfig",
     "SlackConfig",
     "ConfluenceConfig",
+    "ObsidianConfig",
     "ComparisonConfig",
     "TestConfig",
     "InitError",

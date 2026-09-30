@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import { TAG_ATTRS } from '@nao/shared/story-segments';
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { generateText, Output } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
@@ -16,13 +17,15 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import type { StoryQuerySources } from '../types/story-cache';
-import type { McpToolContext } from '../types/tools';
+import type { QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
 import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { referencedQueryIds } from '../utils/sql-file-paths';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
-import { buildMcpToolContext, MAX_OUTPUT_TOKENS } from './agent';
+import { buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
+import { runQueryOnLocalFiles } from './local-query.service';
 import { executeWarehouseSql } from './warehouse-sql.service';
 const MAX_RENDERED_ROWS = 60;
 
@@ -31,6 +34,10 @@ interface StoryRefreshTarget {
 	userId: string;
 	chatId: string;
 }
+
+export type StorySqlQuery = { sqlQuery: string; databaseId?: string; adminMode: boolean };
+export type StorySqlQueries = Record<string, StorySqlQuery>;
+export type StoryQueryData = Record<string, { data: unknown[]; columns: string[] }>;
 
 export async function executeLiveQuery(
 	chatId: string,
@@ -41,21 +48,12 @@ export async function executeLiveQuery(
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
-	const sqlQuery = stripSqlFilterBlocks(query.sqlQuery);
-	if (query.adminMode) {
-		const projectId = await requireChatProjectId(chatId);
-		return executeAppDatabaseSql(projectId, sqlQuery);
-	}
-
-	const executionContext = await createStoryExecutionContext(chatId);
-	return executeRawSql(sqlQuery, {
-		executionContext,
-		databaseId: query.databaseId,
-	});
+	const queryData = await executeStoryQueries(chatId, { [queryId]: query }, { renderSql: stripSqlFilterBlocks });
+	return queryData[queryId]!;
 }
 
 export interface RefreshResult {
-	queryData: Record<string, { data: unknown[]; columns: string[] }>;
+	queryData: StoryQueryData;
 }
 
 export async function refreshStoryData(chatId: string, slug: string): Promise<RefreshResult> {
@@ -74,9 +72,6 @@ async function refreshStoryDataWithContext(
 	}
 
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
-	const executionContext = Object.values(sqlQueries).some((query) => !query.adminMode)
-		? (existingExecutionContext ?? (await createStoryExecutionContext(chatId)))
-		: null;
 	if (Object.keys(sqlQueries).length === 0) {
 		return { queryData: {}, code: version.code };
 	}
@@ -86,26 +81,11 @@ async function refreshStoryDataWithContext(
 		throw new Error('Chat project not found');
 	}
 
-	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
-
-	await Promise.all(
-		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId, adminMode }]) => {
-			const effectiveSql = stripSqlFilterBlocks(sqlQuery);
-			if (adminMode) {
-				queryData[queryId] = await executeAppDatabaseSql(chat.projectId, effectiveSql);
-				return;
-			}
-			if (!executionContext) {
-				throw new Error('Live Story warehouse query has no execution context.');
-			}
-
-			const result = await executeRawSql(effectiveSql, {
-				executionContext,
-				databaseId,
-			});
-			queryData[queryId] = result;
-		}),
-	);
+	const queryData = await executeStoryQueries(chatId, sqlQueries, {
+		renderSql: stripSqlFilterBlocks,
+		executionContext: existingExecutionContext,
+		projectId: chat.projectId,
+	});
 
 	let refreshedCode = version.code;
 	if (version.isLiveTextDynamic) {
@@ -184,8 +164,6 @@ async function resolveLegacyCache(
 	return { queryData, cachedAt: cache.cachedAt, code };
 }
 
-type StorySqlQueries = Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>;
-
 function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 	return Object.fromEntries(
 		Object.entries(sqlQueries).map(([queryId, query]) => {
@@ -213,8 +191,89 @@ function normalizeEffectiveSql(sql: string): string {
 }
 
 export interface StoryExecutionContext {
-	toolContext: McpToolContext;
+	toolContext: ToolContext;
 	enforceExcludedColumns: boolean;
+}
+
+interface StoryQueryExecutionOptions {
+	renderSql: (sqlQuery: string) => string;
+	executionContext?: StoryExecutionContext;
+	projectId?: string;
+}
+
+/**
+ * Runs the story's queries where each one belongs: the app database, nao's local DuckDB or the
+ * warehouse. A local query reads earlier results as tables, so the queries it references are
+ * refreshed first and their fresh rows handed to DuckDB in place of the ones stored in the chat.
+ */
+export async function executeStoryQueries(
+	chatId: string,
+	sqlQueries: StorySqlQueries,
+	options: StoryQueryExecutionOptions,
+): Promise<StoryQueryData> {
+	const queries = { ...(await loadUpstreamQueries(chatId, sqlQueries)), ...sqlQueries };
+	const executionContext = Object.values(queries).some((query) => !query.adminMode)
+		? (options.executionContext ?? (await createStoryExecutionContext(chatId)))
+		: null;
+	const projectId =
+		executionContext?.toolContext.projectId ?? options.projectId ?? (await requireChatProjectId(chatId));
+	const running = new Map<string, Promise<QueryResult>>();
+
+	const run = (queryId: string, ancestors: Set<string>): Promise<QueryResult> => {
+		const pending = running.get(queryId) ?? execute(queryId, ancestors);
+		running.set(queryId, pending);
+		return pending;
+	};
+
+	const execute = async (queryId: string, ancestors: Set<string>): Promise<QueryResult> => {
+		const query = queries[queryId]!;
+		const sql = options.renderSql(query.sqlQuery);
+		if (query.adminMode) {
+			return executeAppDatabaseSql(projectId, sql);
+		}
+		if (!executionContext) {
+			throw new Error('Live Story warehouse query has no execution context.');
+		}
+		if (query.databaseId !== LOCAL_DATABASE_ID) {
+			return executeRawSql(sql, { executionContext, databaseId: query.databaseId });
+		}
+
+		const lineage = new Set([...ancestors, queryId]);
+		const upstreamIds = referencedQueryIds(sql).filter((id) => id in queries && !lineage.has(id));
+		await Promise.all(
+			upstreamIds.map(async (id) => {
+				executionContext.toolContext.queryResults.set(id, await run(id, lineage));
+			}),
+		);
+		return executeLocalSql(sql, executionContext.toolContext);
+	};
+
+	const entries = await Promise.all(
+		Object.keys(sqlQueries).map(async (queryId) => [queryId, await run(queryId, new Set())] as const),
+	);
+	return Object.fromEntries(entries);
+}
+
+/** Queries a local query reads from but which the story itself does not display. */
+async function loadUpstreamQueries(chatId: string, sqlQueries: StorySqlQueries): Promise<StorySqlQueries> {
+	const upstream: StorySqlQueries = {};
+	const requested = new Set(Object.keys(sqlQueries));
+	let frontier = sqlQueries;
+
+	while (true) {
+		const missing = new Set(
+			Object.values(frontier)
+				.filter((query) => query.databaseId === LOCAL_DATABASE_ID)
+				.flatMap((query) => referencedQueryIds(query.sqlQuery))
+				.filter((id) => !requested.has(id)),
+		);
+		if (missing.size === 0) {
+			return upstream;
+		}
+		missing.forEach((id) => requested.add(id));
+		frontier = await storyQueries.getSqlQueriesByIds(chatId, missing);
+		Object.assign(upstream, frontier);
+	}
 }
 
 interface RawSqlExecutionOptions {
@@ -222,11 +281,12 @@ interface RawSqlExecutionOptions {
 	databaseId?: string;
 }
 
-export async function executeRawSql(
-	sqlQuery: string,
-	options: RawSqlExecutionOptions,
-): Promise<{ data: unknown[]; columns: string[] }> {
+export async function executeRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
 	const context = options.executionContext.toolContext;
+	if (options.databaseId === LOCAL_DATABASE_ID) {
+		return executeLocalSql(sqlQuery, context);
+	}
+
 	const data = await executeWarehouseSql(sqlQuery, {
 		projectFolder: context.projectFolder,
 		databaseId: options.databaseId,
@@ -239,12 +299,17 @@ export async function executeRawSql(
 	return { data: data.data, columns: data.columns };
 }
 
+async function executeLocalSql(sqlQuery: string, context: ToolContext): Promise<QueryResult> {
+	const { result } = await runQueryOnLocalFiles(sqlQuery, context);
+	return { data: result.data, columns: result.columns };
+}
+
 export async function createStoryExecutionContext(chatId: string): Promise<StoryExecutionContext> {
 	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
 	if (!ownerId) {
 		throw new Error('Chat owner not found');
 	}
-	const toolContext = await buildMcpToolContext({ projectId, userId: ownerId });
+	const toolContext = await buildToolContext({ projectId, userId: ownerId, chatId });
 	return {
 		toolContext,
 		enforceExcludedColumns: await resolveExcludedColumnEnforcement(toolContext.agentSettings),
@@ -259,10 +324,7 @@ async function requireChatProjectId(chatId: string): Promise<string> {
 	return projectId;
 }
 
-async function executeAppDatabaseSql(
-	projectId: string,
-	sqlQuery: string,
-): Promise<{ data: unknown[]; columns: string[] }> {
+async function executeAppDatabaseSql(projectId: string, sqlQuery: string): Promise<QueryResult> {
 	const { columns, rows } = await queryAppDb(projectId, sqlQuery);
 	return { data: rows, columns };
 }

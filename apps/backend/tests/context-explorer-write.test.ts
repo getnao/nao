@@ -51,6 +51,7 @@ describe('context explorer worktree writes', () => {
 			'repos/source.md': 'synced\n',
 			'docs/notion/page.md': 'notion\n',
 			'docs/confluence/page.md': 'confluence\n',
+			'docs/obsidian/note.md': 'obsidian\n',
 			'.gitignore': 'ignored\n',
 		});
 		commitAll(seed);
@@ -67,6 +68,7 @@ describe('context explorer worktree writes', () => {
 			'repos/source.md': 'live synced\n',
 			'docs/notion/page.md': 'live notion\n',
 			'docs/confluence/page.md': 'live confluence\n',
+			'docs/obsidian/note.md': 'live obsidian\n',
 			'untracked.md': 'live only\n',
 			'.env': 'secret\n',
 			'nested/.env.local': 'nested secret\n',
@@ -228,6 +230,7 @@ describe('context explorer worktree writes', () => {
 		['/repos/source.md', 'synced-source', 'file', '/nao_config.yaml'],
 		['/docs/notion/page.md', 'synced-source', 'file', '/nao_config.yaml'],
 		['/docs/confluence/page.md', 'synced-source', 'file', '/nao_config.yaml'],
+		['/docs/obsidian/note.md', 'synced-source', 'file', '/nao_config.yaml'],
 		['/untracked.md', 'not-tracked', null, null],
 	])('reports guidance for %s', async (filePath, reason, actionKind, actionPath) => {
 		const file = await readFileContent(filePath, access);

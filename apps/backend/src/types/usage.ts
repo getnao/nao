@@ -222,3 +222,15 @@ export interface TotalUsageRecord {
 	totalMessages: number;
 	uniqueUsers: number;
 }
+
+export interface UserUsageBreakdown {
+	userName: string;
+	messageCount: number;
+	totalTokens: number;
+	totalCost: number;
+}
+
+export interface UsageByUserRecord {
+	date: string;
+	users: UserUsageBreakdown[];
+}

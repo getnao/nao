@@ -6,6 +6,7 @@ from .base import SyncProvider, SyncResult
 from .confluence.provider import ConfluenceSyncProvider
 from .databases.provider import DatabaseSyncProvider
 from .notion.provider import NotionSyncProvider
+from .obsidian.provider import ObsidianSyncProvider
 from .repositories.provider import RepositorySyncProvider
 from .semantic_layer.provider import SemanticLayerSyncProvider
 
@@ -13,6 +14,7 @@ from .semantic_layer.provider import SemanticLayerSyncProvider
 PROVIDER_REGISTRY: dict[str, SyncProvider] = {
     "notion": NotionSyncProvider(),
     "confluence": ConfluenceSyncProvider(),
+    "obsidian": ObsidianSyncProvider(),
     "repositories": RepositorySyncProvider(),
     "databases": DatabaseSyncProvider(),
     "semantics": SemanticLayerSyncProvider(),

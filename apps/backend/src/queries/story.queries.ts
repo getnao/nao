@@ -1,11 +1,12 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo } from '@nao/shared/types';
-import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, countDistinct, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import type { StoryQuerySources } from '../types/story-cache';
 import * as executeSqlQueries from './execute-sql.queries';
+import { sharedStoryGrantsUser } from './shared-story.queries';
 
 export type UserStoryRow = Pick<
 	DBStory,
@@ -390,17 +391,13 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 		.select({ id: s.sharedStory.id })
 		.from(s.sharedStory)
 		.innerJoin(s.project, eq(s.project.id, s.sharedStory.projectId))
-		.leftJoin(
-			s.sharedStoryAccess,
-			and(eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id), eq(s.sharedStoryAccess.userId, userId)),
-		)
 		.where(
 			and(
 				eq(s.sharedStory.storyId, storyId),
 				or(
 					eq(s.sharedStory.userId, userId),
 					and(eq(s.sharedStory.visibility, 'project'), or(isProjectMember, isOrgMember)),
-					and(eq(s.sharedStory.visibility, 'specific'), sql`${s.sharedStoryAccess.userId} IS NOT NULL`),
+					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId)),
 				),
 			),
 		)
@@ -567,6 +564,13 @@ export async function getSqlQueriesFromCode(
 	return executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
 }
 
+export async function getSqlQueriesByIds(
+	chatId: string,
+	queryIds: Set<string>,
+): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
+	return executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
+}
+
 export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
@@ -727,10 +731,12 @@ export async function getStorySharingInfo(storyIds: string[]): Promise<Map<strin
 			storyId: s.sharedStory.storyId,
 			visibility: s.sharedStory.visibility,
 			isPinned: s.sharedStory.isPinned,
-			sharedWithCount: sql<number>`count(${s.sharedStoryAccess.userId})`.mapWith(Number),
+			sharedWithCount: countDistinct(s.sharedStoryAccess.userId),
+			sharedWithGroupCount: countDistinct(s.sharedStoryGroupAccess.groupId),
 		})
 		.from(s.sharedStory)
 		.leftJoin(s.sharedStoryAccess, eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id))
+		.leftJoin(s.sharedStoryGroupAccess, eq(s.sharedStoryGroupAccess.sharedStoryId, s.sharedStory.id))
 		.where(inArray(s.sharedStory.storyId, storyIds))
 		.groupBy(s.sharedStory.id)
 		.execute();
@@ -740,6 +746,7 @@ export async function getStorySharingInfo(storyIds: string[]): Promise<Map<strin
 		result.set(row.storyId, {
 			visibility: row.visibility,
 			sharedWithCount: row.sharedWithCount,
+			sharedWithGroupCount: row.sharedWithGroupCount,
 			isPinned: row.isPinned,
 		});
 	}

@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getMessagesUsage, getTotalUsage } from '../src/queries/usage.queries';
+import { getMessagesUsage, getMessagesUsageByUser, getTotalUsage } from '../src/queries/usage.queries';
 import {
 	getUserPreferences,
 	mutateUserPreferences,
@@ -42,6 +42,7 @@ const OTHER_PROJECT_ID = 'usage-project-other';
 const USER_ID = 'usage-user';
 const OTHER_USER_ID = 'usage-user-other';
 const CHAT_ID = 'usage-chat';
+const OTHER_USER_CHAT_ID = 'usage-chat-other-user';
 
 describe('usage query results', () => {
 	beforeAll(async () => {
@@ -53,7 +54,10 @@ describe('usage query results', () => {
 			{ id: PROJECT_ID, name: 'Usage Project', type: 'local', path: '/tmp/usage-project' },
 			{ id: OTHER_PROJECT_ID, name: 'Other Usage Project', type: 'local', path: '/tmp/usage-project-other' },
 		]);
-		await db.insert(s.chat).values({ id: CHAT_ID, projectId: PROJECT_ID, userId: USER_ID });
+		await db.insert(s.chat).values([
+			{ id: CHAT_ID, projectId: PROJECT_ID, userId: USER_ID },
+			{ id: OTHER_USER_CHAT_ID, projectId: PROJECT_ID, userId: OTHER_USER_ID },
+		]);
 	});
 
 	beforeEach(async () => {
@@ -323,5 +327,76 @@ describe('usage query results', () => {
 			outputTotalTokens: 5,
 			totalTokens: 45,
 		});
+	});
+
+	it('breaks down messages, tokens and cost per user for every date', async () => {
+		const now = new Date();
+		const previousDay = new Date(now);
+		previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+
+		await db.insert(s.chatMessage).values([
+			{ id: 'by-user-1', chatId: CHAT_ID, role: 'user', source: 'web', createdAt: now },
+			{ id: 'by-user-2', chatId: CHAT_ID, role: 'user', source: 'slack', createdAt: now },
+			{
+				id: 'by-user-assistant',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'anthropic',
+				llmModelId: 'claude-haiku-4-5',
+				inputNoCacheTokens: 1_000_000,
+				outputTotalTokens: 1_000_000,
+				totalTokens: 2_000_000,
+				createdAt: now,
+			},
+			{ id: 'by-other-user-1', chatId: OTHER_USER_CHAT_ID, role: 'user', source: 'web', createdAt: now },
+			{ id: 'by-other-user-previous', chatId: OTHER_USER_CHAT_ID, role: 'user', createdAt: previousDay },
+		]);
+		await db.insert(s.llmInference).values({
+			id: 'by-other-user-inference',
+			projectId: PROJECT_ID,
+			userId: OTHER_USER_ID,
+			chatId: OTHER_USER_CHAT_ID,
+			type: 'title_generation',
+			llmProvider: 'openai',
+			llmModelId: 'gpt-4o',
+			inputNoCacheTokens: 30,
+			totalTokens: 30,
+			createdAt: now,
+		});
+
+		const records = await getMessagesUsageByUser(PROJECT_ID, { period: { value: 15, unit: 'day' } });
+
+		expect(records).toHaveLength(15);
+		expect(records.every((record) => Array.isArray(record.users))).toBe(true);
+
+		const today = records.find((record) => record.date === formatDate(now, 'day'));
+		const usageUser = today?.users.find((user) => user.userName === 'Usage User');
+		const otherUser = today?.users.find((user) => user.userName === 'Other Usage User');
+		expect(today?.users).toHaveLength(2);
+		expect(usageUser).toMatchObject({ messageCount: 2, totalTokens: 2_000_000 });
+		expect(usageUser?.totalCost).toBeCloseTo(6);
+		expect(otherUser).toMatchObject({ messageCount: 1, totalTokens: 30 });
+
+		expect(records.find((record) => record.date === formatDate(previousDay, 'day'))?.users).toEqual([
+			{ userName: 'Other Usage User', messageCount: 1, totalTokens: 0, totalCost: 0 },
+		]);
+	});
+
+	it('applies user and source filters to the per-user breakdown', async () => {
+		const now = new Date();
+		await db.insert(s.chatMessage).values([
+			{ id: 'filtered-web', chatId: CHAT_ID, role: 'user', source: 'web', createdAt: now },
+			{ id: 'filtered-slack', chatId: CHAT_ID, role: 'user', source: 'slack', createdAt: now },
+			{ id: 'filtered-other', chatId: OTHER_USER_CHAT_ID, role: 'user', source: 'web', createdAt: now },
+		]);
+
+		const byUser = await getMessagesUsageByUser(PROJECT_ID, {
+			period: { value: 15, unit: 'day' },
+			userNames: ['Usage User'],
+			sources: ['slack'],
+		});
+		const today = byUser.find((record) => record.date === formatDate(now, 'day'));
+
+		expect(today?.users).toEqual([{ userName: 'Usage User', messageCount: 1, totalTokens: 0, totalCost: 0 }]);
 	});
 });

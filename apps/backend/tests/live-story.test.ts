@@ -8,11 +8,13 @@ const mocks = vi.hoisted(() => ({
 	getChatProjectId: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getSqlQueriesFromCode: vi.fn(),
+	getSqlQueriesByIds: vi.fn(),
 	getSqlQueryById: vi.fn(),
 	getStoryDataCacheByChatAndSlug: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	queryAppDb: vi.fn(),
-	buildMcpToolContext: vi.fn(),
+	runQueryOnLocalFiles: vi.fn(),
+	buildToolContext: vi.fn(),
 	resolveExcludedColumnEnforcement: vi.fn(),
 	upsertStoryDataCache: vi.fn(),
 	updateLatestVersionCode: vi.fn(),
@@ -46,6 +48,7 @@ vi.mock('../src/queries/project-llm-config.queries', () => ({
 vi.mock('../src/queries/story.queries', () => ({
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
 	getSqlQueriesFromCode: mocks.getSqlQueriesFromCode,
+	getSqlQueriesByIds: mocks.getSqlQueriesByIds,
 	getSqlQueryById: mocks.getSqlQueryById,
 	getStoryDataCacheByChatAndSlug: mocks.getStoryDataCacheByChatAndSlug,
 	upsertStoryDataCache: mocks.upsertStoryDataCache,
@@ -57,8 +60,12 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 }));
 
 vi.mock('../src/services/agent', () => ({
-	buildMcpToolContext: mocks.buildMcpToolContext,
+	buildToolContext: mocks.buildToolContext,
 	MAX_OUTPUT_TOKENS: 4096,
+}));
+
+vi.mock('../src/services/local-query.service', () => ({
+	runQueryOnLocalFiles: mocks.runQueryOnLocalFiles,
 }));
 
 vi.mock('../src/services/excluded-columns.service', () => ({
@@ -109,10 +116,13 @@ describe('live story SQL execution', () => {
 			code: '<table query_id="query_admin" />',
 			isLiveTextDynamic: false,
 		});
-		mocks.buildMcpToolContext.mockResolvedValue({
+		mocks.getSqlQueriesByIds.mockResolvedValue({});
+		mocks.buildToolContext.mockImplementation(async () => ({
 			projectFolder: '/project',
 			projectId: 'project-1',
 			userId: 'owner-1',
+			chatId: 'chat-1',
+			queryResults: new Map(),
 			envVars: { TOKEN: 'secret' },
 			azureAccessToken: 'owner-token',
 			agentSettings: null,
@@ -131,7 +141,7 @@ describe('live story SQL execution', () => {
 					},
 				],
 			},
-		});
+		}));
 		mocks.resolveExcludedColumnEnforcement.mockResolvedValue(false);
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
 		mocks.findMissingQueryIds.mockReturnValue([]);
@@ -148,9 +158,10 @@ describe('live story SQL execution', () => {
 	it('builds the execution context with the chat owner', async () => {
 		await createStoryExecutionContext('chat-1');
 
-		expect(mocks.buildMcpToolContext).toHaveBeenCalledWith({
+		expect(mocks.buildToolContext).toHaveBeenCalledWith({
 			projectId: 'project-1',
 			userId: 'owner-1',
+			chatId: 'chat-1',
 		});
 	});
 
@@ -158,7 +169,7 @@ describe('live story SQL execution', () => {
 		mocks.getChatOwnerId.mockResolvedValue(undefined);
 
 		await expect(createStoryExecutionContext('chat-1')).rejects.toThrow('Chat owner not found');
-		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
+		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
 	it('refreshes admin-mode story queries from the app database', async () => {
@@ -184,7 +195,7 @@ describe('live story SQL execution', () => {
 			},
 		});
 
-		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
+		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
 			'chat-1',
 			'usage',
@@ -232,9 +243,10 @@ describe('live story SQL execution', () => {
 			code,
 		});
 
-		expect(mocks.buildMcpToolContext).toHaveBeenCalledWith({
+		expect(mocks.buildToolContext).toHaveBeenCalledWith({
 			projectId: 'project-1',
 			userId: 'owner-1',
+			chatId: 'chat-1',
 		});
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
 			azure_access_token: 'owner-token',
@@ -259,6 +271,80 @@ describe('live story SQL execution', () => {
 		);
 	});
 
+	it('refreshes a local query in DuckDB after re-running the warehouse query it reads from', async () => {
+		const code = '<chart query_id="query_local" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_local: {
+				sqlQuery: 'SELECT region, sum(amount) AS total FROM query_upstream GROUP BY region',
+				databaseId: 'duckdb_local',
+				adminMode: false,
+			},
+		});
+		mocks.getSqlQueriesByIds.mockResolvedValue({
+			query_upstream: {
+				sqlQuery: 'SELECT * FROM orders',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: vi.fn().mockResolvedValue({
+				columns: ['region', 'amount'],
+				data: [{ region: 'EU', amount: 10 }],
+			}),
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		mocks.runQueryOnLocalFiles.mockImplementation(
+			async (_sql: string, context: { queryResults: Map<string, unknown> }) => ({
+				result: {
+					columns: ['region', 'total'],
+					data: [{ region: 'EU', total: 10, upstream_seen: context.queryResults.has('query_upstream') }],
+				},
+			}),
+		);
+
+		await expect(refreshStoryData('chat-1', 'sales')).resolves.toEqual({
+			queryData: {
+				query_local: {
+					columns: ['region', 'total'],
+					data: [{ region: 'EU', total: 10, upstream_seen: true }],
+				},
+			},
+		});
+
+		expect(mocks.getSqlQueriesByIds).toHaveBeenCalledWith('chat-1', new Set(['query_upstream']));
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+			sql: 'SELECT * FROM orders',
+			database_id: 'analytics',
+		});
+		expect(mocks.runQueryOnLocalFiles).toHaveBeenCalledWith(
+			'SELECT region, sum(amount) AS total FROM query_upstream GROUP BY region',
+			expect.objectContaining({ chatId: 'chat-1' }),
+		);
+	});
+
+	it('never sends a local live query to the warehouse', async () => {
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT * FROM query_upstream',
+			databaseId: 'duckdb_local',
+			adminMode: false,
+		});
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		mocks.runQueryOnLocalFiles.mockResolvedValue({
+			result: { columns: ['id'], data: [{ id: 1 }] },
+		});
+
+		await expect(executeLiveQuery('chat-1', 'query_local')).resolves.toEqual({
+			columns: ['id'],
+			data: [{ id: 1 }],
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	it('returns non-live stored data regardless of row security', async () => {
 		const code = '<table query_id="query_warehouse" />';
 		const queryData = {
@@ -277,7 +363,7 @@ describe('live story SQL execution', () => {
 		});
 
 		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith('chat-1', code);
-		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
+		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
 	it('serves a fresh shared cache without building an execution context', async () => {
@@ -301,7 +387,7 @@ describe('live story SQL execution', () => {
 			cachedAt: cache.cachedAt,
 			code,
 		});
-		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
+		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
 	it('backfills missing data in a fresh legacy cache', async () => {
@@ -385,6 +471,6 @@ describe('live story SQL execution', () => {
 			columns: ['chat_id'],
 			data: [{ chat_id: 'chat-1' }],
 		});
-		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
+		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 });

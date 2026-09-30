@@ -380,8 +380,8 @@ export const storyRoutes = {
 				email: member.email,
 			});
 
-			if (access?.visibility === 'specific' && access.allowedUserIds.length > 0) {
-				const allowed = new Set(access.allowedUserIds);
+			if (access?.visibility === 'specific' && access.recipientUserIds.length > 0) {
+				const allowed = new Set(access.recipientUserIds);
 				return members.filter((member) => allowed.has(member.id)).map(toRecipient);
 			}
 			return members.map(toRecipient);
@@ -638,6 +638,7 @@ export const storyRoutes = {
 			sharing: {
 				visibility: story.visibility,
 				sharedWithCount: story.sharedWithCount,
+				sharedWithGroupCount: story.sharedWithGroupCount,
 				isPinned: story.isPinned,
 			},
 		}));
@@ -899,10 +900,7 @@ async function grantSpecificShareAccess(storyId: string, projectId: string, user
 		return;
 	}
 	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
-	if (missing.length === 0) {
-		return;
-	}
-	await sharedStoryQueries.updateSharedStoryAllowedUsers(access.shareId, [...access.allowedUserIds, ...missing]);
+	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
 }
 
 async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {

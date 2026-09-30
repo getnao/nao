@@ -99,12 +99,20 @@ export function PrivateBadge({ label = 'Private story' }: { label?: string }) {
 	);
 }
 
-export function SharingBadge({ visibility, sharedWithCount }: { visibility: Visibility; sharedWithCount?: number }) {
+export function SharingBadge({
+	visibility,
+	sharedWithCount,
+	sharedWithGroupCount,
+}: {
+	visibility: Visibility;
+	sharedWithCount?: number;
+	sharedWithGroupCount?: number;
+}) {
 	const tooltip =
 		visibility === 'project'
 			? 'Shared with the project'
 			: sharedWithCount != null
-				? `Shared with ${sharedWithCount} user${sharedWithCount !== 1 ? 's' : ''}`
+				? `Shared with ${formatSharedWith(sharedWithCount, sharedWithGroupCount ?? 0)}`
 				: 'Shared with specific people';
 
 	return (
@@ -114,4 +122,13 @@ export function SharingBadge({ visibility, sharedWithCount }: { visibility: Visi
 			</span>
 		</SimpleTooltip>
 	);
+}
+
+function formatSharedWith(userCount: number, groupCount: number): string {
+	const users = `${userCount} user${userCount !== 1 ? 's' : ''}`;
+	if (groupCount === 0) {
+		return users;
+	}
+	const groups = `${groupCount} group${groupCount !== 1 ? 's' : ''}`;
+	return userCount === 0 ? groups : `${users} and ${groups}`;
 }

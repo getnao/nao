@@ -19,6 +19,7 @@ export type SharedItem = {
 	createdAt: Date;
 	visibility?: Visibility;
 	sharedWithCount?: number;
+	sharedWithGroupCount?: number;
 	isLive?: boolean;
 	summary?: unknown;
 	messageBubbles?: MessageBubble[];

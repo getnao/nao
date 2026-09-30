@@ -3,8 +3,20 @@
 # (HTTP-01 / TLS-ALPN-01), so adding a site only needs a DNS record and a block here.
 # Deployed by .github/workflows/caddy.yml.
 
+# Blue/green upstreams for moon and app: each runs on two ports and only one container is live
+# outside of a deploy. `first` sends every request to the first healthy port, and a
+# draining container fails /api/health so traffic moves before it stops.
+(blue_green) {
+	lb_policy first
+	lb_try_duration 30s
+	health_uri /api/health
+	health_interval 2s
+	health_timeout 2s
+}
+
 moon.getnao.io {
-	reverse_proxy localhost:5005 {
+	reverse_proxy localhost:5005 localhost:5006 {
+		import blue_green
 		flush_interval -1
 	}
 }
@@ -14,8 +26,15 @@ licenses.getnao.io {
 }
 
 app.getnao.io {
-	reverse_proxy localhost:5050 {
-		flush_interval -1
+	@backoffice path /api/backoffice/*
+	handle @backoffice {
+		respond 404
+	}
+	handle {
+		reverse_proxy localhost:5050 localhost:5051 {
+			import blue_green
+			flush_interval -1
+		}
 	}
 }
 

@@ -1,4 +1,4 @@
-import { resolveGridWidths, storyBlockRegex } from '@nao/shared/story-segments';
+import { parseChartAttributes, resolveGridWidths, storyBlockRegex } from '@nao/shared/story-segments';
 import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
@@ -33,13 +33,13 @@ function extractSegments(code: string): SummarySegment[] {
 		}
 
 		if (match[2] !== undefined) {
-			const attrs = parseAttributes(match[1] ?? '');
+			const attrs = parseChartAttributes(match[1] ?? '');
 			const children = extractSegments(match[2]);
 			const cols = parseInt(attrs.cols || String(children.length || 1), 10);
 			const widths = resolveGridWidths(attrs.widths, children.length);
 			segments.push({ type: 'grid', cols, widths, children });
 		} else if (match[3] !== undefined) {
-			const attrs = parseAttributes(match[3]);
+			const attrs = parseChartAttributes(match[3]);
 			if (attrs.chart_type) {
 				segments.push({
 					type: 'chart',
@@ -49,13 +49,13 @@ function extractSegments(code: string): SummarySegment[] {
 				});
 			}
 		} else if (match[4] !== undefined) {
-			const attrs = parseAttributes(match[4]);
+			const attrs = parseChartAttributes(match[4]);
 			segments.push({
 				type: 'table',
 				title: attrs.title || '',
 			});
 		} else if (match[6] !== undefined) {
-			const attrs = parseAttributes(match[6]);
+			const attrs = parseChartAttributes(match[6]);
 			segments.push({
 				type: 'map',
 				mapType: attrs.map_type || 'points',
@@ -105,14 +105,4 @@ function truncateText(raw: string): string {
 	});
 
 	return truncated.join('\n');
-}
-
-function parseAttributes(attrString: string): Record<string, string> {
-	const attrs: Record<string, string> = {};
-	const regex = /(\w+)=(?:"([^"]*)"|'([^']*)')/g;
-	let match;
-	while ((match = regex.exec(attrString)) !== null) {
-		attrs[match[1]] = match[2] ?? match[3];
-	}
-	return attrs;
 }

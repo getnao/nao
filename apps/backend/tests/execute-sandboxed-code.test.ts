@@ -31,8 +31,15 @@ vi.mock('../src/services/sandbox-runtime', () => ({
 	isSandboxAvailable: true,
 	sandboxRuntime: {
 		CodeBox: class FakeCodeBox {
-			exec = vi.fn((...args: string[]) => mocks.exec(this, ...args));
-			run = vi.fn((code: string) => mocks.run(this, code));
+			/** User code is run through `exec` with an args array; housekeeping passes variadic strings. */
+			exec = vi.fn(async (command: string, ...args: unknown[]) => {
+				const [codeArgs] = args;
+				if (!Array.isArray(codeArgs)) {
+					return mocks.exec(this, command, ...(args as string[]));
+				}
+				const stdout = await mocks.run(this, codeArgs[1]);
+				return { stdout, stderr: '', exitCode: 0 };
+			});
 			installPackages = vi.fn((...packages: string[]) => mocks.installPackages(this, ...packages));
 			copyIn = vi.fn((source: string, destination: string) => mocks.copyIn(this, source, destination));
 			copyOut = vi.fn((source: string, destination: string) => mocks.copyOut(this, source, destination));
@@ -53,6 +60,9 @@ vi.mock('../src/services/project-context-path-access.service', () => ({
 }));
 vi.mock('../src/services/query-result.service', () => ({
 	getQueryResult: vi.fn(),
+}));
+vi.mock('../src/services/sandbox-secret.service', () => ({
+	sandboxSecretService: { resolve: vi.fn(async () => []) },
 }));
 vi.mock('../src/services/storage/user-files', () => ({
 	readUserFileBytes: vi.fn(),
@@ -100,7 +110,7 @@ describe('execute sandboxed code pooling', () => {
 		const second = runSandbox({ sandbox_id: initial.sandbox_id, code: 'second' });
 		await Promise.resolve();
 
-		expect(box.exec).toHaveBeenCalledTimes(1);
+		expect(mocks.exec).toHaveBeenCalledTimes(1);
 		expect(mocks.run).toHaveBeenCalledTimes(1);
 
 		releaseFirst.resolve();

@@ -32,6 +32,17 @@ describe('validateUsageSearch', () => {
 		]);
 	});
 
+	it('parses the split per user toggle and persists it with the other filters', () => {
+		expect(validateUsageSearch({}).splitByUser).toBe(false);
+		expect(validateUsageSearch({ splitByUser: true }).splitByUser).toBe(true);
+		expect(validateUsageSearch({ splitByUser: 'true' }).splitByUser).toBe(true);
+		expect(validateUsageSearch({ splitByUser: 'yes' }).splitByUser).toBe(false);
+
+		saveUsageFilters({ ...DEFAULT_USAGE_SEARCH, splitByUser: true });
+
+		expect(validateUsageSearchWithStoredFilters({}).splitByUser).toBe(true);
+	});
+
 	it('ignores removed custom period parameters', () => {
 		expect(
 			validateUsageSearch({ periodMode: 'custom', periodValue: 30, periodUnit: 'day' }).periodMode,

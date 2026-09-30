@@ -443,6 +443,28 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Sandbox secrets',
+		description:
+			'API keys and other credentials the code running in a sandbox can read as environment variables, without exposing them to the model.',
+		keywords: [
+			'secret',
+			'secrets',
+			'api key',
+			'token',
+			'credential',
+			'env',
+			'environment variable',
+			'sandbox',
+			'boxlite',
+			'code execution',
+			'password',
+		],
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
 		section: 'Experimental',
 		search: { tab: 'tools' },
 		title: 'Display map',
@@ -880,6 +902,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Cost',
 		description: 'Estimated cost in USD based on token usage and model pricing.',
 		keywords: ['price', 'billing', 'expense', 'spending'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/usage',
+		pageLabel: 'Usage, costs & replay',
+		title: 'Split per user',
+		description: 'Break down messages, tokens and cost per user instead of per source or token category.',
+		keywords: ['per user', 'by user', 'user breakdown', 'who spends', 'top users', 'split'],
 		adminOnly: true,
 	},
 	{

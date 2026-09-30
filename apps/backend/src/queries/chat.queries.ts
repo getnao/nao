@@ -510,6 +510,7 @@ export const createChat = async (
 			.values({
 				id: messageId,
 				chatId: savedChat.id,
+				senderUserId: savedChat.userId,
 				role: 'user',
 				source: newUserMessage.source,
 				citation: newUserMessage.citation ?? null,
@@ -575,6 +576,7 @@ export const upsertMessage = async (
 	message: Omit<UIMessage, 'id'> & {
 		id?: string;
 		chatId: string;
+		senderUserId?: string;
 		stopReason?: StopReason;
 		error?: unknown;
 		tokenUsage?: TokenUsage;
@@ -589,6 +591,7 @@ export const upsertMessage = async (
 		const messageValues = {
 			id: messageId,
 			chatId: message.chatId,
+			senderUserId: message.senderUserId,
 			role: message.role,
 			stopReason: message.stopReason,
 			errorMessage: getErrorMessage(message.error),
