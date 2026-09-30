@@ -354,6 +354,27 @@ export const getTotalUsage = async (projectId: string, filter: UsageFilter): Pro
 	};
 };
 
+/**
+ * Distinct people who sent a message anywhere in the organization. Counted in a single
+ * pass across projects so somebody active in several of them is still one active user.
+ */
+export const getOrgActiveUserCount = async (orgId: string, period: UsagePeriodRange): Promise<number> => {
+	const lookbackTs = getLookbackTimestamp(period);
+	const lookbackFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
+			: sql`${s.chatMessage.createdAt} >= ${lookbackTs}`;
+
+	const rows = await db
+		.select({ activeUsers: sql<number>`count(distinct ${MESSAGE_SENDER_EXPR})` })
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.innerJoin(s.project, eq(s.chat.projectId, s.project.id))
+		.where(and(eq(s.project.orgId, orgId), eq(s.chatMessage.role, 'user'), lookbackFilter));
+
+	return Number(rows[0]?.activeUsers ?? 0);
+};
+
 export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]> => {
 	const [messageRows, inferenceRows] = await Promise.all([
 		db
