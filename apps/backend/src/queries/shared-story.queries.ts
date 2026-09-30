@@ -75,6 +75,11 @@ export async function getSharedStory(id: string): Promise<SharedStoryWithLatest 
 	return row ?? null;
 }
 
+export async function getSharedStoryByStoryId(storyId: string): Promise<SharedStoryWithLatest | null> {
+	const [row] = await querySharedStories(eq(s.sharedStory.storyId, storyId));
+	return row ?? null;
+}
+
 export async function canUserAccessSharedStory(sharedStoryId: string, userId: string): Promise<boolean> {
 	const [row] = await db
 		.select({ id: s.sharedStory.id })
@@ -168,17 +173,6 @@ export async function getSharedStoryInfo(
 		.select({ id: s.sharedStory.id, visibility: s.sharedStory.visibility })
 		.from(s.sharedStory)
 		.where(and(eq(s.sharedStory.storyId, storyId), eq(s.sharedStory.projectId, projectId)))
-		.limit(1)
-		.execute();
-
-	return row ?? null;
-}
-
-export async function getSharedStoryVisibilityById(sharedStoryId: string): Promise<{ visibility: string } | null> {
-	const [row] = await db
-		.select({ visibility: s.sharedStory.visibility })
-		.from(s.sharedStory)
-		.where(eq(s.sharedStory.id, sharedStoryId))
 		.limit(1)
 		.execute();
 

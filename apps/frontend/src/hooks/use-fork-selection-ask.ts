@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { ShareSource } from '@nao/shared/types';
 
 import type { SelectionData } from '@/components/highlight-bubble';
 import { useSelection } from '@/contexts/text-selection';
 import { trpc } from '@/main';
 
-export function useForkSelectionAsk(shareId: string, contentType: 'chat' | 'story') {
+export function useForkSelectionAsk(source: ShareSource) {
 	const { selection, addAnchor, resolveAnchor, removeAnchor, openAnchor } = useSelection();
 	const queryClient = useQueryClient();
 
@@ -21,7 +22,7 @@ export function useForkSelectionAsk(shareId: string, contentType: 'chat' | 'stor
 		openAnchor(pendingId);
 
 		forkMutation.mutate(
-			{ shareId, type: contentType, selection: data },
+			{ source, selection: data },
 			{
 				onSuccess: ({ chatId }) => {
 					queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });

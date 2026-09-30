@@ -301,7 +301,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				limit,
 			});
 			const result = stories.map((story) =>
-				toStoryListItem(story, { url: storyUrl(story), chatUrl: storyChatUrl(story) }),
+				toStoryListItem(story, { url: storyUrl(story.id), chatUrl: storyChatUrl(story) }),
 			);
 			const output = { stories: result };
 			return {
@@ -337,7 +337,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				archived: story.archivedAt !== null,
 				createdAt: story.createdAt,
 				updatedAt: story.updatedAt,
-				url: storyUrl(story),
+				url: storyUrl(story.id),
 				chatUrl: storyChatUrl(story),
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, version?.code ?? null, story.chatId);

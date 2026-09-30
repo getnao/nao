@@ -366,7 +366,7 @@ function useFilterOptions(
 
 	const sharedQuery = useQuery({
 		...trpc.storyShare.getFilterOptions.queryOptions({
-			shareId: api?.kind === 'shared' ? api.shareId : '',
+			storyId: api?.kind === 'shared' ? api.storyId : '',
 			filterId: filter.id,
 		}),
 		enabled: Boolean(api?.kind === 'shared' && needsRemoteOptions),

@@ -9,7 +9,7 @@ interface UseStoryVersionQueryDataParams {
 	versionNumber: number;
 	isViewingLatest: boolean;
 	latestQueryData: QueryDataMap | null;
-	shareId?: string;
+	sharedStoryId?: string;
 }
 
 export function useStoryVersionQueryData({
@@ -18,24 +18,24 @@ export function useStoryVersionQueryData({
 	versionNumber,
 	isViewingLatest,
 	latestQueryData,
-	shareId,
+	sharedStoryId,
 }: UseStoryVersionQueryDataParams): { queryData: QueryDataMap | null; isPending: boolean } {
 	const hasVersionNumber = Number.isInteger(versionNumber) && versionNumber > 0;
 	const shouldFetchHistoricalData = !isViewingLatest && hasVersionNumber;
 	const ownedVersionQuery = useQuery({
 		...trpc.story.getVersionQueryData.queryOptions({ chatId, storySlug, versionNumber }),
-		enabled: shouldFetchHistoricalData && !shareId,
+		enabled: shouldFetchHistoricalData && !sharedStoryId,
 	});
 	const sharedVersionQuery = useQuery({
-		...trpc.storyShare.getVersionQueryData.queryOptions({ shareId: shareId ?? '', versionNumber }),
-		enabled: shouldFetchHistoricalData && Boolean(shareId),
+		...trpc.storyShare.getVersionQueryData.queryOptions({ storyId: sharedStoryId ?? '', versionNumber }),
+		enabled: shouldFetchHistoricalData && Boolean(sharedStoryId),
 	});
 
 	if (isViewingLatest) {
 		return { queryData: latestQueryData, isPending: false };
 	}
 
-	const historicalVersionQuery = shareId ? sharedVersionQuery : ownedVersionQuery;
+	const historicalVersionQuery = sharedStoryId ? sharedVersionQuery : ownedVersionQuery;
 	return {
 		queryData: (historicalVersionQuery.data?.queryData as QueryDataMap | null | undefined) ?? null,
 		isPending: !hasVersionNumber || historicalVersionQuery.isPending,

@@ -63,8 +63,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isReadonlyMode: contextReadonlyMode,
 		isReplay,
 		registerBeforeChange,
-		shareId,
-		shareType,
+		shareSource,
 		setCurrentStorySlug,
 		setCurrentStoryTabIndex,
 	} = useSidePanel();
@@ -214,7 +213,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		handleRefreshData,
 	} = useStoryViewerLiveSettings({ chatId, storySlug: resolvedStorySlug });
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
-	const { handleEnlarge } = useStoryViewerEnlarge({ chatId, storySlug: resolvedStorySlug });
+	const { handleEnlarge } = useStoryViewerEnlarge({ storyId });
 
 	const handleOpenShare = useCallback(() => setIsShareDialogOpen(true), [setIsShareDialogOpen]);
 	const handleOpenAnalytics = useCallback(() => setIsAnalyticsOpen(true), []);
@@ -298,8 +297,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				chatId={chatId}
 				storySlug={resolvedStorySlug}
 				storyId={storyId}
-				shareId={shareId}
-				shareType={shareType}
+				shareSource={shareSource}
 				allStories={allStories}
 				onSwitchStory={switchStory}
 				viewMode={viewMode}

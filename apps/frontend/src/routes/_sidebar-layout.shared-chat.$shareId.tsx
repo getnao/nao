@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
@@ -41,6 +41,7 @@ function SharedChatPage() {
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const contentAreaRef = useRef<HTMLDivElement>(null);
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
+	const shareSource = useMemo(() => ({ type: 'chat' as const, shareId }), [shareId]);
 
 	const sharedChatData = chatQuery.data;
 	const isOwner = session?.user?.id === sharedChatData?.share.userId;
@@ -73,8 +74,7 @@ function SharedChatPage() {
 				currentStoryTabIndex={sidePanel.currentStoryTabIndex}
 				setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 				chatId={share.chatId}
-				shareId={shareId}
-				shareType='chat'
+				shareSource={shareSource}
 				isReadonlyMode={!isOwner}
 				open={sidePanel.open}
 				close={sidePanel.close}
@@ -96,7 +96,7 @@ function SharedChatPage() {
 									variant='outline'
 									size='sm'
 									className='ml-auto gap-1.5 shrink-0'
-									onClick={() => forkMutation.mutate({ shareId, type: 'chat' })}
+									onClick={() => forkMutation.mutate({ source: shareSource })}
 									disabled={forkMutation.isPending}
 								>
 									{forkMutation.isPending ? (
@@ -110,8 +110,8 @@ function SharedChatPage() {
 						)}
 					</header>
 
-					<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'chat' }}>
-						{!isViewer && <ForkBubble shareId={shareId} contentType='chat' />}
+					<SelectionProvider key={shareId} persistenceSource={shareSource}>
+						{!isViewer && <ForkBubble source={shareSource} />}
 						{!isViewer && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
 						<div className='flex flex-1 min-h-0 min-w-0'>
 							<div ref={contentAreaRef} className='flex-1 min-w-0'>

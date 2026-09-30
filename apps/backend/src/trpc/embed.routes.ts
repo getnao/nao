@@ -5,9 +5,10 @@ import { getMcpChartEmbedById, getMcpMapEmbedById } from '../queries/mcp-embed.q
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getCustomBoundaries } from '../queries/project.queries';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { embedStoryOpenPath, loadEmbedStoryContent } from '../utils/embed-story';
+import { loadEmbedStoryContent } from '../utils/embed-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from '../utils/embed-token';
 import { buildDownloadResponse } from '../utils/story-download';
+import { storyPath } from '../utils/story-links';
 import { publicProcedure, router } from './trpc';
 
 const tokenInput = z.object({ token: z.string() });
@@ -44,11 +45,7 @@ export const embedRoutes = router({
 			title: story.title,
 			code: story.code,
 			queryData: story.queryData,
-			openInNaoPath: embedStoryOpenPath({
-				storyId: story.storyId,
-				chatId: story.chatId,
-				slug: story.slug,
-			}),
+			openInNaoPath: storyPath(story.storyId),
 		};
 	}),
 

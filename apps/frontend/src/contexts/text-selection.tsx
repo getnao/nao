@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { ShareSource } from '@nao/shared/types';
 
 import type { AnchorPosition } from '@/lib/selection-dom.utils';
 import {
@@ -13,11 +14,6 @@ import {
 import { trpc } from '@/main';
 
 export type { AnchorPosition };
-
-export interface PersistenceConfig {
-	shareId: string;
-	contentType: 'chat' | 'story';
-}
 
 export interface SelectionState {
 	text: string;
@@ -72,11 +68,11 @@ export const useOptionalSelection = () => useContext(SelectionContext);
 
 export const SelectionProvider = ({
 	children,
-	persistenceConfig,
+	persistenceSource,
 	resetKey,
 }: {
 	children: React.ReactNode;
-	persistenceConfig?: PersistenceConfig;
+	persistenceSource?: ShareSource;
 	resetKey?: string;
 }) => {
 	const [selection, setSelection] = useState<SelectionState | null>(null);
@@ -99,10 +95,9 @@ export const SelectionProvider = ({
 
 	const selectionForksQuery = useQuery({
 		...trpc.chatFork.getSelectionForks.queryOptions({
-			shareId: persistenceConfig?.shareId ?? '',
-			type: persistenceConfig?.contentType ?? 'chat',
+			source: persistenceSource ?? { type: 'chat', shareId: '' },
 		}),
-		enabled: !!persistenceConfig,
+		enabled: !!persistenceSource,
 	});
 
 	useEffect(() => {

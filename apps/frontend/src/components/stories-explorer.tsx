@@ -119,7 +119,7 @@ export function StoriesExplorer({
 						);
 					}
 					return (
-						<Fragment key={`s-${entry.story.id}`}>
+						<Fragment key={`s-${entry.story.storyId}`}>
 							<StoryCard
 								item={entry.story}
 								displayMode='lines'
@@ -162,7 +162,7 @@ export function StoriesExplorer({
 				<div className={GRID_CLASS}>
 					{stories.map((entry) => (
 						<StoryCard
-							key={`s-${entry.story.id}`}
+							key={`s-${entry.story.storyId}`}
 							item={entry.story}
 							displayMode='grid'
 							showArchived={showArchived}

@@ -10,7 +10,7 @@ interface UseStoryViewerSharingParams {
 export const useStoryViewerSharing = ({ chatId, storySlug }: UseStoryViewerSharingParams) => {
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
-	const isShared = Boolean(shareQuery.data?.shareId);
+	const isShared = shareQuery.data?.isShared === true;
 
 	return {
 		isShareDialogOpen,

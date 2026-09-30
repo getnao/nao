@@ -64,7 +64,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			...trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }),
 			enabled: open,
 		});
-		const isShared = Boolean(shareQuery.data?.shareId);
+		const isShared = shareQuery.data?.isShared === true;
 
 		const [enabled, setEnabled] = useState(false);
 		const [timing, setTiming] = useState<DeliveryTiming>('after-refresh');

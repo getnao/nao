@@ -18,13 +18,6 @@ export type EmbedStoryContent = {
 	dateFormat: DateFormatSettings | null;
 };
 
-export function embedStoryOpenPath(row: { storyId: string; chatId: string | null; slug: string }): string {
-	if (row.chatId) {
-		return `/stories/preview/${row.chatId}/${row.slug}`;
-	}
-	return `/stories/standalone/${row.storyId}`;
-}
-
 export async function loadEmbedStoryContent(storyId: string, token: string): Promise<EmbedStoryContent> {
 	const payload = verifyEmbedToken(token);
 	if (!payload || payload.type !== 'story' || payload.resourceId !== storyId) {

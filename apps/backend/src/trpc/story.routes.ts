@@ -154,6 +154,30 @@ export const storyRoutes = {
 		}));
 	}),
 
+	resolve: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const story = await storyQueries.getStoryById(input.storyId);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		const [ownerId, projectId] = await Promise.all([
+			storyQueries.getStoryOwnerId(story.id),
+			storyQueries.getStoryProjectId(story.id),
+		]);
+		await assertCanOpenStory(story.id, projectId, ctx.user.id);
+		return { storyId: story.id, chatId: story.chatId, slug: story.slug, isOwner: ownerId === ctx.user.id };
+	}),
+
+	getIdByChatAndSlug: protectedProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (!story) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			await assertCanOpenStory(story.id, await storyQueries.getStoryProjectId(story.id), ctx.user.id);
+			return { storyId: story.id };
+		}),
+
 	getStandalone: storyOwnerProjectProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
 		const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
 		if (!story) {
@@ -803,6 +827,13 @@ export const storyRoutes = {
 			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
 		}),
 };
+
+async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<void> {
+	const userRole = projectId ? await projectQueries.getUserRoleInProject(projectId, userId) : null;
+	if (!userRole || !(await storyQueries.canUserAccessStory(storyId, userId))) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+}
 
 async function getStoryInProject(storyId: string, projectId: string) {
 	const story = await storyQueries.getStoryById(storyId);

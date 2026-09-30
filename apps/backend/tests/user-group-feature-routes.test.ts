@@ -74,7 +74,9 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	createSharedStory: mocks.createSharedStory,
 	getQueryDataFromCode: mocks.getQueryDataFromCode,
 	getSharedStory: vi.fn(),
+	getSharedStoryByStoryId: vi.fn(),
 	getSharedStoryRecipientUserIds: vi.fn(async () => []),
+	getStoryShareAccess: vi.fn(async () => null),
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
@@ -283,7 +285,7 @@ describe('user group feature route enforcement', () => {
 				visibility: 'specific',
 				notify: false,
 			}),
-		).resolves.toEqual({ id: 'shared-story-id' });
+		).resolves.toEqual({ storyId: 'story-id' });
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 

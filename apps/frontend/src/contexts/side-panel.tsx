@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from 'react';
-
-type ShareType = 'chat' | 'story';
+import type { ShareSource } from '@nao/shared/types';
 
 interface SidePanelContext {
 	isVisible: boolean;
@@ -9,8 +8,7 @@ interface SidePanelContext {
 	currentStoryTabIndex: number;
 	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
-	shareId: string | null;
-	shareType: ShareType | null;
+	shareSource: ShareSource | null;
 	isReadonlyMode: boolean;
 	isReplay: boolean;
 	open: (content: React.ReactNode, storySlug?: string) => void;
@@ -27,8 +25,7 @@ const noopSidePanel: SidePanelContext = {
 	currentStoryTabIndex: 0,
 	setCurrentStoryTabIndex: () => {},
 	chatId: null,
-	shareId: null,
-	shareType: null,
+	shareSource: null,
 	isReadonlyMode: false,
 	isReplay: false,
 	open: () => {},
@@ -48,8 +45,7 @@ export const SidePanelProvider = ({
 	currentStoryTabIndex,
 	setCurrentStoryTabIndex,
 	chatId,
-	shareId = null,
-	shareType = null,
+	shareSource = null,
 	isReadonlyMode = false,
 	isReplay = false,
 	open,
@@ -62,8 +58,7 @@ export const SidePanelProvider = ({
 	currentStoryTabIndex: number;
 	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
-	shareId?: string | null;
-	shareType?: ShareType | null;
+	shareSource?: ShareSource | null;
 	isReadonlyMode?: boolean;
 	isReplay?: boolean;
 	open: (content: React.ReactNode, storySlug?: string) => void;
@@ -103,8 +98,7 @@ export const SidePanelProvider = ({
 			currentStoryTabIndex,
 			setCurrentStoryTabIndex,
 			chatId,
-			shareId,
-			shareType,
+			shareSource,
 			isReadonlyMode,
 			isReplay,
 			open: guardedOpen,
@@ -118,8 +112,7 @@ export const SidePanelProvider = ({
 			currentStoryTabIndex,
 			setCurrentStoryTabIndex,
 			chatId,
-			shareId,
-			shareType,
+			shareSource,
 			isReadonlyMode,
 			isReplay,
 			guardedOpen,

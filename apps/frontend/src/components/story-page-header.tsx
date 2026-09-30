@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
+import type { StoryDownloadOptions } from '@/components/story-download';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
@@ -57,15 +58,6 @@ export interface StoryRefreshFailure {
 	failedAt: string | Date;
 }
 
-interface DownloadConfig {
-	chatId?: string;
-	storySlug?: string;
-	storyId?: string;
-	shareId?: string;
-	isOwner?: boolean;
-	versionNumber?: number;
-}
-
 interface ViewModeControls {
 	viewMode: StoryViewMode;
 	onViewModeChange: (mode: StoryViewMode) => void;
@@ -94,7 +86,7 @@ export interface StoryPageHeaderProps {
 	onOpenChat?: () => void;
 	isOpeningChat?: boolean;
 	live?: LiveControls;
-	download?: DownloadConfig;
+	download?: StoryDownloadOptions;
 	storyId?: string | null;
 	canRename?: boolean;
 	isShared?: boolean;

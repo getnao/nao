@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/utils/embed-story', () => ({
 	loadEmbedStoryContent: mocks.loadEmbedStoryContent,
-	embedStoryOpenPath: vi.fn(() => '/stories/preview/chat-1/orders'),
 }));
 vi.mock('../src/utils/story-download', () => ({
 	buildDownloadResponse: mocks.buildDownloadResponse,

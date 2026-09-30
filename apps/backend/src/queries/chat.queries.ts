@@ -918,9 +918,9 @@ const isNotAutomationRunChat = () => {
 	return sql`not exists (select 1 from ${s.automationRun} where ${s.automationRun.chatId} = ${s.chat.id})`;
 };
 
-export const getSelectionForksByShareId = async (
+export const getSelectionForksBySourceId = async (
 	userId: string,
-	shareId: string,
+	sourceId: string,
 	forkType: 'chat_selection' | 'story_selection',
 ): Promise<{ chatId: string; selectionStart: number; selectionEnd: number; selectionText: string }[]> => {
 	const typeFilter =
@@ -930,8 +930,8 @@ export const getSelectionForksByShareId = async (
 
 	const idFilter =
 		dbConfig.dialect === Dialect.Postgres
-			? sql`${s.chat.forkMetadata}->>'id' = ${shareId}`
-			: sql`json_extract(${s.chat.forkMetadata}, '$.id') = ${shareId}`;
+			? sql`${s.chat.forkMetadata}->>'id' = ${sourceId}`
+			: sql`json_extract(${s.chat.forkMetadata}, '$.id') = ${sourceId}`;
 
 	const results = await db
 		.select({ id: s.chat.id, forkMetadata: s.chat.forkMetadata })

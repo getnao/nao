@@ -56,14 +56,14 @@ export function ViewerEmptyState() {
 function SharedStoryCard({ item, displayMode }: { item: SharedItem; displayMode: StoryPanelDisplayMode }) {
 	if (displayMode === 'lines') {
 		return (
-			<Link to='/stories/shared/$shareId' params={{ shareId: item.id }} className={LINES_CARD_CLASS}>
+			<Link to='/stories/$storyId' params={{ storyId: item.id }} className={LINES_CARD_CLASS}>
 				<SharedItemLine item={item} icon={<StoryIcon className='size-3.5 text-muted-foreground shrink-0' />} />
 			</Link>
 		);
 	}
 
 	return (
-		<Link to='/stories/shared/$shareId' params={{ shareId: item.id }} className={GRID_CARD_CLASS}>
+		<Link to='/stories/$storyId' params={{ storyId: item.id }} className={GRID_CARD_CLASS}>
 			<SharedItemGrid
 				item={item}
 				thumbnail={<StoryThumbnail summary={item.summary as StoryThumbnailSummary} />}

@@ -18,7 +18,7 @@ export function StoryChartQueryView({ queryId, source }: { queryId: string; sour
 
 	const sharedQuery = useQuery({
 		...trpc.storyShare.getQuerySql.queryOptions({
-			shareId: source.api.kind === 'shared' ? source.api.shareId : '',
+			storyId: source.api.kind === 'shared' ? source.api.storyId : '',
 			queryId,
 			selections: source.selections,
 		}),

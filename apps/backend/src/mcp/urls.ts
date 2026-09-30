@@ -2,16 +2,14 @@ import type { DownloadFormat } from '@nao/shared/types';
 
 import { env } from '../env';
 import { generateEmbedToken } from '../utils/embed-token';
+import { storyPath } from '../utils/story-links';
 
 export function chatUrl(chatId: string): string {
 	return appUrl(`/${chatId}`);
 }
 
-export function storyUrl(story: { id: string; chatId: string | null; slug: string }): string {
-	if (story.chatId) {
-		return appUrl(`/stories/preview/${story.chatId}/${story.slug}`);
-	}
-	return appUrl(`/stories/standalone/${story.id}`);
+export function storyUrl(storyId: string): string {
+	return appUrl(storyPath(storyId));
 }
 
 export function storyChatUrl(story: { chatId: string | null }): string | null {

@@ -208,7 +208,7 @@ function HomePage() {
 										>
 											{renderStoryGroupHeaders(storyGroups)}
 											{latestStoryItems.map((item, index) => (
-												<div key={item.id} style={{ gridColumn: index + 1, gridRow: 2 }}>
+												<div key={item.storyId} style={{ gridColumn: index + 1, gridRow: 2 }}>
 													<StoryCard item={item} displayMode='grid' showArchived={false} />
 												</div>
 											))}

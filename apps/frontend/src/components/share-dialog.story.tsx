@@ -32,7 +32,6 @@ interface ShareStoryDialogProps {
 export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug, intent = 'share' }: ShareStoryDialogProps) {
 	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
 	const shareData = shareQuery.data;
-	const isShared = !!shareData?.shareId;
 
 	if (shareQuery.isLoading && !shareData) {
 		return (
@@ -45,7 +44,7 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug, intent
 		);
 	}
 
-	if (!isShared) {
+	if (!shareData?.isShared) {
 		return (
 			<CreateShareDialog
 				open={open}
@@ -63,7 +62,7 @@ export function ShareStoryDialog({ open, onOpenChange, chatId, storySlug, intent
 			onOpenChange={onOpenChange}
 			chatId={chatId}
 			storySlug={storySlug}
-			shareId={shareData.shareId}
+			storyId={shareData.storyId}
 			visibility={shareData.visibility as Visibility}
 			allowedUserIds={shareData.allowedUserIds}
 			allowedGroupIds={shareData.allowedGroupIds}
@@ -137,9 +136,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 			});
 
 		if (!isPinIntent) {
-			const blobPromise = promise.then(
-				(data) => new Blob([`${window.location.origin}/stories/shared/${data.id}`], { type: 'text/plain' }),
-			);
+			const blobPromise = promise.then((data) => new Blob([buildStoryUrl(data.storyId)], { type: 'text/plain' }));
 			blobPromise.catch(() => {});
 			navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
 		}
@@ -236,7 +233,7 @@ function ManageShareDialog({
 	onOpenChange,
 	chatId,
 	storySlug,
-	shareId,
+	storyId,
 	visibility,
 	allowedUserIds,
 	allowedGroupIds,
@@ -245,7 +242,7 @@ function ManageShareDialog({
 	onOpenChange: (open: boolean) => void;
 	chatId: string;
 	storySlug: string;
-	shareId: string;
+	storyId: string;
 	visibility: Visibility;
 	allowedUserIds: string[];
 	allowedGroupIds: string[];
@@ -305,20 +302,20 @@ function ManageShareDialog({
 	);
 
 	const handleCopyLink = useCallback(() => {
-		copyLink(`${window.location.origin}/stories/shared/${shareId}`);
-	}, [copyLink, shareId]);
+		copyLink(buildStoryUrl(storyId));
+	}, [copyLink, storyId]);
 
 	const handleUnshare = useCallback(() => {
-		deleteMutation.mutate({ shareId });
-	}, [shareId, deleteMutation]);
+		deleteMutation.mutate({ storyId });
+	}, [storyId, deleteMutation]);
 
 	const handleSaveAccess = useCallback(() => {
 		updateAccessMutation.mutate({
-			shareId,
+			storyId,
 			allowedUserIds: [...selectedUserIds],
 			allowedGroupIds: [...selectedGroupIds],
 		});
-	}, [shareId, selectedUserIds, selectedGroupIds, updateAccessMutation]);
+	}, [storyId, selectedUserIds, selectedGroupIds, updateAccessMutation]);
 
 	const isBusy = deleteMutation.isPending || updateAccessMutation.isPending;
 
@@ -368,4 +365,8 @@ function ManageShareDialog({
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function buildStoryUrl(storyId: string): string {
+	return `${window.location.origin}/stories/${storyId}`;
 }
