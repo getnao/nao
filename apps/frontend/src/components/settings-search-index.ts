@@ -84,8 +84,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/organization/members',
 		pageLabel: 'Members',
 		title: 'Members',
-		description: 'Manage the members of your organization.',
-		keywords: ['users', 'invite', 'add member', 'roles', 'team'],
+		description: 'Manage the members of your organization, and see how many are active.',
+		keywords: ['users', 'invite', 'add member', 'roles', 'team', 'active users', 'license', 'seats'],
 	},
 	{
 		page: '/settings/organization',
