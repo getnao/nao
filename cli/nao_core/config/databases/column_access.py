@@ -63,6 +63,7 @@ def validate_column_access(
     sql: str,
     db_config: _DatabaseConfigLike,
     project_path: Path,
+    database_folder: str | None = None,
 ) -> str:
     if not db_config.exclude_columns:
         return sql
@@ -76,7 +77,7 @@ def validate_column_access(
         return sql
 
     try:
-        table_infos = _load_table_infos(expression, project_path, db_config)
+        table_infos = _load_table_infos(expression, project_path, db_config, database_folder)
         qualified = _qualify_query(expression, dialect, table_infos)
         analyzer = _ColumnAccessAnalyzer(qualified, table_infos, db_config)
         analyzer.validate_star_locations()
@@ -130,8 +131,9 @@ def _load_table_infos(
     expression: exp.Query,
     project_path: Path,
     db_config: _DatabaseConfigLike,
+    database_folder: str | None,
 ) -> TableInfos:
-    database_folder = get_database_folder_names([db_config])[0]
+    database_folder = database_folder or get_database_folder_names([db_config])[0]
     path = column_catalog_path(project_path, db_config.type, database_folder)
     catalog = load_column_catalog(path)
     infos: TableInfos = {}

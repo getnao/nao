@@ -536,11 +536,26 @@ def test_resolve_database_selects_database(
     assert folder == expected_folder
 
 
+def test_resolve_database_uses_connection_name_for_shared_database_name():
+    config = SimpleNamespace(
+        databases=[
+            database_config("shop_a_ro", database_name="retaildb", database_type="mssql"),
+            database_config("shop_b_ro", database_name="retaildb", database_type="mssql"),
+        ]
+    )
+
+    selected, folder = main._resolve_database(config, "shop_b_ro")
+
+    assert selected.name == "shop_b_ro"
+    assert folder == "database=shop_b_ro"
+
+
 def test_resolve_database_rejects_ambiguous_authorization_identity():
     config = SimpleNamespace(
         databases=[
             database_config("first", database_name="shared"),
             database_config("second", database_name="shared"),
+            database_config("third", database_name="first"),
         ]
     )
 
@@ -549,7 +564,7 @@ def test_resolve_database_rejects_ambiguous_authorization_identity():
 
     assert error.value.status_code == 400
     assert error.value.detail == (
-        "Database authorization identity is ambiguous for connection 'first' (duckdb, database=shared)."
+        "Database authorization identity is ambiguous for connection 'first' (duckdb, database=first)."
     )
 
 
@@ -563,16 +578,18 @@ def test_database_authorization_identity_collision_is_rejected(
         allow_listed_only = False
         exclude_columns = []
 
-        def __init__(self, name: str):
+        def __init__(self, name: str, database_name: str):
             self.name = name
+            self.database_name = database_name
 
         def get_database_name(self) -> str:
-            return "shared"
+            return self.database_name
 
     config = SimpleNamespace(
         databases=[
-            FakeDatabaseConfig("first"),
-            FakeDatabaseConfig("second"),
+            FakeDatabaseConfig("first", "shared"),
+            FakeDatabaseConfig("second", "shared"),
+            FakeDatabaseConfig("third", "first"),
         ]
     )
     monkeypatch.setattr(
@@ -593,6 +610,61 @@ def test_database_authorization_identity_collision_is_rejected(
 
     assert response.status_code == 400
     assert "authorization identity is ambiguous" in response.json()["detail"]
+
+
+@pytest.fixture
+def shared_database_name_project(tmp_path: Path) -> Path:
+    databases = []
+    for shop, amount in [("shop_a", 10), ("shop_b", 99)]:
+        database_path = tmp_path / shop / "retaildb.duckdb"
+        database_path.parent.mkdir()
+        conn = duckdb.connect(str(database_path))
+        conn.execute(f"CREATE TABLE orders AS SELECT '{shop}' AS shop, {amount} AS amount")
+        conn.close()
+        databases.append({"name": f"{shop}_ro", "type": "duckdb", "path": str(database_path)})
+
+    with (tmp_path / "nao_config.yaml").open("w") as f:
+        yaml.dump({"project_name": "shared-database-name", "databases": databases}, f)
+    return tmp_path
+
+
+@pytest.mark.parametrize(("database_id", "expected_shop"), [("shop_a_ro", "shop_a"), ("shop_b_ro", "shop_b")])
+def test_connections_sharing_database_name_query_their_own_database(
+    shared_database_name_project: Path,
+    database_id: str,
+    expected_shop: str,
+):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT shop FROM orders",
+            "nao_project_folder": str(shared_database_name_project),
+            "database_id": database_id,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == [{"shop": expected_shop}]
+
+
+def test_table_access_is_scoped_per_connection_sharing_database_name(shared_database_name_project: Path):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+    request = {
+        "sql": "SELECT shop FROM orders",
+        "nao_project_folder": str(shared_database_name_project),
+        "table_access": {
+            "enforced": True,
+            "tables": [{"database_type": "duckdb", "database": "shop_a_ro", "schema": "main", "table": "orders"}],
+        },
+    }
+
+    allowed = client.post("/execute_sql", json={**request, "database_id": "shop_a_ro"})
+    denied = client.post("/execute_sql", json={**request, "database_id": "shop_b_ro"})
+
+    assert allowed.status_code == 200, allowed.text
+    assert denied.status_code == 400
+    assert "Denied table(s): main.orders" in denied.json()["detail"]
 
 
 def test_duplicate_database_connection_names_are_rejected(

@@ -2,7 +2,7 @@
 
 import re
 import shutil
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List
@@ -72,18 +72,26 @@ def get_database_folder_names(active_databases: List) -> list[str]:
     """Return deterministic database folder names for configured databases.
 
     Default folder is `database=<db_name>`.
-    For ClickHouse, use config name (`database=<config_name>`) because many
-    connections use the same logical database name (often `default`).
+    Use the config name (`database=<config_name>`) for ClickHouse, whose connections
+    often share the same logical database (`default`), and for any connections that
+    share the same type and database name (e.g. one MSSQL `retaildb` per host).
+    Pass every configured database, not a subset, so those collisions are detected.
     """
-    folders: list[str] = []
+    database_names = [None if db.type == "clickhouse" else db.get_database_name() for db in active_databases]
+    identity_counts = Counter(
+        (db.type, database_name.casefold())
+        for db, database_name in zip(active_databases, database_names, strict=True)
+        if database_name is not None
+    )
 
-    for db in active_databases:
-        if db.type == "clickhouse":
+    folders: list[str] = []
+    for db, database_name in zip(active_databases, database_names, strict=True):
+        if database_name is None or identity_counts[(db.type, database_name.casefold())] > 1:
             config_name = _sanitize_folder_part(str(getattr(db, "name", "connection")))
             folders.append(f"database={config_name}")
             continue
 
-        folders.append(f"database={db.get_database_name()}")
+        folders.append(f"database={database_name}")
 
     return folders
 
