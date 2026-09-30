@@ -19,7 +19,7 @@ from nao_core.config.test import ComparisonConfig, TestConfig
 from nao_core.ui import UI
 
 from .assertions import combine_check_messages, evaluate_assertions
-from .case import TESTS_FOLDER, TestCase, discover_tests
+from .case import TESTS_FOLDER, InvalidTestFileError, TestCase, discover_tests
 from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
 from .summary import ModelSummary, summarize, summarize_by_model
@@ -553,7 +553,11 @@ def test(
     UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
     UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]\n")
 
-    test_cases = discover_tests(project_path)
+    try:
+        test_cases = discover_tests(project_path)
+    except InvalidTestFileError as e:
+        UI.error(str(e))
+        sys.exit(1)
 
     if not test_cases:
         UI.warn("No tests to run.")

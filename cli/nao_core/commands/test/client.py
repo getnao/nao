@@ -136,9 +136,10 @@ class AgentClient:
                 "modelId": model_id,
             },
             "prompt": test_case.prompt,
-            # sql is optional: assertion-only tests may omit reference SQL
-            "sql": test_case.sql or "",
         }
+
+        if test_case.sql:
+            payload["sql"] = test_case.sql
 
         if test_case.database:
             payload["databaseId"] = test_case.database

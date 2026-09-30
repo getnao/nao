@@ -35,6 +35,10 @@ class ToolCallAssertion:
         args = data.get("args")
         if args is not None and not isinstance(args, dict):
             raise AssertionConfigError("tool_call assertion 'args' must be a mapping when provided")
+        if args is not None and not args:
+            raise AssertionConfigError(
+                "tool_call assertion 'args' must not be empty; omit 'args' to match any call to the tool"
+            )
 
         min_count = data.get("min_count", 1)
         if not isinstance(min_count, int) or isinstance(min_count, bool) or min_count < 1:
@@ -78,6 +82,8 @@ def _args_match(expected: Any, actual: Any) -> bool:
         if not isinstance(actual, dict):
             return False
         return all(key in actual and _args_match(value, actual[key]) for key, value in expected.items())
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return isinstance(expected, bool) and isinstance(actual, bool) and expected == actual
     return expected == actual
 
 

@@ -10,6 +10,10 @@ from .assertions import Assertion, parse_assertions
 TESTS_FOLDER = "tests/"
 
 
+class InvalidTestFileError(Exception):
+    """Raised when one or more test YAML files cannot be loaded."""
+
+
 @dataclass
 class TestCase:
     """A single test case loaded from a YAML file."""
@@ -38,7 +42,11 @@ class TestCase:
 
 
 def discover_tests(project_path: Path) -> list[TestCase]:
-    """Discover all test cases in the tests/ folder."""
+    """Discover all test cases in the tests/ folder.
+
+    Raises ``InvalidTestFileError`` when any test file fails to load, so that a malformed
+    test cannot be silently skipped and leave the run green.
+    """
     tests_dir = project_path / TESTS_FOLDER
 
     if not tests_dir.exists():
@@ -55,12 +63,17 @@ def discover_tests(project_path: Path) -> list[TestCase]:
         UI.warn(f"No test files found in {tests_dir}")
         return []
 
-    test_cases = []
+    test_cases: list[TestCase] = []
+    load_errors: list[str] = []
     for file_path in sorted(test_files):
         try:
-            test_case = TestCase.from_yaml(file_path)
-            test_cases.append(test_case)
+            test_cases.append(TestCase.from_yaml(file_path))
         except Exception as e:
-            UI.error(f"Failed to load {file_path.name}: {e}")
+            load_errors.append(f"{file_path.relative_to(tests_dir)}: {e}")
+
+    if load_errors:
+        raise InvalidTestFileError(
+            "Failed to load test file(s):\n" + "\n".join(f"  - {error}" for error in load_errors)
+        )
 
     return test_cases

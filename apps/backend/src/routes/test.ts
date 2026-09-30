@@ -43,8 +43,7 @@ export const testRoutes = async (app: App) => {
 				body: z.object({
 					prompt: z.string(),
 					model: llmSelectedModelSchema,
-					// Optional: assertion-only tests omit reference SQL
-					sql: z.string().optional().default(''),
+					sql: z.string().optional(),
 					databaseId: z.string().optional(),
 					meta: z
 						.object({

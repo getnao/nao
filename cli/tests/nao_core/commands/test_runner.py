@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from nao_core.commands.test.assertions import ToolCallAssertion
+from nao_core.commands.test.case import InvalidTestFileError
 from nao_core.commands.test.case import TestCase as NaoTestCase
 from nao_core.commands.test.client import (
     AgentClient,
@@ -205,6 +206,24 @@ def test_client_omits_database_id_when_the_test_case_has_none(monkeypatch):
 
     payload = session.post.call_args.kwargs["json"]
     assert "databaseId" not in payload
+
+
+def test_client_omits_sql_when_the_test_case_is_assertion_only(monkeypatch):
+    test_case = NaoTestCase(
+        name="ambiguous",
+        prompt="What was the revenue?",
+        file_path=Path("tests/ambiguous.yml"),
+        assertions=[ToolCallAssertion(tool="clarification")],
+    )
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.post.return_value = _successful_run_response()
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    client.run_test(test_case)
+
+    payload = session.post.call_args.kwargs["json"]
+    assert "sql" not in payload
 
 
 def test_run_test_passes_configured_costs_to_client(monkeypatch):
@@ -600,6 +619,28 @@ def test_threaded_runs_are_reported_grouped_by_model(tmp_path, monkeypatch):
         ("anthropic:claude-4-5", "orders"),
         ("anthropic:claude-4-5", "users"),
     ]
+
+
+def test_run_exits_non_zero_when_a_test_file_fails_to_load(tmp_path, monkeypatch):
+    ran: list = []
+
+    def discover_tests(project_path):
+        raise InvalidTestFileError(
+            "Failed to load test file(s):\n  - broken.yml: unknown tool_call assertion fields: ['tol']"
+        )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        test_runner_module, "NaoConfig", Mock(try_load=Mock(return_value=NaoConfig(project_name="test-project")))
+    )
+    monkeypatch.setattr(test_runner_module, "discover_tests", discover_tests)
+    monkeypatch.setattr(test_runner_module, "run_test", lambda *args, **kwargs: ran.append(args))
+
+    with pytest.raises(SystemExit) as excinfo:
+        test_runner_module.test()
+
+    assert excinfo.value.code == 1
+    assert ran == []
 
 
 def test_save_results_records_per_model_summaries(tmp_path):

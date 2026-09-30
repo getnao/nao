@@ -263,7 +263,7 @@ assertions:
     tool: clarification
 ```
 
-`tool_call` assertions can also require a specific tool (e.g. `execute_sql`), optional arg subset match via `args`, and `min_count`. SQL verification and assertions can be combined; the run passes only if every check passes.
+`tool_call` assertions can also require a specific tool (e.g. `execute_sql`), optional arg subset match via `args` (omit it to match any call; an empty mapping is rejected), and `min_count`. SQL verification and assertions can be combined; the run passes only if every check passes. A test file with an invalid `assertions` block fails the whole run instead of being skipped.
 
 Options:
 
