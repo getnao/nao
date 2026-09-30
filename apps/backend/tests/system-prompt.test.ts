@@ -284,6 +284,18 @@ describe('SystemPrompt saved files rules', () => {
 	});
 });
 
+describe('SystemPrompt test mode rules', () => {
+	it('omits clarification tool guidance in test mode', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ testMode: true }));
+		expect(markdown).not.toContain('Use the **clarification** tool when');
+	});
+
+	it('includes clarification tool guidance outside test mode', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ testMode: false }));
+		expect(markdown).toContain('Use the **clarification** tool when');
+	});
+});
+
 describe('SystemPrompt configured database ids', () => {
 	it('renders every configured database when several are configured', () => {
 		const markdown = renderToMarkdown(
