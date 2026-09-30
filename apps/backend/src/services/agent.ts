@@ -669,8 +669,6 @@ class AgentManager {
 				repoNames,
 				contextPresence,
 				timezone,
-				toolNames: Object.keys(this._agentTools),
-				testMode: this.chat.testMode,
 				toolNames,
 				options: { canGrepSavedFiles: canGrepUserFiles() },
 			}),
