@@ -62,7 +62,6 @@ export const getTools = (
 	agentSettings: AgentSettings | null,
 	extraTools?: Record<string, unknown>,
 	options: {
-		testMode?: boolean;
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
 		excludeFollowUps?: boolean;
@@ -107,7 +106,6 @@ export const getTools = (
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
-		clarification: clarificationTool,
 		suggest_follow_ups,
 		task: taskTool,
 		write: writeTool,
@@ -124,7 +122,6 @@ export const getTools = (
 
 	const allTools = {
 		...baseTools,
-		...(!options.testMode && { clarification: clarificationTool }),
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),

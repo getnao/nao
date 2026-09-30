@@ -20,5 +20,6 @@ semantic_layer:
   manifest_path: ./repos/dbt/target/semantic_manifest.json
   database: duckdb-jaffle-shop
 notion: null
+obsidian: null
 llm: null
 slack: null

@@ -287,8 +287,7 @@ class TestCleanupStaleDatabases:
             DBConfig(type="clickhouse", name="last", database="default"),
             DBConfig(type="clickhouse", name="numia", database="default"),
             DBConfig(type="clickhouse", name="unique", database="analytics"),
-            DBConfig(type="duckdb", name="analytics-copy", path="/tmp/analytics.db"),
-            DBConfig(type="duckdb", name="analytics-copy-2", path="/tmp/analytics.db"),
+            DBConfig(type="duckdb", name="analytics-local", path="/tmp/analytics.db"),
         ]
 
         folders = get_database_folder_names(active_dbs)
@@ -298,8 +297,40 @@ class TestCleanupStaleDatabases:
             "database=numia",
             "database=unique",
             "database=analytics",
-            "database=analytics",
         ]
+
+    def test_database_folder_names_use_config_name_for_shared_database_name(self):
+        active_dbs: List[DBConfig] = [
+            DBConfig(type="mssql", name="shop_a_ro", database="retaildb"),
+            DBConfig(type="mssql", name="shop_b_ro", database="RetailDB"),
+            DBConfig(type="mssql", name="warehouse", database="warehouse_db"),
+            DBConfig(type="postgres", name="retail_pg", database="retaildb"),
+            DBConfig(type="duckdb", name="copy/1", path="/tmp/one/analytics.duckdb"),
+            DBConfig(type="duckdb", name="copy/2", path="/tmp/two/analytics.duckdb"),
+        ]
+
+        folders = get_database_folder_names(active_dbs)
+
+        assert folders == [
+            "database=shop_a_ro",
+            "database=shop_b_ro",
+            "database=warehouse_db",
+            "database=retaildb",
+            "database=copy_1",
+            "database=copy_2",
+        ]
+
+    def test_removes_folder_shared_by_connections_with_same_database_name(self, tmp_path: Path):
+        (tmp_path / "type=mssql" / "database=retaildb").mkdir(parents=True)
+
+        active_dbs: List[DBConfig] = [
+            DBConfig(type="mssql", name="shop_a_ro", database="retaildb"),
+            DBConfig(type="mssql", name="shop_b_ro", database="retaildb"),
+        ]
+
+        cleanup_stale_databases(active_dbs, tmp_path)
+
+        assert not (tmp_path / "type=mssql" / "database=retaildb").exists()
 
     def test_no_cleanup_when_base_path_does_not_exist(self, tmp_path: Path):
         missing = tmp_path / "databases"

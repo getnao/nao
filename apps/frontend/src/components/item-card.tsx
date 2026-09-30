@@ -1,4 +1,4 @@
-import { Activity, Dot, Globe, Lock, Users } from 'lucide-react';
+import { Activity, Dot, Globe, Lock, ShieldCheck, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { StoryPanelDisplayMode, Visibility } from '@nao/shared/types';
 import { SimpleTooltip } from '@/components/ui/tooltip';
@@ -89,6 +89,17 @@ export function LiveBadge() {
 	);
 }
 
+export function CertifiedBadge({ certifiedByName }: { certifiedByName?: string | null }) {
+	return (
+		<SimpleTooltip content={certifiedByName ? `Certified by ${certifiedByName}` : 'Certified by an admin'}>
+			<span className='inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300'>
+				<ShieldCheck className='size-3' />
+				<span className='text-[11px] font-medium truncate'>Certified</span>
+			</span>
+		</SimpleTooltip>
+	);
+}
+
 export function PrivateBadge({ label = 'Private story' }: { label?: string }) {
 	return (
 		<SimpleTooltip content={label}>
@@ -99,12 +110,20 @@ export function PrivateBadge({ label = 'Private story' }: { label?: string }) {
 	);
 }
 
-export function SharingBadge({ visibility, sharedWithCount }: { visibility: Visibility; sharedWithCount?: number }) {
+export function SharingBadge({
+	visibility,
+	sharedWithCount,
+	sharedWithGroupCount,
+}: {
+	visibility: Visibility;
+	sharedWithCount?: number;
+	sharedWithGroupCount?: number;
+}) {
 	const tooltip =
 		visibility === 'project'
 			? 'Shared with the project'
 			: sharedWithCount != null
-				? `Shared with ${sharedWithCount} user${sharedWithCount !== 1 ? 's' : ''}`
+				? `Shared with ${formatSharedWith(sharedWithCount, sharedWithGroupCount ?? 0)}`
 				: 'Shared with specific people';
 
 	return (
@@ -114,4 +133,13 @@ export function SharingBadge({ visibility, sharedWithCount }: { visibility: Visi
 			</span>
 		</SimpleTooltip>
 	);
+}
+
+function formatSharedWith(userCount: number, groupCount: number): string {
+	const users = `${userCount} user${userCount !== 1 ? 's' : ''}`;
+	if (groupCount === 0) {
+		return users;
+	}
+	const groups = `${groupCount} group${groupCount !== 1 ? 's' : ''}`;
+	return userCount === 0 ? groups : `${users} and ${groups}`;
 }

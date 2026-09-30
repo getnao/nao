@@ -164,7 +164,7 @@ def _validate_sql(
         database_folder=database_folder,
     )
     if enforce_excluded_columns:
-        validated_sql = validate_column_access(validated_sql, db_config, project_path)
+        validated_sql = validate_column_access(validated_sql, db_config, project_path, database_folder)
     validated_sql = enforce_row_security(
         validated_sql,
         db_config,

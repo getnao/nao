@@ -159,6 +159,74 @@ describe('compactionService.useLastCompaction', () => {
 		expect(result).toBe(messages);
 	});
 
+	it('ignores a persisted compaction with an empty summary and falls back to the last real one', () => {
+		const messages: UIMessage[] = [
+			{ id: '1', role: 'user', parts: [{ type: 'text', text: 'First question' }] },
+			{
+				id: '2',
+				role: 'assistant',
+				parts: [
+					{ type: 'data-compaction', data: { summary: 'Real summary' } },
+					{ type: 'text', text: 'Real answer' },
+				],
+			},
+			{ id: '3', role: 'user', parts: [{ type: 'text', text: 'Second question' }] },
+			{
+				id: '4',
+				role: 'assistant',
+				parts: [
+					{ type: 'data-compaction', data: { summary: '' } },
+					{ type: 'text', text: 'Follow-up answer' },
+				],
+			},
+			{ id: '5', role: 'user', parts: [{ type: 'text', text: 'Third question' }] },
+		];
+
+		const result = compactionService.useLastCompaction(messages);
+
+		expect(result[0]).toEqual({
+			role: 'assistant',
+			parts: [{ type: 'text', text: 'Real summary' }],
+		});
+		expect(result).toHaveLength(6);
+	});
+
+	it('tolerates a null summary from a legacy DB row and skips it', () => {
+		const messages: UIMessage[] = [
+			{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Question' }] },
+			{
+				id: '2',
+				role: 'assistant',
+				parts: [
+					{ type: 'data-compaction', data: { summary: null as unknown as string } },
+					{ type: 'text', text: 'Answer' },
+				],
+			},
+			{ id: '3', role: 'user', parts: [{ type: 'text', text: 'Next question' }] },
+		];
+
+		const result = compactionService.useLastCompaction(messages);
+		expect(result).toBe(messages);
+	});
+
+	it('returns messages unchanged when the only compaction has a blank summary', () => {
+		const messages: UIMessage[] = [
+			{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Question' }] },
+			{
+				id: '2',
+				role: 'assistant',
+				parts: [
+					{ type: 'data-compaction', data: { summary: '   ' } },
+					{ type: 'text', text: 'Answer' },
+				],
+			},
+			{ id: '3', role: 'user', parts: [{ type: 'text', text: 'Next question' }] },
+		];
+
+		const result = compactionService.useLastCompaction(messages);
+		expect(result).toBe(messages);
+	});
+
 	it('reconstructs compaction as [SUMMARY, remaining messages from last user turn]', () => {
 		const messages: UIMessage[] = [
 			{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Old question' }] },

@@ -85,6 +85,12 @@ def _matches_selection(schema: str, table: str, select: list[str]) -> bool:
     return False
 
 
+def _database_folders_for(items: list[Any], configured_databases: list[Any]) -> list[str]:
+    """Resolve folders against every configured database so a filtered sync writes to the same folders."""
+    folders = get_database_folder_names(configured_databases)
+    return [folders[configured_databases.index(db)] for db in items]
+
+
 def _fmt_duration(seconds: float) -> str:
     """Format seconds into a human-readable duration."""
     if seconds < 1:
@@ -529,7 +535,8 @@ class DatabaseSyncProvider(SyncProvider):
             console=console,
             transient=False,
         ) as progress:
-            db_folders = get_database_folder_names(items)
+            configured_databases = self._nao_config.databases if self._nao_config else items
+            db_folders = _database_folders_for(items, configured_databases)
             if threads <= 1 or len(items) == 1:
                 for db, db_folder in zip(items, db_folders, strict=False):
                     try:

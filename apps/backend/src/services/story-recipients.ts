@@ -37,7 +37,7 @@ export async function resolveDeliveryRecipientUserIds(
 
 	if (access.visibility === 'specific') {
 		return excludeOwner(
-			access.allowedUserIds.filter((id) => accessibleIds.has(id)),
+			access.recipientUserIds.filter((id) => accessibleIds.has(id)),
 			ownerId,
 		);
 	}

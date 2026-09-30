@@ -13,9 +13,10 @@ Example user template (docs/report.md.j2):
     # {{ nao.config.project_name }}
 
     {{ nao.notion.page('https://notion.so/...').content }}
+    {{ nao.obsidian.note('Projects/roadmap.md').content }}
 """
 
-from .context import NaoContext, NotionPage, NotionProvider, create_nao_context
+from .context import NaoContext, NotionPage, NotionProvider, ObsidianNote, ObsidianProvider, create_nao_context
 from .engine import TemplateEngine, get_template_engine
 from .render import (
     TemplateRenderResult,
@@ -32,6 +33,8 @@ __all__ = [
     "NaoContext",
     "NotionPage",
     "NotionProvider",
+    "ObsidianNote",
+    "ObsidianProvider",
     "create_nao_context",
     # Render
     "TemplateRenderResult",

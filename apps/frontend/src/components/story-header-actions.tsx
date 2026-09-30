@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { Globe, Star, Upload } from 'lucide-react';
+import { Globe, ShieldCheck, Star, Upload } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -45,6 +47,34 @@ export function StoryFavoriteMenuItem({ storyId }: { storyId: string }) {
 		<DropdownMenuItem onSelect={toggle} disabled={isPending}>
 			<Star className={cn(isFavorited && 'fill-foreground')} strokeWidth={2.25} />
 			<span>{isFavorited ? 'Unfavorite' : 'Favorite'}</span>
+		</DropdownMenuItem>
+	);
+}
+
+export function StoryCertifyMenuItem({ storyId }: { storyId: string }) {
+	const { isAdmin } = usePermissions();
+	const certification = useQuery({
+		...trpc.story.getCertification.queryOptions({ storyId }),
+		enabled: isAdmin,
+		retry: false,
+	});
+	const { toggle, isPending } = useToggleStoryCertification();
+
+	if (!isAdmin || !certification.data) {
+		return null;
+	}
+
+	const { certifiedAt, certifiedByName } = certification.data;
+	const isCertified = certifiedAt !== null;
+
+	return (
+		<DropdownMenuItem
+			onSelect={() => toggle(storyId)}
+			disabled={isPending}
+			title={isCertified && certifiedByName ? `Certified by ${certifiedByName}` : undefined}
+		>
+			<ShieldCheck className={cn(isCertified && 'fill-foreground/20')} strokeWidth={2.25} />
+			<span>{isCertified ? 'Remove certification' : 'Certify'}</span>
 		</DropdownMenuItem>
 	);
 }

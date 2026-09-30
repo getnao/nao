@@ -50,6 +50,45 @@ export function useMemberPicker(currentUserId: string | undefined, initialIds: s
 	};
 }
 
+export function useGroupPicker(search: string, initialIds: string[] | undefined) {
+	const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set(initialIds));
+
+	const groupsQuery = useQuery(trpc.storyShare.listShareableGroups.queryOptions());
+
+	const filteredGroups = useMemo(() => {
+		const groups = groupsQuery.data ?? [];
+		if (!search.trim()) {
+			return groups;
+		}
+		const q = search.toLowerCase();
+		return groups.filter((group) => group.name.toLowerCase().includes(q));
+	}, [groupsQuery.data, search]);
+
+	const toggleGroup = useCallback((groupId: string) => {
+		setSelectedGroupIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(groupId)) {
+				next.delete(groupId);
+			} else {
+				next.add(groupId);
+			}
+			return next;
+		});
+	}, []);
+
+	const reset = useCallback((ids?: string[]) => {
+		setSelectedGroupIds(new Set(ids));
+	}, []);
+
+	return {
+		selectedGroupIds,
+		filteredGroups,
+		toggleGroup,
+		groupsQuery,
+		reset,
+	};
+}
+
 export function useCopyWithFeedback(delay = 1500) {
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);

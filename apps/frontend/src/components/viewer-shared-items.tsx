@@ -131,7 +131,13 @@ function SharedItemBadges({ item }: { item: SharedItem }) {
 	return (
 		<div className='flex items-center gap-2 shrink-0'>
 			{item.isLive && <LiveBadge />}
-			{item.visibility && <SharingBadge visibility={item.visibility} sharedWithCount={item.sharedWithCount} />}
+			{item.visibility && (
+				<SharingBadge
+					visibility={item.visibility}
+					sharedWithCount={item.sharedWithCount}
+					sharedWithGroupCount={item.sharedWithGroupCount}
+				/>
+			)}
 		</div>
 	);
 }

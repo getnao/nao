@@ -38,7 +38,13 @@ import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { backfillMissingQueryData } from '../utils/story-query-data';
 import { extractStorySummary } from '../utils/story-summary';
-import { canSendProcedure, ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	canSendProcedure,
+	ownedResourceProcedure,
+	projectProtectedProcedure,
+	protectedProcedure,
+} from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
@@ -279,6 +285,25 @@ export const storyRoutes = {
 			await storyQueries.renameStory(input.storyId, input.title);
 		}),
 
+	getCertification: projectProtectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			await getStoryInProject(input.storyId, ctx.project.id);
+			if (!(await storyQueries.canUserAccessStory(input.storyId, ctx.user.id))) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			return storyQueries.getStoryCertification(input.storyId);
+		}),
+
+	toggleCertification: adminProtectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const story = await getStoryInProject(input.storyId, ctx.project.id);
+			const certifiedBy = story.certifiedAt === null ? ctx.user.id : null;
+			const certifiedAt = await storyQueries.setStoryCertification(story.id, certifiedBy);
+			return { certifiedAt };
+		}),
+
 	createVersion: chatStoryProcedure
 		.input(
 			z.object({
@@ -380,8 +405,8 @@ export const storyRoutes = {
 				email: member.email,
 			});
 
-			if (access?.visibility === 'specific' && access.allowedUserIds.length > 0) {
-				const allowed = new Set(access.allowedUserIds);
+			if (access?.visibility === 'specific' && access.recipientUserIds.length > 0) {
+				const allowed = new Set(access.recipientUserIds);
 				return members.filter((member) => allowed.has(member.id)).map(toRecipient);
 			}
 			return members.map(toRecipient);
@@ -638,6 +663,7 @@ export const storyRoutes = {
 			sharing: {
 				visibility: story.visibility,
 				sharedWithCount: story.sharedWithCount,
+				sharedWithGroupCount: story.sharedWithGroupCount,
 				isPinned: story.isPinned,
 			},
 		}));
@@ -778,6 +804,15 @@ export const storyRoutes = {
 		}),
 };
 
+async function getStoryInProject(storyId: string, projectId: string) {
+	const story = await storyQueries.getStoryById(storyId);
+	const storyProjectId = story ? await storyQueries.getStoryProjectId(story.id) : null;
+	if (!story || storyProjectId !== projectId) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	return story;
+}
+
 async function filterStoriesByProjectAccess(
 	stories: Awaited<ReturnType<typeof storyQueries.listUserChatStories>>,
 	userId: string,
@@ -899,10 +934,7 @@ async function grantSpecificShareAccess(storyId: string, projectId: string, user
 		return;
 	}
 	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
-	if (missing.length === 0) {
-		return;
-	}
-	await sharedStoryQueries.updateSharedStoryAllowedUsers(access.shareId, [...access.allowedUserIds, ...missing]);
+	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
 }
 
 async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {

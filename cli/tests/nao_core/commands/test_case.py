@@ -1,5 +1,8 @@
+import pytest
+
+from nao_core.commands.test.assertions import ToolCallAssertion
+from nao_core.commands.test.case import InvalidTestFileError, discover_tests
 from nao_core.commands.test.case import TestCase as NaoTestCase
-from nao_core.commands.test.case import discover_tests
 
 
 def test_discover_tests_is_recursive(tmp_path):
@@ -41,3 +44,36 @@ def test_discover_tests_ignores_outputs_dir(tmp_path):
     cases = discover_tests(tmp_path)
 
     assert {c.name for c in cases} == {"real"}
+
+
+def test_from_yaml_parses_assertions(tmp_path):
+    test_file = tmp_path / "ambiguous.yml"
+    test_file.write_text("prompt: revenue?\nassertions:\n  - type: tool_call\n    tool: clarification\n")
+
+    case = NaoTestCase.from_yaml(test_file)
+
+    assert case.sql is None
+    assert case.assertions == [ToolCallAssertion(tool="clarification")]
+
+
+def test_discover_tests_fails_when_a_test_has_malformed_assertions(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "valid.yml").write_text("prompt: fine\n")
+    (tmp_path / "tests" / "broken.yml").write_text(
+        "prompt: revenue?\nassertions:\n  - type: tool_call\n    tol: clarification\n"
+    )
+
+    with pytest.raises(InvalidTestFileError, match="broken.yml"):
+        discover_tests(tmp_path)
+
+
+def test_discover_tests_reports_every_broken_test_file(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "first.yml").write_text("prompt: p\nassertions: not-a-list\n")
+    (tmp_path / "tests" / "second.yml").write_text("sql: select 1\n")
+
+    with pytest.raises(InvalidTestFileError) as excinfo:
+        discover_tests(tmp_path)
+
+    assert "first.yml" in str(excinfo.value)
+    assert "second.yml" in str(excinfo.value)

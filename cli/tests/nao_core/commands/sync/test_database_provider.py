@@ -104,6 +104,21 @@ class TestDatabaseSyncProvider:
 
     @patch("nao_core.commands.sync.providers.databases.provider.cleanup_stale_paths", return_value=0)
     @patch("nao_core.commands.sync.providers.databases.provider.sync_database")
+    def test_filtered_sync_resolves_db_folder_against_all_configured_databases(
+        self, mock_sync_database, _mock_cleanup_stale_paths, tmp_path: Path
+    ):
+        provider = DatabaseSyncProvider()
+        shop_a = DuckDBConfig(name="shop_a_ro", path=str(tmp_path / "shop_a" / "retaildb.duckdb"))
+        shop_b = DuckDBConfig(name="shop_b_ro", path=str(tmp_path / "shop_b" / "retaildb.duckdb"))
+        provider.pre_sync(NaoConfig(project_name="shops", databases=[shop_a, shop_b]), tmp_path)
+        mock_sync_database.return_value = DatabaseSyncState(db_path=tmp_path / "type=duckdb" / "database=shop_b_ro")
+
+        provider.sync([shop_b], tmp_path)
+
+        assert mock_sync_database.call_args.kwargs.get("db_folder") == "database=shop_b_ro"
+
+    @patch("nao_core.commands.sync.providers.databases.provider.cleanup_stale_paths", return_value=0)
+    @patch("nao_core.commands.sync.providers.databases.provider.sync_database")
     def test_sync_runs_databases_with_threads(self, mock_sync_database, _mock_cleanup_stale_paths, tmp_path: Path):
         provider = DatabaseSyncProvider()
 

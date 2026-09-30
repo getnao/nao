@@ -18,7 +18,12 @@ import {
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
-import { ShareButton, StoryFavoriteMenuItem, StoryFavoritedButton } from '@/components/story-header-actions';
+import {
+	ShareButton,
+	StoryCertifyMenuItem,
+	StoryFavoriteMenuItem,
+	StoryFavoritedButton,
+} from '@/components/story-header-actions';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -188,6 +193,7 @@ export function StoryPageHeader({
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align='end' className='w-auto min-w-20'>
 								{download && <StoryDownloadMenu {...download} />}
+								{storyId && <StoryCertifyMenuItem storyId={storyId} />}
 								{storyId && <StoryFavoriteMenuItem storyId={storyId} />}
 								{onOpenAnalytics && (
 									<DropdownMenuItem onSelect={onOpenAnalytics}>
