@@ -289,6 +289,9 @@ export const storyRoutes = {
 		.input(z.object({ storyId: z.string() }))
 		.query(async ({ input, ctx }) => {
 			await getStoryInProject(input.storyId, ctx.project.id);
+			if (!(await storyQueries.canUserAccessStory(input.storyId, ctx.user.id))) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
 			return storyQueries.getStoryCertification(input.storyId);
 		}),
 

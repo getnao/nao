@@ -150,6 +150,12 @@ export function StoryCard({
 	}
 
 	if (displayMode === 'grid') {
+		const certifiedBadge = item.isCertified && (
+			<div className='absolute top-2 right-2'>
+				<CertifiedBadge certifiedByName={item.certifiedByName} />
+			</div>
+		);
+
 		return (
 			<>
 				<div
@@ -164,18 +170,13 @@ export function StoryCard({
 						<StoryThumbnail summary={item.summary} />
 					</div>
 
-					{item.isCertified && (
-						<div className='absolute top-2 right-2 z-10'>
-							<CertifiedBadge certifiedByName={item.certifiedByName} />
-						</div>
-					)}
-
 					{!selectionActive && (
 						<Link
 							{...item.link}
 							onClick={handleLinkClick}
 							className='absolute inset-0 flex flex-col justify-end p-2.5'
 						>
+							{certifiedBadge}
 							<div className='flex items-end gap-1.5'>
 								<GridCardFooter
 									title={item.title}
@@ -190,6 +191,7 @@ export function StoryCard({
 
 					{selectionActive && (
 						<div className='absolute inset-0 flex flex-col justify-end p-2.5 pointer-events-none'>
+							{certifiedBadge}
 							<div className='flex items-end gap-1.5'>
 								<GridCardFooter
 									title={item.title}
@@ -275,7 +277,7 @@ export function StoryCard({
 					</Link>
 				</div>
 				<div
-					className='w-20 shrink-0 flex items-center justify-end overflow-hidden'
+					className='w-26 shrink-0 flex items-center justify-end overflow-hidden'
 					onPointerDown={(e) => e.stopPropagation()}
 				>
 					{!selectionActive && (

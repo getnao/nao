@@ -24,7 +24,7 @@ export function SortHeader({
 				<div className='hidden sm:flex w-24 shrink-0 items-center'>
 					<SortPill label='Updated' field='updated' value={value} onChange={onChange} />
 				</div>
-				<div className='w-20 shrink-0' />
+				<div className='w-26 shrink-0' />
 			</div>
 		);
 	}

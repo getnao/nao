@@ -281,7 +281,9 @@ export function buildCurrentLevelEntries({
 		.map((folder) => ({ kind: 'folder' as const, folder, favoritedAt: folder.createdAt }));
 
 	const favorites = [...favoriteStories, ...favoriteFolders].sort(
-		(a, b) => b.favoritedAt.getTime() - a.favoritedAt.getTime(),
+		(a, b) =>
+			Number(isCertifiedEntry(b)) - Number(isCertifiedEntry(a)) ||
+			b.favoritedAt.getTime() - a.favoritedAt.getTime(),
 	);
 
 	const inSharedWithMe = currentFolderId === '__shared_with_me__';

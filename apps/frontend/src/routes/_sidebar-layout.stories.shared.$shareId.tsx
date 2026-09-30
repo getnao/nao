@@ -359,6 +359,7 @@ function SharedStoryViewerHeader({
 						: undefined
 				}
 				download={download}
+				storyId={storyId}
 			/>
 
 			{storyId && (

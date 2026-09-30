@@ -156,7 +156,7 @@ export function FolderCard({
 						</div>
 					</Link>
 				</div>
-				<div className='w-20 shrink-0 relative h-6 overflow-hidden'>
+				<div className='w-26 shrink-0 relative h-6 overflow-hidden'>
 					{!selectionActive && !isSystemFolder(folder) && (
 						<>
 							{!isViewer && (
