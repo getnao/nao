@@ -7,8 +7,8 @@ export interface ChatStoryCodeOptions {
 	includeErrors?: boolean;
 	/** Include `execute_sql` queries in the output. On by default. */
 	includeSql?: boolean;
-	/** Include `execute_python` code (and its output) in the output. On by default. */
-	includePython?: boolean;
+	/** Include `codemode` scripts (and their output) in the output. On by default. */
+	includeCode?: boolean;
 }
 
 export interface ChatStoryMetadata {
@@ -69,8 +69,8 @@ function renderPart(part: UIMessagePart, options: ChatStoryCodeOptions): string 
 			return renderExecuteSql(part, options);
 		case 'tool-display_chart':
 			return renderDisplayChart(part, options);
-		case 'tool-execute_python':
-			return renderExecutePython(part, options);
+		case 'tool-codemode':
+			return renderCodemode(part, options);
 		default:
 			return null;
 	}
@@ -107,20 +107,25 @@ function renderDisplayChart(part: UIToolPart<'display_chart'>, options: ChatStor
 	return buildStoryChartBlock(input);
 }
 
-function renderExecutePython(part: UIToolPart<'execute_python'>, options: ChatStoryCodeOptions): string | null {
-	if (options.includePython === false || shouldSkipErrored(part, options)) {
+function renderCodemode(part: UIToolPart<'codemode'>, options: ChatStoryCodeOptions): string | null {
+	const scriptFailed = part.output?.ok === false;
+	if (options.includeCode === false || shouldSkipErrored(part, options) || (scriptFailed && !options.includeErrors)) {
 		return null;
 	}
 	const code = part.input?.code?.trim();
 	if (!code) {
 		return null;
 	}
-	const blocks = ['**Python**', codeBlock('python', code)];
-	const output = part.output?.output;
-	if (output !== undefined && output !== null) {
-		const formatted =
-			typeof output === 'object' ? codeBlock('json', stringify(output)) : codeBlock('', String(output));
-		blocks.push(`Output:${BLOCK_SEPARATOR}${formatted}`);
+	const description = part.input?.description?.trim();
+	const heading = description ? `**Script — ${description}**` : '**Script**';
+	const blocks = [heading, codeBlock('javascript', code)];
+	const logs = part.output?.logs ?? [];
+	if (logs.length > 0) {
+		blocks.push(`Logs:${BLOCK_SEPARATOR}${codeBlock('', logs.join('\n'))}`);
+	}
+	const result = part.output?.result;
+	if (result !== undefined) {
+		blocks.push(`Output:${BLOCK_SEPARATOR}${codeBlock('json', prettifyJson(result))}`);
 	}
 	return blocks.join(BLOCK_SEPARATOR);
 }
@@ -133,8 +138,12 @@ function codeBlock(language: string, content: string): string {
 	return `\`\`\`${language}\n${content}\n\`\`\``;
 }
 
-function stringify(value: unknown): string {
-	return JSON.stringify(value, null, 2);
+function prettifyJson(json: string): string {
+	try {
+		return JSON.stringify(JSON.parse(json), null, 2);
+	} catch {
+		return json;
+	}
 }
 
 function formatTimestamp(ms: number): string {

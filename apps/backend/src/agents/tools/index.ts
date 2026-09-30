@@ -1,4 +1,3 @@
-export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
 import { ALL_MCP_ACCESS, type CustomBoundarySet, isMcpServerGranted, type McpAccess } from '@nao/shared';
@@ -13,9 +12,9 @@ import { isStorageEnabled } from '../../services/storage';
 import { isCustomStoriesEnabled } from '../../services/story-mount';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
+import { createCodemodeTool } from './codemode';
 import displayChart from './display-chart';
 import { createDisplayMapTool } from './display-map';
-import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSemanticQuery from './execute-semantic-query';
 import executeSql, { localOnlyExecuteSql } from './execute-sql';
@@ -53,7 +52,7 @@ export const tools = {
 	story,
 	clarification,
 	display_chart: displayChart,
-	...(executePython && { execute_python: executePython }),
+	codemode: createCodemodeTool({ mcpServers: null }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
 	execute_semantic_query: executeSemanticQuery,
@@ -135,7 +134,7 @@ export const getTools = (
 		: {};
 
 	const {
-		execute_python,
+		codemode: _codemode,
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
@@ -183,7 +182,9 @@ export const getTools = (
 			restart_onboarding: restartOnboardingTool,
 		}),
 		...mcpTools,
-		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
+		...(agentSettings?.experimental?.codemode && {
+			codemode: createCodemodeTool({ mcpServers: includeMcp ? (options.mcpServers ?? null) : false }),
+		}),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
 		...(agentSettings?.mapEnabled !== false && {
 			display_map: createDisplayMapTool(options.customBoundaries ?? []),
