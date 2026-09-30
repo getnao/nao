@@ -5,11 +5,13 @@ import { z } from 'zod/v4';
 import { env, isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
+import * as usageQueries from '../queries/usage.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
 import { ORG_ROLES } from '../types/organization';
+import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import { assertOrganizationRolesAreEditable, protectedProcedure } from './trpc';
@@ -53,6 +55,14 @@ export const organizationRoutes = {
 
 	getMembers: orgAdminProcedure.query(async ({ ctx }) => {
 		return orgQueries.listOrgMembersWithUsers(ctx.org.id);
+	}),
+
+	getUserCounts: orgAdminProcedure.query(async ({ ctx }) => {
+		const [totalUsers, activeUsers] = await Promise.all([
+			orgQueries.countOrgUsers(ctx.org.id),
+			usageQueries.getOrgActiveUserCount(ctx.org.id, LICENSE_ACTIVITY_WINDOW),
+		]);
+		return { totalUsers, activeUsers };
 	}),
 
 	getSignInDomains: orgAdminProcedure.query(async ({ ctx }) => ({
