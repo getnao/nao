@@ -108,7 +108,7 @@ describe('useStreamEndSound', () => {
 		expect(audioContextMock).not.toHaveBeenCalled();
 	});
 
-	it('plays exactly one sound under StrictMode double effect invocation', () => {
+it('keeps the hook silent during StrictMode mount double-effects and plays once on completion', () => {
 		chatIdState.current = 'chat-1';
 		const hook = renderHook(({ running }: { running: boolean }) => useStreamEndSound(running), {
 			initialProps: { running: false },
