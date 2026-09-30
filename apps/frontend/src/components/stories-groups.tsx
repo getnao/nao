@@ -614,7 +614,11 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 	const certified = item.isCertified ? <CertifiedBadge certifiedByName={item.certifiedByName} /> : null;
 	const live = item.isLive ? <LiveBadge /> : null;
 	const sharing = item.sharing ? (
-		<SharingBadge visibility={item.sharing.visibility} sharedWithCount={item.sharing.sharedWithCount} />
+		<SharingBadge
+			visibility={item.sharing.visibility}
+			sharedWithCount={item.sharing.sharedWithCount}
+			sharedWithGroupCount={item.sharing.sharedWithGroupCount}
+		/>
 	) : null;
 
 	if (mode === 'grid') {

@@ -41,6 +41,7 @@ def test_defaults():
 
     assert test_config.models == ["openai:gpt-4.1"]
     assert test_config.threads == 1
+    assert test_config.k == 1
     assert test_config.comparison.rtol == 1e-5
     assert test_config.comparison.atol == 1e-8
     assert test_config.comparison.decimals == 2
@@ -55,3 +56,18 @@ def test_models_must_declare_a_provider_and_a_model_id(model):
 def test_threads_must_be_positive():
     with pytest.raises(ValidationError):
         TestConfig(threads=0)
+
+
+def test_k_must_be_positive():
+    with pytest.raises(ValidationError):
+        TestConfig(k=0)
+
+
+def test_k_is_loaded_from_config(tmp_path):
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text("project_name: test-project\ntest:\n  k: 5\n")
+
+    config = NaoConfig.load(tmp_path)
+
+    assert config.test is not None
+    assert config.test.k == 5

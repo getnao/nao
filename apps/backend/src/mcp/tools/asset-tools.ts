@@ -318,6 +318,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		inputSchema: { story_id: STORY_ID_INPUT },
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
+		errorMessage: (error) => (error instanceof Error ? error.message : 'get_story failed. Please try again.'),
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
 			const version = await fetchLatestStoryVersion(story);

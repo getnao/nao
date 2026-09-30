@@ -112,9 +112,22 @@ describe('test routes', () => {
 			expect.objectContaining({ azureAccessToken: null }),
 		);
 	});
+
+	it('skips SQL verification when the request omits reference sql', async () => {
+		const reply = await runExpectedQuery({ prompt: 'Question' });
+
+		expect(mocks.runTest).toHaveBeenCalledWith('project-id', 'user-id', 'Question', undefined, undefined);
+		expect(mocks.retrieveProjectById).not.toHaveBeenCalled();
+		expect(mocks.executeQuery).not.toHaveBeenCalled();
+		expect(mocks.runVerification).not.toHaveBeenCalled();
+		expect(reply.status).not.toHaveBeenCalled();
+		expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ text: 'answer', verification: undefined }));
+	});
 });
 
-async function runExpectedQuery() {
+async function runExpectedQuery(
+	body: Record<string, unknown> = { prompt: 'Question', sql: 'SELECT 1', databaseId: 'warehouse' },
+) {
 	let handler: (request: unknown, reply: unknown) => Promise<unknown> = async () => {};
 	const app = {
 		addHook: vi.fn(),
@@ -129,11 +142,7 @@ async function runExpectedQuery() {
 		{
 			project: { id: 'project-id' },
 			user: { id: 'user-id' },
-			body: {
-				prompt: 'Question',
-				sql: 'SELECT 1',
-				databaseId: 'warehouse',
-			},
+			body,
 		},
 		reply,
 	);

@@ -20,6 +20,7 @@ export type UsageRouteSearch = {
 	feedback: ChatReplayFeedbackState[] | undefined;
 	tools: ChatReplayToolState[] | undefined;
 	sources: UsageSource[] | undefined;
+	splitByUser: boolean;
 	tokenView: TokenChartDisplayMode;
 	highlight: ReplayHighlight | undefined;
 	targetId: string | undefined;
@@ -36,6 +37,7 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	feedback: undefined,
 	tools: undefined,
 	sources: undefined,
+	splitByUser: false,
 	tokenView: 'tokens',
 	highlight: undefined,
 	targetId: undefined,
@@ -45,7 +47,7 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 };
 
 const tokenViews = ['tokens', 'dollars'] as const satisfies readonly TokenChartDisplayMode[];
-const filterSearchKeys = ['provider', 'users', 'feedback', 'tools', 'sources'] as const;
+const filterSearchKeys = ['provider', 'users', 'feedback', 'tools', 'sources', 'splitByUser'] as const;
 const periodSearchKeys = [
 	'periodMode',
 	'periodValue',
@@ -125,6 +127,7 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 		feedback: parseArrayOf(search.feedback, CHAT_REPLAY_FEEDBACK_STATES),
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
 		sources: parseArrayOf(search.sources, USAGE_SOURCES),
+		splitByUser: parseBoolean(search.splitByUser),
 		tokenView: parseOneOf(search.tokenView, tokenViews) ?? 'tokens',
 		highlight: parseOneOf(search.highlight, replayHighlights),
 		targetId: typeof search.targetId === 'string' && search.targetId.length > 0 ? search.targetId : undefined,
@@ -196,6 +199,10 @@ function parseProvider(value: unknown): LlmProvider | 'all' {
 
 function parseSavedPeriodId(value: unknown): string | undefined {
 	return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function parseBoolean(value: unknown): boolean {
+	return value === true || value === 'true';
 }
 
 function parseStringArray(value: unknown): string[] | undefined {

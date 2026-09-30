@@ -3,12 +3,14 @@ import type { displayChart } from '@nao/shared/tools';
 import type { TotalUsageRecord, UsageRecord } from '@nao/backend/usage';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 
+export type UsageChartData = UsageRecord[] | TotalUsageRecord[] | Record<string, string | number>[];
+
 export interface UsageChartCardProps {
 	title: string;
 	isLoading: boolean;
 	isFetching: boolean;
 	isError: boolean;
-	data: UsageRecord[] | TotalUsageRecord[];
+	data: UsageChartData;
 	chartType: 'bar' | 'stacked_bar' | 'kpi_card';
 	series: displayChart.SeriesConfig[];
 	xAxisLabelFormatter?: (value: string) => string;

@@ -313,6 +313,7 @@ export const chatMessage = pgTable(
 		chatId: text('chat_id')
 			.notNull()
 			.references(() => chat.id, { onDelete: 'cascade' }),
+		senderUserId: text('sender_user_id').references(() => user.id, { onDelete: 'set null' }),
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
 		stopReason: text('stop_reason').$type<StopReason>(),
 		errorMessage: text('error_message'),
@@ -339,6 +340,7 @@ export const chatMessage = pgTable(
 		index('chat_message_chatId_idx').on(table.chatId),
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
+		index('chat_message_senderUserId_idx').on(table.senderUserId),
 	],
 );
 
@@ -644,6 +646,22 @@ export const sharedStoryAccess = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 	},
 	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
+);
+
+export const sharedStoryGroupAccess = pgTable(
+	'shared_story_group_access',
+	{
+		sharedStoryId: text('shared_story_id')
+			.notNull()
+			.references(() => sharedStory.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [
+		primaryKey({ columns: [t.sharedStoryId, t.groupId] }),
+		index('shared_story_group_access_groupId_idx').on(t.groupId),
+	],
 );
 
 export const projectSavedPrompt = pgTable(
@@ -1577,4 +1595,28 @@ export const mcpUserToken = pgTable(
 		primaryKey({ columns: [t.userId, t.projectId, t.serverName] }),
 		index('mcp_user_token_project_server_idx').on(t.projectId, t.serverName),
 	],
+);
+
+export const sandboxSecret = pgTable(
+	'sandbox_secret',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		encryptedValue: text('encrypted_value').notNull(),
+		description: text('description'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.notNull()
+			.$onUpdate(() => /* @__PURE__ */ new Date()),
+	},
+	(t) => [uniqueIndex('sandbox_secret_user_project_name_idx').on(t.userId, t.projectId, t.name)],
 );

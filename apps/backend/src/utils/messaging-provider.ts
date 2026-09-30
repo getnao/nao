@@ -277,6 +277,8 @@ const SLACK_TABLE_MAX_DATA_ROWS = 99;
 const SLACK_TABLE_MAX_COLUMNS = 20;
 const SLACK_TABLE_MAX_CELL_CHARS = 300;
 const SLACK_TABLE_MAX_TOTAL_CHARS = 9000;
+/** Slack rejects table cells with empty text, so blank cells are sent as this placeholder. */
+const SLACK_TABLE_EMPTY_CELL = '-';
 
 type FittedTable = {
 	headers: string[];
@@ -291,9 +293,11 @@ const clampCell = (cell: string): string =>
 
 const rowCharCount = (row: string[]): number => row.reduce((total, cell) => total + Math.max(cell.length, 1), 0);
 
+const fillEmptyCell = (cell: string): string => (cell.trim() ? cell : SLACK_TABLE_EMPTY_CELL);
+
 function fitTableToSlackLimits(rawHeaders: string[], rawRows: string[][], characterBudget: number): FittedTable {
 	const columnCount = Math.min(rawHeaders.length, SLACK_TABLE_MAX_COLUMNS);
-	const headers = fitRowToBudget(rawHeaders.slice(0, columnCount).map(clampCell), characterBudget);
+	const headers = fitRowToBudget(rawHeaders.slice(0, columnCount).map(clampCell), characterBudget).map(fillEmptyCell);
 	if (headers.length === 0) {
 		return {
 			headers: [],
@@ -315,7 +319,7 @@ function fitTableToSlackLimits(rawHeaders: string[], rawRows: string[][], charac
 			break;
 		}
 		totalChars += cost;
-		rows.push(row);
+		rows.push(row.map(fillEmptyCell));
 	}
 	return {
 		headers,

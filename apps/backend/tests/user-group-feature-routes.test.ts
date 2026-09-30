@@ -74,6 +74,7 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	createSharedStory: mocks.createSharedStory,
 	getQueryDataFromCode: mocks.getQueryDataFromCode,
 	getSharedStory: vi.fn(),
+	getSharedStoryRecipientUserIds: vi.fn(async () => []),
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,

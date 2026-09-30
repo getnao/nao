@@ -371,6 +371,12 @@ function visibleToUser(projectId: string, userId: string) {
 			INNER JOIN ${s.sharedStoryAccess} ssa ON ssa.shared_story_id = ss.id
 			WHERE ss.story_id = ${s.activity.storyId} AND ssa.user_id = ${userId}
 		)`,
+		sql`EXISTS (
+			SELECT 1 FROM ${s.sharedStory} ss
+			INNER JOIN ${s.sharedStoryGroupAccess} ssga ON ssga.shared_story_id = ss.id
+			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
+			WHERE ss.story_id = ${s.activity.storyId} AND ugm.user_id = ${userId}
+		)`,
 	);
 
 	const storyShareIncludesUser = or(
@@ -384,6 +390,12 @@ function visibleToUser(projectId: string, userId: string) {
 			SELECT 1 FROM ${s.sharedStoryAccess} ssa
 			WHERE ssa.shared_story_id = ${s.activity.sharedStoryId}
 				AND ssa.user_id = ${userId}
+		)`,
+		sql`EXISTS (
+			SELECT 1 FROM ${s.sharedStoryGroupAccess} ssga
+			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
+			WHERE ssga.shared_story_id = ${s.activity.sharedStoryId}
+				AND ugm.user_id = ${userId}
 		)`,
 	);
 

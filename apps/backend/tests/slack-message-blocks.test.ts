@@ -195,9 +195,31 @@ describe('createTextBlocks', () => {
 		const text = ['| A | B | C |', '|---|---|---|', '| 1 | 2 |', '| 1 | 2 | 3 | 4 |'].join('\n');
 		const table = tableChild(createTextBlocks(text));
 		expect(table?.rows).toEqual([
-			['1', '2', ''],
+			['1', '2', '-'],
 			['1', '2', '3'],
 		]);
+	});
+
+	it('never sends an empty cell to Slack', () => {
+		const text = ['| region | count | note |', '|---|---|---|', '| EU | 3 |', '| US |  | x |', '| | | |'].join(
+			'\n',
+		);
+		const table = tableChild(createTextBlocks(text));
+		expect(table?.rows).toEqual([
+			['EU', '3', '-'],
+			['US', '-', 'x'],
+			['-', '-', '-'],
+		]);
+	});
+
+	it('fills empty header cells', () => {
+		const table = tableChild(createTextBlocks(['| name |  |', '|---|---|', '| a | b |'].join('\n')));
+		expect(table?.headers).toEqual(['name', '-']);
+	});
+
+	it('fills the missing cell of a row that is still streaming', () => {
+		const table = tableChild(createTextBlocks(['| id | name |', '|---|---|', '| 1'].join('\n')));
+		expect(table?.rows).toEqual([['1', '-']]);
 	});
 
 	it('does not treat pipe tables inside fenced code blocks as tables', () => {
@@ -772,6 +794,17 @@ describe('buildSlackTableBlocks', () => {
 				{ type: 'raw_text', text: 'Bar' },
 			],
 		]);
+	});
+
+	it('renders every table cell with non-empty text, as Slack requires', () => {
+		const text = ['| region | count | note |', '|---|---|---|', '| EU | 3 |', '| US |  | x |'].join('\n');
+		const blocks = buildSlackTableBlocks(text) as AnyBlock[] | null;
+		const tableBlock = blocks?.find((block) => block.type === 'data_table') as
+			| { rows: { type: string; text: string }[][] }
+			| undefined;
+		const cells = tableBlock?.rows.flat() ?? [];
+		expect(cells.length).toBe(9);
+		expect(cells.every((cell) => cell.text.trim().length > 0)).toBe(true);
 	});
 
 	it("keeps the rendered table block within Slack's 10,000-character budget", () => {

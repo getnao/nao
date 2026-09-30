@@ -4,6 +4,7 @@ import { and, asc, count, eq, inArray, isNotNull, isNull, or, type SQL, sql } fr
 import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { sharedStoryGrantsUser } from './shared-story.queries';
 
 type FolderMoveTx = DBTransaction;
 
@@ -110,12 +111,11 @@ async function countSharedWithMeStories(userId: string, projectId: string): Prom
 	const [row] = await db
 		.select({ cnt: count(s.sharedStory.id) })
 		.from(s.sharedStory)
-		.innerJoin(s.sharedStoryAccess, eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id))
 		.where(
 			and(
 				eq(s.sharedStory.projectId, projectId),
-				eq(s.sharedStoryAccess.userId, userId),
 				eq(s.sharedStory.visibility, 'specific'),
+				sharedStoryGrantsUser(userId),
 			),
 		)
 		.execute();
@@ -387,6 +387,10 @@ async function propagateShareChange(
 				await executor
 					.delete(s.sharedStoryAccess)
 					.where(eq(s.sharedStoryAccess.sharedStoryId, row.id))
+					.execute();
+				await executor
+					.delete(s.sharedStoryGroupAccess)
+					.where(eq(s.sharedStoryGroupAccess.sharedStoryId, row.id))
 					.execute();
 			}
 		}

@@ -1,5 +1,5 @@
 {
-  "id": "1e99cd3b-fdd7-475d-955a-088e0084ed3f",
+  "id": "c560ee09-6735-4217-b5f5-fed92e93c4eb",
   "prevId": "85b227bf-9c7e-44bc-b025-37b19cc84937",
   "version": "7",
   "dialect": "postgresql",
@@ -6012,6 +6012,124 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.sandbox_secret": {
+      "name": "sandbox_secret",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encrypted_value": {
+          "name": "encrypted_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "sandbox_secret_user_project_name_idx": {
+          "name": "sandbox_secret_user_project_name_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sandbox_secret_user_id_user_id_fk": {
+          "name": "sandbox_secret_user_id_user_id_fk",
+          "tableFrom": "sandbox_secret",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "sandbox_secret_project_id_project_id_fk": {
+          "name": "sandbox_secret_project_id_project_id_fk",
+          "tableFrom": "sandbox_secret",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.scheduled_job": {
       "name": "scheduled_job",
       "schema": "",
@@ -6668,18 +6786,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "certified_at": {
-          "name": "certified_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "certified_by": {
-          "name": "certified_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -6831,19 +6937,6 @@
           "tableTo": "scheduled_job",
           "columnsFrom": [
             "scheduled_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "story_certified_by_user_id_fk": {
-          "name": "story_certified_by_user_id_fk",
-          "tableFrom": "story",
-          "tableTo": "user",
-          "columnsFrom": [
-            "certified_by"
           ],
           "columnsTo": [
             "id"

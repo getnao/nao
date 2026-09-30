@@ -21,11 +21,13 @@ from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .notion import NotionConfig
+from .obsidian import ObsidianConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
 from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
 from .slack import SlackConfig
+from .tableau import TableauConfig
 from .test import TestConfig
 
 
@@ -39,7 +41,18 @@ class NaoConfigError(Exception):
 # config (e.g. `nao sync` with the databases provider) can load with
 # drop_invalid_optional_sections=True so an unresolvable block here — typically an
 # unset env('...') secret — is ignored with a warning instead of failing the run.
-OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test", "semantic_layer")
+OPTIONAL_SECTIONS = (
+    "llm",
+    "slack",
+    "notion",
+    "confluence",
+    "obsidian",
+    "mcp",
+    "skills",
+    "test",
+    "semantic_layer",
+    "tableau",
+)
 
 
 class NaoConfig(BaseModel):
@@ -51,6 +64,7 @@ class NaoConfig(BaseModel):
     repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
     notion: NotionConfig | None = Field(default=None, description="The Notion configurations")
     confluence: ConfluenceConfig | None = Field(default=None, description="The Confluence configuration")
+    obsidian: ObsidianConfig | None = Field(default=None, description="The Obsidian configuration")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
@@ -59,6 +73,7 @@ class NaoConfig(BaseModel):
     semantic_layer: SemanticLayerConfig | None = Field(
         default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
     )
+    tableau: TableauConfig | None = Field(default=None, description="The Tableau connection")
 
     _missing_secrets: dict[str, None] = {}
 
@@ -111,6 +126,8 @@ class NaoConfig(BaseModel):
             UI.print("  Notion: configured")
         if existing.confluence:
             UI.print("  Confluence: configured")
+        if existing.obsidian:
+            UI.print("  Obsidian: configured")
         if existing.mcp:
             UI.print("  MCP: configured")
         if existing.skills:
@@ -256,7 +273,7 @@ class NaoConfig(BaseModel):
         UI.warn(
             "nao_config.yaml declares a single inline `llm` provider, which is deprecated. Move it "
             "under `llm.providers` to configure several providers, the models each one exposes and "
-            "their costs. Run `nao migrate` to rewrite it automatically."
+            "their costs."
         )
 
     def get_connection(self, name: str) -> BaseBackend:

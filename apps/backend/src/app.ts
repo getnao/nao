@@ -43,6 +43,7 @@ import { automationWebhookRoutes } from './routes/automation-webhook';
 import { backofficeRoutes } from './routes/backoffice';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
+import { cliAuthRoutes } from './routes/cli-auth';
 import { deployRoutes } from './routes/deploy';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
@@ -63,7 +64,7 @@ import { logLicenseStatus } from './services/license-startup';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
-import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
+import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { TrpcRouter, trpcRouter } from './trpc/router';
@@ -71,12 +72,14 @@ import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
+import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
 
 // Get the directory of the current module (works in both dev and compiled)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const isDev = env.MODE !== 'prod';
+const HEALTH_PATH = '/api/health';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -105,6 +108,8 @@ export type App = typeof app;
 app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
+trackInFlightRequests(app);
+
 // Map HandlerError to HTTP status code
 app.setErrorHandler((error, request, reply) => {
 	const message = error instanceof Error ? error.message : String(error);
@@ -127,7 +132,7 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs')) {
+	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
 		done();
 		return;
 	}
@@ -184,6 +189,10 @@ app.register(analyticsRoutes, {
 
 app.register(testRoutes, {
 	prefix: '/api/test',
+});
+
+app.register(cliAuthRoutes, {
+	prefix: '/api/cli-auth',
 });
 
 app.register(chartRoutes, {
@@ -329,6 +338,13 @@ app.get('/api', async () => {
 	return 'Welcome to the API!';
 });
 
+app.get(HEALTH_PATH, { logLevel: 'silent' }, async (_request, reply) => {
+	if (isDraining()) {
+		return reply.status(503).send({ status: 'draining' });
+	}
+	return { status: 'ok' };
+});
+
 // Serve frontend static files in production
 // Look for frontend dist in multiple possible locations
 const execDir = dirname(process.execPath); // Directory containing the compiled binary
@@ -457,8 +473,18 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		process.exit(0);
 	};
 
+	const handleGracefulShutdown = async () => {
+		if (isDraining()) {
+			return;
+		}
+		stopScheduler();
+		await drainInFlightRequests(env.SHUTDOWN_DRAIN_DELAY_MS);
+		await handleShutdown();
+	};
+
+	// SIGINT (Ctrl-C) skips draining so stopping a dev server with an open stream stays instant.
 	process.on('SIGINT', handleShutdown);
-	process.on('SIGTERM', handleShutdown);
+	process.on('SIGTERM', handleGracefulShutdown);
 };
 
 export default app;

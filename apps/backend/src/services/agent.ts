@@ -77,6 +77,7 @@ import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
+import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
@@ -110,7 +111,6 @@ export interface AgentRunResult {
 
 export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
 	forkMetadata?: ForkMetadata | null;
-	testMode?: boolean;
 };
 
 /** Dependencies a tool resolver receives once a run's context has been resolved. */
@@ -132,15 +132,8 @@ export function shouldAddStoryMode(mentions: Mention[] | undefined, access: Agen
 }
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({
-	chat,
-	agentSettings,
-	toolContext,
-	webTools,
-	customBoundaries,
-}) =>
+export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
 	getTools(agentSettings, webTools ?? {}, {
-		testMode: chat.testMode,
 		customBoundaries,
 		semanticLayerMode: toolContext.semanticLayerMode,
 	});
@@ -148,9 +141,8 @@ export const defaultAgentTools: AgentToolsResolver = ({
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
 	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ chat, agentSettings, toolContext, webTools, customBoundaries }) =>
+	({ agentSettings, toolContext, webTools, customBoundaries }) =>
 		getTools(agentSettings, webTools ?? {}, {
-			testMode: chat.testMode,
 			excludeBuiltinTools,
 			customBoundaries,
 			semanticLayerMode: toolContext.semanticLayerMode,
@@ -161,12 +153,11 @@ export const defaultAgentToolsExcluding =
  * runs against nao's own app database when `ToolContext.adminMode` is set),
  * plus charting and follow-ups. Excludes the filesystem context tools.
  */
-export const adminAgentTools: AgentToolsResolver = ({ chat, agentSettings }) =>
+export const adminAgentTools: AgentToolsResolver = ({ agentSettings }) =>
 	getTools(
 		agentSettings,
 		{},
 		{
-			testMode: chat.testMode,
 			builtinToolAllowlist: [
 				'execute_sql',
 				'read_query_result',
@@ -321,9 +312,7 @@ export class AgentService {
 		const agentTools = resolvedTools;
 		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
 			? [stepCountIs(options.maxSteps ?? 20)]
-			: chat.testMode
-				? [hasToolCall('suggest_follow_ups')]
-				: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
+			: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -589,6 +578,7 @@ class AgentManager {
 					await chatQueries.upsertMessage({
 						...settledMessage,
 						chatId: this.chat.id,
+						senderUserId: this.chat.userId,
 						source: this._toolContext.adminMode ? 'admin' : settledMessage.source,
 						stopReason,
 						error,
@@ -657,7 +647,13 @@ class AgentManager {
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
-		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
+		const toolNames = Object.keys(this._agentTools);
+		const [mcpServers, sandboxSecrets] = await Promise.all([
+			mcpService.getEnabledServers(this.chat.projectId),
+			toolNames.includes('execute_sandboxed_code')
+				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
+				: Promise.resolve([]),
+		]);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
 				memories,
@@ -667,13 +663,13 @@ class AgentManager {
 				skills,
 				customCharts,
 				mcpServers,
+				sandboxSecrets,
 				semanticLayerMode: this._toolContext.semanticLayerMode,
 				templates,
 				repoNames,
 				contextPresence,
 				timezone,
-				testMode: this.chat.testMode,
-				toolNames: Object.keys(this._agentTools),
+				toolNames,
 				options: { canGrepSavedFiles: canGrepUserFiles() },
 			}),
 		);

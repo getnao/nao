@@ -89,6 +89,7 @@ describe('expired invitation cleanup', () => {
 	const ONBOARDING_ID = 'onboarding-invite';
 	const LOGGED_OUT_OLD_ID = 'logged-out-old';
 	const MESSAGING_ID = 'messaging-invite';
+	const THREAD_REPLIER_ID = 'thread-replier-invite';
 
 	beforeAll(async () => {
 		const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
@@ -106,6 +107,7 @@ describe('expired invitation cleanup', () => {
 			{ ...invitedUser(REISSUED_ID), createdAt: eightDaysAgo },
 			{ ...invitedUser(ONBOARDING_ID), createdAt: eightDaysAgo, updatedAt: eightDaysAgo },
 			{ ...invitedUser(MESSAGING_ID), createdAt: eightDaysAgo, updatedAt: eightDaysAgo },
+			{ ...invitedUser(THREAD_REPLIER_ID), createdAt: eightDaysAgo, updatedAt: eightDaysAgo },
 			{
 				id: LOGGED_OUT_OLD_ID,
 				name: LOGGED_OUT_OLD_ID,
@@ -127,6 +129,13 @@ describe('expired invitation cleanup', () => {
 			projectId: 'cleanup-project',
 			title: 'Slack thread',
 		});
+		await db.insert(s.chatMessage).values({
+			id: 'reply-1',
+			chatId: 'chat-1',
+			senderUserId: THREAD_REPLIER_ID,
+			role: 'user',
+			source: 'slack',
+		});
 	});
 
 	it('deletes only invitations whose temporary password is over 7 days old and unused', async () => {
@@ -136,7 +145,14 @@ describe('expired invitation cleanup', () => {
 		const remainingIds = remaining.map((user) => user.id);
 		expect(remainingIds).not.toContain(EXPIRED_ID);
 		expect(remainingIds).toEqual(
-			expect.arrayContaining([FRESH_ID, REISSUED_ID, ONBOARDING_ID, LOGGED_OUT_OLD_ID, MESSAGING_ID]),
+			expect.arrayContaining([
+				FRESH_ID,
+				REISSUED_ID,
+				ONBOARDING_ID,
+				LOGGED_OUT_OLD_ID,
+				MESSAGING_ID,
+				THREAD_REPLIER_ID,
+			]),
 		);
 	});
 });

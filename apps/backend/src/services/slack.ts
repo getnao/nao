@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { basename } from 'node:path';
 
 import { cardToBlockKit, createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
@@ -59,10 +60,12 @@ import {
 	type TruncationNotice,
 } from '../utils/messaging-provider';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
+import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
+import { readUserFileBytes } from './storage/user-files';
 import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
@@ -124,7 +127,7 @@ type SlackUserAuthorization =
 	| { status: 'user-not-found'; email: string }
 	| { status: 'no-permission' };
 
-class ProjectSlackBot {
+export class ProjectSlackBot {
 	public readonly projectId: string;
 	private _bot: Chat;
 	private _slackClient: WebClient;
@@ -1052,6 +1055,7 @@ class ProjectSlackBot {
 				role: 'user',
 				parts: [{ type: 'text', text: messageText }],
 				chatId: existingChat.id,
+				senderUserId: ctx.user!.id,
 				source: 'slack',
 			});
 			ctx.chatId = existingChat.id;
@@ -1258,6 +1262,8 @@ class ProjectSlackBot {
 				await this._handleMapPart(part, state, ctx);
 			} else if (part.type === 'tool-clarification') {
 				await this._handleClarificationPart(part, state, ctx);
+			} else if (part.type === 'tool-write') {
+				await this._handleWritePart(part, state, ctx);
 			}
 		}
 
@@ -1403,12 +1409,40 @@ class ProjectSlackBot {
 	}
 
 	private async _uploadChartImageFile(png: Buffer, name: string | null, ctx: ConversationContext): Promise<void> {
-		const { channelId, threadTs } = parseSlackThreadId(ctx.thread.id);
 		const filename = name ? `${name.toLowerCase().replace(/\s+/g, '_')}.png` : 'chart.png';
+		await this._uploadFileToThread({ filename, content: png }, ctx);
+	}
+
+	private async _handleWritePart(
+		part: Extract<UIMessagePart, { type: 'tool-write' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId) || !ctx.user) {
+			return;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		try {
+			const content = await readUserFileBytes(
+				{ projectId: this.projectId, userId: ctx.user.id },
+				toStorageRelativePath(part.output.path),
+			);
+			await this._uploadFileToThread({ filename: basename(part.output.path), content }, ctx);
+		} catch (error) {
+			logger.error(`Written file upload failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId, path: part.output.path },
+			});
+		}
+	}
+
+	private async _uploadFileToThread(file: SlackFileUpload, ctx: ConversationContext): Promise<void> {
+		const { channelId, threadTs } = parseSlackThreadId(ctx.thread.id);
 		const upload = {
 			channel_id: channelId!,
-			filename,
-			file: png,
+			filename: file.filename,
+			title: file.title,
+			file: file.content,
 		};
 		if (threadTs) {
 			await this._slackClient.files.uploadV2({ ...upload, thread_ts: threadTs });

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4048e6d0-5837-4d2e-8823-af6cb45a1f83",
+  "id": "1ba08c93-db44-41f2-9d70-45ce99484675",
   "prevId": "9e367bcf-ea9f-4981-a5e9-0896d82c6895",
   "tables": {
     "account": {
@@ -5608,6 +5608,111 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "sandbox_secret": {
+      "name": "sandbox_secret",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "encrypted_value": {
+          "name": "encrypted_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "sandbox_secret_user_project_name_idx": {
+          "name": "sandbox_secret_user_project_name_idx",
+          "columns": [
+            "user_id",
+            "project_id",
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "sandbox_secret_user_id_user_id_fk": {
+          "name": "sandbox_secret_user_id_user_id_fk",
+          "tableFrom": "sandbox_secret",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "sandbox_secret_project_id_project_id_fk": {
+          "name": "sandbox_secret_project_id_project_id_fk",
+          "tableFrom": "sandbox_secret",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "scheduled_job": {
       "name": "scheduled_job",
       "columns": {
@@ -6234,20 +6339,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "certified_at": {
-          "name": "certified_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "certified_by": {
-          "name": "certified_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -6359,19 +6450,6 @@
           "tableTo": "scheduled_job",
           "columnsFrom": [
             "scheduled_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "story_certified_by_user_id_fk": {
-          "name": "story_certified_by_user_id_fk",
-          "tableFrom": "story",
-          "tableTo": "user",
-          "columnsFrom": [
-            "certified_by"
           ],
           "columnsTo": [
             "id"
