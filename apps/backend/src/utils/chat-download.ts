@@ -15,7 +15,7 @@ export interface ChatDownloadInput {
 	format: DownloadFormat;
 	includeErrors?: boolean;
 	includeSql?: boolean;
-	includePython?: boolean;
+	includeCode?: boolean;
 	dateFormat?: DateFormatSettings | null;
 }
 
@@ -31,7 +31,7 @@ export async function buildChatDownloadResponse(
 	const codeOptions: ChatStoryCodeOptions = {
 		includeErrors: input.includeErrors,
 		includeSql: input.includeSql,
-		includePython: input.includePython,
+		includeCode: input.includeCode,
 	};
 	const code = buildChatStoryCode(
 		input.messages,

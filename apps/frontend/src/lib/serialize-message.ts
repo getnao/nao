@@ -8,8 +8,8 @@ export interface SerializeOptions {
 	includeErrors?: boolean;
 	/** Include `execute_sql` queries in the output. On by default. */
 	includeSql?: boolean;
-	/** Include `execute_python` code (and its output) in the output. On by default. */
-	includePython?: boolean;
+	/** Include `codemode` scripts (and their output) in the output. On by default. */
+	includeCode?: boolean;
 }
 
 export interface ChatMetadata {
@@ -20,7 +20,7 @@ export interface ChatMetadata {
 
 /**
  * Serializes a message to markdown: text parts plus the key tool calls (SQL
- * query, chart settings, Python code and output), kept in part order so the
+ * query, chart settings, scripts and their output), kept in part order so the
  * result reads like the rendered conversation.
  */
 export const getMessageMarkdown = (message: UIMessage, options: SerializeOptions = {}): string => {
@@ -81,8 +81,8 @@ function serializePart(part: UIMessagePart, options: SerializeOptions): string |
 			return serializeExecuteSql(part, options);
 		case 'tool-display_chart':
 			return serializeDisplayChart(part, options);
-		case 'tool-execute_python':
-			return serializeExecutePython(part, options);
+		case 'tool-codemode':
+			return serializeCodemode(part, options);
 		default:
 			return null;
 	}
@@ -113,25 +113,35 @@ function serializeDisplayChart(part: UIToolPart<'display_chart'>, options: Seria
 	return sections.join(BLOCK_SEPARATOR);
 }
 
-function serializeExecutePython(part: UIToolPart<'execute_python'>, options: SerializeOptions): string | null {
-	if (options.includePython === false || shouldSkipErrored(part, options)) {
+function serializeCodemode(part: UIToolPart<'codemode'>, options: SerializeOptions): string | null {
+	const scriptError = part.output?.ok === false ? part.output.error?.message : undefined;
+	if (options.includeCode === false || shouldSkipErrored(part, options) || (scriptError && !options.includeErrors)) {
 		return null;
 	}
 	const code = part.input?.code?.trim();
 	if (!code) {
 		return null;
 	}
-	const sections = ['**Python**', codeBlock('python', code)];
-	const output = part.output?.output;
-	if (output !== undefined && output !== null) {
-		sections.push(`Output:${BLOCK_SEPARATOR}${formatPythonOutput(output)}`);
+	const description = part.input?.description?.trim();
+	const sections = [description ? `**Script — ${description}**` : '**Script**', codeBlock('javascript', code)];
+	const logs = part.output?.logs ?? [];
+	if (logs.length > 0) {
+		sections.push(`Logs:${BLOCK_SEPARATOR}${codeBlock('', logs.join('\n'))}`);
 	}
-	appendError(sections, part.errorText);
+	const result = part.output?.result;
+	if (result !== undefined) {
+		sections.push(`Output:${BLOCK_SEPARATOR}${codeBlock('json', prettifyJson(result))}`);
+	}
+	appendError(sections, part.errorText ?? scriptError);
 	return sections.join(BLOCK_SEPARATOR);
 }
 
-function formatPythonOutput(value: unknown): string {
-	return typeof value === 'object' ? codeBlock('json', stringify(value)) : codeBlock('', String(value));
+function prettifyJson(json: string): string {
+	try {
+		return stringify(JSON.parse(json));
+	} catch {
+		return json;
+	}
 }
 
 /** When errors are excluded, a failed tool call is dropped entirely (input included). */

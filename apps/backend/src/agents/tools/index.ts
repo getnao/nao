@@ -1,4 +1,3 @@
-export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
 import type { CustomBoundarySet } from '@nao/shared';
@@ -11,9 +10,9 @@ import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../service
 import { isStorageEnabled } from '../../services/storage';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
+import { createCodemodeTool } from './codemode';
 import displayChart from './display-chart';
 import { createDisplayMapTool } from './display-map';
-import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSemanticQuery from './execute-semantic-query';
 import executeSql, { localOnlyExecuteSql } from './execute-sql';
@@ -41,7 +40,7 @@ export const tools = {
 	story,
 	clarification,
 	display_chart: displayChart,
-	...(executePython && { execute_python: executePython }),
+	codemode: createCodemodeTool({ mcpServers: null }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
 	execute_semantic_query: executeSemanticQuery,
@@ -66,7 +65,7 @@ export const getTools = (
 		mcpServers?: string[] | null;
 		excludeFollowUps?: boolean;
 		/**
-		 * Restricts the built-in tools to this allowlist (by tool name). MCP, python,
+		 * Restricts the built-in tools to this allowlist (by tool name). MCP, codemode,
 		 * sandboxing and clarification tools are dropped entirely. `extraTools` are
 		 * always kept. Used by focused runs (e.g. context recommendations) that should
 		 * only discover context, not query the warehouse or render charts.
@@ -102,7 +101,7 @@ export const getTools = (
 		: {};
 
 	const {
-		execute_python,
+		codemode: _codemode,
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
@@ -123,7 +122,9 @@ export const getTools = (
 	const allTools = {
 		...baseTools,
 		...mcpTools,
-		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
+		...(agentSettings?.experimental?.codemode && {
+			codemode: createCodemodeTool({ mcpServers: includeMcp ? (options.mcpServers ?? null) : false }),
+		}),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
 		...(agentSettings?.mapEnabled !== false && {
 			display_map: createDisplayMapTool(options.customBoundaries ?? []),

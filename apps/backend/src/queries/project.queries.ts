@@ -282,10 +282,6 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 			...current.webSearch,
 			...settings.webSearch,
 		},
-		pythonExecution: {
-			...current.pythonExecution,
-			...settings.pythonExecution,
-		},
 		subagent: {
 			...current.subagent,
 			...settings.subagent,

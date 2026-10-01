@@ -81,10 +81,6 @@ export type StorySubscriptionNotificationPayload = {
 	shareId: string | null;
 };
 
-export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
-export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
-export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
-
 /** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
 export const SANDBOX_SECRET_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 export const SANDBOX_SECRET_NAME_MAX_LENGTH = 64;

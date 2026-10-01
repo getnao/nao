@@ -34,7 +34,7 @@ export function AssistantMessageActions({
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
 	const [includeErrors, setIncludeErrors] = useState(false);
 	const [includeSql, setIncludeSql] = useState(true);
-	const [includePython, setIncludePython] = useState(true);
+	const [includeCode, setIncludeCode] = useState(true);
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
 	const [exportError, setExportError] = useState<string | null>(null);
 	const { isCopied, copy } = useCopyToClipboard();
@@ -43,7 +43,7 @@ export function AssistantMessageActions({
 
 	const chatTitle = chat?.title ?? 'nao chat';
 	const chatMetadata = { title: chatTitle, createdAt: chat?.createdAt, updatedAt: chat?.updatedAt };
-	const exportOptions = { includeErrors, includeSql, includePython };
+	const exportOptions = { includeErrors, includeSql, includeCode };
 
 	const buildChatMarkdown = () => {
 		const agentMessages = getAgentMessages();
@@ -185,8 +185,8 @@ export function AssistantMessageActions({
 							className='flex items-center justify-between gap-4 px-2 py-1.5 text-xs font-medium cursor-pointer select-none'
 							onClick={(e) => e.stopPropagation()}
 						>
-							<span>Include Python</span>
-							<Switch checked={includePython} onCheckedChange={setIncludePython} />
+							<span>Include scripts</span>
+							<Switch checked={includeCode} onCheckedChange={setIncludeCode} />
 						</label>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem onSelect={handleCopyChat}>

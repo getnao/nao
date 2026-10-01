@@ -200,6 +200,26 @@ export class McpService {
 		return this.getConfiguredServerNames().filter((name) => !disabled.has(name));
 	}
 
+	/**
+	 * The tools the agent may call on each enabled server, optionally restricted to `allowedServers`,
+	 * from this session's discovery or the on-disk specs. Servers not discovered yet have no tools.
+	 */
+	public async getCallableTools(
+		projectId: string,
+		allowedServers: string[] | null,
+	): Promise<{ server: string; tools: string[] }[]> {
+		const servers = (await this.getEnabledServers(projectId)).filter(
+			(server) => !allowedServers || allowedServers.includes(server),
+		);
+		const disabled = await this._loadDisabled();
+		return Promise.all(
+			servers.map(async (server) => {
+				const summaries = await this._serverToolSummaries(server, disabled);
+				return { server, tools: summaries.filter((tool) => tool.enabled).map((tool) => tool.name) };
+			}),
+		);
+	}
+
 	/** The configured URL for an HTTP server, or null if not an HTTP server. */
 	public async getServerUrl(projectId: string, server: string): Promise<string | null> {
 		await this.initializeMcpState(projectId);

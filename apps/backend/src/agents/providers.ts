@@ -70,8 +70,8 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 						},
 						clearToolInputs: false,
 						excludeTools: [
+							'codemode',
 							'display_chart',
-							'execute_python',
 							'execute_semantic_query',
 							'execute_sql',
 							'execute_sandboxed_code',

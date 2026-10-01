@@ -1,10 +1,10 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
 import { ClarificationToolCall } from './clarification';
+import { CodemodeToolCall } from './codemode';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { DisplayMapToolCall } from './display-map';
-import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSemanticQueryToolCall } from './execute-semantic-query';
 import { ExecuteSqlToolCall } from './execute-sql';
@@ -34,9 +34,9 @@ const toolComponents: Partial<{
 }> = {
 	story: StoryToolCall,
 	clarification: ClarificationToolCall,
+	codemode: CodemodeToolCall,
 	display_chart: DisplayChartToolCall,
 	display_map: DisplayMapToolCall,
-	execute_python: ExecutePythonToolCall,
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	execute_semantic_query: ExecuteSemanticQueryToolCall,

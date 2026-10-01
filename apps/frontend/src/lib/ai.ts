@@ -94,7 +94,7 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'display_map',
 		'suggest_follow_ups',
 		'clarification',
-		'execute_python',
+		'codemode',
 		'execute_sandboxed_code',
 	],
 };

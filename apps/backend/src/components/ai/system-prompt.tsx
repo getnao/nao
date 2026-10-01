@@ -339,7 +339,7 @@ export function SystemPrompt({
 
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
 
-				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
+				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} canUseCodemode={hasTool('codemode')} />}
 
 				{hasTool('execute_sandboxed_code') && <SandboxSecretsBlock secrets={sandboxSecrets} />}
 
@@ -669,7 +669,7 @@ function truncateChartDescription(description: string): string {
 		: `${description.slice(0, MAX_CHART_DESCRIPTION_LENGTH - 1).trimEnd()}…`;
 }
 
-function McpServersBlock({ servers }: { servers: string[] }) {
+function McpServersBlock({ servers, canUseCodemode }: { servers: string[]; canUseCodemode: boolean }) {
 	return (
 		<Block>
 			<Title level={2}>MCP Servers</Title>
@@ -682,6 +682,15 @@ function McpServersBlock({ servers }: { servers: string[] }) {
 				get its operationId and request body schema, then invoke it with the <Bold>mcp_call</Bold> tool — pass
 				the operationId as <Bold>tool</Bold> and an <Bold>arguments</Bold> object matching that schema.
 				<Br />
+				{canUseCodemode && (
+					<>
+						When a task needs several calls — chaining them, looping over results, running them in parallel
+						or filtering a large result — write one script with the <Bold>codemode</Bold> tool instead,
+						where each tool is <Bold>{'await mcp.<server>.<operationId>(arguments)'}</Bold>. Only what the
+						script logs or returns reaches you. Keep <Bold>mcp_call</Bold> for single calls.
+						<Br />
+					</>
+				)}
 				Some servers require the user to connect their own account first. If a call returns an{' '}
 				<Bold>AUTH_REQUIRED</Bold> result, stop and ask the user to connect — a Connect button is shown to them
 				automatically. Do not retry until they have connected.

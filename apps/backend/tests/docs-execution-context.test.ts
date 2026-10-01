@@ -10,7 +10,6 @@ vi.mock('../src/services/storage/user-files', () => ({
 	writeUserFileBytes: vi.fn(),
 }));
 
-import { createVirtualFS } from '../src/agents/tools/execute-python';
 import { refreshProjectContextInSandbox } from '../src/agents/tools/execute-sandboxed-code';
 import type { ToolContext } from '../src/types/tools';
 
@@ -34,59 +33,6 @@ afterEach(() => {
 });
 
 describe('docs execution context filtering', () => {
-	it('filters denied docs from the Python virtual filesystem', () => {
-		const files = createVirtualFS(contextWithDocs([{ kind: 'file', path: 'legal/terms.md' }]));
-		expect([...files.keys()].sort()).toEqual(['/RULES.md', '/docs/legal/terms.md']);
-	});
-
-	it('keeps scanning siblings after a directory stops resolving safely', () => {
-		const scanDirectory = path.join(projectFolder, 'scan');
-		const swappedDirectory = path.join(scanDirectory, 'a-broken');
-		const outsideDirectory = createTemporaryFolder();
-		fs.mkdirSync(swappedDirectory, { recursive: true });
-		fs.writeFileSync(path.join(outsideDirectory, 'secret.md'), 'secret');
-		fs.writeFileSync(path.join(scanDirectory, 'z-visible.md'), 'visible');
-
-		const originalReaddir = fs.readdirSync.bind(fs);
-		let swapped = false;
-		vi.spyOn(fs, 'readdirSync').mockImplementation(((directory, options) => {
-			const entries = originalReaddir(directory, options as never);
-			if (!swapped && path.resolve(directory.toString()) === scanDirectory) {
-				swapped = true;
-				fs.rmSync(swappedDirectory, { recursive: true });
-				fs.symlinkSync(outsideDirectory, swappedDirectory, process.platform === 'win32' ? 'junction' : 'dir');
-			}
-			return entries;
-		}) as typeof fs.readdirSync);
-
-		const files = createVirtualFS(contextWithDocs([]));
-		expect(files.has('/scan/a-broken/secret.md')).toBe(false);
-		expect(files.get('/scan/z-visible.md')).toBe('visible');
-	});
-
-	it('renders root rules in the Python virtual filesystem and omits malformed rules', () => {
-		fs.writeFileSync(
-			path.join(projectFolder, 'RULES.md'),
-			'Public\n{% if group("finance") %}\nFinance\n{% endif %}\n',
-		);
-
-		const files = createVirtualFS(contextWithDocs([{ kind: 'file', path: 'legal/terms.md' }], ['finance']));
-		expect(files.get('/RULES.md')).toBe('Public\nFinance\n');
-
-		fs.writeFileSync(path.join(projectFolder, 'RULES.md'), 'Public\n{% if group("finance") %}\nFinance\n');
-		expect(
-			createVirtualFS(contextWithDocs([{ kind: 'file', path: 'legal/terms.md' }], ['finance'])).has('/RULES.md'),
-		).toBe(false);
-	});
-
-	it('leaves nested rules files unchanged in execution context', () => {
-		const nestedRules = '{% if group("finance") %}\nNested\n{% endif %}\n';
-		fs.writeFileSync(path.join(projectFolder, 'docs', 'legal', 'RULES.md'), nestedRules);
-
-		const files = createVirtualFS(contextWithDocs([{ kind: 'folder', path: 'legal' }], ['support']));
-		expect(files.get('/docs/legal/RULES.md')).toBe(nestedRules);
-	});
-
 	it('refreshes reused sandbox context for policy changes and future folder files', async () => {
 		const sandbox = new FakeContextSandbox();
 		const folderAccess = contextWithDocs([{ kind: 'folder', path: 'finance' }]);
