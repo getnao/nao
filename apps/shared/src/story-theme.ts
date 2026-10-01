@@ -145,7 +145,44 @@ export const storyThemeSchema = z.object({
 export type StoryTheme = z.infer<typeof storyThemeSchema>;
 export type StoryThemeInput = z.input<typeof storyThemeSchema>;
 
+export const STORY_THEME_MODES = ['light', 'dark'] as const;
+export type StoryThemeMode = (typeof STORY_THEME_MODES)[number];
+
 export const DEFAULT_STORY_THEME: StoryTheme = storyThemeSchema.parse({});
+
+/** nao's own dark tokens, as hex, so unthemed stories follow the app in dark mode. Only colours change; the schema fills the rest. */
+export const DEFAULT_DARK_STORY_THEME: StoryTheme = storyThemeSchema.parse({
+	surfaces: { page: '#090a0c', sunken: '#17181c' },
+	accent: { color: '#a591ff', ink: '#17181c' },
+	text: { headingColor: '#f8fafc', bodyColor: '#c9cbd3', mutedColor: '#8a8d9c' },
+	block: { background: '#17181c', borderColor: '#2e2f33' },
+	table: { background: '#17181c', headerBackground: '#24262c', headerText: '#f8fafc', borderColor: '#2e2f33' },
+	charts: {
+		series: ['#0095c7', '#ff6e2c', '#00baa9', '#ffcc04', '#ffac00', '#ff7778', '#b27fff'],
+		grid: '#24262c',
+	},
+});
+
+export const storyThemePairSchema = z.object({
+	light: storyThemeSchema,
+	dark: storyThemeSchema,
+});
+
+/** One theme per app colour scheme; the story picks the one matching nao's current mode. */
+export type StoryThemePair = z.infer<typeof storyThemePairSchema>;
+
+export const DEFAULT_STORY_THEME_PAIR: StoryThemePair = {
+	light: DEFAULT_STORY_THEME,
+	dark: DEFAULT_DARK_STORY_THEME,
+};
+
+export function storyThemeMode(theme: StoryTheme): StoryThemeMode {
+	return isDarkSurface(theme.surfaces.page) ? 'dark' : 'light';
+}
+
+export function oppositeStoryThemeMode(mode: StoryThemeMode): StoryThemeMode {
+	return mode === 'dark' ? 'light' : 'dark';
+}
 
 export function parseStoredStoryTheme(raw: unknown): StoryTheme | null {
 	const value = typeof raw === 'string' ? safeJsonParse(raw) : raw;
@@ -160,14 +197,20 @@ export function sameTheme(a: StoryTheme, b: StoryTheme): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 
+export function sameThemePair(a: StoryThemePair, b: StoryThemePair): boolean {
+	return sameTheme(a.light, b.light) && sameTheme(a.dark, b.dark);
+}
+
 /**
  * The bridge to the running app: a custom story container gets these as inline
  * CSS custom properties, so nao's components pick the theme up without being
  * rewritten. Names match the tokens already declared in the frontend styles.
  */
 export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
+	const mode = storyThemeMode(theme);
 	const vars: Record<string, string> = {
 		'--background': theme.surfaces.page,
+		'--story-stage': DEFAULT_STORY_THEME_PAIR[mode].surfaces.page,
 		'--panel': theme.surfaces.sunken,
 		'--card': theme.block.background,
 		'--popover': theme.block.background,
@@ -207,7 +250,7 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 
 		'--chart-grid': theme.charts.grid,
 
-		'color-scheme': isDarkSurface(theme.surfaces.page) ? 'dark' : 'light',
+		'color-scheme': mode,
 	};
 
 	for (let index = 0; index < MAX_CHART_SERIES_COLORS; index++) {

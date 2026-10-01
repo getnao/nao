@@ -26,7 +26,7 @@ export async function renderCustomStoryPdf(
 		title: version.title,
 		bundle: version.bundle,
 		styles: version.styles.map((style) => style.content),
-		theme: version.theme ?? DEFAULT_STORY_THEME,
+		theme: version.theme?.light ?? DEFAULT_STORY_THEME,
 		runtime,
 		data,
 	});

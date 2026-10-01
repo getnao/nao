@@ -1,4 +1,4 @@
-import { storyThemeSchema } from '@nao/shared/story-theme';
+import { storyThemePairSchema } from '@nao/shared/story-theme';
 import {
 	MAX_IMAGE_BYTES,
 	MAX_SOURCE_IMAGES,
@@ -10,25 +10,19 @@ import { z } from 'zod';
 
 import { env } from '../env';
 import * as storyThemeQueries from '../queries/story-theme.queries';
-import { generateStoryThemeFromSources } from '../services/story-theme/generate';
+import { generateStoryThemePairFromSources } from '../services/story-theme/generate';
 import { DesignSourceError } from '../services/story-theme/signals';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
-const BASE64_OVERHEAD = 4 / 3;
+const base64Length = (bytes: number): number => 4 * Math.ceil(bytes / 3);
 
 const imageInputSchema = z.object({
-	data: z
-		.string()
-		.min(32)
-		.max(Math.ceil(MAX_IMAGE_BYTES * BASE64_OVERHEAD)),
+	data: z.string().min(32).max(base64Length(MAX_IMAGE_BYTES)),
 	mediaType: z.enum(SOURCE_IMAGE_MEDIA_TYPES),
 });
 
 const zipInputSchema = z.object({
-	data: z
-		.string()
-		.min(32)
-		.max(Math.ceil(MAX_ZIP_BYTES * BASE64_OVERHEAD)),
+	data: z.string().min(32).max(base64Length(MAX_ZIP_BYTES)),
 	fileName: z.string().trim().max(200).optional(),
 });
 
@@ -72,7 +66,7 @@ export const storyThemeRoutes = {
 		return { versions };
 	}),
 
-	save: storyThemeAdminProcedure.input(z.object({ theme: storyThemeSchema })).mutation(async ({ ctx, input }) => {
+	save: storyThemeAdminProcedure.input(z.object({ theme: storyThemePairSchema })).mutation(async ({ ctx, input }) => {
 		await storyThemeQueries.saveStoryTheme(ctx.project.id, input.theme);
 		return { ok: true };
 	}),
@@ -111,7 +105,7 @@ export const storyThemeRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			try {
-				return await generateStoryThemeFromSources(ctx.project.id, {
+				return await generateStoryThemePairFromSources(ctx.project.id, {
 					url: input.url,
 					image: input.image
 						? {

@@ -184,6 +184,7 @@ interface SharedCustomStoryPageProps {
 	title: string;
 	authorName: string;
 	isLive: boolean;
+	canRefresh: boolean;
 	onOpenChat?: () => void;
 	isOpeningChat?: boolean;
 }
@@ -194,13 +195,18 @@ export function SharedCustomStoryPage({
 	title,
 	authorName,
 	isLive,
+	canRefresh,
 	onOpenChat,
 	isOpeningChat,
 }: SharedCustomStoryPageProps) {
 	const queryClient = useQueryClient();
 	const contentQuery = useQuery(trpc.storyShare.getCustomVersion.queryOptions({ shareId }));
 	const content = contentQuery.data;
-	const dataSource = useMemo<CustomStoryDataSource>(() => ({ kind: 'share', shareId }), [shareId]);
+	const versionNumber = content?.version.number;
+	const dataSource = useMemo<CustomStoryDataSource>(
+		() => ({ kind: 'share', shareId, versionNumber }),
+		[shareId, versionNumber],
+	);
 
 	const refreshMutation = useMutation(
 		trpc.storyShare.refreshData.mutationOptions({
@@ -239,6 +245,7 @@ export function SharedCustomStoryPage({
 								cachedAt: content?.cachedAt,
 								lastRefreshFailure: content?.lastRefreshFailure,
 								isRefreshing: refreshMutation.isPending,
+								canRefresh,
 								onRefresh: () => refreshMutation.mutate({ shareId }),
 							}
 						: undefined

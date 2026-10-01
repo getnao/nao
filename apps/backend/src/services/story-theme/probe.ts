@@ -30,6 +30,7 @@ interface RawProbe extends Omit<ProbedPage, 'prefersDarkGround'> {
 
 const NAV_TIMEOUT_MS = 20_000;
 const FIGMA_NAV_TIMEOUT_MS = 35_000;
+const READ_TIMEOUT_MS = 30_000;
 const VIEWPORT = { width: 1440, height: 900 };
 const USER_AGENT =
 	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 nao-story-theme-bot/1.0 (+https://getnao.io)';
@@ -60,19 +61,35 @@ export async function probeWithBrowser(url: string, allowedFontHosts: string[]):
 			}
 			throw new Error(`The site returned HTTP ${status}.`);
 		}
-		await page.evaluate(() => document.fonts.ready.then(() => undefined)).catch(() => undefined);
-		if (figma) {
-			await page.waitForSelector('canvas', { timeout: 12_000 }).catch(() => undefined);
-			await new Promise((resolve) => setTimeout(resolve, 2500));
-		}
-		await page.evaluate('globalThis.__name = globalThis.__name || function (f) { return f; }');
-		const raw = (await page.evaluate(pageProbe, allowedFontHosts)) as RawProbe;
-		const screenshot = await captureScreenshot(page);
-		return applyDocumentGround(normalizeProbe(raw), screenshot);
+		return await withinDeadline(readRenderedPage(page, figma, allowedFontHosts), READ_TIMEOUT_MS);
 	} finally {
 		await context?.close().catch(() => undefined);
 		await proxy.close();
 	}
+}
+
+async function readRenderedPage(page: Page, figma: boolean, allowedFontHosts: string[]): Promise<ProbeResult> {
+	await page.evaluate(() => document.fonts.ready.then(() => undefined)).catch(() => undefined);
+	if (figma) {
+		await page.waitForSelector('canvas', { timeout: 12_000 }).catch(() => undefined);
+		await new Promise((resolve) => setTimeout(resolve, 2500));
+	}
+	await page.evaluate('globalThis.__name = globalThis.__name || function (f) { return f; }');
+	const raw = (await page.evaluate(pageProbe, allowedFontHosts)) as RawProbe;
+	const screenshot = await captureScreenshot(page);
+	return applyDocumentGround(normalizeProbe(raw), screenshot);
+}
+
+/** The page runs its own scripts during these reads, so a page that never settles is abandoned, then closed by the caller. */
+function withinDeadline<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+	work.catch(() => undefined);
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(
+			() => reject(new Error('The page took too long to read. Try a screenshot instead.')),
+			timeoutMs,
+		);
+		work.then(resolve, reject).finally(() => clearTimeout(timer));
+	});
 }
 
 async function blockPrivateRequests(page: Page): Promise<void> {
@@ -135,6 +152,7 @@ function normalizeProbe(raw: RawProbe): ProbedPage {
 	const pageBackground = normalizeColor(raw.pageBackground) ?? '#ffffff';
 	return {
 		...raw,
+		customProperties: colorTokens(raw.customProperties),
 		roles,
 		surfaces: mergeByHex(raw.surfaces, (a, b) => ({ ...a, area: a.area + b.area })),
 		colors: mergeByHex(raw.colors, (a, b) => ({
@@ -144,6 +162,15 @@ function normalizeProbe(raw: RawProbe): ProbedPage {
 		})),
 		prefersDarkGround: isDarkSurface(pageBackground),
 	};
+}
+
+function colorTokens(customProperties: Record<string, string>): Record<string, string> {
+	return Object.fromEntries(
+		Object.entries(customProperties).flatMap(([name, value]) => {
+			const hex = normalizeColor(value);
+			return hex ? [[name, hex]] : [];
+		}),
+	);
 }
 
 function normalizeRoleStyle(style: RoleStyle | null): RoleStyle | null {
@@ -275,6 +302,7 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 	const customProperties: Record<string, string> = {};
 	const rootStyle = getComputedStyle(document.documentElement);
 	const names = new Set<string>();
+	const declaredValues = new Map<string, string>();
 	for (let i = 0; i < rootStyle.length; i++) {
 		const n = rootStyle[i];
 		if (n.startsWith('--')) {
@@ -296,12 +324,15 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 			for (let i = 0; i < style.length; i++) {
 				if (style[i].startsWith('--')) {
 					names.add(style[i]);
+					if (!declaredValues.has(style[i])) {
+						declaredValues.set(style[i], style.getPropertyValue(style[i]).trim());
+					}
 				}
 			}
 		}
 	}
 	for (const name of names) {
-		const value = rootStyle.getPropertyValue(name).trim();
+		const value = rootStyle.getPropertyValue(name).trim() || declaredValues.get(name) || '';
 		if (value && value.length < 120) {
 			customProperties[name] = value;
 		}

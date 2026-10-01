@@ -542,11 +542,18 @@ function CustomStoriesBlock() {
 					/stories/&lt;id&gt;/@v&lt;N&gt;/&lt;path&gt;.
 				</ListItem>
 				<ListItem>
+					Keep <Bold>app.tsx</Bold> small: it composes the story from imported pieces. Put each new component
+					in its own file, and group related files in folders (e.g. <Bold>components/</Bold>,{' '}
+					<Bold>slides/</Bold>, <Bold>sections/</Bold>) via relative imports, so the app stays readable and
+					maintainable as it grows.
+				</ListItem>
+				<ListItem>
 					Build with <Bold>@nao/story-kit</Bold> blocks — <Bold>KpiCard</Bold>, <Bold>BarChart</Bold>,{' '}
 					<Bold>LineChart</Bold>, <Bold>{'<Chart type="...">'}</Bold> for every other display_chart type
 					(mixed, pie, donut, scatter, radar), <Bold>DataTable</Bold> — which match display_chart and handle
-					loading and errors themselves. Every block takes <Bold>queryId</Bold> (or <Bold>data</Bold>) and{' '}
-					<Bold>title</Bold>; KpiCard and charts also take <Bold>format</Bold> ("number" | "compact" |
+					loading and errors themselves. Blocks draw their own card, so place them directly in the layout
+					rather than inside a panel of your own. Every block takes <Bold>queryId</Bold> (or <Bold>data</Bold>
+					) and <Bold>title</Bold>; KpiCard and charts also take <Bold>format</Bold> ("number" | "compact" |
 					"percent" with fractions | "currency"), <Bold>currency</Bold>, <Bold>decimals</Bold>. Charts:{' '}
 					<Bold>xKey</Bold>, <Bold>series</Bold> (names or {'{ key, label?, type?, axis? }'}),{' '}
 					<Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>, <Bold>horizontal</Bold> (bar),{' '}
@@ -585,7 +592,7 @@ function CustomStoriesBlock() {
 				</ListItem>
 				<ListItem>
 					<Bold>Never hardcode data, colours or fonts.</Bold> Read rows with <Bold>useQueryData</Bold>; style
-					with <Bold>var(--background)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
+					with <Bold>var(--background)</Bold>, <Bold>var(--card)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
 					<Bold>var(--muted-foreground)</Bold>, <Bold>var(--primary)</Bold>, <Bold>var(--border)</Bold>,{' '}
 					<Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold>, <Bold>var(--font-heading)</Bold>,{' '}
 					<Bold>var(--chart-1…11)</Bold>. They follow theme changes live, so a re-theme needs no republish.

@@ -1,7 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
-import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
 import type { QueryClient } from '@tanstack/react-query';
 import type { DownloadFormat } from '@nao/shared/types';
@@ -10,6 +9,7 @@ import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
 import type { CustomStoryContent } from '@/components/custom-story/custom-story-body';
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { StoryDownloadFile } from '@/components/story-download';
+import { useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { narrativesOptions, queryDataOptions } from '@/components/custom-story/story-data-options';
 import { isForbiddenError, isNotFoundError } from '@/lib/trpc-error';
 
@@ -24,6 +24,7 @@ export function useCustomStoryDownload(
 	render: RenderExport,
 ) {
 	const queryClient = useQueryClient();
+	const theme = useActiveStoryTheme(content?.theme);
 	return useCallback(
 		async (format: DownloadFormat) => {
 			if (!content?.bundle) {
@@ -37,13 +38,13 @@ export function useCustomStoryDownload(
 				title: content.title,
 				bundle: content.bundle,
 				styles: content.styles.map((style) => style.content),
-				theme: content.theme ?? DEFAULT_STORY_THEME,
+				theme,
 				runtime,
 				data,
 			});
 			return render(format, html);
 		},
-		[content, dataSource, queryClient, render],
+		[content, dataSource, queryClient, render, theme],
 	);
 }
 

@@ -1,17 +1,22 @@
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { DEFAULT_STORY_THEME, sameTheme } from '@nao/shared/story-theme';
+import { DEFAULT_STORY_THEME_PAIR, sameThemePair } from '@nao/shared/story-theme';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import { useInvalidateStoryTheme, useStoryThemeEditor } from '@/components/settings/story-theme-editor-context';
+import {
+	STORY_THEME_MODE_OPTIONS,
+	useInvalidateStoryTheme,
+	useStoryThemeEditor,
+} from '@/components/settings/story-theme-editor-context';
 import { StoryBlock, StoryTableFrame } from '@/components/story-block';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { Button } from '@/components/ui/button';
+import { IconSegmentedToggle } from '@/components/ui/icon-segmented-toggle';
 import { Spinner } from '@/components/ui/spinner';
 import { useSidePanel } from '@/contexts/side-panel';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -130,7 +135,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 }
 
 export function StoryThemePreviewPanel() {
-	const { theme, setTheme, viewingVersionIndex, setViewingVersionIndex } = useStoryThemeEditor();
+	const { theme, setTheme, mode, setMode, viewingVersionIndex, setViewingVersionIndex } = useStoryThemeEditor();
 	const { close } = useSidePanel();
 	const { isAdmin } = usePermissions();
 	const invalidateStoryTheme = useInvalidateStoryTheme();
@@ -142,7 +147,7 @@ export function StoryThemePreviewPanel() {
 	const currentIndex = Math.min(viewingVersionIndex ?? latestIndex, latestIndex);
 	const current = slots[currentIndex];
 	const isViewingLatest = currentIndex === latestIndex;
-	const previewTheme = theme ? current.theme : null;
+	const previewTheme = theme ? current.theme[mode] : null;
 	const currentVersion = currentIndex + 1;
 
 	useEffect(() => {
@@ -193,6 +198,12 @@ export function StoryThemePreviewPanel() {
 				<div className='min-w-0 flex-1'>
 					<span className='truncate text-sm font-medium'>{slotLabel(current, currentVersion)}</span>
 				</div>
+				<IconSegmentedToggle
+					options={STORY_THEME_MODE_OPTIONS}
+					value={mode}
+					onValueChange={setMode}
+					className='shrink-0'
+				/>
 				<div className='flex shrink-0 items-center gap-1'>
 					<Button
 						variant='ghost-muted'
@@ -250,20 +261,20 @@ export function StoryThemePreviewPanel() {
 }
 
 type PreviewSlot =
-	| { kind: 'default'; theme: StoryTheme }
-	| { kind: 'saved'; theme: StoryTheme; version: number }
-	| { kind: 'pending'; theme: StoryTheme };
+	| { kind: 'default'; theme: StoryThemePair }
+	| { kind: 'saved'; theme: StoryThemePair; version: number }
+	| { kind: 'pending'; theme: StoryThemePair };
 
 function buildPreviewSlots(
-	versions: { version: number; theme: StoryTheme }[],
-	draft: StoryTheme | null,
+	versions: { version: number; theme: StoryThemePair }[],
+	draft: StoryThemePair | null,
 ): PreviewSlot[] {
 	const saved: PreviewSlot[] =
 		versions.length > 0
 			? versions.map((entry) => ({ kind: 'saved', theme: entry.theme, version: entry.version }))
-			: [{ kind: 'default', theme: DEFAULT_STORY_THEME }];
+			: [{ kind: 'default', theme: DEFAULT_STORY_THEME_PAIR }];
 	const baseline = saved[saved.length - 1].theme;
-	if (draft && !sameTheme(draft, baseline)) {
+	if (draft && !sameThemePair(draft, baseline)) {
 		return [...saved, { kind: 'pending', theme: draft }];
 	}
 	return saved;

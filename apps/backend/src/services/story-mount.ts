@@ -7,6 +7,7 @@ import type { DBStory, DBStoryDraftFile } from '../db/abstractSchema';
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
+import { formatStoryFile } from '../utils/story-file-format';
 import {
 	parsePublishedVersionPath,
 	parseStoriesPath,
@@ -84,7 +85,10 @@ export async function writeStoryMountFile(
 		);
 	}
 	const story = await requireCustomStory(chatId, target.slug);
-	const file = await storyFileQueries.writeDraftFile(story.id, { path: target.filePath, content });
+	const file = await storyFileQueries.writeDraftFile(story.id, {
+		path: target.filePath,
+		content: await formatStoryFile(target.filePath, content),
+	});
 	return { path: toStoriesVirtualPath(target.slug, file.path), size: Buffer.byteLength(file.content, 'utf8') };
 }
 
@@ -249,5 +253,9 @@ function isInGrepScope(file: MountedFile, scope: StoryMountPath): boolean {
 }
 
 function matchesGlob(slug: string, file: MountedFile, glob: string | undefined): boolean {
-	return !glob || minimatch(toStoriesMountRelativePath(slug, file.path), glob, { matchBase: true, dot: true });
+	if (!glob) {
+		return true;
+	}
+	const options = { matchBase: true, dot: true };
+	return minimatch(toStoriesMountRelativePath(slug, file.path), glob, options) || minimatch(file.path, glob, options);
 }

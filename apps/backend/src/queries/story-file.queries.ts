@@ -135,6 +135,7 @@ interface CutVersionInput {
 	storyId: string;
 	action: DBStoryVersion['action'];
 	source: DBStoryVersion['source'];
+	versionNumber?: number;
 }
 
 /** Runs inside the caller's transaction when given one, so a draft write and its version land together. */
@@ -171,7 +172,7 @@ async function cutVersion(
 			code: '',
 			action: data.action,
 			source: data.source,
-			version: sql`(${nextVersion})`,
+			version: data.versionNumber ?? sql`(${nextVersion})`,
 		})
 		.returning()
 		.execute();
@@ -214,6 +215,7 @@ export async function deleteUnreferencedFileBlobs(createdBefore: Date): Promise<
 	return deleted.length;
 }
 
+/** Reusing an existing blob refreshes its age, so the cleanup of old unreferenced blobs cannot take it mid-publish. */
 async function upsertFileBlobs(contents: string[], executor: DBExecutor): Promise<void> {
 	const unique = new Map(contents.map((content) => [hashContent(content), content]));
 	const values = [...unique.entries()].map(([contentHash, content]) => ({
@@ -227,7 +229,7 @@ async function upsertFileBlobs(contents: string[], executor: DBExecutor): Promis
 	await executor
 		.insert(s.storyFileBlob)
 		.values(values)
-		.onConflictDoNothing({ target: s.storyFileBlob.contentHash })
+		.onConflictDoUpdate({ target: s.storyFileBlob.contentHash, set: { createdAt: new Date() } })
 		.execute();
 }
 

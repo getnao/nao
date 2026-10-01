@@ -235,8 +235,11 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 		<div className='flex items-center gap-1.5 rounded-full border p-0.5'>
 			<Button
 				variant='ghost'
-				size='icon-xs'
-				className={cn(viewMode === 'preview' && 'bg-accent rounded-full', 'hover:rounded-full')}
+				className={cn(
+					'size-5.5 px-2',
+					viewMode === 'preview' && 'bg-accent rounded-full',
+					'hover:rounded-full',
+				)}
 				onClick={() => onViewModeChange('preview')}
 				disabled={isSaving}
 				aria-label='Preview'
@@ -246,8 +249,11 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 			{canEdit && (
 				<Button
 					variant='ghost'
-					size='icon-xs'
-					className={cn(viewMode === 'edit' && 'bg-accent rounded-full', 'hover:rounded-full')}
+					className={cn(
+						'size-5.5 px-2',
+						viewMode === 'edit' && 'bg-accent rounded-full',
+						'hover:rounded-full',
+					)}
 					onClick={() => onViewModeChange('edit')}
 					disabled={isAgentRunning || isSaving}
 					aria-label='Edit'
@@ -257,8 +263,7 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 			)}
 			<Button
 				variant='ghost'
-				size='icon-xs'
-				className={cn(viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
+				className={cn('size-5.5 px-2', viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				onClick={() => onViewModeChange('code')}
 				disabled={isSaving}
 				aria-label='Code'

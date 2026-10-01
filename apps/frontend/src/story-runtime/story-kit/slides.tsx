@@ -1,10 +1,14 @@
 import { joinClassNames } from '@nao/shared/class-names';
 import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
-import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
-import { Children, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ChevronLeftIcon, ChevronRightIcon, MaximizeIcon, MinimizeIcon } from 'lucide-react';
+import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isPrintMode } from '../story-host';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
+
+const SLIDE_FRAME_BORDER_PX = 1;
+const CONTROLS_IDLE_DELAY_MS = 2000;
+const IDLE_ATTRIBUTE = 'data-idle';
 
 export interface SlidesProps {
 	children: ReactNode;
@@ -26,6 +30,19 @@ interface SlideDeckProps {
 	title?: ReactNode;
 	eyebrow?: ReactNode;
 	className?: string;
+}
+
+interface SlideToolbarProps {
+	current: number;
+	count: number;
+	goTo: (index: number) => void;
+	fullscreen: Fullscreen;
+}
+
+interface Fullscreen {
+	active: boolean;
+	toggle: () => void;
+	exit: () => void;
 }
 
 /** A deck: one slide at a time on screen, one slide per page once printed. */
@@ -56,73 +73,89 @@ function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 	const lastIndex = Math.max(slides.length - 1, 0);
 	const current = Math.min(index, lastIndex);
 	const goTo = useCallback((next: number) => setIndex(Math.min(Math.max(next, 0), lastIndex)), [lastIndex]);
-	useArrowKeys(current, goTo);
-	const { viewportRef, scale } = useSlideScale();
-	const hasManySlides = slides.length > 1;
+	const { rootRef, fullscreen } = useFullscreen();
+	useKeyboardShortcuts(current, goTo, fullscreen);
+	const { stageRef, scale } = useSlideFit();
+	useIdleControls(rootRef, fullscreen.active);
 
 	return (
-		<div className={joinClassNames('nao-slides', className)}>
-			{(title || eyebrow || hasManySlides) && (
-				<header className='nao-slides__header'>
-					<div className='nao-slides__heading'>
+		<div
+			ref={rootRef}
+			className={joinClassNames('nao-slides', fullscreen.active && 'nao-slides--fullscreen', className)}
+		>
+			<div className='nao-slides__top'>
+				{(title || eyebrow) && (
+					<header className='nao-slides__header'>
 						{eyebrow && <div className='nao-slides__eyebrow'>{eyebrow}</div>}
 						{title && <h1 className='nao-slides__title'>{title}</h1>}
-					</div>
-					{hasManySlides && (
-						<span className='nao-slides__counter'>
-							{current + 1} / {slides.length}
-						</span>
-					)}
-				</header>
-			)}
-			<div
-				ref={viewportRef}
-				className='nao-slides__viewport'
-				style={{ height: STORY_SLIDE_SIZE.height * scale, '--nao-slide-scale': scale } as CSSProperties}
-			>
-				{slides[current]}
+					</header>
+				)}
+				<SlideToolbar current={current} count={slides.length} goTo={goTo} fullscreen={fullscreen} />
 			</div>
-			{hasManySlides && <SlideNavigation current={current} count={slides.length} goTo={goTo} />}
+			<div ref={stageRef} className='nao-slides__stage'>
+				<div
+					className='nao-slides__viewport'
+					style={
+						{
+							width: STORY_SLIDE_SIZE.width * scale,
+							height: STORY_SLIDE_SIZE.height * scale,
+							'--nao-slide-scale': scale,
+						} as CSSProperties
+					}
+				>
+					{slides[current]}
+				</div>
+			</div>
 		</div>
 	);
 }
 
-function SlideNavigation({ current, count, goTo }: { current: number; count: number; goTo: (index: number) => void }) {
+function SlideToolbar({ current, count, goTo, fullscreen }: SlideToolbarProps) {
 	return (
-		<nav className='nao-slides__nav'>
-			<button
-				type='button'
-				className='nao-slides__step'
-				onClick={() => goTo(current - 1)}
-				disabled={current === 0}
-				aria-label='Previous slide'
-			>
-				<ChevronLeftIcon />
-				Previous
-			</button>
-			<div className='nao-slides__dots'>
-				{Array.from({ length: count }, (_, index) => (
+		<nav className='nao-slides__toolbar'>
+			{count > 1 && (
+				<div className='nao-slides__pager'>
 					<button
-						key={index}
 						type='button'
-						className='nao-slides__dot'
-						onClick={() => goTo(index)}
-						aria-current={index === current}
-						aria-label={`Go to slide ${index + 1}`}
-					/>
-				))}
-			</div>
-			<button
-				type='button'
-				className='nao-slides__step'
-				onClick={() => goTo(current + 1)}
-				disabled={current === count - 1}
-				aria-label='Next slide'
-			>
-				Next
-				<ChevronRightIcon />
-			</button>
+						className='nao-slides__control'
+						onClick={() => goTo(current - 1)}
+						disabled={current === 0}
+						aria-label='Previous slide'
+					>
+						<ChevronLeftIcon />
+					</button>
+					<span className='nao-slides__counter'>
+						{current + 1} / {count}
+					</span>
+					<button
+						type='button'
+						className='nao-slides__control'
+						onClick={() => goTo(current + 1)}
+						disabled={current === count - 1}
+						aria-label='Next slide'
+					>
+						<ChevronRightIcon />
+					</button>
+				</div>
+			)}
+			<FullscreenButton fullscreen={fullscreen} />
 		</nav>
+	);
+}
+
+function FullscreenButton({ fullscreen }: { fullscreen: Fullscreen }) {
+	const label = fullscreen.active ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+	return (
+		<button
+			type='button'
+			className='nao-slides__control'
+			onClick={fullscreen.toggle}
+			title={label}
+			aria-label={label}
+			aria-pressed={fullscreen.active}
+		>
+			{fullscreen.active ? <MinimizeIcon /> : <MaximizeIcon />}
+		</button>
 	);
 }
 
@@ -135,39 +168,121 @@ function PrintedSlides({ slides }: { slides: ReactNode[] }) {
 	return createPortal(<div className='nao-slides nao-slides--print'>{slides}</div>, document.body);
 }
 
-/** Slides are laid out on the fixed print canvas and scaled down to the available width, so screen and PDF match. */
-function useSlideScale() {
-	const viewportRef = useRef<HTMLDivElement>(null);
+/**
+ * Slides are laid out on the fixed print canvas and scaled to fit the stage in both directions, so the whole slide is
+ * visible without scrolling and screen matches PDF.
+ */
+function useSlideFit() {
+	const stageRef = useRef<HTMLDivElement>(null);
 	const [scale, setScale] = useState(1);
 
 	useLayoutEffect(() => {
-		const viewport = viewportRef.current;
-		if (!viewport) {
+		const stage = stageRef.current;
+		if (!stage) {
 			return;
 		}
-		const observer = new ResizeObserver(() => setScale(viewport.clientWidth / STORY_SLIDE_SIZE.width));
-		observer.observe(viewport);
+		const fit = () => {
+			const width = stage.clientWidth - 2 * SLIDE_FRAME_BORDER_PX;
+			const height = stage.clientHeight - 2 * SLIDE_FRAME_BORDER_PX;
+			setScale(Math.max(Math.min(width / STORY_SLIDE_SIZE.width, height / STORY_SLIDE_SIZE.height), 0));
+		};
+		const observer = new ResizeObserver(fit);
+		observer.observe(stage);
 		return () => observer.disconnect();
 	}, []);
 
-	return { viewportRef, scale };
+	return { stageRef, scale };
 }
 
-function useArrowKeys(current: number, goTo: (index: number) => void) {
+function useFullscreen(): { rootRef: RefObject<HTMLDivElement | null>; fullscreen: Fullscreen } {
+	const rootRef = useRef<HTMLDivElement>(null);
+	const [active, setActive] = useState(false);
+
+	useEffect(() => {
+		const syncWithDocument = () => {
+			const root = rootRef.current;
+			setActive(root !== null && document.fullscreenElement === root);
+		};
+		document.addEventListener('fullscreenchange', syncWithDocument);
+		return () => document.removeEventListener('fullscreenchange', syncWithDocument);
+	}, []);
+
+	const enter = useCallback(() => {
+		const root = rootRef.current;
+		if (root && document.fullscreenEnabled) {
+			root.requestFullscreen().catch(() => setActive(true));
+		} else {
+			setActive(true);
+		}
+	}, []);
+
+	const exit = useCallback(() => {
+		if (document.fullscreenElement) {
+			void document.exitFullscreen();
+		} else {
+			setActive(false);
+		}
+	}, []);
+
+	const toggle = useCallback(() => (active ? exit() : enter()), [active, enter, exit]);
+	const fullscreen = useMemo(() => ({ active, toggle, exit }), [active, toggle, exit]);
+
+	return { rootRef, fullscreen };
+}
+
+function useIdleControls(rootRef: RefObject<HTMLDivElement | null>, enabled: boolean) {
+	useEffect(() => {
+		const root = rootRef.current;
+		if (!enabled || !root) {
+			return;
+		}
+		let timeout: number | null = null;
+		const clearTimer = () => {
+			if (timeout !== null) {
+				window.clearTimeout(timeout);
+				timeout = null;
+			}
+		};
+		const sleep = () => {
+			clearTimer();
+			root.setAttribute(IDLE_ATTRIBUTE, '');
+		};
+		const wake = () => {
+			clearTimer();
+			root.removeAttribute(IDLE_ATTRIBUTE);
+			timeout = window.setTimeout(sleep, CONTROLS_IDLE_DELAY_MS);
+		};
+		root.addEventListener('mousemove', wake);
+		root.addEventListener('mouseleave', sleep);
+		wake();
+		return () => {
+			clearTimer();
+			root.removeEventListener('mousemove', wake);
+			root.removeEventListener('mouseleave', sleep);
+			root.removeAttribute(IDLE_ATTRIBUTE);
+		};
+	}, [rootRef, enabled]);
+}
+
+function useKeyboardShortcuts(current: number, goTo: (index: number) => void, fullscreen: Fullscreen) {
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (isEditableTarget(event.target)) {
+			if (isEditableTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey) {
 				return;
 			}
 			if (event.key === 'ArrowRight' || event.key === 'PageDown') {
 				goTo(current + 1);
 			} else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
 				goTo(current - 1);
+			} else if (event.key === 'f' || event.key === 'F') {
+				fullscreen.toggle();
+			} else if (event.key === 'Escape' && fullscreen.active) {
+				fullscreen.exit();
 			}
 		};
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [current, goTo]);
+	}, [current, goTo, fullscreen]);
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

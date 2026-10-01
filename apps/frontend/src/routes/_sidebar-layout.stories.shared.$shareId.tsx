@@ -76,6 +76,7 @@ function SharedCustomStory({ shareId }: { shareId: string }) {
 			title={story.title}
 			authorName={story.authorName}
 			isLive={story.isLive}
+			canRefresh={story.canRefresh}
 			onOpenChat={story.canFork ? () => forkMutation.mutate({ shareId, type: 'story' }) : undefined}
 			isOpeningChat={forkMutation.isPending}
 		/>

@@ -2,8 +2,8 @@ import { Code, Eye } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { Button } from '@/components/ui/button';
-import { SimpleTooltip } from '@/components/ui/tooltip';
+import type { IconSegmentedToggleOption } from '@/components/ui/icon-segmented-toggle';
+import { IconSegmentedToggle } from '@/components/ui/icon-segmented-toggle';
 import { cn } from '@/lib/utils';
 
 export type CustomStoryViewMode = 'app' | 'files';
@@ -13,34 +13,17 @@ export interface CustomStoryViewModeControls {
 	onViewModeChange: (mode: CustomStoryViewMode) => void;
 }
 
-const VIEW_MODES = [
-	{ mode: 'app', label: 'App', icon: Eye },
-	{ mode: 'files', label: 'Files', icon: Code },
-] as const;
+const VIEW_MODES: readonly IconSegmentedToggleOption<CustomStoryViewMode>[] = [
+	{ value: 'app', label: 'App', icon: Eye },
+	{ value: 'files', label: 'Files', icon: Code },
+];
 
 export function isCustomStoryViewMode(mode: string): mode is CustomStoryViewMode {
-	return VIEW_MODES.some((entry) => entry.mode === mode);
+	return VIEW_MODES.some((entry) => entry.value === mode);
 }
 
 export function CustomStoryViewModeToggle({ viewMode, onViewModeChange }: CustomStoryViewModeControls) {
-	return (
-		<div className='flex items-center gap-1.5 rounded-full border p-0.5'>
-			{VIEW_MODES.map(({ mode, label, icon: Icon }) => (
-				<SimpleTooltip key={mode} content={label}>
-					<Button
-						variant='ghost'
-						size='icon-xs'
-						className={cn(viewMode === mode && 'bg-accent rounded-full', 'hover:rounded-full')}
-						onClick={() => onViewModeChange(mode)}
-						aria-label={label}
-						aria-pressed={viewMode === mode}
-					>
-						<Icon className='size-3' strokeWidth={2.25} />
-					</Button>
-				</SimpleTooltip>
-			))}
-		</div>
-	);
+	return <IconSegmentedToggle options={VIEW_MODES} value={viewMode} onValueChange={onViewModeChange} />;
 }
 
 interface CustomStoryViewLayersProps {

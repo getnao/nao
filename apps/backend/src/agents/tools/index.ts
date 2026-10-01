@@ -87,8 +87,14 @@ export const getTools = (
 		 * local database; omit when the project has no semantic layer.
 		 */
 		semanticLayerMode?: SemanticLayerMode | null;
+		/**
+		 * Whether the run's user may author custom stories. Tool descriptions only mention
+		 * `/stories` when they can; omit to follow the instance flag alone.
+		 */
+		customStoryAuthoring?: boolean;
 	} = {},
 ) => {
+	const customStoryAuthoring = options.customStoryAuthoring ?? isCustomStoriesEnabled();
 	const configuredServers = new Set(mcpService.getConfiguredServerNames());
 	const includeMcp =
 		options.mcpEnabled !== false &&
@@ -117,8 +123,8 @@ export const getTools = (
 		...(env.BETA_SUBAGENTS_ENABLED && { task: taskTool }),
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
-		...((isStorageEnabled() || isCustomStoriesEnabled()) && {
-			write: { ...writeTool, description: buildWriteToolDescription() },
+		...((isStorageEnabled() || customStoryAuthoring) && {
+			write: { ...writeTool, description: buildWriteToolDescription({ customStories: customStoryAuthoring }) },
 		}),
 		...(!options.excludeFollowUps && { suggest_follow_ups }),
 	};
@@ -146,7 +152,7 @@ export const getTools = (
 
 	if ('story' in result) {
 		const mapsEnabled = 'display_map' in result;
-		const customStories = isCustomStoriesEnabled() && 'write' in result;
+		const customStories = customStoryAuthoring && 'write' in result;
 		result = {
 			...result,
 			story: {

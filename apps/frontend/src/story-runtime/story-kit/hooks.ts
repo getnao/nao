@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { getStoryTheme, isEditingEnabled, requestQueryData, subscribeToEditing } from '../story-host';
+import { getStoryTheme, isEditingEnabled, requestQueryData, subscribeToEditing, subscribeToTheme } from '../story-host';
 import type { StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
@@ -48,7 +48,7 @@ export function useQueryData(
 }
 
 export function useStoryTheme(): StoryTheme | null {
-	return getStoryTheme();
+	return useSyncExternalStore(subscribeToTheme, getStoryTheme);
 }
 
 export function useStoryEditing(): boolean {

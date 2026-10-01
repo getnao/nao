@@ -1,6 +1,6 @@
 import { STORY_APP_ENTRY_CANDIDATES } from '@nao/shared/story-app';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { File, Lock, Save } from 'lucide-react';
+import { AlertTriangle, File, Lock, Save } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
@@ -13,11 +13,12 @@ import {
 	STORY_KIT_FILE_PATHS,
 	storyKitFileQueryOptions,
 } from '@/components/custom-story/story-kit-sources';
+import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
 import { FileTree } from '@/components/settings/file-tree';
-import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
+import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { trpc } from '@/main';
@@ -79,7 +80,7 @@ export function CustomStoryFiles({ source, versionNumber, files, editable = fals
 	return (
 		<div className='flex h-full flex-col'>
 			{edits.hasChanges || edits.buildErrors.length > 0 ? (
-				<StoryFileEditBar edits={edits} canSave={editable} />
+				<StoryFileEditBar edits={edits} canSave={editable} storySlug={source.storySlug} />
 			) : null}
 			<ResizablePanelGroup
 				orientation='horizontal'
@@ -281,8 +282,14 @@ function useStoryFileEdits(source: CustomStoryFileSource, versionNumber: number)
 	};
 }
 
+interface StoryFileEditBarProps {
+	edits: StoryFileEdits;
+	canSave: boolean;
+	storySlug: string;
+}
+
 /** Publishing builds the files first: a build error keeps the edits and shows where it failed, nothing is published. */
-function StoryFileEditBar({ edits, canSave }: { edits: StoryFileEdits; canSave: boolean }) {
+function StoryFileEditBar({ edits, canSave, storySlug }: StoryFileEditBarProps) {
 	return (
 		<div className='shrink-0 border-b bg-muted/30 px-4 py-2 text-xs'>
 			<div className='flex items-center gap-2'>
@@ -290,13 +297,19 @@ function StoryFileEditBar({ edits, canSave }: { edits: StoryFileEdits; canSave: 
 					<span className='size-1.5 shrink-0 rounded-full bg-current' />
 					{edits.changedCount} unsaved {edits.changedCount === 1 ? 'file' : 'files'}
 				</span>
-				<Button variant='ghost' size='sm' className='h-7' onClick={edits.discard} disabled={edits.isSaving}>
+				<Button
+					variant='ghost'
+					size='sm'
+					className='h-7 rounded-full'
+					onClick={edits.discard}
+					disabled={edits.isSaving}
+				>
 					Discard
 				</Button>
 				<Button
 					variant='primary-gradient'
 					size='sm'
-					className='h-7 gap-1.5'
+					className='h-7 gap-1.5 rounded-full'
 					onClick={() => void edits.save()}
 					disabled={!canSave || !edits.hasChanges || edits.isSaving}
 					isLoading={edits.isSaving}
@@ -307,13 +320,71 @@ function StoryFileEditBar({ edits, canSave }: { edits: StoryFileEdits; canSave: 
 			</div>
 			{edits.saveError && <p className='mt-2 text-destructive'>{edits.saveError.message}</p>}
 			{edits.buildErrors.length > 0 && (
-				<div className='mt-2 flex flex-col gap-1'>
-					<p className='font-medium text-destructive'>The story did not build, nothing was published:</p>
-					<pre className='max-h-32 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[11px] text-muted-foreground'>
-						{edits.buildErrors.join('\n\n')}
-					</pre>
-				</div>
+				<StoryBuildErrors
+					errors={edits.buildErrors}
+					fixMessage={buildFixMessage(storySlug, edits.buildErrors, edits.drafts)}
+				/>
 			)}
 		</div>
 	);
+}
+
+function StoryBuildErrors({ errors, fixMessage }: { errors: string[]; fixMessage: string }) {
+	return (
+		<div className='mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200'>
+			<div className='flex items-center justify-between gap-3'>
+				<div className='flex min-w-0 items-center gap-1.5 font-medium'>
+					<AlertTriangle className='size-3.5 shrink-0' />
+					<span className='truncate'>
+						{errors.length} build {errors.length === 1 ? 'error' : 'errors'} — nothing was published
+					</span>
+				</div>
+				<FixInChatButton message={fixMessage} className='h-7 shrink-0 gap-1.5 rounded-full' />
+			</div>
+			<ul className='mt-2 flex max-h-40 flex-col gap-2 overflow-auto'>
+				{errors.map((error) => (
+					<StoryBuildErrorItem key={error} error={error} />
+				))}
+			</ul>
+		</div>
+	);
+}
+
+function StoryBuildErrorItem({ error }: { error: string }) {
+	const [header, ...excerptLines] = error.split('\n');
+	const separator = header.indexOf(' — ');
+	const location = separator === -1 ? null : header.slice(0, separator);
+	const message = separator === -1 ? header : header.slice(separator + 3);
+	const excerpt = excerptLines.join('\n').trim();
+
+	return (
+		<li className='flex flex-col gap-1'>
+			<p className='break-words'>
+				{location && <span className='mr-1.5 font-mono opacity-70'>{location}</span>}
+				{message}
+			</p>
+			{excerpt && (
+				<pre className='overflow-x-auto rounded bg-red-100/70 px-2 py-1 font-mono text-[11px] dark:bg-red-900/30'>
+					{excerpt}
+				</pre>
+			)}
+		</li>
+	);
+}
+
+function buildFixMessage(storySlug: string, buildErrors: string[], drafts: Record<string, string>): string {
+	const editedFiles = Object.entries(drafts).flatMap(([path, content]) => [
+		'',
+		`/stories/${storySlug}/${path}:`,
+		'```',
+		content,
+		'```',
+	]);
+	return [
+		`I edited the files of the custom story "${storySlug}" but it does not build:`,
+		...buildErrors.map((error) => `- ${error}`),
+		...(editedFiles.length > 0 ? ['', 'These are my edited files:', ...editedFiles] : []),
+		'',
+		`Please apply my edits under /stories/${storySlug}/, fix the build errors while keeping my changes, and publish the story again.`,
+	].join('\n');
 }

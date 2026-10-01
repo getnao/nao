@@ -1,5 +1,7 @@
 import type { ChartType } from './chart-types';
 import type { ColumnConditionalFormats } from './conditional-formatting';
+import type { KeydownSnapshot, Shortcut } from './keyboard-shortcut';
+import type { StoryTheme } from './story-theme';
 import type { displayChart } from './tools';
 import type { StoryBlockReference } from './types';
 
@@ -150,7 +152,11 @@ export type StoryFrameMessage =
 	| ({ type: 'nao-story:edit-block' } & StoryBlockEditPayload)
 	| ({ type: 'nao-story:edit-table-format' } & StoryTableFormatEditRequest)
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
-	| { type: 'nao-story:ask-block'; block: StoryBlockReference };
+	| { type: 'nao-story:ask-block'; block: StoryBlockReference }
+	| ({ type: 'nao-story:keydown' } & KeydownSnapshot);
+
+/** Plain keys the host hands to the story while it holds focus; everything else needs the story focused. */
+export const STORY_FORWARDED_KEYS: readonly string[] = ['ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown'];
 
 /** Host → frame. */
 export type StoryHostMessage =
@@ -159,7 +165,10 @@ export type StoryHostMessage =
 	| { type: 'nao-story:query-sql-result'; requestId: string; sqlQuery: string }
 	| { type: 'nao-story:query-sql-error'; requestId: string; message: string }
 	| { type: 'nao-story:narratives-result'; requestId: string; narratives: StoryNarratives }
-	| { type: 'nao-story:editing'; enabled: boolean };
+	| { type: 'nao-story:editing'; enabled: boolean }
+	| { type: 'nao-story:theme'; theme: StoryTheme }
+	| { type: 'nao-story:shortcuts'; shortcuts: Shortcut[] }
+	| ({ type: 'nao-story:keydown' } & KeydownSnapshot);
 
 /**
  * Answers the frame's `ready` once, transferring the MessagePort every later message travels on.
@@ -193,6 +202,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:edit-table-format',
 			'nao-story:query-sql',
 			'nao-story:ask-block',
+			'nao-story:keydown',
 		].includes(value.type)
 	);
 };
@@ -207,6 +217,9 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:query-sql-error',
 			'nao-story:narratives-result',
 			'nao-story:editing',
+			'nao-story:theme',
+			'nao-story:shortcuts',
+			'nao-story:keydown',
 		].includes(value.type)
 	);
 };

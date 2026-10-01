@@ -1,7 +1,9 @@
+import { hasModifier, replayKeydown, snapshotKeydown } from '@nao/shared/keyboard-shortcut';
 import {
 	isFromStoryChannel,
 	isStoryFrameMessage,
 	STORY_CONNECT_MESSAGE,
+	STORY_FORWARDED_KEYS,
 	STORY_RUNTIME_PATH,
 } from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
@@ -20,6 +22,7 @@ import type { StoryBlockReference } from '@nao/shared/types';
 import type { CustomStoryDataSource } from './story-data-options';
 import type { StoryRuntimeLocation } from './story-frame-document';
 import { useDateFormat } from '@/hooks/use-date-format';
+import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
 
@@ -69,10 +72,17 @@ export function CustomStoryFrame({
 	const frameDocument = useStoryFrameDocument(bundle, styles, theme, onError);
 	const srcDoc = frameDocument?.html ?? null;
 	const channel = frameDocument?.channel;
+	const bootTheme = frameDocument?.theme;
 
 	const reply = useCallback((message: StoryHostMessage) => {
 		portRef.current?.postMessage(message);
 	}, []);
+
+	const syncThemeOnReady = useEffectEvent(() => {
+		if (theme !== bootTheme) {
+			reply({ type: 'nao-story:theme', theme });
+		}
+	});
 
 	const connectPort = useCallback((onMessage: (event: MessageEvent<unknown>) => void) => {
 		portRef.current?.close();
@@ -143,6 +153,8 @@ export function CustomStoryFrame({
 					isFrameReadyRef.current = true;
 					connectPort(handlePortMessage);
 					reply({ type: 'nao-story:editing', enabled: editable });
+					reply({ type: 'nao-story:shortcuts', shortcuts: getAppWideShortcuts() });
+					syncThemeOnReady();
 					onReady?.();
 					break;
 				case 'nao-story:query':
@@ -193,6 +205,9 @@ export function CustomStoryFrame({
 				case 'nao-story:query-sql':
 					void answerQuerySql(message.requestId, message.queryId);
 					break;
+				case 'nao-story:keydown':
+					replayKeydown(document, message);
+					break;
 			}
 		};
 		if (portRef.current) {
@@ -221,6 +236,14 @@ export function CustomStoryFrame({
 			reply({ type: 'nao-story:editing', enabled: editable });
 		}
 	}, [editable, reply]);
+
+	useEffect(() => {
+		if (isFrameReadyRef.current) {
+			reply({ type: 'nao-story:theme', theme });
+		}
+	}, [theme, reply]);
+
+	useForwardHostKeydown(reply);
 
 	const handleLoad = useCallback(() => {
 		loadCountRef.current += 1;
@@ -258,6 +281,7 @@ export function CustomStoryFrame({
 			ref={iframeRef}
 			aria-label='Custom story'
 			sandbox='allow-scripts'
+			allowFullScreen
 			referrerPolicy='no-referrer'
 			srcDoc={srcDoc}
 			onLoad={handleLoad}
@@ -266,22 +290,30 @@ export function CustomStoryFrame({
 	);
 }
 
+interface StoryFrameDocument {
+	html: string;
+	channel: string;
+	theme: StoryTheme;
+}
+
 function useStoryFrameDocument(
 	bundle: string,
 	styles: string[],
 	theme: StoryTheme,
 	onError?: (error: CustomStoryRuntimeError) => void,
-): { html: string; channel: string } | null {
-	const [frameDocument, setFrameDocument] = useState<{ html: string; channel: string } | null>(null);
+): StoryFrameDocument | null {
+	const [frameDocument, setFrameDocument] = useState<StoryFrameDocument | null>(null);
 	const reportError = useEffectEvent((error: unknown) => onError?.({ message: describeError(error) }));
+	const readTheme = useEffectEvent(() => theme);
 	useEffect(() => {
 		let cancelled = false;
 		setFrameDocument(null);
 		const channel = crypto.randomUUID();
-		buildStoryFrameDocument({ bundle, styles, theme, runtime: storyRuntimeLocation(), channel }).then(
+		const bootTheme = readTheme();
+		buildStoryFrameDocument({ bundle, styles, theme: bootTheme, runtime: storyRuntimeLocation(), channel }).then(
 			(html) => {
 				if (!cancelled) {
-					setFrameDocument({ html, channel });
+					setFrameDocument({ html, channel, theme: bootTheme });
 				}
 			},
 			(error: unknown) => {
@@ -293,8 +325,24 @@ function useStoryFrameDocument(
 		return () => {
 			cancelled = true;
 		};
-	}, [bundle, styles, theme]);
+	}, [bundle, styles]);
 	return frameDocument;
+}
+
+function useForwardHostKeydown(reply: (message: StoryHostMessage) => void) {
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (!STORY_FORWARDED_KEYS.includes(event.key)) {
+				return;
+			}
+			if (!event.isTrusted || event.defaultPrevented || hasModifier(event) || isTypingTarget(event)) {
+				return;
+			}
+			reply({ type: 'nao-story:keydown', ...snapshotKeydown(event) });
+		};
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, [reply]);
 }
 
 function storyRuntimeLocation(): StoryRuntimeLocation {

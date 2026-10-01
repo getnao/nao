@@ -1119,7 +1119,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		search: { tab: 'custom-stories' },
 		section: 'Custom stories',
 		title: 'Custom story theme',
-		description: 'Colours, fonts, blocks, tables and charts applied to every custom story in this project.',
+		description:
+			'Colours, fonts, blocks, tables and charts applied to every custom story in this project, in a light and a dark variant that follow nao’s colour scheme.',
 		keywords: [
 			'theme',
 			'design system',
@@ -1139,7 +1140,20 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'version',
 			'history',
 			'restore',
+			'light',
+			'dark',
+			'dark mode',
 		],
+	},
+	{
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
+		search: { tab: 'custom-stories' },
+		section: 'Custom stories',
+		title: 'Variant',
+		description:
+			'Switch between the light and dark variant of the custom story theme, or derive one from the other.',
+		keywords: ['light', 'dark', 'dark mode', 'light mode', 'variant', 'derive', 'color scheme', 'colour scheme'],
 	},
 	{
 		page: '/settings/appearance',

@@ -15,7 +15,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
@@ -1607,7 +1607,7 @@ export const projectStoryTheme = sqliteTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		version: integer('version').notNull(),
-		theme: text('theme', { mode: 'json' }).$type<StoryTheme>(),
+		theme: text('theme', { mode: 'json' }).$type<StoryThemePair>(),
 		enabled: integer('enabled', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

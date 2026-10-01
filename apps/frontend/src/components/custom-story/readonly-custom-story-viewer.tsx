@@ -31,9 +31,10 @@ export function ReadonlyCustomStoryViewer({ chatId, storySlug, access }: Readonl
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const contentQuery = useQuery(trpc.customStoryViewer.getVersion.queryOptions({ access, storySlug }));
 	const content = contentQuery.data;
+	const versionNumber = content?.version.number;
 	const dataSource = useMemo<CustomStoryFileSource>(
-		() => ({ kind: 'viewer', access, storySlug }),
-		[access, storySlug],
+		() => ({ kind: 'viewer', access, storySlug, versionNumber }),
+		[access, storySlug, versionNumber],
 	);
 	const { allStories } = useStoryViewerAgentState(storySlug);
 	const renderStoryViewer = useCallback(
@@ -43,8 +44,8 @@ export function ReadonlyCustomStoryViewer({ chatId, storySlug, access }: Readonl
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
 	const renderExport = useCallback(
 		(format: DownloadFormat, html: string) =>
-			trpcClient.customStoryViewer.download.mutate({ access, storySlug, format, html }),
-		[access, storySlug],
+			trpcClient.customStoryViewer.download.mutate({ access, storySlug, format, html, versionNumber }),
+		[access, storySlug, versionNumber],
 	);
 	const download = useCustomStoryDownload(content, dataSource, renderExport);
 

@@ -1,13 +1,23 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { Moon, Sun } from 'lucide-react';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryThemeMode, StoryThemePair } from '@nao/shared/story-theme';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
+import type { IconSegmentedToggleOption } from '@/components/ui/icon-segmented-toggle';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { trpc } from '@/main';
 
+export const STORY_THEME_MODE_OPTIONS: readonly IconSegmentedToggleOption<StoryThemeMode>[] = [
+	{ value: 'light', label: 'Light theme', icon: Sun },
+	{ value: 'dark', label: 'Dark theme', icon: Moon },
+];
+
 interface StoryThemeEditorState {
-	theme: StoryTheme | null;
-	setTheme: Dispatch<SetStateAction<StoryTheme | null>>;
+	theme: StoryThemePair | null;
+	setTheme: Dispatch<SetStateAction<StoryThemePair | null>>;
+	mode: StoryThemeMode;
+	setMode: Dispatch<SetStateAction<StoryThemeMode>>;
 	viewingVersionIndex: number | null;
 	setViewingVersionIndex: Dispatch<SetStateAction<number | null>>;
 }
@@ -15,15 +25,17 @@ interface StoryThemeEditorState {
 const StoryThemeEditorContext = createContext<StoryThemeEditorState | null>(null);
 
 export function StoryThemeEditorProvider({ children }: { children: ReactNode }) {
-	const [theme, setThemeState] = useState<StoryTheme | null>(null);
+	const isDarkMode = useIsDarkMode();
+	const [theme, setThemeState] = useState<StoryThemePair | null>(null);
+	const [mode, setMode] = useState<StoryThemeMode>(isDarkMode ? 'dark' : 'light');
 	const [viewingVersionIndex, setViewingVersionIndex] = useState<number | null>(null);
-	const setTheme = useCallback<Dispatch<SetStateAction<StoryTheme | null>>>((action) => {
+	const setTheme = useCallback<Dispatch<SetStateAction<StoryThemePair | null>>>((action) => {
 		setViewingVersionIndex(null);
 		setThemeState(action);
 	}, []);
 	const value = useMemo(
-		() => ({ theme, setTheme, viewingVersionIndex, setViewingVersionIndex }),
-		[theme, setTheme, viewingVersionIndex],
+		() => ({ theme, setTheme, mode, setMode, viewingVersionIndex, setViewingVersionIndex }),
+		[theme, setTheme, mode, viewingVersionIndex],
 	);
 	return <StoryThemeEditorContext.Provider value={value}>{children}</StoryThemeEditorContext.Provider>;
 }

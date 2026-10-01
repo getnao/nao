@@ -15,7 +15,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
@@ -1495,7 +1495,7 @@ export const projectStoryTheme = pgTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		version: integer('version').notNull(),
-		theme: jsonb('theme').$type<StoryTheme>(),
+		theme: jsonb('theme').$type<StoryThemePair>(),
 		enabled: boolean('enabled').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},

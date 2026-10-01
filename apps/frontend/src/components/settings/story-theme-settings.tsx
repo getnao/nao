@@ -1,23 +1,31 @@
 import {
 	DEFAULT_STORY_THEME,
+	DEFAULT_STORY_THEME_PAIR,
 	HEX_COLOR,
 	MAX_CHART_SERIES_COLORS,
 	MIN_CHART_SERIES_COLORS,
-	sameTheme,
-	storyThemeSchema,
+	oppositeStoryThemeMode,
+	sameThemePair,
+	storyThemePairSchema,
 } from '@nao/shared/story-theme';
+import { deriveStoryThemeVariant } from '@nao/shared/story-theme-pair';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Eye, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 
 import type { InspirationOutcome } from '@/components/settings/story-theme-inspiration';
 import { LockedFieldset } from '@/components/settings/locked-fieldset';
-import { useInvalidateStoryTheme, useStoryThemeEditor } from '@/components/settings/story-theme-editor-context';
+import {
+	STORY_THEME_MODE_OPTIONS,
+	useInvalidateStoryTheme,
+	useStoryThemeEditor,
+} from '@/components/settings/story-theme-editor-context';
 import { StoryThemeInspiration } from '@/components/settings/story-theme-inspiration';
 import { StoryThemePreviewPanel } from '@/components/settings/story-theme-preview';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
+import { IconSegmentedToggle } from '@/components/ui/icon-segmented-toggle';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -60,7 +68,7 @@ export function StoryThemeSettings({ isAdmin }: StoryThemeSettingsProps) {
 
 function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	const state = useQuery(trpc.storyTheme.getState.queryOptions());
-	const { theme, setTheme } = useStoryThemeEditor();
+	const { theme, setTheme, mode, setMode } = useStoryThemeEditor();
 	const [error, setError] = useState<string | null>(null);
 	const [inspiration, setInspiration] = useState<InspirationOutcome | null>(null);
 	const openPreview = usePreviewPanel();
@@ -68,11 +76,12 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 
 	const saved = state.data?.theme ?? null;
 	const enabled = state.data?.enabled ?? false;
-	const baseline = saved ?? DEFAULT_STORY_THEME;
+	const baseline = saved ?? DEFAULT_STORY_THEME_PAIR;
+	const otherMode = oppositeStoryThemeMode(mode);
 
 	useEffect(() => {
 		if (state.data && theme === null) {
-			setTheme(state.data.theme ?? DEFAULT_STORY_THEME);
+			setTheme(state.data.theme ?? DEFAULT_STORY_THEME_PAIR);
 		}
 	}, [state.data, theme, setTheme]);
 
@@ -102,12 +111,13 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 
 	const isReadOnly = !isAdmin;
 	const isPending = save.isPending || setEnabled.isPending;
-	const isDirty = !sameTheme(theme, baseline);
-	const isDefault = sameTheme(theme, DEFAULT_STORY_THEME);
+	const isDirty = !sameThemePair(theme, baseline);
+	const isDefault = sameThemePair(theme, DEFAULT_STORY_THEME_PAIR);
 	const controlsDisabled = isReadOnly || isPending;
+	const variant = theme[mode];
 
-	const validate = (): StoryTheme | null => {
-		const result = storyThemeSchema.safeParse(theme);
+	const validate = (): StoryThemePair | null => {
+		const result = storyThemePairSchema.safeParse(theme);
 		if (!result.success) {
 			setError(result.error.issues[0]?.message ?? 'Invalid theme.');
 			return null;
@@ -117,7 +127,16 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	};
 
 	const update = <Group extends keyof StoryTheme>(group: Group, patch: Partial<StoryTheme[Group]>) =>
-		setTheme((current) => (current ? { ...current, [group]: { ...current[group], ...patch } } : current));
+		setTheme((current) =>
+			current
+				? { ...current, [mode]: { ...current[mode], [group]: { ...current[mode][group], ...patch } } }
+				: current,
+		);
+
+	const deriveFromOther = () =>
+		setTheme((current) =>
+			current ? { ...current, [mode]: deriveStoryThemeVariant(current[otherMode], mode) } : current,
+		);
 
 	return (
 		<>
@@ -125,10 +144,9 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				title='Custom story theme'
 				description={
 					isReadOnly
-						? 'Colours, fonts, blocks, tables and charts applied to every custom story in this project. Only admins can change this.'
-						: 'Colours, fonts, blocks, tables and charts applied to every custom story in this project.'
+						? 'Colours, fonts, blocks, tables and charts applied to every custom story in this project, in a light and a dark variant that follow nao’s colour scheme. Only admins can change this.'
+						: 'Colours, fonts, blocks, tables and charts applied to every custom story in this project, in a light and a dark variant that follow nao’s colour scheme.'
 				}
-				action={openPreview.button}
 			>
 				<SettingsControlRow
 					id='story-theme-enabled'
@@ -156,54 +174,85 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					onGenerated={(label, result) => {
 						setInspiration({ label });
 						setTheme(result.theme);
+						setMode(result.sourceMode);
 						openPreview.show();
 					}}
 					onDismiss={() => setInspiration(null)}
 				/>
 			)}
 
+			<SettingsCard
+				title='Variant'
+				description='Which variant the settings below edit and the preview shows. Stories pick the one matching the viewer’s colour scheme.'
+				divide
+			>
+				<SettingsControlRow
+					label='Editing'
+					description={mode === 'dark' ? 'The dark variant.' : 'The light variant.'}
+					control={
+						<IconSegmentedToggle options={STORY_THEME_MODE_OPTIONS} value={mode} onValueChange={setMode} />
+					}
+				/>
+				{isAdmin && (
+					<SettingsControlRow
+						label={`Derive from the ${otherMode} variant`}
+						description={`Rebuild this variant’s colours from the ${otherMode} one, keeping fonts and shapes.`}
+						control={
+							<Button
+								variant='outline'
+								className='rounded-full'
+								onClick={deriveFromOther}
+								disabled={controlsDisabled}
+							>
+								Derive
+							</Button>
+						}
+					/>
+				)}
+			</SettingsCard>
+
 			<LockedFieldset disabled={controlsDisabled}>
 				<SettingsCard title='Colours' description='Page, text and accent.' divide>
 					<ColorRow
 						label='Page background'
 						description='Behind the whole story.'
-						value={theme.surfaces.page}
+						value={variant.surfaces.page}
 						onChange={(page) => update('surfaces', { page })}
 					/>
 					<ColorRow
 						label='Recessed surfaces'
 						description='Inactive controls and hover states.'
-						value={theme.surfaces.sunken}
+						value={variant.surfaces.sunken}
 						onChange={(sunken) => update('surfaces', { sunken })}
 					/>
 					<ColorRow
 						label='Heading colour'
 						description='Titles and KPI values.'
-						value={theme.text.headingColor}
+						value={variant.text.headingColor}
 						onChange={(headingColor) => update('text', { headingColor })}
 					/>
 					<ColorRow
 						label='Body colour'
 						description='Paragraphs, lists and table cells.'
-						value={theme.text.bodyColor}
+						value={variant.text.bodyColor}
 						onChange={(bodyColor) => update('text', { bodyColor })}
 					/>
 					<ColorRow
 						label='Muted colour'
 						description='Axis ticks, captions and helper text.'
-						value={theme.text.mutedColor}
+						value={variant.text.mutedColor}
 						onChange={(mutedColor) => update('text', { mutedColor })}
 					/>
 					<ColorRow
 						label='Accent'
 						description='Links, active filters and selected states.'
-						value={theme.accent.color}
+						value={variant.accent.color}
 						onChange={(color) => update('accent', { color })}
 					/>
 					<ColorRow
 						label='Text on accent'
 						description='Text placed on the accent colour.'
-						value={theme.accent.ink}
+						value={variant.accent.ink}
 						onChange={(ink) => update('accent', { ink })}
 					/>
 				</SettingsCard>
@@ -216,21 +265,21 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					<TextRow
 						label='Heading font'
 						description='Titles and KPI values.'
-						value={theme.text.headingFont}
+						value={variant.text.headingFont}
 						onChange={(headingFont) => update('text', { headingFont })}
 						placeholder={DEFAULT_STORY_THEME.text.headingFont}
 					/>
 					<TextRow
 						label='Body font'
 						description='Paragraphs, lists and everything else.'
-						value={theme.text.bodyFont}
+						value={variant.text.bodyFont}
 						onChange={(bodyFont) => update('text', { bodyFont })}
 						placeholder={DEFAULT_STORY_THEME.text.bodyFont}
 					/>
 					<TextRow
 						label='Font CSS URL'
 						description='One Google Fonts (or Bunny / Adobe) CSS link that loads both fonts above. Skip this for Arial, Helvetica and other system fonts.'
-						value={theme.text.fontStylesheets[0] ?? ''}
+						value={variant.text.fontStylesheets[0] ?? ''}
 						onChange={(value) => update('text', { fontStylesheets: value.trim() ? [value.trim()] : [] })}
 						placeholder='https://fonts.googleapis.com/css2?family=Inter'
 					/>
@@ -240,7 +289,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					<NumberRow
 						label='Heading size'
 						description='Multiplier on heading sizes.'
-						value={theme.text.headingScale}
+						value={variant.text.headingScale}
 						onChange={(headingScale) => update('text', { headingScale })}
 						min={0.8}
 						max={1.4}
@@ -249,7 +298,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					<NumberRow
 						label='Body size'
 						description='Paragraph size in px.'
-						value={theme.text.bodySize}
+						value={variant.text.bodySize}
 						onChange={(bodySize) => update('text', { bodySize })}
 						min={13}
 						max={20}
@@ -257,7 +306,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					<NumberRow
 						label='Line height'
 						description='Paragraph line height.'
-						value={theme.text.lineHeight}
+						value={variant.text.lineHeight}
 						onChange={(lineHeight) => update('text', { lineHeight })}
 						min={1.2}
 						max={2}
@@ -269,23 +318,23 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					<ColorRow
 						label='Background'
 						description='Same as the page for a flat look.'
-						value={theme.block.background}
+						value={variant.block.background}
 						onChange={(background) => update('block', { background })}
 					/>
 					<ColorRow
 						label='Border colour'
 						description='Also used for rules and inputs.'
-						value={theme.block.borderColor}
+						value={variant.block.borderColor}
 						onChange={(borderColor) => update('block', { borderColor })}
 					/>
 					<BorderWidthRow
-						value={theme.block.borderWidth}
+						value={variant.block.borderWidth}
 						onChange={(borderWidth) => update('block', { borderWidth })}
 					/>
 					<NumberRow
 						label='Corner radius'
 						description='In px, from square to very round.'
-						value={theme.block.radius}
+						value={variant.block.radius}
 						onChange={(radius) => update('block', { radius })}
 						min={0}
 						max={28}
@@ -300,30 +349,30 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					<ColorRow
 						label='Background'
 						description='Behind the rows.'
-						value={theme.table.background}
+						value={variant.table.background}
 						onChange={(background) => update('table', { background })}
 					/>
 					<ColorRow
 						label='Header background'
 						description='Column headers and the row-number column.'
-						value={theme.table.headerBackground}
+						value={variant.table.headerBackground}
 						onChange={(headerBackground) => update('table', { headerBackground })}
 					/>
 					<ColorRow
 						label='Header text'
 						description='Column labels.'
-						value={theme.table.headerText}
+						value={variant.table.headerText}
 						onChange={(headerText) => update('table', { headerText })}
 					/>
 					<ColorRow
 						label='Border colour'
 						description='Frame, header rule and cell dividers.'
-						value={theme.table.borderColor}
+						value={variant.table.borderColor}
 						onChange={(borderColor) => update('table', { borderColor })}
 					/>
 					<BorderWidthRow
 						description='Of the frame; corners follow the block radius.'
-						value={theme.table.borderWidth}
+						value={variant.table.borderWidth}
 						onChange={(borderWidth) => update('table', { borderWidth })}
 					/>
 					<SettingsControlRow
@@ -333,7 +382,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 						control={
 							<Switch
 								id='story-theme-table-striped'
-								checked={theme.table.stripedRows}
+								checked={variant.table.stripedRows}
 								onCheckedChange={(stripedRows) => update('table', { stripedRows })}
 							/>
 						}
@@ -346,7 +395,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 						description={`Between ${MIN_CHART_SERIES_COLORS} and ${MAX_CHART_SERIES_COLORS} colours.`}
 						control={
 							<ChartSeriesControl
-								value={theme.charts.series}
+								value={variant.charts.series}
 								onChange={(series) => update('charts', { series })}
 							/>
 						}
@@ -354,13 +403,13 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					<ColorRow
 						label='Grid lines'
 						description='Behind every chart.'
-						value={theme.charts.grid}
+						value={variant.charts.grid}
 						onChange={(grid) => update('charts', { grid })}
 					/>
 					<NumberRow
 						label='Bar radius'
 						description='Corner radius on vertical bars, in px. Horizontal bars stay pill-shaped.'
-						value={theme.charts.barRadius}
+						value={variant.charts.barRadius}
 						onChange={(barRadius) => update('charts', { barRadius })}
 						min={0}
 						max={12}
@@ -368,23 +417,24 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				</SettingsCard>
 			</LockedFieldset>
 
-			{isAdmin && (
-				<div className='sticky bottom-0 -mx-4 -mb-6 flex flex-wrap items-center justify-between gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur md:-mx-8 md:-mb-8 md:px-8'>
+			<div className='sticky bottom-0 -mx-4 -mb-6 flex flex-wrap items-center justify-between gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur md:-mx-8 md:-mb-8 md:px-8'>
+				<div className='flex items-center gap-2'>
+					{openPreview.button}
+					{error && <p className='text-xs text-destructive'>{error}</p>}
+				</div>
+				{isAdmin && (
 					<div className='flex items-center gap-2'>
 						<Button
 							variant='outline'
 							className='rounded-full text-destructive hover:text-destructive'
 							onClick={() => {
-								setTheme(DEFAULT_STORY_THEME);
+								setTheme(DEFAULT_STORY_THEME_PAIR);
 								setInspiration(null);
 							}}
 							disabled={isPending || isDefault}
 						>
 							Reset to nao defaults
 						</Button>
-						{error && <p className='text-xs text-destructive'>{error}</p>}
-					</div>
-					<div className='flex items-center gap-2'>
 						{isDirty && (
 							<Button variant='outline' className='rounded-full' onClick={revertPending}>
 								Revert
@@ -404,8 +454,8 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 							{save.isPending ? 'Saving…' : 'Save'}
 						</Button>
 					</div>
-				</div>
-			)}
+				)}
+			</div>
 		</>
 	);
 }
@@ -423,7 +473,7 @@ function usePreviewPanel() {
 
 	const show = () => open(<StoryThemePreviewPanel />);
 	const button = isVisible ? null : (
-		<Button variant='primary-gradient' className='rounded-full' onClick={show}>
+		<Button variant='outline' className='rounded-full' onClick={show}>
 			<Eye className='size-4' />
 			Show preview
 		</Button>
@@ -502,7 +552,7 @@ function ChartSeriesControl({ value, onChange }: { value: string[]; onChange: (s
 	return (
 		<div className='flex max-w-md flex-wrap items-center justify-end gap-2'>
 			{value.map((color, index) => (
-				<div key={index} className='relative'>
+				<div key={index} className='flex relative'>
 					<ColorSwatchInput
 						label={`Series colour ${index + 1}`}
 						value={color}

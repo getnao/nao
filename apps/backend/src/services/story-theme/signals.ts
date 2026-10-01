@@ -147,7 +147,7 @@ export function signalsFromCss(css: string, base: DesignSignals): DesignSignals 
 		brandCandidates: rankBrandCandidates(colors, customProperties),
 		fontFamilies: collectFontFamilies(css),
 		radii: collectRadii(css),
-		prefersDarkGround: looksDarkGround(css, colors),
+		prefersDarkGround: looksDarkGround(css, colors, customProperties),
 	};
 }
 
@@ -286,12 +286,19 @@ function mergeColors(a: ColorCandidate[], b: ColorCandidate[]): ColorCandidate[]
 	return [...merged.values()].sort((x, y) => y.count - x.count).slice(0, 40);
 }
 
-function looksDarkGround(css: string, colors: ColorCandidate[]): boolean {
+function looksDarkGround(css: string, colors: ColorCandidate[], customProperties: Record<string, string>): boolean {
 	const bodyBlock = /(?:^|[\s,}])(?:html|body)\s*\{([^}]*)\}/i.exec(css)?.[1] ?? '';
 	const declared = /background(?:-color)?\s*:\s*([^;]+)/i.exec(bodyBlock)?.[1];
-	const hex = declared ? declaredBackgroundColor(declared) : null;
+	const hex = declared ? declaredBackgroundColor(resolveTokens(declared, customProperties)) : null;
 	const target = hex ?? colors.find((c) => c.properties.includes('background-color'))?.hex;
 	return target ? isDarkSurface(target) : false;
+}
+
+function resolveTokens(value: string, customProperties: Record<string, string>): string {
+	return value.replace(
+		/var\(\s*(--[a-z0-9-]+)\s*(?:,\s*([^()]*(?:\([^()]*\))?[^()]*))?\)/gi,
+		(_match, name: string, fallback: string | undefined) => customProperties[name.toLowerCase()] ?? fallback ?? '',
+	);
 }
 
 /** The colour of a `background` shorthand comes after any image or gradient layers, so the last colour wins. */

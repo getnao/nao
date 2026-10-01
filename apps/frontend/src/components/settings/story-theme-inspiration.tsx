@@ -34,6 +34,7 @@ interface PickedFile {
 const IMAGE_MEDIA_TYPE_ALIASES: Record<string, SourceImageMediaType> = { 'image/jpg': 'image/jpeg' };
 const ZIP_MEDIA_TYPES = ['application/zip', 'application/x-zip-compressed', 'application/x-zip'];
 const MAX_BYTES: Record<FileSourceKind, number> = { image: MAX_IMAGE_BYTES, pdf: MAX_PDF_BYTES, zip: MAX_ZIP_BYTES };
+const MAX_SOURCE_FILE_NAME_LENGTH = 200;
 const SOURCE_NAMES: Record<FileSourceKind, string> = { image: 'Image', pdf: 'PDF', zip: 'ZIP' };
 const WELL_CLASS =
 	'flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm';
@@ -84,7 +85,7 @@ export function StoryThemeInspiration({
 						image: image
 							? { data: image.data, mediaType: image.mediaType as SourceImageMediaType }
 							: undefined,
-						zip: zip ? { data: zip.data, fileName: zip.name } : undefined,
+						zip: zip ? { data: zip.data, fileName: toSourceFileName(zip.name, 'brand.zip') } : undefined,
 						pdfs,
 					},
 					{
@@ -416,7 +417,17 @@ async function renderPdfSources(pdf: PickedFile | null, zip: PickedFile | null) 
 }
 
 function toPdfInput(pdf: RenderedPdf, fromZip: boolean) {
-	return { fileName: pdf.fileName, pageCount: pdf.pageCount, pages: pdf.pages, fromZip };
+	return {
+		fileName: toSourceFileName(pdf.fileName, 'document.pdf'),
+		pageCount: pdf.pageCount,
+		pages: pdf.pages,
+		fromZip,
+	};
+}
+
+/** The server accepts names up to this length; a longer or blank one must not fail an otherwise valid source. */
+function toSourceFileName(name: string, fallback: string): string {
+	return name.trim().slice(0, MAX_SOURCE_FILE_NAME_LENGTH) || fallback;
 }
 
 function base64ToBytes(data: string): Uint8Array {

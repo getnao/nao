@@ -1,9 +1,10 @@
 import type { StoryKitBlockChange, StoryKitBlockRef } from '@nao/shared/story-app';
 
-import { db } from '../db/db';
+import { db, type DBTransaction } from '../db/db';
 import * as storyQueries from '../queries/story.queries';
 import type { StoryFileInput } from '../queries/story-file.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
+import { formatStoryFile } from '../utils/story-file-format';
 import { isViewableStoryFile, normalizeStoryFilePath } from '../utils/story-file-path';
 import { applyKitBlockChange, matchesKitBlock, parseKitSource } from '../utils/story-kit-jsx';
 import { CustomStoryNotFoundError } from './custom-story';
@@ -38,6 +39,7 @@ type LatestVersionInput = Pick<StoryBlockEditInput, 'chatId' | 'storySlug' | 've
 export class StoryBlockEditError extends Error {}
 
 const SCRIPT_FILE = /\.(jsx?|tsx?)$/i;
+const NEWER_VERSION_MESSAGE = 'The story has a newer version. Reload it and edit again.';
 const AGENT_CHANGES_MESSAGE = 'The agent has unpublished changes to this story. Edit it once they are published.';
 
 export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<{ version: number }> {
@@ -48,7 +50,10 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 	const draft = await loadDraftMatchingLatestVersion(story.id, input);
 
 	const target = locateBlock(draft, input.block);
-	const content = applyKitBlockChange(target.file.content, target.kitSource, target.element, input.change);
+	const content = await formatStoryFile(
+		target.file.path,
+		applyKitBlockChange(target.file.content, target.kitSource, target.element, input.change),
+	);
 	const files = draft.map((file) => (file.path === target.file.path ? { path: file.path, content } : file));
 
 	const build = await buildStoryApp(files);
@@ -56,13 +61,13 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 		throw new StoryBlockEditError(`This edit would break the story: ${build.errors[0]}`);
 	}
 
-	const version = await db.transaction(async (tx) => {
+	const version = await commitEdit(async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
 		await storyFileQueries.writeDraftFile(story.id, { path: target.file.path, content }, tx);
 		const cut = await storyFileQueries.cutVersionFromDraft(
-			{ storyId: story.id, action: 'update', source: 'user' },
+			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
 			tx,
 		);
 		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
@@ -77,7 +82,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 		throw new CustomStoryNotFoundError();
 	}
 	const draft = await loadDraftMatchingLatestVersion(story.id, input);
-	const edits = normalizeFileEdits(draft, input.files);
+	const edits = await normalizeFileEdits(draft, input.files);
 	if (edits.size === 0) {
 		throw new StoryBlockEditError('Nothing changed.');
 	}
@@ -88,7 +93,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 		return { success: false, buildErrors: build.errors };
 	}
 
-	const version = await db.transaction(async (tx) => {
+	const version = await commitEdit(async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
@@ -96,7 +101,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 			await storyFileQueries.writeDraftFile(story.id, { path, content }, tx);
 		}
 		const cut = await storyFileQueries.cutVersionFromDraft(
-			{ storyId: story.id, action: 'update', source: 'user' },
+			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
 			tx,
 		);
 		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
@@ -125,7 +130,7 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 		throw new StoryBlockEditError('This version did not build, so it cannot be restored.');
 	}
 
-	const version = await db.transaction(async (tx) => {
+	const version = await commitEdit(async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
@@ -135,7 +140,7 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 			tx,
 		);
 		const cut = await storyFileQueries.cutVersionFromDraft(
-			{ storyId: story.id, action: 'update', source: 'user' },
+			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
 			tx,
 		);
 		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: restoredBundle, bundleError: null }, tx);
@@ -144,10 +149,29 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 	return { version: version.version };
 }
 
+/** Each edit creates the version right after the one it started from, so a concurrent edit loses on the unique constraint. */
+async function commitEdit<T>(run: (tx: DBTransaction) => Promise<T>): Promise<T> {
+	try {
+		return await db.transaction(run);
+	} catch (error) {
+		if (isVersionConflict(error)) {
+			throw new StoryBlockEditError(NEWER_VERSION_MESSAGE);
+		}
+		throw error;
+	}
+}
+
+function isVersionConflict(error: unknown): boolean {
+	const { code, message } = error as { code?: unknown; message?: unknown };
+	return (
+		code === '23505' || (typeof message === 'string' && message.includes('UNIQUE constraint failed: story_version'))
+	);
+}
+
 async function loadDraftMatchingLatestVersion(storyId: string, input: LatestVersionInput): Promise<StoryFileInput[]> {
 	const latest = await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
 	if (!latest || latest.version !== input.versionNumber) {
-		throw new StoryBlockEditError('The story has a newer version. Reload it and edit again.');
+		throw new StoryBlockEditError(NEWER_VERSION_MESSAGE);
 	}
 	const [draft, published] = await Promise.all([
 		storyFileQueries.listDraftFiles(storyId),
@@ -182,7 +206,7 @@ function locateBlock(files: StoryFileInput[], block: StoryKitBlockRef) {
 	return matches[0];
 }
 
-function normalizeFileEdits(draft: StoryFileInput[], files: StoryFileInput[]): Map<string, string> {
+async function normalizeFileEdits(draft: StoryFileInput[], files: StoryFileInput[]): Promise<Map<string, string>> {
 	const current = new Map(draft.map((file) => [file.path, file.content]));
 	const edits = new Map<string, string>();
 	for (const file of files) {
@@ -195,8 +219,9 @@ function normalizeFileEdits(draft: StoryFileInput[], files: StoryFileInput[]): M
 				`${path} is larger than the ${storyFileQueries.MAX_STORY_FILE_BYTES / 1024} KB limit.`,
 			);
 		}
-		if (current.get(path) !== file.content) {
-			edits.set(path, file.content);
+		const content = await formatStoryFile(path, file.content);
+		if (current.get(path) !== content) {
+			edits.set(path, content);
 		}
 	}
 	return edits;

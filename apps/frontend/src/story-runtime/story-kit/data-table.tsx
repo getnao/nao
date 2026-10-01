@@ -11,7 +11,7 @@ import {
 	PencilIcon,
 	XIcon,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/use-click-outside';
 import { copyTable, exportTable, isStoryExport, requestTableFormatEdit } from '../story-host';
 import { blockRef } from './block-config';
@@ -21,7 +21,7 @@ import { isNumericColumn, withNumericValues } from './columns';
 import { useBlockData } from './use-block-data';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { TablePaginationProps } from '@nao/shared/table-display';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { StoryTableExportFormat } from '@nao/shared/story-app';
 import type { BlockDataSource, Row } from './use-block-data';
 import type { BlockProps } from './block';
@@ -84,27 +84,13 @@ export function DataTable(props: DataTableProps) {
 								maxHeight={maxHeight}
 							/>
 							{fullscreen && (
-								<div className='nao-table__overlay' role='dialog' aria-label={title}>
-									<div className='nao-table__overlay-card'>
-										<div className='nao-table__toolbar'>
-											<TableActions rows={rows} columns={visible} filename={title} />
-											<button
-												type='button'
-												className='nao-table__overlay-close'
-												onClick={() => setFullscreen(false)}
-												aria-label='Close fullscreen'
-											>
-												<XIcon />
-											</button>
-										</div>
-										<TableView
-											rows={rows}
-											columns={visible}
-											formats={formats}
-											pageSize={pageSize}
-										/>
-									</div>
-								</div>
+								<FullscreenOverlay
+									title={title}
+									onClose={() => setFullscreen(false)}
+									actions={<TableActions rows={rows} columns={visible} filename={title} />}
+								>
+									<TableView rows={rows} columns={visible} formats={formats} pageSize={pageSize} />
+								</FullscreenOverlay>
 							)}
 						</div>
 					);
@@ -189,6 +175,57 @@ function TableActions({ rows, columns, filename, onEditFormat, onFullscreen }: T
 	);
 }
 
+interface FullscreenOverlayProps {
+	title: string;
+	onClose: () => void;
+	actions: ReactNode;
+	children: ReactNode;
+}
+
+function FullscreenOverlay({ title, onClose, actions, children }: FullscreenOverlayProps) {
+	const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+	useEffect(() => {
+		const opener = document.activeElement;
+		closeButtonRef.current?.focus();
+		return () => {
+			if (opener instanceof HTMLElement) {
+				opener.focus();
+			}
+		};
+	}, []);
+
+	useEffect(() => {
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				onClose();
+			}
+		};
+		document.addEventListener('keydown', closeOnEscape);
+		return () => document.removeEventListener('keydown', closeOnEscape);
+	}, [onClose]);
+
+	return (
+		<div className='nao-table__overlay' role='dialog' aria-modal='true' aria-label={title}>
+			<div className='nao-table__overlay-card'>
+				<div className='nao-table__toolbar'>
+					{actions}
+					<button
+						ref={closeButtonRef}
+						type='button'
+						className='nao-table__overlay-close'
+						onClick={onClose}
+						aria-label='Close fullscreen'
+					>
+						<XIcon />
+					</button>
+				</div>
+				{children}
+			</div>
+		</div>
+	);
+}
+
 interface TableViewProps {
 	rows: Row[];
 	columns: ResolvedColumn[];
@@ -255,7 +292,11 @@ function TableFooter({
 			<div className='nao-table__pager'>
 				<div className='nao-table__page-size'>
 					<span>Rows per page</span>
-					<select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
+					<select
+						aria-label='Rows per page'
+						value={pageSize}
+						onChange={(event) => onPageSizeChange(Number(event.target.value))}
+					>
 						{pageSizeOptions.map((size) => (
 							<option key={size} value={size}>
 								{size}

@@ -49,6 +49,7 @@ export interface GuardContext {
 const INK_MAX_CHROMA = 0.025;
 const MAX_BLOCK_RADIUS = 18;
 const MAX_BLOCK_STEP = 1.22;
+const MIN_SURFACE_STEP = 1.08;
 const SUBTLE_LINE = { min: 1.12, max: 1.75 };
 const DERIVED_SERIES_COUNT = 6;
 const DARK_INK = { headingColor: '#f5f5f7', bodyColor: '#c9cbd3', mutedColor: '#8a8d9c' };
@@ -111,7 +112,7 @@ function guardSurfaces(theme: StoryTheme, pageIsDark: boolean, notes: string[]) 
 			'Recessed surfaces were the opposite polarity to the page, so they now sit just off the page colour.',
 		);
 	}
-	surfaces.sunken = separateSurface(surfaces.sunken, surfaces.page, 1.08);
+	surfaces.sunken = separateSurface(surfaces.sunken, surfaces.page, MIN_SURFACE_STEP);
 
 	if (isDarkSurface(block.background) !== pageIsDark) {
 		block.background = shiftLightness(surfaces.page, pageIsDark ? 0.04 : -0.04);
@@ -123,9 +124,9 @@ function guardSurfaces(theme: StoryTheme, pageIsDark: boolean, notes: string[]) 
 		block.background = closestStep(surfaces.page, pageIsDark ? 0.03 : -0.03, MAX_BLOCK_STEP);
 		notes.push('Block backgrounds were heavy enough to read as slabs, so they were brought closer to the page.');
 	}
-	if (block.background === surfaces.page && block.borderWidth === 0) {
+	if (contrastRatio(block.background, surfaces.page) < MIN_SURFACE_STEP && block.borderWidth === 0) {
 		block.borderWidth = 1;
-		notes.push('Blocks share the page colour and had no border, so a 1px border keeps them visible.');
+		notes.push('Blocks nearly share the page colour and had no border, so a 1px border keeps them visible.');
 	}
 }
 

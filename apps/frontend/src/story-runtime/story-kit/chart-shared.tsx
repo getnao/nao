@@ -153,6 +153,7 @@ function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, show
 						percent={isPercentStackedChartType(chartType)}
 						isDualAxis={isDualAxis}
 						hideTotal={options.hideTotal}
+						nameKey={pie ? series[0]?.data_key : undefined}
 						labelFormatter={(value, items) => (pie ? pieTooltipLabel(items) : labelize(value))}
 					/>
 				}

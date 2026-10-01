@@ -22,13 +22,7 @@ export function KpiCard(props: KpiCardProps) {
 		props;
 	const source = useBlockData({ queryId, data });
 	const resolvedFormat = valueFormat ?? toChartValueFormat({ format, currency, decimals });
-	const resolved =
-		source.status === 'ready'
-			? {
-					valueKey: resolveValueKey(source.rows, source.columns, valueKey),
-					xAxisKey: resolveXKey(source.rows, source.columns, xKey),
-				}
-			: null;
+	const resolved = source.status === 'ready' ? resolveKeys(source.rows, source.columns, valueKey, xKey) : null;
 	const edit =
 		resolved && source.status === 'ready'
 			? {
@@ -80,6 +74,12 @@ function inChronologicalOrder(rows: Row[], xAxisKey: string | undefined): Row[] 
 	return xAxisKey ? sortByDateKey(rows, xAxisKey) : rows;
 }
 
-function resolveValueKey(rows: Row[], columns: string[], valueKey?: string): string {
-	return valueKey ?? columns.find((column) => isNumericColumn(rows, column)) ?? columns[0];
+/** The axis is resolved first, so a numeric period column such as `year` is never picked as the value. */
+function resolveKeys(rows: Row[], columns: string[], valueKey?: string, xKey?: string) {
+	const xAxisKey = resolveXKey(rows, columns, xKey);
+	const numericColumns = columns.filter((column) => isNumericColumn(rows, column));
+	return {
+		xAxisKey,
+		valueKey: valueKey ?? numericColumns.find((column) => column !== xAxisKey) ?? numericColumns[0] ?? columns[0],
+	};
 }

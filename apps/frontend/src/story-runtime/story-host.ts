@@ -1,9 +1,12 @@
+import { matchesShortcut, replayKeydown, snapshotKeydown } from '@nao/shared/keyboard-shortcut';
 import { isStoryConnectMessage, isStoryHostMessage, STORY_PRINT_FLAG } from '@nao/shared/story-app';
+import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { resolveBlockColors } from './story-colors';
 import type { ErrorInfo, ReactNode } from 'react';
+import type { Shortcut } from '@nao/shared/keyboard-shortcut';
 import type { StoryTheme } from '@nao/shared/story-theme';
 import type { StoryBlockReference } from '@nao/shared/types';
 import type {
@@ -35,11 +38,13 @@ const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
 const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
 const editingListeners = new Set<() => void>();
+const themeListeners = new Set<() => void>();
 let activeTheme: StoryTheme | null = null;
 let editingEnabled = false;
 let exportData: StoryExportData | null = null;
 let frameChannel: string | undefined;
 let hostPort: MessagePort | null = null;
+let hostShortcuts: Shortcut[] = [];
 
 export async function bootStory({ source, theme, exportData: embeddedData, channel }: BootOptions): Promise<void> {
 	activeTheme = theme;
@@ -91,6 +96,13 @@ export function isPrintMode(): boolean {
 
 export function getStoryTheme(): StoryTheme | null {
 	return activeTheme;
+}
+
+export function subscribeToTheme(listener: () => void): () => void {
+	themeListeners.add(listener);
+	return () => {
+		themeListeners.delete(listener);
+	};
 }
 
 export function copyTable(columns: string[], rows: Record<string, unknown>[]): void {
@@ -159,6 +171,14 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	hostPort.onmessage = (portEvent: MessageEvent<unknown>) => handleHostMessage(portEvent.data);
 });
 
+document.addEventListener('keydown', (event: KeyboardEvent) => {
+	if (!event.isTrusted || !hostShortcuts.some((shortcut) => matchesShortcut(event, shortcut))) {
+		return;
+	}
+	event.preventDefault();
+	send({ type: 'nao-story:keydown', ...snapshotKeydown(event) });
+});
+
 function handleHostMessage(message: unknown): void {
 	if (!isStoryHostMessage(message)) {
 		return;
@@ -166,6 +186,18 @@ function handleHostMessage(message: unknown): void {
 	if (message.type === 'nao-story:editing') {
 		editingEnabled = message.enabled;
 		editingListeners.forEach((listener) => listener());
+		return;
+	}
+	if (message.type === 'nao-story:theme') {
+		applyTheme(message.theme);
+		return;
+	}
+	if (message.type === 'nao-story:shortcuts') {
+		hostShortcuts = message.shortcuts;
+		return;
+	}
+	if (message.type === 'nao-story:keydown') {
+		replayKeydown(window, message);
 		return;
 	}
 	if (message.type === 'nao-story:narratives-result') {
@@ -187,6 +219,29 @@ function handleHostMessage(message: unknown): void {
 	} else {
 		pending.reject(new Error(message.message));
 	}
+}
+
+function applyTheme(theme: StoryTheme): void {
+	activeTheme = theme;
+	const themeStyle = document.getElementById(STORY_THEME_STYLE_ID);
+	if (themeStyle) {
+		themeStyle.textContent = storyThemeStyles(theme);
+	}
+	for (const href of theme.text.fontStylesheets) {
+		ensureFontStylesheet(href);
+	}
+	themeListeners.forEach((listener) => listener());
+}
+
+function ensureFontStylesheet(href: string): void {
+	const loaded = Array.from(document.head.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
+	if (loaded.some((link) => link.href === href)) {
+		return;
+	}
+	const link = document.createElement('link');
+	link.rel = 'stylesheet';
+	link.href = href;
+	document.head.appendChild(link);
 }
 
 function settleQuerySql(

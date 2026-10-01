@@ -1,16 +1,18 @@
-import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { AlertTriangle } from 'lucide-react';
+import { DEFAULT_STORY_THEME_PAIR } from '@nao/shared/story-theme';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
+import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 import type { StoryBlockReference } from '@nao/shared/types';
 
 import type { CustomStoryRuntimeError } from '@/components/custom-story/custom-story-frame';
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import { CustomStoryFrame } from '@/components/custom-story/custom-story-frame';
-import { Spinner } from '@/components/ui/spinner';
+import NaoLogoAnimated from '@/components/icons/nao-logo-animated';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 
 export type CustomStoryContent = inferRouterOutputs<TrpcRouter>['story']['getCustomVersion'];
 export type CustomStoryFileSummary = CustomStoryContent['files'][number];
@@ -29,6 +31,19 @@ interface CustomStoryBodyProps {
 
 const MAX_RUNTIME_ERRORS = 5;
 const RUNTIME_ERROR_FLUSH_MS = 500;
+const BUILDING_MESSAGE_INTERVAL_MS = 2500;
+const BUILDING_MESSAGES = [
+	'Story is building...',
+	'Assembling your story...',
+	'Crunching the numbers...',
+	'Drawing the charts...',
+	'Polishing the insights...',
+	'Laying out the pages...',
+	'Connecting the dots...',
+	'Shaping the narrative...',
+	'Almost there...',
+	'Bringing your data to life...',
+];
 
 export function CustomStoryBody({
 	dataSource,
@@ -43,17 +58,14 @@ export function CustomStoryBody({
 }: CustomStoryBodyProps) {
 	const { runtimeErrors, runtimeErrorCount, handleRuntimeError } = useRuntimeErrors(content?.version.id);
 	const styles = useMemo(() => content?.styles.map((style) => style.content) ?? [], [content?.styles]);
+	const theme = useActiveStoryTheme(content?.theme);
 
 	return (
 		<>
 			{runtimeErrors.length > 0 && <RuntimeErrorBanner errors={runtimeErrors} count={runtimeErrorCount} />}
 			<div className='min-h-0 flex-1'>
-				{isLoading ? (
-					<Centered>
-						<Spinner />
-					</Centered>
-				) : !hasPublishedVersion ? (
-					<Centered>This story has no published version yet.</Centered>
+				{isLoading || !hasPublishedVersion ? (
+					<StoryBuilding />
 				) : error ? (
 					<Centered>{error.message}</Centered>
 				) : content?.bundle ? (
@@ -62,7 +74,7 @@ export function CustomStoryBody({
 						dataSource={dataSource}
 						bundle={content.bundle}
 						styles={styles}
-						theme={content.theme ?? DEFAULT_STORY_THEME}
+						theme={theme}
 						editable={editable}
 						onEditBlock={onEditBlock}
 						onEditTableFormat={onEditTableFormat}
@@ -75,6 +87,11 @@ export function CustomStoryBody({
 			</div>
 		</>
 	);
+}
+
+export function useActiveStoryTheme(pair: StoryThemePair | null | undefined): StoryTheme {
+	const isDarkMode = useIsDarkMode();
+	return (pair ?? DEFAULT_STORY_THEME_PAIR)[isDarkMode ? 'dark' : 'light'];
 }
 
 export function ActionErrorBanner({ message }: { message: string }) {
@@ -156,6 +173,33 @@ function BuildFailure({ message }: { message: string }) {
 			</pre>
 		</div>
 	);
+}
+
+function StoryBuilding() {
+	const message = useCyclingMessage(BUILDING_MESSAGES, BUILDING_MESSAGE_INTERVAL_MS);
+	return (
+		<Centered>
+			<div className='flex items-baseline justify-center gap-6'>
+				<NaoLogoAnimated height={16} width={28} durationSeconds={2.2} title='' />
+				<span className='font-medium text-foreground'>{message}</span>
+			</div>
+		</Centered>
+	);
+}
+
+function useCyclingMessage(messages: string[], intervalMs: number) {
+	const [index, setIndex] = useState(0);
+
+	useEffect(() => {
+		const timer = window.setInterval(() => {
+			setIndex((current) => (current + 1) % messages.length);
+		}, intervalMs);
+		return () => {
+			window.clearInterval(timer);
+		};
+	}, [messages, intervalMs]);
+
+	return messages[index];
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

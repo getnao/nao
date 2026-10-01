@@ -1,6 +1,6 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import type { StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import type { DBStory } from '../db/abstractSchema';
 import { env } from '../env';
@@ -24,7 +24,7 @@ export interface CustomStoryVersionView {
 	styles: { path: string; content: string }[];
 	files: CustomStoryFileSummary[];
 	queryIds: string[];
-	theme: StoryTheme | null;
+	theme: StoryThemePair | null;
 	isLive: boolean;
 	cachedAt: Date | null;
 	lastRefreshFailure: { errorMessage: string; failedAt: Date } | null;
@@ -58,6 +58,9 @@ export class CustomStoryQueryNotAllowedError extends Error {
 		super(`Query ${queryId} is not part of this story.`);
 	}
 }
+
+/** The query itself failing is story content its viewer should read; any other failure stays an internal error. */
+export class CustomStoryQueryExecutionError extends Error {}
 
 const pendingRefreshes = new Map<string, Promise<RefreshResult>>();
 
@@ -106,10 +109,10 @@ export async function getCustomStoryQueryData(
 	const story = await getCustomStory(chatId, storySlug);
 	if (!story.isLive) {
 		const cached = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, new Set([queryId]));
-		return cached[queryId] ?? executeLiveQuery(chatId, queryId);
+		return cached[queryId] ?? runStoryQuery(chatId, queryId);
 	}
 	if (story.cacheSchedule === NO_CACHE_SCHEDULE) {
-		return executeLiveQuery(chatId, queryId);
+		return runStoryQuery(chatId, queryId);
 	}
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
@@ -120,7 +123,15 @@ export async function getCustomStoryQueryData(
 					(result) => result.queryData,
 					() => cache?.queryData,
 				);
-	return queryData?.[queryId] ?? executeLiveQuery(chatId, queryId);
+	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
+}
+
+async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQueryResult> {
+	try {
+		return await executeLiveQuery(chatId, queryId);
+	} catch (error) {
+		throw new CustomStoryQueryExecutionError(error instanceof Error ? error.message : String(error));
+	}
 }
 
 export async function getCustomStoryNarratives(chatId: string, storySlug: string): Promise<StoryNarratives> {
@@ -227,7 +238,7 @@ function refreshOnce(chatId: string, storySlug: string): Promise<RefreshResult> 
 	return refresh;
 }
 
-async function getActiveThemeForStory(storyId: string): Promise<StoryTheme | null> {
+async function getActiveThemeForStory(storyId: string): Promise<StoryThemePair | null> {
 	if (!env.BETA_CUSTOM_STORIES_ENABLED) {
 		return null;
 	}

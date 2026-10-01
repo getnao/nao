@@ -10,6 +10,7 @@ export interface RenderedPdf {
 }
 
 const MAX_PAGE_WIDTH_PX = 1600;
+const MAX_PAGE_HEIGHT_PX = 2400;
 const MAX_PAGE_SCALE = 2;
 const JPEG_QUALITY = 0.85;
 const MAX_ZIP_PDF_BYTES = 2 * MAX_PDF_BYTES;
@@ -36,23 +37,7 @@ export async function renderPdfPages(
 
 /** PDFs inside a brand ZIP are rendered here too, sharing the same page budget as a standalone PDF. */
 export async function renderZipPdfs(zip: Uint8Array, maxPages: number): Promise<RenderedPdf[]> {
-	let acceptedCount = 0;
-	let acceptedBytes = 0;
-	const entries = unzipSync(zip, {
-		filter: (file) => {
-			const isCandidate =
-				/\.pdf$/i.test(file.name) &&
-				!file.name.includes('__MACOSX') &&
-				!basename(file.name).startsWith('.') &&
-				file.originalSize <= MAX_PDF_BYTES;
-			if (!isCandidate || acceptedCount >= maxPages || acceptedBytes + file.originalSize > MAX_ZIP_PDF_BYTES) {
-				return false;
-			}
-			acceptedCount += 1;
-			acceptedBytes += file.originalSize;
-			return true;
-		},
-	});
+	const entries = readZipEntries(zip, maxPages);
 	const rendered: RenderedPdf[] = [];
 	let remaining = maxPages;
 	for (const [name, bytes] of Object.entries(entries).sort(([, a], [, b]) => b.byteLength - a.byteLength)) {
@@ -68,6 +53,34 @@ export async function renderZipPdfs(zip: Uint8Array, maxPages: number): Promise<
 	return rendered;
 }
 
+function readZipEntries(zip: Uint8Array, maxPages: number): Record<string, Uint8Array> {
+	let acceptedCount = 0;
+	let acceptedBytes = 0;
+	try {
+		return unzipSync(zip, {
+			filter: (file) => {
+				const isCandidate =
+					/\.pdf$/i.test(file.name) &&
+					!file.name.includes('__MACOSX') &&
+					!basename(file.name).startsWith('.') &&
+					file.originalSize <= MAX_PDF_BYTES;
+				if (
+					!isCandidate ||
+					acceptedCount >= maxPages ||
+					acceptedBytes + file.originalSize > MAX_ZIP_PDF_BYTES
+				) {
+					return false;
+				}
+				acceptedCount += 1;
+				acceptedBytes += file.originalSize;
+				return true;
+			},
+		});
+	} catch {
+		return {};
+	}
+}
+
 export function spreadPageNumbers(pageCount: number, maxPages: number): number[] {
 	if (pageCount <= maxPages) {
 		return Array.from({ length: pageCount }, (_, index) => index + 1);
@@ -81,7 +94,12 @@ export function spreadPageNumbers(pageCount: number, maxPages: number): number[]
 
 async function renderPage(page: PDFPageProxy): Promise<RenderedPdf['pages'][number]> {
 	const baseViewport = page.getViewport({ scale: 1 });
-	const viewport = page.getViewport({ scale: Math.min(MAX_PAGE_SCALE, MAX_PAGE_WIDTH_PX / baseViewport.width) });
+	const scale = Math.min(
+		MAX_PAGE_SCALE,
+		MAX_PAGE_WIDTH_PX / baseViewport.width,
+		MAX_PAGE_HEIGHT_PX / baseViewport.height,
+	);
+	const viewport = page.getViewport({ scale });
 	const canvas = document.createElement('canvas');
 	canvas.width = Math.ceil(viewport.width);
 	canvas.height = Math.ceil(viewport.height);

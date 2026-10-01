@@ -1,19 +1,20 @@
-import type { StoryTheme } from '@nao/shared/story-theme';
-import { parseStoredStoryTheme, sameTheme } from '@nao/shared/story-theme';
+import type { StoryThemePair } from '@nao/shared/story-theme';
+import { sameThemePair } from '@nao/shared/story-theme';
+import { parseStoredStoryThemePair } from '@nao/shared/story-theme-pair';
 import { asc, desc, eq, sql } from 'drizzle-orm';
 
 import s, { DBProjectStoryTheme } from '../db/abstractSchema';
 import { db } from '../db/db';
 
 export interface StoryThemeState {
-	theme: StoryTheme | null;
+	theme: StoryThemePair | null;
 	enabled: boolean;
 	createdAt: Date | null;
 }
 
 export interface StoryThemeVersion {
 	version: number;
-	theme: StoryTheme;
+	theme: StoryThemePair;
 	createdAt: Date;
 }
 
@@ -25,13 +26,13 @@ export async function getStoryThemeState(projectId: string): Promise<StoryThemeS
 		return EMPTY_STATE;
 	}
 	return {
-		theme: parseStoredStoryTheme(row.theme),
+		theme: parseStoredStoryThemePair(row.theme),
 		enabled: row.enabled,
 		createdAt: row.createdAt,
 	};
 }
 
-export async function getActiveStoryTheme(projectId: string): Promise<StoryTheme | null> {
+export async function getActiveStoryTheme(projectId: string): Promise<StoryThemePair | null> {
 	const state = await getStoryThemeState(projectId);
 	return state.enabled ? state.theme : null;
 }
@@ -44,7 +45,7 @@ export async function listStoryThemeVersions(projectId: string): Promise<StoryTh
 		.orderBy(asc(s.projectStoryTheme.version))
 		.execute();
 	return rows.flatMap((row) => {
-		const theme = parseStoredStoryTheme(row.theme);
+		const theme = parseStoredStoryThemePair(row.theme);
 		if (!theme) {
 			return [];
 		}
@@ -52,10 +53,10 @@ export async function listStoryThemeVersions(projectId: string): Promise<StoryTh
 	});
 }
 
-export async function saveStoryTheme(projectId: string, theme: StoryTheme): Promise<void> {
+export async function saveStoryTheme(projectId: string, theme: StoryThemePair): Promise<void> {
 	const latest = await getLatest(projectId);
-	const latestTheme = latest ? parseStoredStoryTheme(latest.theme) : null;
-	if (latestTheme && sameTheme(latestTheme, theme)) {
+	const latestTheme = latest ? parseStoredStoryThemePair(latest.theme) : null;
+	if (latestTheme && sameThemePair(latestTheme, theme)) {
 		if (latest && !latest.enabled) {
 			await setStoryThemeEnabled(projectId, true);
 		}
@@ -78,7 +79,7 @@ export async function saveStoryTheme(projectId: string, theme: StoryTheme): Prom
 		.execute();
 }
 
-export async function restoreStoryThemeVersion(projectId: string, version: number): Promise<StoryTheme | null> {
+export async function restoreStoryThemeVersion(projectId: string, version: number): Promise<StoryThemePair | null> {
 	const versions = await listStoryThemeVersions(projectId);
 	const match = versions.find((entry) => entry.version === version);
 	if (!match) {

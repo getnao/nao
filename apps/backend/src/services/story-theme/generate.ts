@@ -1,3 +1,10 @@
+import {
+	oppositeStoryThemeMode,
+	type StoryThemeMode,
+	storyThemeMode,
+	type StoryThemePair,
+} from '@nao/shared/story-theme';
+import { deriveStoryThemeVariant } from '@nao/shared/story-theme-pair';
 import { MAX_SOURCE_IMAGES } from '@nao/shared/story-theme-source';
 import type { LlmProvider } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
@@ -49,10 +56,34 @@ export interface StoryThemeSourceInput {
 	pdfs?: SourcePdf[];
 }
 
-export async function generateStoryThemeFromSources(
+export interface GeneratePairResult {
+	theme: StoryThemePair;
+	sourceMode: StoryThemeMode;
+	notes: string[];
+}
+
+export async function generateStoryThemePairFromSources(
 	projectId: string,
 	input: StoryThemeSourceInput,
-): Promise<GenerateResult> {
+): Promise<GeneratePairResult> {
+	const result = await generateStoryThemeFromSources(projectId, input);
+	const sourceMode = storyThemeMode(result.theme);
+	const derivedMode = oppositeStoryThemeMode(sourceMode);
+	const theme = {
+		[sourceMode]: result.theme,
+		[derivedMode]: deriveStoryThemeVariant(result.theme, derivedMode),
+	} as StoryThemePair;
+	return {
+		theme,
+		sourceMode,
+		notes: [
+			...result.notes,
+			`The source reads as ${sourceMode}, so the ${derivedMode} variant was derived from it: same accent, fonts and shapes on ${derivedMode} grounds.`,
+		],
+	};
+}
+
+async function generateStoryThemeFromSources(projectId: string, input: StoryThemeSourceInput): Promise<GenerateResult> {
 	const pdfs = input.pdfs ?? [];
 	const extraWarnings = pdfs.flatMap(describePdfCoverage);
 	const visualImages = [...(input.image ? [input.image] : []), ...pdfs.flatMap((pdf) => pdf.pages)];
@@ -62,7 +93,7 @@ export async function generateStoryThemeFromSources(
 	const zip = input.zip;
 	const [urlOutcome, zipOutcome] = await Promise.allSettled([
 		url ? extractSignalsFromUrl(url) : Promise.resolve(null),
-		zip ? extractSignalsFromZip(zip.data, zip.fileName) : Promise.resolve(null),
+		zip ? readZipSignals(zip) : Promise.resolve(null),
 	]);
 
 	const urlExtracted = urlOutcome.status === 'fulfilled' ? urlOutcome.value : null;
@@ -112,7 +143,7 @@ export async function generateStoryThemeFromSources(
 		if (!hasVisualSource) {
 			throw new DesignSourceError('Add a website, an image, a PDF or a ZIP.');
 		}
-		const prompt = pdfs.length > 0 ? PDF_PROMPT : IMAGE_PROMPT;
+		const prompt = visualPrompt(Boolean(input.image), pdfs.length > 0);
 		const result = await generateStoryThemeFromImages(projectId, vision, prompt);
 		return { theme: result.theme, notes: [...extraWarnings, ...result.notes] };
 	}
@@ -126,6 +157,17 @@ export async function generateStoryThemeFromSources(
 
 	const merged = mergeSignals(parts);
 	return generateStoryTheme(projectId, { ...merged, warnings: [...extraWarnings, ...merged.warnings] }, vision);
+}
+
+async function readZipSignals(zip: { data: Uint8Array; fileName: string }) {
+	return extractSignalsFromZip(zip.data, zip.fileName);
+}
+
+function visualPrompt(hasImage: boolean, hasPdfPages: boolean): string {
+	if (hasImage && hasPdfPages) {
+		return MIXED_VISUAL_PROMPT;
+	}
+	return hasPdfPages ? PDF_PROMPT : IMAGE_PROMPT;
 }
 
 export async function generateStoryTheme(
@@ -315,6 +357,16 @@ const PDF_PROMPT = [
 	'A page that prints swatches with hex codes or names its typefaces is the brand declaring its system: take',
 	'those values over anything sampled from photos or illustrations. Slides show the brand in use: read the',
 	'slide ground, title colour, highlight colour and card shapes from them.',
+	'Where you cannot tell a colour, typeface or radius, use an empty string or a near-neutral default rather',
+	'than inventing something specific.',
+].join('\n');
+
+const MIXED_VISUAL_PROMPT = [
+	'The first image is a standalone source: a website screenshot, a slide, a style guide or a logo. The images',
+	'after it are pages of a PDF: brand guidelines, a style guide or a slide deck. Together they are the only source.',
+	'A page that prints swatches with hex codes or names its typefaces is the brand declaring its system: take',
+	'those values over anything sampled from photos or illustrations. Otherwise sample colours you can actually',
+	'see: the ground, the most prominent button or highlight, the heading colour, card grounds and shapes.',
 	'Where you cannot tell a colour, typeface or radius, use an empty string or a near-neutral default rather',
 	'than inventing something specific.',
 ].join('\n');

@@ -1,6 +1,10 @@
 import dns from 'dns/promises';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
+import http from 'http';
+import https from 'https';
 import net from 'net';
+import type { Readable } from 'stream';
+import zlib from 'zlib';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const TIMEOUT_MS = 10_000;
@@ -13,16 +17,29 @@ const PRIVATE_IPV4_RANGES = [
 	{ start: ip4ToInt('127.0.0.0'), end: ip4ToInt('127.255.255.255') },
 	{ start: ip4ToInt('169.254.0.0'), end: ip4ToInt('169.254.255.255') },
 	{ start: ip4ToInt('172.16.0.0'), end: ip4ToInt('172.31.255.255') },
+	{ start: ip4ToInt('192.0.0.0'), end: ip4ToInt('192.0.0.255') },
+	{ start: ip4ToInt('192.0.2.0'), end: ip4ToInt('192.0.2.255') },
+	{ start: ip4ToInt('192.88.99.0'), end: ip4ToInt('192.88.99.255') },
 	{ start: ip4ToInt('192.168.0.0'), end: ip4ToInt('192.168.255.255') },
 	{ start: ip4ToInt('198.18.0.0'), end: ip4ToInt('198.19.255.255') },
+	{ start: ip4ToInt('198.51.100.0'), end: ip4ToInt('198.51.100.255') },
+	{ start: ip4ToInt('203.0.113.0'), end: ip4ToInt('203.0.113.255') },
 	{ start: ip4ToInt('224.0.0.0'), end: ip4ToInt('255.255.255.255') },
 ];
+
+const DEFAULT_HEADERS = { accept: '*/*', 'accept-encoding': 'gzip, deflate, br', 'user-agent': 'nao' };
 
 const PRIVATE_HOSTNAME_SUFFIXES = ['.localhost', '.internal', '.local', '.arpa'];
 
 export interface SafeFetchResult {
 	text: string;
 	url: string;
+}
+
+interface PinnedResponse {
+	status: number;
+	location: string | undefined;
+	body: Readable;
 }
 
 export interface SafeFetchOptions {
@@ -165,67 +182,97 @@ async function fetchFollowingRedirects(
 		throw new Error(options.allowHttp ? 'Only http and https URLs are allowed.' : 'Only HTTPS URLs are allowed.');
 	}
 
-	await assertSafeHost(parsed.hostname);
+	const address = await resolveSafeAddress(parsed.hostname);
 
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-	let response: Response;
+	let response: PinnedResponse;
 	try {
-		response = await fetch(parsed.toString(), {
-			signal: controller.signal,
-			redirect: 'manual',
-			headers: options.headers,
-		});
+		response = await requestPinnedAddress(parsed, address, options.headers, controller.signal);
 	} catch (err) {
-		clearTimeout(timer);
 		throw new Error(`Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`);
 	} finally {
 		clearTimeout(timer);
 	}
 
 	if (response.status >= 300 && response.status < 400) {
-		const location = response.headers.get('location');
-		if (!location) {
+		response.body.destroy();
+		if (!response.location) {
 			throw new Error('Redirect without location header.');
 		}
-		return fetchFollowingRedirects(new URL(location, parsed).toString(), options, redirectCount + 1);
+		return fetchFollowingRedirects(new URL(response.location, parsed).toString(), options, redirectCount + 1);
 	}
 
-	if (!response.ok) {
+	if (response.status < 200 || response.status >= 300) {
+		response.body.destroy();
 		throw new Error(`HTTP ${response.status} from "${url}".`);
 	}
 
-	return { text: await readBodyText(response, options.maxBytes ?? MAX_BYTES), url: parsed.toString() };
+	return { text: await readBodyText(response.body, options.maxBytes ?? MAX_BYTES), url: parsed.toString() };
 }
 
-async function readBodyText(response: Response, maxBytes: number): Promise<string> {
-	const reader = response.body?.getReader();
-	if (!reader) {
-		throw new Error('No response body.');
-	}
+/**
+ * Connects to the address that was checked, keeping the hostname for the Host header and the TLS
+ * handshake, so the name is never resolved a second time between the check and the connection.
+ */
+function requestPinnedAddress(
+	target: URL,
+	address: string,
+	headers: Record<string, string> | undefined,
+	signal: AbortSignal,
+): Promise<PinnedResponse> {
+	const isHttps = target.protocol === 'https:';
+	const hostname = target.hostname.replace(/^\[|\]$/g, '');
+	return new Promise((resolve, reject) => {
+		const request = (isHttps ? https : http).request(
+			{
+				host: address,
+				servername: isHttps && net.isIP(hostname) === 0 ? hostname : undefined,
+				port: target.port || (isHttps ? 443 : 80),
+				path: `${target.pathname}${target.search}`,
+				method: 'GET',
+				headers: { ...DEFAULT_HEADERS, ...headers, host: target.host },
+				signal,
+			},
+			(response) =>
+				resolve({
+					status: response.statusCode ?? 0,
+					location: response.headers.location,
+					body: decodedBody(response),
+				}),
+		);
+		request.on('error', reject);
+		request.end();
+	});
+}
 
-	const chunks: Uint8Array[] = [];
-	let totalBytes = 0;
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) {
-				break;
-			}
-			totalBytes += value.byteLength;
-			if (totalBytes > maxBytes) {
-				reader.cancel();
-				throw new Error(`Response exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB size limit.`);
-			}
-			chunks.push(value);
-		}
-	} finally {
-		reader.releaseLock();
+function decodedBody(response: http.IncomingMessage): Readable {
+	switch (response.headers['content-encoding']?.toLowerCase()) {
+		case 'gzip':
+			return response.pipe(zlib.createGunzip());
+		case 'deflate':
+			return response.pipe(zlib.createInflate());
+		case 'br':
+			return response.pipe(zlib.createBrotliDecompress());
+		default:
+			return response;
 	}
+}
 
+async function readBodyText(body: Readable, maxBytes: number): Promise<string> {
 	const decoder = new TextDecoder();
-	return chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join('') + decoder.decode();
+	let text = '';
+	let totalBytes = 0;
+	for await (const chunk of body) {
+		totalBytes += (chunk as Buffer).byteLength;
+		if (totalBytes > maxBytes) {
+			body.destroy();
+			throw new Error(`Response exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB size limit.`);
+		}
+		text += decoder.decode(chunk as Buffer, { stream: true });
+	}
+	return text + decoder.decode();
 }
 
 export interface GeoJsonValidationResult {

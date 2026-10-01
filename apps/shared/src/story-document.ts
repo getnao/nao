@@ -112,6 +112,9 @@ const EXPORT_LOADER = `
 })();
 `;
 
+/** Marks the theme variables so a live swap can rewrite them without changing where they sit in the cascade. */
+export const STORY_THEME_STYLE_ID = 'nao-story-theme';
+
 /** Theme fonts and variables, base and kit styles, then the story's own CSS: shared by the frame and downloads. */
 export function storyStylesheets(theme: StoryTheme, styles: string[]): string {
 	const fontLinks = theme.text.fontStylesheets.map(
@@ -120,11 +123,18 @@ export function storyStylesheets(theme: StoryTheme, styles: string[]): string {
 	const storyStyles = styles.map((css) => `<style>${escapeStyle(css)}</style>`);
 	return [
 		...fontLinks,
-		`<style>${escapeStyle(themeStyles(theme))}</style>`,
+		`<style id="${STORY_THEME_STYLE_ID}">${escapeStyle(storyThemeStyles(theme))}</style>`,
 		`<style>${BASE_STYLES}</style>`,
 		`<style>${KIT_STYLES}</style>`,
 		...storyStyles,
 	].join('\n');
+}
+
+export function storyThemeStyles(theme: StoryTheme): string {
+	const declarations = Object.entries(storyThemeToCssVars(theme))
+		.map(([name, value]) => `${name}:${value}`)
+		.join(';');
+	return `:root{${declarations}}`;
 }
 
 /** JSON is valid JS, but `</script>` inside a string would still end the block; escaping `<` closes that door. */
@@ -134,13 +144,6 @@ export function escapeScript(json: string): string {
 
 export function escapeAttribute(value: string): string {
 	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
-}
-
-function themeStyles(theme: StoryTheme): string {
-	const declarations = Object.entries(storyThemeToCssVars(theme))
-		.map(([name, value]) => `${name}:${value}`)
-		.join(';');
-	return `:root{${declarations}}`;
 }
 
 const BASE_STYLES = `

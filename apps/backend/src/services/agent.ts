@@ -83,7 +83,7 @@ import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
-import { isCustomStoriesEnabled } from './story-mount';
+import { customStoryAuthoringError } from './story-mount';
 import { getStoryTemplateWarnings } from './story-template-validation';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
@@ -155,6 +155,7 @@ export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolConte
 	getTools(agentSettings, webTools ?? {}, {
 		customBoundaries,
 		semanticLayerMode: toolContext.semanticLayerMode,
+		customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 	});
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
@@ -165,6 +166,7 @@ export const defaultAgentToolsExcluding =
 			excludeBuiltinTools,
 			customBoundaries,
 			semanticLayerMode: toolContext.semanticLayerMode,
+			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 		});
 
 /**
@@ -692,8 +694,7 @@ class AgentManager {
 				options: {
 					savedFilesEnabled: isStorageEnabled(),
 					canGrepSavedFiles: canGrepUserFiles(),
-					customStoriesEnabled:
-						isCustomStoriesEnabled() && this._toolContext.userGroupFeatures.includes('customStoryCreation'),
+					customStoriesEnabled: customStoryAuthoringError(this._toolContext.userGroupFeatures) === null,
 				},
 			}),
 		);

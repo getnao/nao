@@ -273,7 +273,7 @@ function ChatPage() {
 							</>
 						)}
 						<StoryBlockEditPanel chatId={chatId} />
-						<div className='pointer-events-none absolute inset-x-0 md:right-4 bottom-0 z-10 pt-8'>
+						<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
 							<div
 								ref={inputAreaRef}
 								className='pointer-events-auto bg-gradient-to-t from-background via-background via-70% to-transparent'

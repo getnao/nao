@@ -102,6 +102,7 @@ async function forwardPlainRequest(
 			},
 		);
 		upstream.on('error', () => response.destroy());
+		response.on('close', () => upstream.destroy());
 		request.pipe(upstream);
 	} catch {
 		response.writeHead(403).end();

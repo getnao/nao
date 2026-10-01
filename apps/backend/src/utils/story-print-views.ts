@@ -24,7 +24,7 @@ async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryVie
 	const SWITCHER_LABEL = /slide|tab|page|step|section/i;
 	const NEXT_LABEL = /\bnext\b|suivant|›|→/i;
 	const PREVIOUS_LABEL = /\bprev(ious)?\b|précédent|‹|←/i;
-	const KIT_CONTROLS = '.nao-table, .nao-block, .nao-slides__nav';
+	const KIT_CONTROLS = '.nao-table-wrap, .nao-table, .nao-block__header, .nao-block__state, .nao-slides__toolbar';
 
 	const root = document.getElementById('root');
 	if (!root) {

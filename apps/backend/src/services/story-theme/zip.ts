@@ -28,13 +28,14 @@ interface ZipScan {
 	skippedLarge: string[];
 	unread: string[];
 	skippedOverBudget: number;
+	imageCount: number;
 }
 
 const MAX_ENTRIES = 400;
 const MAX_TEXT_BYTES_PER_FILE = 1_500_000;
 const MAX_TEXT_BYTES_TOTAL = 6_000_000;
-const MAX_IMAGE_BYTES_TOTAL = 4 * MAX_IMAGE_BYTES;
 const MAX_IMAGE_MB = MAX_IMAGE_BYTES / (1024 * 1024);
+const MAX_TOKEN_DEPTH = 32;
 const ZIP_STORED = 0;
 const ZIP_DEFLATED = 8;
 
@@ -85,7 +86,7 @@ export function extractSignalsFromZip(zip: Uint8Array, label: string): ZipSignal
 		}
 	}
 
-	const hasText = styleText.length > 0 || Object.keys(tokenColors).length > 0;
+	const hasText = styleText.some((text) => text.trim().length > 0) || Object.keys(tokenColors).length > 0;
 	if (!hasText && images.length === 0) {
 		throw new DesignSourceError(emptyZipMessage(scan.skippedLarge, skippedEmpty, unread));
 	}
@@ -107,9 +108,9 @@ export function extractSignalsFromZip(zip: Uint8Array, label: string): ZipSignal
 		.join('\n');
 	const signals = signalsFromCss([tokenCss, ...styleText].join('\n'), emptySignals('zip', 'zip', label));
 	const keptImages = images.sort((a, b) => b.data.byteLength - a.data.byteLength).slice(0, MAX_SOURCE_IMAGES);
-	if (images.length > keptImages.length) {
+	if (scan.imageCount > keptImages.length) {
 		warnings.push(
-			`The ZIP has ${images.length} images; only the ${MAX_SOURCE_IMAGES} largest were read: ${keptImages.map((image) => image.name).join(', ')}.`,
+			`The ZIP has ${scan.imageCount} images; only the ${MAX_SOURCE_IMAGES} largest were read: ${keptImages.map((image) => image.name).join(', ')}.`,
 		);
 	}
 
@@ -133,10 +134,10 @@ function emptyZipMessage(skippedLarge: string[], skippedEmpty: string[], unread:
 }
 
 function readEntries(zip: Uint8Array): ZipScan {
-	const scan: ZipScan = { entries: {}, skippedLarge: [], unread: [], skippedOverBudget: 0 };
+	const scan: ZipScan = { entries: {}, skippedLarge: [], unread: [], skippedOverBudget: 0, imageCount: 0 };
 	let count = 0;
 	let textBudget = MAX_TEXT_BYTES_TOTAL;
-	let imageBudget = MAX_IMAGE_BYTES_TOTAL;
+	const largestImages = largestImageNames(zip);
 
 	const filter: UnzipFileFilter = (file) => {
 		const base = basename(file.name);
@@ -161,12 +162,8 @@ function readEntries(zip: Uint8Array): ZipScan {
 				scan.skippedLarge.push(`${base} (${formatMb(file.originalSize)} MB)`);
 				return false;
 			}
-			if (file.originalSize > imageBudget) {
-				scan.skippedOverBudget++;
-				return false;
-			}
-			imageBudget -= file.originalSize;
-			return true;
+			scan.imageCount++;
+			return largestImages.has(file.name);
 		}
 		if (file.originalSize > MAX_TEXT_BYTES_PER_FILE || file.originalSize > textBudget) {
 			scan.skippedOverBudget++;
@@ -182,6 +179,37 @@ function readEntries(zip: Uint8Array): ZipScan {
 		throw new DesignSourceError('That file is not a ZIP nao can open.');
 	}
 	return scan;
+}
+
+/** Read from entry metadata alone, so a large image late in the archive is not crowded out by earlier small ones. */
+function largestImageNames(zip: Uint8Array): Set<string> {
+	const candidates: { name: string; size: number }[] = [];
+	try {
+		unzipSync(zip, {
+			filter: (file) => {
+				const base = basename(file.name);
+				const isCandidate =
+					base !== '' &&
+					!base.startsWith('.') &&
+					!file.name.includes('__MACOSX') &&
+					kindOf(base) === 'image' &&
+					(file.compression === ZIP_STORED || file.compression === ZIP_DEFLATED) &&
+					file.originalSize <= MAX_IMAGE_BYTES;
+				if (isCandidate) {
+					candidates.push({ name: file.name, size: file.originalSize });
+				}
+				return false;
+			},
+		});
+	} catch {
+		throw new DesignSourceError('That file is not a ZIP nao can open.');
+	}
+	return new Set(
+		candidates
+			.sort((a, b) => b.size - a.size)
+			.slice(0, MAX_SOURCE_IMAGES)
+			.map((candidate) => candidate.name),
+	);
 }
 
 function kindOf(base: string): EntryKind | null {
@@ -282,10 +310,14 @@ function collectTokenColors(text: string, fileName: string): Record<string, stri
 		}
 		return out;
 	}
-	walk(parsed, [prefix]);
+	walk(parsed, [prefix], 0);
 	return out;
 
-	function walk(node: unknown, path: string[]) {
+	/** Token files are a few levels deep; anything deeper is skipped rather than recursed into. */
+	function walk(node: unknown, path: string[], depth: number) {
+		if (depth > MAX_TOKEN_DEPTH) {
+			return;
+		}
 		if (typeof node === 'string') {
 			const hex = normalizeColor(node);
 			if (hex) {
@@ -301,9 +333,9 @@ function collectTokenColors(text: string, fileName: string): Record<string, stri
 		if (node && typeof node === 'object') {
 			for (const [key, value] of Object.entries(node)) {
 				if (key === '$value' || key === 'value') {
-					walk(value, path);
+					walk(value, path, depth + 1);
 				} else if (!key.startsWith('$')) {
-					walk(value, [...path, key]);
+					walk(value, [...path, key], depth + 1);
 				}
 			}
 		}

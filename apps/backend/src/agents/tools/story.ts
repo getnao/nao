@@ -14,6 +14,7 @@ import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../service
 import { scaffoldCustomStoryFiles } from '../../services/story-scaffold';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
+import { formatStoryFiles } from '../../utils/story-file-format';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
 import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
 import { createTool } from '../../utils/tools';
@@ -223,9 +224,10 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 	}
 
 	try {
+		const initialFiles = scaffoldCustomStoryFiles(title, await formatStoryFiles(input.files ?? []));
 		const files = await db.transaction(async (tx) => {
 			const created = await storyQueries.createCustomStory({ chatId, slug: input.id, title }, tx);
-			return storyFileQueries.seedDraftFiles(created.id, scaffoldCustomStoryFiles(title, input.files ?? []), tx);
+			return storyFileQueries.seedDraftFiles(created.id, initialFiles, tx);
 		});
 		rememberStoryArtifact(context, input.id, title);
 		return customResult(
@@ -342,14 +344,14 @@ function toStoryFilePath(slug: string, path: string): string {
 }
 
 async function publishCustomStory(existingStory: DBStory, context: ToolContext): Promise<story.Output> {
-	const unpublished = { code: '', version: 0, title: existingStory.title };
+	const published = await publishedState(existingStory);
 	try {
 		const draft = await storyFileQueries.listDraftFiles(existingStory.id);
 		if (draft.length === 0) {
 			return fail(
 				existingStory.slug,
 				`Story "${existingStory.slug}" has no files yet. Write them under /${STORIES_MOUNT}/${existingStory.slug}/ first.`,
-				unpublished,
+				published,
 			);
 		}
 
@@ -359,7 +361,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 				...fail(
 					existingStory.slug,
 					`Story "${existingStory.slug}" does not build. Fix the files below and publish again.`,
-					unpublished,
+					published,
 				),
 				format: 'custom',
 				files: draft.map((file) => file.path),
@@ -396,7 +398,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 		return fail(
 			existingStory.slug,
 			`Could not publish story "${existingStory.slug}": ${(error as Error).message}`,
-			unpublished,
+			published,
 		);
 	}
 }

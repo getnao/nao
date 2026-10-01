@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 import {
 	CustomStoryFileNotFoundError,
 	CustomStoryNotFoundError,
+	CustomStoryQueryExecutionError,
 	CustomStoryQueryNotAllowedError,
 	CustomStoryQueryNotFoundError,
 } from '../services/custom-story';
@@ -21,10 +22,12 @@ export function toCustomStoryTrpcError(error: unknown): unknown {
 	if (
 		error instanceof CustomStoryNotFoundError ||
 		error instanceof CustomStoryFileNotFoundError ||
-		error instanceof CustomStoryQueryNotFoundError ||
-		error instanceof InvalidStoryFilePathError
+		error instanceof CustomStoryQueryNotFoundError
 	) {
 		return new TRPCError({ code: 'NOT_FOUND', message: error.message });
+	}
+	if (error instanceof InvalidStoryFilePathError) {
+		return new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 	}
 	if (error instanceof CustomStoryQueryNotAllowedError) {
 		return new TRPCError({ code: 'FORBIDDEN', message: error.message });
@@ -34,9 +37,8 @@ export function toCustomStoryTrpcError(error: unknown): unknown {
 
 /** A failing query is the story's content, not a server fault: its message reaches the frame instead of a masked 500. */
 export function toCustomStoryQueryTrpcError(error: unknown): unknown {
-	const mapped = toCustomStoryTrpcError(error);
-	if (mapped === error && error instanceof Error) {
+	if (error instanceof CustomStoryQueryExecutionError) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error });
 	}
-	return mapped;
+	return toCustomStoryTrpcError(error);
 }

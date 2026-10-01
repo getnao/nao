@@ -31,7 +31,7 @@ export function StoryBlockEditPanel({ chatId }: { chatId: string }) {
 
 	return (
 		<div
-			className='absolute inset-x-0 top-0 z-20 flex flex-col border-b bg-background shadow-sm'
+			className='absolute inset-x-0 top-0 z-20 md:mx-3 md:my-3 rounded-2xl flex flex-col border bg-background'
 			style={{ bottom: 'var(--chat-input-height)' }}
 			data-selection-ignore
 		>

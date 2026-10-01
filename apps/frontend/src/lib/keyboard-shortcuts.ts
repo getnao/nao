@@ -93,6 +93,13 @@ export function getShortcutTokens(id: ShortcutId): string[] {
 	return formatShortcut(getShortcut(id).shortcut);
 }
 
+export function getAppWideShortcuts(): Shortcut[] {
+	return SHORTCUTS.filter((entry) => entry.shortcut.mod).flatMap((entry) => [
+		entry.shortcut,
+		...(entry.alternateShortcuts ?? []),
+	]);
+}
+
 export function getShortcutLabel(id: ShortcutId): string {
 	const { shortcut, alternateShortcuts = [] } = getShortcut(id);
 	return [shortcut, ...alternateShortcuts].map(formatShortcutLabel).join(' · ');

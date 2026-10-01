@@ -1,17 +1,11 @@
 import { ChartStyleContext, DEFAULT_CHART_STYLE } from '@nao/shared';
 import { storyThemeToCssVars } from '@nao/shared/story-theme';
-import { createContext, useContext, useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { ChartStyle } from '@nao/shared';
 import type { StoryTheme } from '@nao/shared/story-theme';
 import type { CSSProperties, ReactNode } from 'react';
 
 import { cn } from '@/lib/utils';
-
-const StoryThemeContext = createContext<StoryTheme | null>(null);
-
-export function useActiveStoryTheme(): StoryTheme | null {
-	return useContext(StoryThemeContext);
-}
 
 interface StoryThemeProviderProps {
 	theme: StoryTheme | null;
@@ -28,18 +22,16 @@ export function StoryThemeProvider({ theme, children, className }: StoryThemePro
 	);
 
 	return (
-		<StoryThemeContext.Provider value={theme}>
-			<ChartStyleContext.Provider value={chartStyle}>
-				<div
-					className={cn('h-full min-h-0', className)}
-					style={style}
-					data-story-themed={theme ? 'true' : undefined}
-					data-story-table-striped={theme?.table.stripedRows ? 'true' : undefined}
-				>
-					{children}
-				</div>
-			</ChartStyleContext.Provider>
-		</StoryThemeContext.Provider>
+		<ChartStyleContext.Provider value={chartStyle}>
+			<div
+				className={cn('h-full min-h-0', className)}
+				style={style}
+				data-story-themed={theme ? 'true' : undefined}
+				data-story-table-striped={theme?.table.stripedRows ? 'true' : undefined}
+			>
+				{children}
+			</div>
+		</ChartStyleContext.Provider>
 	);
 }
 

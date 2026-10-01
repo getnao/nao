@@ -973,7 +973,7 @@ code.dollar:before {
 	stroke: var(--chart-grid);
 }
 
-.story-block {
+[data-story-themed='true'] .story-block {
 	background: var(--card);
 	border: var(--story-block-border-width, 0px) solid var(--border);
 	border-radius: var(--story-block-radius, var(--radius));

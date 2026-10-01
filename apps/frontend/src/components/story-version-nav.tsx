@@ -1,11 +1,10 @@
-import { ChevronDown } from 'lucide-react';
-
+import { RotateCwFadingClock } from '@/components/icons/rotate-cw-fading-clock';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
+	DropdownMenuCheckboxItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -55,31 +54,27 @@ export function StoryVersionNav({ currentVersion, versionDates, onSelectVersion 
 				<Button
 					variant='ghost-muted'
 					size='sm'
-					className={VERSION_LABEL_CLASS_NAME}
+					className={'text-foreground' + VERSION_LABEL_CLASS_NAME}
 					aria-label='Select version'
 					title={currentVersionDate ? formatVersionDate(currentVersionDate) : undefined}
 				>
-					<span className='whitespace-nowrap'>
-						{currentVersionDate
-							? formatCompactVersionDate(currentVersionDate)
-							: `${currentVersion}/${totalVersions}`}
-					</span>
-					<ChevronDown className='size-3' strokeWidth={2.25} />
+					<RotateCwFadingClock className='size-3.5' strokeWidth={2.25} />
 				</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='max-h-72 overflow-y-auto'>
+			<DropdownMenuContent align='center' className='max-h-72 overflow-y-auto'>
 				<DropdownMenuRadioGroup
 					value={String(currentVersion)}
 					onValueChange={(value) => onSelectVersion(Number(value))}
 				>
 					{versionsNewestFirst.map(({ version, date }) => (
-						<DropdownMenuRadioItem
-							key={version}
-							value={String(version)}
+						<DropdownMenuCheckboxItem
+							checked={version === currentVersion}
+							onSelect={(event) => event.preventDefault()}
+							onCheckedChange={() => onSelectVersion(version)}
 							className='pr-7 pl-2 text-xs tabular-nums [&>span:first-child]:right-2 [&>span:first-child]:left-auto'
 						>
 							{formatVersionDate(date)}
-						</DropdownMenuRadioItem>
+						</DropdownMenuCheckboxItem>
 					))}
 				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
