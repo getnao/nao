@@ -251,15 +251,14 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 
 				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
 
-				const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
 				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 				const output: StoryMcpToolPayload = {
 					embedUrl,
 					id: story.id,
 					title: story.title,
 					createdAt: story.createdAt,
-					url: storyUrl(storyForUrl),
-					chatUrl: storyChatUrl(storyForUrl),
+					url: storyUrl(story.id),
+					chatUrl: storyChatUrl(story),
 				};
 				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
 			},
@@ -320,7 +319,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
-				url: storyUrl(story),
+				url: storyUrl(story.id),
 				chatUrl: storyChatUrl(story),
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, newCode, effectiveChatId);

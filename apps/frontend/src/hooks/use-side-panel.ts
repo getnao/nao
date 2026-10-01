@@ -38,7 +38,10 @@ export const useSidePanel = ({
 	const isMobile = useIsMobile();
 	const { collapse: collapseSidebar, expand: expandSidebar, isCollapsed: isSidebarCollapsed } = useSidebar();
 
-	const routeKey = useParams({ strict: false, select: (params) => params.chatId ?? params.shareId });
+	const routeKey = useParams({
+		strict: false,
+		select: (params) => params.chatId ?? params.shareId ?? params.storyId,
+	});
 
 	const animateSidePanel = useCallback(
 		({ onComplete, ...style }: { onComplete?: () => void } & React.CSSProperties) => {

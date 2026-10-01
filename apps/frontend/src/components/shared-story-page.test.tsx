@@ -4,7 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { Suspense } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SharedStoryPage } from './_sidebar-layout.stories.shared.$shareId';
+import { SharedStoryPage } from './shared-story-page';
 
 const mocks = vi.hoisted(() => ({
 	queryResult: {
@@ -26,37 +26,17 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-	createFileRoute: () => (options: object) => ({
-		...options,
-		useParams: () => ({ shareId: 'share-1' }),
-	}),
 	useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@/components/asset-analytics-dialog', () => ({ AssetAnalyticsDialog: () => null }));
 vi.mock('@/components/highlight-bubble', () => ({
 	ForkBubble: () => <div>Fork selection</div>,
 }));
 vi.mock('@/components/selection-chat-panel', () => ({
 	SelectionChatPanel: () => <div>Selection chat</div>,
 }));
-vi.mock('@/components/share-dialog.story', () => ({ ShareStoryDialog: () => null }));
-vi.mock('@/components/side-panel/hooks/use-story-viewer-live-settings', () => ({
-	useStoryViewerLiveSettings: () => ({
-		isLive: false,
-		isLiveTextDynamic: false,
-		cacheSchedule: null,
-		cacheScheduleDescription: null,
-		isUpdating: false,
-		isRefreshing: false,
-		handleSaveSettings: vi.fn(),
-		handleRefreshData: vi.fn(),
-	}),
-}));
-vi.mock('@/components/side-panel/live-story-settings-dialog', () => ({ LiveStorySettingsDialog: () => null }));
 vi.mock('@/components/side-panel/side-panel', () => ({ SidePanel: () => null }));
 vi.mock('@/components/side-panel/story-subscription-dialog', () => ({ StorySubscriptionDialog: () => null }));
-vi.mock('@/components/story-access-error', () => ({ StoryRouteError: () => null }));
 vi.mock('@/components/story-embeds', () => ({
 	StoryChartEmbed: () => null,
 	StoryMapEmbed: () => null,
@@ -138,7 +118,7 @@ describe('shared Story fork controls', () => {
 	it('keeps fork controls hidden while the Story is loading', () => {
 		render(
 			<Suspense fallback={<div>Loading story</div>}>
-				<SharedStoryPage />
+				<SharedStoryPage storyId='story-1' />
 			</Suspense>,
 		);
 
@@ -150,7 +130,7 @@ describe('shared Story fork controls', () => {
 	it('uses the fork capability returned with the shared Story', () => {
 		mocks.queryResult.data = createStory({ canFork: true });
 
-		render(<SharedStoryPage />);
+		render(<SharedStoryPage storyId='story-1' />);
 
 		expect(screen.getByRole('button', { name: 'Discuss story' })).toBeTruthy();
 		expect(screen.getByText('Fork selection')).toBeTruthy();
@@ -159,7 +139,7 @@ describe('shared Story fork controls', () => {
 	it('hides fork controls when the shared Story denies forking', () => {
 		mocks.queryResult.data = createStory({ canFork: false });
 
-		render(<SharedStoryPage />);
+		render(<SharedStoryPage storyId='story-1' />);
 
 		expect(screen.queryByRole('button', { name: 'Discuss story' })).toBeNull();
 		expect(screen.queryByText('Fork selection')).toBeNull();

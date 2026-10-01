@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { ShareSource } from '@nao/shared/types';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
@@ -42,8 +43,7 @@ export interface StoryHeaderProps {
 	chatId: string;
 	storySlug: string;
 	storyId?: string | null;
-	shareId?: string | null;
-	shareType?: 'chat' | 'story' | null;
+	shareSource?: ShareSource | null;
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
 	viewMode: StoryViewMode;
@@ -96,8 +96,7 @@ export const StoryHeader = memo(function StoryHeader({
 	chatId,
 	storySlug,
 	storyId,
-	shareId,
-	shareType,
+	shareSource,
 	allStories,
 	onSwitchStory,
 	viewMode,
@@ -336,8 +335,7 @@ export const StoryHeader = memo(function StoryHeader({
 	const downloadOptions = {
 		chatId,
 		storySlug,
-		shareId: shareId ?? undefined,
-		shareType: shareType ?? undefined,
+		shareSource: shareSource ?? undefined,
 		isOwner: !isReadonlyMode,
 		versionNumber,
 	};

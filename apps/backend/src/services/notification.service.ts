@@ -10,43 +10,41 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
-import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
 import type { ChannelDeliveryAttempt, NotificationRecipient, NotifyInput } from '../types/notification';
 import { buildSharedItemEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
-import { sharedStoryPath, standaloneStoryPath, storyPath } from '../utils/story-links';
+import { storyPath } from '../utils/story-links';
 import { notificationChannels } from './notification-channels';
 import { resolveDeliverySubscriberIds } from './story-recipients';
 
-const sharedItemPaths: Record<SharedItemLabel, (shareId: string) => string> = {
-	story: (shareId) => sharedStoryPath(shareId),
+const sharedItemPaths: Record<SharedItemLabel, (itemId: string) => string> = {
+	story: (storyId) => storyPath(storyId),
 	chat: (shareId) => `/shared-chat/${shareId}`,
 };
 
 type CommittedShareAcl = { visibility: Visibility; allowedUserIds: string[] };
 
-const sharedItemAcl: Record<SharedItemLabel, (shareId: string) => Promise<CommittedShareAcl | null>> = {
-	story: async (shareId) => {
-		const share = await sharedStoryQueries.getSharedStoryVisibilityById(shareId);
-		if (!share) {
-			return null;
-		}
-		const visibility = share.visibility as Visibility;
-		const allowedUserIds =
-			visibility === 'specific' ? await sharedStoryQueries.getSharedStoryRecipientUserIds(shareId) : [];
-		return { visibility, allowedUserIds };
-	},
-	chat: async (shareId) => {
-		const share = await sharedChatQueries.getSharedChatVisibilityById(shareId);
-		if (!share) {
-			return null;
-		}
-		const visibility = share.visibility as Visibility;
-		const allowedUserIds = visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(shareId) : [];
-		return { visibility, allowedUserIds };
-	},
-};
+const sharedItemAcl: Record<SharedItemLabel, (itemId: string, projectId: string) => Promise<CommittedShareAcl | null>> =
+	{
+		story: async (storyId, projectId) => {
+			const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
+			if (!access) {
+				return null;
+			}
+			return { visibility: access.visibility as Visibility, allowedUserIds: access.recipientUserIds };
+		},
+		chat: async (shareId) => {
+			const share = await sharedChatQueries.getSharedChatVisibilityById(shareId);
+			if (!share) {
+				return null;
+			}
+			const visibility = share.visibility as Visibility;
+			const allowedUserIds =
+				visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(shareId) : [];
+			return { visibility, allowedUserIds };
+		},
+	};
 
 export async function notify(input: NotifyInput): Promise<void> {
 	const recipient = await resolveRecipient(input.userId);
@@ -68,7 +66,7 @@ export async function notifyStoryRefreshed(params: {
 	if (userIds.length === 0) {
 		return;
 	}
-	const linkUrl = await resolveStoryLink(params.storyId, params.projectId);
+	const linkUrl = storyPath(params.storyId);
 	const ownerName = await resolveOwnerName(params.ownerId);
 
 	const payload: StoryRefreshNotificationPayload = {
@@ -103,29 +101,18 @@ export async function notifyStorySubscriptionAdded(params: {
 	if (params.addedUserIds.length === 0) {
 		return;
 	}
-	const [access, story] = await Promise.all([
-		sharedStoryQueries.getStoryShareAccess(params.storyId, params.projectId),
-		storyQueries.getStoryById(params.storyId),
-	]);
-	const linkUrl = storyPath(access ? { id: access.shareId } : null, {
-		id: params.storyId,
-		chatId: story?.chatId ?? null,
-		slug: story?.slug ?? '',
-	});
-
 	const payload: StorySubscriptionNotificationPayload = {
 		kind: 'story_subscription',
 		storyId: params.storyId,
 		storyTitle: params.storyTitle,
 		ownerName: params.ownerName,
-		shareId: access?.shareId ?? null,
 	};
 
 	await notifyUsers(params.addedUserIds, {
 		category: 'subscription',
 		title: params.storyTitle,
 		body: `${params.ownerName} subscribed you to the scheduled delivery for this story.`,
-		linkUrl,
+		linkUrl: storyPath(params.storyId),
 		ctaLabel: 'Open story',
 		projectId: params.projectId,
 		payload,
@@ -157,7 +144,7 @@ export async function notifyStoryRefreshFailed(params: {
 		category: 'story_refresh',
 		title,
 		body: params.errorMessage,
-		linkUrl: standaloneStoryPath(params.storyId),
+		linkUrl: storyPath(params.storyId),
 		ctaLabel: 'Open story',
 		payload,
 	});
@@ -208,7 +195,7 @@ export async function notifySharedItem(params: {
 	projectId: string;
 	sharerId: string;
 	sharerName: string;
-	shareId: string;
+	itemId: string;
 	itemLabel: SharedItemLabel;
 	itemTitle: string;
 	visibility: Visibility;
@@ -220,7 +207,7 @@ export async function notifySharedItem(params: {
 		return;
 	}
 
-	const linkUrl = sharedItemPaths[params.itemLabel](params.shareId);
+	const linkUrl = sharedItemPaths[params.itemLabel](params.itemId);
 	const itemUrl = toAbsoluteShareUrl(linkUrl);
 
 	const payload: SharedNotificationPayload = {
@@ -252,18 +239,6 @@ export async function notifySharedItem(params: {
 	});
 }
 
-async function resolveStoryLink(storyId: string, projectId: string): Promise<string> {
-	const [access, story] = await Promise.all([
-		sharedStoryQueries.getStoryShareAccess(storyId, projectId),
-		storyQueries.getStoryById(storyId),
-	]);
-	return storyPath(access ? { id: access.shareId } : null, {
-		id: storyId,
-		chatId: story?.chatId ?? null,
-		slug: story?.slug ?? '',
-	});
-}
-
 async function resolveOwnerName(ownerId: string): Promise<string | undefined> {
 	return (await userQueries.getUserName(ownerId)) ?? undefined;
 }
@@ -271,12 +246,12 @@ async function resolveOwnerName(ownerId: string): Promise<string | undefined> {
 async function resolveSharedItemRecipientIds(params: {
 	projectId: string;
 	sharerId: string;
-	shareId: string;
+	itemId: string;
 	itemLabel: SharedItemLabel;
 	visibility: Visibility;
 	allowedUserIds?: string[];
 }): Promise<string[]> {
-	const acl = await sharedItemAcl[params.itemLabel](params.shareId);
+	const acl = await sharedItemAcl[params.itemLabel](params.itemId, params.projectId);
 	if (!acl) {
 		return [];
 	}

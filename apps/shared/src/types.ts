@@ -46,6 +46,8 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 
 export type SharedItemLabel = 'story' | 'chat';
 
+export type ShareSource = { type: 'chat'; shareId: string } | { type: 'story'; storyId: string };
+
 export type FeedbackNotificationPayload = {
 	kind: 'feedback';
 	vote: 'up' | 'down';
@@ -77,8 +79,6 @@ export type StorySubscriptionNotificationPayload = {
 	storyId: string;
 	storyTitle: string;
 	ownerName: string;
-	/** Share id used to render the live story (charts, tables, maps) as a preview in the notification card. */
-	shareId: string | null;
 };
 
 export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;

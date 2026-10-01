@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryByIdForUser: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getSharedChatInfo: vi.fn(),
-	getSharedStory: vi.fn(),
+	getSharedStoryByStoryId: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
 	saveStoryInPrivateRoot: vi.fn(),
 	upsertMessage: vi.fn(),
@@ -31,7 +31,7 @@ vi.mock('../src/queries/shared-chat.queries', () => ({
 vi.mock('../src/queries/shared-story.queries', () => ({
 	canUserAccessSharedStory: vi.fn(async () => true),
 	getQueryDataFromCode: mocks.getQueryDataFromCode,
-	getSharedStory: mocks.getSharedStory,
+	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
 }));
 vi.mock('../src/queries/story.queries', () => ({
 	createStoryVersion: mocks.createStoryVersion,
@@ -65,7 +65,7 @@ describe('chat fork Story creation permission', () => {
 				canChange: true,
 			},
 		});
-		mocks.getSharedStory.mockResolvedValue({
+		mocks.getSharedStoryByStoryId.mockResolvedValue({
 			id: 'share-id',
 			projectId: 'project-id',
 			storyId: 'story-id',
@@ -99,7 +99,9 @@ describe('chat fork Story creation permission', () => {
 	});
 
 	it('denies a full shared Story fork that would create a Story', async () => {
-		await expect(createCaller().chatFork.fork({ shareId: 'share-id', type: 'story' })).rejects.toMatchObject({
+		await expect(
+			createCaller().chatFork.fork({ source: { type: 'story', storyId: 'story-id' } }),
+		).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 			message: 'Story creation is not enabled for your user group.',
 		});
@@ -110,8 +112,7 @@ describe('chat fork Story creation permission', () => {
 	it('denies a shared Story selection fork without the creation grant', async () => {
 		await expect(
 			createCaller().chatFork.fork({
-				shareId: 'share-id',
-				type: 'story',
+				source: { type: 'story', storyId: 'story-id' },
 				selection: { start: 0, end: 5, text: 'Story' },
 			}),
 		).rejects.toMatchObject({
@@ -125,8 +126,7 @@ describe('chat fork Story creation permission', () => {
 	it('allows the Story owner to create a selection fork without checking the creation grant', async () => {
 		await expect(
 			createCaller('owner-id').chatFork.fork({
-				shareId: 'share-id',
-				type: 'story',
+				source: { type: 'story', storyId: 'story-id' },
 				selection: { start: 0, end: 5, text: 'Story' },
 			}),
 		).resolves.toEqual({ chatId: 'fork-chat-id' });
@@ -135,7 +135,9 @@ describe('chat fork Story creation permission', () => {
 	});
 
 	it('allows the Story owner to create a full fork without checking the creation grant', async () => {
-		await expect(createCaller('owner-id').chatFork.fork({ shareId: 'share-id', type: 'story' })).resolves.toEqual({
+		await expect(
+			createCaller('owner-id').chatFork.fork({ source: { type: 'story', storyId: 'story-id' } }),
+		).resolves.toEqual({
 			chatId: 'fork-chat-id',
 		});
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
@@ -151,9 +153,11 @@ describe('chat fork Story creation permission', () => {
 			},
 		});
 
-		await expect(createCaller().chatFork.fork({ shareId: 'share-id', type: 'story' })).resolves.toEqual({
-			chatId: 'fork-chat-id',
-		});
+		await expect(createCaller().chatFork.fork({ source: { type: 'story', storyId: 'story-id' } })).resolves.toEqual(
+			{
+				chatId: 'fork-chat-id',
+			},
+		);
 		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 		expect(mocks.createStoryVersion).toHaveBeenCalled();
 	});
@@ -234,8 +238,7 @@ describe('chat fork Story creation permission', () => {
 		});
 
 		await createCaller().chatFork.fork({
-			shareId: 'share-id',
-			type: 'story',
+			source: { type: 'story', storyId: 'story-id' },
 			selection: { start: 0, end: 5, text: 'Story' },
 		});
 
@@ -254,7 +257,9 @@ describe('chat fork Story creation permission', () => {
 	});
 
 	it('forks a shared chat with its stored tool outputs', async () => {
-		await expect(createCaller().chatFork.fork({ shareId: 'chat-share-id', type: 'chat' })).resolves.toEqual({
+		await expect(
+			createCaller().chatFork.fork({ source: { type: 'chat', shareId: 'chat-share-id' } }),
+		).resolves.toEqual({
 			chatId: 'fork-chat-id',
 		});
 		expect(mocks.getChatMessages).toHaveBeenCalledWith('source-chat-id');

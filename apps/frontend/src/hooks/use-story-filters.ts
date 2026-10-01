@@ -9,7 +9,7 @@ import type { QueryDataMap } from '@/components/story-embeds';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { trpc } from '@/main';
 
-export type StoryFilterApi = { kind: 'owned'; chatId: string; storySlug: string } | { kind: 'shared'; shareId: string };
+export type StoryFilterApi = { kind: 'owned'; chatId: string; storySlug: string } | { kind: 'shared'; storyId: string };
 
 const FILTER_PARAM_PREFIX = 'story_filter_';
 
@@ -95,7 +95,7 @@ export function useStoryFilters({
 
 	const sharedQuery = useQuery({
 		...trpc.storyShare.getFilteredQueryData.queryOptions({
-			shareId: api?.kind === 'shared' ? api.shareId : '',
+			storyId: api?.kind === 'shared' ? api.storyId : '',
 			selections: debouncedSelections,
 		}),
 		enabled: Boolean(filtersEnabled && api?.kind === 'shared' && debouncedHasActive),

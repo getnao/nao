@@ -26,7 +26,7 @@ function buildStoryRow(overrides: Partial<UserStoryRow> = {}): UserStoryRow {
 describe('list_stories output mapping', () => {
 	it('serializes createdAt/updatedAt as ISO strings that satisfy the output schema', () => {
 		const item = toStoryListItem(buildStoryRow(), {
-			url: 'http://localhost:5005/stories/standalone/story-1',
+			url: 'http://localhost:5005/stories/story-1',
 			chatUrl: null,
 		});
 
@@ -37,7 +37,7 @@ describe('list_stories output mapping', () => {
 
 	it('marks archived stories and preserves chatUrl', () => {
 		const item = toStoryListItem(buildStoryRow({ archivedAt: new Date('2024-02-01T00:00:00.000Z') }), {
-			url: 'http://localhost:5005/stories/standalone/story-1',
+			url: 'http://localhost:5005/stories/story-1',
 			chatUrl: 'http://localhost:5005/chats/chat-1',
 		});
 
