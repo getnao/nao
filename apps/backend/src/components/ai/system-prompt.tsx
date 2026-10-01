@@ -164,9 +164,12 @@ export function SystemPrompt({
 					canGrepSavedFiles={canGrepSavedFiles}
 					canRunSandbox={hasTool('execute_sandboxed_code')}
 					canExecuteSql={hasTool('execute_sql')}
+					canReplace={hasTool('str_replace')}
 				/>
 			)}
-			{customStoriesEnabled && hasTool('story') && hasTool('write') && <CustomStoriesBlock />}
+			{customStoriesEnabled && hasTool('story') && hasTool('write') && (
+				<CustomStoriesBlock canReplace={hasTool('str_replace')} />
+			)}
 			{hasTool('execute_sql') && (
 				<LocalDatabaseBlock
 					canSaveResults={hasTool('write') && savedFilesEnabled}
@@ -413,10 +416,12 @@ function PermanentStorageBlock({
 	canGrepSavedFiles,
 	canRunSandbox,
 	canExecuteSql,
+	canReplace,
 }: {
 	canGrepSavedFiles: boolean;
 	canRunSandbox: boolean;
 	canExecuteSql: boolean;
+	canReplace: boolean;
 }) {
 	return (
 		<Block>
@@ -442,8 +447,14 @@ function PermanentStorageBlock({
 				</ListItem>
 				<ListItem>
 					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
-					export or update something, or when a result is clearly worth reusing later. Everything else in the
-					tree is read-only. Do not save intermediate work nobody asked for.
+					export or update something, or when a result is clearly worth reusing later.{' '}
+					{canReplace && (
+						<>
+							To change part of a file that already exists, use <Bold>str_replace</Bold> with the exact
+							snippet rather than sending the whole file to <Bold>write</Bold> again.{' '}
+						</>
+					)}
+					Everything else in the tree is read-only. Do not save intermediate work nobody asked for.
 					{canExecuteSql && (
 						<>
 							{' '}
@@ -499,15 +510,22 @@ function PermanentStorageBlock({
 	);
 }
 
-function CustomStoriesBlock() {
+function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
 	return (
 		<Block>
 			<Title level={2}>Custom Stories</Title>
 			<Span>
 				A story is either <Bold>classic</Bold> (markdown with chart/table blocks) or <Bold>custom</Bold>: a
-				React app under <Bold>/stories/&lt;id&gt;/</Bold>, edited with <Bold>write</Bold> and made visible with{' '}
-				<Bold>story</Bold> "publish". Pick the format before the first <Bold>story</Bold> call; a request gets
-				exactly one story, never a classic one alongside or as a draft of a custom one.
+				React app under <Bold>/stories/&lt;id&gt;/</Bold>, edited with{' '}
+				{canReplace ? (
+					<>
+						<Bold>str_replace</Bold> (or <Bold>write</Bold> for a new file)
+					</>
+				) : (
+					<Bold>write</Bold>
+				)}{' '}
+				and made visible with <Bold>story</Bold> "publish". Pick the format before the first <Bold>story</Bold>{' '}
+				call; a request gets exactly one story, never a classic one alongside or as a draft of a custom one.
 			</Span>
 			<Span>Choose custom when any of these holds, even if the user never says "custom":</Span>
 			<List>

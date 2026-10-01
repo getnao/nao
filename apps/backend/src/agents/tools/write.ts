@@ -19,7 +19,8 @@ import {
 export function buildWriteToolDescription({
 	storage = isStorageEnabled(),
 	customStories = isCustomStoriesEnabled(),
-}: { storage?: boolean; customStories?: boolean } = {}): string {
+	canReplace = true,
+}: { storage?: boolean; customStories?: boolean; canReplace?: boolean } = {}): string {
 	const targets = [
 		...(storage
 			? [
@@ -30,7 +31,10 @@ export function buildWriteToolDescription({
 			? [`/${STORIES_MOUNT}/<story>/…, the draft files of a custom story created with the story tool`]
 			: []),
 	];
-	return `Save a text file under ${targets.join(' or under ')}. Missing folders are created and an existing file is overwritten. Everything else in the tree is read-only.`;
+	const replaceHint = canReplace
+		? ' Use it to create a file or rewrite most of one; to change part of an existing file, use str_replace instead of sending the whole content again.'
+		: '';
+	return `Save a text file under ${targets.join(' or under ')}. Missing folders are created and an existing file is overwritten.${replaceHint} Everything else in the tree is read-only.`;
 }
 
 export default createTool<writeFile.Input, writeFile.Output>({

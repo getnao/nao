@@ -27,6 +27,7 @@ import read from './read';
 import readQueryResult from './read-query-result';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
+import strReplace, { buildStrReplaceToolDescription } from './str-replace';
 import suggestFollowUps from './suggest-follow-ups';
 import task from './task';
 import write, { buildWriteToolDescription } from './write';
@@ -54,6 +55,7 @@ export const tools = {
 	search,
 	task,
 	write,
+	str_replace: strReplace,
 	suggest_follow_ups: suggestFollowUps,
 };
 
@@ -116,6 +118,7 @@ export const getTools = (
 		suggest_follow_ups,
 		task: taskTool,
 		write: writeTool,
+		str_replace: strReplaceTool,
 		...rest
 	} = tools;
 	const baseTools = {
@@ -124,7 +127,11 @@ export const getTools = (
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
 		...((isStorageEnabled() || customStoryAuthoring) && {
-			write: { ...writeTool, description: buildWriteToolDescription({ customStories: customStoryAuthoring }) },
+			write: writeTool,
+			str_replace: {
+				...strReplaceTool,
+				description: buildStrReplaceToolDescription({ customStories: customStoryAuthoring }),
+			},
 		}),
 		...(!options.excludeFollowUps && { suggest_follow_ups }),
 	};
@@ -150,6 +157,16 @@ export const getTools = (
 		result = keepTools(result, extraTools, (name) => !excluded.has(name));
 	}
 
+	const canReplace = 'str_replace' in result;
+	if ('write' in result) {
+		result = {
+			...result,
+			write: {
+				...writeTool,
+				description: buildWriteToolDescription({ customStories: customStoryAuthoring, canReplace }),
+			},
+		};
+	}
 	if ('story' in result) {
 		const mapsEnabled = 'display_map' in result;
 		const customStories = customStoryAuthoring && 'write' in result;
@@ -157,7 +174,7 @@ export const getTools = (
 			...result,
 			story: {
 				...result.story,
-				description: buildStoryToolDescription({ mapsEnabled, customStories }),
+				description: buildStoryToolDescription({ mapsEnabled, customStories, canReplace }),
 			},
 		};
 	}

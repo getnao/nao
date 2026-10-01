@@ -30,15 +30,11 @@ const STORY_FILTER_DESCRIPTION = [
 	'When adding filters to existing charts, prefer execute_sql with query_id set to the existing query so chart/table tags keep the same query_id.',
 ].join(' ');
 
-const CUSTOM_STORY_DESCRIPTION = [
-	`format="custom" creates a React app instead: "create" seeds a @nao/story-kit starter under /${STORIES_MOUNT}/<id>/ (or takes "files"), edit it with the write tool, then "publish" builds and snapshots it.`,
-	'See the Custom Stories instructions for when to pick it.',
-].join(' ');
-
 export function buildStoryToolDescription({
 	mapsEnabled = false,
 	customStories = isCustomStoriesEnabled(),
-}: { mapsEnabled?: boolean; customStories?: boolean } = {}) {
+	canReplace = true,
+}: { mapsEnabled?: boolean; customStories?: boolean; canReplace?: boolean } = {}) {
 	return [
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
 		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
@@ -57,7 +53,15 @@ export function buildStoryToolDescription({
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
 		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
-		...(customStories ? [CUSTOM_STORY_DESCRIPTION] : []),
+		...(customStories ? [customStoryDescription(canReplace)] : []),
+	].join(' ');
+}
+
+function customStoryDescription(canReplace: boolean): string {
+	const editTools = canReplace ? 'str_replace (or write for a new file)' : 'write';
+	return [
+		`format="custom" creates a React app instead: "create" seeds a @nao/story-kit starter under /${STORIES_MOUNT}/<id>/ (or takes "files"), edit it with ${editTools}, then "publish" builds and snapshots it.`,
+		'See the Custom Stories instructions for when to pick it.',
 	].join(' ');
 }
 
@@ -257,7 +261,7 @@ function runCustomStoryAction(input: story.Input, existingStory: DBStory, contex
 			return Promise.resolve(
 				fail(
 					input.id,
-					`Story "${input.id}" is a custom story: edit its files under /${STORIES_MOUNT}/${input.id}/ with the write tool, then use "publish".`,
+					`Story "${input.id}" is a custom story: edit its files under /${STORIES_MOUNT}/${input.id}/, then use "publish".`,
 				),
 			);
 	}
