@@ -13,6 +13,8 @@ export const STORY_APP_ALLOWED_IMPORTS = [
 	'react-dom/client',
 	'recharts',
 	'lucide-react',
+	'leaflet',
+	'react-leaflet',
 	'@nao/story-kit',
 ] as const;
 
@@ -48,6 +50,8 @@ export const STORY_RUNTIME_MODULES: Record<StoryAppAllowedImport | typeof STORY_
 	'react-dom/client': 'react-dom-client',
 	recharts: 'recharts',
 	'lucide-react': 'lucide-react',
+	leaflet: 'leaflet',
+	'react-leaflet': 'react-leaflet',
 	'@nao/story-kit': 'story-kit',
 	[STORY_HOST_MODULE]: 'story-host',
 };

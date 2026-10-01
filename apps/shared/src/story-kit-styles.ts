@@ -113,6 +113,24 @@ html[${STORY_PRINT_SLIDES_ATTRIBUTE}] #root{display:none}
 .nao-chart-legend__item--hidden{opacity:.4}
 .nao-chart-legend__swatch{width:8px;height:8px;flex:none;border-radius:2px}
 
+.nao-map{position:relative;width:100%;height:360px;overflow:hidden;isolation:isolate;border-radius:var(--radius-sm);background:var(--muted)}
+.nao-map .leaflet-container{width:100%;height:100%;font-family:var(--font-sans);font-size:12px;background:var(--muted)}
+.nao-map .leaflet-control-zoom a{color:var(--foreground);background:var(--card);border-color:var(--border)}
+.nao-map .leaflet-control-zoom a:hover{color:var(--foreground);background:var(--accent)}
+.nao-map .leaflet-bar{border:1px solid var(--border);box-shadow:0 4px 12px rgb(0 0 0 / .08)}
+.nao-map .leaflet-control-attribution{font-size:10px;color:var(--muted-foreground);background:color-mix(in srgb, var(--background) 80%, transparent)}
+.nao-map .leaflet-control-attribution a{color:inherit}
+.nao-map .leaflet-popup-content-wrapper,.nao-map .leaflet-popup-tip{color:var(--popover-foreground);background:var(--popover);box-shadow:0 20px 25px -5px rgb(0 0 0 / .1),0 8px 10px -6px rgb(0 0 0 / .1)}
+.nao-map .leaflet-popup-content-wrapper{border:1px solid color-mix(in srgb, var(--border) 50%, transparent);border-radius:var(--radius-sm)}
+.nao-map .leaflet-popup-content{margin:8px 12px;font-size:12px;line-height:1.5}
+.nao-map .leaflet-tooltip{padding:6px 10px;font-size:12px;color:var(--foreground);background:var(--background);border:1px solid color-mix(in srgb, var(--border) 50%, transparent);border-radius:var(--radius-sm);box-shadow:0 8px 10px -6px rgb(0 0 0 / .1)}
+.nao-map .leaflet-tooltip-top::before{border-top-color:var(--background)}
+.nao-map .leaflet-tooltip-bottom::before{border-bottom-color:var(--background)}
+.nao-map .leaflet-tooltip-left::before{border-left-color:var(--background)}
+.nao-map .leaflet-tooltip-right::before{border-right-color:var(--background)}
+.nao-map__tooltip{display:grid;gap:2px;line-height:1.4}
+.nao-map__tooltip strong{font-weight:500}
+
 .nao-table-wrap{display:flex;flex-direction:column;gap:8px;min-width:0}
 .nao-table{min-width:0}
 .nao-table-display{display:flex;flex-direction:column;min-height:0}

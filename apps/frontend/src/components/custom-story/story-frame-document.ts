@@ -1,5 +1,6 @@
 import { STORY_HOST_MODULE, STORY_RUNTIME_MODULES } from '@nao/shared/story-app';
 import { escapeScript, storyStylesheets } from '@nao/shared/story-document';
+import { storyMapTileCspSources } from '@nao/shared/story-map-tiles';
 import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
@@ -26,12 +27,13 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 	const [importMapHash, bootHash] = await Promise.all([sha256Source(importMapScript), sha256Source(bootScript)]);
 
 	const fontHosts = FONT_STYLESHEET_HOSTS.map((host) => `https://${host}`).join(' ');
+	const tileHosts = storyMapTileCspSources().join(' ');
 	const csp = [
 		`default-src 'none'`,
 		`script-src ${importMapHash} ${bootHash} blob: ${runtimeOrigin}`,
 		`style-src 'unsafe-inline' ${fontHosts}`,
 		`font-src data: ${fontHosts}`,
-		`img-src data: blob:`,
+		`img-src data: blob: ${tileHosts}`,
 		`connect-src 'none'`,
 		`base-uri 'none'`,
 		`form-action 'none'`,

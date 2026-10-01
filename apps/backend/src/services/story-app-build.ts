@@ -6,6 +6,7 @@ import {
 	STORY_APP_ENTRY_CANDIDATES,
 	STORY_APP_MANIFEST_PATH,
 } from '@nao/shared/story-app';
+import { isAllowedFontStylesheet } from '@nao/shared/story-theme';
 
 import {
 	type StoryBuildDiagnostic,
@@ -31,12 +32,17 @@ export type StoryBuildResult = { ok: true; bundle: string; entry: string } | { o
 
 const BUILD_TIMEOUT_MS = 20_000;
 const STDERR_TAIL_CHARS = 600;
+const REMOTE_STYLE_IMPORT = /@import\s+(?:url\(\s*)?["']?(https?:\/\/[^"')\s;]+)/gi;
 
 export async function buildStoryApp(files: StorySourceFile[]): Promise<StoryBuildResult> {
 	const sources = Object.fromEntries(files.map((file) => [file.path, file.content]));
 	const entry = resolveEntry(sources);
 	if (!entry.ok) {
 		return entry;
+	}
+	const styleErrors = remoteStylesheetErrors(files);
+	if (styleErrors.length > 0) {
+		return { ok: false, errors: styleErrors };
 	}
 
 	const response = await runBuildWorker({
@@ -86,6 +92,20 @@ function resolveEntry(sources: Record<string, string>): { ok: true; path: string
 		};
 	}
 	return { ok: true, path: candidate };
+}
+
+/** The frame's content security policy would drop these silently, so the agent learns at build time instead. */
+function remoteStylesheetErrors(files: StorySourceFile[]): string[] {
+	return files
+		.filter((file) => file.path.endsWith('.css'))
+		.flatMap((file) => {
+			return [...file.content.matchAll(REMOTE_STYLE_IMPORT)]
+				.filter((match) => !isAllowedFontStylesheet(match[1]))
+				.map((match) => {
+					const line = file.content.slice(0, match.index).split('\n').length;
+					return `${file.path}:${line} — @import of "${match[1]}" is blocked: stories only load their own CSS and theme fonts. Leaflet's CSS and the kit styles are already loaded; delete this line.`;
+				});
+		});
 }
 
 function declaredEntry(sources: Record<string, string>): { path?: string; error?: string } {

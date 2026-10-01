@@ -67,7 +67,10 @@ export function resolveMapConfig(rows: Record<string, unknown>[], config: displa
 	};
 }
 
-export function buildMapPoints(rows: Record<string, unknown>[], config: displayMap.Input): MapPoint[] {
+export function buildMapPoints(
+	rows: Record<string, unknown>[],
+	config: Pick<displayMap.Input, 'latitude_key' | 'longitude_key'>,
+): MapPoint[] {
 	const latitudeKey = config.latitude_key ?? '';
 	const longitudeKey = config.longitude_key ?? '';
 	return rows

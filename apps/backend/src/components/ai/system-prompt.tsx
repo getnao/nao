@@ -550,17 +550,17 @@ function CustomStoriesBlock() {
 				<ListItem>
 					Build with <Bold>@nao/story-kit</Bold> blocks — <Bold>KpiCard</Bold>, <Bold>BarChart</Bold>,{' '}
 					<Bold>LineChart</Bold>, <Bold>{'<Chart type="...">'}</Bold> for every other display_chart type
-					(mixed, pie, donut, scatter, radar), <Bold>DataTable</Bold> — which match display_chart and handle
-					loading and errors themselves. Blocks draw their own card, so place them directly in the layout
-					rather than inside a panel of your own. Every block takes <Bold>queryId</Bold> (or <Bold>data</Bold>
-					) and <Bold>title</Bold>; KpiCard and charts also take <Bold>format</Bold> ("number" | "compact" |
-					"percent" with fractions | "currency"), <Bold>currency</Bold>, <Bold>decimals</Bold>. Charts:{' '}
-					<Bold>xKey</Bold>, <Bold>series</Bold> (names or {'{ key, label?, type?, axis? }'}),{' '}
-					<Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>, <Bold>horizontal</Bold> (bar),{' '}
-					<Bold>area</Bold> (line), <Bold>showDataLabels</Bold>. KpiCard: <Bold>valueKey</Bold>,{' '}
-					<Bold>comparison</Bold> against the previous row. DataTable: <Bold>columns</Bold>,{' '}
-					<Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the same rule display_chart's
-					conditional_formats takes) to colour cells.
+					(mixed, pie, donut, scatter, radar), <Bold>DataTable</Bold>, <Bold>PointMap</Bold> — which match
+					display_chart and display_map and handle loading and errors themselves. Blocks draw their own card,
+					so place them directly in the layout rather than inside a panel of your own. Every block takes{' '}
+					<Bold>queryId</Bold> (or <Bold>data</Bold>) and <Bold>title</Bold>; KpiCard and charts also take{' '}
+					<Bold>format</Bold> ("number" | "compact" | "percent" with fractions | "currency"),{' '}
+					<Bold>currency</Bold>, <Bold>decimals</Bold>. Charts: <Bold>xKey</Bold>, <Bold>series</Bold> (names
+					or {'{ key, label?, type?, axis? }'}), <Bold>height</Bold>, <Bold>stacked</Bold>,{' '}
+					<Bold>percent</Bold>, <Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line),{' '}
+					<Bold>showDataLabels</Bold>. KpiCard: <Bold>valueKey</Bold>, <Bold>comparison</Bold> against the
+					previous row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold>{' '}
+					(column → the same rule display_chart's conditional_formats takes) to colour cells.
 				</ListItem>
 				<ListItem>
 					For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
@@ -588,7 +588,16 @@ function CustomStoriesBlock() {
 					<Bold>{'<Tooltip />'}</Bold> (already themed; format values with{' '}
 					<Bold>{'formatter={(value) => formatNumber(value, { format })}'}</Bold>).{' '}
 					<Bold>useQueryData(queryId)</Bold> returns <Bold>data: null</Bold> until <Bold>status</Bold> is
-					"success" — guard before reading rows.
+					"success", then the array of rows — guard before reading it.
+				</ListItem>
+				<ListItem>
+					Maps: <Bold>{'<PointMap queryId="..." />'}</Bold> plots rows with latitude and longitude columns
+					(auto-detected; optional <Bold>latitudeKey</Bold>, <Bold>longitudeKey</Bold>, <Bold>sizeKey</Bold>{' '}
+					for bubbles, <Bold>labelKey</Bold>, <Bold>tooltipKeys</Bold>, <Bold>height</Bold>). For any other
+					map, use <Bold>react-leaflet</Bold> inside <Bold>{'<div className="nao-map">'}</Bold> (sized by your
+					CSS; a full-screen map sits in your layout, not in a Block) with <Bold>{'<MapTiles />'}</Bold> as
+					the first child of MapContainer: the only tiles the story can reach, themed, kept to a single world
+					and following the container's size. Leaflet's CSS is already loaded; import nothing else for it.
 				</ListItem>
 				<ListItem>
 					<Bold>Never hardcode data, colours or fonts.</Bold> Read rows with <Bold>useQueryData</Bold>; style

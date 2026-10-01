@@ -1,6 +1,7 @@
 import type { StoryExportData } from './story-app';
 import { STORY_HOST_MODULE, STORY_STANDALONE_RUNTIME_GLOBAL } from './story-app';
 import { KIT_STYLES } from './story-kit-styles';
+import { storyMapTileCspSources } from './story-map-tiles';
 import type { StoryTheme } from './story-theme';
 import { FONT_STYLESHEET_HOSTS, storyThemeToCssVars } from './story-theme';
 
@@ -42,15 +43,16 @@ ${storyStylesheets(input.theme, input.styles)}
 </html>`;
 }
 
-/** Scripts only come from the page itself: no request can leave it except for the theme fonts. */
+/** Scripts only come from the page itself: no request can leave it except for the theme fonts and map tiles. */
 function exportContentSecurityPolicy(): string {
 	const fontHosts = FONT_STYLESHEET_HOSTS.map((host) => `https://${host}`).join(' ');
+	const tileHosts = storyMapTileCspSources().join(' ');
 	return [
 		`default-src 'none'`,
 		`script-src 'unsafe-inline' blob:`,
 		`style-src 'unsafe-inline' ${fontHosts}`,
 		`font-src data: ${fontHosts}`,
-		`img-src data: blob:`,
+		`img-src data: blob: ${tileHosts}`,
 		`connect-src 'none'`,
 		`base-uri 'none'`,
 		`form-action 'none'`,

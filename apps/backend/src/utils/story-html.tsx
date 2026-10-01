@@ -42,6 +42,7 @@ import {
 	formatDateValue,
 	resolveDateFormatPattern,
 } from '@nao/shared/date';
+import { STORY_MAP_TILE_LAYERS } from '@nao/shared/story-map-tiles';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
@@ -91,9 +92,8 @@ const MAP_HEIGHT = 568;
 const LEAFLET_VERSION = '1.9.4';
 const LEAFLET_JS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
 const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`;
-const RASTER_TILE_URL =
-	process.env.NAO_STORY_MAP_RASTER_URL || 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-const RASTER_TILE_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || '&copy; OpenStreetMap &copy; CARTO';
+const RASTER_TILE_URL = process.env.NAO_STORY_MAP_RASTER_URL || STORY_MAP_TILE_LAYERS.light.url;
+const RASTER_TILE_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || STORY_MAP_TILE_LAYERS.light.attribution;
 const RASTER_TILE_SUBDOMAINS = process.env.NAO_STORY_MAP_RASTER_SUBDOMAINS || 'abcd';
 
 type InlinedBoundaries = Map<string, { geojson: unknown; joinProps: string[] | null }>;

@@ -1,4 +1,5 @@
 import { STORY_PRINT_FLAG, STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+import { isStoryMapTileHost, storyMapTileCspSources } from '@nao/shared/story-map-tiles';
 import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
 import type { DownloadFormat } from '@nao/shared/types';
 import type { HTTPRequest, Page, PDFOptions } from 'puppeteer-core';
@@ -19,17 +20,18 @@ const RENDER_SETTLE_MS = 1_800;
 const VIEW_SETTLE_MS = 1_600;
 const ALLOWED_REQUEST_HOSTS = new Set<string>(FONT_STYLESHEET_HOSTS);
 const FONT_HOST_SOURCES = FONT_STYLESHEET_HOSTS.map((host) => `https://${host}`).join(' ');
+const TILE_HOST_SOURCES = storyMapTileCspSources().join(' ');
 
 /**
  * The exported page runs the story's own code (agent-written, so untrusted): the policy comes from a response header
- * the page cannot drop, and every request but the document and theme fonts is aborted.
+ * the page cannot drop, and every request but the document, theme fonts and map tiles is aborted.
  */
 const EXPORT_CONTENT_SECURITY_POLICY = [
 	`default-src 'none'`,
 	`script-src 'unsafe-inline' blob:`,
 	`style-src 'unsafe-inline' ${FONT_HOST_SOURCES}`,
 	`font-src data: ${FONT_HOST_SOURCES}`,
-	`img-src data: blob:`,
+	`img-src data: blob: ${TILE_HOST_SOURCES}`,
 	`connect-src 'none'`,
 	`frame-src 'none'`,
 	`worker-src 'none'`,
@@ -154,7 +156,10 @@ function isAllowedRequest(request: HTTPRequest): boolean {
 	}
 	try {
 		const parsed = new URL(url);
-		return parsed.protocol === 'https:' && ALLOWED_REQUEST_HOSTS.has(parsed.hostname);
+		if (parsed.protocol !== 'https:') {
+			return false;
+		}
+		return ALLOWED_REQUEST_HOSTS.has(parsed.hostname) || isStoryMapTileHost(parsed.hostname);
 	} catch {
 		return false;
 	}
