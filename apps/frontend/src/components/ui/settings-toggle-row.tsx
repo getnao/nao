@@ -12,7 +12,7 @@ interface SettingsControlRowProps {
 export function SettingsControlRow({ id, label, description, control, className }: SettingsControlRowProps) {
 	return (
 		<div className={cn('flex items-center justify-between', className)}>
-			<div className='flex flex-col gap-0.5'>
+			<div className='flex min-w-0 flex-col gap-0.5'>
 				{id ? (
 					<label htmlFor={id} className='text-sm font-medium text-foreground cursor-pointer h-5'>
 						{label}

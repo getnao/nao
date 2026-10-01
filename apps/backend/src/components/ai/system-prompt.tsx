@@ -6,7 +6,7 @@ import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills } from '../../agents/skills';
 import { Block, Bold, Br, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { SandboxSecretDefinition } from '../../services/sandbox-secret.service';
-import type { Skill } from '../../services/skill';
+import type { PreloadedSkill, Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
@@ -27,6 +27,8 @@ type SystemPromptProps = {
 	connections?: Connection[];
 	configuredDatabases?: ConfiguredDatabase[];
 	skills?: Skill[];
+	/** Project skills injected in full; they are left out of the regular skills listing. */
+	preloadedSkills?: PreloadedSkill[];
 	/** Defaults to every skill nao ships; only tests pass this. */
 	internalSkills?: InternalSkill[];
 	customCharts?: ChartPluginManifestEntry[];
@@ -59,6 +61,7 @@ export function SystemPrompt({
 	connections = [],
 	configuredDatabases = [],
 	skills = [],
+	preloadedSkills = [],
 	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mcpServers = [],
@@ -77,6 +80,7 @@ export function SystemPrompt({
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const dialectToolCallRules = getDialectToolCallRules(connections);
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
+	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
 
 	return (
 		<Block>
@@ -317,13 +321,15 @@ export function SystemPrompt({
 					<ConfiguredDatabasesBlock databases={configuredDatabases} />
 				)}
 
-				{skills.length > 0 && (
+				{preloadedSkills.length > 0 && <PreloadedSkillsBlock skills={preloadedSkills} />}
+
+				{listedSkills.length > 0 && (
 					<Block>
 						<Title level={2}>Skills</Title>
 						<Span>
 							You have access to pre-defined skills. Use these as guidance for relevant questions.
 						</Span>
-						{skills.map((skill) => (
+						{listedSkills.map((skill) => (
 							<>
 								<Title level={3}>Skill: {skill.name.trim()}</Title>
 								<Span>
@@ -376,6 +382,31 @@ function formatConfiguredDatabaseDetails(database: ConfiguredDatabase): string {
 	].filter((detail): detail is string => detail !== null);
 
 	return details.length > 0 ? ` — ${details.join(', ')}` : '';
+}
+
+function excludePreloadedSkills(skills: Skill[], preloadedSkills: PreloadedSkill[]): Skill[] {
+	const preloadedNames = new Set(preloadedSkills.map((skill) => skill.name));
+	return skills.filter((skill) => !preloadedNames.has(skill.name));
+}
+
+function PreloadedSkillsBlock({ skills }: { skills: PreloadedSkill[] }) {
+	return (
+		<Block>
+			<Title level={2}>Preloaded Skills</Title>
+			<Span>
+				These project skills are already loaded below. Follow them whenever they are relevant. Very long skills
+				are truncated, so read a skill's file directly only when you need a part that is missing. Never call{' '}
+				<Bold>load_skill</Bold> for them.
+			</Span>
+			{skills.map((skill) => (
+				<>
+					<Title level={3}>Skill: {skill.name.trim()}</Title>
+					<Location>{skill.location}</Location>
+					<Span>{skill.content.trim()}</Span>
+				</>
+			))}
+		</Block>
+	);
 }
 
 /**

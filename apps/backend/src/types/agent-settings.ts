@@ -28,6 +28,10 @@ export interface AgentSettings {
 	semanticLayer?: {
 		mode?: SemanticLayerMode;
 	};
+	skills?: {
+		/** Names of project skills (`agent/skills/*.md`) injected in full into every chat's system prompt. */
+		preloaded?: string[];
+	};
 	subagent?: {
 		/** Model subagents run on; null or absent means the model of the chat that spawned them. */
 		model?: LlmSelectedModel | null;

@@ -65,6 +65,7 @@ describe('load_skill tool', () => {
 
 	it('lists what is available when the name is wrong, so the model can correct itself', async () => {
 		await expect(runLoadSkill('pdfs')).rejects.toThrow(/no built-in skill called 'pdfs'.*pdf-handling/s);
+		await expect(runLoadSkill('pdfs')).rejects.toThrow(/agent\/skills\/ are not loaded with load_skill/);
 	});
 });
 

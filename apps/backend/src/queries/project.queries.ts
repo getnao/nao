@@ -290,6 +290,10 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 			...current.subagent,
 			...settings.subagent,
 		},
+		skills: {
+			...current.skills,
+			...settings.skills,
+		},
 	};
 	await db.update(s.project).set({ agentSettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;

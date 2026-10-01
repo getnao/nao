@@ -295,6 +295,7 @@ export class AgentService {
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
+			safeInitializeSkills(chat.projectId),
 		]);
 		const toolContext = await this._getToolContext({
 			projectId: chat.projectId,
@@ -644,6 +645,10 @@ class AgentManager {
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
 		const repoNames = repos.map((repo) => repo.name);
 		const skills = skillService.getSkills(this.chat.projectId);
+		const preloadedSkills = skillService.getPreloadedSkills(
+			this.chat.projectId,
+			this._toolContext.agentSettings?.skills?.preloaded,
+		);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
@@ -661,6 +666,7 @@ class AgentManager {
 				connections,
 				configuredDatabases,
 				skills,
+				preloadedSkills,
 				customCharts,
 				mcpServers,
 				sandboxSecrets,
@@ -1130,6 +1136,15 @@ function describeStoredAttachment(part: { url: string; mediaType: string; filena
 			: '';
 
 	return `[The user attached ${name} (${part.mediaType}) to this message. It is saved at ${part.url}. Its contents are not included here: read that path when you need them.${workbookHint}]`;
+}
+
+/** Messaging and automation entry points may be the first to reach a project after a restart. */
+async function safeInitializeSkills(projectId: string): Promise<void> {
+	try {
+		await skillService.initializeSkills(projectId);
+	} catch (error) {
+		logger.warn(`Failed to initialize skills for project ${projectId}: ${String(error)}`, { source: 'agent' });
+	}
 }
 
 // Singleton instance of the agent service

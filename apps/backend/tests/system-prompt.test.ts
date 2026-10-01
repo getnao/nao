@@ -413,6 +413,37 @@ describe('SystemPrompt built-in skills', () => {
 	});
 });
 
+describe('SystemPrompt preloaded skills', () => {
+	const skills = [
+		{ name: 'revenue', description: 'How to compute revenue.', location: '/agent/skills/revenue.md' },
+		{ name: 'churn', description: 'How to compute churn.', location: '/agent/skills/churn.md' },
+	];
+	const preloadedSkills = [{ ...skills[0], content: 'Always use net revenue.' }];
+
+	it('carries the full content of preloaded skills and says they are already loaded', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, preloadedSkills }));
+
+		expect(markdown).toContain('Preloaded Skills');
+		expect(markdown).toContain('already loaded below');
+		expect(markdown).toContain('Always use net revenue.');
+	});
+
+	it('keeps preloaded skills out of the regular skills listing', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, preloadedSkills }));
+
+		expect(markdown.match(/Skill: revenue/g)).toHaveLength(1);
+		expect(markdown).toContain('Skill: churn');
+		expect(markdown).not.toContain('How to compute revenue.');
+	});
+
+	it('omits the section when no skill is preloaded', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills }));
+
+		expect(markdown).not.toContain('Preloaded Skills');
+		expect(markdown).toContain('Skill: revenue');
+	});
+});
+
 describe('SystemPrompt SQL query rules', () => {
 	it('forbids citing table documentation statistics as answers to data questions', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
