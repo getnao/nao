@@ -142,7 +142,7 @@ function SharedItemBadges({ item }: { item: SharedItem }) {
 	);
 }
 
-function ChatThumbnail({ bubbles, className }: { bubbles?: MessageBubble[]; className?: string }) {
+export function ChatThumbnail({ bubbles, className }: { bubbles?: MessageBubble[]; className?: string }) {
 	return (
 		<PaperSheet className={className}>
 			{!bubbles || bubbles.length === 0 ? (
