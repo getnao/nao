@@ -15,6 +15,7 @@ export const EXCLUDED_TOOLS = [
 	'tool-display_chart',
 	'tool-display_map',
 	'tool-clarification',
+	'tool-story',
 ];
 
 export const createLiveToolCall = (toolGroup: Map<string, ToolCallEntry>): CardChild => {
@@ -435,6 +436,58 @@ export const createMapLinkCard = (title: string, chatUrl: string): CardChild[] =
 	CardText(`🗺️ **${title}**`),
 	Actions([LinkButton({ url: chatUrl, label: 'View interactive map in nao' })]),
 ];
+
+/** Stories are rich multi-block documents; in Slack we degrade to a link card that opens the story in nao. */
+export const createStoryLinkCard = (title: string, storyUrl: string): CardChild[] => [
+	CardText(`📖 **${title}**`),
+	Actions([LinkButton({ url: storyUrl, label: 'Open story in nao' })]),
+];
+
+/**
+ * Render SQL rows (as returned by execute_sql) as a native Slack table, fitted to Slack's limits.
+ * Returns the table block plus an optional truncation notice, or an empty array when there are no rows.
+ */
+export const createSlackTableBlocksFromRows = (
+	rows: Record<string, unknown>[],
+	options: { truncation?: TruncationNotice } = {},
+): CardChild[] => {
+	const truncation = options.truncation ?? { kind: 'note' };
+	if (rows.length === 0) {
+		return [];
+	}
+	const headers = Object.keys(rows[0]);
+	if (headers.length === 0) {
+		return [];
+	}
+	const stringRows = rows.map((row) => headers.map((header) => formatSqlCell(row[header])));
+	const fitted = fitTableToSlackLimits(headers, stringRows, SLACK_TABLE_MAX_TOTAL_CHARS);
+	if (fitted.headers.length === 0) {
+		return [];
+	}
+	const blocks: CardChild[] = [Table({ headers: fitted.headers, rows: fitted.rows })];
+	const notice = createTableTruncationNotice(truncation, fitted.hiddenColumns, fitted.hiddenRows);
+	if (notice) {
+		blocks.push(notice);
+	}
+	return blocks;
+};
+
+function formatSqlCell(value: unknown): string {
+	if (value === null || value === undefined) {
+		return '';
+	}
+	if (value instanceof Date) {
+		return value.toISOString();
+	}
+	if (typeof value === 'object') {
+		try {
+			return JSON.stringify(value);
+		} catch {
+			return String(value);
+		}
+	}
+	return String(value);
+}
 
 export const createTelegramMapLinkCard = (title: string, chatUrl: string): CardChild[] => [
 	createPlainTextBlock(`🗺️ ${title}`),
