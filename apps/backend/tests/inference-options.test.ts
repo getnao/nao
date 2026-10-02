@@ -146,6 +146,20 @@ describe('OpenAI / Azure', () => {
 		expect(options.reasoningEffort).toBe('high');
 	});
 
+	it('sets forceReasoning so the SDK does not strip reasoning options for gateway-prefixed model ids', () => {
+		const { options } = resolve('openai', 'acsw@azure/data-gpt-5.6-terra', { reasoningEffort: 'medium' });
+
+		expect(options.reasoningEffort).toBe('medium');
+		expect(options.forceReasoning).toBe(true);
+	});
+
+	it('does not set forceReasoning on azure, whose SDK has no such option', () => {
+		const { options } = resolve('azure', 'gpt-5.5', { reasoningEffort: 'high' });
+
+		expect(options.reasoningEffort).toBe('high');
+		expect(options).not.toHaveProperty('forceReasoning');
+	});
+
 	it('clamps a stale max effort to high on listed models that lack xhigh', () => {
 		const { options } = resolve('openai', 'gpt-5.5', { reasoningEffort: 'max' });
 
