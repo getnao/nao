@@ -3,11 +3,14 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_FILES_CONTEXT_ACCESS,
 	FREE_CUSTOM_USER_GROUP_LIMIT,
 	isMicrosoftEntraGroupId,
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
 	normalizeDocsContextPath,
+	normalizeFilesContextAccess,
+	normalizeFilesContextPath,
 	normalizeProjectRowSecurity,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
@@ -31,6 +34,7 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog } from '../services/docs-context-catalog.service';
+import { getFilesContextCatalog } from '../services/files-context-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import {
 	listEffectiveEntraUserGroupMappings,
@@ -94,6 +98,19 @@ const docsContextGrantSchema = z.discriminatedUnion('kind', [
 const docsAccessSchema = z.discriminatedUnion('mode', [
 	z.object({ mode: z.literal('all') }).strict(),
 	z.object({ mode: z.literal('restricted'), grants: z.array(docsContextGrantSchema).max(10_000) }).strict(),
+]);
+const filesPathSchema = z
+	.string()
+	.max(1_024)
+	.refine((value) => normalizeFilesContextPath(value) !== null, 'Invalid project file path.')
+	.transform((value) => normalizeFilesContextPath(value)!);
+const filesContextGrantSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('folder'), path: filesPathSchema }).strict(),
+	z.object({ kind: z.literal('file'), path: filesPathSchema }).strict(),
+]);
+const filesAccessSchema = z.discriminatedUnion('mode', [
+	z.object({ mode: z.literal('all') }).strict(),
+	z.object({ mode: z.literal('restricted'), grants: z.array(filesContextGrantSchema).max(10_000) }).strict(),
 ]);
 const ssoIdentifierSchema = z.string().trim().min(1).max(255);
 const ssoMappingsSchema = z
@@ -267,6 +284,10 @@ export const userGroupRoutes = {
 		return getDocsContextCatalog(requireProjectPath(ctx.project.path));
 	}),
 
+	filesContextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
+		return getFilesContextCatalog(requireProjectPath(ctx.project.path));
+	}),
+
 	create: adminProtectedProcedure
 		.input(
 			z.object({
@@ -275,6 +296,7 @@ export const userGroupRoutes = {
 				toolCallDensityPolicy: toolCallDensityPolicySchema.default(DEFAULT_TOOL_CALL_DENSITY_POLICY),
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
 				docsAccess: docsAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
+				filesAccess: filesAccessSchema.default(EMPTY_FILES_CONTEXT_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 			}),
@@ -282,6 +304,7 @@ export const userGroupRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeDocsContextAccess(input.docsAccess);
+			const filesAccess = normalizeFilesContextAccess(input.filesAccess);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed();
@@ -302,17 +325,11 @@ export const userGroupRoutes = {
 					input.toolCallDensityPolicy,
 					databaseAccess,
 					docsAccess,
+					input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
+					rowPolicies,
+					filesAccess,
 				] as const;
-				if (rowPolicies !== undefined) {
-					return createUserGroup(
-						...values,
-						input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
-						rowPolicies,
-					);
-				}
-				return input.ssoMappings === undefined
-					? createUserGroup(...values)
-					: createUserGroup(...values, normalizeUserGroupSsoMappings(input.ssoMappings));
+				return createUserGroup(...values);
 			});
 		}),
 
@@ -325,6 +342,7 @@ export const userGroupRoutes = {
 				toolCallDensityPolicy: toolCallDensityPolicySchema,
 				databaseAccess: databaseAccessSchema.optional(),
 				docsAccess: docsAccessSchema.optional(),
+				filesAccess: filesAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 			}),
@@ -335,6 +353,8 @@ export const userGroupRoutes = {
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess =
 				input.docsAccess === undefined ? undefined : normalizeDocsContextAccess(input.docsAccess);
+			const filesAccess =
+				input.filesAccess === undefined ? undefined : normalizeFilesContextAccess(input.filesAccess);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 			if (input.rowPolicies !== undefined) {
@@ -353,6 +373,7 @@ export const userGroupRoutes = {
 					toolCallDensityPolicy: input.toolCallDensityPolicy,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
 					...(docsAccess === undefined ? {} : { docsAccess }),
+					...(filesAccess === undefined ? {} : { filesAccess }),
 					...(input.ssoMappings === undefined
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),

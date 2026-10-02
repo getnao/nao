@@ -249,6 +249,7 @@ async function _buildContextBase(opts: {
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
 		docsContextAccess: contextAccess.docsContextAccess,
+		filesContextAccess: contextAccess.filesContextAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		azureAccessToken,

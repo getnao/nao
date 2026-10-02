@@ -14,7 +14,10 @@ import writeTool from '../src/agents/tools/write';
 import { __reloadEnvForTesting } from '../src/env';
 import type { WarehouseTableAccess } from '../src/services/context-access';
 import { __resetStorageForTesting } from '../src/services/storage';
-import type { ResolvedDocsContextAccess } from '../src/services/user-group-context-access.service';
+import type {
+	ResolvedDocsContextAccess,
+	ResolvedFilesContextAccess,
+} from '../src/services/user-group-context-access.service';
 import type { ToolContext } from '../src/types/tools';
 
 // The tools reach the database only for the /stories mount, which stays disabled in this suite.
@@ -25,6 +28,7 @@ let projectFolder: string;
 let originalEnv: typeof process.env;
 let warehouseTableAccess: WarehouseTableAccess;
 let docsContextAccess: ResolvedDocsContextAccess;
+let filesContextAccess: ResolvedFilesContextAccess;
 const userRulesGroupAccess: UserRulesGroupAccess = { enforced: false };
 
 const context = () =>
@@ -35,6 +39,7 @@ const context = () =>
 		warehouseTableAccess,
 		warehouseRowSecurity: { enforced: false },
 		docsContextAccess,
+		filesContextAccess,
 		userGroupFeatures: [],
 		userRulesGroupAccess,
 	}) as unknown as ToolContext;
@@ -45,6 +50,7 @@ beforeEach(async () => {
 	projectFolder = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-project-tools-'));
 	warehouseTableAccess = { enforced: false };
 	docsContextAccess = { enforced: false };
+	filesContextAccess = { enforced: false };
 
 	useBackend('local');
 });
@@ -297,14 +303,14 @@ describe('search', () => {
 		await expect(run(searchTool, { pattern: '../**' })).rejects.toThrow("'..' is not allowed");
 	});
 
-	it('returns the matched path instead of its canonical symlink target', async () => {
+	it('omits a symlinked project file instead of returning its canonical target', async () => {
 		const target = path.join(projectFolder, 'target.md');
 		await fs.writeFile(target, 'target');
 		await fs.symlink(target, path.join(projectFolder, 'alias.md'));
 
 		expect(await run(searchTool, { pattern: 'alias.md' })).toEqual({
 			_version: '1',
-			files: [{ path: '/alias.md', dir: '/', size: '6' }],
+			files: [],
 		});
 	});
 });

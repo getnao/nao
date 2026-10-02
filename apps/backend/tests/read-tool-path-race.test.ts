@@ -126,6 +126,7 @@ function runRead(filePath: string): Promise<unknown> {
 		projectFolder,
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: false },
+		filesContextAccess: { enforced: false },
 	} as ToolContext;
 	return readTool.execute!({ file_path: filePath }, { experimental_context: context } as Parameters<
 		NonNullable<typeof readTool.execute>

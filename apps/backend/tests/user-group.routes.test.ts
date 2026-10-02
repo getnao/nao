@@ -1,3 +1,4 @@
+import { EMPTY_FILES_CONTEXT_ACCESS } from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -653,6 +654,9 @@ describe('user group routes', () => {
 			},
 			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -671,6 +675,9 @@ describe('user group routes', () => {
 			{ defaultDensity: 'detailed', canChange: true },
 			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -726,6 +733,8 @@ describe('user group routes', () => {
 				},
 				defaultProjectRole: 'context_admin',
 			},
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -771,6 +780,9 @@ describe('user group routes', () => {
 				patterns: [],
 			},
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -792,6 +804,9 @@ describe('user group routes', () => {
 			{ defaultDensity: 'detailed', canChange: true },
 			{ mode: 'restricted', strict: false, grants: [], patterns: ['future.*', 'sales.customer_*'] },
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -869,6 +884,9 @@ describe('user group routes', () => {
 				patterns: [],
 			},
 			{ mode: 'restricted', grants: [{ kind: 'file', path: 'deleted.md' }] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 

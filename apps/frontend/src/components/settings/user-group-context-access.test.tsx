@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	useQuery: vi.fn(),
 	databaseQueryOptions: { resource: 'database' },
 	docsQueryOptions: { resource: 'docs' },
+	filesQueryOptions: { resource: 'files' },
 }));
 
 vi.mock('@/main', () => ({
@@ -25,6 +26,7 @@ vi.mock('@/main', () => ({
 		userGroup: {
 			contextCatalog: { queryOptions: vi.fn(() => mocks.databaseQueryOptions) },
 			docsContextCatalog: { queryOptions: vi.fn(() => mocks.docsQueryOptions) },
+			filesContextCatalog: { queryOptions: vi.fn(() => mocks.filesQueryOptions) },
 		},
 	},
 }));
@@ -73,7 +75,7 @@ describe('user group context access selection', () => {
 
 		expect(
 			screen.getByText(
-				'Choose which synced database tables and docs this group can access. Access from groups is combined.',
+				'Choose which synced database tables, docs, and project files this group can access. Access from groups is combined.',
 			),
 		).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Everything/ })).toBeTruthy();
@@ -188,7 +190,7 @@ describe('user group context access selection', () => {
 		setCombinedCatalogs();
 		render(<StatefulCombinedContextAccess />);
 
-		expect(screen.getByText(/database tables and docs/)).toBeTruthy();
+		expect(screen.getByText(/database tables, docs, and project files/)).toBeTruthy();
 		expect(screen.queryByRole('heading', { name: 'Database tables' })).toBeNull();
 		expect(screen.queryByRole('heading', { name: 'Docs' })).toBeNull();
 		expect(screen.getAllByTestId('combined-context-tree')).toHaveLength(1);

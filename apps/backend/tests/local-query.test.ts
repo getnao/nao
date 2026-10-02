@@ -446,6 +446,7 @@ const runOutcome = async (sql: string, overrides: RunOverrides = {}): Promise<Lo
 		queryResults: new Map(overrides.queryResults ?? []),
 		warehouseTableAccess: overrides.warehouseTableAccess ?? { enforced: false },
 		docsContextAccess: overrides.docsContextAccess ?? { enforced: false },
+		filesContextAccess: overrides.filesContextAccess ?? { enforced: false },
 	} as unknown as ToolContext;
 
 	return runQueryOnLocalFiles(sql, context, overrides.saveTo);
@@ -458,11 +459,13 @@ interface RunOverrides {
 	saveTo?: executeSql.SaveTo;
 	warehouseTableAccess?: ToolContext['warehouseTableAccess'];
 	docsContextAccess?: ToolContext['docsContextAccess'];
+	filesContextAccess?: ToolContext['filesContextAccess'];
 }
 
-function denyAllContext(): Pick<RunOverrides, 'warehouseTableAccess' | 'docsContextAccess'> {
+function denyAllContext(): Pick<RunOverrides, 'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess'> {
 	return {
 		warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 		docsContextAccess: { enforced: true, access: { mode: 'restricted', grants: [] } },
+		filesContextAccess: { enforced: false },
 	};
 }

@@ -1,6 +1,7 @@
 import {
 	type DatabaseContextAccess,
 	type DocsContextAccess,
+	type FilesContextAccess,
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
@@ -23,6 +24,7 @@ export interface EffectiveUserGroupAccess {
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
 }
 
 export interface EffectiveUserGroupAccessForUserDetail extends EffectiveUserGroupAccess {
@@ -127,6 +129,7 @@ function formatEffectiveUserGroupAccess(
 		toolCallDensityPolicy: access.toolCallDensityPolicy,
 		databaseAccess: access.databaseAccess,
 		docsAccess: access.docsAccess,
+		filesAccess: access.filesAccess,
 	};
 }
 

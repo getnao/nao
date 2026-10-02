@@ -118,6 +118,7 @@ describe('execute_semantic_query exposure', () => {
 			projectFolder: writeProject(['project_name: demo']),
 			queryResults: new Map(),
 			envVars: {},
+			filesContextAccess: { enforced: false },
 		} as unknown as import('../src/types/tools').ToolContext;
 		const run = (databaseId?: string) => executeQuery({ sql_query: 'SELECT 1', database_id: databaseId }, context);
 

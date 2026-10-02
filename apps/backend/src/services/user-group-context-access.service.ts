@@ -1,5 +1,6 @@
 import {
 	type DocsContextAccess,
+	type FilesContextAccess,
 	type ProjectRowSecurity,
 	resolveWarehouseRowSecurity,
 	type UserGroupFeature,
@@ -20,6 +21,8 @@ export * from './context-access';
 
 export type ResolvedDocsContextAccess = { enforced: false } | { enforced: true; access: DocsContextAccess };
 
+export type ResolvedFilesContextAccess = { enforced: false } | { enforced: true; access: FilesContextAccess };
+
 export async function resolveProjectContextAccess(
 	projectId: string,
 	userId: string,
@@ -28,6 +31,7 @@ export async function resolveProjectContextAccess(
 	warehouseTableAccess: WarehouseTableAccess;
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
+	filesContextAccess: ResolvedFilesContextAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 }> {
@@ -45,6 +49,7 @@ export async function resolveProjectContextAccess(
 		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
 		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed),
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
+		filesContextAccess: { enforced: true, access: effectiveAccess.filesAccess },
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 	};

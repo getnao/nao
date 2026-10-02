@@ -2,6 +2,7 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
@@ -10,6 +11,7 @@ import {
 	filterUserGroupRowPoliciesByDatabaseContext,
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
+	normalizeFilesContextAccess,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
@@ -21,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
 	DatabaseContextAccess,
 	DocsContextAccess,
+	FilesContextAccess,
 	UserGroupFeatureDefinition,
 	UserGroupRowPolicies,
 	UserGroupSsoMappings,
@@ -61,6 +64,7 @@ export interface UserGroupEditorGroup {
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
 	ssoMappings: UserGroupSsoMappings;
 	rowPolicies?: UserGroupRowPolicies;
 }
@@ -118,6 +122,9 @@ export function UserGroupEditor({
 	);
 	const [docsAccess, setDocsAccess] = useState<DocsContextAccess>(
 		existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS,
+	);
+	const [filesAccess, setFilesAccess] = useState<FilesContextAccess>(
+		existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS,
 	);
 	const [ssoMappings, setSsoMappings] = useState<UserGroupSsoMappings>(
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
@@ -205,6 +212,7 @@ export function UserGroupEditor({
 			toolCallDensityPolicy,
 			databaseAccess,
 			docsAccess,
+			filesAccess,
 			ssoMappings,
 			rowPolicies,
 		});
@@ -215,6 +223,7 @@ export function UserGroupEditor({
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
+		setFilesAccess(existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setRowPolicies(existingRowPolicies);
 		setFormError(null);
@@ -234,6 +243,7 @@ export function UserGroupEditor({
 				toolCallDensityPolicy,
 				databaseAccess,
 				docsAccess,
+				filesAccess,
 				ssoMappings,
 				rowPolicies,
 			});
@@ -246,6 +256,7 @@ export function UserGroupEditor({
 		docsAccess,
 		editorGroup,
 		featureGrants,
+		filesAccess,
 		name,
 		resetForm,
 		rowPolicies,
@@ -285,6 +296,7 @@ export function UserGroupEditor({
 					toolCallDensityPolicy,
 					databaseAccess,
 					docsAccess,
+					filesAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 				});
@@ -296,6 +308,7 @@ export function UserGroupEditor({
 					toolCallDensityPolicy,
 					databaseAccess,
 					docsAccess,
+					filesAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 				});
@@ -372,8 +385,10 @@ export function UserGroupEditor({
 								<UserGroupContextAccess
 									databaseAccess={databaseAccess}
 									docsAccess={docsAccess}
+									filesAccess={filesAccess}
 									onDatabaseAccessChange={handleDatabaseAccessChange}
 									onDocsAccessChange={setDocsAccess}
+									onFilesAccessChange={setFilesAccess}
 								/>
 								<ConditionalRulesHelp groupName={name} />
 							</div>
@@ -753,6 +768,7 @@ export function hasUserGroupEditorChanges(
 		toolCallDensityPolicy: ToolCallDensityPolicy;
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
+		filesAccess?: FilesContextAccess;
 		ssoMappings?: UserGroupSsoMappings;
 		rowPolicies?: UserGroupRowPolicies;
 	},
@@ -764,6 +780,7 @@ export function hasUserGroupEditorChanges(
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameDocsAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
+		!haveSameFilesAccess(values.filesAccess ?? group.filesAccess, group.filesAccess) ||
 		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
 		!haveSameRowPolicies(
 			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
@@ -870,6 +887,10 @@ function haveSameDatabaseAccess(left: DatabaseContextAccess, right: DatabaseCont
 
 function haveSameDocsAccess(left: DocsContextAccess, right: DocsContextAccess): boolean {
 	return JSON.stringify(normalizeDocsContextAccess(left)) === JSON.stringify(normalizeDocsContextAccess(right));
+}
+
+function haveSameFilesAccess(left: FilesContextAccess, right: FilesContextAccess): boolean {
+	return JSON.stringify(normalizeFilesContextAccess(left)) === JSON.stringify(normalizeFilesContextAccess(right));
 }
 
 function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMappings): boolean {

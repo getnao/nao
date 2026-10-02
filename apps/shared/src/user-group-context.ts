@@ -30,6 +30,11 @@ export type DocsContextGrant = { kind: 'folder'; path: string } | { kind: 'file'
 
 export type DocsContextAccess = { mode: 'all' } | { mode: 'restricted'; grants: DocsContextGrant[] };
 
+/** Grants over the project files outside `docs/` and `databases/`, relative to the project folder. */
+export type FilesContextGrant = DocsContextGrant;
+
+export type FilesContextAccess = { mode: 'all' } | { mode: 'restricted'; grants: FilesContextGrant[] };
+
 export interface StoredLegacyDatabaseContextAccessV1 {
 	version: 1;
 	access: { mode: 'all' } | { mode: 'restricted'; grants: DatabaseContextGrant[] };
@@ -45,10 +50,17 @@ export interface StoredDatabaseContextAccess {
 	access: DatabaseContextAccess;
 }
 
-export interface StoredUserGroupContextAccess {
+export interface StoredLegacyUserGroupContextAccessV4 {
 	version: 4;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+}
+
+export interface StoredUserGroupContextAccess {
+	version: 5;
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
 }
 
 export const ALL_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = { mode: 'all', strict: false };
@@ -66,6 +78,8 @@ export const FAIL_CLOSED_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = {
 };
 export const ALL_DOCS_CONTEXT_ACCESS: DocsContextAccess = { mode: 'all' };
 export const EMPTY_DOCS_CONTEXT_ACCESS: DocsContextAccess = { mode: 'restricted', grants: [] };
+export const ALL_FILES_CONTEXT_ACCESS: FilesContextAccess = { mode: 'all' };
+export const EMPTY_FILES_CONTEXT_ACCESS: FilesContextAccess = { mode: 'restricted', grants: [] };
 
 export function normalizeDatabaseContextAccess(access: DatabaseContextAccess): DatabaseContextAccess {
 	if (access.mode === 'all') {
@@ -129,45 +143,63 @@ export function serializeDatabaseContextAccess(access: DatabaseContextAccess): S
 export function parseStoredUserGroupContextAccess(
 	value: unknown,
 	isDefault: boolean,
-): { databaseAccess: DatabaseContextAccess; docsAccess: DocsContextAccess } {
+): { databaseAccess: DatabaseContextAccess; docsAccess: DocsContextAccess; filesAccess: FilesContextAccess } {
 	const legacyDatabaseAccess = isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
 	const legacyDocsAccess = isDefault ? ALL_DOCS_CONTEXT_ACCESS : EMPTY_DOCS_CONTEXT_ACCESS;
 
 	if (value === null || value === undefined) {
-		return { databaseAccess: legacyDatabaseAccess, docsAccess: legacyDocsAccess };
+		return {
+			databaseAccess: legacyDatabaseAccess,
+			docsAccess: legacyDocsAccess,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+		};
 	}
 	if (!isRecord(value)) {
 		return {
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		};
 	}
+	// Payloads written before project files were granted left every project file readable.
 	if (value.version === 1 || value.version === 2 || value.version === 3) {
 		return {
 			databaseAccess: parseStoredDatabaseContextAccess(value),
 			docsAccess: legacyDocsAccess,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		};
 	}
-	if (value.version !== 4) {
+	if (value.version === 4) {
+		return {
+			databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
+			docsAccess: parseDocsContextAccess(value.docsAccess),
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+		};
+	}
+	if (value.version !== 5) {
 		return {
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		};
 	}
 	return {
 		databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
 		docsAccess: parseDocsContextAccess(value.docsAccess),
+		filesAccess: parseFilesContextAccess(value.filesAccess),
 	};
 }
 
 export function serializeUserGroupContextAccess(
 	databaseAccess: DatabaseContextAccess,
 	docsAccess: DocsContextAccess,
+	filesAccess: FilesContextAccess = ALL_FILES_CONTEXT_ACCESS,
 ): StoredUserGroupContextAccess {
 	return {
-		version: 4,
+		version: 5,
 		databaseAccess: normalizeDatabaseContextAccess(databaseAccess),
 		docsAccess: normalizeDocsContextAccess(docsAccess),
+		filesAccess: normalizeFilesContextAccess(filesAccess),
 	};
 }
 
@@ -303,6 +335,42 @@ export function mayTraverseDocsContextDirectory(access: DocsContextAccess, direc
 		return access.mode === 'all' || access.grants.length > 0;
 	}
 	return isDocsContextDirectoryGranted(access, directoryPath);
+}
+
+/**
+ * Project-file grants reuse the docs rules: the grant shape and matching are identical, and the
+ * root each set of paths is relative to is applied by the caller (`docs/` vs the project folder).
+ */
+export function normalizeFilesContextAccess(access: FilesContextAccess): FilesContextAccess {
+	return normalizeDocsContextAccess(access);
+}
+
+export function normalizeFilesContextGrant(value: unknown): FilesContextGrant | null {
+	return normalizeDocsContextGrant(value);
+}
+
+export function normalizeFilesContextPath(value: string): string | null {
+	return normalizeDocsContextPath(value);
+}
+
+export function parseFilesContextAccess(value: unknown): FilesContextAccess {
+	return parseDocsContextAccess(value);
+}
+
+export function unionFilesContextAccess(accesses: readonly FilesContextAccess[]): FilesContextAccess {
+	return unionDocsContextAccess(accesses);
+}
+
+export function isFilesContextFileGranted(access: FilesContextAccess, filePath: string): boolean {
+	return isDocsContextFileGranted(access, filePath);
+}
+
+export function isFilesContextDirectoryGranted(access: FilesContextAccess, directoryPath: string): boolean {
+	return isDocsContextDirectoryGranted(access, directoryPath);
+}
+
+export function mayTraverseFilesContextDirectory(access: FilesContextAccess, directoryPath: string): boolean {
+	return mayTraverseDocsContextDirectory(access, directoryPath);
 }
 
 export function normalizeDatabaseContextPatterns(patterns: readonly string[]): string[] {

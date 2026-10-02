@@ -5,6 +5,7 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
@@ -83,6 +84,7 @@ vi.mock('@/main', () => ({
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
 			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
 			docsContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['docs-context-catalog'] })) },
+			filesContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['files-context-catalog'] })) },
 			rowSecurity: {
 				queryOptions: vi.fn(() => ({ queryKey: ['row-security'] })),
 				queryKey: vi.fn(() => ['row-security']),
@@ -232,6 +234,7 @@ const allUsers = {
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
+	filesAccess: { mode: 'all' as const },
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 };
 const analysts = {
@@ -241,6 +244,7 @@ const analysts = {
 	isDefault: false,
 	databaseAccess: { ...EMPTY_DATABASE_CONTEXT_ACCESS, strict: false },
 	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 };
 const rowSecurityIdentity = {
 	databaseType: 'duckdb',
@@ -408,10 +412,10 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
 		expect(screen.getByText('Group access')).toBeTruthy();
 		expect(
-			screen.getByText('Configure the features, database tables, and docs each group can access.'),
+			screen.getByText('Configure the features, database tables, docs, and project files each group can access.'),
 		).toBeTruthy();
-		expect(screen.getByText('No features · All tables · Not strict · All docs')).toBeTruthy();
-		expect(screen.getByText('No features · No tables · Not strict · No docs')).toBeTruthy();
+		expect(screen.getByText('No features · All tables · Not strict · All docs · All files')).toBeTruthy();
+		expect(screen.getByText('No features · No tables · Not strict · No docs · No files')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Create group' })).toBeTruthy();
 	});
 
@@ -1735,6 +1739,7 @@ describe('UserGroupEditor', () => {
 					{ kind: 'file', path: 'legal/terms.md' },
 				],
 			},
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		};
 
 		expect(
@@ -1813,7 +1818,7 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.getAllByText('Analysts').length).toBeGreaterThan(0);
 		expect(screen.queryByText('Finance')).toBeNull();
 		expect(screen.queryByText('Default')).toBeNull();
-		expect(screen.getByText('1 feature · 0 tables · 0 docs · Strict')).toBeTruthy();
+		expect(screen.getByText('1 feature · 0 tables · 0 docs · 0 files · Strict')).toBeTruthy();
 
 		const stories = screen.getByRole('article', { name: /Stories.*Allowed/ });
 		const automations = screen.getByRole('article', { name: /Automations.*Not allowed/ });
@@ -1854,12 +1859,13 @@ describe('UserGroupUserDetail', () => {
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
+				filesAccess: { mode: 'all' },
 				rowPolicies: [],
 			},
 		});
 
-		expect(screen.getByText('2 features · 2 tables · 2 docs · Not strict')).toBeTruthy();
-		expect(screen.queryByText(/All tables|All docs/)).toBeNull();
+		expect(screen.getByText('2 features · 2 tables · 2 docs · 0 files · Not strict')).toBeTruthy();
+		expect(screen.queryByText(/All tables|All docs|All files/)).toBeNull();
 	});
 
 	it('hides the access summary when context is not synced', () => {
@@ -1870,7 +1876,7 @@ describe('UserGroupUserDetail', () => {
 		});
 
 		expect(screen.getAllByText('Not synced')).toHaveLength(2);
-		expect(screen.queryByText('1 feature · 0 tables · 0 docs · Strict')).toBeNull();
+		expect(screen.queryByText('1 feature · 0 tables · 0 docs · 0 files · Strict')).toBeNull();
 	});
 
 	it('shows only allowed context and static dynamic patterns', () => {
@@ -1906,13 +1912,14 @@ describe('UserGroupUserDetail', () => {
 					patterns: ['public.o*'],
 				},
 				docsAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'finance/kpis.md' }] },
+				filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 				rowPolicies: [],
 			},
 		});
 
 		expect(screen.getByText('Specific selection')).toBeTruthy();
 		expect(screen.getByText('Strict')).toBeTruthy();
-		expect(screen.getByText('2 tables · 1 doc')).toBeTruthy();
+		expect(screen.getByText('2 tables · 1 doc · 0 files')).toBeTruthy();
 		expect(screen.queryByRole('checkbox')).toBeNull();
 		expect(screen.queryByRole('switch')).toBeNull();
 		expect(screen.queryByRole('button', { name: /Everything|Specific selection/ })).toBeNull();
@@ -1943,13 +1950,14 @@ describe('UserGroupUserDetail', () => {
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
+				filesAccess: { mode: 'all' },
 				rowPolicies: [],
 			},
 		});
 
 		expect(screen.getByText('Everything')).toBeTruthy();
 		expect(screen.getByText('Not strict')).toBeTruthy();
-		expect(screen.getByText('1 table · 1 doc')).toBeTruthy();
+		expect(screen.getByText('1 table · 1 doc · 0 files')).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Expand docs folder' }));
 		expect(screen.getByText('users')).toBeTruthy();
@@ -1959,10 +1967,13 @@ describe('UserGroupUserDetail', () => {
 			<UserGroupEffectiveContext
 				databaseAccess={{ mode: 'all', strict: true }}
 				docsAccess={{ mode: 'all' }}
+				filesAccess={{ mode: 'all' }}
 				contextObjects={[]}
 				docsEntries={[]}
+				filesEntries={[]}
 				databaseCatalogState='loading'
 				docsCatalogState='error'
+				filesCatalogState='ready'
 			/>,
 		);
 		expect(screen.getByText('Loading...')).toBeTruthy();
@@ -2149,7 +2160,7 @@ describe('UserGroupUserDetail', () => {
 
 		expect(retryDatabase).toHaveBeenCalledOnce();
 		expect(retryDocs).toHaveBeenCalledOnce();
-		expect(screen.queryByText('1 feature · 0 tables · 0 docs · Strict')).toBeNull();
+		expect(screen.queryByText('1 feature · 0 tables · 0 docs · 0 files · Strict')).toBeNull();
 	});
 });
 
@@ -2221,12 +2232,16 @@ function renderUserDetail({
 	activeTab = 'features',
 	contextObjects = [],
 	docsEntries = [],
+	filesEntries = [],
 	databaseSyncState = 'ready',
 	docsSyncState = 'ready',
+	filesSyncState = 'ready',
 	databaseCatalogState = 'ready',
 	docsCatalogState = 'ready',
+	filesCatalogState = 'ready',
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
+	onRetryFilesCatalog,
 	projectRowSecurity = EMPTY_PROJECT_ROW_SECURITY,
 	securityState = 'ready',
 	onRetrySecurity,
@@ -2235,6 +2250,7 @@ function renderUserDetail({
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 		docsAccess: { mode: 'restricted', grants: [] },
+		filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		rowPolicies: [],
 	},
 }: {
@@ -2242,12 +2258,16 @@ function renderUserDetail({
 	activeTab?: UserGroupUserDetailTab;
 	contextObjects?: Array<{ databaseType: string; database: string; schema: string; table: string }>;
 	docsEntries?: Array<{ kind: 'folder' | 'file'; path: string }>;
+	filesEntries?: Array<{ kind: 'folder' | 'file'; path: string }>;
 	databaseSyncState?: 'missing' | 'ready';
 	docsSyncState?: 'missing' | 'ready';
+	filesSyncState?: 'missing' | 'ready';
 	databaseCatalogState?: 'loading' | 'error' | 'ready';
 	docsCatalogState?: 'loading' | 'error' | 'ready';
+	filesCatalogState?: 'loading' | 'error' | 'ready';
 	onRetryDatabaseCatalog?: () => void;
 	onRetryDocsCatalog?: () => void;
+	onRetryFilesCatalog?: () => void;
 	projectRowSecurity?: ComponentProps<typeof UserGroupUserDetail>['projectRowSecurity'];
 	securityState?: ComponentProps<typeof UserGroupUserDetail>['securityState'];
 	onRetrySecurity?: () => void;
@@ -2258,13 +2278,17 @@ function renderUserDetail({
 			groups,
 			contextObjects,
 			docsEntries,
+			filesEntries,
 			effectiveAccess,
 			databaseSyncState,
 			docsSyncState,
+			filesSyncState,
 			databaseCatalogState,
 			docsCatalogState,
+			filesCatalogState,
 			onRetryDatabaseCatalog,
 			onRetryDocsCatalog,
+			onRetryFilesCatalog,
 			projectRowSecurity,
 			securityState,
 			onRetrySecurity,
@@ -2285,12 +2309,16 @@ function createUserDetail(
 			effectiveAccess={effectiveAccess}
 			contextObjects={props.contextObjects ?? []}
 			docsEntries={props.docsEntries ?? []}
+			filesEntries={props.filesEntries ?? []}
 			databaseSyncState={props.databaseSyncState ?? 'ready'}
 			docsSyncState={props.docsSyncState ?? 'ready'}
+			filesSyncState={props.filesSyncState ?? 'ready'}
 			databaseCatalogState={props.databaseCatalogState ?? 'ready'}
 			docsCatalogState={props.docsCatalogState ?? 'ready'}
+			filesCatalogState={props.filesCatalogState ?? 'ready'}
 			onRetryDatabaseCatalog={props.onRetryDatabaseCatalog}
 			onRetryDocsCatalog={props.onRetryDocsCatalog}
+			onRetryFilesCatalog={props.onRetryFilesCatalog}
 			projectRowSecurity={props.projectRowSecurity ?? EMPTY_PROJECT_ROW_SECURITY}
 			securityState={props.securityState ?? 'ready'}
 			onRetrySecurity={props.onRetrySecurity}
@@ -2308,6 +2336,7 @@ function createEffectiveAccess(
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'all', strict: true },
 		docsAccess: { mode: 'restricted', grants: [] },
+		filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		rowPolicies,
 	};
 }
