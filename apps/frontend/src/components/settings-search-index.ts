@@ -815,6 +815,22 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Accounts link by email; use login <code> if Mattermost hides email addresses.',
 		keywords: ['link', 'login', 'mattermost', 'email'],
 	},
+	{
+		page: '/settings/project/integrations/discord',
+		pageLabel: 'Integrations & MCP',
+		section: 'Discord',
+		title: 'Discord Integration',
+		description: 'Connect a Discord application so nao answers in your server.',
+		keywords: ['discord bot', 'bot token', 'application id', 'public key', 'messaging'],
+	},
+	{
+		page: '/settings/project/integrations/discord',
+		pageLabel: 'Integrations & MCP',
+		section: 'Discord',
+		title: 'Link manually',
+		description: 'Discord does not expose member emails; send login <code> to the bot to link your account.',
+		keywords: ['link', 'login', 'discord', 'email'],
+	},
 
 	{
 		page: '/settings/project/integrations/whatsapp',

@@ -73,6 +73,7 @@ import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import {
+	DiscordSettings,
 	MattermostSettings,
 	SlackSettings,
 	TeamsSettings,
@@ -245,6 +246,7 @@ export const project = sqliteTable(
 		teamsSettings: text('teams_settings', { mode: 'json' }).$type<TeamsSettings>(),
 		telegramSettings: text('telegram_settings', { mode: 'json' }).$type<TelegramSettings>(),
 		mattermostSettings: text('mattermost_settings', { mode: 'json' }).$type<MattermostSettings>(),
+		discordSettings: text('discord_settings', { mode: 'json' }).$type<DiscordSettings>(),
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
@@ -290,6 +292,30 @@ export const projectWhatsappLink = sqliteTable(
 	],
 );
 
+export const projectDiscordLink = sqliteTable(
+	'project_discord_link',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		discordUserId: text('discord_user_id').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.projectId, t.discordUserId] }),
+		index('project_discord_link_userId_idx').on(t.userId),
+	],
+);
+
 export const chat = sqliteTable(
 	'chat',
 	{
@@ -309,6 +335,7 @@ export const chat = sqliteTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		mattermostThreadId: text('mattermost_thread_id'),
+		discordThreadId: text('discord_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkMetadata>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -326,6 +353,7 @@ export const chat = sqliteTable(
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
 		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
+		index('chat_discord_thread_idx').on(table.discordThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );

@@ -51,6 +51,7 @@ One file per surface:
 - `teams.md` — Microsoft Teams Bot only.
 - `telegram.md` — Telegram Bot only.
 - `mattermost.md` — Mattermost Bot only.
+- `discord.md` — Discord Bot only.
 - `whatsapp.md` — WhatsApp Bot only.
 - `automation.md` — scheduled automations only.
 

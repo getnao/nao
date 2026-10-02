@@ -97,6 +97,7 @@ class TestCreateEmptyStructure:
         assert "system.md" in content
         assert "slack.md" in content
         assert "mattermost.md" in content
+        assert "discord.md" in content
         assert "{{ nao_prompt }}" in content
 
     def test_creates_example_slack_prompt_file(self, tmp_path: Path):
@@ -113,6 +114,13 @@ class TestCreateEmptyStructure:
 
         mattermost_prompt = tmp_path / "agent" / "prompts" / "mattermost.md"
         assert not mattermost_prompt.exists()
+
+    def test_does_not_create_example_discord_prompt_file(self, tmp_path: Path):
+        """Does not create an example agent/prompts/discord.md."""
+        create_empty_structure(tmp_path)
+
+        discord_prompt = tmp_path / "agent" / "prompts" / "discord.md"
+        assert not discord_prompt.exists()
 
     def test_creates_naoignore_file(self, tmp_path: Path):
         """Creates .naoignore file with ignored generated paths."""

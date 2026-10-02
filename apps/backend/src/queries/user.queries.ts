@@ -85,6 +85,16 @@ export const getUserByMessagingProviderCode = async (code: string): Promise<User
 	return user ?? null;
 };
 
+export const getUserByEmail = async (email: string): Promise<User | null> => {
+	const [user] = await db
+		.select()
+		.from(s.user)
+		.where(sql`lower(${s.user.email}) = ${email.trim().toLowerCase()}`)
+		.limit(1)
+		.execute();
+	return user ?? null;
+};
+
 export const regenerateMessagingProviderCode = async (userId: string): Promise<string> => {
 	const code = createMessagingProviderCode();
 	await db.update(s.user).set({ messagingProviderCode: code }).where(eq(s.user.id, userId)).execute();

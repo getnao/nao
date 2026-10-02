@@ -6,13 +6,19 @@ import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
-type MessagingProvider = 'mattermost' | 'telegram' | 'whatsapp';
+type MessagingProvider = 'discord' | 'mattermost' | 'telegram' | 'whatsapp';
 
 interface LinkingCodesCardProps {
 	provider: MessagingProvider;
 }
 
 const PROVIDER_LABELS: Record<MessagingProvider, { name: string; loginHint: string; setupHint: string }> = {
+	discord: {
+		name: 'Discord',
+		loginHint:
+			'Send `login <code>` to the bot to link your account. Discord does not expose member emails to bots, so linking is always manual.',
+		setupHint: 'An admin still needs to finish the Discord bot setup.',
+	},
 	mattermost: {
 		name: 'Mattermost',
 		loginHint:
@@ -49,6 +55,10 @@ export function LinkingCodesCard({ provider }: LinkingCodesCardProps) {
 		...trpc.project.getMattermostConfig.queryOptions(),
 		enabled: provider === 'mattermost',
 	});
+	const discordConfig = useQuery({
+		...trpc.project.getDiscordConfig.queryOptions(),
+		enabled: provider === 'discord',
+	});
 	const currentCode = useQuery(trpc.project.getCurrentUserMessagingProviderCode.queryOptions());
 	const linkedAccounts = useQuery({
 		...trpc.project.getCurrentUserWhatsappLinks.queryOptions(),
@@ -58,7 +68,13 @@ export function LinkingCodesCard({ provider }: LinkingCodesCardProps) {
 	const unlinkWhatsapp = useMutation(trpc.project.unlinkCurrentUserWhatsappLink.mutationOptions());
 
 	const configQuery =
-		provider === 'whatsapp' ? whatsappConfig : provider === 'telegram' ? telegramConfig : mattermostConfig;
+		provider === 'whatsapp'
+			? whatsappConfig
+			: provider === 'telegram'
+				? telegramConfig
+				: provider === 'mattermost'
+					? mattermostConfig
+					: discordConfig;
 	const isConfigured = Boolean(configQuery.data?.projectConfig);
 	const code = currentCode.data ?? '';
 	const [copied, setCopied] = useState(false);

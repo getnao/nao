@@ -59,6 +59,7 @@ import { Route as SidebarLayoutSettingsProjectMcpEndpointRouteImport } from './r
 import { Route as SidebarLayoutSettingsProjectMcpRouteImport } from './routes/_sidebar-layout.settings.project.mcp'
 import { Route as SidebarLayoutSettingsProjectMattermostRouteImport } from './routes/_sidebar-layout.settings.project.mattermost'
 import { Route as SidebarLayoutSettingsProjectIntegrationsRouteImport } from './routes/_sidebar-layout.settings.project.integrations'
+import { Route as SidebarLayoutSettingsProjectDiscordRouteImport } from './routes/_sidebar-layout.settings.project.discord'
 import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
 import { Route as SidebarLayoutSettingsOrganizationMembersRouteImport } from './routes/_sidebar-layout.settings.organization.members'
@@ -356,6 +357,12 @@ const SidebarLayoutSettingsProjectIntegrationsRoute =
     path: '/integrations',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectDiscordRoute =
+  SidebarLayoutSettingsProjectDiscordRouteImport.update({
+    id: '/discord',
+    path: '/discord',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectBudgetsRoute =
   SidebarLayoutSettingsProjectBudgetsRouteImport.update({
     id: '/budgets',
@@ -465,6 +472,7 @@ export interface FileRoutesByFullPath {
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
   '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
@@ -524,6 +532,7 @@ export interface FileRoutesByTo {
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
@@ -587,6 +596,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/_sidebar-layout/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/_sidebar-layout/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
   '/_sidebar-layout/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/_sidebar-layout/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
@@ -651,6 +661,7 @@ export interface FileRouteTypes {
     | '/settings/organization/members'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/discord'
     | '/settings/project/integrations'
     | '/settings/project/mattermost'
     | '/settings/project/mcp'
@@ -710,6 +721,7 @@ export interface FileRouteTypes {
     | '/settings/organization/members'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/discord'
     | '/settings/project/mattermost'
     | '/settings/project/mcp'
     | '/settings/project/mcp-endpoint'
@@ -772,6 +784,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/organization/members'
     | '/_sidebar-layout/settings/project/agent'
     | '/_sidebar-layout/settings/project/budgets'
+    | '/_sidebar-layout/settings/project/discord'
     | '/_sidebar-layout/settings/project/integrations'
     | '/_sidebar-layout/settings/project/mattermost'
     | '/_sidebar-layout/settings/project/mcp'
@@ -1162,6 +1175,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/discord': {
+      id: '/_sidebar-layout/settings/project/discord'
+      path: '/discord'
+      fullPath: '/settings/project/discord'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectDiscordRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/budgets': {
       id: '/_sidebar-layout/settings/project/budgets'
       path: '/budgets'
@@ -1328,6 +1348,7 @@ const SidebarLayoutSettingsProjectUserGroupsRouteWithChildren =
 interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectAgentRoute: typeof SidebarLayoutSettingsProjectAgentRoute
   SidebarLayoutSettingsProjectBudgetsRoute: typeof SidebarLayoutSettingsProjectBudgetsRoute
+  SidebarLayoutSettingsProjectDiscordRoute: typeof SidebarLayoutSettingsProjectDiscordRoute
   SidebarLayoutSettingsProjectIntegrationsRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
   SidebarLayoutSettingsProjectMattermostRoute: typeof SidebarLayoutSettingsProjectMattermostRoute
   SidebarLayoutSettingsProjectMcpRoute: typeof SidebarLayoutSettingsProjectMcpRoute
@@ -1349,6 +1370,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectAgentRoute,
     SidebarLayoutSettingsProjectBudgetsRoute:
       SidebarLayoutSettingsProjectBudgetsRoute,
+    SidebarLayoutSettingsProjectDiscordRoute:
+      SidebarLayoutSettingsProjectDiscordRoute,
     SidebarLayoutSettingsProjectIntegrationsRoute:
       SidebarLayoutSettingsProjectIntegrationsRouteWithChildren,
     SidebarLayoutSettingsProjectMattermostRoute:

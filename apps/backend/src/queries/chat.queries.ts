@@ -49,6 +49,7 @@ const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.whatsappThreadId} is not null then 'WhatsApp'
 	when ${s.chat.telegramThreadId} is not null then 'Telegram'
 	when ${s.chat.mattermostThreadId} is not null then 'Mattermost'
+	when ${s.chat.discordThreadId} is not null then 'Discord'
 	when exists(
 		select 1 from ${s.chatMessage}
 		where ${s.chatMessage.chatId} = ${s.chat.id}
@@ -790,6 +791,20 @@ export const getChatByMattermostThread = async (threadId: string): Promise<{ id:
 
 export const attachMattermostThread = async (chatId: string, mattermostThreadId: string): Promise<void> => {
 	await db.update(s.chat).set({ mattermostThreadId }).where(eq(s.chat.id, chatId)).execute();
+};
+
+export const getChatByDiscordThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.discordThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
+export const attachDiscordThread = async (chatId: string, discordThreadId: string): Promise<void> => {
+	await db.update(s.chat).set({ discordThreadId }).where(eq(s.chat.id, chatId)).execute();
 };
 
 export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
