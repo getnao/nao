@@ -192,7 +192,7 @@ describe('buildStoryApp html entry', () => {
 			{
 				path: 'index.html',
 				content:
-					'<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"><link rel="stylesheet" href="https://cdn.example/app.css"></head><body></body></html>',
+					'<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"><link rel="stylesheet" href="//fonts.googleapis.com/css2?family=Lora"><link rel="stylesheet" href="https://cdn.example/app.css"></head><body></body></html>',
 			},
 		]);
 
@@ -212,6 +212,9 @@ describe('buildStoryApp html entry', () => {
 			{ path: 'lib.js', content: 'document.title = "from root";' },
 		]);
 
-		expect(result.ok).toBe(false);
+		expect(result).toEqual({
+			ok: false,
+			errors: [expect.stringContaining('imports "../../lib.js", which does not exist in the story')],
+		});
 	});
 });

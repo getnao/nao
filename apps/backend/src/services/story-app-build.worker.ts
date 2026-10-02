@@ -135,7 +135,7 @@ export async function storyBuildWorker(): Promise<void> {
 
 	const isAllowedFontStylesheet = (value: string): boolean => {
 		try {
-			const url = new URL(value);
+			const url = new URL(value, 'https://localhost');
 			return url.protocol === 'https:' && request.fontStylesheetHosts.includes(url.hostname);
 		} catch {
 			return false;

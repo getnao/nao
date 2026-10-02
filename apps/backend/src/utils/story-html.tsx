@@ -95,7 +95,9 @@ const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leafl
 const RASTER_TILE_URL = process.env.NAO_STORY_MAP_RASTER_URL || STORY_MAP_TILE_LAYERS.light.url;
 const RASTER_TILE_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || STORY_MAP_TILE_LAYERS.light.attribution;
 const RASTER_TILE_SUBDOMAINS = process.env.NAO_STORY_MAP_RASTER_SUBDOMAINS || 'abcd';
-const RASTER_TILE_MAX_ZOOM = process.env.NAO_STORY_MAP_RASTER_URL ? 19 : STORY_MAP_TILE_LAYERS.light.maxZoom;
+const RASTER_TILE_MAX_ZOOM =
+	Number(process.env.NAO_STORY_MAP_RASTER_MAX_ZOOM) ||
+	(process.env.NAO_STORY_MAP_RASTER_URL ? 19 : STORY_MAP_TILE_LAYERS.light.maxZoom);
 
 type InlinedBoundaries = Map<string, { geojson: unknown; joinProps: string[] | null }>;
 type Basemaps = Map<string, Basemap>;
