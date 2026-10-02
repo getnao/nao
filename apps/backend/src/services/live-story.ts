@@ -24,6 +24,7 @@ import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { referencedQueryIds } from '../utils/sql-file-paths';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
 import { executeWarehouseSql } from './warehouse-sql.service';
@@ -217,6 +218,7 @@ export async function executeStoryQueries(
 		: null;
 	const projectId =
 		executionContext?.toolContext.projectId ?? options.projectId ?? (await requireChatProjectId(chatId));
+	await assertProjectCloudBillingAccess(projectId);
 	const running = new Map<string, Promise<QueryResult>>();
 
 	const run = (queryId: string, ancestors: Set<string>): Promise<QueryResult> => {
@@ -235,7 +237,7 @@ export async function executeStoryQueries(
 			throw new Error('Live Story warehouse query has no execution context.');
 		}
 		if (query.databaseId !== LOCAL_DATABASE_ID) {
-			return executeRawSql(sql, { executionContext, databaseId: query.databaseId });
+			return executeBillingValidatedRawSql(sql, { executionContext, databaseId: query.databaseId });
 		}
 
 		const lineage = new Set([...ancestors, queryId]);
@@ -282,6 +284,11 @@ interface RawSqlExecutionOptions {
 }
 
 export async function executeRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
+	await assertProjectCloudBillingAccess(options.executionContext.toolContext.projectId);
+	return executeBillingValidatedRawSql(sqlQuery, options);
+}
+
+async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
 	const context = options.executionContext.toolContext;
 	if (options.databaseId === LOCAL_DATABASE_ID) {
 		return executeLocalSql(sqlQuery, context);

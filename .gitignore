@@ -9,6 +9,10 @@ count.txt
 .tanstack
 .wrangler
 *.sqlite
+*.sqlite.backup
+*.sqlite.backup-[0-9]*
+/apps/backend/db-cloud-billing-test-v2.sqlite.backup-before-migration-repair
+/apps/backend/db-cloud-billing-test-v2.sqlite.pre-billing-rename.backup
 .husky/_
 chats
 nao-chat-server

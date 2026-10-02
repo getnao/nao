@@ -12,6 +12,7 @@ export interface SettingsSearchEntry {
 	adminOrContextAdmin?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
+	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
 }
 
@@ -86,6 +87,45 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Members',
 		description: 'Manage the members of your organization, and see how many are active.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'team', 'active users', 'license', 'seats'],
+	},
+	{
+		page: '/settings/organization/billing',
+		pageLabel: 'Plan & Billing',
+		title: 'Plan & Billing',
+		description: 'Review the nao Cloud plan, pricing, trial, and billing availability.',
+		keywords: ['subscription', 'price', 'plan', 'payment', 'invoice', 'trial', 'stripe'],
+		orgAdminOnly: true,
+		cloudBillingOnly: true,
+	},
+	{
+		page: '/settings/organization/billing',
+		pageLabel: 'Plan & Billing',
+		section: 'Current plan',
+		title: 'Subscription status',
+		description: 'Review whether the organization plan is active, paused, past due, or canceled.',
+		keywords: ['current plan', 'subscription history', 'status', 'paused', 'canceled', 'past due'],
+		orgAdminOnly: true,
+		cloudBillingOnly: true,
+	},
+	{
+		page: '/settings/organization/billing',
+		pageLabel: 'Plan & Billing',
+		section: 'Invoices',
+		title: 'Invoices',
+		description: 'View and download organization billing invoices.',
+		keywords: ['invoice history', 'receipts', 'payments', 'pdf', 'stripe'],
+		orgAdminOnly: true,
+		cloudBillingOnly: true,
+	},
+	{
+		page: '/settings/organization/billing',
+		pageLabel: 'Plan & Billing',
+		section: 'Billing setup',
+		title: 'Subscribe to nao Cloud',
+		description: 'Subscribe during or after the organization’s 14-day nao Cloud trial.',
+		keywords: ['subscribe', 'stripe checkout', 'payment method', 'free trial'],
+		orgAdminOnly: true,
+		cloudBillingOnly: true,
 	},
 	{
 		page: '/settings/organization',

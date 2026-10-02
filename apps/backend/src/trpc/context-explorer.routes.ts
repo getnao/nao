@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import * as activityQueries from '../queries/activity.queries';
 import * as userQueries from '../queries/user.queries';
+import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
 	getFileTree,
@@ -74,6 +75,16 @@ const pullPayloadSchema = z.object({
 	files: z.array(pullFileSchema).max(MAX_PULL_HISTORY_FILES),
 });
 
+const contextMutationProcedure = contextAdminProtectedProcedure.use(async ({ ctx, next }) => {
+	await assertProjectCloudBillingAccess(ctx.project.id);
+	return next({ ctx });
+});
+
+const adminContextMutationProcedure = adminProtectedProcedure.use(async ({ ctx, next }) => {
+	await assertProjectCloudBillingAccess(ctx.project.id);
+	return next({ ctx });
+});
+
 export const contextExplorerRoutes = {
 	getRepositoryStatus: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
@@ -89,7 +100,7 @@ export const contextExplorerRoutes = {
 		return entries.map((entry, index) => ({ ...entry, fileExplorerAction: actions[index] ?? 'update' }));
 	}),
 
-	pullLiveContext: adminProtectedProcedure.mutation(async ({ ctx }) => {
+	pullLiveContext: adminContextMutationProcedure.mutation(async ({ ctx }) => {
 		const activity = await activityQueries.startContextPullActivity(ctx.project.id, ctx.user.id);
 		let token: string | null | undefined;
 		try {
@@ -138,7 +149,7 @@ export const contextExplorerRoutes = {
 		}
 	}),
 
-	connectRepository: contextAdminProtectedProcedure
+	connectRepository: contextMutationProcedure
 		.input(
 			z.object({
 				provider: z.enum(REPO_PROVIDERS),
@@ -166,7 +177,7 @@ export const contextExplorerRoutes = {
 			return connectContextRepository({ ...context, token: context.token, ...input });
 		}),
 
-	disconnectRepository: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
+	disconnectRepository: contextMutationProcedure.mutation(async ({ ctx }) => {
 		return disconnectContextRepository({
 			projectId: ctx.project.id,
 			projectFolder: requireProjectPath(ctx.project.path),
@@ -192,7 +203,7 @@ export const contextExplorerRoutes = {
 		return readFileContent(input.path, access);
 	}),
 
-	writeFile: contextAdminProtectedProcedure
+	writeFile: contextMutationProcedure
 		.input(
 			z.object({
 				path: z.string(),
@@ -231,7 +242,7 @@ export const contextExplorerRoutes = {
 			return actions[0] ?? 'update';
 		}),
 
-	updateWorktree: contextAdminProtectedProcedure
+	updateWorktree: contextMutationProcedure
 		.input(z.object({ requiredCommits: z.array(commitSchema).max(2).default([]) }))
 		.mutation(async ({ ctx, input }) => {
 			return updateContextWorktree(
@@ -240,7 +251,7 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	switchBranch: contextAdminProtectedProcedure
+	switchBranch: contextMutationProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return switchContextBranch(
@@ -249,7 +260,7 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	createBranch: contextAdminProtectedProcedure
+	createBranch: contextMutationProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return createContextBranch(
@@ -262,7 +273,7 @@ export const contextExplorerRoutes = {
 		return suggestContextBranchName(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
-	createBranchAndCommit: contextAdminProtectedProcedure
+	createBranchAndCommit: contextMutationProcedure
 		.input(
 			z.object({
 				branch: branchSchema.optional(),
@@ -277,13 +288,13 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	commitChanges: contextAdminProtectedProcedure
+	commitChanges: contextMutationProcedure
 		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
 			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
 		}),
 
-	discardLocalChange: contextAdminProtectedProcedure
+	discardLocalChange: contextMutationProcedure
 		.input(z.object({ path: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			return discardContextFileChange(
@@ -292,11 +303,11 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	discardAllChanges: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
+	discardAllChanges: contextMutationProcedure.mutation(async ({ ctx }) => {
 		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
-	pushBranch: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
+	pushBranch: contextMutationProcedure.mutation(async ({ ctx }) => {
 		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 };

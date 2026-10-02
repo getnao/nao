@@ -7,11 +7,13 @@ import { llmTelemetry } from '../agents/telemetry';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { sanitizeCron } from '../utils/cron';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 
 /** Reasoning models spend most of the budget thinking before writing the expression. */
 const MAX_OUTPUT_TOKENS = 1024;
 
 export async function naturalLanguageToCron(projectId: string, text: string): Promise<string | null> {
+	await assertProjectCloudBillingAccess(projectId);
 	const modelConfig = await resolveModelForProject(projectId);
 	if (!modelConfig) {
 		return null;

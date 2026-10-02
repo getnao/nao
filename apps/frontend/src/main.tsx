@@ -5,13 +5,13 @@ import { createTRPCClient, httpBatchLink, loggerLink } from '@trpc/client';
 import { createTRPCOptionsProxy } from '@trpc/tanstack-react-query';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { matchQuery, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import superjson from 'superjson';
 import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
 import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
-import { getActiveOrganizationId } from './lib/active-organization';
+import { clearStaleActiveOrganization, getActiveOrganizationId } from './lib/active-organization';
 import { getActiveProjectId } from './lib/active-project';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
@@ -40,6 +40,14 @@ const router = createRouter({
 
 /** Query client for state management */
 export const queryClient = new QueryClient({
+	queryCache: new QueryCache({
+		onError: (error, query) => {
+			if (matchQuery(trpc.organization.get.queryFilter(), query) && clearStaleActiveOrganization(error)) {
+				void queryClient.invalidateQueries();
+				void router.invalidate();
+			}
+		},
+	}),
 	defaultOptions: {
 		queries: {
 			retry: false,

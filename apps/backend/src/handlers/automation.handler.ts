@@ -16,6 +16,10 @@ import {
 	getAutomationIntegrationToolNames,
 	isGithubAutomationTool,
 } from '../services/automation-tools';
+import {
+	assertProjectCloudBillingAccess,
+	hasProjectCloudBillingAccess,
+} from '../services/cloud-billing-access.service';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
 import type { AutomationIntegrationResult } from '../types/automation';
@@ -37,6 +41,13 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	const automationId = payload.automationId;
 	if (!automationId) {
 		throw new Error('automationId is required.');
+	}
+	const automation = await automationQueries.getAutomationById(automationId);
+	if (!automation) {
+		throw new Error(`Automation not found: ${automationId}`);
+	}
+	if (!(await hasProjectCloudBillingAccess(automation.projectId))) {
+		return;
 	}
 	await runAutomation(automationId, { requireEnabled: true });
 }
@@ -69,6 +80,7 @@ async function createAutomationRun(
 	if (requireEnabled && !automation.enabled) {
 		throw new Error(`Automation is disabled: ${automationId}`);
 	}
+	await assertProjectCloudBillingAccess(automation.projectId);
 
 	const run = await automationQueries.createAutomationRun({
 		automationId,

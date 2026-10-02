@@ -29,6 +29,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
@@ -144,7 +145,10 @@ class TelegramService {
 		};
 
 		try {
-			await this._validateUserAccess(ctx);
+			if (!(await this._validateUserAccess(ctx))) {
+				return;
+			}
+			await assertProjectCloudBillingAccess(this._projectId);
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			await this._saveOrUpdateUserMessage(ctx);
 
@@ -155,18 +159,18 @@ class TelegramService {
 
 			await this._handleStreamAgent(chat, ctx);
 		} catch (error) {
+			const errorMessage = formatMessagingError(error);
 			if (!ctx.convMessage) {
+				await ctx.thread.post(errorMessage);
 				return;
 			}
-			const errorMessage = formatMessagingError(error);
 			ctx.blocks = [createPlainTextBlock(errorMessage)];
 			await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
 		}
 	}
 
-	private async _validateUserAccess(ctx: ConversationContext): Promise<void> {
-		await this._getUser(ctx);
-		await this._checkUserBelongsToProject(ctx);
+	private async _validateUserAccess(ctx: ConversationContext): Promise<boolean> {
+		return (await this._getUser(ctx)) && this._checkUserBelongsToProject(ctx);
 	}
 
 	private async _handleLoginCommand(thread: Thread, message: Message): Promise<void> {
@@ -198,7 +202,7 @@ class TelegramService {
 		return id ? String(id) : null;
 	}
 
-	private async _getUser(ctx: ConversationContext): Promise<void> {
+	private async _getUser(ctx: ConversationContext): Promise<boolean> {
 		const telegramId = this._getTelegramId(ctx.userMessage);
 		if (!telegramId) {
 			throw new Error('Could not retrieve user identity from Telegram');
@@ -209,26 +213,28 @@ class TelegramService {
 			await ctx.thread.post(
 				'👋 Welcome! Send `/login <your-code>` to link your account. Find your code in project settings.',
 			);
-			throw new Error('User not linked');
+			return false;
 		}
 		const user = await getUser({ email });
 
 		if (!user) {
 			this._userByTelegramId.delete(telegramId);
 			await ctx.thread.post(`❌ No account found for ${email}. Send \`/login\` again with the correct code.`);
-			throw new Error('User not found');
+			return false;
 		}
 		ctx.user = user;
+		return true;
 	}
 
-	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
+	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<boolean> {
 		const role = await projectQueries.getUserRoleInProject(this._projectId, ctx.user!.id);
 		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
 			await ctx.thread.post(
 				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
 			);
-			throw new Error('User does not have permission to access this project');
+			return false;
 		}
+		return true;
 	}
 
 	private async _saveOrUpdateUserMessage(ctx: ConversationContext): Promise<void> {

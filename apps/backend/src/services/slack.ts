@@ -63,6 +63,7 @@ import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
 import { readUserFileBytes } from './storage/user-files';
@@ -611,6 +612,7 @@ export class ProjectSlackBot {
 		this._activeStreamsByThread.set(ctx.thread.id, activeStream);
 
 		try {
+			await assertProjectCloudBillingAccess(this.projectId);
 			this._getSlackStreamState(ctx).messageTs = await this._postSlackCard(ctx, [
 				createTextBlock('✨ nao is answering...'),
 				createStopButtonActions(),

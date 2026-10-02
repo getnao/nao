@@ -14,13 +14,14 @@ import { ORG_ROLES } from '../types/organization';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
-import { assertOrganizationRolesAreEditable, protectedProcedure } from './trpc';
+import { assertOrganizationRolesAreEditable, protectedProcedure, resolveOrganizationMembership } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
-	if (!membership) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
-	}
+	const membership = await resolveOrganizationMembership(
+		ctx.user.id,
+		ctx.selectedProjectId,
+		ctx.selectedOrganizationId,
+	);
 
 	return next({ ctx: { org: membership.organization, orgRole: membership.role } });
 });

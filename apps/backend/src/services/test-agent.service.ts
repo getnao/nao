@@ -6,6 +6,7 @@ import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
 import { AgentRunResult, AgentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { runSqlOverQueryResults } from './duckdb.service';
 import { buildVerificationMessages } from './test-agent-verification';
 
@@ -77,6 +78,7 @@ export class TestAgentService extends AgentService {
 		if (queryResults.size === 0) {
 			return { data: null, sql: null, error: 'The agent did not run any SQL query.' };
 		}
+		await assertProjectCloudBillingAccess(projectId);
 
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);

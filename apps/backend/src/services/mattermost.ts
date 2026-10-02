@@ -30,6 +30,7 @@ import {
 	resolveMattermostCallbackBaseUrl,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import {
 	cacheMattermostEmail,
 	createMattermostActionSecret,
@@ -280,7 +281,10 @@ class ProjectMattermostBot {
 		};
 
 		try {
-			await this._validateUserAccess(ctx);
+			if (!(await this._validateUserAccess(ctx))) {
+				return;
+			}
+			await assertProjectCloudBillingAccess(this._config.projectId);
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			this._answerPostStates.set(ctx.convMessage.id, {
 				baseProps: getMattermostPostBaseProps(ctx.convMessage.raw),
@@ -297,10 +301,12 @@ class ProjectMattermostBot {
 
 			await this._handleStreamAgent(chat, ctx);
 		} catch (error) {
+			const errorMessage = formatMessagingError(error);
 			if (!ctx.convMessage) {
+				await ctx.thread.post(errorMessage);
 				return;
 			}
-			ctx.bodyParts = [formatMessagingError(error)];
+			ctx.bodyParts = [errorMessage];
 			await this._editAnswerMessage(ctx);
 		} finally {
 			if (ctx.convMessage) {
@@ -311,9 +317,8 @@ class ProjectMattermostBot {
 		}
 	}
 
-	private async _validateUserAccess(ctx: MattermostConversationContext): Promise<void> {
-		await this._getUser(ctx);
-		await this._checkUserBelongsToProject(ctx);
+	private async _validateUserAccess(ctx: MattermostConversationContext): Promise<boolean> {
+		return (await this._getUser(ctx)) && this._checkUserBelongsToProject(ctx);
 	}
 
 	private async _handleLoginCommand(thread: Thread, message: Message, code: string): Promise<void> {
@@ -342,7 +347,7 @@ class ProjectMattermostBot {
 		return raw?.user_id || null;
 	}
 
-	private async _getUser(ctx: MattermostConversationContext): Promise<void> {
+	private async _getUser(ctx: MattermostConversationContext): Promise<boolean> {
 		const mattermostId = this._getMattermostId(ctx.userMessage);
 		if (!mattermostId) {
 			throw new Error('Could not retrieve user identity from Mattermost');
@@ -353,9 +358,10 @@ class ProjectMattermostBot {
 			await ctx.thread.post(
 				'👋 I could not match your Mattermost email. Send `login <your-code>` to link manually. Find your code in project settings.',
 			);
-			throw new Error('User not linked');
+			return false;
 		}
 		ctx.user = user;
+		return true;
 	}
 
 	private async _resolveLinkedUser(message: Message): Promise<User | null> {
@@ -384,14 +390,15 @@ class ProjectMattermostBot {
 		}
 	}
 
-	private async _checkUserBelongsToProject(ctx: MattermostConversationContext): Promise<void> {
+	private async _checkUserBelongsToProject(ctx: MattermostConversationContext): Promise<boolean> {
 		const role = await projectQueries.getUserRoleInProject(this._config.projectId, ctx.user!.id);
 		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
 			await ctx.thread.post(
 				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
 			);
-			throw new Error('User does not have permission to access this project');
+			return false;
 		}
+		return true;
 	}
 
 	private async _saveOrUpdateUserMessage(ctx: MattermostConversationContext): Promise<void> {

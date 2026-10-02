@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
 		from: vi.fn(),
 		innerJoin: vi.fn(),
 		limit: vi.fn(),
+		orderBy: vi.fn(),
 		where: vi.fn(),
 	};
 	const insertBuilder = {
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => {
 		values: vi.fn(),
 	};
 
-	for (const method of ['from', 'innerJoin', 'limit', 'where'] as const) {
+	for (const method of ['from', 'innerJoin', 'limit', 'orderBy', 'where'] as const) {
 		selectBuilder[method].mockReturnValue(selectBuilder);
 	}
 	insertBuilder.values.mockReturnValue(insertBuilder);

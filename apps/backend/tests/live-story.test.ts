@@ -64,6 +64,10 @@ vi.mock('../src/services/agent', () => ({
 	MAX_OUTPUT_TOKENS: 4096,
 }));
 
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: vi.fn(),
+}));
+
 vi.mock('../src/services/local-query.service', () => ({
 	runQueryOnLocalFiles: mocks.runQueryOnLocalFiles,
 }));
@@ -87,9 +91,11 @@ vi.mock('../src/utils/story-query-data', () => ({
 	findMissingQueryIds: mocks.findMissingQueryIds,
 }));
 
+import { assertProjectCloudBillingAccess } from '../src/services/cloud-billing-access.service';
 import {
 	createStoryExecutionContext,
 	executeLiveQuery,
+	executeRawSql,
 	getStoryQueryData,
 	refreshStoryData,
 } from '../src/services/live-story';
@@ -243,6 +249,9 @@ describe('live story SQL execution', () => {
 			code,
 		});
 
+		expect(mocks.queryAppDb).not.toHaveBeenCalled();
+		expect(assertProjectCloudBillingAccess).toHaveBeenCalledOnce();
+		expect(fetchMock).toHaveBeenCalledOnce();
 		expect(mocks.buildToolContext).toHaveBeenCalledWith({
 			projectId: 'project-1',
 			userId: 'owner-1',
@@ -435,6 +444,16 @@ describe('live story SQL execution', () => {
 			cachedAt: cache.cachedAt,
 			code,
 		});
+	});
+
+	it('does not run warehouse SQL when cloud billing access is restricted', async () => {
+		vi.mocked(assertProjectCloudBillingAccess).mockRejectedValueOnce(new Error('restricted'));
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		const executionContext = await createStoryExecutionContext('chat-1');
+
+		await expect(executeRawSql('SELECT * FROM orders', { executionContext })).rejects.toThrow('restricted');
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('falls back to stored data when refresh fails without a cache', async () => {

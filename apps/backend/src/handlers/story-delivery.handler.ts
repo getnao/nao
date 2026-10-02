@@ -10,6 +10,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
+import { hasProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { refreshStoryData } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
@@ -61,6 +62,9 @@ export async function runScheduledStoryDelivery(
 	await withKeyedLock(`story:${storyId}`, async () => {
 		const context = await loadDeliveryContext(storyId);
 		if (!context) {
+			return;
+		}
+		if (!(await hasProjectCloudBillingAccess(context.projectId))) {
 			return;
 		}
 		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug);

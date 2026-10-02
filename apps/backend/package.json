@@ -109,6 +109,7 @@
 		"puppeteer-core": "^25.9.0",
 		"react": "^19.2.4",
 		"react-dom": "^19.2.4",
+		"stripe": "^22.6.2",
 		"superjson": "^2.2.6",
 		"unpdf": "^1.8.0",
 		"zod": "^4.2.1"

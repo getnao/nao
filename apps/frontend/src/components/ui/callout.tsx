@@ -1,14 +1,12 @@
 import { AlertTriangle, Info } from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentProps, ComponentType } from 'react';
 import { cn } from '@/lib/utils';
 
 type CalloutVariant = 'info' | 'warning' | 'destructive';
 
-interface CalloutProps {
-	children: ReactNode;
+interface CalloutProps extends ComponentProps<'div'> {
 	variant?: CalloutVariant;
 	icon?: ComponentType<{ className?: string }>;
-	className?: string;
 }
 
 const variantStyles: Record<
@@ -16,8 +14,8 @@ const variantStyles: Record<
 	{ container: string; icon: string; defaultIcon: ComponentType<{ className?: string }> }
 > = {
 	info: {
-		container: 'border-input bg-muted/40 text-muted-foreground',
-		icon: 'text-muted-foreground',
+		container: 'border-primary/20 bg-primary/5 text-muted-foreground',
+		icon: 'text-primary',
 		defaultIcon: Info,
 	},
 	warning: {
@@ -32,11 +30,12 @@ const variantStyles: Record<
 	},
 };
 
-export function Callout({ children, variant = 'info', icon, className }: CalloutProps) {
+export function Callout({ children, variant = 'info', icon, className, ...props }: CalloutProps) {
 	const styles = variantStyles[variant];
 	const Icon = icon ?? styles.defaultIcon;
 	return (
 		<div
+			{...props}
 			className={cn(
 				'flex gap-2 rounded-md border px-3 py-2 text-[11px] leading-relaxed',
 				styles.container,
@@ -44,7 +43,7 @@ export function Callout({ children, variant = 'info', icon, className }: Callout
 			)}
 		>
 			<Icon className={cn('size-3.5 shrink-0 mt-0.5', styles.icon)} />
-			<span>{children}</span>
+			<div className='min-w-0 flex-1'>{children}</div>
 		</div>
 	);
 }

@@ -33,7 +33,60 @@ describe('NAO_CONTEXT_SOURCE', () => {
 	});
 });
 
+describe('cloud billing environment', () => {
+	it('is disabled by default', () => {
+		expect(loadEnvWithOverrides({ NAO_MODE: 'cloud' }).status).toBe(0);
+	});
+
+	it('requires Stripe configuration when enabled in cloud mode', () => {
+		const result = loadEnvWithOverrides({
+			CLOUD_BILLING_ENABLED: 'true',
+			NAO_MODE: 'cloud',
+		});
+
+		expect(result.status).toBe(1);
+		for (const variable of [
+			'STRIPE_SECRET_KEY',
+			'STRIPE_WEBHOOK_SECRET',
+			'STRIPE_CLOUD_PRODUCT_ID',
+			'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
+		]) {
+			expect(result.stderr).toContain(`${variable} is required when cloud billing is enabled`);
+		}
+	});
+
+	it('remains inactive in self-hosted mode', () => {
+		const result = loadEnvWithOverrides({
+			CLOUD_BILLING_ENABLED: 'true',
+			NAO_MODE: 'self-hosted',
+		});
+
+		expect(result.status).toBe(0);
+	});
+
+	it('accepts the minimal Stripe configuration', () => {
+		const result = loadEnvWithOverrides({
+			CLOUD_BILLING_ENABLED: 'true',
+			NAO_MODE: 'cloud',
+			STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
+			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'nao_cloud_monthly_v2',
+			STRIPE_SECRET_KEY: 'sk_test_sandbox',
+			STRIPE_WEBHOOK_SECRET: 'whsec_sandbox',
+		});
+
+		expect(result.status).toBe(0);
+	});
+});
+
 function loadEnv(mode: 'cloud' | 'self-hosted', contextSource: (typeof contextSources)[number]) {
+	return loadEnvWithOverrides({
+		NAO_CONTEXT_SOURCE: contextSource,
+		NAO_DEFAULT_PROJECT_PATH: '',
+		NAO_MODE: mode,
+	});
+}
+
+function loadEnvWithOverrides(overrides: NodeJS.ProcessEnv) {
 	const { backendDirectory, temporaryDirectory } = createIsolatedBackendDirectory();
 
 	try {
@@ -42,9 +95,7 @@ function loadEnv(mode: 'cloud' | 'self-hosted', contextSource: (typeof contextSo
 			encoding: 'utf8',
 			env: {
 				PATH: process.env.PATH,
-				NAO_CONTEXT_SOURCE: contextSource,
-				NAO_DEFAULT_PROJECT_PATH: '',
-				NAO_MODE: mode,
+				...overrides,
 			},
 		});
 	} finally {

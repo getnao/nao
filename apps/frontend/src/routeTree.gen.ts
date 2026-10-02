@@ -62,6 +62,7 @@ import { Route as SidebarLayoutSettingsProjectIntegrationsRouteImport } from './
 import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
 import { Route as SidebarLayoutSettingsOrganizationMembersRouteImport } from './routes/_sidebar-layout.settings.organization.members'
+import { Route as SidebarLayoutSettingsOrganizationBillingRouteImport } from './routes/_sidebar-layout.settings.organization.billing'
 import { Route as SidebarLayoutSettingsProjectUserGroupsIndexRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.index'
 import { Route as SidebarLayoutSettingsProjectIntegrationsIndexRouteImport } from './routes/_sidebar-layout.settings.project.integrations.index'
 import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from './routes/_sidebar-layout.stories.preview.$chatId.$storySlug'
@@ -374,6 +375,12 @@ const SidebarLayoutSettingsOrganizationMembersRoute =
     path: '/members',
     getParentRoute: () => SidebarLayoutSettingsOrganizationRoute,
   } as any)
+const SidebarLayoutSettingsOrganizationBillingRoute =
+  SidebarLayoutSettingsOrganizationBillingRouteImport.update({
+    id: '/billing',
+    path: '/billing',
+    getParentRoute: () => SidebarLayoutSettingsOrganizationRoute,
+  } as any)
 const SidebarLayoutSettingsProjectUserGroupsIndexRoute =
   SidebarLayoutSettingsProjectUserGroupsIndexRouteImport.update({
     id: '/',
@@ -462,6 +469,7 @@ export interface FileRoutesByFullPath {
   '/feed/': typeof SidebarLayoutFeedIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
+  '/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
@@ -521,6 +529,7 @@ export interface FileRoutesByTo {
   '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
+  '/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
@@ -584,6 +593,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/feed/': typeof SidebarLayoutFeedIndexRoute
   '/_sidebar-layout/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/_sidebar-layout/stories/': typeof SidebarLayoutStoriesIndexRoute
+  '/_sidebar-layout/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/_sidebar-layout/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
@@ -648,6 +658,7 @@ export interface FileRouteTypes {
     | '/feed/'
     | '/settings/'
     | '/stories/'
+    | '/settings/organization/billing'
     | '/settings/organization/members'
     | '/settings/project/agent'
     | '/settings/project/budgets'
@@ -707,6 +718,7 @@ export interface FileRouteTypes {
     | '/feed'
     | '/settings'
     | '/stories'
+    | '/settings/organization/billing'
     | '/settings/organization/members'
     | '/settings/project/agent'
     | '/settings/project/budgets'
@@ -769,6 +781,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/feed/'
     | '/_sidebar-layout/settings/'
     | '/_sidebar-layout/stories/'
+    | '/_sidebar-layout/settings/organization/billing'
     | '/_sidebar-layout/settings/organization/members'
     | '/_sidebar-layout/settings/project/agent'
     | '/_sidebar-layout/settings/project/budgets'
@@ -1183,6 +1196,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsOrganizationMembersRouteImport
       parentRoute: typeof SidebarLayoutSettingsOrganizationRoute
     }
+    '/_sidebar-layout/settings/organization/billing': {
+      id: '/_sidebar-layout/settings/organization/billing'
+      path: '/billing'
+      fullPath: '/settings/organization/billing'
+      preLoaderRoute: typeof SidebarLayoutSettingsOrganizationBillingRouteImport
+      parentRoute: typeof SidebarLayoutSettingsOrganizationRoute
+    }
     '/_sidebar-layout/settings/project/user-groups/': {
       id: '/_sidebar-layout/settings/project/user-groups/'
       path: '/'
@@ -1269,12 +1289,15 @@ const SidebarLayoutChatLayoutRouteWithChildren =
   )
 
 interface SidebarLayoutSettingsOrganizationRouteChildren {
+  SidebarLayoutSettingsOrganizationBillingRoute: typeof SidebarLayoutSettingsOrganizationBillingRoute
   SidebarLayoutSettingsOrganizationMembersRoute: typeof SidebarLayoutSettingsOrganizationMembersRoute
   SidebarLayoutSettingsOrganizationIndexRoute: typeof SidebarLayoutSettingsOrganizationIndexRoute
 }
 
 const SidebarLayoutSettingsOrganizationRouteChildren: SidebarLayoutSettingsOrganizationRouteChildren =
   {
+    SidebarLayoutSettingsOrganizationBillingRoute:
+      SidebarLayoutSettingsOrganizationBillingRoute,
     SidebarLayoutSettingsOrganizationMembersRoute:
       SidebarLayoutSettingsOrganizationMembersRoute,
     SidebarLayoutSettingsOrganizationIndexRoute:

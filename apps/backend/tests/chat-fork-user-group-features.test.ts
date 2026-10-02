@@ -43,6 +43,9 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: vi.fn(),
+}));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));

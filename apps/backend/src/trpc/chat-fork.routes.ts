@@ -7,6 +7,7 @@ import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { compactionService } from '../services/compaction';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
@@ -49,6 +50,7 @@ export const chatForkRoutes = {
 			if (story.chatId) {
 				return { chatId: story.chatId };
 			}
+			await assertProjectCloudBillingAccess(ctx.project.id);
 
 			const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 			const seedMessages = cache?.queryData
@@ -99,6 +101,7 @@ async function forkSharedChat(
 	userId: string,
 ): Promise<{ chatId: string }> {
 	const share = await resolveSharedChat(shareId, userId);
+	await assertProjectCloudBillingAccess(share.projectId);
 
 	const forkMetadata: ForkMetadata = selection
 		? buildSelectionMetadata('chat_selection', shareId, share.title, share.authorName, selection)
@@ -135,6 +138,7 @@ async function forkSharedStoryItem(
 ): Promise<{ chatId: string }> {
 	const share = await resolveSharedStory(shareId, userId);
 	const projectId = share.projectId;
+	await assertProjectCloudBillingAccess(projectId);
 	if (userId !== share.userId) {
 		await assertUserGroupFeatureForTrpc(projectId, userId, 'storyCreation');
 	}
