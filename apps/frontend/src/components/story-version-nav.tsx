@@ -4,7 +4,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuRadioGroup,
-	DropdownMenuCheckboxItem,
+	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -54,7 +54,7 @@ export function StoryVersionNav({ currentVersion, versionDates, onSelectVersion 
 				<Button
 					variant='ghost-muted'
 					size='sm'
-					className={'text-foreground' + VERSION_LABEL_CLASS_NAME}
+					className={cn('text-foreground', VERSION_LABEL_CLASS_NAME)}
 					aria-label='Select version'
 					title={currentVersionDate ? formatVersionDate(currentVersionDate) : undefined}
 				>
@@ -67,14 +67,15 @@ export function StoryVersionNav({ currentVersion, versionDates, onSelectVersion 
 					onValueChange={(value) => onSelectVersion(Number(value))}
 				>
 					{versionsNewestFirst.map(({ version, date }) => (
-						<DropdownMenuCheckboxItem
-							checked={version === currentVersion}
+						<DropdownMenuRadioItem
+							key={version}
+							value={String(version)}
+							indicator='check'
 							onSelect={(event) => event.preventDefault()}
-							onCheckedChange={() => onSelectVersion(version)}
 							className='pr-7 pl-2 text-xs tabular-nums [&>span:first-child]:right-2 [&>span:first-child]:left-auto'
 						>
 							{formatVersionDate(date)}
-						</DropdownMenuCheckboxItem>
+						</DropdownMenuRadioItem>
 					))}
 				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>

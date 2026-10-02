@@ -12,6 +12,7 @@ export interface StoryBuildRequest {
 	entry: string;
 	files: Record<string, string>;
 	allowedImports: string[];
+	fontStylesheetHosts: string[];
 	documentSlots: { head: string; body: string };
 }
 
@@ -54,11 +55,14 @@ export async function storyBuildWorker(): Promise<void> {
 		return filePath === undefined ? undefined : (virtualFileNames.get(filePath) ?? filePath);
 	};
 
-	const normalize = (filePath: string): string => {
+	/** Null when the path climbs above the story root. */
+	const normalize = (filePath: string): string | null => {
 		const segments: string[] = [];
 		for (const segment of filePath.split('/')) {
 			if (segment === '..') {
-				segments.pop();
+				if (segments.pop() === undefined) {
+					return null;
+				}
 			} else if (segment !== '.' && segment !== '') {
 				segments.push(segment);
 			}
@@ -69,6 +73,9 @@ export async function storyBuildWorker(): Promise<void> {
 	const resolveRelative = (importer: string, specifier: string): string | null => {
 		const directory = importer.includes('/') ? importer.slice(0, importer.lastIndexOf('/')) : '';
 		const base = normalize(directory ? `${directory}/${specifier}` : specifier);
+		if (base === null) {
+			return null;
+		}
 		const candidates = [
 			base,
 			...RESOLVE_EXTENSIONS.map((extension) => `${base}.${extension}`),
@@ -126,6 +133,15 @@ export async function storyBuildWorker(): Promise<void> {
 
 	const isLocalPath = (value: string): boolean => !isRemoteUrl(value) && !value.startsWith('/');
 
+	const isAllowedFontStylesheet = (value: string): boolean => {
+		try {
+			const url = new URL(value);
+			return url.protocol === 'https:' && request.fontStylesheetHosts.includes(url.hostname);
+		} catch {
+			return false;
+		}
+	};
+
 	/**
 	 * Moves every executable `<script>` of the HTML entry, inline or local, into one virtual module that imports
 	 * them in document order: the frame's CSP only runs the host's hashed boot script, which loads the bundle.
@@ -168,6 +184,16 @@ export async function storyBuildWorker(): Promise<void> {
 				return;
 			}
 			imports.push(resolved);
+		};
+
+		/** The frame's security policy would drop any other remote stylesheet silently, so the agent learns now. */
+		const checkRemoteStylesheetLink = (href: string): void => {
+			if (!isAllowedFontStylesheet(href)) {
+				diagnostics.push({
+					file: request.entry,
+					message: `<link href="${href}"> is blocked by the story's security policy: only font stylesheets (${request.fontStylesheetHosts.join(', ')}) may be remote. Write the styles in a .css file of the story instead.`,
+				});
+			}
 		};
 
 		/** Every stylesheet of the story is inlined by the host, so a local link is only checked, then dropped. */
@@ -257,7 +283,11 @@ export async function storyBuildWorker(): Promise<void> {
 			.on('link[rel~="stylesheet"]', {
 				element(element) {
 					const href = element.getAttribute('href');
-					if (href === null || !isLocalPath(href)) {
+					if (href === null) {
+						return;
+					}
+					if (!isLocalPath(href)) {
+						checkRemoteStylesheetLink(href);
 						return;
 					}
 					addStylesheetLink(href);
@@ -370,7 +400,7 @@ export async function storyBuildWorker(): Promise<void> {
 							? args.path.slice(NAMESPACE.length + 1)
 							: args.path;
 						if (args.importer === '') {
-							return { path: normalize(specifier), namespace: NAMESPACE };
+							return { path: normalize(specifier) ?? specifier, namespace: NAMESPACE };
 						}
 						if (allowed.has(specifier)) {
 							return { path: specifier, external: true };

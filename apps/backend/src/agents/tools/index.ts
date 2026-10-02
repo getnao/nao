@@ -2,6 +2,7 @@ export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
 import type { CustomBoundarySet } from '@nao/shared';
+import { writeFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
@@ -164,6 +165,7 @@ export const getTools = (
 			write: {
 				...writeTool,
 				description: buildWriteToolDescription({ customStories: customStoryAuthoring, canReplace }),
+				inputSchema: writeFile.buildInputSchema({ customStories: customStoryAuthoring }),
 			},
 		};
 	}

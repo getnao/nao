@@ -185,4 +185,33 @@ describe('buildStoryApp html entry', () => {
 
 		expect(result.ok && result.app.bundle).toContain('from chart');
 	});
+
+	it('refuses remote stylesheets other than font providers', async () => {
+		const result = await buildStoryApp([
+			manifest,
+			{
+				path: 'index.html',
+				content:
+					'<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"><link rel="stylesheet" href="https://cdn.example/app.css"></head><body></body></html>',
+			},
+		]);
+
+		expect(result).toEqual({
+			ok: false,
+			errors: [expect.stringContaining('<link href="https://cdn.example/app.css"> is blocked')],
+		});
+	});
+
+	it('refuses imports that climb above the story root', async () => {
+		const result = await buildStoryApp([
+			{ path: 'nao.json', content: '{"entry": "pages/index.html"}' },
+			{
+				path: 'pages/index.html',
+				content: '<html><head></head><body><script type="module">import "../../lib.js";</script></body></html>',
+			},
+			{ path: 'lib.js', content: 'document.title = "from root";' },
+		]);
+
+		expect(result.ok).toBe(false);
+	});
 });

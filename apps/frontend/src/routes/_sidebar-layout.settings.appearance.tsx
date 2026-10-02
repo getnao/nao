@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useRef } from 'react';
 import type { TabBarItem } from '@/components/ui/tab-bar';
@@ -14,6 +15,7 @@ import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { requireNonViewer } from '@/lib/require-admin';
+import { trpc } from '@/main';
 
 type AppearanceTab = 'general' | 'custom-stories';
 
@@ -39,6 +41,7 @@ function AppearancePage() {
 	const { tab } = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const { isAdmin } = usePermissions();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const sidePanel = useSidePanel({
@@ -49,7 +52,7 @@ function AppearancePage() {
 	});
 
 	return (
-		<StoryThemeEditorProvider>
+		<StoryThemeEditorProvider key={project.data?.id}>
 			<SidePanelProvider
 				isVisible={sidePanel.isVisible}
 				currentStorySlug={sidePanel.currentStorySlug}

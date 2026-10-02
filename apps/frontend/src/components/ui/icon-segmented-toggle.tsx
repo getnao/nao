@@ -30,6 +30,7 @@ export function IconSegmentedToggle<Value extends string>({
 			{options.map(({ value: option, label, icon: Icon }) => (
 				<SimpleTooltip key={option} content={label}>
 					<Button
+						type='button'
 						variant='ghost'
 						className={cn(
 							'size-5.5 px-2',

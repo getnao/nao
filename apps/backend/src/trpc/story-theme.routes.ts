@@ -13,6 +13,7 @@ import * as storyThemeQueries from '../queries/story-theme.queries';
 import { generateStoryThemePairFromSources } from '../services/story-theme/generate';
 import { DesignSourceError } from '../services/story-theme/signals';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
+import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 const base64Length = (bytes: number): number => 4 * Math.ceil(bytes / 3);
 
@@ -44,8 +45,9 @@ const storyThemeReadProcedure = projectProtectedProcedure.use(async ({ next }) =
 	return next();
 });
 
-const storyThemeAdminProcedure = adminProtectedProcedure.use(async ({ next }) => {
+const storyThemeAdminProcedure = adminProtectedProcedure.use(async ({ ctx, next }) => {
 	assertCustomStoriesEnabled();
+	await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'customStoryCreation');
 	return next();
 });
 

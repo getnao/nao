@@ -10,12 +10,15 @@ import {
 import { Button } from '@/components/ui/button';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useIsMobile } from '@/hooks/use-is-mobile';
+import { cn } from '@/lib/utils';
 import { storyBlockEditStore } from '@/stores/story-block-edit';
 
 export function StoryBlockEditPanel({ chatId }: { chatId: string }) {
 	const target = useSyncExternalStore(storyBlockEditStore.subscribe, storyBlockEditStore.getSnapshot);
 	const { running: isRunning } = useChatActivity(chatId);
 	const { isVisible, currentStorySlug } = useSidePanel();
+	const isMobile = useIsMobile();
 	const isStale =
 		target !== null && (target.chatId !== chatId || !isVisible || target.storySlug !== currentStorySlug);
 
@@ -31,8 +34,11 @@ export function StoryBlockEditPanel({ chatId }: { chatId: string }) {
 
 	return (
 		<div
-			className='absolute inset-x-0 top-0 z-20 md:mx-3 md:my-3 rounded-2xl flex flex-col border bg-background'
-			style={{ bottom: 'var(--chat-input-height)' }}
+			className={cn(
+				'flex flex-col border bg-background',
+				isMobile ? 'fixed inset-0 z-50' : 'absolute inset-x-0 top-0 z-20 mx-3 my-3 rounded-2xl',
+			)}
+			style={isMobile ? undefined : { bottom: 'var(--chat-input-height)' }}
 			data-selection-ignore
 		>
 			<div className='flex shrink-0 items-start justify-between gap-2 px-6 pt-4 pb-2'>

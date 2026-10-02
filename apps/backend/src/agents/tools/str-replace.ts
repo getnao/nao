@@ -11,6 +11,7 @@ import {
 	writeStoryMountFile,
 } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { withKeyedLock } from '../../utils/keyed-lock';
 import { isStoriesPath, STORIES_MOUNT } from '../../utils/story-mount';
 import {
 	createTool,
@@ -60,9 +61,11 @@ type Edit = Omit<strReplace.Input, 'file_path'>;
 type Edited = Omit<strReplace.Output, '_version'>;
 
 const editStoryFile = async (filePath: string, edit: Edit, context: ToolContext): Promise<Edited> => {
-	const current = await readStoryMountFile(context.chatId, filePath);
-	const { content, replacements } = strReplace.applyReplacement(current, edit);
-	return { ...(await writeStoryMountFile(context.chatId, filePath, content)), replacements };
+	return withKeyedLock(`str-replace:story:${context.chatId}:${filePath}`, async () => {
+		const current = await readStoryMountFile(context.chatId, filePath);
+		const { content, replacements } = strReplace.applyReplacement(current, edit);
+		return { ...(await writeStoryMountFile(context.chatId, filePath, content)), replacements };
+	});
 };
 
 const editStorageFile = async (filePath: string, edit: Edit, context: ToolContext): Promise<Edited> => {
@@ -73,14 +76,16 @@ const editStorageFile = async (filePath: string, edit: Edit, context: ToolContex
 			`Cannot edit '${filePath}': it is not a text file. Use write to save a new text version instead.`,
 		);
 	}
-	const current = await readUserFile(scope, relativePath);
-	const { content, replacements } = strReplace.applyReplacement(current, edit);
-	const object = await writeUserFile(scope, relativePath, content);
-	return {
-		path: toStorageVirtualPath(relativePathFromKey(scope, object.key)),
-		size: object.size,
-		replacements,
-	};
+	return withKeyedLock(`str-replace:storage:${scope.projectId}:${scope.userId}:${relativePath}`, async () => {
+		const current = await readUserFile(scope, relativePath);
+		const { content, replacements } = strReplace.applyReplacement(current, edit);
+		const object = await writeUserFile(scope, relativePath, content);
+		return {
+			path: toStorageVirtualPath(relativePathFromKey(scope, object.key)),
+			size: object.size,
+			replacements,
+		};
+	});
 };
 
 const editableTargetsHint = (): string => {

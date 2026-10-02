@@ -39,7 +39,7 @@ export function buildWriteToolDescription({
 
 export default createTool<writeFile.Input, writeFile.Output>({
 	description: buildWriteToolDescription(),
-	inputSchema: writeFile.InputSchema,
+	inputSchema: writeFile.buildInputSchema({ customStories: isCustomStoriesEnabled() }),
 	outputSchema: writeFile.OutputSchema,
 	execute: async ({ file_path, content }, context) => {
 		if (isStoriesPath(file_path)) {

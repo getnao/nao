@@ -8,7 +8,7 @@ import {
 	STORY_DOCUMENT_SLOTS,
 	type StoryApp,
 } from '@nao/shared/story-app';
-import { isAllowedFontStylesheet } from '@nao/shared/story-theme';
+import { FONT_STYLESHEET_HOSTS, isAllowedFontStylesheet } from '@nao/shared/story-theme';
 
 import {
 	type StoryBuildDiagnostic,
@@ -51,8 +51,12 @@ export async function buildStoryApp(files: StorySourceFile[]): Promise<StoryBuil
 		entry: entry.path,
 		files: sources,
 		allowedImports: [...STORY_APP_ALLOWED_IMPORTS],
+		fontStylesheetHosts: [...FONT_STYLESHEET_HOSTS],
 		documentSlots: STORY_DOCUMENT_SLOTS,
-	});
+	}).catch((error: unknown) => error as Error);
+	if (response instanceof Error) {
+		return { ok: false, errors: [response.message] };
+	}
 	if (!response.ok) {
 		return { ok: false, errors: response.diagnostics.map(formatDiagnostic) };
 	}
@@ -104,7 +108,7 @@ function resolveEntry(sources: Record<string, string>): { ok: true; path: string
 /** The frame's content security policy would drop these silently, so the agent learns at build time instead. */
 function remoteStylesheetErrors(files: StorySourceFile[]): string[] {
 	return files
-		.filter((file) => file.path.endsWith('.css'))
+		.filter((file) => file.path.toLowerCase().endsWith('.css'))
 		.flatMap((file) => {
 			return [...file.content.matchAll(REMOTE_STYLE_IMPORT)]
 				.filter((match) => !isAllowedFontStylesheet(match[1]))

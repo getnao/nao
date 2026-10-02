@@ -95,6 +95,7 @@ const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leafl
 const RASTER_TILE_URL = process.env.NAO_STORY_MAP_RASTER_URL || STORY_MAP_TILE_LAYERS.light.url;
 const RASTER_TILE_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || STORY_MAP_TILE_LAYERS.light.attribution;
 const RASTER_TILE_SUBDOMAINS = process.env.NAO_STORY_MAP_RASTER_SUBDOMAINS || 'abcd';
+const RASTER_TILE_MAX_ZOOM = process.env.NAO_STORY_MAP_RASTER_URL ? 19 : STORY_MAP_TILE_LAYERS.light.maxZoom;
 
 type InlinedBoundaries = Map<string, { geojson: unknown; joinProps: string[] | null }>;
 type Basemaps = Map<string, Basemap>;
@@ -1539,7 +1540,8 @@ export function renderMapScript(): string {
 function renderStaticMapScript(): string {
 	return LEAFLET_MAP_SCRIPT_TEMPLATE.replace('__TILE_URL__', JSON.stringify(RASTER_TILE_URL))
 		.replace('__TILE_ATTRIBUTION__', JSON.stringify(RASTER_TILE_ATTRIBUTION))
-		.replace('__TILE_SUBDOMAINS__', JSON.stringify(RASTER_TILE_SUBDOMAINS));
+		.replace('__TILE_SUBDOMAINS__', JSON.stringify(RASTER_TILE_SUBDOMAINS))
+		.replace('__TILE_MAX_ZOOM__', String(RASTER_TILE_MAX_ZOOM));
 }
 
 /**
@@ -1624,7 +1626,7 @@ const STATIC_SVG_SCRIPT_TEMPLATE = `
 const LEAFLET_MAP_SCRIPT_TEMPLATE = `
 (function(){
 	if(typeof L==='undefined')return;
-	var TILE_URL=__TILE_URL__,TILE_ATTRIBUTION=__TILE_ATTRIBUTION__,TILE_SUBDOMAINS=__TILE_SUBDOMAINS__;
+	var TILE_URL=__TILE_URL__,TILE_ATTRIBUTION=__TILE_ATTRIBUTION__,TILE_SUBDOMAINS=__TILE_SUBDOMAINS__,TILE_MAX_ZOOM=__TILE_MAX_ZOOM__;
 	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 	function tooltipHtml(label,rows){
 		var parts=[];
@@ -1645,7 +1647,7 @@ const LEAFLET_MAP_SCRIPT_TEMPLATE = `
 		container.insertBefore(canvas,container.firstChild);
 		var map;
 		try{map=L.map(canvas,{attributionControl:true,scrollWheelZoom:false,zoomControl:true});}catch(e){canvas.remove();return;}
-		L.tileLayer(TILE_URL,{subdomains:TILE_SUBDOMAINS,attribution:TILE_ATTRIBUTION,maxZoom:19}).addTo(map);
+		L.tileLayer(TILE_URL,{subdomains:TILE_SUBDOMAINS,attribution:TILE_ATTRIBUTION,maxZoom:TILE_MAX_ZOOM}).addTo(map);
 		var layers=[];
 		if(cfg.type==='choropleth'){
 			(cfg.regions||[]).forEach(function(region){

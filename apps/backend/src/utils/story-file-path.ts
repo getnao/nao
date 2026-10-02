@@ -35,7 +35,7 @@ export function normalizeStoryFilePath(raw: string): string {
 	return segments.join('/');
 }
 
-const SENSITIVE_FILE_NAME = /(secret|credential|password|passwd|token|api[-_]?key|private[-_]?key|\benv\b)/i;
+const SENSITIVE_FILE_NAME = /(secret|credential|password|passwd|token|api[-_.]?key|private[-_.]?key|\benv\b)/i;
 
 export function isViewableStoryFile(path: string): boolean {
 	return !path.split(/[\\/]/).some((segment) => SENSITIVE_FILE_NAME.test(segment));

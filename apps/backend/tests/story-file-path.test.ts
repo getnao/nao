@@ -7,10 +7,15 @@ describe('isViewableStoryFile', () => {
 		expect(isViewableStoryFile(path)).toBe(true);
 	});
 
-	it.each(['secret.ts', 'config/api-key.json', 'secrets/config.json', 'private-key/a.ts', 'lib\\secrets\\a.ts'])(
-		'hides %s',
-		(path) => {
-			expect(isViewableStoryFile(path)).toBe(false);
-		},
-	);
+	it.each([
+		'secret.ts',
+		'config/api-key.json',
+		'api.key.json',
+		'private.key.json',
+		'secrets/config.json',
+		'private-key/a.ts',
+		'lib\\secrets\\a.ts',
+	])('hides %s', (path) => {
+		expect(isViewableStoryFile(path)).toBe(false);
+	});
 });
