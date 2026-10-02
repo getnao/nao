@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ class BigQueryDatabaseContext(DatabaseContext):
             query = f"""
                 SELECT SUM(total_rows)
                 FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.PARTITIONS`
-                WHERE table_name = '{self._table_name}'
+                WHERE table_name = '{quote_sql_literal(self._table_name)}'
             """
             row = next(iter(self._conn.raw_sql(query)), None)  # type: ignore[union-attr]
             if row is not None and row[0] is not None:
@@ -249,7 +249,7 @@ class BigQueryDatabaseContext(DatabaseContext):
             part_query = f"""
                 SELECT ARRAY_AGG(partition_id ORDER BY partition_id DESC LIMIT 2)
                 FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.PARTITIONS`
-                WHERE table_name = '{self._table_name}' AND partition_id != '__NULL__'
+                WHERE table_name = '{quote_sql_literal(self._table_name)}' AND partition_id != '__NULL__'
             """
             first_row = next(iter(self._conn.raw_sql(part_query)), None)  # type: ignore[union-attr]
             partitions = first_row[0] if first_row and first_row[0] else []
@@ -258,7 +258,7 @@ class BigQueryDatabaseContext(DatabaseContext):
             col_query = f"""
                 SELECT column_name, data_type
                 FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.COLUMNS`
-                WHERE table_name = '{self._table_name}' AND is_partitioning_column = 'YES'
+                WHERE table_name = '{quote_sql_literal(self._table_name)}' AND is_partitioning_column = 'YES'
                 LIMIT 1
             """
             col_row = next(iter(self._conn.raw_sql(col_query)), None)  # type: ignore[union-attr]
@@ -304,6 +304,10 @@ class BigQueryDatabaseContext(DatabaseContext):
         return native_types, descriptions
 
     def _quote(self, name: str) -> str:
+        # BigQuery has no escape for a backtick inside a quoted identifier, and no BigQuery
+        # object name may contain one, so a name carrying it cannot be quoted safely.
+        if "`" in name:
+            raise ValueError(f"Invalid BigQuery identifier {name!r}: backticks are not allowed.")
         return f"`{name}`"
 
     def _cast_float(self, expr: str) -> str:
