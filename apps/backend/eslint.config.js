@@ -10,6 +10,6 @@ export default [
 		},
 	},
 	{
-		ignores: ['migrations/', 'projects/'],
+		ignores: ['migrations/', 'projects/', 'storage/'],
 	},
 ];

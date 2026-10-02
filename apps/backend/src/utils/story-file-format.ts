@@ -1,6 +1,7 @@
 import type { Options, Plugin } from 'prettier';
 import * as babelPlugin from 'prettier/plugins/babel';
 import * as estreePlugin from 'prettier/plugins/estree';
+import * as htmlPlugin from 'prettier/plugins/html';
 import * as postcssPlugin from 'prettier/plugins/postcss';
 import { format } from 'prettier/standalone';
 
@@ -11,11 +12,12 @@ const PARSER_BY_EXTENSION: Record<string, string> = {
 	jsx: 'babel',
 	ts: 'babel-ts',
 	tsx: 'babel-ts',
+	html: 'html',
 	css: 'css',
 	json: 'json',
 };
 
-const PLUGINS: Plugin[] = [babelPlugin, estreePlugin, postcssPlugin];
+const PLUGINS: Plugin[] = [babelPlugin, estreePlugin, htmlPlugin, postcssPlugin];
 
 const OPTIONS: Options = {
 	plugins: PLUGINS,

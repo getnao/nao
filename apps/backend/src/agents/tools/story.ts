@@ -381,7 +381,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 				{ storyId: existingStory.id, action: 'publish', source: 'assistant' },
 				tx,
 			);
-			await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
+			await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
 			if (cut.version.version === 1) {
 				await storyFolderQueries.saveStoryInPrivateRoot(
 					context.userId,

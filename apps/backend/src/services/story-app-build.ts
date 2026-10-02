@@ -5,6 +5,8 @@ import {
 	STORY_APP_ALLOWED_IMPORTS,
 	STORY_APP_ENTRY_CANDIDATES,
 	STORY_APP_MANIFEST_PATH,
+	STORY_DOCUMENT_SLOTS,
+	type StoryApp,
 } from '@nao/shared/story-app';
 import { isAllowedFontStylesheet } from '@nao/shared/story-theme';
 
@@ -28,7 +30,7 @@ export interface StorySourceFile {
 	content: string;
 }
 
-export type StoryBuildResult = { ok: true; bundle: string; entry: string } | { ok: false; errors: string[] };
+export type StoryBuildResult = { ok: true; app: StoryApp; entry: string } | { ok: false; errors: string[] };
 
 const BUILD_TIMEOUT_MS = 20_000;
 const STDERR_TAIL_CHARS = 600;
@@ -49,12 +51,13 @@ export async function buildStoryApp(files: StorySourceFile[]): Promise<StoryBuil
 		entry: entry.path,
 		files: sources,
 		allowedImports: [...STORY_APP_ALLOWED_IMPORTS],
+		documentSlots: STORY_DOCUMENT_SLOTS,
 	});
 	if (!response.ok) {
 		return { ok: false, errors: response.diagnostics.map(formatDiagnostic) };
 	}
 
-	const size = Buffer.byteLength(response.bundle, 'utf8');
+	const size = Buffer.byteLength(response.bundle, 'utf8') + Buffer.byteLength(response.pageShell ?? '', 'utf8');
 	if (size > MAX_STORY_BUNDLE_BYTES) {
 		return {
 			ok: false,
@@ -63,7 +66,11 @@ export async function buildStoryApp(files: StorySourceFile[]): Promise<StoryBuil
 			],
 		};
 	}
-	return { ok: true, bundle: response.bundle, entry: entry.path };
+	return { ok: true, app: toStoryApp(response.bundle, response.pageShell), entry: entry.path };
+}
+
+function toStoryApp(bundle: string, pageShell: string | null): StoryApp {
+	return pageShell === null ? { kind: 'react', bundle } : { kind: 'html', bundle, pageShell };
 }
 
 function resolveEntry(sources: Record<string, string>): { ok: true; path: string } | { ok: false; errors: string[] } {
@@ -87,7 +94,7 @@ function resolveEntry(sources: Record<string, string>): { ok: true; path: string
 		return {
 			ok: false,
 			errors: [
-				`No entry file. Add ${STORY_APP_ENTRY_CANDIDATES.map((path) => `"${path}"`).join(' or ')} exporting the root component as default, or set "entry" in ${STORY_APP_MANIFEST_PATH}.`,
+				`No entry file. Add ${STORY_APP_ENTRY_CANDIDATES.map((path) => `"${path}"`).join(' or ')} exporting the root component as default, or set "entry" in ${STORY_APP_MANIFEST_PATH} (a script, or an .html document).`,
 			],
 		};
 	}

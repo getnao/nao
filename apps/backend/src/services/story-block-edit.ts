@@ -70,7 +70,7 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
 			tx,
 		);
-		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
+		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
 		return cut.version;
 	});
 	return { version: version.version };
@@ -104,7 +104,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
 			tx,
 		);
-		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: build.bundle, bundleError: null }, tx);
+		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
 		return cut.version;
 	});
 	return { success: true, version: version.version };
@@ -125,8 +125,8 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 		storyFileQueries.listVersionFiles(restored.id),
 		storyFileQueries.getVersionBundle(restored.id),
 	]);
-	const restoredBundle = bundle?.bundle;
-	if (!restoredBundle) {
+	const restoredApp = storyFileQueries.storyAppOfBundle(bundle);
+	if (!restoredApp) {
 		throw new StoryBlockEditError('This version did not build, so it cannot be restored.');
 	}
 
@@ -143,7 +143,7 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
 			tx,
 		);
-		await storyFileQueries.setVersionBundle(cut.version.id, { bundle: restoredBundle, bundleError: null }, tx);
+		await storyFileQueries.setVersionBundle(cut.version.id, restoredApp, tx);
 		return cut.version;
 	});
 	return { version: version.version };

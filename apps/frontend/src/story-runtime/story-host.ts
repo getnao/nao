@@ -1,5 +1,10 @@
 import { matchesShortcut, replayKeydown, snapshotKeydown } from '@nao/shared/keyboard-shortcut';
-import { isStoryConnectMessage, isStoryHostMessage, STORY_PRINT_FLAG } from '@nao/shared/story-app';
+import {
+	isStoryConnectMessage,
+	isStoryHostMessage,
+	STORY_HTML_API_GLOBAL,
+	STORY_PRINT_FLAG,
+} from '@nao/shared/story-app';
 import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -10,17 +15,20 @@ import type { Shortcut } from '@nao/shared/keyboard-shortcut';
 import type { StoryTheme } from '@nao/shared/story-theme';
 import type { StoryBlockReference } from '@nao/shared/types';
 import type {
+	StoryAppKind,
 	StoryBlockEditRequest,
 	StoryTableFormatEditRequest,
 	StoryExportData,
 	StoryFrameMessage,
 	StoryHostMessage,
+	StoryHtmlApi,
 	StoryNarratives,
 	StoryQueryResult,
 	StoryTableExportFormat,
 } from '@nao/shared/story-app';
 
 interface BootOptions {
+	kind?: StoryAppKind;
 	source: string;
 	theme: StoryTheme;
 	exportData?: StoryExportData;
@@ -46,25 +54,65 @@ let frameChannel: string | undefined;
 let hostPort: MessagePort | null = null;
 let hostShortcuts: Shortcut[] = [];
 
-export async function bootStory({ source, theme, exportData: embeddedData, channel }: BootOptions): Promise<void> {
+export async function bootStory({
+	kind = 'react',
+	source,
+	theme,
+	exportData: embeddedData,
+	channel,
+}: BootOptions): Promise<void> {
 	activeTheme = theme;
 	frameChannel = channel;
 	exportData = embeddedData ?? null;
 	installGlobalErrorReporting();
-	const container = document.getElementById('root');
-	if (!container) {
-		throw new Error('Story frame is missing its #root element.');
-	}
 
 	try {
-		const App = await loadStoryComponent(source);
-		createRoot(container).render(createElement(StoryErrorBoundary, null, createElement(App)));
+		if (kind === 'html') {
+			await runHtmlStory(source);
+		} else {
+			await mountReactStory(source);
+		}
 		send({ type: 'nao-story:ready' });
 		document.documentElement.dataset.naoStoryReady = 'true';
 	} catch (error) {
 		reportError(error);
-		container.replaceChildren(renderCrash(error));
+		showCrash(error);
 	}
+}
+
+async function mountReactStory(source: string): Promise<void> {
+	const container = document.getElementById('root');
+	if (!container) {
+		throw new Error('Story frame is missing its #root element.');
+	}
+	const App = await loadStoryComponent(source);
+	createRoot(container).render(createElement(StoryErrorBoundary, null, createElement(App)));
+}
+
+/** An HTML story's scripts were bundled into `source` at build time; they reach the host through the `nao` global. */
+async function runHtmlStory(source: string): Promise<void> {
+	exposeHtmlApi();
+	if (source.trim() !== '') {
+		await importStoryModule(source);
+	}
+}
+
+function exposeHtmlApi(): void {
+	const api: StoryHtmlApi = {
+		query: requestQueryData,
+		querySql: requestQuerySql,
+		narratives: requestNarratives,
+		theme: getStoryTheme,
+		onTheme: (listener) =>
+			subscribeToTheme(() => {
+				if (activeTheme) {
+					listener(activeTheme);
+				}
+			}),
+		isExport: isStoryExport,
+		isPrint: isPrintMode,
+	};
+	Object.defineProperty(globalThis, STORY_HTML_API_GLOBAL, { value: Object.freeze(api), enumerable: true });
 }
 
 export function requestQueryData(
@@ -298,15 +346,19 @@ function toJsonSafe<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/** The bundle arrives as text; a same-frame blob URL turns it into an importable module without any network hop. */
 async function loadStoryComponent(source: string): Promise<() => ReactNode> {
+	const module = await importStoryModule(source);
+	if (typeof module.default !== 'function') {
+		throw new Error('The entry file must default-export a React component.');
+	}
+	return module.default as () => ReactNode;
+}
+
+/** The bundle arrives as text; a same-frame blob URL turns it into an importable module without any network hop. */
+async function importStoryModule(source: string): Promise<{ default?: unknown }> {
 	const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
 	try {
-		const module = (await import(/* @vite-ignore */ url)) as { default?: unknown };
-		if (typeof module.default !== 'function') {
-			throw new Error('The entry file must default-export a React component.');
-		}
-		return module.default as () => ReactNode;
+		return (await import(/* @vite-ignore */ url)) as { default?: unknown };
 	} finally {
 		URL.revokeObjectURL(url);
 	}
@@ -322,11 +374,16 @@ function reportError(error: unknown): void {
 	send({ type: 'nao-story:error', message: normalized.message, stack: normalized.stack });
 }
 
-function renderCrash(error: unknown): HTMLElement {
+function showCrash(error: unknown): void {
 	const box = document.createElement('pre');
 	box.className = 'nao-story-crash';
 	box.textContent = error instanceof Error ? error.message : String(error);
-	return box;
+	const container = document.getElementById('root');
+	if (container) {
+		container.replaceChildren(box);
+	} else {
+		document.body.prepend(box);
+	}
 }
 
 class StoryErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {

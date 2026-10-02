@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import type { StoryApp } from '@nao/shared/story-app';
 import { and, asc, eq, getTableColumns, lt, notExists, sql } from 'drizzle-orm';
 
 import s, {
@@ -252,14 +253,30 @@ export async function getVersionBundle(storyVersionId: string): Promise<DBStoryB
 
 export async function setVersionBundle(
 	storyVersionId: string,
-	result: { bundle: string; bundleError: null } | { bundle: null; bundleError: string },
+	app: StoryApp,
 	executor: DBExecutor = db,
 ): Promise<void> {
+	const row = {
+		kind: app.kind,
+		bundle: app.bundle,
+		pageShell: app.kind === 'html' ? app.pageShell : null,
+		bundleError: null,
+	};
 	await executor
 		.insert(s.storyBundle)
-		.values({ storyVersionId, ...result })
-		.onConflictDoUpdate({ target: s.storyBundle.storyVersionId, set: { ...result, builtAt: new Date() } })
+		.values({ storyVersionId, ...row })
+		.onConflictDoUpdate({ target: s.storyBundle.storyVersionId, set: { ...row, builtAt: new Date() } })
 		.execute();
+}
+
+export function storyAppOfBundle(bundle: DBStoryBundle | null): StoryApp | null {
+	if (!bundle || bundle.bundle === null) {
+		return null;
+	}
+	if (bundle.kind === 'react') {
+		return { kind: 'react', bundle: bundle.bundle };
+	}
+	return bundle.pageShell === null ? null : { kind: 'html', bundle: bundle.bundle, pageShell: bundle.pageShell };
 }
 
 export function hasSameFiles(left: StoryFileInput[], right: StoryFileInput[]): boolean {

@@ -10,7 +10,9 @@ CREATE TABLE "project_story_theme" (
 --> statement-breakpoint
 CREATE TABLE "story_bundle" (
 	"story_version_id" text PRIMARY KEY NOT NULL,
+	"kind" text NOT NULL,
 	"bundle" text,
+	"page_shell" text,
 	"bundle_error" text,
 	"built_at" timestamp DEFAULT now() NOT NULL
 );

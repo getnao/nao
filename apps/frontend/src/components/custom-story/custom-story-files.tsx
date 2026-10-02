@@ -1,4 +1,4 @@
-import { STORY_APP_ENTRY_CANDIDATES } from '@nao/shared/story-app';
+import { isHtmlStoryEntry, STORY_APP_ENTRY_CANDIDATES } from '@nao/shared/story-app';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, File, Lock, Save } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -217,7 +217,12 @@ function ReadOnlyBadge() {
 
 function defaultFilePath(files: CustomStoryFileSummary[]): string | null {
 	const paths = files.map((file) => file.path);
-	return STORY_APP_ENTRY_CANDIDATES.find((candidate) => paths.includes(candidate)) ?? paths[0] ?? null;
+	return (
+		STORY_APP_ENTRY_CANDIDATES.find((candidate) => paths.includes(candidate)) ??
+		paths.find((path) => !path.includes('/') && isHtmlStoryEntry(path)) ??
+		paths[0] ??
+		null
+	);
 }
 
 function formatFileSize(bytes: number): string {

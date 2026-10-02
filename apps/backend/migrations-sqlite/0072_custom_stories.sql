@@ -12,7 +12,9 @@ CREATE INDEX `project_story_theme_projectId_idx` ON `project_story_theme` (`proj
 CREATE UNIQUE INDEX `project_story_theme_project_version_unique` ON `project_story_theme` (`project_id`,`version`);--> statement-breakpoint
 CREATE TABLE `story_bundle` (
 	`story_version_id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
 	`bundle` text,
+	`page_shell` text,
 	`bundle_error` text,
 	`built_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`story_version_id`) REFERENCES `story_version`(`id`) ON UPDATE no action ON DELETE cascade

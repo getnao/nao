@@ -43,7 +43,7 @@ const onBuild = vi.hoisted(() => ({ current: async () => {} }));
 vi.mock('../src/services/story-app-build', () => ({
 	buildStoryApp: async () => {
 		await onBuild.current();
-		return { ok: true, bundle: 'bundle' };
+		return { ok: true, app: { kind: 'react', bundle: 'bundle' }, entry: 'app.tsx' };
 	},
 }));
 

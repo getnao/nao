@@ -1,7 +1,7 @@
 const MAX_PATH_LENGTH = 200;
 const MAX_DEPTH = 6;
 const SEGMENT = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-const ALLOWED_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'css', 'json', 'md']);
+const ALLOWED_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'md']);
 
 export class InvalidStoryFilePathError extends Error {}
 

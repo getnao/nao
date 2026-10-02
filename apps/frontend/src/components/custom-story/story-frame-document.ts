@@ -1,7 +1,8 @@
 import { STORY_HOST_MODULE, STORY_RUNTIME_MODULES } from '@nao/shared/story-app';
-import { escapeScript, storyStylesheets } from '@nao/shared/story-document';
+import { composeStoryDocument, escapeScript, storyStylesheets } from '@nao/shared/story-document';
 import { storyMapTileCspSources } from '@nao/shared/story-map-tiles';
 import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
+import type { StoryApp } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 export interface StoryRuntimeLocation {
@@ -10,7 +11,7 @@ export interface StoryRuntimeLocation {
 }
 
 export interface StoryFrameDocumentInput {
-	bundle: string;
+	app: StoryApp;
 	styles: string[];
 	theme: StoryTheme;
 	runtime: StoryRuntimeLocation;
@@ -21,8 +22,14 @@ export interface StoryFrameDocumentInput {
 export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): Promise<string> {
 	const runtimeOrigin = new URL(input.runtime.baseUrl).origin;
 	const importMapScript = escapeScript(JSON.stringify(importMap(input.runtime)));
+	const boot = {
+		kind: input.app.kind,
+		source: input.app.bundle,
+		theme: input.theme,
+		channel: input.channel,
+	};
 	const bootScript = `\nimport { bootStory } from ${JSON.stringify(STORY_HOST_MODULE)};\nbootStory(${escapeScript(
-		JSON.stringify({ source: input.bundle, theme: input.theme, channel: input.channel }),
+		JSON.stringify(boot),
 	)});\n`;
 	const [importMapHash, bootHash] = await Promise.all([sha256Source(importMapScript), sha256Source(bootScript)]);
 
@@ -39,20 +46,16 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 		`form-action 'none'`,
 	].join('; ');
 
-	return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script type="importmap">${importMapScript}</script>
-${storyStylesheets(input.theme, input.styles)}
-</head>
-<body>
-<div id="root"></div>
-<script type="module">${bootScript}</script>
-</body>
-</html>`;
+	return composeStoryDocument(input.app, {
+		head: [
+			`<meta charset="utf-8">`,
+			`<meta http-equiv="Content-Security-Policy" content="${csp}">`,
+			`<meta name="viewport" content="width=device-width, initial-scale=1">`,
+			`<script type="importmap">${importMapScript}</script>`,
+			storyStylesheets(input.theme, input.styles),
+		].join('\n'),
+		body: `<script type="module">${bootScript}</script>`,
+	});
 }
 
 function importMap(runtime: StoryRuntimeLocation): { imports: Record<string, string> } {

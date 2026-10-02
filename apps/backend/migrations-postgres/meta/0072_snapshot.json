@@ -1,5 +1,5 @@
 {
-  "id": "d9a6adca-cfeb-46f6-930d-054750f8ba73",
+  "id": "5f955dfb-914f-4179-a9af-b88cf51ea775",
   "prevId": "e69f4eec-1dbe-4c4d-b142-042da4022a99",
   "version": "7",
   "dialect": "postgresql",
@@ -7207,8 +7207,20 @@
           "primaryKey": true,
           "notNull": true
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "bundle": {
           "name": "bundle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_shell": {
+          "name": "page_shell",
           "type": "text",
           "primaryKey": false,
           "notNull": false

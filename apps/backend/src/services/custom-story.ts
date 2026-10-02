@@ -1,5 +1,5 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import type { DBStory } from '../db/abstractSchema';
@@ -19,7 +19,7 @@ export interface CustomStoryVersionView {
 	title: string;
 	archivedAt: Date | null;
 	version: { id: string; number: number; createdAt: Date };
-	bundle: string | null;
+	app: StoryApp | null;
 	bundleError: string | null;
 	styles: { path: string; content: string }[];
 	files: CustomStoryFileSummary[];
@@ -84,7 +84,7 @@ export async function getCustomStoryVersion(
 		title: story.title,
 		archivedAt: story.archivedAt,
 		version: { id: version.id, number: version.version, createdAt: version.createdAt },
-		bundle: bundle?.bundle ?? null,
+		app: storyFileQueries.storyAppOfBundle(bundle),
 		bundleError: bundle?.bundleError ?? (bundle ? null : 'This version was never built. Publish the story again.'),
 		styles: files
 			.filter((file) => file.path.toLowerCase().endsWith('.css'))

@@ -27,7 +27,7 @@ export function useCustomStoryDownload(
 	const theme = useActiveStoryTheme(content?.theme);
 	return useCallback(
 		async (format: DownloadFormat) => {
-			if (!content?.bundle) {
+			if (!content?.app) {
 				throw new Error('The story has not finished loading.');
 			}
 			const [runtime, data] = await Promise.all([
@@ -36,7 +36,7 @@ export function useCustomStoryDownload(
 			]);
 			const html = buildStoryExportDocument({
 				title: content.title,
-				bundle: content.bundle,
+				app: content.app,
 				styles: content.styles.map((style) => style.content),
 				theme,
 				runtime,

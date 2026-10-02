@@ -15,6 +15,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
+import { STORY_APP_KINDS } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type {
 	AnalyticsEventMetadata,
@@ -1021,7 +1022,9 @@ export const storyBundle = sqliteTable('story_bundle', {
 	storyVersionId: text('story_version_id')
 		.primaryKey()
 		.references(() => storyVersion.id, { onDelete: 'cascade' }),
+	kind: text('kind', { enum: STORY_APP_KINDS }).notNull(),
 	bundle: text('bundle'),
+	pageShell: text('page_shell'),
 	bundleError: text('bundle_error'),
 	builtAt: integer('built_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

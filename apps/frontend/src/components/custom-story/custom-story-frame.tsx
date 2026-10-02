@@ -11,6 +11,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { narrativesOptions, queryDataOptions, querySqlOptions } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
 import type {
+	StoryApp,
 	StoryBlockEditPayload,
 	StoryFrameMessage,
 	StoryHostMessage,
@@ -35,7 +36,7 @@ const MAX_EXPORT_FILENAME_LENGTH = 100;
 
 interface CustomStoryFrameProps {
 	dataSource: CustomStoryDataSource;
-	bundle: string;
+	app: StoryApp;
 	styles: string[];
 	theme: StoryTheme;
 	editable?: boolean;
@@ -51,7 +52,7 @@ const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame 
 
 export function CustomStoryFrame({
 	dataSource,
-	bundle,
+	app,
 	styles,
 	theme,
 	editable = false,
@@ -69,7 +70,7 @@ export function CustomStoryFrame({
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
 	const dateFormat = useDateFormat();
-	const frameDocument = useStoryFrameDocument(bundle, styles, theme, onError);
+	const frameDocument = useStoryFrameDocument(app, styles, theme, onError);
 	const srcDoc = frameDocument?.html ?? null;
 	const channel = frameDocument?.channel;
 	const bootTheme = frameDocument?.theme;
@@ -297,7 +298,7 @@ interface StoryFrameDocument {
 }
 
 function useStoryFrameDocument(
-	bundle: string,
+	app: StoryApp,
 	styles: string[],
 	theme: StoryTheme,
 	onError?: (error: CustomStoryRuntimeError) => void,
@@ -310,7 +311,13 @@ function useStoryFrameDocument(
 		setFrameDocument(null);
 		const channel = crypto.randomUUID();
 		const bootTheme = readTheme();
-		buildStoryFrameDocument({ bundle, styles, theme: bootTheme, runtime: storyRuntimeLocation(), channel }).then(
+		buildStoryFrameDocument({
+			app,
+			styles,
+			theme: bootTheme,
+			runtime: storyRuntimeLocation(),
+			channel,
+		}).then(
 			(html) => {
 				if (!cancelled) {
 					setFrameDocument({ html, channel, theme: bootTheme });
@@ -325,7 +332,7 @@ function useStoryFrameDocument(
 		return () => {
 			cancelled = true;
 		};
-	}, [bundle, styles]);
+	}, [app, styles]);
 	return frameDocument;
 }
 

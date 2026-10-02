@@ -68,11 +68,11 @@ export function CustomStoryBody({
 					<StoryBuilding />
 				) : error ? (
 					<Centered>{error.message}</Centered>
-				) : content?.bundle ? (
+				) : content?.app ? (
 					<CustomStoryFrame
 						key={`${content.version.id}:${String(content.cachedAt)}`}
 						dataSource={dataSource}
-						bundle={content.bundle}
+						app={content.app}
 						styles={styles}
 						theme={theme}
 						editable={editable}

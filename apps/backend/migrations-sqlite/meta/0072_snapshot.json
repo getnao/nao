@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6ff89472-ad6b-4cc2-9964-c976c7cc99b6",
+  "id": "f299f70a-2d5b-4855-9d71-5dc111dfaa3a",
   "prevId": "a73ac1c0-3289-4ced-a130-4ab7653a4677",
   "tables": {
     "account": {
@@ -6690,8 +6690,22 @@
           "notNull": true,
           "autoincrement": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "bundle": {
           "name": "bundle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "page_shell": {
+          "name": "page_shell",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

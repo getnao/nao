@@ -1,5 +1,5 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
-import { STORY_APP_ALLOWED_IMPORTS } from '@nao/shared/story-app';
+import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_MANIFEST_PATH, STORY_HTML_API_GLOBAL } from '@nao/shared/story-app';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
@@ -623,6 +623,21 @@ function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
 					<Bold>var(--muted-foreground)</Bold>, <Bold>var(--primary)</Bold>, <Bold>var(--border)</Bold>,{' '}
 					<Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold>, <Bold>var(--font-heading)</Bold>,{' '}
 					<Bold>var(--chart-1…11)</Bold>. They follow theme changes live, so a re-theme needs no republish.
+				</ListItem>
+				<ListItem>
+					<Bold>HTML stories are the exception:</Bold> use one only when the user hands you an HTML page to
+					host as-is or explicitly asks for plain HTML; otherwise, and whenever they may want to edit blocks
+					later, build React. Set <Bold>{'{ "entry": "index.html" }'}</Bold> in{' '}
+					<Bold>{STORY_APP_MANIFEST_PATH}</Bold> and write a full document.
+				</ListItem>
+				<ListItem>
+					In an HTML story, theme variables, kit styles and the story's .css files are injected for you.
+					Scripts must be story files (inline or <Bold>src="./file.js"</Bold>, never a CDN) and run as ES
+					modules after the page is parsed: share code with imports (story files or the allowed packages), not
+					globals; never wait for DOMContentLoaded; attach listeners with addEventListener, never{' '}
+					<Bold>onclick=""</Bold>. Read data with{' '}
+					<Bold>{`await ${STORY_HTML_API_GLOBAL}.query("query_id")`}</Bold> → {'{ columns, data }'} and redraw
+					on theme change with <Bold>{`${STORY_HTML_API_GLOBAL}.onTheme(fn)`}</Bold>.
 				</ListItem>
 			</List>
 		</Block>

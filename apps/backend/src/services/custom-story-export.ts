@@ -17,14 +17,14 @@ export async function renderCustomStoryPdf(
 		getCustomStoryNarratives(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
 	]);
-	if (!version.bundle) {
+	if (!version.app) {
 		throw new Error(version.bundleError ?? 'The latest version of this story did not build.');
 	}
 
 	const data: StoryExportData = { queries: pickQueries(queryData, version.queryIds), narratives };
 	const html = buildStoryExportDocument({
 		title: version.title,
-		bundle: version.bundle,
+		app: version.app,
 		styles: version.styles.map((style) => style.content),
 		theme: version.theme?.light ?? DEFAULT_STORY_THEME,
 		runtime,

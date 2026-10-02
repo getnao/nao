@@ -15,6 +15,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
+import { STORY_APP_KINDS } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type {
 	AnalyticsEventMetadata,
@@ -957,7 +958,9 @@ export const storyBundle = pgTable('story_bundle', {
 	storyVersionId: text('story_version_id')
 		.primaryKey()
 		.references(() => storyVersion.id, { onDelete: 'cascade' }),
+	kind: text('kind', { enum: STORY_APP_KINDS }).notNull(),
 	bundle: text('bundle'),
+	pageShell: text('page_shell'),
 	bundleError: text('bundle_error'),
 	builtAt: timestamp('built_at').defaultNow().notNull(),
 });

@@ -1,5 +1,5 @@
-import type { StoryExportData } from './story-app';
-import { STORY_HOST_MODULE, STORY_STANDALONE_RUNTIME_GLOBAL } from './story-app';
+import type { StoryApp, StoryExportData } from './story-app';
+import { STORY_DOCUMENT_SLOTS, STORY_HOST_MODULE, STORY_STANDALONE_RUNTIME_GLOBAL } from './story-app';
 import { KIT_STYLES } from './story-kit-styles';
 import { storyMapTileCspSources } from './story-map-tiles';
 import type { StoryTheme } from './story-theme';
@@ -7,11 +7,16 @@ import { FONT_STYLESHEET_HOSTS, storyThemeToCssVars } from './story-theme';
 
 export interface StoryExportDocumentInput {
 	title: string;
-	bundle: string;
+	app: StoryApp;
 	styles: string[];
 	theme: StoryTheme;
 	runtime: string;
 	data: StoryExportData;
+}
+
+export interface StoryDocumentParts {
+	head: string;
+	body: string;
 }
 
 const PAYLOAD_ELEMENT_ID = 'nao-story-export';
@@ -24,23 +29,50 @@ const DATE_MARKER = '$naoDate';
 export function buildStoryExportDocument(input: StoryExportDocumentInput): string {
 	const payload = {
 		runtime: input.runtime,
-		boot: { source: input.bundle, theme: input.theme, exportData: input.data },
+		boot: { kind: input.app.kind, source: input.app.bundle, theme: input.theme, exportData: input.data },
 	};
-	return `<!doctype html>
+	return composeStoryDocument(input.app, {
+		head: [
+			`<meta charset="utf-8">`,
+			`<meta http-equiv="Content-Security-Policy" content="${exportContentSecurityPolicy()}">`,
+			`<meta name="viewport" content="width=device-width, initial-scale=1">`,
+			`<title>${escapeAttribute(input.title)}</title>`,
+			storyStylesheets(input.theme, input.styles),
+		].join('\n'),
+		body: [
+			`<script type="application/json" id="${PAYLOAD_ELEMENT_ID}">${escapeScript(JSON.stringify(payload, encodeDates))}</script>`,
+			`<script>${EXPORT_LOADER}</script>`,
+		].join('\n'),
+	});
+}
+
+/**
+ * A React story gets the host's skeleton with a `#root` to mount into; an HTML story keeps its page shell and the
+ * host's head and boot script fill the slots the build placed in it.
+ */
+export function composeStoryDocument(app: StoryApp, parts: StoryDocumentParts): string {
+	if (app.kind === 'react') {
+		return `<!doctype html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${exportContentSecurityPolicy()}">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeAttribute(input.title)}</title>
-${storyStylesheets(input.theme, input.styles)}
+${parts.head}
 </head>
 <body>
 <div id="root"></div>
-<script type="application/json" id="${PAYLOAD_ELEMENT_ID}">${escapeScript(JSON.stringify(payload, encodeDates))}</script>
-<script>${EXPORT_LOADER}</script>
+${parts.body}
 </body>
 </html>`;
+	}
+	const withHead = fillSlot(app.pageShell, STORY_DOCUMENT_SLOTS.head, parts.head);
+	return fillSlot(withHead, STORY_DOCUMENT_SLOTS.body, parts.body);
+}
+
+function fillSlot(pageShell: string, slot: string, content: string): string {
+	const pieces = pageShell.split(slot);
+	if (pieces.length !== 2) {
+		throw new Error('This HTML story was not built by the current version of nao. Publish it again.');
+	}
+	return pieces.join(content);
 }
 
 /** Scripts only come from the page itself: no request can leave it except for the theme fonts and map tiles. */

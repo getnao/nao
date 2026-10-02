@@ -24,6 +24,30 @@ export const STORY_APP_MANIFEST_PATH = 'nao.json';
 
 export const STORY_APP_ENTRY_CANDIDATES = ['app.jsx', 'app.tsx', 'app.js', 'app.ts'] as const;
 
+export const STORY_APP_KINDS = ['react', 'html'] as const;
+
+export type StoryAppKind = (typeof STORY_APP_KINDS)[number];
+
+export type StoryApp = { kind: 'react'; bundle: string } | { kind: 'html'; bundle: string; pageShell: string };
+
+export const isHtmlStoryEntry = (path: string): boolean => {
+	return /\.html$/i.test(path);
+};
+
+export const STORY_DOCUMENT_SLOTS = { head: '<!--nao:head-->', body: '<!--nao:body-->' } as const;
+
+export const STORY_HTML_API_GLOBAL = 'nao';
+
+export interface StoryHtmlApi {
+	query(queryId: string, options?: { fresh?: boolean }): Promise<StoryQueryResult>;
+	querySql(queryId: string): Promise<string>;
+	narratives(): Promise<StoryNarratives>;
+	theme(): StoryTheme | null;
+	onTheme(listener: (theme: StoryTheme) => void): () => void;
+	isExport(): boolean;
+	isPrint(): boolean;
+}
+
 export const MAX_STORY_BUNDLE_BYTES = 2 * 1024 * 1024;
 
 export const isAllowedStoryImport = (specifier: string): specifier is StoryAppAllowedImport => {
