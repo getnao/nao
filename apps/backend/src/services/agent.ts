@@ -65,7 +65,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { sanitizeToolCallIds } from '../utils/model-message';
+import { sanitizeToolCallIds, sanitizeToolDefinitionNames, sanitizeToolNames } from '../utils/model-message';
 import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
@@ -418,18 +418,24 @@ class AgentManager {
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
 
+	private readonly _agentTools: AgentTools;
+
 	constructor(
 		readonly chat: AgentChat,
 		private readonly _modelConfig: ProviderModelResult,
 		private readonly _modelSelection: LlmSelectedModel,
 		private readonly _onDispose: () => void,
 		private readonly _abortController: AbortController,
-		private readonly _agentTools: AgentTools,
+		agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
 		private readonly _userGroupAccess: AgentUserGroupAccess,
 		stopWhen: StopCondition<AgentTools>[] = [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 		private readonly _systemPromptOverride?: string,
 	) {
+		// Keys are sanitized to match the names in the replayed history (see `sanitizeToolNames`),
+		// so Anthropic's validation that every history tool-call name appears in the tools array
+		// succeeds for MCP tools whose server-prefixed names contain dots or other invalid chars.
+		this._agentTools = sanitizeToolDefinitionNames(agentTools) as AgentTools;
 		this._finished = new Promise((resolve) => {
 			this._resolveFinished = resolve;
 		});
@@ -644,7 +650,7 @@ class AgentManager {
 			tools: this._agentTools,
 		});
 
-		return sanitizeToolCallIds(modelMessages);
+		return sanitizeToolNames(sanitizeToolCallIds(modelMessages));
 	}
 
 	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
