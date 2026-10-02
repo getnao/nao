@@ -18,7 +18,12 @@ import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-to
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
-import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
+import {
+	buildStoryMcpResultWithSandbox,
+	fetchLatestStoryVersion,
+	resolveChartChatId,
+	resolveStoryForOwner,
+} from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 
 const EXECUTE_SQL_BASE_DESCRIPTION =
@@ -305,7 +310,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
 		handler: async ({ story_id, title, content, query_data, chat_id }) => {
-			const story = await resolveStory(story_id, ctx);
+			const story = await resolveStoryForOwner(story_id, ctx);
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;

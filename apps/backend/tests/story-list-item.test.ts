@@ -45,4 +45,37 @@ describe('list_stories output mapping', () => {
 		expect(item.chatUrl).toBe('http://localhost:5005/chats/chat-1');
 		expect(() => STORY_LIST_ITEM_SCHEMA.parse(item)).not.toThrow();
 	});
+
+	it("defaults kind to 'own' and shareId to null when no share metadata is passed", () => {
+		const item = toStoryListItem(buildStoryRow(), {
+			url: 'http://localhost:5005/stories/standalone/story-1',
+			chatUrl: null,
+		});
+
+		expect(item.kind).toBe('own');
+		expect(item.shareId).toBeNull();
+	});
+
+	it('tags stories shared with the user via a direct or group grant', () => {
+		const item = toStoryListItem(
+			buildStoryRow(),
+			{ url: 'http://localhost:5005/stories/shared/share-9', chatUrl: null },
+			{ kind: 'shared-with-me', shareId: 'share-9' },
+		);
+
+		expect(item.kind).toBe('shared-with-me');
+		expect(item.shareId).toBe('share-9');
+		expect(() => STORY_LIST_ITEM_SCHEMA.parse(item)).not.toThrow();
+	});
+
+	it('tags stories shared with the whole project', () => {
+		const item = toStoryListItem(
+			buildStoryRow(),
+			{ url: 'http://localhost:5005/stories/shared/share-9', chatUrl: null },
+			{ kind: 'shared-project', shareId: 'share-9' },
+		);
+
+		expect(item.kind).toBe('shared-project');
+		expect(item.shareId).toBe('share-9');
+	});
 });

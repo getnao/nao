@@ -6,6 +6,7 @@ import type { displayChart, displayMap } from '@nao/shared/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import { insertMcpChartEmbed, insertMcpMapEmbed } from '../../queries/mcp-embed.queries';
 import { getMcpQueryData, upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
+import * as sharedStoryQueries from '../../queries/shared-story.queries';
 import type { UserStoryRow } from '../../queries/story.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { validateMapConfig } from '../../utils/display-map-validate';
@@ -37,13 +38,48 @@ export async function resolveChartChatId(chatId: string | undefined, ctx: McpCon
 	return chatId;
 }
 
-export async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
+/**
+ * Resolve a story for a READ operation (`get_story`): the id may be the story UUID (own path) or
+ * a share UUID / underlying story UUID the caller has access to via a share.
+ *
+ * NEVER call this from a write/mutation tool: a share grant lets the recipient read the story but
+ * not archive, delete, or edit it. Use `resolveStoryForOwner` for those tools instead.
+ */
+export async function resolveStoryForRead(storyIdOrShareId: string, ctx: McpContext): Promise<UserStoryRow> {
+	const ownStory = await storyQueries.getStoryByIdForUser(storyIdOrShareId, ctx.userId);
+	if (ownStory) {
+		if (ownStory.projectId !== ctx.projectId) {
+			throw new Error(`Story not found: ${storyIdOrShareId}`);
+		}
+		return ownStory;
+	}
+
+	const sharedStoryId = await sharedStoryQueries.resolveSharedStoryIdForUser(
+		storyIdOrShareId,
+		ctx.userId,
+		ctx.projectId,
+	);
+	if (sharedStoryId) {
+		const sharedStory = await storyQueries.getStoryByIdWithLatestVersion(sharedStoryId);
+		if (sharedStory && sharedStory.projectId === ctx.projectId) {
+			return sharedStory;
+		}
+	}
+
+	throw new Error(`Story not found: ${storyIdOrShareId}`);
+}
+
+/**
+ * Resolve a story for a WRITE operation (`archive_story`, `delete_story`, `update_story`): the
+ * caller must own the story. Mirrors the UI's `assertCanArchiveSharedStory` check — a share
+ * grant does not confer write permission, so this never consults the share tables.
+ */
+export async function resolveStoryForOwner(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
 	const story = await storyQueries.getStoryByIdForUser(storyId, ctx.userId);
 	if (!story) {
 		throw new Error(`Story not found: ${storyId}`);
 	}
-	const storyProjectId = await storyQueries.getStoryProjectId(storyId);
-	if (storyProjectId !== ctx.projectId) {
+	if (story.projectId !== ctx.projectId) {
 		throw new Error(`Story not found: ${storyId}`);
 	}
 	return story;
@@ -339,7 +375,7 @@ export async function buildStoryEmbedFromArtifact(
 ): Promise<{ payload: StoryMcpToolPayload; sandboxStoryHtml: string | null } | null> {
 	let story: UserStoryRow;
 	try {
-		story = await resolveStory(storyId, ctx);
+		story = await resolveStoryForOwner(storyId, ctx);
 	} catch {
 		return null;
 	}

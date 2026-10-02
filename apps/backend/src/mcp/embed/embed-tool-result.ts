@@ -25,6 +25,11 @@ export const STORY_OUTPUT_SCHEMA = {
 	url: z.url().describe('URL to open the story in the nao UI.'),
 	chatUrl: z.url().nullable().describe('Source chat URL, or null for standalone stories.'),
 	embedUrl: z.url().describe('Sandboxed embed URL — render this in an iframe to show the story.'),
+	code: z
+		.string()
+		.nullable()
+		.describe('Latest story markdown source. Null when the story exists but has no versions yet.'),
+	version: z.number().int().nullable().describe('Latest version number matching `code`. Null when `code` is null.'),
 	sandboxStoryHtml: z
 		.string()
 		.optional()
@@ -44,6 +49,11 @@ export function buildStoryToolResult(
 		url: output.url,
 		chatUrl: output.chatUrl,
 	});
+	const structuredBase = {
+		...slimPayload,
+		code: output.code ?? null,
+		version: output.version ?? null,
+	};
 
 	return buildEmbedToolResult({
 		kind: 'story',
@@ -51,7 +61,7 @@ export function buildStoryToolResult(
 		embedUrl: output.embedUrl,
 		naoUrl,
 		jsonPayload: output,
-		structuredBase: slimPayload,
+		structuredBase,
 		sandboxHtml: options?.sandboxStoryHtml,
 	});
 }
