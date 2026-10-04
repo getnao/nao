@@ -65,17 +65,33 @@ vi.mock('@tanstack/react-router', () => ({
 		</a>
 	),
 }));
+vi.mock('@/lib/auth-client', () => ({
+	useSession: () => ({ data: { user: { id: 'admin-id' } } }),
+}));
 vi.mock('@/main', () => ({
 	trpc: {
+		account: {
+			resetPassword: { mutationOptions: vi.fn() },
+		},
 		authConfig: {
 			microsoft: { isSetup: { queryOptions: vi.fn(() => ({ queryKey: ['microsoft-config'] })) } },
 			oidc: { getConfig: { queryOptions: vi.fn(() => ({ queryKey: ['oidc-config'] })) } },
+			sso: { getStatus: { queryOptions: vi.fn(() => ({ queryKey: ['sso-status'] })) } },
 		},
 		contextExplorer: {
 			readFile: { queryOptions: vi.fn(() => ({ queryKey: ['rules-file'] })) },
 		},
 		project: {
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
+			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
+			removeProjectMember: { mutationOptions: vi.fn() },
+		},
+		system: {
+			getPublicConfig: { queryOptions: vi.fn(() => ({ queryKey: ['system-config'] })) },
+		},
+		user: {
+			addUserToProject: { mutationOptions: vi.fn() },
+			modify: { mutationOptions: vi.fn() },
 		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
@@ -664,6 +680,7 @@ describe('UserGroupsTable', () => {
 		]);
 		expect(screen.getByRole('tab', { name: 'Users' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('columnheader', { name: 'User' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Add member' })).toBeTruthy();
 		expect(screen.getByText('Project Team')).toBeTruthy();
 		expect(screen.getByText('Organisation Members')).toBeTruthy();
 		expect(screen.getByText('Project User')).toBeTruthy();
@@ -773,9 +790,9 @@ describe('UserGroupsTable', () => {
 
 		expect(table.classList.contains('table-fixed')).toBe(true);
 		expect(table.classList.contains('min-w-3xl')).toBe(true);
-		expect(headers[0]?.classList.contains('w-[38%]')).toBe(true);
+		expect(headers[0]?.classList.contains('w-[36%]')).toBe(true);
 		expect(headers[1]?.classList.contains('w-1/5')).toBe(true);
-		expect(headers[2]?.classList.contains('w-[42%]')).toBe(true);
+		expect(headers[2]?.classList.contains('w-[38%]')).toBe(true);
 		expect(projectUserCells[2]?.classList.contains('overflow-hidden')).toBe(true);
 		expect(groupsButton.classList.contains('w-full')).toBe(true);
 		expect(groupsButton.classList.contains('min-w-0')).toBe(true);

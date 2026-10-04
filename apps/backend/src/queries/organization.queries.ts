@@ -412,7 +412,7 @@ export interface OrgProjectWithAccess {
 
 /**
  * Everyone who can reach the organization: its members plus project-only members, who are added
- * from a project's Team page or auto-provisioned by Slack. Both kinds consume a licensed seat.
+ * from a project's Users & Groups page or auto-provisioned by Slack. Both kinds consume a licensed seat.
  */
 export const countOrgUsers = async (orgId: string): Promise<number> => {
 	const people = db.$with('org_people').as(

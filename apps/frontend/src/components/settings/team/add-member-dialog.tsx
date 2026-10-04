@@ -148,7 +148,12 @@ export function AddMemberDialog({
 
 					{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
 					<div className='flex justify-end'>
-						<Button type='submit' variant='primary-gradient' disabled={groupsUnavailable}>
+						<Button
+							type='submit'
+							variant='primary-gradient'
+							className='rounded-full'
+							disabled={groupsUnavailable}
+						>
 							Add member
 						</Button>
 					</div>

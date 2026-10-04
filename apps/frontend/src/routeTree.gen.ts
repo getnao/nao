@@ -51,7 +51,6 @@ import { Route as SidebarLayoutSettingsProjectWhatsappRouteImport } from './rout
 import { Route as SidebarLayoutSettingsProjectUserGroupsRouteImport } from './routes/_sidebar-layout.settings.project.user-groups'
 import { Route as SidebarLayoutSettingsProjectTelegramRouteImport } from './routes/_sidebar-layout.settings.project.telegram'
 import { Route as SidebarLayoutSettingsProjectTeamsRouteImport } from './routes/_sidebar-layout.settings.project.teams'
-import { Route as SidebarLayoutSettingsProjectTeamRouteImport } from './routes/_sidebar-layout.settings.project.team'
 import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/_sidebar-layout.settings.project.slack'
 import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes/_sidebar-layout.settings.project.models'
 import { Route as SidebarLayoutSettingsProjectMcpServersRouteImport } from './routes/_sidebar-layout.settings.project.mcp-servers'
@@ -308,12 +307,6 @@ const SidebarLayoutSettingsProjectTeamsRoute =
     path: '/teams',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
-const SidebarLayoutSettingsProjectTeamRoute =
-  SidebarLayoutSettingsProjectTeamRouteImport.update({
-    id: '/team',
-    path: '/team',
-    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
-  } as any)
 const SidebarLayoutSettingsProjectSlackRoute =
   SidebarLayoutSettingsProjectSlackRouteImport.update({
     id: '/slack',
@@ -472,7 +465,6 @@ export interface FileRoutesByFullPath {
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
-  '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/settings/project/user-groups': typeof SidebarLayoutSettingsProjectUserGroupsRouteWithChildren
@@ -530,7 +522,6 @@ export interface FileRoutesByTo {
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
-  '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
@@ -594,7 +585,6 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/_sidebar-layout/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
   '/_sidebar-layout/settings/project/slack': typeof SidebarLayoutSettingsProjectSlackRoute
-  '/_sidebar-layout/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/_sidebar-layout/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/_sidebar-layout/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/_sidebar-layout/settings/project/user-groups': typeof SidebarLayoutSettingsProjectUserGroupsRouteWithChildren
@@ -658,7 +648,6 @@ export interface FileRouteTypes {
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
     | '/settings/project/slack'
-    | '/settings/project/team'
     | '/settings/project/teams'
     | '/settings/project/telegram'
     | '/settings/project/user-groups'
@@ -716,7 +705,6 @@ export interface FileRouteTypes {
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
     | '/settings/project/slack'
-    | '/settings/project/team'
     | '/settings/project/teams'
     | '/settings/project/telegram'
     | '/settings/project/whatsapp'
@@ -779,7 +767,6 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/mcp-servers'
     | '/_sidebar-layout/settings/project/models'
     | '/_sidebar-layout/settings/project/slack'
-    | '/_sidebar-layout/settings/project/team'
     | '/_sidebar-layout/settings/project/teams'
     | '/_sidebar-layout/settings/project/telegram'
     | '/_sidebar-layout/settings/project/user-groups'
@@ -1106,13 +1093,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectTeamsRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
-    '/_sidebar-layout/settings/project/team': {
-      id: '/_sidebar-layout/settings/project/team'
-      path: '/team'
-      fullPath: '/settings/project/team'
-      preLoaderRoute: typeof SidebarLayoutSettingsProjectTeamRouteImport
-      parentRoute: typeof SidebarLayoutSettingsProjectRoute
-    }
     '/_sidebar-layout/settings/project/slack': {
       id: '/_sidebar-layout/settings/project/slack'
       path: '/slack'
@@ -1335,7 +1315,6 @@ interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectMcpServersRoute: typeof SidebarLayoutSettingsProjectMcpServersRoute
   SidebarLayoutSettingsProjectModelsRoute: typeof SidebarLayoutSettingsProjectModelsRoute
   SidebarLayoutSettingsProjectSlackRoute: typeof SidebarLayoutSettingsProjectSlackRoute
-  SidebarLayoutSettingsProjectTeamRoute: typeof SidebarLayoutSettingsProjectTeamRoute
   SidebarLayoutSettingsProjectTeamsRoute: typeof SidebarLayoutSettingsProjectTeamsRoute
   SidebarLayoutSettingsProjectTelegramRoute: typeof SidebarLayoutSettingsProjectTelegramRoute
   SidebarLayoutSettingsProjectUserGroupsRoute: typeof SidebarLayoutSettingsProjectUserGroupsRouteWithChildren
@@ -1362,8 +1341,6 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectModelsRoute,
     SidebarLayoutSettingsProjectSlackRoute:
       SidebarLayoutSettingsProjectSlackRoute,
-    SidebarLayoutSettingsProjectTeamRoute:
-      SidebarLayoutSettingsProjectTeamRoute,
     SidebarLayoutSettingsProjectTeamsRoute:
       SidebarLayoutSettingsProjectTeamsRoute,
     SidebarLayoutSettingsProjectTelegramRoute:

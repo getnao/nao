@@ -5,9 +5,11 @@ import { useEffect } from 'react';
 
 import type { UserGroupEditorTab } from '@/components/settings/user-group-editor';
 import { UserGroupEditor } from '@/components/settings/user-group-editor';
+import { requireAdmin } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/user-groups/$groupId')({
+	beforeLoad: requireAdmin,
 	validateSearch: (search: Record<string, unknown>): { tab: UserGroupEditorTab } => ({
 		tab: isUserGroupEditorTab(search.tab) ? search.tab : 'features',
 	}),

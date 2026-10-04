@@ -831,18 +831,11 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['link', 'login', 'phone number'],
 	},
 
-	// ── Project > Team ───────────────────────────────────────
-	{
-		page: '/settings/project/team',
-		pageLabel: 'Team',
-		title: 'Members',
-		description: 'Manage the members of your project.',
-		keywords: ['users', 'invite', 'add member', 'roles', 'project members'],
-	},
+	// ── Project > Users & Groups ─────────────────────────────
 	{
 		page: '/settings/project/user-groups',
-		pageLabel: 'User Groups',
-		title: 'User Groups',
+		pageLabel: 'Users & Groups',
+		title: 'Users & Groups',
 		description:
 			'Assign project users to groups and configure which features, database tables, and docs they can use.',
 		keywords: ['users', 'groups', 'permissions', 'features', 'context', 'schemas', 'tables', 'docs', 'enterprise'],
@@ -850,17 +843,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/user-groups',
-		pageLabel: 'User Groups',
+		pageLabel: 'Users & Groups',
 		section: 'Users',
 		search: { tab: 'users' },
 		title: 'Users',
-		description: 'Assign project users to groups.',
-		keywords: ['members', 'roles', 'memberships', 'permissions'],
-		adminOnly: true,
+		description: 'Add members to the project and assign them to groups.',
+		keywords: ['members', 'team', 'invite', 'add member', 'project members', 'roles', 'memberships', 'permissions'],
 	},
 	{
 		page: '/settings/project/user-groups',
-		pageLabel: 'User Groups',
+		pageLabel: 'Users & Groups',
 		section: 'Manage Groups',
 		search: { tab: 'groups' },
 		title: 'Manage Groups',
@@ -870,7 +862,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/user-groups',
-		pageLabel: 'User Groups',
+		pageLabel: 'Users & Groups',
 		section: 'Security',
 		search: { tab: 'security' },
 		title: 'Row-level security',

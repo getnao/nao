@@ -1,28 +1,19 @@
 import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
-import { USER_ROLE_LABELS } from '@nao/shared/types';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ChevronDown, Lock, Plus } from 'lucide-react';
+import { Lock, Plus } from 'lucide-react';
 import { useMemo } from 'react';
-import type { MemberStatus, UserRole } from '@nao/shared/types';
 
 import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
-import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { ProjectRowSecurity } from '@/components/settings/project-row-security';
-import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
+import { ProjectUsersTable } from '@/components/settings/project-users-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	DropdownMenu,
-	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
@@ -38,18 +29,8 @@ interface LockedUserGroup {
 }
 
 type UserGroup = UserGroupEditorGroup | LockedUserGroup;
-type ProjectAccessSource = 'project' | 'organization' | 'both';
 type UserGroupsEntitlement = 'loading' | 'error' | 'free' | 'unlimited';
 export type UserGroupsPageTab = 'groups' | 'security' | 'users';
-
-interface UserWithProjectAccess {
-	id: string;
-	name: string;
-	email: string;
-	role: UserRole;
-	status: MemberStatus;
-	source: ProjectAccessSource;
-}
 
 const USER_GROUPS_PAGE_TABS: Array<{ id: UserGroupsPageTab; label: string }> = [
 	{ id: 'users', label: 'Users' },
@@ -163,22 +144,21 @@ function UserGroupsContent({
 					/>
 				)}
 				{tab === 'users' && (
-					<SettingsCard description='Assign project users to groups.' flush>
-						<UserAccessTable
-							projectUsers={projectUsers}
-							organizationUsers={organizationUsers}
-							groups={activeGroups}
-							membershipKeys={membershipKeys}
-							ssoMembershipKeys={ssoMembershipKeys}
-							onOpenUser={(userId) => {
-								void navigate({
-									to: '/settings/project/user-groups/users/$userId',
-									params: { userId },
-									search: { tab: 'features' },
-								});
-							}}
-						/>
-					</SettingsCard>
+					<ProjectUsersTable
+						canManage
+						projectUsers={projectUsers}
+						organizationUsers={organizationUsers}
+						groups={activeGroups}
+						membershipKeys={membershipKeys}
+						ssoMembershipKeys={ssoMembershipKeys}
+						onOpenUser={(userId) => {
+							void navigate({
+								to: '/settings/project/user-groups/users/$userId',
+								params: { userId },
+								search: { tab: 'features' },
+							});
+						}}
+					/>
 				)}
 				{tab === 'security' && (
 					<ProjectRowSecurity
@@ -406,208 +386,6 @@ function CreateGroupUpgradeNudge() {
 				</div>
 			</PopoverContent>
 		</Popover>
-	);
-}
-
-function UserAccessTable({
-	projectUsers,
-	organizationUsers,
-	groups,
-	membershipKeys,
-	ssoMembershipKeys,
-	onOpenUser,
-}: {
-	projectUsers: UserWithProjectAccess[];
-	organizationUsers: UserWithProjectAccess[];
-	groups: UserGroup[];
-	membershipKeys: Set<string>;
-	ssoMembershipKeys: Set<string>;
-	onOpenUser: (userId: string) => void;
-}) {
-	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
-
-	return (
-		<div className='overflow-x-auto'>
-			<Table className='min-w-3xl table-fixed'>
-				<TableHeader>
-					<TableRow className='[&_th]:h-12'>
-						<TableHead className='w-[38%]'>User</TableHead>
-						<TableHead className='w-1/5'>Role</TableHead>
-						<TableHead className='w-[42%]'>Groups</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{!hasUsers && (
-						<TableRow>
-							<TableCell colSpan={3} className='h-24 text-center'>
-								No users have access to this project.
-							</TableCell>
-						</TableRow>
-					)}
-					{projectUsers.length > 0 && (
-						<UserAccessSection
-							label='Project Team'
-							users={projectUsers}
-							groups={groups}
-							membershipKeys={membershipKeys}
-							ssoMembershipKeys={ssoMembershipKeys}
-							onOpenUser={onOpenUser}
-						/>
-					)}
-					{organizationUsers.length > 0 && (
-						<UserAccessSection
-							label='Organisation Members'
-							users={organizationUsers}
-							groups={groups}
-							membershipKeys={membershipKeys}
-							ssoMembershipKeys={ssoMembershipKeys}
-							onOpenUser={onOpenUser}
-						/>
-					)}
-				</TableBody>
-			</Table>
-		</div>
-	);
-}
-
-function UserAccessSection({
-	label,
-	users,
-	groups,
-	membershipKeys,
-	ssoMembershipKeys,
-	onOpenUser,
-}: {
-	label: string;
-	users: UserWithProjectAccess[];
-	groups: UserGroup[];
-	membershipKeys: Set<string>;
-	ssoMembershipKeys: Set<string>;
-	onOpenUser: (userId: string) => void;
-}) {
-	return (
-		<>
-			<TableRow className='border-y bg-muted/40 hover:bg-muted/40'>
-				<TableCell colSpan={3} className='py-2.5 text-xs font-semibold text-muted-foreground'>
-					{label}
-				</TableCell>
-			</TableRow>
-			{users.map((user) => (
-				<TableRow
-					key={user.id}
-					className='cursor-pointer hover:bg-primary/10'
-					onClick={() => onOpenUser(user.id)}
-				>
-					<TableCell className='min-w-0 overflow-hidden'>
-						<div className='flex min-w-0 flex-col'>
-							<Link
-								to='/settings/project/user-groups/users/$userId'
-								params={{ userId: user.id }}
-								search={{ tab: 'features' }}
-								className='truncate font-medium hover:underline'
-								title={user.name}
-								onClick={(event) => event.stopPropagation()}
-							>
-								{user.name}
-							</Link>
-							<span className='truncate text-xs text-muted-foreground' title={user.email}>
-								{user.email}
-								{user.status ? ` · ${user.status}` : ''}
-							</span>
-						</div>
-					</TableCell>
-					<TableCell className='min-w-0 overflow-hidden'>
-						<Badge variant={user.role}>{USER_ROLE_LABELS[user.role]}</Badge>
-					</TableCell>
-					<TableCell className='min-w-0 overflow-hidden'>
-						<UserGroupsCell
-							user={user}
-							groups={groups}
-							membershipKeys={membershipKeys}
-							ssoMembershipKeys={ssoMembershipKeys}
-						/>
-					</TableCell>
-				</TableRow>
-			))}
-		</>
-	);
-}
-
-function UserGroupsCell({
-	user,
-	groups,
-	membershipKeys,
-	ssoMembershipKeys,
-}: {
-	user: UserWithProjectAccess;
-	groups: UserGroup[];
-	membershipKeys: Set<string>;
-	ssoMembershipKeys: Set<string>;
-}) {
-	const queryClient = useQueryClient();
-	const setMembership = useMutation(
-		trpc.userGroup.setMembership.mutationOptions({
-			onSuccess: () => invalidateUserGroupQueries(queryClient),
-		}),
-	);
-	const selectedGroupNames = useMemo(
-		() =>
-			groups
-				.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
-				.map((group) => group.name),
-		[groups, membershipKeys, user.id],
-	);
-	const selectedGroupLabel = selectedGroupNames.length > 0 ? selectedGroupNames.join(', ') : 'No groups';
-
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					variant='outline'
-					size='sm'
-					className='h-8 w-full min-w-0 justify-between overflow-hidden bg-background font-normal'
-					aria-label={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
-					title={selectedGroupLabel}
-					onClick={(event) => event.stopPropagation()}
-				>
-					<ResponsiveGroupChips names={selectedGroupNames} />
-					<ChevronDown className='shrink-0' />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
-				align='start'
-				className='max-h-64 min-w-56'
-				onClick={(event) => event.stopPropagation()}
-			>
-				{groups.map((group) => {
-					const membershipKey = `${group.id}:${user.id}`;
-					const isManagedBySso = ssoMembershipKeys.has(membershipKey);
-					return (
-						<DropdownMenuCheckboxItem
-							key={group.id}
-							checked={group.isDefault || membershipKeys.has(membershipKey)}
-							disabled={group.isDefault || isManagedBySso || setMembership.isPending}
-							aria-label={isManagedBySso ? `${group.name}, managed by SSO` : group.name}
-							onSelect={(event) => event.preventDefault()}
-							onCheckedChange={(checked) =>
-								setMembership.mutate({
-									groupId: group.id,
-									userId: user.id,
-									isMember: checked === true,
-								})
-							}
-						>
-							<span className='min-w-0 flex-1 truncate'>{group.name}</span>
-							{isManagedBySso && (
-								<Badge variant='secondary' className='ml-2 h-5 px-1.5 py-0 text-[10px] font-normal'>
-									Managed by SSO
-								</Badge>
-							)}
-						</DropdownMenuCheckboxItem>
-					);
-				})}
-			</DropdownMenuContent>
-		</DropdownMenu>
 	);
 }
 

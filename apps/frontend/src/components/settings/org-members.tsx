@@ -125,7 +125,7 @@ export function OrgMembers() {
 					<OrgUserStat
 						label='People with access'
 						value={userCountsQuery.data?.totalUsers}
-						hint="Organization members plus people added directly to a project from its Team page, or created automatically by Slack. They aren't in the list below, see each project's Team page."
+						hint="Organization members plus people added directly to a project from its Users & Groups page, or created automatically by Slack. They aren't in the list below, see each project's Users & Groups page."
 					/>
 					<OrgUserStat
 						label='Active in the last 90 days'
@@ -205,10 +205,15 @@ export function OrgMembers() {
 					<p className='text-sm text-muted-foreground'>Are you sure you want to do this?</p>
 					{resetPasswordError && <p className='text-sm text-destructive'>{resetPasswordError}</p>}
 					<div className='flex justify-end gap-2'>
-						<Button variant='outline' onClick={closeResetPasswordDialog}>
+						<Button variant='outline' className='rounded-full' onClick={closeResetPasswordDialog}>
 							Cancel
 						</Button>
-						<Button variant='destructive' onClick={handleResetPassword} disabled={resetPassword.isPending}>
+						<Button
+							variant='destructive'
+							className='rounded-full'
+							onClick={handleResetPassword}
+							disabled={resetPassword.isPending}
+						>
 							{resetPassword.isPending ? 'Resetting…' : 'Reset password'}
 						</Button>
 					</div>
