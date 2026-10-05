@@ -17,7 +17,7 @@ import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -90,7 +90,7 @@ export function ProjectUsersTable(props: ProjectUsersTableProps) {
 	return <ManagedProjectUsersTable {...props} />;
 }
 
-export function ProjectTeamMembers() {
+export function ReadOnlyProjectUsers() {
 	const users = useQuery(trpc.project.listUsersWithAccess.queryOptions());
 
 	if (users.isLoading) {
@@ -139,6 +139,7 @@ function ManagedProjectUsersTable({
 	const [editMember, setEditMember] = useState<ProjectUser | null>(null);
 	const [removeMember, setRemoveMember] = useState<ProjectUser | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<ProjectUser | null>(null);
+	const [resetPasswordError, setResetPasswordError] = useState('');
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
 	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
@@ -190,9 +191,19 @@ function ManagedProjectUsersTable({
 		if (!resetPasswordMember) {
 			return;
 		}
-		const result = await resetPassword.mutateAsync({ userId: resetPasswordMember.id });
+		setResetPasswordError('');
+		try {
+			const result = await resetPassword.mutateAsync({ userId: resetPasswordMember.id });
+			closeResetPasswordDialog();
+			setCredentials({ email: resetPasswordMember.email, password: result.password });
+		} catch (err) {
+			setResetPasswordError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	const closeResetPasswordDialog = () => {
 		setResetPasswordMember(null);
-		setCredentials({ email: resetPasswordMember.email, password: result.password });
+		setResetPasswordError('');
 	};
 
 	const management: UserAccessManagement = {
@@ -252,27 +263,16 @@ function ManagedProjectUsersTable({
 				onConfirm={handleRemove}
 			/>
 
-			<Dialog open={!!resetPasswordMember} onOpenChange={(open) => !open && setResetPasswordMember(null)}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Reset {resetPasswordMember?.name}'s password?</DialogTitle>
-					</DialogHeader>
-					<p className='text-sm text-muted-foreground'>Are you sure you want to do this?</p>
-					<div className='flex justify-end gap-2'>
-						<Button variant='outline' className='rounded-full' onClick={() => setResetPasswordMember(null)}>
-							Cancel
-						</Button>
-						<Button
-							variant='destructive'
-							className='rounded-full'
-							onClick={handleResetPassword}
-							disabled={resetPassword.isPending}
-						>
-							Reset password
-						</Button>
-					</div>
-				</DialogContent>
-			</Dialog>
+			<ConfirmationDialog
+				open={!!resetPasswordMember}
+				onOpenChange={(open) => !open && closeResetPasswordDialog()}
+				title={`Reset ${resetPasswordMember?.name ?? ''}'s password?`}
+				description='Are you sure you want to do this?'
+				confirmLabel='Reset password'
+				onConfirm={handleResetPassword}
+				isPending={resetPassword.isPending}
+				error={resetPasswordError}
+			/>
 
 			<NewCredentialsDialog
 				open={!!credentials}

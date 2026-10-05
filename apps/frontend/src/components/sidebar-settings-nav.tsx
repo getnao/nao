@@ -14,7 +14,7 @@ interface NavContext {
 }
 
 interface NavItem {
-	label: string | ((ctx: NavContext) => string);
+	label: string;
 	to?: string;
 	search?: { admin?: boolean };
 	visible?: (ctx: NavContext) => boolean;
@@ -40,7 +40,7 @@ const settingsNavGroups: NavGroup[] = [
 				exact: true,
 			},
 			{
-				label: ({ isAdmin }) => (isAdmin ? 'Users & Groups' : 'Team'),
+				label: 'Users & Groups',
 				to: '/settings/project/user-groups',
 				visible: ({ isViewer }) => !isViewer,
 			},
@@ -172,9 +172,7 @@ export function SidebarSettingsNav({
 	const navGroups = settingsNavGroups
 		.map((group) => ({
 			...group,
-			items: group.items
-				.filter((item) => item.visible?.(navContext) ?? true)
-				.map((item) => ({ ...item, label: resolveLabel(item.label, navContext) })),
+			items: group.items.filter((item) => item.visible?.(navContext) ?? true),
 		}))
 		.filter((group) => group.items.length > 0);
 
@@ -365,8 +363,4 @@ export function SidebarSettingsNav({
 			</div>
 		</div>
 	);
-}
-
-function resolveLabel(label: NavItem['label'], ctx: NavContext): string {
-	return typeof label === 'function' ? label(ctx) : label;
 }

@@ -1,8 +1,6 @@
 import { createFileRoute, Outlet, redirect, useMatches } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Github } from 'lucide-react';
-import type { StaticDataRouteOption } from '@tanstack/react-router';
-import type { Permissions } from '@/hooks/use-permissions';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
@@ -16,7 +14,7 @@ import { Empty } from '@/components/ui/empty';
 
 declare module '@tanstack/react-router' {
 	interface StaticDataRouteOption {
-		title?: string | ((permissions: Permissions) => string);
+		title?: string;
 		description?: string;
 	}
 }
@@ -33,9 +31,8 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project')({
 
 function ProjectPage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const permissions = usePermissions();
+	const { isOrgAdmin } = usePermissions();
 	const pageHeader = useMatches().at(-1)?.staticData;
-	const pageTitle = resolvePageTitle(pageHeader?.title, permissions);
 	const isCloud = useIsCloud();
 	const isProjectlessCloud = !project.data && isCloud;
 
@@ -46,10 +43,10 @@ function ProjectPage() {
 	return (
 		<SettingsPageWrapper>
 			<div className='flex flex-col gap-5'>
-				{pageTitle && (
+				{pageHeader?.title && (
 					<div>
-						<h1 className='text-lg font-semibold text-foreground'>{pageTitle}</h1>
-						{pageHeader?.description && (
+						<h1 className='text-lg font-semibold text-foreground'>{pageHeader.title}</h1>
+						{pageHeader.description && (
 							<p className='text-sm text-muted-foreground'>{pageHeader.description}</p>
 						)}
 					</div>
@@ -58,7 +55,7 @@ function ProjectPage() {
 					{project.data ? (
 						<Outlet />
 					) : isProjectlessCloud ? (
-						<NoProjectCloudState isAdmin={permissions.isOrgAdmin} />
+						<NoProjectCloudState isAdmin={isOrgAdmin} />
 					) : (
 						<SettingsCard>
 							<Empty>{emptyMessage}</Empty>
@@ -68,10 +65,6 @@ function ProjectPage() {
 			</div>
 		</SettingsPageWrapper>
 	);
-}
-
-function resolvePageTitle(title: StaticDataRouteOption['title'], permissions: Permissions): string | undefined {
-	return typeof title === 'function' ? title(permissions) : title;
 }
 
 function NoProjectCloudState({ isAdmin }: { isAdmin: boolean }) {

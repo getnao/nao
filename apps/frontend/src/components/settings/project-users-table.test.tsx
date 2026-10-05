@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ProjectTeamMembers, ProjectUsersTable } from './project-users-table';
+import { ReadOnlyProjectUsers, ProjectUsersTable } from './project-users-table';
 import type { MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
@@ -224,6 +224,21 @@ describe('ProjectUsersTable member management', () => {
 		expect(await screen.findByText('Password: generated-password')).toBeTruthy();
 	});
 
+	it('shows the error in the dialog when resetting a password fails', async () => {
+		mocks.resetPassword.mockRejectedValue(new Error('Account does not use password authentication'));
+		renderTable();
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Project User' }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Reset password' }));
+		fireEvent.click(await screen.findByRole('button', { name: 'Reset password' }));
+
+		expect(await screen.findByText('Account does not use password authentication')).toBeTruthy();
+		expect(screen.queryByText(/^Password:/)).toBeNull();
+	});
+
 	it('hides the reset password action in cloud mode', () => {
 		mocks.useQuery.mockReturnValue({ data: { naoMode: 'cloud' } });
 		renderTable();
@@ -238,14 +253,14 @@ describe('ProjectUsersTable member management', () => {
 	});
 });
 
-describe('ProjectTeamMembers', () => {
+describe('ReadOnlyProjectUsers', () => {
 	it('lists project and organisation users without management controls', () => {
 		mocks.useQuery.mockReturnValue({
 			isLoading: false,
 			isError: false,
 			data: [admin, projectUser, organizationUser],
 		});
-		render(<ProjectTeamMembers />);
+		render(<ReadOnlyProjectUsers />);
 
 		expect(mocks.useQuery).toHaveBeenCalledWith({ queryKey: ['users-with-access'] });
 		expect(screen.getByText('Project Team')).toBeTruthy();
