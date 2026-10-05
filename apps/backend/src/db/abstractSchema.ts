@@ -126,6 +126,18 @@ export type NewStoryDelivery = typeof sqliteSchema.storyDelivery.$inferInsert;
 export type DBProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferSelect;
 export type NewProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferInsert;
 
+export type DBProjectMemberBudgetSettings = typeof sqliteSchema.projectMemberBudgetSettings.$inferSelect;
+export type NewProjectMemberBudgetSettings = typeof sqliteSchema.projectMemberBudgetSettings.$inferInsert;
+
+export type DBProjectMemberBudget = typeof sqliteSchema.projectMemberBudget.$inferSelect;
+export type NewProjectMemberBudget = typeof sqliteSchema.projectMemberBudget.$inferInsert;
+
+export type DBProjectGroupBudget = typeof sqliteSchema.projectGroupBudget.$inferSelect;
+export type NewProjectGroupBudget = typeof sqliteSchema.projectGroupBudget.$inferInsert;
+
+export type DBMemberBudgetNotification = typeof sqliteSchema.memberBudgetNotification.$inferSelect;
+export type NewMemberBudgetNotification = typeof sqliteSchema.memberBudgetNotification.$inferInsert;
+
 export type DBBudgetNotification = typeof sqliteSchema.budgetNotification.$inferSelect;
 export type NewBudgetNotification = typeof sqliteSchema.budgetNotification.$inferInsert;
 

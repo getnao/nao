@@ -74,9 +74,10 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 					tools: adminAgentTools,
 					systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
 					adminMode: true,
+					isBudgetChecked: true,
 				}
-			: {}),
-	});
+			: { isBudgetChecked: true },
+	);
 
 	const isForkedFirstMessage =
 		!isNewChat && !!chat.forkMetadata && chat.messages.filter((m) => m.role === 'user' && !m.isForked).length === 1;

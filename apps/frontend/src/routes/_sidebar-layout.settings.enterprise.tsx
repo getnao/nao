@@ -247,7 +247,7 @@ export const ENTERPRISE_FEATURES = [
 	{
 		key: 'user-budget',
 		label: 'Spend limits per user',
-		description: 'Cap how much each person can spend on the AI models.',
+		description: 'Cap how much each person can spend on AI models, per provider or across all of them.',
 		icon: CircleDollarSign,
 	},
 	{

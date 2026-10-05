@@ -37,7 +37,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> 
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
-	budget: 'Alerts when a provider budget limit is reached.',
+	budget: 'Alerts when a provider or member budget limit is reached.',
 	feedback: 'Alerts when users leave positive or negative feedback.',
 	story_refresh: 'Results of your story refreshes.',
 	shared: 'When someone shares a story or chat with you.',
@@ -345,6 +345,11 @@ export const MAX_BUDGET_LIMIT_USD = 200_000;
 
 export const BUDGET_PERIODS = ['day', 'week', 'month'] as const;
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
+
+export const MEMBER_BUDGET_PERIODS = ['week', 'month', 'year'] as const;
+export type MemberBudgetPeriod = (typeof MEMBER_BUDGET_PERIODS)[number];
+
+export type CalendarPeriod = BudgetPeriod | MemberBudgetPeriod;
 
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];

@@ -96,6 +96,11 @@ vi.mock('@/main', () => ({
 			addUserToProject: { mutationOptions: vi.fn() },
 			modify: { mutationOptions: vi.fn() },
 		},
+		memberBudget: {
+			getSettings: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-settings'] })) },
+			getForMember: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-for-member'] })) },
+			setPersonalBudget: { mutationOptions: vi.fn() },
+		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
 			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
@@ -920,7 +925,12 @@ describe('UserGroupEditor', () => {
 	it('shows the active editor tab', () => {
 		renderEditor();
 
-		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Features', 'Context', 'Security']);
+		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+			'Features',
+			'Context',
+			'Security',
+			'Budget',
+		]);
 		expect(screen.getByRole('tab', { name: 'Features' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
 		expect(screen.queryByText('Context permissions')).toBeNull();
@@ -1826,7 +1836,12 @@ describe('UserGroupUserDetail', () => {
 		const unrelatedGroup = { ...analysts, id: 'finance', name: 'Finance' };
 		renderUserDetail({ groups: [allUsers, analysts, unrelatedGroup] });
 
-		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Features', 'Context', 'Security']);
+		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+			'Features',
+			'Context',
+			'Security',
+			'Budget',
+		]);
 		expect(screen.getByRole('heading', { name: 'Project User' })).toBeTruthy();
 		expect(screen.getByText('project@example.com')).toBeTruthy();
 		expect(screen.getByText('Active')).toBeTruthy();

@@ -1,5 +1,7 @@
 import { getCurrentPeriodStart, getNextPeriodStart } from '@nao/shared/date';
+import type { MemberBudgetSource } from '@nao/shared/member-budget';
 import {
+	type CalendarPeriod,
 	type LlmProvider,
 	type LlmProviderKind,
 	providerKind,
@@ -10,6 +12,7 @@ import {
 import { PROVIDER_META } from '../agents/provider-meta';
 import type { BudgetNotificationKey } from '../queries/budget.queries';
 import * as budgetQueries from '../queries/budget.queries';
+import * as memberBudgetQueries from '../queries/member-budget.queries';
 import * as notificationUnsubscribeQueries from '../queries/notification-unsubscribe.queries';
 import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
@@ -22,6 +25,7 @@ import { buildBudgetLimitReachedEmail } from './email-builders';
 import { BudgetExceededError } from './error';
 import { getProjectConfigLlm, getProjectDeclaredModels } from './llm';
 import { logger } from './logger';
+import { type MemberBudgetUsage, resolveMemberBudgetUsage } from './member-budget';
 import type { ConfigProviderBudget } from './nao-config-llm';
 
 export type BudgetStatus = { level: 'ok' | 'warning' | 'exceeded'; message: string | null };
@@ -83,24 +87,49 @@ export async function checkBudgetStatus(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<BudgetStatus> {
-	const resolved = await resolveBudgetUsages(projectId, provider, userId);
-	if (!resolved) {
+	const [resolved, memberUsage] = await Promise.all([
+		resolveBudgetUsages(projectId, provider, userId),
+		userId ? resolveMemberBudgetUsage(projectId, userId) : null,
+	]);
+
+	const candidates = (resolved?.usages ?? []).map((usage) => ({
+		ratio: usage.ratio,
+		message: buildBudgetMessage(usage.ratio, providerLabel(provider), usage.resetLabel, usage.scope),
+	}));
+	if (memberUsage) {
+		candidates.push({ ratio: memberUsage.ratio, message: buildMemberBudgetMessage(memberUsage) });
+	}
+
+	const alerting = candidates.filter((candidate) => candidate.ratio >= WARNING_BUDGET_THRESHOLD);
+	if (alerting.length === 0) {
 		return { level: 'ok', message: null };
 	}
 
-	const { usages } = resolved;
-	if (usages.length === 0 || usages.every((u) => u.ratio < WARNING_BUDGET_THRESHOLD)) {
-		return { level: 'ok', message: null };
-	}
-
-	const worst = usages.reduce((highest, usage) => (usage.ratio > highest.ratio ? usage : highest));
-	return {
-		level: worst.ratio >= 1 ? 'exceeded' : 'warning',
-		message: buildBudgetMessage(worst.ratio, providerLabel(provider), worst.resetLabel, worst.scope),
-	};
+	const worst = alerting.reduce((highest, candidate) => (candidate.ratio > highest.ratio ? candidate : highest));
+	return { level: worst.ratio >= 1 ? 'exceeded' : 'warning', message: worst.message };
 }
 
 export async function assertBudgetNotExceeded(
+	projectId: string,
+	provider: LlmProvider,
+	userId?: string,
+): Promise<void> {
+	await assertProviderBudgetNotExceeded(projectId, provider, userId);
+	await assertMemberBudgetNotExceeded(projectId, userId);
+}
+
+async function assertMemberBudgetNotExceeded(projectId: string, userId: string | undefined): Promise<void> {
+	if (!userId) {
+		return;
+	}
+	const usage = await resolveMemberBudgetUsage(projectId, userId);
+	if (usage && usage.ratio >= 1) {
+		await notifyMemberOnBudgetLimitReached(projectId, userId, usage);
+		throw new BudgetExceededError(buildMemberBudgetMessage(usage));
+	}
+}
+
+async function assertProviderBudgetNotExceeded(
 	projectId: string,
 	provider: LlmProvider,
 	userId?: string,
@@ -187,6 +216,19 @@ function buildBudgetMessage(ratio: number, label: string, resetLabel: string, sc
 	const percent = Math.min(Math.round(ratio * 100), 100);
 	const scopeLabel = scope === 'user' ? `your personal ${label}` : `your ${label}`;
 	return `You've used ${percent}% of ${scopeLabel} budget. It will reset ${resetLabel}.`;
+}
+
+const MEMBER_BUDGET_SCOPE_LABELS: Record<MemberBudgetSource, string> = {
+	personal: 'your personal budget',
+	group: 'your user group budget',
+	default: 'the default member budget',
+};
+
+function buildMemberBudgetMessage(usage: MemberBudgetUsage): string {
+	const percent = Math.min(Math.round(usage.ratio * 100), 100);
+	const scopeLabel = MEMBER_BUDGET_SCOPE_LABELS[usage.source];
+	const resetLabel = formatResetDate(usage.resetsAt, usage.period);
+	return `You've used ${percent}% of ${scopeLabel} for this ${usage.period}. It will reset ${resetLabel}.`;
 }
 
 async function resolveBudgetUsages(
@@ -346,6 +388,34 @@ async function notifyUserOnBudgetLimitReached(
 	}
 }
 
+async function notifyMemberOnBudgetLimitReached(
+	projectId: string,
+	userId: string,
+	usage: MemberBudgetUsage,
+): Promise<void> {
+	const periodStart = getCurrentPeriodStart(usage.period);
+	if (!(await memberBudgetQueries.claimMemberBudgetNotification(projectId, userId, periodStart))) {
+		return;
+	}
+
+	const resetLabel = formatResetDate(usage.resetsAt, usage.period);
+	try {
+		await notify({
+			userId,
+			projectId,
+			category: 'budget',
+			title: 'Your budget limit reached',
+			body: `You've used all of ${MEMBER_BUDGET_SCOPE_LABELS[usage.source]}. Requests are blocked until it resets ${resetLabel}.`,
+			linkUrl: '/settings/project/budgets',
+			channels: ['in_app'],
+			payload: { limitUsd: usage.limitUsd, currentSpendUsd: usage.spendUsd, scope: 'member' },
+		});
+	} catch (error) {
+		await memberBudgetQueries.releaseMemberBudgetNotification(projectId, userId, periodStart).catch(() => {});
+		logger.error(`Failed to send member budget limit notification: ${String(error)}`, { source: 'system' });
+	}
+}
+
 function budgetNotificationKey(
 	projectId: string,
 	budget: EffectiveProviderBudget,
@@ -360,9 +430,10 @@ function budgetNotificationKey(
 	};
 }
 
-function formatResetDate(date: Date, period: BudgetPeriod): string {
+function formatResetDate(date: Date, period: CalendarPeriod): string {
 	if (period === 'day') {
 		return 'tomorrow';
 	}
-	return `on ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })}`;
+	const year = period === 'year' ? 'numeric' : undefined;
+	return `on ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year, timeZone: 'UTC' })}`;
 }

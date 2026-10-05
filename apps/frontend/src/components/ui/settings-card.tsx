@@ -19,7 +19,7 @@ interface SettingsCardProps {
 	icon?: React.ReactNode;
 	title?: string;
 	titleSize?: 'md' | 'lg';
-	description?: string;
+	description?: React.ReactNode;
 	action?: React.ReactNode;
 	children: React.ReactNode;
 	rootClassName?: string;

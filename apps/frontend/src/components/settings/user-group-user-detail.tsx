@@ -23,6 +23,7 @@ import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { getEffectiveUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UserGroupEffectiveContext } from '@/components/settings/user-group-effective-context';
 import { UserGroupFeatureSummaryCard } from '@/components/settings/user-group-feature-card';
+import { UserGroupUserBudget } from '@/components/settings/user-group-user-budget';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,7 +48,7 @@ interface EffectiveUserGroupAccess {
 	rowPolicies: UserGroupRowPolicies[];
 }
 
-export type UserGroupUserDetailTab = 'features' | 'context' | 'security';
+export type UserGroupUserDetailTab = 'features' | 'context' | 'security' | 'budget';
 
 interface UserGroupUserDetailProps {
 	user: UserGroupDetailUser;
@@ -77,6 +78,7 @@ const tabs = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
+	{ id: 'budget', label: 'Budget' },
 ] satisfies Array<{ id: UserGroupUserDetailTab; label: string }>;
 
 export function UserGroupUserDetail({
@@ -183,6 +185,7 @@ export function UserGroupUserDetail({
 							onRetry={onRetrySecurity}
 						/>
 					)}
+					{activeTab === 'budget' && <UserGroupUserBudget userId={user.id} />}
 				</TabPanel>
 			</section>
 		</div>

@@ -7,6 +7,10 @@ export interface SettingsSearchEntry {
 	keywords?: string[];
 	search?: Record<string, string>;
 	adminOnly?: boolean;
+	/** Hidden from admins, who see the admin version of the same section instead. */
+	nonAdminOnly?: boolean;
+	/** Hidden unless the project's license includes this feature. */
+	licenseFeature?: string;
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
@@ -247,21 +251,71 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['env', 'environment', 'variable', 'secret', 'credential', 'config', 'jinja'],
 		adminOnly: true,
 	},
+
+	// ── Project > Budget ─────────────────────────────────────
 	{
-		page: '/settings/project',
-		pageLabel: 'Project Settings',
-		section: 'Budgets',
-		title: 'Budgets',
+		page: '/settings/project/budgets',
+		pageLabel: 'Budget',
+		section: 'General',
+		search: { tab: 'general' },
+		title: 'Provider budgets',
 		description: 'Limit the budgets of your most expensive providers.',
-		keywords: ['budget', 'provider limit', 'spend', 'cost'],
+		keywords: ['budget', 'provider limit', 'spend', 'cost', 'period', 'reset'],
 	},
 	{
-		page: '/settings/project',
-		pageLabel: 'Project Settings',
-		section: 'Budgets',
+		page: '/settings/project/budgets',
+		pageLabel: 'Budget',
+		section: 'General',
+		search: { tab: 'general' },
 		title: 'Spend per user',
-		description: 'Review current-period spend for each project member.',
+		description: 'Review current-period spend for each project member, broken down by provider.',
 		keywords: ['user budget', 'member spend', 'cost per user'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/budgets',
+		pageLabel: 'Budget',
+		section: 'Advanced',
+		search: { tab: 'advanced' },
+		title: 'Member budgets',
+		description: 'Give every member a personal spending cap across all providers and track where they stand.',
+		keywords: [
+			'member budgets',
+			'member budget',
+			'personal budget',
+			'per member',
+			'allocated',
+			'granularity',
+			'week',
+			'month',
+			'year',
+			'over budget',
+			'close to limit',
+			'under budget',
+			'filter by group',
+			'enterprise',
+		],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/budgets',
+		pageLabel: 'Budget',
+		section: 'Advanced',
+		search: { tab: 'advanced' },
+		title: 'Your budget',
+		description: 'See the spending cap your admins set for you and how much of it you have used.',
+		keywords: ['my budget', 'personal budget', 'spending cap', 'my limit', 'my spend'],
+		nonAdminOnly: true,
+		licenseFeature: 'user-budget',
+	},
+	{
+		page: '/settings/project/budgets',
+		pageLabel: 'Budget',
+		section: 'Advanced',
+		search: { tab: 'advanced' },
+		title: 'Group budgets',
+		description: 'Give every member of a user group the same spending cap instead of the default.',
+		keywords: ['group budget', 'budget per group', 'user group', 'team budget', 'enterprise'],
 		adminOnly: true,
 	},
 
@@ -899,7 +953,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Manage Groups',
 		search: { tab: 'groups' },
 		title: 'Manage Groups',
-		description: 'Configure which features, database tables, and docs each group can use.',
+		description: 'Configure which features, database tables, docs, and budget each group can use.',
 		keywords: [
 			'groups',
 			'permissions',
@@ -911,6 +965,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'stories',
 			'custom stories',
 			'automations',
+			'budget',
+			'group budget',
 		],
 		adminOnly: true,
 	},

@@ -30,6 +30,7 @@ import {
 	BUDGET_PERIODS,
 	FOLDER_SYSTEM_TYPE,
 	FOLDER_VISIBILITY,
+	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
 	SHARE_VISIBILITY,
 	STORY_ACTIONS,
@@ -375,6 +376,7 @@ export const chatMessage = pgTable(
 	},
 	(table) => [
 		index('chat_message_chatId_idx').on(table.chatId),
+		index('chat_message_chatId_createdAt_idx').on(table.chatId, table.createdAt),
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
 		index('chat_message_senderUserId_idx').on(table.senderUserId),
@@ -598,6 +600,66 @@ export const projectProviderBudget = pgTable(
 	],
 );
 
+export const projectMemberBudgetSettings = pgTable(
+	'project_member_budget_settings',
+	{
+		projectId: text('project_id')
+			.primaryKey()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		period: text('period', { enum: MEMBER_BUDGET_PERIODS }).notNull(),
+		defaultLimitUsd: integer('default_limit_usd').default(0).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		check(
+			'member_budget_period_valid',
+			sql`${t.period} IN (${sql.raw(MEMBER_BUDGET_PERIODS.map((p) => `'${p}'`).join(', '))})`,
+		),
+	],
+);
+
+export const projectMemberBudget = pgTable(
+	'project_member_budget',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		limitUsd: integer('limit_usd').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_budget_userId_idx').on(t.userId)],
+);
+
+export const projectGroupBudget = pgTable(
+	'project_group_budget',
+	{
+		groupId: text('group_id')
+			.primaryKey()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		limitUsd: integer('limit_usd').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('project_group_budget_projectId_idx').on(t.projectId)],
+);
+
 export const budgetNotification = pgTable(
 	'budget_notification',
 	{
@@ -616,6 +678,24 @@ export const budgetNotification = pgTable(
 		index('budget_notification_projectId_idx').on(t.projectId),
 		unique('budget_notification_project_provider_scope_period').on(t.projectId, t.provider, t.scope, t.periodStart),
 	],
+);
+
+export const memberBudgetNotification = pgTable(
+	'member_budget_notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		periodStart: timestamp('period_start').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [unique('member_budget_notification_project_user_period').on(t.projectId, t.userId, t.periodStart)],
 );
 
 export const sharedChat = pgTable(

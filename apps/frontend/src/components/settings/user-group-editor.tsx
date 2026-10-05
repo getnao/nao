@@ -15,6 +15,7 @@ import {
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
+import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
 import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy } from 'lucide-react';
@@ -33,6 +34,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
+import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
 import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
@@ -69,7 +71,7 @@ export interface UserGroupEditorGroup {
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'sso';
+export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'budget' | 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -84,6 +86,7 @@ const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
+	{ id: 'budget', label: 'Budget' },
 ];
 
 const defaultProjectRoleOptions: readonly UserRole[] = [...USER_ROLES.filter((role) => role !== 'admin'), 'admin'];
@@ -140,6 +143,16 @@ export function UserGroupEditor({
 	const licenseFeatures = useLicenseFeatures();
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
+	const hasMemberBudget = licenseFeatures.data?.['user-budget'] === true;
+	const memberBudgetSettings = useQuery({
+		...trpc.memberBudget.getSettings.queryOptions(),
+		enabled: hasMemberBudget,
+	});
+	const savedGroupBudgetUsd = hasMemberBudget
+		? resolveSavedGroupBudget(existingGroup, memberBudgetSettings.data)
+		: null;
+	const [groupBudgetUsd, setGroupBudgetUsd] = useState<number | null>(savedGroupBudgetUsd);
+	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
 	const rowSecurityRegistry =
@@ -206,6 +219,7 @@ export function UserGroupEditor({
 	const tabs = hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs;
 	const hasUnsavedChanges =
 		editorGroup === null ||
+		hasGroupBudgetChanges ||
 		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
@@ -265,6 +279,10 @@ export function UserGroupEditor({
 	]);
 
 	useEffect(() => {
+		setGroupBudgetUsd(savedGroupBudgetUsd);
+	}, [existingGroup?.id, savedGroupBudgetUsd]);
+
+	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
 			onTabChange('features');
 		}
@@ -287,6 +305,7 @@ export function UserGroupEditor({
 			onTabChange('security');
 			return;
 		}
+		const budgetInput = hasGroupBudgetChanges ? { budgetLimitUsd: groupBudgetUsd } : {};
 		try {
 			if (existingGroup) {
 				await updateGroup.mutateAsync({
@@ -299,6 +318,7 @@ export function UserGroupEditor({
 					filesAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
+					...budgetInput,
 				});
 				await invalidateUserGroupQueries(queryClient);
 			} else {
@@ -311,6 +331,7 @@ export function UserGroupEditor({
 					filesAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
+					...budgetInput,
 				});
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
@@ -343,6 +364,7 @@ export function UserGroupEditor({
 			return;
 		}
 		resetForm();
+		setGroupBudgetUsd(savedGroupBudgetUsd);
 	};
 	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
 		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
@@ -413,6 +435,17 @@ export function UserGroupEditor({
 									/>
 								)}
 							</div>
+						)}
+						{activeTab === 'budget' && (
+							<UserGroupBudget
+								isLicensed={hasMemberBudget}
+								isDefaultGroup={existingGroup?.isDefault === true}
+								isLoading={memberBudgetSettings.isLoading}
+								limitUsd={groupBudgetUsd}
+								defaultLimitUsd={memberBudgetSettings.data?.defaultLimitUsd ?? 0}
+								period={memberBudgetSettings.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
+								onLimitChange={setGroupBudgetUsd}
+							/>
 						)}
 						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
 							<div className='flex min-h-64 flex-col gap-5'>
@@ -797,7 +830,21 @@ export function invalidateUserGroupQueries(queryClient: QueryClient) {
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveOidcEnvMappings.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveMicrosoftEnvMappings.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.project.getDatabaseObjects.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: [['memberBudget']] }),
 	]);
+}
+
+function resolveSavedGroupBudget(
+	group: UserGroupEditorGroup | null,
+	settings: { defaultLimitUsd: number; groupBudgets: Array<{ groupId: string; limitUsd: number }> } | undefined,
+): number | null {
+	if (!group || !settings) {
+		return null;
+	}
+	if (group.isDefault) {
+		return settings.defaultLimitUsd;
+	}
+	return settings.groupBudgets.find((groupBudget) => groupBudget.groupId === group.id)?.limitUsd ?? null;
 }
 
 function UserGroupFeatures({

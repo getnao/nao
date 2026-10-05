@@ -6,8 +6,8 @@ import { getNextPeriodStart } from '@nao/shared/date';
 import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD, providerLabel, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 
+import { UnsavedChangesFooter } from '@/components/settings/unsaved-changes-footer';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -295,22 +295,6 @@ export function BudgetSettings() {
 						})}
 					</TableBody>
 				</Table>
-
-				{isAdmin && (
-					<div className='flex justify-end gap-2 px-4 pb-4 pt-2'>
-						<Button variant='ghost' size='sm' onClick={resetForm} disabled={!isDirty}>
-							Cancel
-						</Button>
-						<Button
-							size='sm'
-							variant='primary-gradient'
-							onClick={handleSave}
-							disabled={!isDirty || setBudgetsMutation.isPending}
-						>
-							{setBudgetsMutation.isPending ? 'Saving...' : 'Save Changes'}
-						</Button>
-					</div>
-				)}
 			</SettingsCard>
 
 			{showPerUserSpend && perUserProviders.length > 0 && (
@@ -354,6 +338,15 @@ export function BudgetSettings() {
 						</TableBody>
 					</Table>
 				</SettingsCard>
+			)}
+
+			{isAdmin && (isDirty || setBudgetsMutation.isPending) && (
+				<UnsavedChangesFooter
+					isSaving={setBudgetsMutation.isPending}
+					errorMessage={setBudgetsMutation.isError ? setBudgetsMutation.error.message : undefined}
+					onCancel={resetForm}
+					onSave={handleSave}
+				/>
 			)}
 		</>
 	);
