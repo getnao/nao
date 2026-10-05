@@ -50,7 +50,7 @@ export async function listUserSharedChats(projectIds: string[], userId: string):
 	return chats.map((chat) => ({ ...chat, messageBubbles: bubblesMap.get(chat.chatId) }));
 }
 
-async function fetchMessageBubbles(chatIds: string[]): Promise<Map<string, MessageBubble[]>> {
+export async function fetchMessageBubbles(chatIds: string[]): Promise<Map<string, MessageBubble[]>> {
 	if (chatIds.length === 0) {
 		return new Map();
 	}
