@@ -847,7 +847,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Users',
 		search: { tab: 'users' },
 		title: 'Users',
-		description: 'Add members to the project and assign them to groups.',
+		description: 'View the members of the project, the groups they belong to, and their roles.',
 		keywords: ['members', 'team', 'invite', 'add member', 'project members', 'roles', 'memberships', 'permissions'],
 	},
 	{
