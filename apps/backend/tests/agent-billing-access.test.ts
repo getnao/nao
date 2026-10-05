@@ -23,7 +23,7 @@ describe('agent billing access', () => {
 		agents.set('chat-1', existingAgent);
 		mocks.assertProjectCloudBillingAccess.mockRejectedValue(accessError);
 
-		await expect(service.create({ id: 'chat-1', projectId: 'project-1', userId: 'user-1' } as never)).rejects.toBe(
+		await expect(service.create({ id: 'chat-1', projectId: 'project-1', userId: 'user-1' })).rejects.toBe(
 			accessError,
 		);
 

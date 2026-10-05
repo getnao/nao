@@ -67,17 +67,16 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
 
-	const agent = await agentService.create(
-		{ ...chat, userId, projectId },
-		model,
-		adminMode
+	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
+		billingAccessVerifiedProjectId: projectId,
+		...(adminMode
 			? {
 					tools: adminAgentTools,
 					systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
 					adminMode: true,
 				}
-			: undefined,
-	);
+			: {}),
+	});
 
 	const isForkedFirstMessage =
 		!isNewChat && !!chat.forkMetadata && chat.messages.filter((m) => m.role === 'user' && !m.isForked).length === 1;

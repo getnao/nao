@@ -69,7 +69,6 @@ describe('context recommendation routes', () => {
 	it('does not report a manual run as started when billing access is restricted', async () => {
 		const accessError = new TRPCError({ code: 'FORBIDDEN', message: 'Cloud billing access is restricted' });
 		mocks.assertProjectCloudBillingAccess.mockRejectedValue(accessError);
-		mocks.runContextRecommendations.mockRejectedValue(accessError);
 
 		await expect(caller().contextRecommendation.run()).rejects.toMatchObject({
 			code: 'FORBIDDEN',

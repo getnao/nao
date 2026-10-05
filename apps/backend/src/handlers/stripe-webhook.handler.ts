@@ -216,13 +216,22 @@ async function processPaymentMethodEvent(
 async function reconcileAllMappedCustomers(): Promise<void> {
 	// ponytail: Stripe can omit the former Customer on detach; replace this scan with persisted ownership if it grows.
 	const billings = await billingQueries.listOrganizationBillingsWithStripeCustomers();
+	const failures: string[] = [];
 	for (const billing of billings) {
-		if (billing.stripeCustomerId) {
+		if (!billing.stripeCustomerId) {
+			continue;
+		}
+		try {
 			await reconcileCloudBillingCustomer({
 				stripeCustomerId: billing.stripeCustomerId,
 				organizationIdHint: billing.orgId,
 			});
+		} catch (error) {
+			failures.push(`${billing.orgId}: ${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+	if (failures.length > 0) {
+		throw new Error(`Reconciliation failed for ${failures.length} organization(s): ${failures.join('; ')}`);
 	}
 }
 

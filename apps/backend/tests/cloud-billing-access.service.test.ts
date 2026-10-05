@@ -117,6 +117,13 @@ describe('project cloud billing access', () => {
 		mocks.isCloudBillingEnabled.mockReturnValue(true);
 	});
 
+	it('grants access without looking up the project when cloud billing is disabled', async () => {
+		mocks.isCloudBillingEnabled.mockReturnValue(false);
+
+		await expect(hasProjectCloudBillingAccess('missing-project')).resolves.toBe(true);
+		expect(mocks.getProjectById).not.toHaveBeenCalled();
+	});
+
 	it('denies access when the project does not exist', async () => {
 		mocks.getProjectById.mockResolvedValue(null);
 

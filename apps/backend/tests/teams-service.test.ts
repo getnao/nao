@@ -103,6 +103,15 @@ vi.mock('../src/utils/messaging-provider', () => ({
 
 describe('TeamsService', () => {
 	beforeEach(() => {
+		Object.assign(teamsService as unknown as Record<string, unknown>, {
+			_bot: null,
+			_projectId: '',
+			_appId: '',
+			_appPassword: '',
+			_tenantId: '',
+			_redirectUrl: '',
+			_modelSelection: undefined,
+		});
 		teamsHarness.billingAccess.mockReset().mockRejectedValue(new Error('stop after access check'));
 		teamsHarness.createAgent.mockReset();
 		teamsHarness.credentials.length = 0;

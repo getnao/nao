@@ -121,7 +121,11 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const syncBillingWithStripe = syncStripeBilling.mutate;
 
 	useEffect(() => {
-		if (!isCheckoutPolling || isCheckoutConfirmed) {
+		if (!isCheckoutPolling) {
+			return;
+		}
+		if (isCheckoutConfirmed) {
+			setIsCheckoutPolling(false);
 			return;
 		}
 		const timeout = window.setTimeout(() => setIsCheckoutPolling(false), STATUS_CONFIRMATION_TIMEOUT_MS);

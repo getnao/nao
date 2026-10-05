@@ -49,6 +49,7 @@ describe('Stripe webhook route', () => {
 		const response = await handler()(request, reply());
 
 		expect(response.statusCode).toBe(400);
+		expect(response.body).toEqual({ error: 'Invalid Stripe webhook request' });
 		expect(testMocks.constructEventAsync).not.toHaveBeenCalled();
 		expect(testMocks.insertEvent).not.toHaveBeenCalled();
 		expect(testMocks.enqueueOnce).not.toHaveBeenCalled();
@@ -62,6 +63,7 @@ describe('Stripe webhook route', () => {
 		const response = await handler()({ headers: { 'stripe-signature': 'invalid' }, rawBody: '{}' }, reply());
 
 		expect(response.statusCode).toBe(400);
+		expect(response.body).toEqual({ error: 'Invalid Stripe webhook signature' });
 		expect(testMocks.insertEvent).not.toHaveBeenCalled();
 		expect(testMocks.enqueueOnce).not.toHaveBeenCalled();
 	});
@@ -82,6 +84,7 @@ describe('Stripe webhook route', () => {
 		const response = await handler()({ headers: { 'stripe-signature': 'valid' }, rawBody: '{}' }, reply());
 
 		expect(response.statusCode).toBe(400);
+		expect(response.body).toEqual({ error: 'Stripe event mode does not match the configured Stripe key' });
 		expect(testMocks.insertEvent).not.toHaveBeenCalled();
 		expect(testMocks.enqueueOnce).not.toHaveBeenCalled();
 	});
@@ -110,6 +113,7 @@ describe('Stripe webhook route', () => {
 			maxAttempts: 10,
 		});
 		expect(response.statusCode).toBe(200);
+		expect(response.body).toEqual({ received: true });
 	});
 });
 

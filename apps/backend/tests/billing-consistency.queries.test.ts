@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as EnvModule from '../src/env';
 
@@ -51,6 +51,10 @@ describe('billing consistency queries', () => {
 			stripeSubscriptionId: 'sub_old',
 			billingStatus: 'canceled',
 		});
+	});
+
+	beforeEach(async () => {
+		await db.delete(s.scheduledJob);
 	});
 
 	afterAll(() => {

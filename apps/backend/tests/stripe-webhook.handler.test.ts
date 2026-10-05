@@ -36,6 +36,8 @@ vi.mock('../src/services/stripe.service', () => ({
 
 import { stripeWebhookProcessHandler } from '../src/handlers/stripe-webhook.handler';
 
+const CHECKOUT_EVENT_TYPES = ['checkout.session.completed', 'checkout.session.async_payment_succeeded'] as const;
+
 describe('stripeWebhookProcessHandler', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -71,7 +73,7 @@ describe('stripeWebhookProcessHandler', () => {
 		expect(mocks.reconcileCustomer).not.toHaveBeenCalled();
 	});
 
-	it('reconciles subscription state after Checkout completion', async () => {
+	it.each(CHECKOUT_EVENT_TYPES)('reconciles subscription state after %s', async (eventType) => {
 		const subscription = {
 			id: 'sub_cloud',
 			customer: 'cus_cloud',
@@ -79,7 +81,7 @@ describe('stripeWebhookProcessHandler', () => {
 			status: 'trialing',
 		};
 		mocks.getEvent.mockResolvedValue({
-			type: 'checkout.session.completed',
+			type: eventType,
 			data: { object: { id: 'cs_cloud', mode: 'subscription', metadata: { nao_plan_key: 'cloud_monthly_v2' } } },
 		});
 		mocks.getCheckoutSubscription.mockResolvedValue({
@@ -202,10 +204,10 @@ describe('stripeWebhookProcessHandler', () => {
 		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_expired');
 	});
 
-	it('reconciles an expired Checkout event from its stored Session ID', async () => {
+	it.each(CHECKOUT_EVENT_TYPES)('reconciles an expired %s event from its stored Session ID', async (eventType) => {
 		mocks.getInboxEvent.mockResolvedValue({
 			id: 'evt_expired',
-			type: 'checkout.session.completed',
+			type: eventType,
 			stripeObjectId: 'cs_cloud',
 			processedAt: null,
 		});
@@ -286,6 +288,41 @@ describe('stripeWebhookProcessHandler', () => {
 			stripeCustomerId: 'cus_cloud',
 			organizationIdHint: 'org-id',
 		});
+	});
+
+	it('reconciles an expired customer.updated event from its stored Customer ID', async () => {
+		mocks.getInboxEvent.mockResolvedValue({
+			id: 'evt_expired',
+			type: 'customer.updated',
+			stripeObjectId: 'cus_cloud',
+			processedAt: null,
+		});
+		mocks.getEvent.mockRejectedValue({ statusCode: 404 });
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_expired' }, {} as never);
+
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({ stripeCustomerId: 'cus_cloud' });
+		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_expired');
+	});
+
+	it('scans mapped Customers for an expired payment_method.detached event', async () => {
+		mocks.getInboxEvent.mockResolvedValue({
+			id: 'evt_expired',
+			type: 'payment_method.detached',
+			stripeObjectId: 'pm_detached',
+			processedAt: null,
+		});
+		mocks.getEvent.mockRejectedValue({ statusCode: 404 });
+		mocks.listMappedOrganizations.mockResolvedValue([{ orgId: 'org-id', stripeCustomerId: 'cus_cloud' }]);
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_expired' }, {} as never);
+
+		expect(mocks.getPaymentMethod).not.toHaveBeenCalled();
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_cloud',
+			organizationIdHint: 'org-id',
+		});
+		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_expired');
 	});
 
 	it('rejects a reconcilable stored event with no object ID', async () => {
@@ -423,6 +460,29 @@ describe('stripeWebhookProcessHandler', () => {
 			organizationIdHint: 'org-two',
 		});
 		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
+	});
+
+	it('keeps reconciling other mapped Customers when one fails, then fails the event', async () => {
+		mocks.getEvent.mockResolvedValue({
+			type: 'payment_method.detached',
+			data: { object: { id: 'pm_detached', customer: null } },
+		});
+		mocks.listMappedOrganizations.mockResolvedValue([
+			{ orgId: 'org-one', stripeCustomerId: 'cus_one' },
+			{ orgId: 'org-two', stripeCustomerId: 'cus_two' },
+		]);
+		mocks.reconcileCustomer.mockRejectedValueOnce(new Error('org-one unavailable'));
+
+		await expect(stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never)).rejects.toThrow(
+			'Reconciliation failed for 1 organization(s): org-one: org-one unavailable',
+		);
+
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_two',
+			organizationIdHint: 'org-two',
+		});
+		expect(mocks.markFailed).toHaveBeenCalledWith('evt_123', expect.stringContaining('org-one unavailable'));
+		expect(mocks.markProcessed).not.toHaveBeenCalled();
 	});
 
 	it('reconciles the former Customer from a detached PaymentMethod event when available', async () => {
