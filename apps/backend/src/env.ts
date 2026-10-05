@@ -322,6 +322,12 @@ const baseRawEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'MCP_PUBLIC_URL must be a valid URL' }).optional()),
 
+	/** Opt in only when authorization servers can fetch the client metadata from BETTER_AUTH_URL. */
+	MCP_CLIENT_METADATA_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.transform((val) => val === 'true'),
+
 	/**
 	 * Whether unauthenticated OAuth dynamic client registration (POST /api/auth/oauth2/register) is
 	 * allowed. MCP clients that self-register (Claude, Cursor, …) rely on it, so it defaults to true.

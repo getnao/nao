@@ -191,6 +191,13 @@ npx skills add getnao/nao
 
 Docs on nao skills: https://docs.getnao.io/nao-agent/context-engineering/skills
 
+## 🔮 Forecasting
+
+Forecast time series with t0-beta using the [Retrocast MCP server](https://docs.retrocast.com/mcp).
+nao's built-in forecasting skill guides dataset selection or upload, uncertainty intervals,
+and historical evaluation. See the [setup guide](docs/retrocast-forecasting.md) for OAuth
+connection requirements and how to forecast warehouse data.
+
 ## 👩🏻‍💻 Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guidelines.

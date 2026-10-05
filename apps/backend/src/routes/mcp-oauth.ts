@@ -8,7 +8,12 @@ import { env } from '../env';
 import { claimMcpDiscoveryUser, setMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
 import * as projectQueries from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
-import { buildAuthorizationRedirect, completeAuthorization } from '../services/mcp-oauth';
+import {
+	buildAuthorizationRedirect,
+	completeAuthorization,
+	getMcpClientMetadata,
+	MCP_CLIENT_METADATA_URL,
+} from '../services/mcp-oauth';
 import { logger } from '../utils/logger';
 import { convertHeaders } from '../utils/utils';
 
@@ -91,6 +96,16 @@ async function claimDiscovery(role: UserRole, projectId: string, server: string,
 }
 
 export const mcpOAuthRoutes = async (app: App) => {
+	// Authorization servers fetch this before the user has a nao session. It contains no credentials.
+	app.get('/client-metadata.json', async (_request, reply) => {
+		if (!MCP_CLIENT_METADATA_URL) {
+			return reply
+				.status(404)
+				.send({ error: 'OAuth client metadata is disabled or BETTER_AUTH_URL is not HTTPS' });
+		}
+		return { client_id: MCP_CLIENT_METADATA_URL, ...getMcpClientMetadata() };
+	});
+
 	app.get('/connect', async (request, reply) => {
 		const { server, projectId, returnTo } = request.query as {
 			server?: string;

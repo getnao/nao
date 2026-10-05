@@ -26,7 +26,22 @@ import { logger } from '../utils/logger';
 
 const BASE_URL = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 const CALLBACK_URL = `${BASE_URL}/api/mcp-oauth/callback`;
+export const MCP_CLIENT_METADATA_URL =
+	env.MCP_CLIENT_METADATA_ENABLED && new URL(BASE_URL).protocol === 'https:'
+		? `${BASE_URL}/api/mcp-oauth/client-metadata.json`
+		: undefined;
 const TOKEN_EXPIRY_BUFFER_MS = 60_000;
+
+/** Shared by the public metadata document and the SDK's dynamic-registration fallback. */
+export function getMcpClientMetadata(): OAuthClientMetadata {
+	return {
+		client_name: 'nao',
+		redirect_uris: [CALLBACK_URL],
+		grant_types: ['authorization_code', 'refresh_token'],
+		response_types: ['code'],
+		token_endpoint_auth_method: 'none',
+	};
+}
 
 /** Thrown when a per-user MCP OAuth token is missing/invalid and the user must (re)connect. */
 export class McpAuthRequiredError extends Error {
@@ -184,13 +199,11 @@ class DbOAuthClientProvider implements OAuthClientProvider {
 	}
 
 	get clientMetadata(): OAuthClientMetadata {
-		return {
-			client_name: 'nao',
-			redirect_uris: [CALLBACK_URL],
-			grant_types: ['authorization_code', 'refresh_token'],
-			response_types: ['code'],
-			token_endpoint_auth_method: 'none',
-		};
+		return getMcpClientMetadata();
+	}
+
+	get clientMetadataUrl(): string | undefined {
+		return MCP_CLIENT_METADATA_URL;
 	}
 
 	state(): string {
