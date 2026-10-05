@@ -51,6 +51,26 @@ describe('project context path access', () => {
 		expect(isProjectContextPathAllowed(context, '/notes.md', '/notes.md', 'file')).toBe(true);
 	});
 
+	it('hides nao_config.yaml wherever it lives and however it is addressed', () => {
+		const context = {
+			warehouseTableAccess: unrestrictedWarehouse,
+			docsContextAccess: { enforced: false as const },
+		};
+		expect(isProjectContextPathAllowed(context, '/nao_config.yaml', '/nao_config.yaml', 'file')).toBe(false);
+		expect(isProjectContextPathAllowed(context, 'nao_config.yaml', '/nao_config.yaml', 'file')).toBe(false);
+		expect(isProjectContextPathAllowed(context, '/NAO_CONFIG.YAML', '/NAO_CONFIG.YAML', 'file')).toBe(false);
+		expect(isProjectContextPathAllowed(context, '/alias.yaml', '/nao_config.yaml', 'file')).toBe(false);
+		expect(
+			isProjectContextPathAllowed(
+				context,
+				'/repos/other/nao_config.yaml',
+				'/repos/other/nao_config.yaml',
+				'file',
+			),
+		).toBe(false);
+		expect(isProjectContextPathAllowed(context, '/nao_config.yaml.md', '/nao_config.yaml.md', 'file')).toBe(true);
+	});
+
 	it('treats nested docs grant paths as relative to the outer docs root', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,

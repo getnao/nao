@@ -1,4 +1,9 @@
-import { isDocsContextDirectoryGranted, isDocsContextFileGranted, mayTraverseDocsContextDirectory } from '@nao/shared';
+import {
+	CONTEXT_CONFIG_FILENAME,
+	isDocsContextDirectoryGranted,
+	isDocsContextFileGranted,
+	mayTraverseDocsContextDirectory,
+} from '@nao/shared';
 import path from 'path';
 
 import type { ToolContext } from '../types/tools';
@@ -24,6 +29,9 @@ export function isProjectContextPathAllowed(
 	canonicalVirtualPath: string,
 	kind: ProjectPathKind,
 ): boolean {
+	if (isProjectConfigPath(requestedVirtualPath) || isProjectConfigPath(canonicalVirtualPath)) {
+		return false;
+	}
 	if (!isContextPathAllowed(context.warehouseTableAccess, canonicalVirtualPath)) {
 		return false;
 	}
@@ -57,6 +65,11 @@ export function isProjectContextPathAllowed(
 
 export function isDocsProjectPath(virtualPath: string): boolean {
 	return parseDocsPath(virtualPath).kind === 'docs';
+}
+
+/** `nao_config.yaml` can hold plaintext LLM keys and warehouse credentials, so the agent never sees it. */
+function isProjectConfigPath(virtualPath: string): boolean {
+	return path.posix.basename(virtualPath).toLowerCase() === CONTEXT_CONFIG_FILENAME;
 }
 
 function parseDocsPath(virtualPath: string): DocsPath {
