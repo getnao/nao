@@ -20,8 +20,11 @@ import { openMcpConnectPopup } from '@/lib/mcp-oauth';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
-/** Milliseconds of inactivity before we ask the user how the conversation went. */
-const FEEDBACK_INACTIVITY_MS = 10_000;
+/**
+ * Milliseconds of inactivity before we ask the user how the conversation went, indexed by how many
+ * times they dismissed the prompt across all chats. Every dismissal pushes the next prompt further out.
+ */
+const FEEDBACK_INACTIVITY_LADDER_MS = [10_000, 15_000, 25_000, 30_000, 45_000, 60_000];
 /** How many charts must exist in a chat before we offer to turn them into a story. */
 const STORY_CHART_THRESHOLD = 2;
 /** Message sent on behalf of the user when they accept the story suggestion. */
@@ -29,6 +32,8 @@ const STORY_SUGGESTION_MESSAGE = 'Create a story from the charts in this convers
 
 const storyProposalDisabledStorage = createLocalStorage<boolean>('nao-story-proposal-disabled', false);
 const liveStoryProposalDismissedStorage = createLocalStorage<string[]>('nao-live-story-proposal-dismissed', []);
+const feedbackDismissCountStorage = createLocalStorage<number>('nao-feedback-prompt-dismiss-count', 0);
+const feedbackDismissedChatsStorage = createLocalStorage<string[]>('nao-feedback-prompt-dismissed-chats', []);
 
 /**
  * A floating panel that sits above the chat input and surfaces a single
@@ -496,7 +501,10 @@ function useConversationFeedback(): ConversationFeedback {
 	const messages = useAgentMessages();
 	const chatId = useChatId();
 
-	const [dismissedChats, setDismissedChats] = useState<ReadonlySet<string>>(() => new Set());
+	const [dismissCount, setDismissCount] = useState(() => feedbackDismissCountStorage.get() ?? 0);
+	const [dismissedChats, setDismissedChats] = useState<ReadonlySet<string>>(
+		() => new Set(feedbackDismissedChatsStorage.get() ?? []),
+	);
 	const [thanksForChat, setThanksForChat] = useState<string | null>(null);
 	const [feedbackDialogVote, setFeedbackDialogVote] = useState<FeedbackVote>('down');
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
@@ -533,24 +541,33 @@ function useConversationFeedback(): ConversationFeedback {
 
 	const isTriggered = useInactivityTrigger({
 		enabled: isEligible,
-		delayMs: FEEDBACK_INACTIVITY_MS,
+		delayMs: feedbackInactivityDelay(dismissCount),
 		resetKey: `${chatId}:${messages.length}`,
 	});
 
 	const showThanks = !!chatId && thanksForChat === chatId;
+
+	const dismissForChat = useCallback(() => {
+		if (!chatId) {
+			return;
+		}
+		setDismissedChats((prev) => {
+			const next = new Set(prev).add(chatId);
+			feedbackDismissedChatsStorage.set([...next]);
+			return next;
+		});
+	}, [chatId]);
 
 	useEffect(() => {
 		if (!showThanks) {
 			return;
 		}
 		const timer = window.setTimeout(() => {
-			if (chatId) {
-				setDismissedChats((prev) => new Set(prev).add(chatId));
-			}
+			dismissForChat();
 			setThanksForChat(null);
 		}, 2_500);
 		return () => window.clearTimeout(timer);
-	}, [showThanks, chatId]);
+	}, [showThanks, dismissForChat]);
 
 	const vote = useCallback(
 		(value: FeedbackVote, explanation?: string) => {
@@ -570,10 +587,13 @@ function useConversationFeedback(): ConversationFeedback {
 	}, []);
 
 	const dismiss = useCallback(() => {
-		if (chatId) {
-			setDismissedChats((prev) => new Set(prev).add(chatId));
-		}
-	}, [chatId]);
+		dismissForChat();
+		setDismissCount((prev) => {
+			const next = prev + 1;
+			feedbackDismissCountStorage.set(next);
+			return next;
+		});
+	}, [dismissForChat]);
 
 	return {
 		isVisible: isEligible && isTriggered,
@@ -586,6 +606,11 @@ function useConversationFeedback(): ConversationFeedback {
 		openFeedbackDialog,
 		setFeedbackDialogOpen,
 	};
+}
+
+function feedbackInactivityDelay(dismissCount: number): number {
+	const index = Math.min(dismissCount, FEEDBACK_INACTIVITY_LADDER_MS.length - 1);
+	return FEEDBACK_INACTIVITY_LADDER_MS[index];
 }
 
 function SuggestionCard({
