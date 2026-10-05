@@ -271,6 +271,7 @@ function ManagedProjectUsersTable({
 				confirmLabel='Reset password'
 				onConfirm={handleResetPassword}
 				isPending={resetPassword.isPending}
+				preventCloseWhilePending
 				error={resetPasswordError}
 			/>
 
