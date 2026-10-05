@@ -275,6 +275,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${resolvedStorySlug}`,
 		needsRefresh,
+		isRefreshing,
 		refresh: handleRefreshData,
 	});
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);

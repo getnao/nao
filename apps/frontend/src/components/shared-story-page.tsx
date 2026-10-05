@@ -91,7 +91,12 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 		refreshStory({ storyId });
 	}, [refreshStory, storyId]);
 	const isRefreshing = useIsStoryRefreshing(trpc.storyShare.refreshData.mutationKey(), { storyId });
-	useRetryStaleStoryRefresh({ storyKey: storyId, needsRefresh: story.needsRefresh, refresh: handleRefresh });
+	useRetryStaleStoryRefresh({
+		storyKey: storyId,
+		needsRefresh: story.needsRefresh,
+		isRefreshing,
+		refresh: handleRefresh,
+	});
 
 	const forkMutation = useMutation(
 		trpc.chatFork.fork.mutationOptions({

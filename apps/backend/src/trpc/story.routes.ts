@@ -365,7 +365,7 @@ export const storyRoutes = {
 		.query(async ({ input }) => {
 			try {
 				return await getCustomStoryQueryData(input.chatId, input.storySlug, input.queryId, {
-					deferFirstRefresh: true,
+					deferRefresh: true,
 				});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
@@ -386,7 +386,7 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input }) => {
 			try {
-				return await getCustomStoryNarratives(input.chatId, input.storySlug, { deferFirstRefresh: true });
+				return await getCustomStoryNarratives(input.chatId, input.storySlug, { deferRefresh: true });
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}

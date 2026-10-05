@@ -2,7 +2,7 @@ import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
-import type { DBStory } from '../db/abstractSchema';
+import type { DBStory, DBStoryDataCache } from '../db/abstractSchema';
 import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
@@ -28,13 +28,13 @@ export interface CustomStoryVersionView {
 	isLive: boolean;
 	cachedAt: Date | null;
 	lastRefreshFailure: { errorMessage: string; failedAt: Date } | null;
-	/** The story is live but was never cached: its viewer serves the chat's data and refreshes in the background. */
+	/** The live story was never cached or its last refresh failed: its viewer refreshes it in the background. */
 	needsRefresh: boolean;
 }
 
 interface CustomStoryDataOptions {
-	/** Serve the chat's stored data for a story that was never cached, instead of refreshing inline. */
-	deferFirstRefresh?: boolean;
+	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
+	deferRefresh?: boolean;
 }
 
 export interface CustomStoryFileSummary {
@@ -105,7 +105,11 @@ export async function getCustomStoryVersion(
 		isLive: story.isLive,
 		cachedAt: cache?.cachedAt ?? null,
 		lastRefreshFailure,
-		needsRefresh: usesStoryCache(story) && cache === null && queryIds.length > 0,
+		needsRefresh:
+			usesStoryCache(story) &&
+			queryIds.length > 0 &&
+			!isCacheFresh(story, cache) &&
+			(cache === null || lastRefreshFailure !== null),
 	};
 }
 
@@ -125,16 +129,17 @@ export async function getCustomStoryQueryData(
 	}
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
-	if (cache === null && options.deferFirstRefresh) {
-		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
+	if (isCacheFresh(story, cache)) {
+		return cache?.queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
 	}
-	const queryData =
-		cache && !isCacheExpired(cache.cachedAt, story.cacheSchedule)
-			? cache.queryData
-			: await refreshOnce(chatId, storySlug).then(
-					(result) => result.queryData,
-					() => cache?.queryData,
-				);
+	if (options.deferRefresh && (await isAwaitingBackgroundRefresh(story.id, cache))) {
+		const stored = cache?.queryData?.[queryId] ?? (await getChatQueryData(chatId, queryId));
+		return stored ?? runStoryQuery(chatId, queryId);
+	}
+	const queryData = await refreshOnce(chatId, storySlug).then(
+		(result) => result.queryData,
+		() => cache?.queryData,
+	);
 	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
 }
 
@@ -162,13 +167,12 @@ export async function getCustomStoryNarratives(
 	}
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
-	if (cache === null && options.deferFirstRefresh) {
-		return {};
-	}
 	const cachedNarratives = cache?.analysisResults ?? {};
-	const isCacheUsable =
-		cache && (story.cacheSchedule === NO_CACHE_SCHEDULE || !isCacheExpired(cache.cachedAt, story.cacheSchedule));
+	const isCacheUsable = cache && (story.cacheSchedule === NO_CACHE_SCHEDULE || isCacheFresh(story, cache));
 	if (isCacheUsable) {
+		return cachedNarratives;
+	}
+	if (options.deferRefresh && (await isAwaitingBackgroundRefresh(story.id, cache))) {
 		return cachedNarratives;
 	}
 	return refreshOnce(chatId, storySlug).then(
@@ -233,6 +237,15 @@ export async function getCustomStoryFile(
 
 function usesStoryCache(story: DBStory): boolean {
 	return story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
+}
+
+function isCacheFresh(story: DBStory, cache: DBStoryDataCache | null): boolean {
+	return cache !== null && !isCacheExpired(cache.cachedAt, story.cacheSchedule);
+}
+
+/** Mirrors `needsRefresh`: a stale story waits on its viewer's refresh when it was never cached or its last refresh failed. */
+async function isAwaitingBackgroundRefresh(storyId: string, cache: DBStoryDataCache | null): Promise<boolean> {
+	return cache === null || (await activityQueries.getLatestStoryRefreshFailure(storyId)) !== null;
 }
 
 async function getCustomStory(chatId: string, storySlug: string): Promise<DBStory> {

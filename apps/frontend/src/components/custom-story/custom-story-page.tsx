@@ -47,6 +47,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
 		needsRefresh: content?.needsRefresh ?? false,
+		isRefreshing: live.isRefreshing,
 		refresh: live.handleRefreshData,
 	});
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');

@@ -62,10 +62,26 @@ describe('useRetryStaleStoryRefresh', () => {
 		rerender(<RetryingStory needsRefresh refresh={refresh} />);
 		expect(refresh).toHaveBeenCalledTimes(2);
 	});
+
+	it('does not start a refresh while one is running, nor retry it once it fails', () => {
+		const refresh = vi.fn();
+		const { rerender } = render(<RetryingStory needsRefresh isRefreshing refresh={refresh} />);
+		rerender(<RetryingStory needsRefresh isRefreshing={false} refresh={refresh} />);
+
+		expect(refresh).not.toHaveBeenCalled();
+	});
 });
 
-function RetryingStory({ needsRefresh, refresh }: { needsRefresh: boolean; refresh: () => void }) {
-	useRetryStaleStoryRefresh({ storyKey: 'story-1', needsRefresh, refresh });
+function RetryingStory({
+	needsRefresh,
+	isRefreshing = false,
+	refresh,
+}: {
+	needsRefresh: boolean;
+	isRefreshing?: boolean;
+	refresh: () => void;
+}) {
+	useRetryStaleStoryRefresh({ storyKey: 'story-1', needsRefresh, isRefreshing, refresh });
 	return null;
 }
 
@@ -83,8 +99,8 @@ function StaleStory({
 	const refresh = useCallback(() => {
 		mutate({ storyId: 'story-1' });
 	}, [mutate]);
-	useRetryStaleStoryRefresh({ storyKey: 'story-1', needsRefresh: true, refresh });
 	const isRefreshing = useIsStoryRefreshing(REFRESH_MUTATION_KEY, { storyId: watchedStoryId });
+	useRetryStaleStoryRefresh({ storyKey: 'story-1', needsRefresh: true, isRefreshing, refresh });
 
 	return <span>{isRefreshing ? 'refreshing' : 'idle'}</span>;
 }

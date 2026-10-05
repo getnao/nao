@@ -178,10 +178,8 @@ export async function getStoryQueryData(
 }
 
 function shouldDeferRefresh(options: StoryQueryDataOptions, cache: DBStoryDataCache | null, code: string): boolean {
-	if (options.deferRefresh) {
-		return true;
-	}
-	return Boolean(options.deferFirstRefresh) && cache === null && extractQueryIds(code).size > 0;
+	const isDeferred = options.deferRefresh || (options.deferFirstRefresh && cache === null);
+	return Boolean(isDeferred) && extractQueryIds(code).size > 0;
 }
 
 async function resolveStoredQueryData(

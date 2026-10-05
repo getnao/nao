@@ -44,6 +44,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
 		needsRefresh: !isReadonlyMode && (content?.needsRefresh ?? false),
+		isRefreshing: live.isRefreshing,
 		refresh: live.handleRefreshData,
 	});
 	const { handleEnlarge } = useStoryViewerEnlarge({ storyId });

@@ -51,6 +51,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
 		needsRefresh: story.needsRefresh,
+		isRefreshing,
 		refresh: handleRefreshData,
 	});
 

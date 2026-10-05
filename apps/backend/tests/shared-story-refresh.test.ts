@@ -153,6 +153,24 @@ describe('shared Story manual refresh', () => {
 		});
 	});
 
+	it('leaves the data of a shared custom story to its own endpoints', async () => {
+		mocks.getSharedStoryByStoryId.mockResolvedValue({
+			id: 'share-1',
+			projectId: 'project-1',
+			userId: 'sharer-1',
+			visibility: 'project',
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			format: 'custom',
+		});
+
+		const story = await createCaller('owner-1').storyShare.get({ storyId: 'story-1' });
+
+		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
+		expect(story).toMatchObject({ queryData: null, needsRefresh: false });
+	});
+
 	it('resolves fork permission against the shared Story project', async () => {
 		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess(['storyCreation']));
 

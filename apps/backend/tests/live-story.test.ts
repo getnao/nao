@@ -491,6 +491,17 @@ describe('live story SQL execution', () => {
 		expect(mocks.getLatestVersionByChatAndSlug).not.toHaveBeenCalled();
 	});
 
+	it('does not defer the refresh after a failure for a story without queries', async () => {
+		const code = '# Just a title';
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
+
+		const result = await getStoryQueryData('chat-1', 'orders', code, true, null, { deferRefresh: true });
+
+		expect(result.needsRefresh).toBeUndefined();
+	});
+
 	it('does not defer the first refresh of a story without queries', async () => {
 		const code = '# Just a title';
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
