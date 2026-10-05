@@ -5,6 +5,7 @@ import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
 import displayChartTool from '../../agents/tools/display-chart';
+import * as sharedStoryQueries from '../../queries/shared-story.queries';
 import * as storyQueries from '../../queries/story.queries';
 import {
 	buildAgentRenderedChartText,
@@ -26,7 +27,8 @@ import {
 	buildStoryMcpResultWithSandbox,
 	fetchLatestStoryVersion,
 	resolveChartChatId,
-	resolveStory,
+	resolveStoryForOwner,
+	resolveStoryForRead,
 } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 import { STORY_LIST_ITEM_SCHEMA, toStoryListItem } from './story-list-item';
@@ -43,30 +45,43 @@ const DISPLAY_CHART_DESCRIPTION =
 
 const DISPLAY_CHART_DATA_MODE_DESCRIPTION = DISPLAY_CHART_DESCRIPTION + CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM;
 
-const LIST_STORIES_DESCRIPTION = 'List nao stories.';
+const LIST_STORIES_DESCRIPTION =
+	'List nao stories visible to the caller: their own stories, stories shared directly with them, ' +
+	'and stories shared with the whole project. Each item carries a `kind` and (for shared) `shareId` ' +
+	'so clients can distinguish origin and build share URLs.';
 
 const GET_STORY_DESCRIPTION =
-	'Fetch a single story with its latest content (`code`), version metadata, `url`, `chatUrl`, ' +
+	'Fetch a single story with its latest markdown (`code`), version metadata, `url`, `chatUrl`, ' +
 	'and a rendered HTML embed.\n\n' +
-	"Useful when you need the actual markdown of a story to get it's latest content and metadata.\n\n" +
-	'`story_id` must be the UUID (returned by `list_stories.id` or `ask_nao.stories[].id`), not the kebab-case slug.';
+	'`story_id` is the UUID of either a story (`list_stories.id` / `ask_nao.stories[].id`) OR a share ' +
+	'(`list_stories.shareId`; also the UUID in a `/stories/shared/<id>` URL). The caller must own the ' +
+	'story or have access to the share. `code` is the authoritative content; `sandboxStoryHtml` is ' +
+	'optional and omitted for large stories.';
 
 const ARCHIVE_STORY_DESCRIPTION =
 	'Archive (soft-delete) a story: it stops appearing in `list_stories` and `ask_nao` results, but ' +
 	'the data and version history are preserved and the user can restore it from the nao UI.\n\n' +
 	'USE WHEN: the user wants to remove a story but keep recovery possible.\n' +
 	'SKIP WHEN: you need a permanent, irreversible delete → use `delete_story`.\n\n' +
-	'`story_id` must be the UUID (from `list_stories` or `ask_nao.stories[].id`), not the slug.';
+	'`story_id` must be the story UUID of a story the caller owns. Share UUIDs are rejected: a ' +
+	'share grants read access only.';
 
 const DELETE_STORY_DESCRIPTION =
 	'Permanently delete a story and all its versions. Cannot be undone.\n\n' +
 	'CONFIRM FIRST: ask the user to confirm the permanent deletion and suggest `archive_story` first. ' +
 	'Do not call this tool on ambiguous intent.\n' +
-	'USE WHEN: the user explicitly asks for a hard delete (compliance, mistaken story, sensitive data).\n';
+	'USE WHEN: the user explicitly asks for a hard delete (compliance, mistaken story, sensitive data).\n' +
+	'`story_id` must be the story UUID of a story the caller owns. Share UUIDs are rejected: a ' +
+	'share grants read access only.';
 
 const STORY_ID_INPUT = z
 	.string()
-	.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.');
+	.describe(
+		'Story UUID (from `list_stories.id` or `ask_nao.stories[].id`) OR, for `get_story` only, ' +
+			'a share UUID (`list_stories.shareId`; also the id in a `/stories/shared/<id>` URL). ' +
+			'The write tools (`archive_story`, `delete_story`, `update_story`) require the story ' +
+			'UUID and the caller must own the story. Not the slug.',
+	);
 
 type DisplayChartMcpInput = displayChart.ChartInput & { chat_id?: string };
 
@@ -296,14 +311,51 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				.describe('Stories visible to the current user in this project, newest first.'),
 		},
 		handler: async ({ limit, archived }) => {
-			const stories = await storyQueries.listAllUserStoriesInProject(ctx.userId, ctx.projectId, {
-				archived,
-				limit,
-			});
-			const result = stories.map((story) =>
+			// Pre-fetch at the own-query's maximum (100) rather than the user's `limit`, so the
+			// merged (own + shared) result can be ranked by updatedAt globally. The underlying
+			// own query is still ordered by createdAt desc, so this trades correctness for cost
+			// only when a user has more than 100 own stories in a project; past that point an
+			// own story edited recently but created outside the top 100 by createdAt could still
+			// be missed. Full correctness needs the own query itself to accept an updatedAt
+			// ordering, which is out of scope here.
+			const MAX_PREFETCH = 100;
+			const [ownStories, sharedStories] = await Promise.all([
+				storyQueries.listAllUserStoriesInProject(ctx.userId, ctx.projectId, {
+					archived,
+					limit: MAX_PREFETCH,
+				}),
+				sharedStoryQueries.listSharedStoryMetadataForUser(ctx.userId, ctx.projectId, {
+					archived,
+					limit: MAX_PREFETCH,
+				}),
+			]);
+
+			const ownIds = new Set(ownStories.map((story) => story.id));
+			const ownItems = ownStories.map((story) =>
 				toStoryListItem(story, { url: storyUrl(story), chatUrl: storyChatUrl(story) }),
 			);
-			const output = { stories: result };
+			const sharedItems = sharedStories
+				.filter((share) => !ownIds.has(share.storyId))
+				.map((share) => {
+					const storyRef = { id: share.storyId, slug: share.slug, chatId: share.chatId };
+					return {
+						id: share.storyId,
+						title: share.title,
+						url: storyUrl(storyRef),
+						chatUrl: storyChatUrl(storyRef),
+						archived: share.archivedAt !== null,
+						kind:
+							share.visibility === 'project' ? ('shared-project' as const) : ('shared-with-me' as const),
+						shareId: share.shareId,
+						createdAt: share.createdAt.toISOString(),
+						updatedAt: share.updatedAt.toISOString(),
+					};
+				});
+
+			const merged = [...ownItems, ...sharedItems]
+				.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+				.slice(0, limit);
+			const output = { stories: merged };
 			return {
 				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
 				structuredContent: output,
@@ -320,7 +372,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		_meta: uiToolMeta(STORY_APP_URI),
 		errorMessage: (error) => (error instanceof Error ? error.message : 'get_story failed. Please try again.'),
 		handler: async ({ story_id }) => {
-			const story = await resolveStory(story_id, ctx);
+			const story = await resolveStoryForRead(story_id, ctx);
 			const version = await fetchLatestStoryVersion(story);
 
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
@@ -354,7 +406,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 			archived: z.literal(true).describe('Always `true` on success — the story is now archived.'),
 		},
 		handler: async ({ story_id }) => {
-			const story = await resolveStory(story_id, ctx);
+			const story = await resolveStoryForOwner(story_id, ctx);
 			await storyQueries.archiveByStoryId(story.id);
 			const output = { id: story.id, archived: true as const };
 			return {
@@ -374,7 +426,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 			deleted: z.literal(true).describe('Always `true` on success — the story and all versions are gone.'),
 		},
 		handler: async ({ story_id }) => {
-			const story = await resolveStory(story_id, ctx);
+			const story = await resolveStoryForOwner(story_id, ctx);
 			await storyQueries.deleteStory(story.id);
 			const output = { id: story.id, deleted: true as const };
 			return {
