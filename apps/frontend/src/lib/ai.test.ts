@@ -161,6 +161,20 @@ describe('progress updates', () => {
 		});
 	});
 
+	it('hides a progress update the backend promoted to the visible answer', () => {
+		const answer = { type: 'text', text: 'Found 99 orders, charting them next.', state: 'done' } as UIMessagePart;
+		const grouped = groupToolCalls([HIDDEN_REASONING, PROGRESS_UPDATE, answer, FOLLOW_UPS]);
+
+		expect(grouped).toEqual([answer, FOLLOW_UPS]);
+	});
+
+	it('keeps a progress update whose text differs from the answer that follows', () => {
+		const answer = { type: 'text', text: 'A different answer.', state: 'done' } as UIMessagePart;
+		const grouped = groupToolCalls([PROGRESS_UPDATE, answer]);
+
+		expect(grouped).toEqual([PROGRESS_UPDATE, answer]);
+	});
+
 	it('counts a progress update as content, unlike hidden reasoning', () => {
 		const withUpdate = { role: 'assistant', parts: [HIDDEN_REASONING, PROGRESS_UPDATE, FOLLOW_UPS] } as UIMessage;
 		const withoutUpdate = { role: 'assistant', parts: [HIDDEN_REASONING, FOLLOW_UPS] } as UIMessage;
