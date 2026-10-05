@@ -125,7 +125,7 @@ export function OrgMembers() {
 					<OrgUserStat
 						label='People with access'
 						value={userCountsQuery.data?.totalUsers}
-						hint="Organization members plus people added directly to a project from its Users & Groups page, or created automatically by Slack. They aren't in the list below, see each project's Users & Groups page."
+						hint="Organization members plus people added directly to a project from its Users & Groups page, or created automatically by Slack. They aren't in the list below; see each project's user list."
 					/>
 					<OrgUserStat
 						label='Active in the last 90 days'
