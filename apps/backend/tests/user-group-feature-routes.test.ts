@@ -286,6 +286,11 @@ describe('user group feature route enforcement', () => {
 				notify: false,
 			}),
 		).resolves.toEqual({ storyId: 'story-id' });
+		expect(mocks.createSharedStory).toHaveBeenCalledWith(
+			expect.objectContaining({ storyId: 'story-id' }),
+			expect.anything(),
+			expect.anything(),
+		);
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 

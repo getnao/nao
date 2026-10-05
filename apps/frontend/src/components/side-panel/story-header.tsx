@@ -333,7 +333,7 @@ export const StoryHeader = memo(function StoryHeader({
 							<Info strokeWidth={2.25} />
 							<span>Analytics</span>
 						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={onEnlarge}>
+						<DropdownMenuItem onSelect={onEnlarge} disabled={!storyId}>
 							<Maximize2 strokeWidth={2.25} />
 							<span>Expand</span>
 						</DropdownMenuItem>

@@ -4,6 +4,7 @@ import type { EffectiveUserGroupAccess } from '../src/queries/user-group.queries
 
 const mocks = vi.hoisted(() => ({
 	getSharedStory: vi.fn(),
+	getSharedStoryByStoryId: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
@@ -34,7 +35,7 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStory: mocks.getSharedStory,
-	getSharedStoryByStoryId: mocks.getSharedStory,
+	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
 	canUserAccessSharedStory: mocks.canUserAccessSharedStory,
 }));
 vi.mock('../src/queries/story.queries', () => ({
@@ -72,7 +73,7 @@ const testRouter = router({ storyShare: sharedStoryRoutes });
 describe('shared Story manual refresh', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.getSharedStory.mockResolvedValue({
+		mocks.getSharedStoryByStoryId.mockResolvedValue({
 			id: 'share-1',
 			projectId: 'project-1',
 			userId: 'sharer-1',
@@ -116,6 +117,8 @@ describe('shared Story manual refresh', () => {
 		const story = await createCaller(userId).storyShare.get({ storyId: 'story-1' });
 
 		expect(story.canRefresh).toBe(expected);
+		expect(mocks.getSharedStoryByStoryId).toHaveBeenCalledWith('story-1');
+		expect(mocks.getSharedStory).not.toHaveBeenCalled();
 	});
 
 	it('resolves fork permission against the shared Story project', async () => {
