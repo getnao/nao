@@ -1,7 +1,4 @@
-import { memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-
-import { useQuery } from '@tanstack/react-query';
-import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 import {
 	BUBBLE_MAX_RADIUS,
@@ -25,6 +22,13 @@ import {
 	scaleBubbleRadius,
 	withOpacity,
 } from '@nao/shared';
+import { useQuery } from '@tanstack/react-query';
+import { formatRgb } from 'culori';
+import maplibregl from 'maplibre-gl';
+import { memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import type { DataDrivenPropertyValueSpecification } from 'maplibre-gl';
+import type { Ref } from 'react';
+import type { displayMap } from '@nao/shared/tools';
 import type {
 	ChoroplethEntry,
 	CustomBoundarySet,
@@ -33,15 +37,11 @@ import type {
 	MapPoint,
 	NumericDomain,
 } from '@nao/shared';
-import type { displayMap } from '@nao/shared/tools';
-import type { DataDrivenPropertyValueSpecification } from 'maplibre-gl';
-import type { Ref } from 'react';
 
 import { getMapStyle, isMapStyleDark, MAP_STYLE_LIGHT, resolveStyleUrl, useMapStyle } from '@/hooks/use-map-style';
 import { getActiveProjectId } from '@/lib/active-project';
+import { resolveCssVariableColor } from '@/lib/css-color';
 import { trpc } from '@/main';
-
-import 'maplibre-gl/dist/maplibre-gl.css';
 
 const POINTS_SOURCE_ID = 'query-points';
 const POINTS_LAYER_ID = 'query-points-circles';
@@ -1095,17 +1095,8 @@ function withMapStyleTheme<T>(run: () => T): T {
 }
 
 function resolveCssColor(variableName: string, fallback: string, element?: HTMLElement | null): string {
-	const target = element ?? document.documentElement;
-	const value = getComputedStyle(target).getPropertyValue(variableName).trim();
-	const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-	if (!value || !context) {
-		return fallback;
-	}
-	context.fillStyle = fallback;
-	context.fillStyle = value;
-	context.fillRect(0, 0, 1, 1);
-	const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
-	return `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+	const color = resolveCssVariableColor(variableName, element);
+	return color ? formatRgb(color) : fallback;
 }
 
 function safeParse(value: string): unknown {

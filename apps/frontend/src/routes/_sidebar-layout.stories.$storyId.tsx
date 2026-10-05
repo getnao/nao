@@ -1,6 +1,7 @@
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 
+import { CustomStoryPreviewPage } from '@/components/custom-story/custom-story-page';
 import { OwnedStoryPage } from '@/components/owned-story-page';
 import { SharedStoryPage } from '@/components/shared-story-page';
 import { StandaloneStoryPage } from '@/components/standalone-story-page';
@@ -20,6 +21,10 @@ function StoryPage() {
 
 	if (!story.isOwner) {
 		return <SharedStoryPage key={storyId} storyId={storyId} />;
+	}
+
+	if (story.chatId && story.format === 'custom') {
+		return <CustomStoryPreviewPage key={storyId} chatId={story.chatId} storySlug={story.slug} />;
 	}
 
 	if (story.chatId) {

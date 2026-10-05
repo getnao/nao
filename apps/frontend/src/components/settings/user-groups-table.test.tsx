@@ -28,6 +28,7 @@ import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
 	useLicenseFeatures: vi.fn(),
+	useCustomStoriesEnabled: vi.fn(() => false),
 	useQuery: vi.fn(),
 	useMutation: vi.fn(),
 	invalidateQueries: vi.fn(),
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-license', () => ({ useLicenseFeatures: mocks.useLicenseFeatures }));
+vi.mock('@/hooks/use-custom-stories-enabled', () => ({ useCustomStoriesEnabled: mocks.useCustomStoriesEnabled }));
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: mocks.useQuery,
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
@@ -65,17 +67,33 @@ vi.mock('@tanstack/react-router', () => ({
 		</a>
 	),
 }));
+vi.mock('@/lib/auth-client', () => ({
+	useSession: () => ({ data: { user: { id: 'admin-id' } } }),
+}));
 vi.mock('@/main', () => ({
 	trpc: {
+		account: {
+			resetPassword: { mutationOptions: vi.fn() },
+		},
 		authConfig: {
 			microsoft: { isSetup: { queryOptions: vi.fn(() => ({ queryKey: ['microsoft-config'] })) } },
 			oidc: { getConfig: { queryOptions: vi.fn(() => ({ queryKey: ['oidc-config'] })) } },
+			sso: { getStatus: { queryOptions: vi.fn(() => ({ queryKey: ['sso-status'] })) } },
 		},
 		contextExplorer: {
 			readFile: { queryOptions: vi.fn(() => ({ queryKey: ['rules-file'] })) },
 		},
 		project: {
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
+			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
+			removeProjectMember: { mutationOptions: vi.fn() },
+		},
+		system: {
+			getPublicConfig: { queryOptions: vi.fn(() => ({ queryKey: ['system-config'] })) },
+		},
+		user: {
+			addUserToProject: { mutationOptions: vi.fn() },
+			modify: { mutationOptions: vi.fn() },
 		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
@@ -285,6 +303,7 @@ const overview = {
 };
 
 beforeEach(() => {
+	mocks.useCustomStoriesEnabled.mockReturnValue(false);
 	mocks.mutate.mockReset();
 	mocks.mutateAsync.mockReset();
 	mocks.invalidateQueries.mockReset();
@@ -664,6 +683,7 @@ describe('UserGroupsTable', () => {
 		]);
 		expect(screen.getByRole('tab', { name: 'Users' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('columnheader', { name: 'User' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Add member' })).toBeTruthy();
 		expect(screen.getByText('Project Team')).toBeTruthy();
 		expect(screen.getByText('Organisation Members')).toBeTruthy();
 		expect(screen.getByText('Project User')).toBeTruthy();
@@ -773,9 +793,9 @@ describe('UserGroupsTable', () => {
 
 		expect(table.classList.contains('table-fixed')).toBe(true);
 		expect(table.classList.contains('min-w-3xl')).toBe(true);
-		expect(headers[0]?.classList.contains('w-[38%]')).toBe(true);
+		expect(headers[0]?.classList.contains('w-[36%]')).toBe(true);
 		expect(headers[1]?.classList.contains('w-1/5')).toBe(true);
-		expect(headers[2]?.classList.contains('w-[42%]')).toBe(true);
+		expect(headers[2]?.classList.contains('w-[38%]')).toBe(true);
 		expect(projectUserCells[2]?.classList.contains('overflow-hidden')).toBe(true);
 		expect(groupsButton.classList.contains('w-full')).toBe(true);
 		expect(groupsButton.classList.contains('min-w-0')).toBe(true);
@@ -1639,6 +1659,35 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
 	});
 
+	it('keeps Custom stories unavailable until Stories is granted', () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		renderEditor('features', vi.fn(), { ...analysts, featureGrants: [] });
+		const customStories = screen.getByRole('button', { name: /^Custom stories\./ }) as HTMLButtonElement;
+
+		expect(customStories.disabled).toBe(true);
+		expect(customStories.title).toBe('Requires Stories.');
+
+		fireEvent.click(screen.getByRole('button', { name: /^Stories\./ }));
+
+		expect((screen.getByRole('button', { name: /^Custom stories\./ }) as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	it('removes Custom stories when Stories is unchecked', () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		renderEditor('features', vi.fn(), { ...analysts, featureGrants: ['storyCreation', 'customStoryCreation'] });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Stories\./ }));
+
+		const customStories = screen.getByRole('button', { name: /^Custom stories\./ });
+		expect(customStories.getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('hides Custom stories while the instance does not offer them', () => {
+		renderEditor('features');
+
+		expect(screen.queryByRole('button', { name: /^Custom stories\./ })).toBeNull();
+	});
+
 	it('shows actions immediately for a new group with save disabled', () => {
 		renderEditor('features', vi.fn(), 'new');
 
@@ -1818,7 +1867,7 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: true, automationCreation: true },
+				features: { storyCreation: true, customStoryCreation: false, automationCreation: true },
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
@@ -1857,7 +1906,7 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: true, automationCreation: false },
+				features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
 				toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 				databaseAccess: {
 					mode: 'restricted',
@@ -1907,7 +1956,7 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: false, automationCreation: false },
+				features: { storyCreation: false, customStoryCreation: false, automationCreation: false },
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
@@ -2199,7 +2248,7 @@ function renderUserDetail({
 	securityState = 'ready',
 	onRetrySecurity,
 	effectiveAccess = {
-		features: { storyCreation: true, automationCreation: false },
+		features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 		docsAccess: { mode: 'restricted', grants: [] },
@@ -2272,7 +2321,7 @@ function createEffectiveAccess(
 	rowPolicies: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess']['rowPolicies'],
 ): ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] {
 	return {
-		features: { storyCreation: true, automationCreation: false },
+		features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'all', strict: true },
 		docsAccess: { mode: 'restricted', grants: [] },

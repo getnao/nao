@@ -5,6 +5,7 @@ import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/sh
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
+import { SharedCustomStoryPage } from '@/components/custom-story/custom-story-page';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
@@ -23,6 +24,47 @@ import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
 export function SharedStoryPage({ storyId }: { storyId: string }) {
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	if (story.format === 'custom') {
+		return <SharedCustomStory storyId={storyId} />;
+	}
+	return <SharedClassicStoryPage storyId={storyId} />;
+}
+
+function SharedCustomStory({ storyId }: { storyId: string }) {
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	const forkMutation = useMutation(
+		trpc.chatFork.fork.mutationOptions({
+			onSuccess: ({ chatId }) => {
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
+				navigate({ to: '/$chatId', params: { chatId } });
+			},
+		}),
+	);
+
+	useTrackViewDuration({
+		assetType: 'story',
+		storyId,
+		chatId: story.chatId ?? undefined,
+		storySlug: story.slug,
+	});
+
+	return (
+		<SharedCustomStoryPage
+			storyId={storyId}
+			title={story.title}
+			authorName={story.authorName}
+			isLive={story.isLive}
+			canRefresh={story.canRefresh}
+			onOpenChat={story.canFork ? () => forkMutation.mutate({ source: { type: 'story', storyId } }) : undefined}
+			isOpeningChat={forkMutation.isPending}
+		/>
+	);
+}
+
+function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();

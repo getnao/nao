@@ -410,6 +410,33 @@ export interface OrgProjectWithAccess {
 	updatedAt: Date;
 }
 
+/**
+ * Everyone who can reach the organization: its members plus project-only members, who are added
+ * from a project's Users & Groups page or auto-provisioned by Slack. Both kinds consume a licensed seat.
+ */
+export const countOrgUsers = async (orgId: string): Promise<number> => {
+	const people = db.$with('org_people').as(
+		db
+			.select({ userId: s.orgMember.userId })
+			.from(s.orgMember)
+			.where(eq(s.orgMember.orgId, orgId))
+			.unionAll(
+				db
+					.select({ userId: s.projectMember.userId })
+					.from(s.projectMember)
+					.innerJoin(s.project, eq(s.projectMember.projectId, s.project.id))
+					.where(eq(s.project.orgId, orgId)),
+			),
+	);
+
+	const rows = await db
+		.with(people)
+		.select({ total: sql<number>`count(distinct ${people.userId})` })
+		.from(people);
+
+	return Number(rows[0]?.total ?? 0);
+};
+
 export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberWithUser[]> => {
 	const rows = await db
 		.select({

@@ -9,6 +9,12 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
+import {
+	getCustomStoryNarratives,
+	getCustomStoryVersion,
+	getSharedCustomStoryQueryData,
+	getSharedCustomStoryQuerySql,
+} from '../services/custom-story';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import {
@@ -25,8 +31,10 @@ import {
 } from '../services/story-filters';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { storySnapshotHtml, toCustomStoryQueryTrpcError, toCustomStoryTrpcError } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
+import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
 	adminProtectedProcedure,
@@ -203,6 +211,98 @@ export const sharedStoryRoutes = {
 			canFork,
 		};
 	}),
+
+	getCustomVersion: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), versionNumber: z.number().int().positive().optional() }))
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				return await getCustomStoryVersion(shared.chatId!, shared.slug, input.versionNumber);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryQuerySql: shareAccessProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				queryId: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				const sqlQuery = await getSharedCustomStoryQuerySql(
+					shared.chatId!,
+					shared.slug,
+					input.queryId,
+					input.versionNumber,
+				);
+				return { sqlQuery };
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryQueryData: shareAccessProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				queryId: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				return await getSharedCustomStoryQueryData(
+					shared.chatId!,
+					shared.slug,
+					input.queryId,
+					input.versionNumber,
+				);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryNarratives: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
+		const shared = ctx.resource;
+		try {
+			return await getCustomStoryNarratives(shared.chatId!, shared.slug);
+		} catch (error) {
+			throw toCustomStoryTrpcError(error);
+		}
+	}),
+
+	downloadCustom: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS), html: storySnapshotHtml }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (shared.format !== 'custom') {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+
+			logAnalyticsEvent({
+				projectId: shared.projectId,
+				type: 'download',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: shared.storyId,
+				chatId: shared.chatId,
+				sharedStoryId: shared.id,
+				metadata: {
+					type: 'download',
+					format: input.format,
+					versionNumber: shared.version,
+					title: shared.title,
+				},
+			});
+
+			return buildStorySnapshotDownload(input.format, shared.title, input.html);
+		}),
 
 	getVersionQueryData: shareAccessProcedure
 		.input(z.object({ storyId: z.string(), versionNumber: z.number().int().positive() }))

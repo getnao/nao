@@ -23,7 +23,8 @@ vi.mock('../src/services/story-template-validation', () => ({
 }));
 
 import storyTool from '../src/agents/tools/story';
-import { shouldAddStoryMode } from '../src/services/agent';
+import { env } from '../src/env';
+import { resolveStoryMode } from '../src/services/agent';
 import { resolveAgentUserGroupAccess } from '../src/services/user-group-feature-access.service';
 import type { ToolContext } from '../src/types/tools';
 
@@ -37,8 +38,30 @@ describe('agent user group feature tools', () => {
 		const restrictedAccess = resolveAgentUserGroupAccess([], { story: {} });
 		const allowedAccess = resolveAgentUserGroupAccess(['storyCreation'], { story: {} });
 
-		expect(shouldAddStoryMode(mentions, restrictedAccess)).toBe(false);
-		expect(shouldAddStoryMode(mentions, allowedAccess)).toBe(true);
+		expect(resolveStoryMode(mentions, restrictedAccess)).toBeNull();
+		expect(resolveStoryMode(mentions, allowedAccess)).toBe('classic');
+	});
+
+	it('picks the custom story mode only when the instance and the user group allow it', () => {
+		const custom = { id: '__custom_story__', label: 'Custom story mode', trigger: '#' };
+		const classic = { id: '__story__', label: 'Story mode', trigger: '#' };
+		const access = resolveAgentUserGroupAccess(['storyCreation', 'customStoryCreation'], { story: {} });
+		const withoutCustom = resolveAgentUserGroupAccess(['storyCreation'], { story: {} });
+
+		const initial = env.BETA_CUSTOM_STORIES_ENABLED;
+		try {
+			env.BETA_CUSTOM_STORIES_ENABLED = true;
+			expect(resolveStoryMode([custom], access)).toBe('custom');
+			expect(resolveStoryMode([classic, custom], access)).toBe('custom');
+			expect(resolveStoryMode([custom], withoutCustom)).toBeNull();
+			expect(resolveStoryMode([classic, custom], withoutCustom)).toBe('classic');
+
+			env.BETA_CUSTOM_STORIES_ENABLED = false;
+			expect(resolveStoryMode([custom], access)).toBeNull();
+			expect(resolveStoryMode([classic, custom], access)).toBe('classic');
+		} finally {
+			env.BETA_CUSTOM_STORIES_ENABLED = initial;
+		}
 	});
 
 	it('rejects restricted Story creation before accessing persistence', async () => {
@@ -68,6 +91,7 @@ describe('agent user group feature tools', () => {
 			expectedCode: '# Replaced',
 		},
 	])('allows restricted users to run Story $action', async ({ action, input, expectedCode }) => {
+		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', slug: 'existing-story', format: 'classic' });
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
 			code: '# Old',
 			version: 1,

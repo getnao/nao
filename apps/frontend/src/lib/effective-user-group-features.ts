@@ -10,6 +10,7 @@ export interface EffectiveUserGroupAccess {
 
 const DENIED_FEATURES: EffectiveUserGroupFeatures = {
 	storyCreation: false,
+	customStoryCreation: false,
 	automationCreation: false,
 };
 

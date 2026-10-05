@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from '
 import { isAbsolute, join, relative } from 'node:path';
 
 import type { ChartPluginManifestEntry } from '@nao/shared';
-import { displayChart } from '@nao/shared/tools';
+import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { z } from 'zod';
 
 const PLUGIN_FILE_PATTERN = /^([a-z][a-z0-9_-]*)\.(js|mjs)$/;
@@ -43,7 +43,7 @@ function discoverChartPlugins(projectFolder: string): DiscoveredChartPlugin[] {
 	)) {
 		const match = entry.isFile() ? entry.name.match(PLUGIN_FILE_PATTERN) : null;
 		const type = match?.[1];
-		if (!type || type === 'table' || displayChart.isBuiltinChartType(type)) {
+		if (!type || type === 'table' || isBuiltinChartType(type)) {
 			continue;
 		}
 		if (filesByType.has(type)) {

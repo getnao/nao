@@ -5,15 +5,33 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./attachments": "./src/attachments.ts",
+		"./class-names": "./src/class-names.ts",
+		"./chart-builder": "./src/chart-builder.tsx",
+		"./chart-series": "./src/chart-series.ts",
+		"./chart-tooltip": "./src/chart-tooltip.tsx",
+		"./chart-types": "./src/chart-types.ts",
+		"./chart-values": "./src/chart-values.ts",
+		"./color": "./src/color.ts",
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
+		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",
+		"./map": "./src/map.ts",
 		"./types": "./src/types.ts",
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts",
 		"./conditional-formatting": "./src/conditional-formatting.ts",
 		"./story-segments": "./src/story-segments.ts",
 		"./story-table-utils": "./src/story-table-utils.ts",
+		"./table-display": "./src/table-display.tsx",
 		"./story-tabs": "./src/story-tabs.ts",
+		"./story-app": "./src/story-app.ts",
+		"./story-document": "./src/story-document.ts",
+		"./story-kit-styles": "./src/story-kit-styles.ts",
+		"./story-map-tiles": "./src/story-map-tiles.ts",
+		"./story-theme": "./src/story-theme.ts",
+		"./story-theme-contrast": "./src/story-theme-contrast.ts",
+		"./story-theme-pair": "./src/story-theme-pair.ts",
+		"./story-theme-source": "./src/story-theme-source.ts",
 		"./story-validation": "./src/story-validation.ts",
 		"./rules-template": "./src/rules-template.ts",
 		"./sql-template": "./src/sql-template.ts",
@@ -27,10 +45,12 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
+		"culori": "^4.0.2",
 		"d3-format": "^3.1.0",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {
+		"@types/culori": "^4.0.1",
 		"@types/d3-format": "^3.0.4",
 		"vitest": "^4.0.18"
 	}

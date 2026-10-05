@@ -5,7 +5,7 @@ databases:
   - columns
   - preview
   profiling:
-    refresh_policy: "interval" # "always", "interval", or "once"
+    refresh_policy: interval
     interval_days: 1
   include: []
   exclude: []

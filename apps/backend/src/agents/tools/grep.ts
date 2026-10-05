@@ -2,6 +2,7 @@ import type { RenderedConditionalGroupBlocks } from '@nao/shared/rules-template'
 import { grep } from '@nao/shared/tools';
 import { spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
@@ -15,8 +16,10 @@ import {
 } from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
+import { isCustomStoriesEnabled, listStoryMountFilesToGrep } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { getRipgrepPath } from '../../utils/ripgrep';
+import { isStoriesPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
 	isWithinProjectFolder,
@@ -54,7 +57,7 @@ interface SearchTarget {
 }
 
 interface TargetResult {
-	matches: RipgrepMatch[];
+	matches: grep.Match[];
 	totalMatches: number;
 }
 
@@ -71,9 +74,10 @@ export default createTool<grep.Input, grep.Output>({
 		const rgPath = await getRipgrepPath();
 		const targets = resolveTargets(options.path, context);
 
-		const results = await Promise.all(
-			targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
-		);
+		const results = await Promise.all([
+			...targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
+			searchStories(rgPath, { ...options, max_results }, context),
+		]);
 
 		const totalMatches = results.reduce((total, result) => total + result.totalMatches, 0);
 		const matches = results.flatMap((result) => result.matches).slice(0, max_results);
@@ -89,8 +93,11 @@ export default createTool<grep.Input, grep.Output>({
 	toModelOutput: ({ output }) => renderToModelOutput(GrepOutput({ output }), output),
 });
 
-/** A search without a path covers the whole tree, permanent storage included. */
+/** Disk targets ripgrep walks; a search without a path covers the whole tree, permanent storage included. */
 const resolveTargets = (searchPath: string | undefined, context: ToolContext): SearchTarget[] => {
+	if (isStoriesPath(searchPath)) {
+		return [];
+	}
 	if (isStoragePath(searchPath)) {
 		return [storageTarget(searchPath!, context)];
 	}
@@ -165,6 +172,57 @@ function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string
 			: null;
 	} catch {
 		return null;
+	}
+}
+
+/**
+ * Custom story drafts live in the database: they are copied to a temporary folder so ripgrep
+ * searches them with the same regex engine and syntax as every other file.
+ */
+const searchStories = async (
+	rgPath: string,
+	options: grep.Input & { max_results: number },
+	context: ToolContext,
+): Promise<TargetResult> => {
+	const covered = isStoriesPath(options.path) || options.path === undefined;
+	if (!covered || !isCustomStoriesEnabled()) {
+		return { matches: [], totalMatches: 0 };
+	}
+	const files = await listStoryMountFilesToGrep(context.chatId, options.path, options.glob);
+	if (files.length === 0) {
+		return { matches: [], totalMatches: 0 };
+	}
+	const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'nao-story-grep-'));
+	try {
+		await writeFilesUnder(directory, files);
+		return await searchTarget(rgPath, storiesTarget(directory), { ...options, glob: undefined });
+	} finally {
+		await fs.promises.rm(directory, { recursive: true, force: true });
+	}
+};
+
+const storiesTarget = (directory: string): SearchTarget => ({
+	root: directory,
+	cwd: directory,
+	ignoreGlobs: [],
+	includeHidden: true,
+	toDisplayPath: (absolutePath) => {
+		const relativePath = path.relative(directory, path.resolve(absolutePath));
+		if (relativePath === '' || relativePath.startsWith('..')) {
+			return null;
+		}
+		return `/${relativePath.replaceAll(path.sep, '/')}`;
+	},
+	toAbsolutePath: (displayPath) => path.join(directory, displayPath),
+	isAllowedDisplayPath: () => true,
+	getRulesView: () => undefined,
+});
+
+async function writeFilesUnder(directory: string, files: { virtualPath: string; content: string }[]): Promise<void> {
+	for (const file of files) {
+		const absolutePath = path.join(directory, file.virtualPath);
+		await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
+		await fs.promises.writeFile(absolutePath, file.content);
 	}
 }
 

@@ -2,7 +2,6 @@ import {
 	EMPTY_PROJECT_ROW_SECURITY,
 	filterProjectRowSecurityByDatabaseContext,
 	resolveWarehouseRowSecurity,
-	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
@@ -28,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useLicenseFeatures } from '@/hooks/use-license';
+import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
 
 interface UserGroupDetailUser {
 	id: string;
@@ -173,6 +173,7 @@ export function UserGroupUserDetail({
 }
 
 function EffectiveFeatures({ access }: { access: EffectiveUserGroupAccess }) {
+	const offeredFeatures = useOfferedUserGroupFeatures();
 	return (
 		<div className='flex flex-col gap-5'>
 			<div className='flex flex-col gap-3'>
@@ -183,7 +184,7 @@ function EffectiveFeatures({ access }: { access: EffectiveUserGroupAccess }) {
 					</p>
 				</div>
 				<div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
-					{USER_GROUP_FEATURE_DEFINITIONS.map((feature) => (
+					{offeredFeatures.map((feature) => (
 						<UserGroupFeatureSummaryCard
 							key={feature.key}
 							feature={feature}

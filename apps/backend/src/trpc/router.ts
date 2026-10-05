@@ -12,6 +12,7 @@ import { chatForkRoutes } from './chat-fork.routes';
 import { citationRoutes } from './citation.routes';
 import { contextExplorerRoutes } from './context-explorer.routes';
 import { contextRecommendationRoutes } from './context-recommendation.routes';
+import { customStoryViewerRoutes } from './custom-story-viewer.routes';
 import { embedRoutes } from './embed.routes';
 import { favoriteRoutes } from './favorite.routes';
 import { feedbackRoutes } from './feedback.routes';
@@ -36,6 +37,7 @@ import { sqlRoutes } from './sql.routes';
 import { storageRoutes } from './storage.routes';
 import { storyRoutes } from './story.routes';
 import { storyFolderRoutes } from './story-folder.routes';
+import { storyThemeRoutes } from './story-theme.routes';
 import { systemRoutes } from './system.routes';
 import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
@@ -54,6 +56,7 @@ export const trpcRouter = router({
 	map: mapRoutes,
 	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
+	customStoryViewer: customStoryViewerRoutes,
 	automation: automationRoutes,
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,
@@ -71,6 +74,7 @@ export const trpcRouter = router({
 	storyShare: sharedStoryRoutes,
 	story: storyRoutes,
 	storyFolder: storyFolderRoutes,
+	storyTheme: storyThemeRoutes,
 	usage: usageRoutes,
 	user: userRoutes,
 	userGroup: userGroupRoutes,

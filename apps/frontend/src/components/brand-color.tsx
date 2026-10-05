@@ -1,13 +1,16 @@
 /* @license Enterprise */
 
-import { useEffect } from 'react';
-
 import { useRouterState } from '@tanstack/react-router';
+import { formatHex, hsl, wcagContrast, wcagLuminance } from 'culori';
+import { useEffect } from 'react';
 
 import { useBranding } from '@/hooks/use-branding';
 
 const AUTH_PATHS = new Set(['/login', '/signup', '/forgot-password', '/reset-password', '/consent']);
 const STYLE_ID = 'nao-brand-color';
+const DARK_FOREGROUND = 'oklch(0.21 0.008 270)';
+/** Kept as the nominal value the light/dark tipping point was tuned against. */
+const DARK_FOREGROUND_LUMINANCE = 0.04;
 
 /** HSL lightness above this is considered "too light" for a light-mode background. */
 const LIGHT_THRESHOLD_L = 60;
@@ -127,21 +130,9 @@ function isDarkColor(hex: string): boolean {
 }
 
 function chooseForeground(bgHex: string): string {
-	const bgLum = relativeLuminance(bgHex);
-	const darkFgLum = 0.04;
-	const whiteContrast = (1 + 0.05) / (bgLum + 0.05);
-	const darkContrast = (bgLum + 0.05) / (darkFgLum + 0.05);
-	return whiteContrast >= darkContrast ? '#ffffff' : 'oklch(0.21 0.008 270)';
-}
-
-function relativeLuminance(hex: string): number {
-	const r = parseInt(hex.slice(1, 3), 16) / 255;
-	const g = parseInt(hex.slice(3, 5), 16) / 255;
-	const b = parseInt(hex.slice(5, 7), 16) / 255;
-	const toLinear = (c: number) => {
-		return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-	};
-	return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+	const whiteContrast = wcagContrast('#ffffff', bgHex);
+	const darkContrast = (wcagLuminance(bgHex) + 0.05) / (DARK_FOREGROUND_LUMINANCE + 0.05);
+	return whiteContrast >= darkContrast ? '#ffffff' : DARK_FOREGROUND;
 }
 
 function lighten(hex: string, amount: number): string {
@@ -153,45 +144,14 @@ function darken(hex: string, amount: number): string {
 	return lighten(hex, -amount);
 }
 
+/** Hue in degrees, saturation and lightness as percentages. */
 function hexToHsl(hex: string): [number, number, number] {
-	const r = parseInt(hex.slice(1, 3), 16) / 255;
-	const g = parseInt(hex.slice(3, 5), 16) / 255;
-	const b = parseInt(hex.slice(5, 7), 16) / 255;
-	const max = Math.max(r, g, b);
-	const min = Math.min(r, g, b);
-	const l = (max + min) / 2;
-	if (max === min) {
-		return [0, 0, Math.round(l * 100)];
-	}
-	const d = max - min;
-	const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-	let h = 0;
-	switch (max) {
-		case r:
-			h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-			break;
-		case g:
-			h = ((b - r) / d + 2) / 6;
-			break;
-		case b:
-			h = ((r - g) / d + 4) / 6;
-			break;
-	}
-	return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+	const { h = 0, s, l } = hsl(hex) ?? { s: 0, l: 0 };
+	return [Math.round(h), Math.round(s * 100), Math.round(l * 100)];
 }
 
 function hslToHex(h: number, s: number, l: number): string {
-	const ls = l / 100;
-	const ss = s / 100;
-	const a = ss * Math.min(ls, 1 - ls);
-	const f = (n: number) => {
-		const k = (n + h / 30) % 12;
-		const color = ls - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-		return Math.round(255 * color)
-			.toString(16)
-			.padStart(2, '0');
-	};
-	return `#${f(0)}${f(8)}${f(4)}`;
+	return formatHex({ mode: 'hsl', h, s: s / 100, l: l / 100 });
 }
 
 function clamp(n: number, min: number, max: number) {

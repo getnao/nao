@@ -3,13 +3,11 @@ import './instrumentation';
 import formbody from '@fastify/formbody';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
+import { STORY_FRAME_CORS_HEADERS, STORY_FRAME_ORIGIN, STORY_RUNTIME_PATH } from '@nao/shared/story-app';
 import { fastifyTRPCPlugin, FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import fastify, { FastifyReply } from 'fastify';
+import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
-import { existsSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 
 import { env, isCloud } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
@@ -29,6 +27,7 @@ import {
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
 import { flushTelemetry } from './instrumentation';
@@ -73,10 +72,7 @@ import { BudgetExceededError, HandlerError } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
-
-// Get the directory of the current module (works in both dev and compiled)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
@@ -345,17 +341,6 @@ app.get(HEALTH_PATH, { logLevel: 'silent' }, async (_request, reply) => {
 	return { status: 'ok' };
 });
 
-// Serve frontend static files in production
-// Look for frontend dist in multiple possible locations
-const execDir = dirname(process.execPath); // Directory containing the compiled binary
-const possibleStaticPaths = [
-	join(execDir, 'public'), // Bun compiled: public folder next to binary
-	join(__dirname, 'public'), // When bundled: public folder next to compiled code
-	join(__dirname, '../public'), // Alternative bundled location
-	join(__dirname, '../../frontend/dist'), // Development: relative to backend src
-];
-
-const staticRoot = possibleStaticPaths.find((p) => existsSync(p));
 const isReservedBackendPath = (url: string) => {
 	const pathname = url.split('?', 1)[0];
 	return (
@@ -375,6 +360,20 @@ const isReservedBackendPath = (url: string) => {
 
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
+/** Only the sandboxed custom-story frame (opaque origin) gets CORS access, and only to the story runtime modules. */
+const isStoryFrameRuntimeRequest = (request: FastifyRequest) =>
+	request.headers.origin === STORY_FRAME_ORIGIN && request.url.startsWith(`${STORY_RUNTIME_PATH}/`);
+
+app.addHook('onRequest', async (request, reply) => {
+	if (isStoryFrameRuntimeRequest(request)) {
+		reply.headers(STORY_FRAME_CORS_HEADERS);
+	}
+});
+
+app.options(`${STORY_RUNTIME_PATH}/*`, (_request, reply) => {
+	reply.header('Access-Control-Allow-Methods', 'GET, HEAD').status(204).send();
+});
+
 if (staticRoot) {
 	app.register(fastifyStatic, {
 		root: staticRoot,
@@ -391,7 +390,7 @@ app.setNotFoundHandler((request, reply) => {
 	} else if (staticRoot) {
 		reply.sendFile('index.html');
 	} else if (isDev) {
-		reply.redirect(`http://localhost:3000${request.url}`);
+		reply.redirect(`${FRONTEND_DEV_ORIGIN}${request.url}`);
 	} else {
 		reply.status(404).send({ error: 'Not found' });
 	}
@@ -433,6 +432,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		name: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
 		cron: '0 4 * * *',
 		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+	});
+
+	registerJob(STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler);
+	await ensureRecurring({
+		name: STORY_BLOB_CLEANUP_JOB_NAME,
+		cron: '30 4 * * *',
+		uniqueKey: STORY_BLOB_CLEANUP_JOB_NAME,
 	});
 
 	registerJob(CONTEXT_BRANCH_CLEANUP_JOB_NAME, contextBranchCleanupHandler);

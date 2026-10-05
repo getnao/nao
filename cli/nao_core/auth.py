@@ -15,6 +15,7 @@ from nao_core.ui import UI, ask_text
 
 # Store credentials in user's home directory
 AUTH_FILE = Path.home() / ".nao" / "auth.json"
+HTTP_TIMEOUT = (5, 30)
 
 BROWSER_LOGIN_TIMEOUT_SECONDS = 300
 REQUEST_TIMEOUT_SECONDS = 30
@@ -228,6 +229,7 @@ def login(backend_url: str, email: str, password: str) -> dict[str, str] | None:
                 "email": email,
                 "password": password,
             },
+            timeout=HTTP_TIMEOUT,
         )
 
         if response.status_code == 200:

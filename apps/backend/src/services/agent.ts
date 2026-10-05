@@ -2,7 +2,7 @@ import type { CustomBoundarySet } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
-import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { CitationData, LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -28,6 +28,7 @@ import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
+import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
@@ -80,7 +81,9 @@ import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
+import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
+import { customStoryAuthoringError } from './story-mount';
 import { getStoryTemplateWarnings } from './story-template-validation';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
@@ -127,15 +130,32 @@ export interface AgentToolsContext {
 /** Builds the tool set a run should expose. Callers pass one to `create` to customise tools. */
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
-export function shouldAddStoryMode(mentions: Mention[] | undefined, access: AgentUserGroupAccess): boolean {
-	return access.features.storyCreation && Boolean(mentions?.some((mention) => mention.id === story.MENTION_ID));
+export function resolveStoryMode(
+	mentions: Mention[] | undefined,
+	access: AgentUserGroupAccess,
+): 'classic' | 'custom' | null {
+	if (!access.features.storyCreation) {
+		return null;
+	}
+	const mentioned = (id: string) => Boolean(mentions?.some((mention) => mention.id === id));
+	if (env.BETA_CUSTOM_STORIES_ENABLED && access.features.customStoryCreation && mentioned(story.CUSTOM_MENTION_ID)) {
+		return 'custom';
+	}
+	return mentioned(story.MENTION_ID) ? 'classic' : null;
 }
+
+const STORY_MODE_INSTRUCTIONS = {
+	classic:
+		'[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts]',
+	custom: '[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks]',
+} as const;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
 export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
 	getTools(agentSettings, webTools ?? {}, {
 		customBoundaries,
 		semanticLayerMode: toolContext.semanticLayerMode,
+		customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 	});
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
@@ -146,6 +166,7 @@ export const defaultAgentToolsExcluding =
 			excludeBuiltinTools,
 			customBoundaries,
 			semanticLayerMode: toolContext.semanticLayerMode,
+			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 		});
 
 /**
@@ -670,7 +691,11 @@ class AgentManager {
 				contextPresence,
 				timezone,
 				toolNames,
-				options: { canGrepSavedFiles: canGrepUserFiles() },
+				options: {
+					savedFilesEnabled: isStorageEnabled(),
+					canGrepSavedFiles: canGrepUserFiles(),
+					customStoriesEnabled: customStoryAuthoringError(this._toolContext.userGroupFeatures) === null,
+				},
 			}),
 		);
 		const renderedPrompt = provider
@@ -945,19 +970,17 @@ class AgentManager {
 			return messages;
 		}
 
-		const { start, end, text: citationText } = lastUserMessage.citation;
-		const context = `[The user is referring to the following text selection (chars ${start}–${end}):\n"${citationText}"]`;
+		const context = describeCitation(lastUserMessage.citation);
 		return this._transformLastUserMessageText(messages, (text) => (text ? `${context}\n\n${text}` : context));
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		if (!shouldAddStoryMode(mentions, this._userGroupAccess)) {
+		const mode = resolveStoryMode(mentions, this._userGroupAccess);
+		if (!mode) {
 			return messages;
 		}
-
-		const STORY_INSTRUCTION =
-			'[Story mode: present your response as an interactive nao Story using the story tool, combining markdown and charts]';
-		return this._transformLastUserMessageText(messages, (text) => `${STORY_INSTRUCTION}\n\n${text}`);
+		const instruction = STORY_MODE_INSTRUCTIONS[mode];
+		return this._transformLastUserMessageText(messages, (text) => `${instruction}\n\n${text}`);
 	}
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
@@ -1130,6 +1153,15 @@ function describeStoredAttachment(part: { url: string; mediaType: string; filena
 			: '';
 
 	return `[The user attached ${name} (${part.mediaType}) to this message. It is saved at ${part.url}. Its contents are not included here: read that path when you need them.${workbookHint}]`;
+}
+
+function describeCitation({ start, end, text, storySlug, block }: CitationData): string {
+	if (!block) {
+		return `[The user is referring to the following text selection (chars ${start}–${end}):\n"${text}"]`;
+	}
+	const title = block.title ? ` "${block.title}"` : '';
+	const query = block.queryId ? `, reading ${block.queryId}` : '';
+	return `[The user is referring to the ${block.kind} block${title}${query} of the custom story "${storySlug}". Apply their request to that block in the story's source and publish again.]`;
 }
 
 // Singleton instance of the agent service

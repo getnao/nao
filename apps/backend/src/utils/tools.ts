@@ -5,6 +5,7 @@ import path from 'path';
 
 import type { StorageScope } from '../services/storage';
 import { McpToolContext, ToolContext } from '../types/tools';
+import { isStoriesPath, STORIES_MOUNT } from './story-mount';
 
 const MCP_TOOL_SEPARATOR = '__';
 
@@ -72,6 +73,11 @@ const storageMountOf = (virtualPath: string): string | null => {
 export const toStorageVirtualPath = (relativePath: string): string => {
 	const trimmed = trimSlashes(relativePath);
 	return trimmed === '' ? `/${STORAGE_MOUNT}` : `/${STORAGE_MOUNT}/${trimmed}`;
+};
+
+/** True when a virtual path lives in one of the virtual mounts (`/home`, `/stories`) rather than the project folder. */
+export const isMountPath = (virtualPath: string | undefined | null): boolean => {
+	return isStoragePath(virtualPath) || isStoriesPath(virtualPath);
 };
 
 const trimSlashes = (value: string): string => {
@@ -249,8 +255,8 @@ export const shouldExcludeEntry = (entryName: string, parentPath: string, projec
 		return true;
 	}
 
-	// The storage mount owns this name at the root of the tree
-	if (parentPath === '' && isStoragePath(entryName)) {
+	// The virtual mounts own these names at the root of the tree
+	if (parentPath === '' && isMountPath(entryName)) {
 		return true;
 	}
 
@@ -273,7 +279,7 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 	if (isInExcludedDir(resolved)) {
 		return false;
 	}
-	if (isStoragePath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
+	if (isMountPath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
 		return false;
 	}
 	if (isIgnoredPath(resolved, normalizedFolder)) {
@@ -300,9 +306,7 @@ type ToRealPathOptions = {
 export const toRealPath = (virtualPath: string, projectFolder: string, options: ToRealPathOptions = {}): string => {
 	const normalizedFolder = path.resolve(projectFolder);
 
-	if (isStoragePath(virtualPath)) {
-		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
-	}
+	assertNotMountPath(virtualPath, virtualPath);
 
 	// Strip leading slash to make it relative to project folder
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
@@ -329,10 +333,7 @@ const assertAllowedProjectPath = (absolutePath: string, projectFolder: string, v
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
 	}
 
-	const normalizedRelativePath = path.relative(projectFolder, absolutePath).replaceAll(path.sep, '/');
-	if (isStoragePath(normalizedRelativePath)) {
-		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
-	}
+	assertNotMountPath(path.relative(projectFolder, absolutePath).replaceAll(path.sep, '/'), virtualPath);
 
 	if (absolutePath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
 		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
@@ -348,6 +349,15 @@ const assertAllowedProjectPath = (absolutePath: string, projectFolder: string, v
 
 	if (isIgnoredPath(absolutePath, projectFolder)) {
 		throw new Error(`Access denied: path '${virtualPath}' is ignored by .naoignore`);
+	}
+};
+
+const assertNotMountPath = (candidatePath: string, virtualPath: string): void => {
+	if (isStoragePath(candidatePath)) {
+		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
+	if (isStoriesPath(candidatePath)) {
+		throw new Error(`Path '${virtualPath}' is in /${STORIES_MOUNT}, not in the project folder`);
 	}
 };
 

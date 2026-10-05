@@ -18,6 +18,17 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }
 	const cacheSchedule = data?.cacheSchedule ?? null;
 	const cacheScheduleDescription = data?.cacheScheduleDescription ?? null;
 
+	const invalidateCustomStory = () =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }) }),
+			queryClient.invalidateQueries({
+				queryKey: trpc.story.getCustomStoryQueryData.queryKey({ chatId, storySlug }),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: trpc.story.getCustomStoryNarratives.queryKey({ chatId, storySlug }),
+			}),
+		]);
+
 	const updateLiveSettingsMutation = useMutation(
 		trpc.story.updateLiveSettings.mutationOptions({
 			onSuccess: async () => {
@@ -28,6 +39,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }
 					queryClient.invalidateQueries({
 						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
 					}),
+					invalidateCustomStory(),
 				]);
 			},
 		}),
@@ -46,6 +58,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }
 					queryClient.invalidateQueries({
 						queryKey: trpc.automation.feed.queryKey(),
 					}),
+					invalidateCustomStory(),
 				];
 				if (storyId) {
 					invalidations.push(

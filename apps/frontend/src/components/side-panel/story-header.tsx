@@ -1,8 +1,6 @@
 import {
 	Activity,
 	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
 	Code,
 	Ellipsis,
 	Eye,
@@ -21,9 +19,13 @@ import type { ShareSource } from '@nao/shared/types';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
+import type { StoryDownloadOptions } from '@/components/story-download';
+import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import { ShareButton, StoryFavoriteMenuItem, StoryFavoritedButton } from '@/components/story-header-actions';
+import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
@@ -38,7 +40,12 @@ import { SwitchIndicator } from '@/components/ui/switch';
 import { LiveStoryTimestamp, StoryRefreshFailureBanner } from '@/components/story-page-header';
 import { cn } from '@/lib/utils';
 
-export interface StoryHeaderProps {
+interface StoryViewModeControls {
+	viewMode: StoryViewMode;
+	onViewModeChange: (mode: StoryViewMode) => void;
+}
+
+interface StoryHeaderBaseProps {
 	title: string;
 	chatId: string;
 	storySlug: string;
@@ -46,17 +53,15 @@ export interface StoryHeaderProps {
 	shareSource?: ShareSource | null;
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
-	viewMode: StoryViewMode;
-	onViewModeChange: (mode: StoryViewMode) => void;
 	currentVersion: number;
-	totalVersions: number;
+	versionDates: (string | Date)[];
 	versionNumber?: number;
-	onPreviousVersion: () => void;
-	onNextVersion: () => void;
+	versionDate?: string | Date | null;
+	onSelectVersion: (version: number) => void;
 	isViewingLatest: boolean;
 	onRestore: () => void;
-	onSave: () => void;
-	onCancel: () => void;
+	onSave?: () => void;
+	onCancel?: () => void;
 	onShare: () => void;
 	onOpenAnalytics: () => void;
 	onEnlarge: () => void;
@@ -76,7 +81,10 @@ export interface StoryHeaderProps {
 	isCodeValid?: boolean;
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
+	onDownload?: StoryDownloadOptions['onDownload'];
 }
+
+export type StoryHeaderProps = StoryHeaderBaseProps & (StoryViewModeControls | CustomStoryViewModeControls);
 
 function mergeStorySummaries(
 	messageStories: StorySummary[],
@@ -99,13 +107,11 @@ export const StoryHeader = memo(function StoryHeader({
 	shareSource,
 	allStories,
 	onSwitchStory,
-	viewMode,
-	onViewModeChange,
 	currentVersion,
-	totalVersions,
+	versionDates,
 	versionNumber,
-	onPreviousVersion,
-	onNextVersion,
+	versionDate,
+	onSelectVersion,
 	isViewingLatest,
 	onRestore,
 	onSave,
@@ -129,7 +135,10 @@ export const StoryHeader = memo(function StoryHeader({
 	isCodeValid = true,
 	cachedAt,
 	lastRefreshFailure,
+	onDownload,
+	...viewModeControls
 }: StoryHeaderProps) {
+	const { viewMode } = viewModeControls;
 	const isMobile = useIsMobile();
 	const { data: persistedStories = [] } = useQuery({
 		...trpc.story.listStories.queryOptions({ chatId }),
@@ -142,7 +151,7 @@ export const StoryHeader = memo(function StoryHeader({
 	const showSubHeader = viewMode === 'edit' || isEditingCode || !isViewingLatest;
 
 	const titleElement = hasMultiple ? (
-		<div className='flex min-w-0 flex-1 items-center gap-1'>
+		<div className='flex min-w-20 flex-1 items-center gap-1'>
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
@@ -153,7 +162,13 @@ export const StoryHeader = memo(function StoryHeader({
 			/>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button type='button' variant='ghost-muted' size='icon-sm' aria-label='Switch story'>
+					<Button
+						type='button'
+						variant='ghost-muted'
+						className='hover:rounded-full'
+						size='icon-sm'
+						aria-label='Switch story'
+					>
 						<ChevronDown className='size-3.5' strokeWidth={2.25} />
 					</Button>
 				</DropdownMenuTrigger>
@@ -167,7 +182,7 @@ export const StoryHeader = memo(function StoryHeader({
 			</DropdownMenu>
 		</div>
 	) : (
-		<div className='min-w-0 flex-1'>
+		<div className='min-w-20 flex-1'>
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
@@ -186,64 +201,21 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const versionNav = totalVersions > 1 && (
-		<div className='flex items-center gap-1'>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={onPreviousVersion}
-				disabled={currentVersion <= 1}
-			>
-				<ChevronLeft className='size-3' strokeWidth={2.25} />
-			</Button>
-			<span className='text-xs text-muted-foreground tabular-nums min-w-6 text-center'>
-				{currentVersion}/{totalVersions}
-			</span>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={onNextVersion}
-				disabled={currentVersion >= totalVersions}
-			>
-				<ChevronRight className='size-3' strokeWidth={2.25} />
-			</Button>
-		</div>
+	const versionNav = (
+		<StoryVersionNav
+			currentVersion={currentVersion}
+			versionDates={versionDates}
+			onSelectVersion={onSelectVersion}
+		/>
 	);
 
 	const viewModeToggle = (
-		<div className='flex items-center rounded-full border p-0.5 gap-1.5'>
-			<Button
-				variant='ghost'
-				className={cn(viewMode === 'preview' && 'bg-accent rounded-full', 'hover:rounded-full')}
-				size='icon-xs'
-				onClick={() => onViewModeChange('preview')}
-				disabled={isSaving}
-			>
-				<Eye className='size-3' strokeWidth={2.25} />
-			</Button>
-			{!isReadonlyMode && (
-				<Button
-					variant='ghost'
-					className={cn(viewMode === 'edit' && 'bg-accent rounded-full', 'hover:rounded-full')}
-					size='icon-xs'
-					onClick={() => onViewModeChange('edit')}
-					disabled={isAgentRunning || isSaving}
-				>
-					<Pencil className='size-3' strokeWidth={2.25} />
-				</Button>
-			)}
-			<Button
-				variant='ghost'
-				className={cn(viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
-				size='icon-xs'
-				onClick={() => onViewModeChange('code')}
-				disabled={isSaving}
-			>
-				<Code className='size-3' strokeWidth={2.25} />
-			</Button>
-		</div>
+		<ViewModeToggle
+			controls={viewModeControls}
+			isReadonlyMode={isReadonlyMode}
+			isAgentRunning={isAgentRunning}
+			isSaving={isSaving}
+		/>
 	);
 
 	const shareButton = !isReadonlyMode && (
@@ -338,6 +310,7 @@ export const StoryHeader = memo(function StoryHeader({
 		shareSource: shareSource ?? undefined,
 		isOwner: !isReadonlyMode,
 		versionNumber,
+		onDownload,
 	};
 	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
 	const canFavorite = !isReadonlyMode && !!storyId;
@@ -471,7 +444,7 @@ export const StoryHeader = memo(function StoryHeader({
 					) : (
 						<>
 							<span className='text-xs text-muted-foreground'>
-								Viewing v{currentVersion} of {totalVersions}
+								{describeViewedVersion(versionDate, currentVersion)}
 							</span>
 							<Button
 								variant='outline'
@@ -490,3 +463,63 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 });
+
+interface ViewModeToggleProps {
+	controls: StoryViewModeControls | CustomStoryViewModeControls;
+	isReadonlyMode: boolean;
+	isAgentRunning: boolean;
+	isSaving: boolean;
+}
+
+function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isSaving }: ViewModeToggleProps) {
+	if (isCustomStoryViewModeControls(controls)) {
+		return <CustomStoryViewModeToggle {...controls} />;
+	}
+
+	const { viewMode, onViewModeChange } = controls;
+
+	return (
+		<div className='flex items-center rounded-full border p-0.5 gap-1.5'>
+			<Button
+				variant='ghost'
+				className={cn(
+					'size-5.5 px-2',
+					viewMode === 'preview' && 'bg-accent rounded-full',
+					'hover:rounded-full',
+				)}
+				onClick={() => onViewModeChange('preview')}
+				disabled={isSaving}
+			>
+				<Eye className='size-3' strokeWidth={2.25} />
+			</Button>
+			{!isReadonlyMode && (
+				<Button
+					variant='ghost'
+					className={cn(
+						'size-5.5 px-2',
+						viewMode === 'edit' && 'bg-accent rounded-full',
+						'hover:rounded-full',
+					)}
+					onClick={() => onViewModeChange('edit')}
+					disabled={isAgentRunning || isSaving}
+				>
+					<Pencil className='size-3' strokeWidth={2.25} />
+				</Button>
+			)}
+			<Button
+				variant='ghost'
+				className={cn('size-5.5 px-2', viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
+				onClick={() => onViewModeChange('code')}
+				disabled={isSaving}
+			>
+				<Code className='size-3' strokeWidth={2.25} />
+			</Button>
+		</div>
+	);
+}
+
+function isCustomStoryViewModeControls(
+	controls: StoryViewModeControls | CustomStoryViewModeControls,
+): controls is CustomStoryViewModeControls {
+	return isCustomStoryViewMode(controls.viewMode);
+}

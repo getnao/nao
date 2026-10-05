@@ -5,6 +5,7 @@ import { getEffectiveToolCallDensity, getRenderableUserGroupAccess } from './eff
 const effectiveAccess = {
 	features: {
 		storyCreation: true,
+		customStoryCreation: false,
 		automationCreation: false,
 	},
 	toolCallDensityPolicy: {
@@ -22,6 +23,7 @@ describe('getRenderableUserGroupAccess', () => {
 		expect(getRenderableUserGroupAccess(effectiveAccess, false)).toEqual({
 			features: {
 				storyCreation: false,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
@@ -35,6 +37,7 @@ describe('getRenderableUserGroupAccess', () => {
 		expect(getRenderableUserGroupAccess(undefined, true)).toEqual({
 			features: {
 				storyCreation: false,
+				customStoryCreation: false,
 				automationCreation: false,
 			},
 			toolCallDensityPolicy: {

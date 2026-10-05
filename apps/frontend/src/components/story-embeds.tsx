@@ -1,15 +1,15 @@
+import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { memo, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { displayChart } from '@nao/shared/tools';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ChartType } from '@nao/shared/chart-types';
 
+import { DataTableCard } from '@/components/data-table-card';
 import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
 import { StoryMapEmbedShell } from '@/components/side-panel/story-map-embed';
 import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
 import { StoryMapRender } from '@/components/story-map-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
-import { DataTableCard } from '@/components/data-table-card';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { sortByDateKey } from '@/lib/charts.utils';
 import { cn } from '@/lib/utils';
@@ -139,7 +139,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 			<EmbedRefreshing isRefreshing={showRefreshing}>
 				<ChartDisplay
 					data={displayData}
-					chartType={chart.chartType as displayChart.ChartType}
+					chartType={chart.chartType as ChartType}
 					xAxisKey={chart.xAxisKey}
 					xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
 					xAxisLabel={chart.xAxisLabel}

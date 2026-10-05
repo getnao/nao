@@ -145,7 +145,7 @@ export function EditMemberDialog({
 
 					{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
 					<div className='flex justify-end'>
-						<Button type='submit' variant='primary-gradient'>
+						<Button type='submit' variant='primary-gradient' className='rounded-full'>
 							Validate changes
 						</Button>
 					</div>

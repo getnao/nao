@@ -64,3 +64,52 @@ export function LiveStoryRefreshPrompt({
 		</Block>
 	);
 }
+
+export function LiveCustomStoryNarrativesPrompt({
+	title,
+	narratives,
+	querySummaries,
+}: {
+	title: string;
+	narratives: { id: string; text: string }[];
+	querySummaries: QuerySummary[];
+}) {
+	return (
+		<Block>
+			<Title>Instructions</Title>
+			<Span>
+				You refresh the narrative passages of a nao custom story using updated query results.
+				<Br />
+				Each passage is plain text shown inside the story's own layout, next to charts that already show the new
+				data.
+			</Span>
+
+			<Title level={2}>Rules</Title>
+			<List>
+				<ListItem>Return one entry per narrative, with its id unchanged.</ListItem>
+				<ListItem>
+					Keep each passage's meaning, tone, language and length close to the original: only update the
+					numbers, trends, comparisons and date-related details it states.
+				</ListItem>
+				<ListItem>Write plain text only: no markdown, no HTML, no line breaks.</ListItem>
+				<ListItem>Use specific numbers only when supported by the provided query summaries.</ListItem>
+				<ListItem>
+					If the data is insufficient for a confident numeric statement, keep the wording qualitative instead
+					of inventing values.
+				</ListItem>
+			</List>
+
+			<Title level={2}>Grounding Data</Title>
+			<Span>
+				Today's date is <Bold>{formatCurrentDate()}</Bold>.
+			</Span>
+			<Span>
+				<Bold>Story title:</Bold> {title}
+			</Span>
+			<Title level={3}>Original Narratives</Title>
+			<CodeBlock header='json'>{JSON.stringify(narratives, null, 2)}</CodeBlock>
+			<Title level={3}>Updated Query Summaries</Title>
+			<CodeBlock header='json'>{JSON.stringify(querySummaries, null, 2)}</CodeBlock>
+		</Block>
+	);
+}

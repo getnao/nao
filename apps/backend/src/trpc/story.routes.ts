@@ -1,5 +1,6 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { BulkStoryItem, NotificationChannel, UserRole } from '@nao/shared/types';
+import { STORY_KIT_EDITABLE_BLOCKS } from '@nao/shared/story-app';
+import type { BulkStoryItem, NotificationChannel, StoryFormat, UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -13,7 +14,15 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
+import {
+	getCustomStoryFile,
+	getCustomStoryNarratives,
+	getCustomStoryQueryData,
+	getCustomStoryQuerySql,
+	getCustomStoryVersion,
+} from '../services/custom-story';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -21,6 +30,12 @@ import {
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
+import {
+	editCustomStoryBlock,
+	restoreCustomStoryVersion,
+	saveCustomStoryFiles,
+	StoryBlockEditError,
+} from '../services/story-block-edit';
 import {
 	assertValidDeliverySchedule,
 	disableStoryDelivery,
@@ -33,10 +48,13 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { storySnapshotHtml, toCustomStoryQueryTrpcError, toCustomStoryTrpcError } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
+import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
 import { backfillMissingQueryData } from '../utils/story-query-data';
+import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
 	adminProtectedProcedure,
@@ -71,6 +89,8 @@ const storyOwnerProjectProcedure = storyOwnerProcedure.use(async ({ ctx, getRawI
 	}
 	return next();
 });
+
+const storyKitBlockComponent = z.enum(STORY_KIT_EDITABLE_BLOCKS);
 
 const bulkStoryItemsInput = z.object({
 	items: z
@@ -164,7 +184,13 @@ export const storyRoutes = {
 			storyQueries.getStoryProjectId(story.id),
 		]);
 		await assertCanOpenStory(story.id, projectId, ctx.user.id);
-		return { storyId: story.id, chatId: story.chatId, slug: story.slug, isOwner: ownerId === ctx.user.id };
+		return {
+			storyId: story.id,
+			chatId: story.chatId,
+			slug: story.slug,
+			format: story.format,
+			isOwner: ownerId === ctx.user.id,
+		};
 	}),
 
 	getIdByChatAndSlug: protectedProcedure
@@ -258,6 +284,7 @@ export const storyRoutes = {
 				return {
 					id: null as string | null,
 					title: input.storySlug,
+					format: 'classic' as StoryFormat,
 					isLive: false,
 					isLiveTextDynamic: false,
 					cacheSchedule: null as string | null,
@@ -271,6 +298,7 @@ export const storyRoutes = {
 			return {
 				id: story.id as string | null,
 				title: story.title,
+				format: story.format,
 				isLive: story.isLive,
 				isLiveTextDynamic: story.isLiveTextDynamic,
 				cacheSchedule: story.cacheSchedule,
@@ -296,6 +324,199 @@ export const storyRoutes = {
 
 			const queryData = await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code);
 			return { queryData };
+		}),
+
+	getCustomVersion: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input }) => {
+			try {
+				return await getCustomStoryVersion(input.chatId, input.storySlug, input.versionNumber);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomVersionFile: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				path: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input }) => {
+			try {
+				return await getCustomStoryFile(input.chatId, input.storySlug, input.path, input.versionNumber);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryQueryData: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			try {
+				return await getCustomStoryQueryData(input.chatId, input.storySlug, input.queryId);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryQuerySql: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
+		.query(async ({ input }) => {
+			try {
+				return { sqlQuery: await getCustomStoryQuerySql(input.chatId, input.storySlug, input.queryId) };
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryNarratives: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input }) => {
+			try {
+				return await getCustomStoryNarratives(input.chatId, input.storySlug);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	downloadCustom: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				html: storySnapshotHtml,
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			const version = input.versionNumber
+				? await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber)
+				: await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
+			if (!version || version.format !== 'custom') {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (projectId) {
+				logAnalyticsEvent({
+					projectId,
+					type: 'download',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: version.storyId,
+					chatId: input.chatId,
+					metadata: {
+						type: 'download',
+						format: input.format,
+						versionNumber: version.version,
+						title: version.title,
+					},
+				});
+			}
+
+			return buildStorySnapshotDownload(input.format, version.title, input.html);
+		}),
+
+	editCustomStoryBlock: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				block: z.object({ component: storyKitBlockComponent, props: z.record(z.string(), z.unknown()) }),
+				change: z.object({
+					component: storyKitBlockComponent.optional(),
+					set: z.record(z.string(), z.unknown()),
+					unset: z.array(z.string()),
+				}),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Edit the story once it is done.',
+				});
+			}
+			try {
+				return await editCustomStoryBlock(input);
+			} catch (error) {
+				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	saveCustomStoryFiles: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				files: z
+					.array(z.object({ path: z.string(), content: z.string() }))
+					.min(1)
+					.max(60),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Save your changes once it is done.',
+				});
+			}
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+			await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'customStoryCreation');
+			try {
+				return await saveCustomStoryFiles(input);
+			} catch (error) {
+				if (error instanceof StoryBlockEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	restoreCustomVersion: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				restoreVersionNumber: z.number().int().positive(),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Restore the version once it is done.',
+				});
+			}
+			try {
+				return await restoreCustomStoryVersion(input);
+			} catch (error) {
+				if (error instanceof StoryBlockEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw toCustomStoryTrpcError(error);
+			}
 		}),
 
 	listStories: chatStoryProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {

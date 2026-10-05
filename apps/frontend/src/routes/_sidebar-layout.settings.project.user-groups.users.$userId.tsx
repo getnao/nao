@@ -6,9 +6,11 @@ import { useEffect } from 'react';
 
 import type { UserGroupUserDetailTab } from '@/components/settings/user-group-user-detail';
 import { UserGroupUserDetail } from '@/components/settings/user-group-user-detail';
+import { requireAdmin } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/user-groups/users/$userId')({
+	beforeLoad: requireAdmin,
 	validateSearch: (search: Record<string, unknown>): { tab: UserGroupUserDetailTab } => ({
 		tab: isUserGroupUserDetailTab(search.tab) ? search.tab : 'features',
 	}),

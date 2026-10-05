@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareStoryDialog } from '../share-dialog.story';
@@ -22,10 +22,15 @@ import { useStoryViewerSwitchStory } from './hooks/use-story-viewer-switch-story
 import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-actions';
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
+import type { ShareSource, StoryFormat } from '@nao/shared/types';
+import type { CustomStoryViewerAccess } from '@nao/shared/story-app';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
+import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
@@ -38,7 +43,6 @@ import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
 import { Spinner } from '@/components/ui/spinner';
-import { chatActivityStore } from '@/stores/chat-activity';
 import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { trpc } from '@/main';
 
@@ -49,7 +53,65 @@ interface StoryViewerProps {
 	initialTabIndex?: number;
 }
 
-export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {
+export function StoryViewer(props: StoryViewerProps) {
+	const { isReadonlyMode: contextReadonlyMode, isReplay, shareSource } = useSidePanel();
+	const isReadonlyMode = isReplay ? contextReadonlyMode : (props.isReadonlyMode ?? contextReadonlyMode);
+	const viewerAccess = useMemo(
+		() => (isReadonlyMode ? readonlyViewerAccess(props.chatId, shareSource, isReplay) : null),
+		[isReadonlyMode, isReplay, props.chatId, shareSource],
+	);
+	const format = useStoryFormat(props.chatId, props.storySlug, isReadonlyMode, viewerAccess);
+
+	if (format === null) {
+		return <StoryContentLoading />;
+	}
+	if (format === 'custom' && viewerAccess) {
+		return <ReadonlyCustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} access={viewerAccess} />;
+	}
+	if (format === 'custom' && !isReadonlyMode) {
+		return <CustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} />;
+	}
+	return <ClassicStoryViewer {...props} />;
+}
+
+function useStoryFormat(
+	chatId: string,
+	storySlug: string,
+	isReadonlyMode: boolean,
+	viewerAccess: CustomStoryViewerAccess | null,
+): StoryFormat | null {
+	const ownerQuery = useQuery({
+		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
+		enabled: !isReadonlyMode,
+	});
+	const viewerQuery = useQuery({
+		...trpc.customStoryViewer.getFormat.queryOptions({
+			access: viewerAccess ?? { kind: 'replay', chatId },
+			storySlug,
+		}),
+		enabled: viewerAccess !== null,
+	});
+	if (!isReadonlyMode) {
+		return ownerQuery.isPending ? null : (ownerQuery.data?.format ?? 'classic');
+	}
+	if (viewerAccess) {
+		return viewerQuery.isPending ? null : (viewerQuery.data?.format ?? 'classic');
+	}
+	return 'classic';
+}
+
+function readonlyViewerAccess(
+	chatId: string,
+	shareSource: ShareSource | null,
+	isReplay: boolean,
+): CustomStoryViewerAccess | null {
+	if (shareSource?.type === 'chat' && shareSource.shareId) {
+		return { kind: 'sharedChat', shareId: shareSource.shareId };
+	}
+	return isReplay ? { kind: 'replay', chatId } : null;
+}
+
+function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, initialTabIndex }: StoryViewerProps) {
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
@@ -79,10 +141,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	});
 	const chatMessages = outerAgentHasCorrectChat ? undefined : (chatQuery.data?.messages ?? null);
 
-	const isChatAgentRunning = useSyncExternalStore(
-		useCallback((cb) => chatActivityStore.subscribe(chatId, cb), [chatId]),
-		useCallback(() => chatActivityStore.getActivity(chatId).running, [chatId]),
-	);
+	const isChatAgentRunning = useChatActivity(chatId).running;
 
 	const { allStories, draftStory, latestStoryOutputVersion, isAgentRunning, isStoryUpdating, isStoryInterrupted } =
 		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning);
@@ -98,8 +157,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		currentVersionNumber,
 		storedVersionNumber,
 		isViewingLatest,
-		goToPreviousVersion,
-		goToNextVersion,
+		goToVersion,
 		goToLatestVersion,
 	} = useStoryViewerVersions({
 		chatId,
@@ -226,11 +284,11 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		[chatId, readonlyProp],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
-	const handlePreviousVersion = useCallback(
-		() => exitGuard.requestExit(goToPreviousVersion),
-		[exitGuard, goToPreviousVersion],
+	const handleSelectVersion = useCallback(
+		(versionNumber: number) => exitGuard.requestExit(() => goToVersion(versionNumber)),
+		[exitGuard, goToVersion],
 	);
-	const handleNextVersion = useCallback(() => exitGuard.requestExit(goToNextVersion), [exitGuard, goToNextVersion]);
+	const versionDates = useMemo(() => versions.map((version) => version.createdAt), [versions]);
 
 	useEffect(() => {
 		if (viewMode !== 'code') {
@@ -303,10 +361,10 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				viewMode={viewMode}
 				onViewModeChange={transitions.requestViewMode}
 				currentVersion={currentVersionNumber}
-				totalVersions={versions.length}
+				versionDates={versionDates}
 				versionNumber={currentVersion?.version}
-				onPreviousVersion={handlePreviousVersion}
-				onNextVersion={handleNextVersion}
+				versionDate={currentVersion?.createdAt}
+				onSelectVersion={handleSelectVersion}
 				isViewingLatest={isViewingLatest}
 				onRestore={handleRestore}
 				onSave={handleSave}

@@ -1,6 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+
 import { useResizeObserver } from './use-resize-observer';
-import { loadPersistedWidthRatio, SIDE_PANEL_MIN_WIDTH, SIDE_PANEL_WIDTH_STORAGE_KEY } from '@/lib/side-panel';
+import {
+	CHAT_PANEL_MIN_WIDTH,
+	loadPersistedWidthRatio,
+	SIDE_PANEL_MIN_WIDTH,
+	SIDE_PANEL_WIDTH_STORAGE_KEY,
+} from '@/lib/side-panel';
 
 function persistRatio(ratio: number) {
 	try {
@@ -16,9 +22,12 @@ export const useSidePanelResize = (
 	containerRef: React.RefObject<HTMLDivElement | null>,
 	resizeHandleRef: React.RefObject<HTMLDivElement | null>,
 	enabled: boolean,
+	chatPanelMinWidth: number = CHAT_PANEL_MIN_WIDTH,
 ) => {
 	const ratioRef = useRef(loadPersistedWidthRatio());
 	const rafRef = useRef(0);
+	const chatPanelMinWidthRef = useRef(chatPanelMinWidth);
+	chatPanelMinWidthRef.current = chatPanelMinWidth;
 
 	useEffect(() => {
 		if (!enabled) {
@@ -38,7 +47,7 @@ export const useSidePanelResize = (
 			cancelAnimationFrame(rafRef.current);
 			rafRef.current = requestAnimationFrame(() => {
 				const deltaX = e.clientX - startX;
-				const width = startWidth - deltaX;
+				const width = clampWidth(startWidth - deltaX, containerRef.current, chatPanelMinWidthRef.current);
 				sidePanel.style.transitionDuration = '0ms';
 				sidePanel.style.width = `${width}px`;
 			});
@@ -49,6 +58,7 @@ export const useSidePanelResize = (
 			document.removeEventListener('mousemove', handleMouseMove);
 			document.removeEventListener('mouseup', handleMouseUp);
 			document.body.style.cursor = 'default';
+			setIframesPointerEvents('');
 
 			const container = containerRef.current;
 			if (container) {
@@ -65,6 +75,7 @@ export const useSidePanelResize = (
 			startX = e.clientX;
 			startWidth = sidePanel.getBoundingClientRect().width || 0;
 			document.body.style.cursor = 'ew-resize';
+			setIframesPointerEvents('none');
 			document.addEventListener('mousemove', handleMouseMove);
 			document.addEventListener('mouseup', handleMouseUp);
 		};
@@ -74,6 +85,7 @@ export const useSidePanelResize = (
 			resizeHandle.removeEventListener('mousedown', handleMouseDown);
 			document.removeEventListener('mousemove', handleMouseMove);
 			document.removeEventListener('mouseup', handleMouseUp);
+			setIframesPointerEvents('');
 			cancelAnimationFrame(rafRef.current);
 		};
 	}, [enabled, sidePanelRef, containerRef, resizeHandleRef]);
@@ -81,7 +93,7 @@ export const useSidePanelResize = (
 	const enabledRef = useRef(enabled);
 	enabledRef.current = enabled;
 
-	useResizeObserver(containerRef, () => {
+	const applyPersistedWidth = useCallback(() => {
 		if (!enabledRef.current) {
 			return;
 		}
@@ -93,10 +105,25 @@ export const useSidePanelResize = (
 		}
 
 		const containerWidth = container.getBoundingClientRect().width;
-		const width = Math.max(SIDE_PANEL_MIN_WIDTH, Math.floor(ratioRef.current * containerWidth));
+		const width = clampWidth(Math.floor(ratioRef.current * containerWidth), container, chatPanelMinWidth);
 		sidePanel.style.width = `${width}px`;
 		sidePanel.style.transitionDuration = '0ms';
-	});
+	}, [containerRef, sidePanelRef, chatPanelMinWidth]);
+
+	useResizeObserver(containerRef, applyPersistedWidth, [applyPersistedWidth]);
 
 	return { ratioRef };
 };
+
+function clampWidth(width: number, container: HTMLElement | null, chatPanelMinWidth: number): number {
+	const containerWidth = container?.getBoundingClientRect().width ?? Infinity;
+	const maxWidth = Math.max(SIDE_PANEL_MIN_WIDTH, containerWidth - chatPanelMinWidth);
+	return Math.min(Math.max(width, SIDE_PANEL_MIN_WIDTH), maxWidth);
+}
+
+/** Iframes swallow mouse events, which would break the drag when the cursor moves over one */
+function setIframesPointerEvents(value: '' | 'none') {
+	document.querySelectorAll('iframe').forEach((iframe) => {
+		iframe.style.pointerEvents = value;
+	});
+}

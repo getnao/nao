@@ -824,7 +824,7 @@ export const projectRoutes = {
 	}),
 
 	listUsersWithAccess: projectProtectedProcedure.query(async ({ ctx }) => {
-		return projectQueries.listUsersWithProjectAccess(ctx.project.id);
+		return projectQueries.listUsersWithProjectAccessDetails(ctx.project.id);
 	}),
 
 	getProjectMembersByChatId: protectedProcedure

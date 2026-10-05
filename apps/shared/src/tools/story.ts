@@ -1,13 +1,19 @@
 import z from 'zod/v3';
 
 export const MENTION_ID = '__story__';
+export const CUSTOM_MENTION_ID = '__custom_story__';
 export const MENTION_TRIGGER = '#';
+
+export const FileSchema = z.object({
+	path: z.string().describe('Path relative to the story root, e.g. "app.jsx" or "components/kpi.jsx".'),
+	content: z.string(),
+});
 
 export const InputSchema = z.object({
 	action: z
-		.enum(['create', 'update', 'replace'])
+		.enum(['create', 'update', 'replace', 'publish', 'delete_files', 'revert'])
 		.describe(
-			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version).',
+			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version). Custom stories only: "publish" builds the draft files under /stories/<id>/ and, if they compile, snapshots them into a new version (build errors come back in build_errors and nothing is published); "delete_files" removes "paths" from the draft; "revert" resets the whole draft to the latest published version, or to "version" — publish afterwards to make an older version live again.',
 		),
 	id: z
 		.string()
@@ -15,12 +21,36 @@ export const InputSchema = z.object({
 			'Unique identifier for this story. Use a short, descriptive kebab-case slug (e.g. "revenue-dashboard").',
 		),
 	title: z.string().optional().describe('A concise, descriptive title for the story. Required for "create".'),
+	format: z
+		.enum(['classic', 'custom'])
+		.optional()
+		.describe(
+			'Only for "create". "classic" (default) is a markdown story edited through this tool. "custom" is a source-based app whose files live under /stories/<id>/ and are edited with the write tool, then snapshotted with "publish".',
+		),
+	files: z
+		.array(FileSchema)
+		.optional()
+		.describe(
+			'Only for "create" with format "custom": the initial draft files. Omit to start from the story-kit starter app (nao.json, app.jsx, app.css).',
+		),
 	code: z
 		.string()
 		.optional()
 		.describe(
 			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid>...</grid> to lay out 2–4 charts/tables side by side, optionally with widths="2,1" (comma-separated positive integers, one per column) for unequal column widths. Use <tab title="...">...</tab> blocks for a tabbed layout.',
 		),
+	paths: z
+		.array(z.string())
+		.optional()
+		.describe(
+			'Only for "delete_files": the draft files to remove, relative to the story root (e.g. "old-chart.jsx").',
+		),
+	version: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe('Only for "revert": the published version to reset the draft to. Defaults to the latest one.'),
 	search: z.string().optional().describe('The exact text to find in the current story code. Required for "update".'),
 	replace: z.string().optional().describe('The replacement text. Required for "update".'),
 });
@@ -32,9 +62,14 @@ export const OutputSchema = z.object({
 	version: z.number(),
 	code: z.string().describe('The full story code after the operation.'),
 	title: z.string(),
+	format: z.enum(['classic', 'custom']).optional(),
+	files: z.array(z.string()).optional().describe('Paths of the draft files of a custom story.'),
 	error: z.string().optional(),
 	template_warnings: z.array(z.string()).optional(),
+	build_errors: z.array(z.string()).optional().describe('Why a custom story failed to build; nothing was published.'),
+	message: z.string().optional().describe('What the action did to a custom story draft, and what to do next.'),
 });
 
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
+export type File = z.infer<typeof FileSchema>;

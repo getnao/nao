@@ -16,6 +16,7 @@ import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
 import { SearchToolCall } from './search';
+import { StrReplaceToolCall } from './str-replace';
 import { TaskToolCall } from './task';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
@@ -45,6 +46,7 @@ const toolComponents: Partial<{
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
 	search: SearchToolCall,
+	str_replace: StrReplaceToolCall,
 	task: TaskToolCall,
 	write: WriteToolCall,
 };

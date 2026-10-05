@@ -58,7 +58,7 @@ export const DataTableCard = memo(
 		};
 
 		return (
-			<div className={cn('flex flex-col gap-2 border rounded-lg pt-2', className)}>
+			<div data-slot='data-table-card' className={cn('flex flex-col gap-2 border rounded-lg pt-2', className)}>
 				<div
 					className={cn(
 						'flex items-center gap-1 px-3',

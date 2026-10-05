@@ -1,25 +1,45 @@
 import 'prompt-mentions/style.css';
 
 import { useQuery } from '@tanstack/react-query';
-import { Table } from 'lucide-react';
+import { AppWindow, Table } from 'lucide-react';
 import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@nao/shared';
 import { story } from '@nao/shared/tools';
 import { Prompt } from 'prompt-mentions';
 import StoryIcon from './ui/story-icon';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
+import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const STORY_MENTION_ID = story.MENTION_ID;
+export const CUSTOM_STORY_MENTION_ID = story.CUSTOM_MENTION_ID;
 export { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER };
 
-const storyMentionOption: MentionOption = {
+export const storyMentionOption: MentionOption = {
 	id: STORY_MENTION_ID,
 	label: 'Story mode',
 	labelRight: 'Create a new story',
 	icon: <StoryIcon className='size-4' strokeWidth={2.25} />,
 };
+
+export const customStoryMentionOption: MentionOption = {
+	id: CUSTOM_STORY_MENTION_ID,
+	label: 'Custom story mode',
+	labelRight: 'Create a new custom story that works as a data app',
+	icon: <AppWindow className='size-4' strokeWidth={2.25} />,
+};
+
+export function useStoryMentionOptions(storyCreationEnabled: boolean): MentionOption[] {
+	const instanceOffersCustomStories = useCustomStoriesEnabled();
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
+	const customStoriesEnabled = instanceOffersCustomStories && customStoryCreationEnabled;
+	if (!storyCreationEnabled) {
+		return [];
+	}
+	return customStoriesEnabled ? [storyMentionOption, customStoryMentionOption] : [storyMentionOption];
+}
 
 type ChatPromptProps = {
 	promptRef: RefObject<PromptHandle | null>;
@@ -85,6 +105,7 @@ export function ChatPrompt({
 }: ChatPromptProps) {
 	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
 	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const promptTheme = minHeight ? { ...theme, minHeight } : theme;
 
 	return (
@@ -105,12 +126,12 @@ export function ChatPrompt({
 						})) ?? []),
 					],
 				},
-				...(storyCreationEnabled
+				...(storyMentionOptions.length > 0
 					? [
 							{
 								trigger: story.MENTION_TRIGGER,
 								menuPosition: 'above' as const,
-								options: [storyMentionOption],
+								options: storyMentionOptions,
 							},
 						]
 					: []),

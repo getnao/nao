@@ -27,6 +27,7 @@ export function useEffectiveUserGroupFeatures() {
 	return {
 		features,
 		storyCreationEnabled: features.storyCreation,
+		customStoryCreationEnabled: features.customStoryCreation,
 		automationCreationEnabled: features.automationCreation,
 		toolCallDensityPolicy,
 		isFeatureEnabled,

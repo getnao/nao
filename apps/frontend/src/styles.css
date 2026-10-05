@@ -4,6 +4,7 @@ layer(base);
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './styles.animations.css';
+@import './styles.custom-story-thumbnail.css';
 @source "../../../node_modules/streamdown/dist/*.js";
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../../node_modules/@streamdown/code/dist/*.js";
@@ -924,4 +925,78 @@ code.dollar:before {
 	background: transparent;
 	border-radius: 0;
 	padding: 0;
+}
+
+/*
+ * Custom story theme. Most slots land through the existing tokens that
+ * StoryThemeProvider overrides on its wrapper; these rules cover the slots
+ * with no token to ride on. Scoped to the wrapper, so nothing outside a
+ * themed custom story is affected.
+ */
+[data-story-themed='true'] {
+	font-family: var(--font-sans);
+	color: var(--foreground);
+}
+
+[data-story-themed='true'] :is(h1, h2, h3, h4) {
+	font-family: var(--font-heading);
+	letter-spacing: var(--story-heading-tracking, -0.02em);
+}
+
+[data-story-themed='true'] h1 {
+	font-size: calc(1.875rem * var(--story-heading-scale, 1));
+}
+
+[data-story-themed='true'] h2 {
+	font-size: calc(1.5rem * var(--story-heading-scale, 1));
+}
+
+[data-story-themed='true'] h3 {
+	font-size: calc(1.25rem * var(--story-heading-scale, 1));
+}
+
+[data-story-themed='true'] h4 {
+	font-size: calc(1.125rem * var(--story-heading-scale, 1));
+}
+
+[data-story-themed='true'] :is(p, li) {
+	color: var(--story-body-color, var(--foreground));
+	font-size: var(--story-body-size, 1rem);
+	line-height: var(--story-line-height, 1.6);
+}
+
+[data-story-themed='true'] :is(table, th, td) {
+	font-family: var(--font-sans);
+}
+
+[data-story-themed='true'] .recharts-cartesian-grid line[stroke='#ccc'] {
+	stroke: var(--chart-grid);
+}
+
+[data-story-themed='true'] .story-block {
+	background: var(--card);
+	border: var(--story-block-border-width, 0px) solid var(--border);
+	border-radius: var(--story-block-radius, var(--radius));
+	padding: 1rem;
+	overflow: hidden;
+}
+
+/* Tables ride on the background / panel / border tokens, re-pointed to the table slots inside the frame. */
+[data-story-themed='true'] .story-table {
+	--background: var(--story-table-bg);
+	--panel: var(--story-table-header-bg);
+	--border: var(--story-table-border);
+}
+
+[data-story-themed='true'] .story-table [data-slot='data-table-card'] {
+	border-width: var(--story-table-border-width, 1px);
+	border-radius: var(--story-block-radius, var(--radius));
+}
+
+[data-story-themed='true'] .story-table thead th {
+	color: var(--story-table-header-fg);
+}
+
+[data-story-table-striped='true'] .story-table tbody tr:nth-child(even) {
+	background: color-mix(in srgb, var(--story-table-header-bg) 50%, var(--story-table-bg));
 }

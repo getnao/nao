@@ -1,4 +1,4 @@
-import type { MessageBubble, Visibility } from '@nao/shared/types';
+import type { MessageBubble, StoryFormat, Visibility } from '@nao/shared/types';
 
 export type GroupBy = 'type' | 'date' | 'author';
 
@@ -22,6 +22,7 @@ export type SharedItem = {
 	sharedWithGroupCount?: number;
 	isLive?: boolean;
 	summary?: unknown;
+	format?: StoryFormat;
 	messageBubbles?: MessageBubble[];
 };
 

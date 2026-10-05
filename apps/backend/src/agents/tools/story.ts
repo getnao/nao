@@ -2,13 +2,21 @@ import { injectTableFormatting } from '@nao/shared/story-segments';
 import { story } from '@nao/shared/tools';
 
 import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
+import type { DBStory } from '../../db/abstractSchema';
 import { db } from '../../db/db';
 import { env } from '../../env';
 import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
+import * as storyFileQueries from '../../queries/story-file.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
+import { buildStoryApp } from '../../services/story-app-build';
+import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
+import { scaffoldCustomStoryFiles } from '../../services/story-scaffold';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
+import { formatStoryFiles } from '../../utils/story-file-format';
+import { normalizeStoryFilePath } from '../../utils/story-file-path';
+import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
 import { createTool } from '../../utils/tools';
 
 const STORY_FILTER_DESCRIPTION = [
@@ -22,7 +30,11 @@ const STORY_FILTER_DESCRIPTION = [
 	'When adding filters to existing charts, prefer execute_sql with query_id set to the existing query so chart/table tags keep the same query_id.',
 ].join(' ');
 
-export function buildStoryToolDescription({ mapsEnabled = false }: { mapsEnabled?: boolean } = {}) {
+export function buildStoryToolDescription({
+	mapsEnabled = false,
+	customStories = isCustomStoriesEnabled(),
+	canReplace = true,
+}: { mapsEnabled?: boolean; customStories?: boolean; canReplace?: boolean } = {}) {
 	return [
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
 		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
@@ -41,8 +53,19 @@ export function buildStoryToolDescription({ mapsEnabled = false }: { mapsEnabled
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
 		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
+		...(customStories ? [customStoryDescription(canReplace)] : []),
 	].join(' ');
 }
+
+function customStoryDescription(canReplace: boolean): string {
+	const editTools = canReplace ? 'str_replace (or write for a new file)' : 'write';
+	return [
+		`format="custom" creates a React app instead: "create" seeds a @nao/story-kit starter under /${STORIES_MOUNT}/<id>/ (or takes "files"), edit it with ${editTools}, then "publish" builds and snapshots it.`,
+		'See the Custom Stories instructions for when to pick it.',
+	].join(' ');
+}
+
+type ExistingStory = { code: string; version: number; title: string };
 
 export default createTool<story.Input, story.Output>({
 	description: buildStoryToolDescription(),
@@ -50,129 +73,352 @@ export default createTool<story.Input, story.Output>({
 	outputSchema: story.OutputSchema,
 
 	execute: async (input, context) => {
-		const { chatId, userId, projectId } = context;
-
-		const fail = (error: string, existing?: { code: string; version: number; title: string }) =>
-			({
-				_version: '1' as const,
-				success: false,
-				id: input.id,
-				version: existing?.version ?? 0,
-				code: existing?.code ?? '',
-				title: existing?.title ?? '',
-				error,
-			}) satisfies story.Output;
-
 		if (input.action === 'create') {
-			if (!context.userGroupFeatures.includes('storyCreation')) {
-				return fail('Story creation is unavailable for this user in this project.');
-			}
-			if (!input.code || !input.title) {
-				return fail('"code" and "title" are required for the "create" action.');
-			}
-			const { title } = input;
-			const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, input.id);
-			if (existingStory) {
-				return fail(`Story "${input.id}" already exists. Use "update" or "replace" instead.`);
-			}
-
-			const code = await carryOverTableFormatting(input.code, chatId);
-			const version = await db.transaction(async (tx) => {
-				const created = await storyQueries.createStoryVersion(
-					{
-						chatId,
-						slug: input.id,
-						title,
-						code,
-						action: 'create',
-						source: 'assistant',
-					},
-					tx,
-				);
-				await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.storyId, tx);
-				return created;
-			});
-			rememberStoryArtifact(context, input.id, version.title);
-
-			return {
-				_version: '1',
-				success: true,
-				id: input.id,
-				version: version.version,
-				code: version.code,
-				title: version.title,
-				...(await storyTemplateWarnings(chatId, version.code)),
-			};
+			return input.format === 'custom' ? createCustomStory(input, context) : createClassicStory(input, context);
 		}
 
-		const existing = await storyQueries.getLatestVersionByChatAndSlug(chatId, input.id);
+		const existingStory = await storyQueries.getStoryByChatAndSlug(context.chatId, input.id);
+		if (!existingStory) {
+			return fail(input.id, `Story "${input.id}" does not exist. Use "create" first.`);
+		}
+		if (existingStory.format === 'custom') {
+			return runCustomStoryAction(input, existingStory, context);
+		}
+		if (input.action === 'publish' || input.action === 'delete_files' || input.action === 'revert') {
+			return fail(
+				input.id,
+				`"${input.action}" only applies to custom stories; "${input.id}" is a classic story.`,
+			);
+		}
+
+		const existing = await storyQueries.getLatestVersionByChatAndSlug(context.chatId, input.id);
 		if (!existing) {
-			return fail(`Story "${input.id}" does not exist. Use "create" first.`);
+			return fail(input.id, `Story "${input.id}" does not exist. Use "create" first.`);
 		}
-
-		if (input.action === 'update') {
-			if (!input.search || input.replace === undefined) {
-				return fail('"search" and "replace" are required for the "update" action.', existing);
-			}
-			const searchIndex = existing.code.indexOf(input.search);
-			if (searchIndex === -1) {
-				return fail(`Search string not found in story "${input.id}".`, existing);
-			}
-
-			const splicedCode = `${existing.code.slice(0, searchIndex)}${input.replace}${existing.code.slice(
-				searchIndex + input.search.length,
-			)}`;
-			const newCode = await carryOverTableFormatting(splicedCode, chatId);
-			const version = await storyQueries.createStoryVersion({
-				chatId,
-				slug: input.id,
-				title: existing.title,
-				code: newCode,
-				action: 'update',
-				source: 'assistant',
-			});
-			rememberStoryArtifact(context, input.id, version.title);
-
-			return {
-				_version: '1',
-				success: true,
-				id: input.id,
-				version: version.version,
-				code: version.code,
-				title: version.title,
-				...(await storyTemplateWarnings(chatId, version.code)),
-			};
-		}
-
-		// action === 'replace'
-		if (!input.code) {
-			return fail('"code" is required for the "replace" action.', existing);
-		}
-
-		const replacedCode = await carryOverTableFormatting(input.code, chatId);
-		const version = await storyQueries.createStoryVersion({
-			chatId,
-			slug: input.id,
-			title: existing.title,
-			code: replacedCode,
-			action: 'replace',
-			source: 'assistant',
-		});
-		rememberStoryArtifact(context, input.id, version.title);
-
-		return {
-			_version: '1',
-			success: true,
-			id: input.id,
-			version: version.version,
-			code: version.code,
-			title: version.title,
-			...(await storyTemplateWarnings(chatId, version.code)),
-		};
+		return input.action === 'update'
+			? updateClassicStory(input, existing, context)
+			: replaceClassicStory(input, existing, context);
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
+
+function fail(id: string, error: string, existing?: ExistingStory): story.Output {
+	return {
+		_version: '1',
+		success: false,
+		id,
+		version: existing?.version ?? 0,
+		code: existing?.code ?? '',
+		title: existing?.title ?? '',
+		error,
+	};
+}
+
+async function createClassicStory(input: story.Input, context: ToolContext): Promise<story.Output> {
+	const { chatId, userId, projectId } = context;
+	if (!context.userGroupFeatures.includes('storyCreation')) {
+		return fail(input.id, 'Story creation is unavailable for this user in this project.');
+	}
+	if (!input.code || !input.title) {
+		return fail(input.id, '"code" and "title" are required for the "create" action.');
+	}
+	const { title } = input;
+	const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, input.id);
+	if (existingStory) {
+		return fail(input.id, `Story "${input.id}" already exists. Use "update" or "replace" instead.`);
+	}
+
+	const code = await carryOverTableFormatting(input.code, chatId);
+	const version = await db.transaction(async (tx) => {
+		const created = await storyQueries.createStoryVersion(
+			{ chatId, slug: input.id, title, code, action: 'create', source: 'assistant' },
+			tx,
+		);
+		await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.storyId, tx);
+		return created;
+	});
+	return classicResult(input.id, version, context);
+}
+
+async function updateClassicStory(
+	input: story.Input,
+	existing: ExistingStory,
+	context: ToolContext,
+): Promise<story.Output> {
+	if (!input.search || input.replace === undefined) {
+		return fail(input.id, '"search" and "replace" are required for the "update" action.', existing);
+	}
+	const searchIndex = existing.code.indexOf(input.search);
+	if (searchIndex === -1) {
+		return fail(input.id, `Search string not found in story "${input.id}".`, existing);
+	}
+
+	const splicedCode = `${existing.code.slice(0, searchIndex)}${input.replace}${existing.code.slice(
+		searchIndex + input.search.length,
+	)}`;
+	const version = await storyQueries.createStoryVersion({
+		chatId: context.chatId,
+		slug: input.id,
+		title: existing.title,
+		code: await carryOverTableFormatting(splicedCode, context.chatId),
+		action: 'update',
+		source: 'assistant',
+	});
+	return classicResult(input.id, version, context);
+}
+
+async function replaceClassicStory(
+	input: story.Input,
+	existing: ExistingStory,
+	context: ToolContext,
+): Promise<story.Output> {
+	if (!input.code) {
+		return fail(input.id, '"code" is required for the "replace" action.', existing);
+	}
+
+	const version = await storyQueries.createStoryVersion({
+		chatId: context.chatId,
+		slug: input.id,
+		title: existing.title,
+		code: await carryOverTableFormatting(input.code, context.chatId),
+		action: 'replace',
+		source: 'assistant',
+	});
+	return classicResult(input.id, version, context);
+}
+
+async function classicResult(
+	id: string,
+	version: { version: number; code: string; title: string },
+	context: ToolContext,
+): Promise<story.Output> {
+	rememberStoryArtifact(context, id, version.title);
+	return {
+		_version: '1',
+		success: true,
+		id,
+		version: version.version,
+		code: version.code,
+		title: version.title,
+		...(await storyTemplateWarnings(context.chatId, version.code)),
+	};
+}
+
+/**
+ * A custom story starts as a draft under /stories/<id>/; it has no version, and stays out of the
+ * story library, until it is first published.
+ */
+async function createCustomStory(input: story.Input, context: ToolContext): Promise<story.Output> {
+	const { chatId } = context;
+	const authoringError = customStoryAuthoringError(context.userGroupFeatures);
+	if (authoringError) {
+		return fail(input.id, `${authoringError} Create a classic story instead.`);
+	}
+	if (!isValidStorySlug(input.id)) {
+		return fail(input.id, `"${input.id}" is not a valid story id: use ${STORY_SLUG_RULE}.`);
+	}
+	if (!input.title) {
+		return fail(input.id, '"title" is required for the "create" action.');
+	}
+	const { title } = input;
+	const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, input.id);
+	if (existingStory) {
+		return fail(input.id, `Story "${input.id}" already exists.`);
+	}
+
+	try {
+		const initialFiles = scaffoldCustomStoryFiles(title, await formatStoryFiles(input.files ?? []));
+		const files = await db.transaction(async (tx) => {
+			const created = await storyQueries.createCustomStory({ chatId, slug: input.id, title }, tx);
+			return storyFileQueries.seedDraftFiles(created.id, initialFiles, tx);
+		});
+		rememberStoryArtifact(context, input.id, title);
+		return customResult(
+			input.id,
+			{ title, version: 0 },
+			files.map((file) => file.path),
+		);
+	} catch (error) {
+		return fail(input.id, `Could not create story "${input.id}": ${(error as Error).message}`);
+	}
+}
+
+/** The draft is built before any version is cut, so a published version always carries a working bundle. */
+function runCustomStoryAction(input: story.Input, existingStory: DBStory, context: ToolContext): Promise<story.Output> {
+	const authoringError = customStoryAuthoringError(context.userGroupFeatures);
+	if (authoringError) {
+		return Promise.resolve(fail(input.id, authoringError));
+	}
+	switch (input.action) {
+		case 'publish':
+			return publishCustomStory(existingStory, context);
+		case 'delete_files':
+			return deleteCustomStoryFiles(existingStory, input.paths ?? []);
+		case 'revert':
+			return revertCustomStoryDraft(existingStory, input.version);
+		default:
+			return Promise.resolve(
+				fail(
+					input.id,
+					`Story "${input.id}" is a custom story: edit its files under /${STORIES_MOUNT}/${input.id}/, then use "publish".`,
+				),
+			);
+	}
+}
+
+async function deleteCustomStoryFiles(existingStory: DBStory, paths: string[]): Promise<story.Output> {
+	const { slug } = existingStory;
+	const published = await publishedState(existingStory);
+	if (paths.length === 0) {
+		return fail(slug, '"paths" is required for "delete_files".', published);
+	}
+	let targets: string[];
+	try {
+		targets = paths.map((path) => normalizeStoryFilePath(toStoryFilePath(slug, path)));
+	} catch (error) {
+		return fail(slug, (error as Error).message, published);
+	}
+	const draft = new Set((await storyFileQueries.listDraftFiles(existingStory.id)).map((file) => file.path));
+	const missing = targets.filter((path) => !draft.has(path));
+	if (missing.length > 0) {
+		return fail(slug, `Not in the draft of "${slug}": ${missing.join(', ')}. Nothing was deleted.`, published);
+	}
+
+	await db.transaction(async (tx) => {
+		for (const path of targets) {
+			await storyFileQueries.deleteDraftFile(existingStory.id, path, tx);
+		}
+	});
+	const files = await storyFileQueries.listDraftFiles(existingStory.id);
+	return {
+		...customResult(
+			slug,
+			published,
+			files.map((file) => file.path),
+		),
+		message: `Deleted ${targets.join(', ')} from the draft. Publish to make the change live.`,
+	};
+}
+
+async function revertCustomStoryDraft(
+	existingStory: DBStory,
+	versionNumber: number | undefined,
+): Promise<story.Output> {
+	const { slug, chatId } = existingStory;
+	const published = await publishedState(existingStory);
+	const target =
+		versionNumber === undefined
+			? await storyQueries.getLatestVersionByChatAndSlug(chatId!, slug)
+			: await storyQueries.getVersionByNumber(chatId!, slug, versionNumber);
+	if (!target) {
+		return fail(
+			slug,
+			versionNumber === undefined
+				? `Story "${slug}" has no published version to revert to.`
+				: `Story "${slug}" has no version ${versionNumber}.`,
+			published,
+		);
+	}
+
+	const files = await storyFileQueries.restoreDraftFromVersion(existingStory.id, target.id);
+	const isLatest = target.version === published.version;
+	return {
+		...customResult(
+			slug,
+			published,
+			files.map((file) => file.path),
+		),
+		message: isLatest
+			? `The draft is back to the published v${target.version}; there is nothing to publish.`
+			: `The draft now holds the files of v${target.version}. Publish to make them live as a new version.`,
+	};
+}
+
+async function publishedState(existingStory: DBStory): Promise<ExistingStory> {
+	const latest = await storyQueries.getLatestVersionByChatAndSlug(existingStory.chatId!, existingStory.slug);
+	return { code: '', version: latest?.version ?? 0, title: existingStory.title };
+}
+
+/** Accepts a path relative to the story root or the full `/stories/<id>/…` path the file tools use. */
+function toStoryFilePath(slug: string, path: string): string {
+	const prefix = `/${STORIES_MOUNT}/${slug}/`;
+	const trimmed = path.trim();
+	return trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed.replace(/^\.?\//, '');
+}
+
+async function publishCustomStory(existingStory: DBStory, context: ToolContext): Promise<story.Output> {
+	const published = await publishedState(existingStory);
+	try {
+		const draft = await storyFileQueries.listDraftFiles(existingStory.id);
+		if (draft.length === 0) {
+			return fail(
+				existingStory.slug,
+				`Story "${existingStory.slug}" has no files yet. Write them under /${STORIES_MOUNT}/${existingStory.slug}/ first.`,
+				published,
+			);
+		}
+
+		const build = await buildStoryApp(draft.map((file) => ({ path: file.path, content: file.content })));
+		if (!build.ok) {
+			return {
+				...fail(
+					existingStory.slug,
+					`Story "${existingStory.slug}" does not build. Fix the files below and publish again.`,
+					published,
+				),
+				format: 'custom',
+				files: draft.map((file) => file.path),
+				build_errors: build.errors,
+			};
+		}
+
+		const { version, files } = await db.transaction(async (tx) => {
+			if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(existingStory.id, tx), draft)) {
+				throw new Error('The draft changed while it was being built. Publish again.');
+			}
+			const cut = await storyFileQueries.cutVersionFromDraft(
+				{ storyId: existingStory.id, action: 'publish', source: 'assistant' },
+				tx,
+			);
+			await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
+			if (cut.version.version === 1) {
+				await storyFolderQueries.saveStoryInPrivateRoot(
+					context.userId,
+					context.projectId,
+					existingStory.id,
+					tx,
+				);
+			}
+			return cut;
+		});
+		rememberStoryArtifact(context, existingStory.slug, existingStory.title);
+		return customResult(
+			existingStory.slug,
+			{ title: existingStory.title, version: version.version },
+			files.map((file) => file.path),
+		);
+	} catch (error) {
+		return fail(
+			existingStory.slug,
+			`Could not publish story "${existingStory.slug}": ${(error as Error).message}`,
+			published,
+		);
+	}
+}
+
+function customResult(id: string, story: { title: string; version: number }, files: string[]): story.Output {
+	return {
+		_version: '1',
+		success: true,
+		id,
+		version: story.version,
+		code: '',
+		title: story.title,
+		format: 'custom',
+		files,
+	};
+}
 
 async function carryOverTableFormatting(code: string, chatId: string): Promise<string> {
 	const formatsByQueryId = await getDisplayChartTableFormatsForChat(chatId);

@@ -2,6 +2,7 @@ export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
 import type { CustomBoundarySet } from '@nao/shared';
+import { writeFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
@@ -9,6 +10,7 @@ import { env } from '../../env';
 import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
+import { isCustomStoriesEnabled } from '../../services/story-mount';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
 import displayChart from './display-chart';
@@ -26,9 +28,10 @@ import read from './read';
 import readQueryResult from './read-query-result';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
+import strReplace, { buildStrReplaceToolDescription } from './str-replace';
 import suggestFollowUps from './suggest-follow-ups';
 import task from './task';
-import write from './write';
+import write, { buildWriteToolDescription } from './write';
 
 /**
  * Tools excluded from the MCP sub-agent (`ask_nao`): it returns a text summary to the calling client,
@@ -53,6 +56,7 @@ export const tools = {
 	search,
 	task,
 	write,
+	str_replace: strReplace,
 	suggest_follow_ups: suggestFollowUps,
 };
 
@@ -86,8 +90,14 @@ export const getTools = (
 		 * local database; omit when the project has no semantic layer.
 		 */
 		semanticLayerMode?: SemanticLayerMode | null;
+		/**
+		 * Whether the run's user may author custom stories. Tool descriptions only mention
+		 * `/stories` when they can; omit to follow the instance flag alone.
+		 */
+		customStoryAuthoring?: boolean;
 	} = {},
 ) => {
+	const customStoryAuthoring = options.customStoryAuthoring ?? isCustomStoriesEnabled();
 	const configuredServers = new Set(mcpService.getConfiguredServerNames());
 	const includeMcp =
 		options.mcpEnabled !== false &&
@@ -109,6 +119,7 @@ export const getTools = (
 		suggest_follow_ups,
 		task: taskTool,
 		write: writeTool,
+		str_replace: strReplaceTool,
 		...rest
 	} = tools;
 	const baseTools = {
@@ -116,7 +127,13 @@ export const getTools = (
 		...(env.BETA_SUBAGENTS_ENABLED && { task: taskTool }),
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
-		...(isStorageEnabled() && { write: writeTool }),
+		...((isStorageEnabled() || customStoryAuthoring) && {
+			write: writeTool,
+			str_replace: {
+				...strReplaceTool,
+				description: buildStrReplaceToolDescription({ customStories: customStoryAuthoring }),
+			},
+		}),
 		...(!options.excludeFollowUps && { suggest_follow_ups }),
 	};
 
@@ -141,11 +158,26 @@ export const getTools = (
 		result = keepTools(result, extraTools, (name) => !excluded.has(name));
 	}
 
-	if ('story' in result) {
-		const mapsEnabled = 'display_map' in result;
+	const canReplace = 'str_replace' in result;
+	if ('write' in result) {
 		result = {
 			...result,
-			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled }) },
+			write: {
+				...writeTool,
+				description: buildWriteToolDescription({ customStories: customStoryAuthoring, canReplace }),
+				inputSchema: writeFile.buildInputSchema({ customStories: customStoryAuthoring }),
+			},
+		};
+	}
+	if ('story' in result) {
+		const mapsEnabled = 'display_map' in result;
+		const customStories = customStoryAuthoring && 'write' in result;
+		result = {
+			...result,
+			story: {
+				...result.story,
+				description: buildStoryToolDescription({ mapsEnabled, customStories, canReplace }),
+			},
 		};
 	}
 

@@ -34,8 +34,7 @@ export function useStoryPageEditor({
 		currentVersionNumber,
 		storedVersionNumber,
 		isViewingLatest,
-		goToPreviousVersion,
-		goToNextVersion,
+		goToVersion,
 		goToLatestVersion,
 	} = useStoryViewerVersions({ chatId, storySlug, isAgentRunning, isReadonlyMode });
 
@@ -118,10 +117,10 @@ export function useStoryPageEditor({
 		versionNav: {
 			currentVersion: currentVersionNumber,
 			storedVersionNumber,
-			totalVersions: versions.length,
+			versionDates: versions.map((version) => version.createdAt),
+			versionDate: currentVersion?.createdAt,
 			isViewingLatest,
-			goToPrevious: () => exitGuard.requestExit(goToPreviousVersion),
-			goToNext: () => exitGuard.requestExit(goToNextVersion),
+			goToVersion: (versionNumber: number) => exitGuard.requestExit(() => goToVersion(versionNumber)),
 		},
 	};
 }

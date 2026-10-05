@@ -17,6 +17,9 @@ export function ArchivedBanner({ chatId, storySlug }: ArchivedBannerProps) {
 				void queryClient.invalidateQueries({
 					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
 				});
+				void queryClient.invalidateQueries({
+					queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }),
+				});
 				void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
 				void queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
 			},

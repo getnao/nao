@@ -1,6 +1,6 @@
 import type { ToolCallDensity } from './types';
 
-export const USER_GROUP_FEATURES = ['storyCreation', 'automationCreation'] as const;
+export const USER_GROUP_FEATURES = ['storyCreation', 'customStoryCreation', 'automationCreation'] as const;
 
 export type UserGroupFeature = (typeof USER_GROUP_FEATURES)[number];
 
@@ -36,15 +36,24 @@ export const DEFAULT_USER_GROUP_CONFIG: StoredUserGroupConfig = {
 	toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
 };
 
-export const USER_GROUP_FEATURE_DEFINITIONS: ReadonlyArray<{
+export interface UserGroupFeatureDefinition {
 	key: UserGroupFeature;
 	label: string;
 	description: string;
-}> = [
+	requires?: UserGroupFeature;
+}
+
+export const USER_GROUP_FEATURE_DEFINITIONS: ReadonlyArray<UserGroupFeatureDefinition> = [
 	{
 		key: 'storyCreation',
 		label: 'Stories',
 		description: 'Allow the user to create new stories',
+	},
+	{
+		key: 'customStoryCreation',
+		label: 'Custom stories',
+		description: 'Allow the user to create custom stories that work as data apps',
+		requires: 'storyCreation',
 	},
 	{
 		key: 'automationCreation',
@@ -52,6 +61,17 @@ export const USER_GROUP_FEATURE_DEFINITIONS: ReadonlyArray<{
 		description: 'Allow the user to create new automations',
 	},
 ];
+
+/** Drops the features whose prerequisite is not granted: custom stories without stories grant nothing. */
+export function withSatisfiedFeatureDependencies<Feature extends UserGroupFeature>(
+	features: readonly Feature[],
+): Feature[] {
+	const granted = new Set<UserGroupFeature>(features);
+	return features.filter((feature) => {
+		const requires = USER_GROUP_FEATURE_DEFINITIONS.find((definition) => definition.key === feature)?.requires;
+		return requires === undefined || granted.has(requires);
+	});
+}
 
 export function normalizeUserGroupFeatures(features: readonly string[]): UserGroupFeature[] {
 	return [

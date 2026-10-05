@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Info, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
@@ -25,6 +26,7 @@ export function OrgMembers() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const membersQuery = useQuery(trpc.organization.getMembers.queryOptions());
+	const userCountsQuery = useQuery(trpc.organization.getUserCounts.queryOptions());
 	const { isOrgAdmin } = usePermissions();
 	const isCloud = useIsCloud();
 
@@ -117,41 +119,58 @@ export function OrgMembers() {
 
 	return (
 		<>
-			<SettingsCard
-				flush
-				action={
-					isOrgAdmin ? (
-						<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
-							<Plus />
-							Add Member
-						</Button>
-					) : undefined
-				}
-			>
-				{membersQuery.isLoading ? (
-					<div className='p-4 text-sm text-muted-foreground'>Loading members...</div>
-				) : membersQuery.isError ? (
-					<div className='p-4 text-sm text-destructive'>
-						<p>Failed to load members.</p>
-						<Button variant='ghost' size='sm' className='mt-2' onClick={() => membersQuery.refetch()}>
-							Retry
-						</Button>
-					</div>
-				) : (
-					<TeamMembersList
-						members={members}
-						currentUserId={session?.user?.id}
-						isAdmin={isOrgAdmin}
-						onEdit={setEditMember}
-						onRemove={setRemoveMember}
-						extraActions={
-							isCloud
-								? undefined
-								: (member) => <ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
-						}
+			<div className='flex flex-col gap-5'>
+				<div className='flex flex-wrap gap-x-10 gap-y-4 rounded-xl border border-border bg-background p-4'>
+					<OrgUserStat label='Organization members' value={membersQuery.data?.length} />
+					<OrgUserStat
+						label='People with access'
+						value={userCountsQuery.data?.totalUsers}
+						hint="Organization members plus people added directly to a project from its Users & Groups page, or created automatically by Slack. They aren't in the list below; see each project's user list."
 					/>
-				)}
-			</SettingsCard>
+					<OrgUserStat
+						label='Active in the last 90 days'
+						value={userCountsQuery.data?.activeUsers}
+						hint='Distinct people who sent at least one message on any channel. This is the number that maps to licensed seats at renewal.'
+					/>
+				</div>
+				<SettingsCard
+					flush
+					action={
+						isOrgAdmin ? (
+							<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
+								<Plus />
+								Add Member
+							</Button>
+						) : undefined
+					}
+				>
+					{membersQuery.isLoading ? (
+						<div className='p-4 text-sm text-muted-foreground'>Loading members...</div>
+					) : membersQuery.isError ? (
+						<div className='p-4 text-sm text-destructive'>
+							<p>Failed to load members.</p>
+							<Button variant='ghost' size='sm' className='mt-2' onClick={() => membersQuery.refetch()}>
+								Retry
+							</Button>
+						</div>
+					) : (
+						<TeamMembersList
+							members={members}
+							currentUserId={session?.user?.id}
+							isAdmin={isOrgAdmin}
+							onEdit={setEditMember}
+							onRemove={setRemoveMember}
+							extraActions={
+								isCloud
+									? undefined
+									: (member) => (
+											<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
+										)
+							}
+						/>
+					)}
+				</SettingsCard>
+			</div>
 
 			<AddMemberDialog
 				open={isAddOpen}
@@ -186,10 +205,15 @@ export function OrgMembers() {
 					<p className='text-sm text-muted-foreground'>Are you sure you want to do this?</p>
 					{resetPasswordError && <p className='text-sm text-destructive'>{resetPasswordError}</p>}
 					<div className='flex justify-end gap-2'>
-						<Button variant='outline' onClick={closeResetPasswordDialog}>
+						<Button variant='outline' className='rounded-full' onClick={closeResetPasswordDialog}>
 							Cancel
 						</Button>
-						<Button variant='destructive' onClick={handleResetPassword} disabled={resetPassword.isPending}>
+						<Button
+							variant='destructive'
+							className='rounded-full'
+							onClick={handleResetPassword}
+							disabled={resetPassword.isPending}
+						>
 							{resetPassword.isPending ? 'Resetting…' : 'Reset password'}
 						</Button>
 					</div>
@@ -202,6 +226,22 @@ export function OrgMembers() {
 				credentials={credentials}
 			/>
 		</>
+	);
+}
+
+function OrgUserStat({ label, value, hint }: { label: string; value?: number; hint?: string }) {
+	const caption = (
+		<span className='flex items-center gap-1 text-xs text-muted-foreground'>
+			{label}
+			{hint && <Info className='size-3' />}
+		</span>
+	);
+
+	return (
+		<div className='flex flex-col gap-1'>
+			<span className='text-xl font-semibold text-foreground tabular-nums'>{value ?? '—'}</span>
+			{hint ? <SimpleTooltip content={hint}>{caption}</SimpleTooltip> : caption}
+		</div>
 	);
 }
 

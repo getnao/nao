@@ -20,6 +20,7 @@ from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTempl
 from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
 from .mcp import McpConfig
+from .metabase import MetabaseConfig
 from .notion import NotionConfig
 from .obsidian import ObsidianConfig
 from .repos import RepoConfig
@@ -48,6 +49,7 @@ OPTIONAL_SECTIONS = (
     "confluence",
     "obsidian",
     "mcp",
+    "metabase",
     "skills",
     "test",
     "semantic_layer",
@@ -68,6 +70,7 @@ class NaoConfig(BaseModel):
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
+    metabase: MetabaseConfig | None = Field(default=None, description="The Metabase configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
     test: TestConfig | None = Field(default=None, description="The defaults used by `nao test`")
     semantic_layer: SemanticLayerConfig | None = Field(
@@ -202,13 +205,16 @@ class NaoConfig(BaseModel):
     def save(self, path: Path) -> None:
         """Save the configuration to a YAML file."""
         config_file = path / "nao_config.yaml"
+        serialized_config = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if self.metabase is not None:
+            serialized_config["metabase"]["api_key"] = self.metabase.api_key.get_secret_value()
         with config_file.open("w") as f:
             # Documentation Link
             f.write("# Configuration documentation:\n")
             f.write("# https://docs.getnao.io/nao-agent/context-builder/configuration#nao_config-yaml\n\n")
 
             yaml.dump(
-                self.model_dump(mode="json", by_alias=True, exclude_none=True),
+                serialized_config,
                 f,
                 default_flow_style=False,
                 sort_keys=False,

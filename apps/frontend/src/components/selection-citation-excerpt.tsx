@@ -1,9 +1,11 @@
+import type { StoryBlockReference } from '@nao/shared/types';
 import { cn } from '@/lib/utils';
 
 interface SelectionCitationExcerptProps {
 	label?: string;
 	start?: number;
 	end?: number;
+	block?: StoryBlockReference;
 	text: string;
 	maxLength?: number;
 	lineClamp?: 2 | 3;
@@ -13,6 +15,7 @@ export function SelectionCitationExcerpt({
 	label,
 	start,
 	end,
+	block,
 	text,
 	maxLength = 220,
 	lineClamp = 3,
@@ -22,7 +25,7 @@ export function SelectionCitationExcerpt({
 	return (
 		<>
 			<p className='text-[11px] text-muted-foreground font-mono tracking-tight mb-1.5'>
-				{label ?? `@chars ${start}\u2013${end}`}
+				{label ?? describeLabel(start, end, block)}
 			</p>
 			{displayed && (
 				<blockquote
@@ -36,4 +39,8 @@ export function SelectionCitationExcerpt({
 			)}
 		</>
 	);
+}
+
+function describeLabel(start?: number, end?: number, block?: StoryBlockReference) {
+	return block ? `@${block.kind} block` : `@chars ${start}\u2013${end}`;
 }

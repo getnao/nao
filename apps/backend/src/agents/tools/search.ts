@@ -8,6 +8,7 @@ import { renderToModelOutput, SearchOutput } from '../../components/tool-outputs
 import { isDocsProjectPath, isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { isStorageEnabled, relativePathFromKey } from '../../services/storage';
 import { findUserFiles } from '../../services/storage/user-files';
+import { findStoryMountFiles, isCustomStoriesEnabled } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import {
 	loadNaoignorePatterns,
@@ -35,16 +36,26 @@ export default createTool<searchFiles.Input, searchFiles.Output>({
 		// Make pattern recursive if not already
 		const recursivePattern = pattern.startsWith('**/') ? pattern : `**/${pattern}`;
 
-		const [projectFiles, storageFiles] = await Promise.all([
+		const [projectFiles, storageFiles, storyFiles] = await Promise.all([
 			searchProjectFolder(recursivePattern, context),
 			searchStorage(recursivePattern, context),
+			searchStories(recursivePattern, context),
 		]);
 
-		return { _version: '1' as const, files: [...projectFiles, ...storageFiles] };
+		return { _version: '1' as const, files: [...projectFiles, ...storageFiles, ...storyFiles] };
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(SearchOutput({ output }), output),
 });
+
+const searchStories = (recursivePattern: string, context: ToolContext): Promise<searchFiles.File[]> => {
+	if (!isCustomStoriesEnabled()) {
+		return Promise.resolve([]);
+	}
+	return findStoryMountFiles(context.chatId, (mountRelativePath) =>
+		minimatch(mountRelativePath, recursivePattern, { dot: true }),
+	);
+};
 
 const searchStorage = async (recursivePattern: string, context: ToolContext): Promise<searchFiles.File[]> => {
 	if (!isStorageEnabled()) {

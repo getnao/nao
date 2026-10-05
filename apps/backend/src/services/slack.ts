@@ -60,9 +60,10 @@ import {
 	type TruncationNotice,
 } from '../utils/messaging-provider';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
+import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
-import { agentService } from './agent';
+import { agentService, defaultAgentToolsExcluding } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
 import { readUserFileBytes } from './storage/user-files';
@@ -74,6 +75,8 @@ const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
 const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;
 const CODE_SPAN_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/;
 const RESERVED_SLACK_MENTIONS = new Set(['channel', 'everyone', 'here']);
+/** Every file written to storage is posted to the thread, so edits go through a full `write` that re-sends the new version. */
+const SLACK_EXCLUDED_TOOLS = ['str_replace'];
 
 type SlackReplyMessage = NonNullable<Awaited<ReturnType<WebClient['conversations']['replies']>>['messages']>[number];
 type SlackUser = NonNullable<Awaited<ReturnType<WebClient['users']['list']>>['members']>[number];
@@ -1210,7 +1213,7 @@ export class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
-			{ supportsCustomCharts: false },
+			{ supportsCustomCharts: false, tools: defaultAgentToolsExcluding(SLACK_EXCLUDED_TOOLS) },
 		);
 		ctx.modelId = agent.getModelId();
 		return {
@@ -1422,6 +1425,9 @@ export class ProjectSlackBot {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+		if (isStoriesPath(part.output.path)) {
+			return;
+		}
 		try {
 			const content = await readUserFileBytes(
 				{ projectId: this.projectId, userId: ctx.user.id },

@@ -9,7 +9,23 @@ export type StoryModelOutput = story.Output & {
 
 export function StoryOutput({ output }: { output: StoryModelOutput }) {
 	if (output.error) {
-		return <Block>Story error: {output.error}</Block>;
+		return (
+			<Block>
+				Story error: {output.error}
+				{output.build_errors && output.build_errors.length > 0 && (
+					<Block>
+						<Span>
+							Build errors (fix these in /stories/{output.id}/ with the write tool, then publish again):
+						</Span>
+						<List>
+							{output.build_errors.map((buildError) => (
+								<ListItem key={buildError}>{buildError}</ListItem>
+							))}
+						</List>
+					</Block>
+				)}
+			</Block>
+		);
 	}
 
 	if (output._stale) {
@@ -19,6 +35,10 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 				result.
 			</Block>
 		);
+	}
+
+	if (output.format === 'custom') {
+		return <CustomStoryOutput output={output} />;
 	}
 
 	const templateWarnings = output.template_warnings ?? [];
@@ -46,6 +66,27 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 				</Block>
 			)}
 			<Block>{output.code}</Block>
+		</Block>
+	);
+}
+
+function CustomStoryOutput({ output }: { output: StoryModelOutput }) {
+	const files = output.files ?? [];
+	const state = output.version > 0 ? `published v${output.version}` : 'draft, not published yet';
+
+	return (
+		<Block>
+			{output.message && <Block>{output.message}</Block>}
+			Custom story "{output.title}" ({output.id}) — {state}. Files under /stories/{output.id}/:
+			{files.length === 0 ? (
+				<Block>(no files yet — add them with the write tool, then "publish")</Block>
+			) : (
+				<List>
+					{files.map((file) => (
+						<ListItem key={file}>{file}</ListItem>
+					))}
+				</List>
+			)}
 		</Block>
 	);
 }

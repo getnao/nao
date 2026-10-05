@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Clock3, FileText, Zap } from 'lucide-react';
+import { AppWindow, ArrowRight, Check, Clock3, FileText, Zap } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { UserGroupFeature } from '@nao/shared';
 
@@ -15,19 +15,29 @@ interface UserGroupFeatureCardProps {
 	feature: UserGroupFeatureDefinition;
 	selected: boolean;
 	onSelectedChange: (selected: boolean) => void;
+	disabledReason?: string;
 }
 
-export function UserGroupFeatureCard({ feature, selected, onSelectedChange }: UserGroupFeatureCardProps) {
+export function UserGroupFeatureCard({
+	feature,
+	selected,
+	onSelectedChange,
+	disabledReason,
+}: UserGroupFeatureCardProps) {
+	const disabled = disabledReason !== undefined;
 	return (
 		<button
 			type='button'
 			aria-label={`${feature.label}. ${feature.description}`}
 			aria-pressed={selected}
+			disabled={disabled}
+			title={disabledReason}
 			onClick={() => onSelectedChange(!selected)}
 			className={cn(
 				GRID_CARD_CLASS,
 				'h-[120px] w-full cursor-pointer text-left transition-colors',
 				'hover:border-primary/40 hover:bg-accent/20',
+				'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent',
 				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
 				selected && 'border-primary bg-primary/[0.04] ring-1 ring-primary/40 hover:bg-primary/[0.06]',
 			)}
@@ -79,7 +89,7 @@ function UserGroupFeatureCardContent({ feature, status }: { feature: UserGroupFe
 	return (
 		<>
 			<div className='pointer-events-none absolute inset-x-1 top-1 bottom-12 overflow-hidden rounded-md bg-sidebar/70 dark:bg-sidebar/35'>
-				{feature.key === 'storyCreation' ? <StoryCreationPreview /> : <AutomationCreationPreview />}
+				<FeaturePreview feature={feature.key} />
 			</div>
 			{status}
 			<div className='absolute inset-x-0 bottom-0 flex h-12 min-w-0 flex-col justify-center px-3'>
@@ -88,6 +98,17 @@ function UserGroupFeatureCardContent({ feature, status }: { feature: UserGroupFe
 			</div>
 		</>
 	);
+}
+
+function FeaturePreview({ feature }: { feature: UserGroupFeature }) {
+	switch (feature) {
+		case 'storyCreation':
+			return <StoryCreationPreview />;
+		case 'customStoryCreation':
+			return <CustomStoryCreationPreview />;
+		case 'automationCreation':
+			return <AutomationCreationPreview />;
+	}
 }
 
 function StoryCreationPreview() {
@@ -113,6 +134,32 @@ function StoryCreationPreview() {
 					<div className='h-3 w-1 rounded-t-sm bg-primary/75' />
 					<div className='h-5 w-1 rounded-t-sm bg-primary' />
 				</div>
+			</div>
+		</div>
+	);
+}
+
+function CustomStoryCreationPreview() {
+	return (
+		<div
+			data-testid='custom-story-creation-preview'
+			className='absolute left-1/2 top-1/2 h-14 w-24 -translate-x-1/2 -translate-y-1/2 rounded-md border bg-background p-1.5 shadow-sm'
+			aria-hidden='true'
+		>
+			<div className='flex items-center gap-1'>
+				<AppWindow className='size-3 text-primary' />
+				<div className='h-1 w-6 rounded-full bg-foreground/15' />
+			</div>
+			<div className='mt-1.5 grid grid-cols-3 gap-1'>
+				<div className='h-3 rounded-sm border border-primary/40 bg-primary/10' />
+				<div className='h-3 rounded-sm border border-primary/40 bg-primary/10' />
+				<div className='h-3 rounded-sm border border-primary/40 bg-primary/10' />
+				<div className='col-span-2 flex h-4 items-end gap-0.5 rounded-sm border px-0.5 pb-0.5'>
+					<div className='h-1.5 w-1 rounded-t-sm bg-primary/50' />
+					<div className='h-2.5 w-1 rounded-t-sm bg-primary/75' />
+					<div className='h-2 w-1 rounded-t-sm bg-primary' />
+				</div>
+				<div className='h-4 rounded-sm border' />
 			</div>
 		</div>
 	);

@@ -1,4 +1,5 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
+import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_MANIFEST_PATH, STORY_HTML_API_GLOBAL } from '@nao/shared/story-app';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
@@ -47,8 +48,12 @@ type SystemPromptProps = {
 
 /** What the instance the run executes on can do, when a rule depends on it. */
 type SystemPromptOptions = {
+	/** False when permanent storage is turned off, so `/home` does not exist even though `write` may. */
+	savedFilesEnabled?: boolean;
 	/** False when the storage backend has no real filesystem (`s3`), so grep cannot look inside saved files. */
 	canGrepSavedFiles?: boolean;
+	/** True when the instance exposes source-based custom stories under `/stories`. */
+	customStoriesEnabled?: boolean;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
@@ -71,7 +76,7 @@ export function SystemPrompt({
 	toolNames,
 	options = {},
 }: SystemPromptProps) {
-	const { canGrepSavedFiles = true } = options;
+	const { canGrepSavedFiles = true, savedFilesEnabled = true, customStoriesEnabled = false } = options;
 	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
 	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
@@ -154,16 +159,20 @@ export function SystemPrompt({
 					...dialectToolCallRules,
 				]}
 			</List>
-			{hasTool('write') && (
+			{hasTool('write') && savedFilesEnabled && (
 				<PermanentStorageBlock
 					canGrepSavedFiles={canGrepSavedFiles}
 					canRunSandbox={hasTool('execute_sandboxed_code')}
 					canExecuteSql={hasTool('execute_sql')}
+					canReplace={hasTool('str_replace')}
 				/>
+			)}
+			{customStoriesEnabled && hasTool('story') && hasTool('write') && (
+				<CustomStoriesBlock canReplace={hasTool('str_replace')} />
 			)}
 			{hasTool('execute_sql') && (
 				<LocalDatabaseBlock
-					canSaveResults={hasTool('write')}
+					canSaveResults={hasTool('write') && savedFilesEnabled}
 					hasSemanticResults={hasTool('execute_semantic_query')}
 					warehouseSqlEnabled={semanticLayerMode !== 'exclusive'}
 				/>
@@ -407,10 +416,12 @@ function PermanentStorageBlock({
 	canGrepSavedFiles,
 	canRunSandbox,
 	canExecuteSql,
+	canReplace,
 }: {
 	canGrepSavedFiles: boolean;
 	canRunSandbox: boolean;
 	canExecuteSql: boolean;
+	canReplace: boolean;
 }) {
 	return (
 		<Block>
@@ -436,8 +447,14 @@ function PermanentStorageBlock({
 				</ListItem>
 				<ListItem>
 					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
-					export or update something, or when a result is clearly worth reusing later. Everything else in the
-					tree is read-only. Do not save intermediate work nobody asked for.
+					export or update something, or when a result is clearly worth reusing later.{' '}
+					{canReplace && (
+						<>
+							To change part of a file that already exists, use <Bold>str_replace</Bold> with the exact
+							snippet rather than sending the whole file to <Bold>write</Bold> again.{' '}
+						</>
+					)}
+					Everything else in the tree is read-only. Do not save intermediate work nobody asked for.
 					{canExecuteSql && (
 						<>
 							{' '}
@@ -487,6 +504,140 @@ function PermanentStorageBlock({
 				<ListItem>
 					Never give the full path in plain text, users might get confused about it as it's not clickable
 					directly in the chat.
+				</ListItem>
+			</List>
+		</Block>
+	);
+}
+
+function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
+	return (
+		<Block>
+			<Title level={2}>Custom Stories</Title>
+			<Span>
+				A story is either <Bold>classic</Bold> (markdown with chart/table blocks) or <Bold>custom</Bold>: a
+				React app under <Bold>/stories/&lt;id&gt;/</Bold>, edited with{' '}
+				{canReplace ? (
+					<>
+						<Bold>str_replace</Bold> (or <Bold>write</Bold> for a new file)
+					</>
+				) : (
+					<Bold>write</Bold>
+				)}{' '}
+				and made visible with <Bold>story</Bold> "publish". Pick the format before the first <Bold>story</Bold>{' '}
+				call; a request gets exactly one story, never a classic one alongside or as a draft of a custom one.
+			</Span>
+			<Span>Choose custom when any of these holds, even if the user never says "custom":</Span>
+			<List>
+				<ListItem>
+					They ask for a "custom story" or an "app" — "custom" names the format, not a tailored classic story.
+				</ListItem>
+				<ListItem>
+					The deliverable has its own shape: slides, deck, presentation, pitch, one-pager, infographic,
+					wallboard/TV screen, scrollytelling narrative. Classic tabs are not slides.
+				</ListItem>
+				<ListItem>
+					It needs interaction beyond reading: what-if sliders or inputs, calculator or simulator,
+					click-to-drill or cross-filtering between charts, toggles between metrics or views, a step-by-step
+					walkthrough.
+				</ListItem>
+				<ListItem>
+					It needs a visual the chart types lack (funnel, cohort heatmap, gauge, timeline, calendar, flow) or
+					a bespoke layout, or the user found a classic story too limited.
+				</ListItem>
+			</List>
+			<Span>
+				Otherwise — a report or dashboard of charts, tables and text, tabs and grids included — use classic.
+			</Span>
+			<List>
+				<ListItem>
+					Run the queries first, then "create" with format "custom" and no files to get a starter app; read
+					it, replace every <Bold>REPLACE_ME</Bold> queryId with a real query id and every placeholder title
+					with one that fits the data, keep its page/grid layout. Imports are limited to{' '}
+					{STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths. On build_errors nothing was published:
+					fix and publish again. "update"/"replace" do not apply; "delete_files" removes draft files and
+					"revert" resets the draft to a published version. Published versions are readable, not writable, at
+					/stories/&lt;id&gt;/@v&lt;N&gt;/&lt;path&gt;.
+				</ListItem>
+				<ListItem>
+					Keep <Bold>app.tsx</Bold> small: it composes the story from imported pieces. Put each new component
+					in its own file, and group related files in folders (e.g. <Bold>components/</Bold>,{' '}
+					<Bold>slides/</Bold>, <Bold>sections/</Bold>) via relative imports, so the app stays readable and
+					maintainable as it grows.
+				</ListItem>
+				<ListItem>
+					Build with <Bold>@nao/story-kit</Bold> blocks — <Bold>KpiCard</Bold>, <Bold>BarChart</Bold>,{' '}
+					<Bold>LineChart</Bold>, <Bold>{'<Chart type="...">'}</Bold> for every other display_chart type
+					(mixed, pie, donut, scatter, radar), <Bold>DataTable</Bold>, <Bold>PointMap</Bold> — which match
+					display_chart and display_map and handle loading and errors themselves. Blocks draw their own card,
+					so place them directly in the layout rather than inside a panel of your own. Every block takes{' '}
+					<Bold>queryId</Bold> (or <Bold>data</Bold>) and <Bold>title</Bold>; KpiCard and charts also take{' '}
+					<Bold>format</Bold> ("number" | "compact" | "percent" with fractions | "currency"),{' '}
+					<Bold>currency</Bold>, <Bold>decimals</Bold>. Charts: <Bold>xKey</Bold>, <Bold>series</Bold> (names
+					or {'{ key, label?, type?, axis? }'}), <Bold>height</Bold>, <Bold>stacked</Bold>,{' '}
+					<Bold>percent</Bold>, <Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line),{' '}
+					<Bold>showDataLabels</Bold>. KpiCard: <Bold>valueKey</Bold>, <Bold>comparison</Bold> against the
+					previous row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold>{' '}
+					(column → the same rule display_chart's conditional_formats takes) to colour cells.
+				</ListItem>
+				<ListItem>
+					For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
+					<Bold>{'<Slide>'}</Bold> per slide (16:9): it provides the navigation and prints one slide per PDF
+					page. Both take <Bold>eyebrow</Bold> and <Bold>title</Bold> props; a Slide is already padded.
+				</ListItem>
+				<ListItem>
+					For tabs, put the tab buttons in a <Bold>{'<nav>'}</Bold> (or give them <Bold>role="tab"</Bold>):
+					PDF downloads open each tab in turn and print them one after the other.
+				</ListItem>
+				<ListItem>
+					Users edit KpiCard, chart and DataTable blocks through a pencil that rewrites their props in your
+					source: pass literal props and give each block a distinct title.
+				</ListItem>
+				<ListItem>
+					Wrap prose that states numbers or trends in <Bold>{'<Narrative id="...">text</Narrative>'}</Bold>{' '}
+					inside your own element (e.g. {'<p>'}): when the story is live, each refresh rewrites that text from
+					the new data. Use a distinct literal id and plain literal text; text built from query rows in code
+					is already live and needs no Narrative.
+				</ListItem>
+				<ListItem>
+					For bespoke visuals the kit has no block for, wrap Recharts or your own markup in{' '}
+					<Bold>{'<Block kind="..." queryId="...">'}</Bold> (the queryId it reads, so users can view its SQL)
+					with <Bold>{'<div className="nao-chart">'}</Bold>, <Bold>seriesColor(i)</Bold> and a plain Recharts{' '}
+					<Bold>{'<Tooltip />'}</Bold> (already themed; format values with{' '}
+					<Bold>{'formatter={(value) => formatNumber(value, { format })}'}</Bold>).{' '}
+					<Bold>useQueryData(queryId)</Bold> returns <Bold>data: null</Bold> until <Bold>status</Bold> is
+					"success", then the array of rows — guard before reading it.
+				</ListItem>
+				<ListItem>
+					Maps: <Bold>{'<PointMap queryId="..." />'}</Bold> plots rows with latitude and longitude columns
+					(auto-detected; optional <Bold>latitudeKey</Bold>, <Bold>longitudeKey</Bold>, <Bold>sizeKey</Bold>{' '}
+					for bubbles, <Bold>labelKey</Bold>, <Bold>tooltipKeys</Bold>, <Bold>height</Bold>). For any other
+					map, use <Bold>react-leaflet</Bold> inside <Bold>{'<div className="nao-map">'}</Bold> (sized by your
+					CSS; a full-screen map sits in your layout, not in a Block) with <Bold>{'<MapTiles />'}</Bold> as
+					the first child of MapContainer: the only tiles the story can reach, themed, kept to a single world
+					and following the container's size. Leaflet's CSS is already loaded; import nothing else for it.
+				</ListItem>
+				<ListItem>
+					<Bold>Never hardcode data, colours or fonts.</Bold> Read rows with <Bold>useQueryData</Bold>; style
+					with <Bold>var(--background)</Bold>, <Bold>var(--card)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
+					<Bold>var(--muted-foreground)</Bold>, <Bold>var(--primary)</Bold>, <Bold>var(--border)</Bold>,{' '}
+					<Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold>, <Bold>var(--font-heading)</Bold>,{' '}
+					<Bold>var(--chart-1…11)</Bold>. They follow theme changes live, so a re-theme needs no republish.
+				</ListItem>
+				<ListItem>
+					<Bold>HTML stories are the exception:</Bold> use one only when the user hands you an HTML page to
+					host as-is or explicitly asks for plain HTML; otherwise, and whenever they may want to edit blocks
+					later, build React. Set <Bold>{'{ "entry": "index.html" }'}</Bold> in{' '}
+					<Bold>{STORY_APP_MANIFEST_PATH}</Bold> and write a full document.
+				</ListItem>
+				<ListItem>
+					In an HTML story, theme variables, kit styles and the story's .css files are injected for you.
+					Scripts must be story files (inline or <Bold>src="./file.js"</Bold>, never a CDN) and run as ES
+					modules after the page is parsed: share code with imports (story files or the allowed packages), not
+					globals; never wait for DOMContentLoaded; attach listeners with addEventListener, never{' '}
+					<Bold>onclick=""</Bold>. Read data with{' '}
+					<Bold>{`await ${STORY_HTML_API_GLOBAL}.query("query_id")`}</Bold> → {'{ columns, data }'} and redraw
+					on theme change with <Bold>{`${STORY_HTML_API_GLOBAL}.onTheme(fn)`}</Bold>.
 				</ListItem>
 			</List>
 		</Block>

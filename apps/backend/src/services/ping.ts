@@ -49,6 +49,7 @@ interface StartupAdditionalInfo {
 	betaContextRecommendationsEnabled: boolean;
 	betaStoryFiltersEnabled: boolean;
 	betaSubagentsEnabled: boolean;
+	betaCustomStoriesEnabled: boolean;
 	smtpConfigured: boolean;
 	loginModesConfigured: {
 		google: boolean;
@@ -85,6 +86,7 @@ async function startupAdditionalInfo(): Promise<StartupAdditionalInfo> {
 		betaContextRecommendationsEnabled: env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED,
 		betaStoryFiltersEnabled: env.BETA_STORY_FILTERS_ENABLED,
 		betaSubagentsEnabled: env.BETA_SUBAGENTS_ENABLED,
+		betaCustomStoriesEnabled: env.BETA_CUSTOM_STORIES_ENABLED,
 		smtpConfigured: isSmtpConfigured(),
 		loginModesConfigured: {
 			google: googleConfigured,
