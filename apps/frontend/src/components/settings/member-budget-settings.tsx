@@ -495,12 +495,12 @@ function SortableHead({
 }) {
 	const isActive = activeKey === sortKey;
 	return (
-		<TableHead
-			onClick={() => onSort(sortKey)}
-			aria-sort={isActive ? (direction === 'asc' ? 'ascending' : 'descending') : undefined}
-			className='cursor-pointer select-none'
-		>
-			<div className='flex items-center gap-1'>
+		<TableHead aria-sort={isActive ? (direction === 'asc' ? 'ascending' : 'descending') : undefined}>
+			<button
+				type='button'
+				onClick={() => onSort(sortKey)}
+				className='flex cursor-pointer select-none items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+			>
 				<span>{label}</span>
 				<ChevronDown
 					size={14}
@@ -510,7 +510,7 @@ function SortableHead({
 						isActive && direction === 'asc' && 'rotate-180',
 					)}
 				/>
-			</div>
+			</button>
 		</TableHead>
 	);
 }
@@ -614,7 +614,7 @@ function useMemberBudgetOverview(isLicensed: boolean) {
 
 function buildLockedPreview(userGroups: UserGroupOverview): MemberBudgetOverview {
 	const groupIdsByUser = new Map<string, string[]>();
-	for (const { userId, groupId } of [...userGroups.memberships, ...userGroups.ssoMemberships]) {
+	for (const { userId, groupId } of userGroups.memberships) {
 		groupIdsByUser.set(userId, [...(groupIdsByUser.get(userId) ?? []), groupId]);
 	}
 	return {

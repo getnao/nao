@@ -12,6 +12,7 @@ interface UserGroupBudgetProps {
 	isLicensed: boolean;
 	isDefaultGroup: boolean;
 	isLoading: boolean;
+	isError: boolean;
 	limitUsd: number | null;
 	defaultLimitUsd: number;
 	period: MemberBudgetPeriod;
@@ -22,6 +23,7 @@ export function UserGroupBudget({
 	isLicensed,
 	isDefaultGroup,
 	isLoading,
+	isError,
 	limitUsd,
 	defaultLimitUsd,
 	period,
@@ -44,6 +46,8 @@ export function UserGroupBudget({
 				</p>
 			) : isLoading ? (
 				<p className='text-sm text-muted-foreground'>Loading budgets...</p>
+			) : isError ? (
+				<p className='text-sm text-destructive'>Failed to load budgets. Reload the page to edit them.</p>
 			) : (
 				<BudgetLimitRow
 					description={

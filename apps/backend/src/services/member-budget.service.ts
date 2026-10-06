@@ -58,7 +58,7 @@ export async function getMemberBudgetOverview(projectId: string): Promise<Member
 
 	const [members, personalBudgets, groupBudgets, spendByUser, groups, memberships, ssoMemberships] =
 		await Promise.all([
-			projectQueries.listProjectMembersWithRoles(projectId),
+			projectQueries.listUsersWithProjectAccess(projectId),
 			memberBudgetQueries.listPersonalBudgets(projectId),
 			memberBudgetQueries.listGroupBudgets(projectId),
 			memberBudgetQueries.getPeriodCostsByUser(projectId, config.period),
@@ -120,7 +120,7 @@ export async function setPersonalBudget(projectId: string, input: SetPersonalBud
 
 export async function saveMemberBudgets(projectId: string, input: SetMemberBudgetsInput): Promise<void> {
 	const [members, budgetableGroupIds] = await Promise.all([
-		projectQueries.listProjectMembersWithRoles(projectId),
+		projectQueries.listUsersWithProjectAccess(projectId),
 		listBudgetableGroupIds(projectId),
 	]);
 	const memberIds = new Set(members.map((member) => member.id));

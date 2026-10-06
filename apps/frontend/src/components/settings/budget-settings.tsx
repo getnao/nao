@@ -180,7 +180,7 @@ export function BudgetSettings() {
 	return (
 		<>
 			<SettingsCard title='Budgets' description='Limit the budgets of your most expensive providers.' flush>
-				<Table>
+				<Table className='w-auto [&_td]:px-0.5 [&_th]:px-0.5'>
 					<TableHeader>
 						<TableRow>
 							<TableHead>Provider</TableHead>
@@ -204,8 +204,8 @@ export function BudgetSettings() {
 								return (
 									<TableRow key={provider} className='h-12'>
 										<TableCell className='opacity-50'>{providerLabel(provider)}</TableCell>
-										<TableCell colSpan={5}>
-											<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
+										<TableCell colSpan={5} className='whitespace-normal'>
+											<span className='flex items-start gap-1.5 text-muted-foreground text-sm'>
 												<TriangleAlert className='size-4 shrink-0' />
 												{isSelfHosted(provider) ? (
 													<span>
@@ -253,7 +253,7 @@ export function BudgetSettings() {
 											)}
 										</span>
 									</TableCell>
-									<TableCell>
+									<TableCell className='text-center'>
 										<BudgetInput
 											value={budget}
 											disabled={!isAdmin || isConfigManaged}
@@ -269,7 +269,7 @@ export function BudgetSettings() {
 											onBlur={() => clearPeriodIfNoBudget(provider)}
 										/>
 									</TableCell>
-									<TableCell>
+									<TableCell className='text-center'>
 										<Select
 											value={period}
 											onValueChange={(value) =>
@@ -277,7 +277,7 @@ export function BudgetSettings() {
 											}
 											disabled={!isAdmin || !hasAnyBudget || isConfigManaged}
 										>
-											<SelectTrigger size='sm' className='w-24 mx-auto'>
+											<SelectTrigger className='mx-auto min-w-20 font-normal rounded-md px-2'>
 												<SelectValue />
 											</SelectTrigger>
 											<SelectContent>
@@ -378,8 +378,8 @@ function BudgetInput({
 	onBlur?: () => void;
 }) {
 	return (
-		<div className='flex items-center justify-center gap-1'>
-			<span className='text-muted-foreground text-sm mr-1'>$</span>
+		<div className='flex items-center justify-center gap-0.5'>
+			<span className='text-muted-foreground text-sm'>$</span>
 			<Input
 				type='number'
 				min={0}
@@ -388,7 +388,7 @@ function BudgetInput({
 				value={value}
 				onChange={(event) => onChange(Number(event.target.value))}
 				onBlur={onBlur}
-				className='w-16 h-7 text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+				className='w-14 h-7 text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
 			/>
 			<div className='flex flex-col items-center'>
 				<button

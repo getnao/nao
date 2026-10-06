@@ -112,6 +112,7 @@ function LimitInput({
 			<span className='text-muted-foreground text-sm'>$</span>
 			<Input
 				type='number'
+				aria-label='Budget in USD'
 				min={0}
 				max={MAX_BUDGET_LIMIT_USD}
 				step={MEMBER_BUDGET_STEP_USD}

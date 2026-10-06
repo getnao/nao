@@ -36,8 +36,10 @@ export function UserGroupUserBudget({ userId }: { userId: string }) {
 			</div>
 			{license.isLoading ? (
 				<BudgetStatus message='Checking member budget license...' />
+			) : license.isError ? (
+				<BudgetStatus message='Unable to verify the member budget license.' />
 			) : isLicensed ? (
-				<PersonalBudgetEditor userId={userId} />
+				<PersonalBudgetEditor key={userId} userId={userId} />
 			) : (
 				<div className='flex items-start justify-between gap-4 rounded-lg border px-3 py-3'>
 					<div className='min-w-0'>
@@ -82,13 +84,15 @@ function PersonalBudgetEditor({ userId }: { userId: string }) {
 				description='A personal budget replaces the group and default budgets for this user.'
 				unitLabel={`per ${periodLabel}`}
 			>
-				<BudgetCell
-					limitUsd={effectiveLimitUsd}
-					inherited={{ source: inheritedSource, limitUsd: inheritedLimitUsd }}
-					isInherited={draftLimitUsd === null}
-					onChange={setDraftLimitUsd}
-					className='w-36'
-				/>
+				<fieldset disabled={saveMutation.isPending} className='contents'>
+					<BudgetCell
+						limitUsd={effectiveLimitUsd}
+						inherited={{ source: inheritedSource, limitUsd: inheritedLimitUsd }}
+						isInherited={draftLimitUsd === null}
+						onChange={setDraftLimitUsd}
+						className='w-36'
+					/>
+				</fieldset>
 			</BudgetLimitRow>
 			<div className='rounded-lg border px-3 py-3'>
 				<MemberBudgetUsage

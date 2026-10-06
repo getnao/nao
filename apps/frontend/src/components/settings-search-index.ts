@@ -271,6 +271,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Review current-period spend for each project member, broken down by provider.',
 		keywords: ['user budget', 'member spend', 'cost per user'],
 		adminOnly: true,
+		licenseFeature: 'user-budget',
 	},
 	{
 		page: '/settings/project/budgets',

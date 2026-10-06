@@ -131,19 +131,21 @@ export async function assertBudgetNotExceeded(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<void> {
+	const exceededMemberUsage = userId ? await notifyIfMemberBudgetExceeded(projectId, userId) : null;
 	await assertProviderBudgetNotExceeded(projectId, provider, userId);
-	await assertMemberBudgetNotExceeded(projectId, userId);
+	if (exceededMemberUsage) {
+		throw new BudgetExceededError(buildMemberBudgetMessage(exceededMemberUsage));
+	}
 }
 
-async function assertMemberBudgetNotExceeded(projectId: string, userId: string | undefined): Promise<void> {
-	if (!userId) {
-		return;
-	}
+/** Notifies before any limit throws, so a member over budget is told even when a provider cap blocks first. */
+async function notifyIfMemberBudgetExceeded(projectId: string, userId: string): Promise<MemberBudgetUsage | null> {
 	const usage = await resolveMemberBudgetUsage(projectId, userId);
-	if (usage && usage.ratio >= 1) {
-		await notifyMemberOnBudgetLimitReached(projectId, userId, usage);
-		throw new BudgetExceededError(buildMemberBudgetMessage(usage));
+	if (!usage || usage.ratio < 1) {
+		return null;
 	}
+	await notifyMemberOnBudgetLimitReached(projectId, userId, usage);
+	return usage;
 }
 
 async function assertProviderBudgetNotExceeded(

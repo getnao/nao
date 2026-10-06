@@ -441,6 +441,7 @@ export function UserGroupEditor({
 								isLicensed={hasMemberBudget}
 								isDefaultGroup={existingGroup?.isDefault === true}
 								isLoading={memberBudgetSettings.isLoading}
+								isError={memberBudgetSettings.isError}
 								limitUsd={groupBudgetUsd}
 								defaultLimitUsd={memberBudgetSettings.data?.defaultLimitUsd ?? 0}
 								period={memberBudgetSettings.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
