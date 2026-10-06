@@ -136,7 +136,7 @@ config:
   # -- Recurring prompt automations
   betaAutomationsEnabled: true
   # -- Context recommendations in the project settings
-  betaContextRecommendationsEnabled: false
+  betaContextRecommendationsEnabled: true
   # -- Custom story theming in Appearance settings
   betaCustomStoriesEnabled: false
 

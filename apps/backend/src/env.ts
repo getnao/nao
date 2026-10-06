@@ -395,7 +395,7 @@ const baseRawEnvSchema = z.object({
 	BETA_CONTEXT_RECOMMENDATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
-		.default('false')
+		.default('true')
 		.transform((val) => val === 'true'),
 
 	BETA_STORY_FILTERS_ENABLED: z

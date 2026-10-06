@@ -73,8 +73,6 @@ const settingsNavGroups: NavGroup[] = [
 				label: 'Recommendations',
 				to: '/settings/recommendations',
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-				badge: 'Beta',
-				badgeVariant: 'new',
 			},
 			{
 				label: 'File Explorer',

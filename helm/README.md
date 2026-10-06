@@ -127,7 +127,7 @@ projectsPersistence:
 | `config.gitlabSso` | `false` | Enable "Sign in with GitLab" |
 | `config.gitlabBaseUrl` | `""` | Self-hosted GitLab instance URL |
 | `config.betaAutomationsEnabled` | `true` | Recurring prompt automations |
-| `config.betaContextRecommendationsEnabled` | `false` | Context recommendations |
+| `config.betaContextRecommendationsEnabled` | `true` | Context recommendations |
 | `config.betaCustomStoriesEnabled` | `false` | Custom story theming |
 | `existingSecret` | `""` | Load all secret env vars from a pre-existing Secret instead of rendering one (the `secrets.*` block is then ignored). Rotations of that Secret need an external rollout trigger |
 | `extraEnv` | `[]` | Extra env vars appended verbatim to the nao container |

@@ -487,7 +487,7 @@ function RecommendationsPage() {
 					<div className='flex flex-col gap-12'>
 						<SettingsCard>
 							<Empty className='whitespace-normal'>
-								This feature is currently in beta. To enable it, set the environment variable{' '}
+								This feature is disabled on this instance. To enable it, set the environment variable{' '}
 								<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs'>
 									BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true
 								</code>{' '}
