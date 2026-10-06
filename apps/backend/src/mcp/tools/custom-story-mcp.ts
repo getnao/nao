@@ -87,10 +87,10 @@ export async function updateCustomStoryForMcp(
 	input: { title: string | undefined; files: { path: string; content: string }[]; deletePaths: string[] },
 	ctx: McpContext,
 ): Promise<ToolResult> {
+	await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
 	if (input.title !== undefined && input.title !== story.title) {
 		await storyQueries.renameStory(story.id, input.title);
 	}
-	await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
 	return publishResult({ ...story, title: input.title ?? story.title }, ctx);
 }
 

@@ -59,8 +59,6 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 			openStandaloneMutation.mutate({ storyId });
 		}
 	}, [story, storyId, navigate, openStandaloneMutation]);
-	const handleSelectStandaloneVersion = useCallback((_version: number) => undefined, []);
-	const handleRestoreStandaloneVersion = useCallback(() => undefined, []);
 
 	if (storyQuery.isLoading) {
 		return (
@@ -93,14 +91,6 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 						: undefined
 				}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
-				versionControls={{
-					currentVersion: 1,
-					versionDates: [story.versionCreatedAt ?? story.createdAt],
-					versionDate: story.versionCreatedAt ?? story.createdAt,
-					isViewingLatest: true,
-					onSelectVersion: handleSelectStandaloneVersion,
-					onRestore: handleRestoreStandaloneVersion,
-				}}
 			/>
 			<SelectionProvider key={storyId}>
 				<HighlightBubble onAsk={handleSelectionAsk} disabled />
