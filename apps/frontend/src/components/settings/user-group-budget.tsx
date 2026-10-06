@@ -38,12 +38,15 @@ export function UserGroupBudget({
 						Cap what each member of this group can spend across all providers.
 					</p>
 				</div>
-				{!isLicensed && <UpgradeToEnterprise />}
 			</div>
 			{!isLicensed ? (
-				<p className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
-					Group budgets are an Enterprise feature.
-				</p>
+				<div className='flex items-start justify-between gap-4 rounded-lg border px-3 py-3'>
+					<div className='min-w-0'>
+						<p className='text-sm font-medium'>Enterprise feature inactive</p>
+						<p className='text-xs text-muted-foreground'>No member budget is currently enforced.</p>
+					</div>
+					<UpgradeToEnterprise />
+				</div>
 			) : isLoading ? (
 				<p className='text-sm text-muted-foreground'>Loading budgets...</p>
 			) : isError ? (

@@ -1,10 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { Lock } from 'lucide-react';
 
 import { BudgetSettings } from '@/components/settings/budget-settings';
 import { MemberBudgetSettings } from '@/components/settings/member-budget-settings';
 import { MyMemberBudget } from '@/components/settings/my-member-budget';
 import { UnpricedModelsWarning } from '@/components/settings/unpriced-models-warning';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -46,9 +46,7 @@ function BudgetPage() {
 						label: (
 							<span className='flex items-center gap-1.5'>
 								Advanced
-								{isAdmin && !hasMemberBudget && (
-									<Lock aria-label='Enterprise feature' className='size-3 text-primary' />
-								)}
+								{isAdmin && !hasMemberBudget && <UpgradeToEnterprise iconOnly />}
 							</span>
 						),
 					},

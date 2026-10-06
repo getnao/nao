@@ -173,7 +173,7 @@ export function BudgetSettings() {
 	return (
 		<>
 			<SettingsCard title='Budgets' description='Limit the budgets of your most expensive providers.' flush>
-				<Table className='w-auto [&_td]:px-0.5 [&_th]:px-0.5'>
+				<Table className='w-auto[&_td]:px-0.5 [&_th]:px-0.5'>
 					<TableHeader>
 						<TableRow>
 							<TableHead>Provider</TableHead>
@@ -263,7 +263,7 @@ export function BudgetSettings() {
 											}
 											disabled={!isAdmin || !hasAnyBudget || isConfigManaged}
 										>
-											<SelectTrigger className='mx-auto min-w-20 font-normal rounded-md px-2'>
+											<SelectTrigger className='mx-auto font-normal rounded-md px-2'>
 												<SelectValue />
 											</SelectTrigger>
 											<SelectContent>
