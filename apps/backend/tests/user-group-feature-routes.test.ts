@@ -67,7 +67,7 @@ vi.mock('../src/queries/chat.queries', () => ({
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getDisplaySettings: mocks.getDisplaySettings,
-	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project' })),
+	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', orgId: 'org-id' })),
 	getUserRoleInProject: vi.fn(async () => mocks.role),
 }));
 vi.mock('../src/queries/shared-story.queries', () => ({
@@ -100,6 +100,10 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 }));
 vi.mock('../src/services/activity', () => ({ logActivity: mocks.logActivity }));
 vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertProjectCloudBillingAccess: vi.fn(),
+}));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
 	getStoryQueryData: mocks.getStoryQueryData,

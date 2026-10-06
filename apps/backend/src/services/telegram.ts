@@ -29,7 +29,6 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 
 const UPDATE_INTERVAL_MS = 200;
@@ -148,7 +147,6 @@ class TelegramService {
 			if (!(await this._validateUserAccess(ctx))) {
 				return;
 			}
-			await assertProjectCloudBillingAccess(this._projectId);
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			await this._saveOrUpdateUserMessage(ctx);
 

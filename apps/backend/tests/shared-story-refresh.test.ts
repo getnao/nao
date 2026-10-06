@@ -44,6 +44,10 @@ vi.mock('../src/queries/story.queries', () => ({
 }));
 vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertProjectCloudBillingAccess: vi.fn(),
+}));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
 	getStoryQueryData: mocks.getStoryQueryData,
@@ -208,7 +212,9 @@ describe('shared Story manual refresh', () => {
 	it('lets the owner refresh using the owner execution principal', async () => {
 		await createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' });
 
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+			billingAccessVerifiedProjectId: 'project-1',
+		});
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith({
 			projectId: 'project-1',
 			userId: 'owner-1',
@@ -223,7 +229,9 @@ describe('shared Story manual refresh', () => {
 	it('lets an admin trigger an owner-scoped refresh while recording the admin actor', async () => {
 		await createCaller('admin-1').storyShare.refreshData({ storyId: 'story-1' });
 
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+			billingAccessVerifiedProjectId: 'project-1',
+		});
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith(expect.objectContaining({ userId: 'owner-1' }));
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'admin-1' }));

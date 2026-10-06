@@ -10,7 +10,6 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
-import { hasProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
 import { refreshStoryData } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
@@ -57,6 +56,21 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job
 	}
 }
 
+export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPayload): Promise<string> {
+	if (!payload.storyId) {
+		throw new Error('storyId is required.');
+	}
+	const story = await storyQueries.getStoryById(payload.storyId);
+	if (!story) {
+		throw new Error(`Story not found: ${payload.storyId}`);
+	}
+	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+	if (!projectId) {
+		throw new Error(`Story ${payload.storyId} is missing a project; cannot deliver.`);
+	}
+	return projectId;
+}
+
 export async function runScheduledStoryDelivery(
 	storyId: string,
 	skipDeliveries: ChannelDeliveryAttempt[] = [],
@@ -64,9 +78,6 @@ export async function runScheduledStoryDelivery(
 	await withKeyedLock(`story:${storyId}`, async () => {
 		const context = await loadDeliveryContext(storyId);
 		if (!context) {
-			return;
-		}
-		if (!(await hasProjectCloudBillingAccess(context.projectId))) {
 			return;
 		}
 		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug, {

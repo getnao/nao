@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	deleteJob: vi.fn(),
 	enqueueOnceJob: vi.fn(),
 	getJobById: vi.fn(),
+	hasProjectCloudBillingAccess: vi.fn(),
 	markJobFailed: vi.fn(),
 	reclaimStaleJobs: vi.fn(),
 	rescheduleJob: vi.fn(),
@@ -12,13 +13,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/queries/scheduled-job.queries', () => mocks);
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	hasProjectCloudBillingAccess: mocks.hasProjectCloudBillingAccess,
+}));
 
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), warn: vi.fn() },
 	serializeError: (error: unknown) => ({ error: String(error) }),
 }));
 
-import { __resetSchedulerForTesting, startScheduler } from '../src/services/scheduler.service';
+import { __resetSchedulerForTesting, registerJob, startScheduler } from '../src/services/scheduler.service';
 
 describe('scheduler', () => {
 	beforeEach(() => {
@@ -26,6 +30,7 @@ describe('scheduler', () => {
 		vi.setSystemTime(new Date('2026-09-28T10:00:00.000Z'));
 		vi.clearAllMocks();
 		mocks.getJobById.mockResolvedValue(null);
+		mocks.hasProjectCloudBillingAccess.mockResolvedValue(true);
 		mocks.reclaimStaleJobs.mockResolvedValue(0);
 	});
 
@@ -70,6 +75,41 @@ describe('scheduler', () => {
 
 		expect(mocks.claimDueJobs).toHaveBeenCalledWith(new Date('2026-09-28T10:00:00.000Z'), 10, expect.any(String));
 	});
+
+	it.each([
+		{ hasAccess: false, expectedCalls: 0 },
+		{ hasAccess: true, expectedCalls: 1 },
+	])(
+		'checks project access once before running a registered handler ($hasAccess)',
+		async ({ hasAccess, expectedCalls }) => {
+			const handler = vi.fn().mockResolvedValue(undefined);
+			const resolveProjectId = vi.fn().mockResolvedValue('project-1');
+			registerJob('story.refresh', handler, { resolveProjectId });
+			mocks.hasProjectCloudBillingAccess.mockResolvedValue(hasAccess);
+			mocks.claimDueJobs.mockResolvedValueOnce([
+				{
+					id: 'story-job',
+					name: 'story.refresh',
+					payload: { storyId: 'story-1' },
+					runAt: new Date(),
+					cron: '0 * * * *',
+					status: 'running',
+					attempts: 1,
+					maxAttempts: 10,
+				},
+			]);
+
+			startScheduler();
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(resolveProjectId).toHaveBeenCalledTimes(1);
+			expect(mocks.hasProjectCloudBillingAccess).toHaveBeenCalledOnce();
+			expect(mocks.hasProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+			expect(handler).toHaveBeenCalledTimes(expectedCalls);
+			expect(mocks.rescheduleJob).toHaveBeenCalledWith('story-job', new Date('2026-09-28T11:00:00.000Z'));
+			expect(mocks.markJobFailed).not.toHaveBeenCalled();
+		},
+	);
 
 	it('waits for an active poll before resetting scheduler state', async () => {
 		let finishClaim: (jobs: []) => void = () => undefined;

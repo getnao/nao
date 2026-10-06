@@ -4,7 +4,6 @@ import { z } from 'zod';
 
 import * as activityQueries from '../queries/activity.queries';
 import * as userQueries from '../queries/user.queries';
-import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
 	getFileTree,
@@ -43,7 +42,11 @@ import {
 	resolveContextSourceGitToken,
 } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
-import { adminProtectedProcedure, contextAdminProtectedProcedure } from './trpc';
+import {
+	cloudBillingAdminProcedure,
+	cloudBillingContextAdminProcedure,
+	contextAdminProtectedProcedure,
+} from './trpc';
 
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
@@ -75,16 +78,6 @@ const pullPayloadSchema = z.object({
 	files: z.array(pullFileSchema).max(MAX_PULL_HISTORY_FILES),
 });
 
-const contextMutationProcedure = contextAdminProtectedProcedure.use(async ({ ctx, next }) => {
-	await assertProjectCloudBillingAccess(ctx.project.id);
-	return next({ ctx });
-});
-
-const adminContextMutationProcedure = adminProtectedProcedure.use(async ({ ctx, next }) => {
-	await assertProjectCloudBillingAccess(ctx.project.id);
-	return next({ ctx });
-});
-
 export const contextExplorerRoutes = {
 	getRepositoryStatus: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
@@ -100,7 +93,7 @@ export const contextExplorerRoutes = {
 		return entries.map((entry, index) => ({ ...entry, fileExplorerAction: actions[index] ?? 'update' }));
 	}),
 
-	pullLiveContext: adminContextMutationProcedure.mutation(async ({ ctx }) => {
+	pullLiveContext: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
 		const activity = await activityQueries.startContextPullActivity(ctx.project.id, ctx.user.id);
 		let token: string | null | undefined;
 		try {
@@ -149,7 +142,7 @@ export const contextExplorerRoutes = {
 		}
 	}),
 
-	connectRepository: contextMutationProcedure
+	connectRepository: cloudBillingContextAdminProcedure
 		.input(
 			z.object({
 				provider: z.enum(REPO_PROVIDERS),
@@ -177,7 +170,7 @@ export const contextExplorerRoutes = {
 			return connectContextRepository({ ...context, token: context.token, ...input });
 		}),
 
-	disconnectRepository: contextMutationProcedure.mutation(async ({ ctx }) => {
+	disconnectRepository: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
 		return disconnectContextRepository({
 			projectId: ctx.project.id,
 			projectFolder: requireProjectPath(ctx.project.path),
@@ -203,7 +196,7 @@ export const contextExplorerRoutes = {
 		return readFileContent(input.path, access);
 	}),
 
-	writeFile: contextMutationProcedure
+	writeFile: cloudBillingContextAdminProcedure
 		.input(
 			z.object({
 				path: z.string(),
@@ -242,7 +235,7 @@ export const contextExplorerRoutes = {
 			return actions[0] ?? 'update';
 		}),
 
-	updateWorktree: contextMutationProcedure
+	updateWorktree: cloudBillingContextAdminProcedure
 		.input(z.object({ requiredCommits: z.array(commitSchema).max(2).default([]) }))
 		.mutation(async ({ ctx, input }) => {
 			return updateContextWorktree(
@@ -251,7 +244,7 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	switchBranch: contextMutationProcedure
+	switchBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return switchContextBranch(
@@ -260,7 +253,7 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	createBranch: contextMutationProcedure
+	createBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return createContextBranch(
@@ -273,7 +266,7 @@ export const contextExplorerRoutes = {
 		return suggestContextBranchName(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
-	createBranchAndCommit: contextMutationProcedure
+	createBranchAndCommit: cloudBillingContextAdminProcedure
 		.input(
 			z.object({
 				branch: branchSchema.optional(),
@@ -288,13 +281,13 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	commitChanges: contextMutationProcedure
+	commitChanges: cloudBillingContextAdminProcedure
 		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
 			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
 		}),
 
-	discardLocalChange: contextMutationProcedure
+	discardLocalChange: cloudBillingContextAdminProcedure
 		.input(z.object({ path: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			return discardContextFileChange(
@@ -303,11 +296,11 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
-	discardAllChanges: contextMutationProcedure.mutation(async ({ ctx }) => {
+	discardAllChanges: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
 		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
-	pushBranch: contextMutationProcedure.mutation(async ({ ctx }) => {
+	pushBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
 		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 };

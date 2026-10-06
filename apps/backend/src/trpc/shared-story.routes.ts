@@ -39,18 +39,29 @@ import { extractStorySummary } from '../utils/story-summary';
 import {
 	adminProtectedProcedure,
 	canSendProcedure,
+	cloudBillingMiddleware,
 	projectProtectedProcedure,
 	protectedProcedure,
 	resourceProjectProcedure,
 } from './trpc';
 
 const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
+const cloudBillingChatProcedure = chatProcedure.use(
+	cloudBillingMiddleware<{ resource: { projectId: string } }>(({ resource }) => ({
+		projectId: resource.projectId,
+	})),
+);
 const shareProcedure = resourceProjectProcedure('storyId', sharedStoryQueries.getSharedStoryByStoryId, 'Shared story');
 const shareAccessProcedure = resourceProjectProcedure(
 	'storyId',
 	sharedStoryQueries.getSharedStoryByStoryId,
 	'Shared story',
 	canUserAccessShare,
+);
+const cloudBillingShareAccessProcedure = shareAccessProcedure.use(
+	cloudBillingMiddleware<{ resource: { projectId: string } }>(({ resource }) => ({
+		projectId: resource.projectId,
+	})),
 );
 const legacyShareAccessProcedure = resourceProjectProcedure(
 	'shareId',
@@ -322,13 +333,15 @@ export const sharedStoryRoutes = {
 			return { queryData };
 		}),
 
-	getLiveQueryData: chatProcedure
+	getLiveQueryData: cloudBillingChatProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
-			return executeLiveQuery(input.chatId, input.queryId);
+		.query(async ({ input, ctx }) => {
+			return executeLiveQuery(input.chatId, input.queryId, {
+				billingAccessVerifiedProjectId: ctx.resource.projectId,
+			});
 		}),
 
-	getFilterOptions: shareAccessProcedure
+	getFilterOptions: cloudBillingShareAccessProcedure
 		.input(z.object({ storyId: z.string(), filterId: z.string() }))
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
@@ -336,10 +349,12 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId);
+			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId, {
+				billingAccessVerifiedProjectId: shared.projectId,
+			});
 		}),
 
-	getFilteredQueryData: shareAccessProcedure
+	getFilteredQueryData: cloudBillingShareAccessProcedure
 		.input(
 			z.object({
 				storyId: z.string(),
@@ -352,7 +367,9 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections);
+			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, {
+				billingAccessVerifiedProjectId: shared.projectId,
+			});
 		}),
 
 	getQuerySql: shareAccessProcedure
@@ -371,7 +388,7 @@ export const sharedStoryRoutes = {
 			return getStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.selections);
 		}),
 
-	refreshData: shareAccessProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ ctx }) => {
+	refreshData: cloudBillingShareAccessProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
 		if (!shared.chatId) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
@@ -396,7 +413,9 @@ export const sharedStoryRoutes = {
 		});
 		try {
 			return await withKeyedLock(`story:${story.id}`, async () => {
-				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
+				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
+					billingAccessVerifiedProjectId: shared.projectId,
+				});
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});

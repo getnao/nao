@@ -5,10 +5,6 @@ import { z } from 'zod/v4';
 
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
-import {
-	assertOrganizationCloudBillingAccess,
-	assertProjectCloudBillingAccess,
-} from '../services/cloud-billing-access.service';
 import * as gitlabService from '../services/gitlab';
 import { logger, serializeError } from '../utils/logger';
 import {
@@ -18,7 +14,12 @@ import {
 	readProjectNameFromConfig,
 	replaceExistingProject,
 } from '../utils/project-import.utils';
-import { adminProtectedProcedure, protectedProcedure, resolveOrganizationMembership } from './trpc';
+import {
+	adminProtectedProcedure,
+	cloudBillingAdminProcedure,
+	cloudBillingOrganizationProcedure,
+	protectedProcedure,
+} from './trpc';
 
 export const gitlabRoutes = {
 	isAvailable: protectedProcedure.query(() => {
@@ -61,7 +62,7 @@ export const gitlabRoutes = {
 			}
 		}),
 
-	createProjectFromRepo: protectedProcedure
+	createProjectFromRepo: cloudBillingOrganizationProcedure
 		.input(
 			z.object({
 				projectPathWithNamespace: z.string(),
@@ -75,13 +76,6 @@ export const gitlabRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitLab is not connected' });
 			}
 
-			const membership = await resolveOrganizationMembership(
-				ctx.user.id,
-				ctx.selectedProjectId,
-				ctx.selectedOrganizationId,
-			);
-			await assertOrganizationCloudBillingAccess(membership.orgId);
-
 			const cloneDir = createTempProjectDir('gitlab-import');
 			try {
 				try {
@@ -93,7 +87,7 @@ export const gitlabRoutes = {
 					throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to clone repository' });
 				}
 
-				const orgId = membership.orgId;
+				const orgId = ctx.organization.id;
 				const projectName =
 					input.projectName ||
 					readProjectNameFromConfig(cloneDir) ||
@@ -127,8 +121,7 @@ export const gitlabRoutes = {
 		return gitlabService.getGitInfo(ctx.project.path);
 	}),
 
-	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		await assertProjectCloudBillingAccess(ctx.project.id);
+	unlinkProject: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 		}

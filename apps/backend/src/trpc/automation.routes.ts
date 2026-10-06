@@ -12,7 +12,12 @@ import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
-import { canSendProcedure, projectProtectedProcedure } from './trpc';
+import {
+	canSendProcedure,
+	cloudBillingCanSendProcedure,
+	cloudBillingProjectProcedure,
+	projectProtectedProcedure,
+} from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 function assertAutomationsEnabled() {
@@ -26,7 +31,17 @@ const automationProcedure = canSendProcedure.use(({ next }) => {
 	return next();
 });
 
+const automationMutationProcedure = cloudBillingCanSendProcedure.use(({ next }) => {
+	assertAutomationsEnabled();
+	return next();
+});
+
 const automationReadProcedure = projectProtectedProcedure.use(({ next }) => {
+	assertAutomationsEnabled();
+	return next();
+});
+
+const automationCostProcedure = cloudBillingProjectProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
 	return next();
 });
@@ -101,7 +116,7 @@ export const automationRoutes = {
 		return { automation, runs };
 	}),
 
-	create: automationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
+	create: automationMutationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
 		await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'automationCreation');
 		assertTriggers(input.cron, input.webhookEnabled);
 		const { cron, enabled, title, ...promptInput } = input;
@@ -125,7 +140,7 @@ export const automationRoutes = {
 		return syncAutomationJob(automation, cron, enabled);
 	}),
 
-	update: automationProcedure
+	update: automationMutationProcedure
 		.input(writeAutomationSchema.extend({ id: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			assertTriggers(input.cron, input.webhookEnabled);
@@ -166,12 +181,15 @@ export const automationRoutes = {
 		return { success: true };
 	}),
 
-	runNow: automationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+	runNow: automationMutationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
 		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
 		if (!automation) {
 			return null;
 		}
-		return startAutomationRun(input.id, { requireEnabled: false });
+		return startAutomationRun(input.id, {
+			billingAccessVerifiedProjectId: ctx.project.id,
+			requireEnabled: false,
+		});
 	}),
 
 	/**
@@ -217,7 +235,7 @@ export const automationRoutes = {
 		return { success: true as const };
 	}),
 
-	parseCronFromText: automationReadProcedure
+	parseCronFromText: automationCostProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ ctx, input }) => {
 			const cron = await naturalLanguageToCron(ctx.project.id, input.text);

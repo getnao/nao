@@ -9,7 +9,6 @@ import {
 	updateExecuteSqlPart,
 } from '../queries/execute-sql.queries';
 import { buildToolContext } from './agent';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 
 export async function updateSqlQueryInChat(opts: {
 	queryId: string;
@@ -58,7 +57,6 @@ async function prepareSqlEditContext(opts: {
 		});
 	}
 
-	await assertProjectCloudBillingAccess(existing.projectId);
 	const context = await buildToolContext({
 		projectId: existing.projectId,
 		userId: opts.userId,

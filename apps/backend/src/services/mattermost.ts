@@ -30,7 +30,6 @@ import {
 	resolveMattermostCallbackBaseUrl,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import {
 	cacheMattermostEmail,
 	createMattermostActionSecret,
@@ -284,7 +283,6 @@ class ProjectMattermostBot {
 			if (!(await this._validateUserAccess(ctx))) {
 				return;
 			}
-			await assertProjectCloudBillingAccess(this._config.projectId);
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			this._answerPostStates.set(ctx.convMessage.id, {
 				baseProps: getMattermostPostBaseProps(ctx.convMessage.raw),

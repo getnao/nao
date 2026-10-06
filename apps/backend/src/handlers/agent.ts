@@ -68,7 +68,6 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await skillService.initializeSkills(projectId);
 
 	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
-		billingAccessVerifiedProjectId: projectId,
 		...(adminMode
 			? {
 					tools: adminAgentTools,
