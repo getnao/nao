@@ -281,6 +281,11 @@ body.is-loading{min-height:160px}
 
 	// Custom stories only render inside nao: the tool reply already carries their link, so the app stays empty.
 	function collapse() {
+		detachEmbedResizeListener();
+		clearPendingBlobFallback();
+		clearEmbedLoadWatch();
+		frame.hidden = true;
+		frame.removeAttribute('src');
 		body.classList.remove('is-loading');
 		statusEl.hidden = true;
 	}

@@ -62,7 +62,7 @@ const GET_NAO_ANSWER_DESCRIPTION =
 	'Fetch the result of an `ask_nao` run that is still in progress. ' +
 	"USE WHEN: a previous `ask_nao` (or `get_nao_answer`) call returned `status: 'running'`. " +
 	'Pass the `chatId` it returned. Poll every few seconds until `status` is `complete` ' +
-	'(the response then carries the final `text`, `queries` and `story_ids`) or `error`.';
+	'(the response then carries the final `text`, `queries`, `stories` — with the link to share for each — and `story_ids`) or `error`.';
 
 const ASK_NAO_QUERIES_SCHEMA = z
 	.array(
@@ -271,11 +271,12 @@ async function resolveAnswerPayload(chatId: string, ctx: McpContext): Promise<To
 
 /**
  * Best-effort recovery when the run is no longer tracked in memory (e.g. expired or a
- * restart): rebuild the final answer from the persisted chat. Query/story metadata is
- * not reconstructed since it only lives on the in-memory run.
+ * restart): rebuild the final answer and the chat's stories from the persisted chat. Query
+ * metadata is not reconstructed since it only lives on the in-memory run.
  */
 async function reconstructAnswerFromDb(chatId: string, ctx: McpContext): Promise<ToolResult> {
 	const answer = await extractAnswerFromChat(chatId);
+	const stories = await resolveChatStories(chatId);
 	return answerCompletePayload(
 		{
 			chatId,
@@ -283,10 +284,18 @@ async function reconstructAnswerFromDb(chatId: string, ctx: McpContext): Promise
 			text: answer.text,
 			...(answer.clarification ? { clarification: answer.clarification } : {}),
 			queries: [],
-			stories: [],
-			story_ids: [],
+			stories,
+			story_ids: stories.map((story) => story.id),
 		},
 		ctx,
+	);
+}
+
+async function resolveChatStories(chatId: string): Promise<AskNaoStory[]> {
+	const stories = await storyQueries.listStoriesInChat(chatId);
+	return resolveStories(
+		stories.map((story) => ({ id: story.slug, title: story.title })),
+		chatId,
 	);
 }
 
@@ -446,8 +455,12 @@ function formatStoryLinks(stories: AskNaoStory[]): string {
 	if (stories.length === 0) {
 		return '';
 	}
-	const links = stories.map((story) => `- [${story.title}](${story.url})`);
+	const links = stories.map((story) => `- [${escapeMarkdownLinkText(story.title)}](${story.url})`);
 	return `\n\nStories:\n${links.join('\n')}`;
+}
+
+function escapeMarkdownLinkText(text: string): string {
+	return text.replace(/\s+/g, ' ').replace(/[\\[\]()]/g, '\\$&');
 }
 
 async function buildChatContext(
