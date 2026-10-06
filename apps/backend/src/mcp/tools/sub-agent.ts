@@ -50,6 +50,10 @@ const ASK_NAO_CUSTOM_STORY_ADDENDUM =
 	'\n\nCUSTOM STORIES: besides classic markdown stories, nao can build a custom story — an interactive app ' +
 	'(slides, simulator, what-if sliders, drill-down views). Ask for "a custom story" or describe the app in ' +
 	'`question` and nao picks the format. A custom story only renders in nao: share its `stories[].url` with the user.';
+const ASK_NAO_CUSTOM_STORY_ADDENDUM =
+	'\n\nCUSTOM STORIES: besides classic markdown stories, nao can build a custom story — an interactive app ' +
+	'(slides, simulator, what-if sliders, drill-down views). Ask for "a custom story" or describe the app in ' +
+	'`question` and nao picks the format. A custom story only renders in nao: share its `stories[].url` with the user.';
 
 const ASK_NAO_STORY_RESTRICTED_DESCRIPTION =
 	'Default tool for analytics questions, chart requests, and updates to existing Stories. ' +
@@ -94,6 +98,17 @@ const ASK_NAO_STORIES_SCHEMA = z
 	)
 	.describe('Stories the sub-agent created or updated, with the link to open each one in nao.');
 
+const ASK_NAO_STORIES_SCHEMA = z
+	.array(
+		z.object({
+			id: z.string().describe('Story UUID.'),
+			title: z.string(),
+			format: z.enum(STORY_FORMATS).describe('`custom` stories are interactive apps that only render in nao.'),
+			url: z.url().describe('Link to open the story in nao — share it with the user.'),
+		}),
+	)
+	.describe('Stories the sub-agent created or updated, with the link to open each one in nao.');
+
 const ASK_NAO_CLARIFICATION_SCHEMA = z
 	.object({
 		question: z.string(),
@@ -105,6 +120,7 @@ const ASK_NAO_CLARIFICATION_SCHEMA = z
 	);
 
 export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
+	const askNaoDescription = buildAskNaoDescription(ctx);
 	const askNaoDescription = buildAskNaoDescription(ctx);
 
 	registerMcpTool(server, ctx, {
@@ -146,6 +162,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			text: z.string().describe('The assistant final text response. Empty while `status` is `running`.'),
 			clarification: ASK_NAO_CLARIFICATION_SCHEMA,
 			queries: ASK_NAO_QUERIES_SCHEMA,
+			stories: ASK_NAO_STORIES_SCHEMA,
 			stories: ASK_NAO_STORIES_SCHEMA,
 			story_ids: z
 				.array(z.string())
@@ -194,6 +211,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			clarification: ASK_NAO_CLARIFICATION_SCHEMA,
 			queries: ASK_NAO_QUERIES_SCHEMA,
 			stories: ASK_NAO_STORIES_SCHEMA,
+			stories: ASK_NAO_STORIES_SCHEMA,
 			story_ids: z.array(z.string()),
 			error: z.string().optional().describe('Failure reason when `status` is `error`.'),
 		},
@@ -221,12 +239,15 @@ async function runAskNaoInBackground(
 			answer = await extractAnswerFromChat(chatId);
 		}
 		const stories = await resolveStories(agent.generatedArtifacts.stories, chatId);
+		const stories = await resolveStories(agent.generatedArtifacts.stories, chatId);
 		const result: AskNaoResult = {
 			chatId,
 			chatUrl: naoChatUrl,
 			text: answer.text,
 			...(answer.clarification ? { clarification: answer.clarification } : {}),
 			queries: agent.queryResultsSummary,
+			stories,
+			story_ids: stories.map((story) => story.id),
 			stories,
 			story_ids: stories.map((story) => story.id),
 		};
@@ -335,6 +356,15 @@ function runningPayload(chatId: string, naoChatUrl: string): ToolResult {
 			stories: [],
 			story_ids: [],
 		},
+		structuredContent: {
+			status: 'running',
+			chatId,
+			chatUrl: naoChatUrl,
+			text: '',
+			queries: [],
+			stories: [],
+			story_ids: [],
+		},
 	};
 }
 
@@ -347,6 +377,11 @@ function answerCompletePayload(result: AskNaoResult, ctx: McpContext): ToolResul
 		{
 			type: 'text' as const,
 			text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]${formatStoryLinks(result.stories)}`,
+			text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]${formatStoryLinks(result.stories)}`,
+		},
+		{
+			type: 'text' as const,
+			text: JSON.stringify({ queries: result.queries, stories: result.stories, story_ids: result.story_ids }),
 		},
 		{
 			type: 'text' as const,
@@ -390,6 +425,7 @@ function clarificationPayload(result: AskNaoResult, clarification: AskNaoClarifi
 			clarification: structuredClarification,
 			queries: result.queries,
 			stories: result.stories,
+			stories: result.stories,
 			story_ids: result.story_ids,
 		},
 	};
@@ -404,6 +440,15 @@ function answerRunningPayload(chatId: string): ToolResult {
 				text: `Still running (chatId: ${chatId}). Call get_nao_answer again in a few seconds.`,
 			},
 		],
+		structuredContent: {
+			status: 'running',
+			chatId,
+			chatUrl: naoChatUrl,
+			text: '',
+			queries: [],
+			stories: [],
+			story_ids: [],
+		},
 		structuredContent: {
 			status: 'running',
 			chatId,
@@ -428,6 +473,7 @@ function answerErrorPayload(chatId: string, error: string): ToolResult {
 			text: '',
 			queries: [],
 			stories: [],
+			stories: [],
 			story_ids: [],
 			error,
 		},
@@ -444,9 +490,21 @@ function buildAskNaoDescription(ctx: McpContext): string {
 }
 
 async function resolveStories(stories: { id: string; title: string }[], chatId: string): Promise<AskNaoStory[]> {
+function buildAskNaoDescription(ctx: McpContext): string {
+	const dataModeAddendum = ctx.chartDataMode ? CHART_DATA_MODE_ASK_NAO_ADDENDUM : '';
+	if (!ctx.storyCreationEnabled) {
+		return ASK_NAO_STORY_RESTRICTED_DESCRIPTION + dataModeAddendum;
+	}
+	const customStoryAddendum = ctx.customStoryCreationEnabled ? ASK_NAO_CUSTOM_STORY_ADDENDUM : '';
+	return ASK_NAO_DESCRIPTION + customStoryAddendum + dataModeAddendum;
+}
+
+async function resolveStories(stories: { id: string; title: string }[], chatId: string): Promise<AskNaoStory[]> {
 	const resolved = await Promise.all(
 		stories.map(async (story): Promise<AskNaoStory | null> => {
+		stories.map(async (story): Promise<AskNaoStory | null> => {
 			const row = await storyQueries.getStoryByChatAndSlug(chatId, story.id);
+			return row ? { id: row.id, title: row.title, format: row.format, url: storyUrl(row.id) } : null;
 			return row ? { id: row.id, title: row.title, format: row.format, url: storyUrl(row.id) } : null;
 		}),
 	);
