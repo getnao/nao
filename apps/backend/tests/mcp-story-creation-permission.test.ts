@@ -14,7 +14,7 @@ class FakeMcpServer {
 	}
 }
 
-function createContext(storyCreationEnabled: boolean) {
+function createContext(storyCreationEnabled: boolean, customStoryCreationEnabled = false) {
 	return {
 		userId: 'user-id',
 		projectId: 'project-id',
@@ -24,6 +24,7 @@ function createContext(storyCreationEnabled: boolean) {
 		},
 		chartDataMode: false,
 		storyCreationEnabled,
+		customStoryCreationEnabled,
 	} as never;
 }
 
@@ -58,5 +59,16 @@ describe('MCP Story creation permission', () => {
 		expect(description).toContain('New Story creation is unavailable');
 		expect(description).toContain('existing Stories can still be updated');
 		expect(description).not.toContain('wants a story created');
+	});
+
+	it('tells the client about custom stories only when the user can author them', () => {
+		const withCustomStories = new FakeMcpServer();
+		const withoutCustomStories = new FakeMcpServer();
+
+		registerSubAgentTools(withCustomStories as never, createContext(true, true));
+		registerSubAgentTools(withoutCustomStories as never, createContext(true, false));
+
+		expect(withCustomStories.tools.get('ask_nao')?.description).toContain('CUSTOM STORIES');
+		expect(withoutCustomStories.tools.get('ask_nao')?.description).not.toContain('CUSTOM STORIES');
 	});
 });

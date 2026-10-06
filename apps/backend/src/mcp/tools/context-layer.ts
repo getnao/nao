@@ -16,7 +16,7 @@ import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
-import type { McpContext } from '../logging';
+import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
 import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
@@ -62,6 +62,7 @@ const CREATE_STORY_DESCRIPTION =
 const UPDATE_STORY_DESCRIPTION =
 	"Update a story's title and/or full content. Creates a new version; omit a field to keep its " +
 	'current value.\n\n' +
+	'Only for classic (markdown) stories: a custom story is edited by calling `ask_nao` with the chat it was built in.\n\n' +
 	'Preserve existing `<tab>` blocks unless the requested change makes tabs relevant or unnecessary; when using tabs, keep all content inside `<tab title="...">...</tab>` blocks.\n\n' +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
 	'stays valid.';
@@ -305,6 +306,9 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 		_meta: uiToolMeta(STORY_APP_URI),
 		handler: async ({ story_id, title, content, query_data, chat_id }) => {
 			const story = await resolveStory(story_id, ctx);
+			if (story.format === 'custom') {
+				return customStoryUpdateRefusal(story);
+			}
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
@@ -325,6 +329,21 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			return buildStoryMcpResultWithSandbox(output, ctx, newCode, effectiveChatId);
 		},
 	});
+}
+
+function customStoryUpdateRefusal(story: storyQueries.UserStoryRow): ToolResult {
+	const chatHint = story.chatId
+		? ` Call \`ask_nao\` with \`chatId\` "${story.chatId}" and describe the change instead.`
+		: '';
+	return {
+		content: [
+			{
+				type: 'text' as const,
+				text: `Error: "${story.title}" is a custom story (an interactive app), which \`update_story\` cannot edit.${chatHint}`,
+			},
+		],
+		isError: true,
+	};
 }
 
 async function cacheStoryQueryData(

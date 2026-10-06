@@ -19,12 +19,21 @@ export type ChartToolPayload = McpChartAppPayload & Record<string, unknown>;
 
 export type MapToolPayload = McpMapAppPayload & Record<string, unknown>;
 
+export type CustomStoryMcpToolPayload = { id: string; title: string; url: string; chatUrl: string | null };
+
 export const STORY_OUTPUT_SCHEMA = {
 	id: z.string().describe('Story UUID.'),
 	title: z.string().describe('Story title.'),
 	url: z.url().describe('URL to open the story in the nao UI.'),
 	chatUrl: z.url().nullable().describe('Source chat URL, or null for standalone stories.'),
-	embedUrl: z.url().describe('Sandboxed embed URL — render this in an iframe to show the story.'),
+	format: z
+		.literal('custom')
+		.optional()
+		.describe('Set for a custom story: an interactive app that only renders in nao, so share `url` with the user.'),
+	embedUrl: z
+		.url()
+		.optional()
+		.describe('Sandboxed embed URL — render this in an iframe to show the story. Absent for custom stories.'),
 	sandboxStoryHtml: z
 		.string()
 		.optional()
@@ -54,6 +63,18 @@ export function buildStoryToolResult(
 		structuredBase: slimPayload,
 		sandboxHtml: options?.sandboxStoryHtml,
 	});
+}
+
+/** A custom story is a React app that only renders inside nao, so its result carries the link instead of an embed. */
+export function buildCustomStoryToolResult(output: CustomStoryMcpToolPayload): ToolResult {
+	const structuredContent = { ...output, format: 'custom' as const };
+	return {
+		content: [
+			{ type: 'text', text: JSON.stringify(structuredContent) },
+			{ type: 'text', text: `**${output.title}**\n\n[Open in nao](${output.url})` },
+		],
+		structuredContent,
+	};
 }
 
 export function buildChartToolResult(

@@ -1,8 +1,17 @@
+import type { StoryFormat } from '@nao/shared/types';
+
 export interface AskNaoQuery {
 	id: string;
 	columns: string[];
 	row_count: number;
 	preview: Record<string, unknown>[];
+}
+
+export interface AskNaoStory {
+	id: string;
+	title: string;
+	format: StoryFormat;
+	url: string;
 }
 
 export interface AskNaoClarification {
@@ -16,6 +25,7 @@ export interface AskNaoResult {
 	text: string;
 	clarification?: AskNaoClarification;
 	queries: AskNaoQuery[];
+	stories: AskNaoStory[];
 	story_ids: string[];
 }
 
