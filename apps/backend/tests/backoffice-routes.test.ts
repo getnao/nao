@@ -221,6 +221,11 @@ describe('cloud backoffice routes', () => {
 		const renamedOrg = await request('PATCH', `/organizations/${ORG_ID}`, { name: 'Renamed Organization' });
 		expect(renamedOrg.statusCode).toBe(200);
 		expect(renamedOrg.json().name).toBe('Renamed Organization');
+		expect(renamedOrg.json().bypassBilling).toBe(false);
+
+		const bypassedOrg = await request('PATCH', `/organizations/${ORG_ID}`, { bypassBilling: true });
+		expect(bypassedOrg.statusCode).toBe(200);
+		expect(bypassedOrg.json().bypassBilling).toBe(true);
 
 		const updatedUser = await request('PATCH', `/users/${MEMBER_ID}`, {
 			name: 'Renamed Member',

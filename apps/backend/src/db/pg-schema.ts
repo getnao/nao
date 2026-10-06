@@ -186,6 +186,7 @@ export const organization = pgTable('organization', {
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
+	bypassBilling: boolean('bypass_billing').default(false).notNull(),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')

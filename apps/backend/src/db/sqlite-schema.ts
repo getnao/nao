@@ -197,6 +197,7 @@ export const organization = sqliteTable('organization', {
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
+	bypassBilling: integer('bypass_billing', { mode: 'boolean' }).default(false).notNull(),
 
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

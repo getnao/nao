@@ -1,5 +1,6 @@
 import { isCloudBillingEnabled } from '../env';
 import { getOrganizationBilling } from '../queries/billing.queries';
+import { getOrganizationById } from '../queries/organization.queries';
 import { getProjectById } from '../queries/project.queries';
 import type { BillingStatus } from '../types/billing';
 import { HandlerError } from '../utils/error';
@@ -56,6 +57,10 @@ export function hasCloudBillingAccess(entitlement: CloudBillingEntitlement | nul
 
 export async function hasOrganizationCloudBillingAccess(organizationId: string): Promise<boolean> {
 	if (!isCloudBillingEnabled()) {
+		return true;
+	}
+	const organization = await getOrganizationById(organizationId);
+	if (organization?.bypassBilling) {
 		return true;
 	}
 	const billing = await getOrganizationBilling(organizationId);

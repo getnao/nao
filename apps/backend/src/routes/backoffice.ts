@@ -68,7 +68,12 @@ export const backofficeRoutes = async (app: App) => {
 	app.patch('/organizations/:orgId', async (request, reply) => {
 		const params = parse(idParamsSchema, request.params, reply);
 		const body = parse(
-			z.object({ name: z.string().trim().min(1).max(100).optional() }).strict(),
+			z
+				.object({
+					name: z.string().trim().min(1).max(100).optional(),
+					bypassBilling: z.boolean().optional(),
+				})
+				.strict(),
 			request.body,
 			reply,
 		);

@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getOrganizationBilling: vi.fn(),
+	getOrganizationById: vi.fn(),
 	getProjectById: vi.fn(),
 	isCloudBillingEnabled: vi.fn(() => true),
 }));
 
 vi.mock('../src/env', () => ({ isCloudBillingEnabled: mocks.isCloudBillingEnabled }));
 vi.mock('../src/queries/billing.queries', () => ({ getOrganizationBilling: mocks.getOrganizationBilling }));
+vi.mock('../src/queries/organization.queries', () => ({ getOrganizationById: mocks.getOrganizationById }));
 vi.mock('../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
 
 import { hasCloudBillingAccess, hasProjectCloudBillingAccess } from '../src/services/cloud-billing-access.service';
@@ -115,6 +117,7 @@ describe('project cloud billing access', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.isCloudBillingEnabled.mockReturnValue(true);
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
 	});
 
 	it('grants access without looking up the project when cloud billing is disabled', async () => {
@@ -146,6 +149,15 @@ describe('project cloud billing access', () => {
 
 		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
 		expect(mocks.getOrganizationBilling).toHaveBeenCalledWith('organization-1');
+	});
+
+	it('grants access without checking Stripe when the organization bypasses billing', async () => {
+		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: true });
+		mocks.getOrganizationBilling.mockResolvedValue(null);
+
+		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
+		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
 	});
 });
 

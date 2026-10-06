@@ -173,6 +173,10 @@ export const updateOrganizationName = async (orgId: string, name: string): Promi
 	await db.update(s.organization).set({ name }).where(eq(s.organization.id, orgId)).execute();
 };
 
+export const updateOrganizationBypassBilling = async (orgId: string, bypassBilling: boolean): Promise<void> => {
+	await db.update(s.organization).set({ bypassBilling }).where(eq(s.organization.id, orgId)).execute();
+};
+
 export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
 	await db.update(s.organization).set({ googleAuthDomains: domains }).where(eq(s.organization.id, orgId)).execute();
 };
