@@ -18,7 +18,7 @@ import {
 import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
 import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
 	DatabaseContextAccess,
@@ -144,6 +144,7 @@ export function UserGroupEditor({
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
 	const hasMemberBudget = licenseFeatures.data?.['user-budget'] === true;
+	const memberBudgetTabUnavailable = !licenseFeatures.isLoading && !hasMemberBudget;
 	const memberBudgetOverview = useQuery({
 		...trpc.memberBudget.getOverview.queryOptions(),
 		enabled: hasMemberBudget,
@@ -221,7 +222,26 @@ export function UserGroupEditor({
 		oidcConfigurationState === 'loading' ||
 		microsoftConfigurationState === 'loading';
 	const hasSsoTab = hasConfiguredSsoProvider;
-	const tabs = hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs;
+	const tabs = (hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs).map((tab) =>
+		tab.id === 'budget'
+			? {
+					...tab,
+					label: memberBudgetTabUnavailable ? (
+						<span className='flex items-center gap-1.5'>
+							Budget
+							<span
+								aria-hidden='true'
+								className='inline-flex size-5 items-center justify-center rounded-full bg-primary/10 text-primary'
+							>
+								<Lock className='size-3' />
+							</span>
+						</span>
+					) : (
+						tab.label
+					),
+				}
+			: tab,
+	);
 	const hasUnsavedChanges =
 		editorGroup === null ||
 		hasGroupBudgetChanges ||

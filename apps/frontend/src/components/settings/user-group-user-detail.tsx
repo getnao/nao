@@ -3,6 +3,7 @@ import {
 	filterProjectRowSecurityByDatabaseContext,
 	resolveWarehouseRowSecurity,
 } from '@nao/shared';
+import { Lock } from 'lucide-react';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 import type {
@@ -104,6 +105,9 @@ export function UserGroupUserDetail({
 	activeTab,
 	onTabChange,
 }: UserGroupUserDetailProps) {
+	const license = useLicenseFeatures();
+	const hasMemberBudget = license.data?.['user-budget'] === true;
+	const memberBudgetTabUnavailable = !license.isLoading && !hasMemberBudget;
 	const membershipGroupIds = new Set(
 		memberships.filter((membership) => membership.userId === user.id).map((membership) => membership.groupId),
 	);
@@ -118,6 +122,26 @@ export function UserGroupUserDetail({
 		filesSyncState === 'ready'
 			? getEffectiveUserGroupAccessSummary(effectiveAccess, contextObjects, docsEntries, filesEntries)
 			: undefined;
+	const detailTabs = tabs.map((tab) =>
+		tab.id === 'budget'
+			? {
+					...tab,
+					label: memberBudgetTabUnavailable ? (
+						<span className='flex items-center gap-1.5'>
+							Budget
+							<span
+								aria-hidden='true'
+								className='inline-flex size-5 items-center justify-center rounded-full bg-primary/10 text-primary'
+							>
+								<Lock className='size-3' />
+							</span>
+						</span>
+					) : (
+						tab.label
+					),
+				}
+			: tab,
+	);
 
 	return (
 		<div className='flex flex-col gap-6'>
@@ -149,7 +173,7 @@ export function UserGroupUserDetail({
 					<p className='text-xs text-muted-foreground'>Effective access from all applicable groups.</p>
 				</div>
 				<TabBar
-					tabs={tabs}
+					tabs={detailTabs}
 					activeTab={activeTab}
 					onTabChange={onTabChange}
 					idBase='user-group-user-detail'
@@ -185,7 +209,7 @@ export function UserGroupUserDetail({
 							onRetry={onRetrySecurity}
 						/>
 					)}
-					{activeTab === 'budget' && <UserGroupUserBudget userId={user.id} />}
+					{activeTab === 'budget' && <UserGroupUserBudget userId={user.id} isLicensed={hasMemberBudget} />}
 				</TabPanel>
 			</section>
 		</div>
