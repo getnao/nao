@@ -285,6 +285,12 @@ body.is-loading{min-height:160px}
 		clearPendingBlobFallback();
 		clearEmbedLoadWatch();
 		frame.hidden = true;
+		if (lastBlobUrl) {
+			try {
+				URL.revokeObjectURL(lastBlobUrl);
+			} catch (e) {}
+			lastBlobUrl = null;
+		}
 		frame.removeAttribute('src');
 		body.classList.remove('is-loading');
 		statusEl.hidden = true;
