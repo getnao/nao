@@ -53,6 +53,7 @@ function getAccessNotice(
 		| {
 				organizationId: string;
 				hasAccess: boolean;
+				bypassBilling: boolean;
 				status: string | null;
 				trialEndsAt: Date | null;
 				trialAvailable: boolean;
@@ -63,6 +64,9 @@ function getAccessNotice(
 	now = Date.now(),
 ) {
 	if (!access) {
+		return null;
+	}
+	if (access.bypassBilling && !access.canManageBilling) {
 		return null;
 	}
 	if (access.trialAvailable) {

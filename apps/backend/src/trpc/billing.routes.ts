@@ -82,6 +82,7 @@ export const billingRoutes = {
 		return {
 			organizationId: ctx.organization.id,
 			hasAccess: hasCloudBillingAccess(billing),
+			bypassBilling: ctx.organization.bypassBilling,
 			status: billing?.billingStatus ?? null,
 			trialEndsAt: billing?.trialEndsAt ?? null,
 			canManageBilling: ctx.orgRole === 'admin',

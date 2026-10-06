@@ -99,6 +99,7 @@ describe('billing.getAccess', () => {
 		await expect(caller().billing.getAccess()).resolves.toEqual({
 			organizationId: 'org-id',
 			hasAccess: true,
+			bypassBilling: false,
 			status: 'trialing',
 			trialEndsAt,
 			canManageBilling: false,
@@ -567,6 +568,7 @@ function membership(organization: Record<string, unknown>, role = 'admin') {
 		organization: {
 			id: 'org-id',
 			name: 'Test Organization',
+			bypassBilling: false,
 		},
 	};
 }

@@ -12,6 +12,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const restrictedTrialAccess = {
 	canManageBilling: true,
 	hasAccess: false,
+	bypassBilling: false,
 	organizationId: 'project-organization',
 	requiresBillingAction: true,
 	status: 'trialing',
@@ -83,6 +84,22 @@ it('explains the subscription requirement without presenting it as an alert', ()
 
 	expect(screen.getByRole('status').textContent).toContain('A subscription is needed to keep using nao Cloud.');
 	expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps the subscription notice for admins of an organization that bypasses billing', () => {
+	mocks.access = { ...restrictedTrialAccess, bypassBilling: true };
+
+	render(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain('A subscription is needed to keep using nao Cloud.');
+});
+
+it('hides the notice from members of an organization that bypasses billing', () => {
+	mocks.access = { ...restrictedTrialAccess, bypassBilling: true, canManageBilling: false };
+
+	render(<CloudBillingAccessBanner />);
+
+	expect(screen.queryByRole('status')).toBeNull();
 });
 
 it('warns about a failed payment while access is kept', () => {
