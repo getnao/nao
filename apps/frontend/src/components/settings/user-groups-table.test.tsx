@@ -98,6 +98,7 @@ vi.mock('@/main', () => ({
 		},
 		memberBudget: {
 			getSettings: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-settings'] })) },
+			getOverview: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-overview'] })) },
 			getForMember: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-for-member'] })) },
 			setPersonalBudget: { mutationOptions: vi.fn() },
 		},
@@ -343,11 +344,13 @@ beforeEach(() => {
 							? { version: 1, tables: [] }
 							: queryKey === 'rules-file'
 								? { content: '', hash: 'rules-hash' }
-								: queryKey === 'context-catalog'
-									? { syncState: 'ready', objects: [] }
-									: queryKey === 'docs-context-catalog'
-										? { syncState: 'ready', entries: [] }
-										: overview,
+								: queryKey === 'member-budget-overview'
+									? { period: 'month', defaultLimitUsd: 0, groups: [], members: [] }
+									: queryKey === 'context-catalog'
+										? { syncState: 'ready', objects: [] }
+										: queryKey === 'docs-context-catalog'
+											? { syncState: 'ready', entries: [] }
+											: overview,
 		};
 	});
 	mocks.useMutation.mockReturnValue({
