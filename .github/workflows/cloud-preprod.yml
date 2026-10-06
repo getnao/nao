@@ -12,22 +12,18 @@ permissions:
 
 # nimbus is the cloud preprod (NAO_MODE=cloud) served at nimbus.getnao.io. It runs on Cloud Run in
 # the `nao-previews` GCP project, reusing the PR preview registry and Workload Identity Federation,
-# behind the global load balancer through a dedicated serverless NEG. Unlike PR previews its state
-# persists: Postgres through DB_URI, projects and storage on Cloud Storage buckets mounted with FUSE.
+# behind the global load balancer through a dedicated serverless NEG. The SQLite database, projects
+# and storage live on the container filesystem, so like PR previews all data is reset on every deploy.
+# Access is GitHub-only and restricted to the preview allowlist.
 env:
     GCP_PROJECT_ID: nao-previews
     GCP_REGION: europe-west9
     GCP_WORKLOAD_IDENTITY_PROVIDER: projects/996255898595/locations/global/workloadIdentityPools/github/providers/github
     GCP_DEPLOYER_SERVICE_ACCOUNT: github-preview-deployer@nao-previews.iam.gserviceaccount.com
-    GCP_RUNTIME_SERVICE_ACCOUNT: nao-nimbus-runtime@nao-previews.iam.gserviceaccount.com
+    GCP_RUNTIME_SERVICE_ACCOUNT: nao-preview-runtime@nao-previews.iam.gserviceaccount.com
     IMAGE: europe-west9-docker.pkg.dev/nao-previews/previews/nao
     SERVICE_NAME: nimbus
     NIMBUS_DOMAIN: nimbus.getnao.io
-    PROJECTS_BUCKET: nao-nimbus-projects
-    STORAGE_BUCKET: nao-nimbus-storage
-    # uid/gid of the `nao` user created in the Dockerfile, which owns the FUSE mounts.
-    NAO_UID: 1000
-    NAO_GID: 1000
 
 jobs:
     deploy:
@@ -100,15 +96,14 @@ jobs:
                   RUNTIME_BETTER_AUTH_URL: https://${{ env.NIMBUS_DOMAIN }}
                   RUNTIME_BETTER_AUTH_SECRET: ${{ secrets.NIMBUS_BETTER_AUTH_SECRET }}
                   RUNTIME_NAO_BACKOFFICE_API_KEY: ${{ secrets.NIMBUS_BACKOFFICE_API_KEY }}
-                  RUNTIME_DB_SSL: 'true'
-                  RUNTIME_DB_URI: ${{ secrets.NIMBUS_DB_URI }}
-                  RUNTIME_ENABLE_USER_LOGIN: 'true'
-                  RUNTIME_ENABLE_USER_SIGNUP: 'true'
+                  RUNTIME_DB_URI: sqlite:/app/db.sqlite
+                  RUNTIME_ENABLE_USER_LOGIN: 'false'
+                  RUNTIME_ENABLE_USER_SIGNUP: 'false'
                   RUNTIME_GITHUB_SSO: 'true'
                   RUNTIME_GITHUB_CLIENT_ID: ${{ secrets.NIMBUS_GITHUB_CLIENT_ID }}
                   RUNTIME_GITHUB_CLIENT_SECRET: ${{ secrets.NIMBUS_GITHUB_CLIENT_SECRET }}
-                  RUNTIME_GOOGLE_CLIENT_ID: ${{ secrets.NIMBUS_GOOGLE_CLIENT_ID }}
-                  RUNTIME_GOOGLE_CLIENT_SECRET: ${{ secrets.NIMBUS_GOOGLE_CLIENT_SECRET }}
+                  RUNTIME_GITHUB_ALLOWED_USERS: ${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }}
+                  RUNTIME_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   RUNTIME_CLOUD_GITHUB_PROJECT_ORG: ${{ secrets.NIMBUS_GITHUB_PROJECT_ORG }}
                   RUNTIME_CLOUD_GITHUB_PROJECT_APP_ID: ${{ secrets.NIMBUS_GITHUB_PROJECT_APP_ID }}
                   RUNTIME_CLOUD_GITHUB_PROJECT_INSTALLATION_ID: ${{ secrets.NIMBUS_GITHUB_PROJECT_INSTALLATION_ID }}
@@ -129,12 +124,11 @@ jobs:
                       | with_entries(select((.key | startswith("RUNTIME_")) and .value != ""))
                       | with_entries(.key |= ltrimstr("RUNTIME_"))' > "$RUNNER_TEMP/nimbus-env.json"
 
-            # Single instance that never scales to zero nor throttles CPU: warehouse provisioning
-            # runs `nao init` / `nao sync` in the background, outside of any request.
+            # Exactly one instance that never scales to zero nor throttles CPU: the SQLite database
+            # lives on the instance, and warehouse provisioning runs `nao init` / `nao sync` in the
+            # background, outside of any request.
             - name: Deploy to Cloud Run
               run: |
-                  MOUNT_OPTIONS="uid=${NAO_UID};gid=${NAO_GID};implicit-dirs"
-
                   gcloud run deploy "$SERVICE_NAME" \
                       --project "$GCP_PROJECT_ID" \
                       --region "$GCP_REGION" \
@@ -153,9 +147,6 @@ jobs:
                       --timeout 3600 \
                       --allow-unauthenticated \
                       --ingress internal-and-cloud-load-balancing \
-                      --clear-volumes \
-                      --add-volume "name=projects,type=cloud-storage,bucket=${PROJECTS_BUCKET},mount-path=/app/projects,mount-options=${MOUNT_OPTIONS}" \
-                      --add-volume "name=storage,type=cloud-storage,bucket=${STORAGE_BUCKET},mount-path=/app/storage,mount-options=${MOUNT_OPTIONS}" \
                       --startup-probe "httpGet.path=/api/health,httpGet.port=5005,periodSeconds=5,timeoutSeconds=3,failureThreshold=60" \
                       --labels "app=nao-nimbus,commit=${{ steps.sha.outputs.short_sha }}" \
                       --env-vars-file "$RUNNER_TEMP/nimbus-env.json" \
