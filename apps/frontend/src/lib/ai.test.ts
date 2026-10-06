@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	areGroupedMessagePartsEqual, checkAssistantMessageHasContent, groupToolCalls,
+	areGroupedMessagePartsEqual,
+	checkAssistantMessageHasContent,
+	groupToolCalls,
 	isOnboardingContextRequestMessage,
 	ONBOARDING_CONTEXT_REQUEST_PREFIX,
 } from './ai';
-import type { UIMessage } from '@nao/backend/chat';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
 import type { GroupedMessagePart } from '@/types/ai';
 
