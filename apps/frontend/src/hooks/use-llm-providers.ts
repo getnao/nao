@@ -18,6 +18,7 @@ export interface EditingState {
 	provider: LlmProvider;
 	isEditing: boolean;
 	inheritedKeySource: InheritedKeySource | null;
+	focusedModelId?: string;
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
@@ -87,6 +88,8 @@ export function useLlmProviders() {
 			}),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getKnownTranscribeModels.queryOptions().queryKey }),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.budget.getUnpricedModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.budget.getProvidersCostSupport.queryOptions().queryKey }),
 		]);
 	};
 
@@ -183,6 +186,28 @@ export function useLlmProviders() {
 		});
 	};
 
+	/** Open a provider's form, optionally on one of its models, wherever the provider is declared. */
+	const handleEditProvider = (provider: LlmProvider, focusedModelId?: string) => {
+		openProviderForm(provider);
+		setEditingState((state) => (state?.provider === provider ? { ...state, focusedModelId } : state));
+	};
+
+	const openProviderForm = (provider: LlmProvider) => {
+		const projectConfig = projectConfigs.find((c) => c.provider === provider);
+		if (projectConfig) {
+			handleEditConfig(projectConfig);
+			return;
+		}
+		const configProvider = configProviders.find((c) => c.provider === provider);
+		if (configProvider) {
+			handleOverrideConfigProvider(configProvider);
+			return;
+		}
+		if (envProviders.includes(provider)) {
+			handleConfigureEnvProvider(provider);
+		}
+	};
+
 	const getModelDisplayName = (provider: LlmProvider, modelId: string) => {
 		const models = knownModels.data?.[providerKind(provider)] ?? [];
 		const knownName = models.find((m) => m.id === modelId)?.name;
@@ -214,6 +239,7 @@ export function useLlmProviders() {
 		unconfiguredEnvProviders,
 		unconfiguredConfigProviders,
 		currentModels,
+		isLoaded: llmConfigs.isSuccess && knownModels.isSuccess,
 
 		// State
 		editingState,
@@ -231,6 +257,7 @@ export function useLlmProviders() {
 		handleDeleteConfig,
 		handleSelectProvider,
 		handleConfigureEnvProvider,
+		handleEditProvider,
 		getModelDisplayName,
 	};
 }

@@ -669,6 +669,7 @@ export const PROVIDER_META: ProviderMetaMap = {
 		auth: { apiKey: 'none' },
 		envVar: 'OLLAMA_API_KEY',
 		baseUrlEnvVar: 'OLLAMA_BASE_URL',
+		selfHosted: true,
 		extractorModelId: 'llama3.2:3b',
 		summaryModelId: 'llama3.2:3b',
 		models: [

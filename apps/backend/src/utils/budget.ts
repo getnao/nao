@@ -3,7 +3,6 @@ import type { MemberBudgetSource } from '@nao/shared/member-budget';
 import {
 	type CalendarPeriod,
 	type LlmProvider,
-	type LlmProviderKind,
 	providerKind,
 	providerLabel,
 	WARNING_BUDGET_THRESHOLD,
@@ -23,7 +22,7 @@ import type { BudgetPeriod } from '../types/budget';
 import type { CustomModelMetadata } from '../types/llm';
 import { buildBudgetLimitReachedEmail } from './email-builders';
 import { BudgetExceededError } from './error';
-import { getProjectConfigLlm, getProjectDeclaredModels } from './llm';
+import { getProjectAvailableModels, getProjectConfigLlm, getProjectDeclaredModels } from './llm';
 import { logger } from './logger';
 import { type MemberBudgetUsage, resolveMemberBudgetUsage } from './member-budget';
 import type { ConfigProviderBudget } from './nao-config-llm';
@@ -69,17 +68,35 @@ export async function getEffectiveProviderBudgets(projectId: string): Promise<Ef
 }
 
 /**
- * Whether spend can be computed for each provider of a project: either nao ships prices for the
- * provider's models, or an admin declared token costs on at least one of its models.
+ * Whether spend can be computed for each provider of a project: at least one of its active models
+ * has a token cost, either from nao's price table or declared by an admin.
  */
 export async function getProvidersCostSupport(projectId: string): Promise<Record<LlmProvider, boolean>> {
-	const sources = await getProjectDeclaredModels(projectId);
+	const [activeModels, declaredSources] = await Promise.all([
+		getProjectAvailableModels(projectId),
+		getProjectDeclaredModels(projectId),
+	]);
 	return Object.fromEntries(
-		sources.map(({ provider, models }) => [
+		declaredSources.map(({ provider }) => [
 			provider,
-			hasBuiltInCosts(providerKind(provider)) || models.some(hasDeclaredCosts),
+			activeModels.some(
+				(model) => model.provider === provider && hasModelCost(provider, model.modelId, declaredSources),
+			),
 		]),
 	) as Record<LlmProvider, boolean>;
+}
+
+export type UnpricedModel = { provider: LlmProvider; modelId: string; name: string };
+
+export async function getUnpricedModels(projectId: string): Promise<UnpricedModel[]> {
+	const [activeModels, declaredSources] = await Promise.all([
+		getProjectAvailableModels(projectId),
+		getProjectDeclaredModels(projectId),
+	]);
+	return activeModels
+		.filter(({ provider }) => !PROVIDER_META[providerKind(provider)].selfHosted)
+		.filter(({ provider, modelId }) => !hasModelCost(provider, modelId, declaredSources))
+		.map(({ provider, modelId, name }) => ({ provider, modelId, name }));
 }
 
 export async function checkBudgetStatus(
@@ -204,8 +221,16 @@ type ResolvedBudget = {
 	periodStart: Date;
 };
 
-function hasBuiltInCosts(kind: LlmProviderKind): boolean {
-	return PROVIDER_META[kind].models.some((model) => model.costPerM !== undefined);
+function hasModelCost(
+	provider: LlmProvider,
+	modelId: string,
+	declaredSources: Array<{ provider: LlmProvider; models: CustomModelMetadata[] }>,
+): boolean {
+	const builtInModel = PROVIDER_META[providerKind(provider)].models.find((model) => model.id === modelId);
+	const declaredModel = declaredSources
+		.find((source) => source.provider === provider)
+		?.models.find((model) => model.id === modelId);
+	return builtInModel?.costPerM !== undefined || (declaredModel !== undefined && hasDeclaredCosts(declaredModel));
 }
 
 function hasDeclaredCosts(model: CustomModelMetadata): boolean {

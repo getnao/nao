@@ -4,13 +4,22 @@ import * as budgetQueries from '../queries/budget.queries';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setBudgetsInputSchema } from '../types/budget';
 import { llmProviderSchema } from '../types/llm';
-import { checkBudgetStatus, getEffectiveProviderBudgets, getProvidersCostSupport } from '../utils/budget';
+import {
+	checkBudgetStatus,
+	getEffectiveProviderBudgets,
+	getProvidersCostSupport,
+	getUnpricedModels,
+} from '../utils/budget';
 import { getProjectConfigLlm } from '../utils/llm';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const budgetRoutes = {
 	getProvidersCostSupport: projectProtectedProcedure.query(async ({ ctx }) => {
 		return getProvidersCostSupport(ctx.project.id);
+	}),
+
+	getUnpricedModels: adminProtectedProcedure.query(async ({ ctx }) => {
+		return getUnpricedModels(ctx.project.id);
 	}),
 
 	getBudgets: projectProtectedProcedure.query(async ({ ctx }) => {

@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { BudgetSettings } from '@/components/settings/budget-settings';
 import { MemberBudgetSettings } from '@/components/settings/member-budget-settings';
 import { MyMemberBudget } from '@/components/settings/my-member-budget';
+import { UnpricedModelsWarning } from '@/components/settings/unpriced-models-warning';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useLicenseFeatures } from '@/hooks/use-license';
@@ -65,6 +66,7 @@ function BudgetPage() {
 				className='border-b'
 			/>
 			<TabPanel idBase={TAB_ID_BASE} tabId={activeTab} className='flex flex-col gap-12'>
+				{isAdmin && <UnpricedModelsWarning />}
 				{activeTab === 'general' ? (
 					<BudgetSettings />
 				) : isAdmin ? (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, MoreHorizontal, Plus, TriangleAlert, X } from 'lucide-react';
 import { getDefaultModelId, getModelParameterSpec, getProviderAuth, PROVIDER_META } from '@nao/backend/provider-meta';
@@ -30,6 +30,8 @@ export interface LlmProviderFormProps {
 		modelSettings: ModelSettingsMap;
 		baseUrl: string;
 	};
+	/** Model whose settings dialog opens as soon as the form is shown. */
+	initialEditedModelId?: string;
 	currentModels: readonly { id: string; name: string; default?: boolean }[];
 	takenNames?: readonly string[];
 	onSubmit: (values: {
@@ -54,6 +56,7 @@ export function LlmProviderForm({
 	isEditing,
 	inheritedKeySource,
 	initialValues,
+	initialEditedModelId,
 	currentModels,
 	takenNames = [],
 	onSubmit,
@@ -66,9 +69,23 @@ export function LlmProviderForm({
 }: LlmProviderFormProps) {
 	const [showAdvanced, setShowAdvanced] = useState(!!initialValues?.baseUrl);
 	const [customModelInput, setCustomModelInput] = useState('');
-	const [editingCustomModelId, setEditingCustomModelId] = useState<string | null>(null);
-	const [editingModelParamsId, setEditingModelParamsId] = useState<string | null>(null);
+	const isCustomModel = (modelId: string) => !currentModels.some((m) => m.id === modelId);
 	const supportsModelParameters = (modelId: string) => getModelParameterSpec(provider, modelId).length > 0;
+	const [editingCustomModelId, setEditingCustomModelId] = useState<string | null>(() =>
+		initialEditedModelId && isCustomModel(initialEditedModelId) ? initialEditedModelId : null,
+	);
+	const [editingModelParamsId, setEditingModelParamsId] = useState<string | null>(() =>
+		initialEditedModelId && !isCustomModel(initialEditedModelId) && supportsModelParameters(initialEditedModelId)
+			? initialEditedModelId
+			: null,
+	);
+	const containerRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (initialEditedModelId) {
+			containerRef.current?.scrollIntoView({ block: 'center' });
+		}
+	}, [initialEditedModelId]);
 	const providerAuth = getProviderAuth(provider);
 	const showApiKey = providerAuth.apiKey !== 'none';
 	const extraFields = providerAuth.extraFields ?? [];
@@ -133,8 +150,6 @@ export function LlmProviderForm({
 		}
 		return `Enter your ${providerLabel} API key`;
 	};
-
-	const isCustomModel = (modelId: string) => !currentModels.some((m) => m.id === modelId);
 
 	const saveProviderIfEditing = () => {
 		if (isEditing) {
@@ -568,7 +583,9 @@ export function LlmProviderForm({
 
 	return (
 		<>
-			<div className='flex flex-col gap-3 p-4 rounded-lg border border-primary/50 bg-muted/30'>{content}</div>
+			<div ref={containerRef} className='flex flex-col gap-3 p-4 rounded-lg border border-primary/50 bg-muted/30'>
+				{content}
+			</div>
 			{customModelDialog}
 			{modelParametersDialog}
 		</>

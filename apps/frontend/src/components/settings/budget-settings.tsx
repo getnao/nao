@@ -2,9 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
+import { PROVIDER_META } from '@nao/backend/provider-meta';
 import { getNextPeriodStart } from '@nao/shared/date';
-import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD, providerLabel, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
-import type { BudgetPeriod } from '@nao/shared/types';
+import {
+	BUDGET_PERIODS,
+	MAX_BUDGET_LIMIT_USD,
+	providerKind,
+	providerLabel,
+	WARNING_BUDGET_THRESHOLD,
+} from '@nao/shared/types';
+import type { BudgetPeriod, LlmProvider } from '@nao/shared/types';
 
 import { UnsavedChangesFooter } from '@/components/settings/unsaved-changes-footer';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
@@ -200,18 +207,25 @@ export function BudgetSettings() {
 										<TableCell colSpan={5}>
 											<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
 												<TriangleAlert className='size-4 shrink-0' />
-												<span>
-													No token prices known for this provider. Set the costs of its models
-													in{' '}
-													<Link
-														to='/settings/project/agent'
-														search={{ tab: 'models' }}
-														className='underline underline-offset-2 hover:text-foreground'
-													>
-														Models
-													</Link>{' '}
-													to enable budget tracking.
-												</span>
+												{isSelfHosted(provider) ? (
+													<span>
+														Budget tracking is disabled for self-hosted providers, as they
+														have no token cost.
+													</span>
+												) : (
+													<span>
+														No token prices known for this provider. Set the costs of its
+														models in{' '}
+														<Link
+															to='/settings/project/agent'
+															search={{ tab: 'models', provider }}
+															className='underline underline-offset-2 hover:text-foreground'
+														>
+															Models
+														</Link>{' '}
+														to enable budget tracking.
+													</span>
+												)}
 											</span>
 										</TableCell>
 									</TableRow>
@@ -422,4 +436,8 @@ function spendClassName(spend: number, limit: number): string {
 		return 'text-amber-500 font-medium';
 	}
 	return '';
+}
+
+function isSelfHosted(provider: LlmProvider): boolean {
+	return PROVIDER_META[providerKind(provider)].selfHosted === true;
 }
