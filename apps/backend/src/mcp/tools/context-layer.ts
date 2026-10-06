@@ -18,7 +18,22 @@ import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-to
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
-import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
+import {
+	CREATE_CUSTOM_STORY_DESCRIPTION,
+	CREATE_CUSTOM_STORY_INPUT,
+	createCustomStoryForMcp,
+	resolveCustomStory,
+	UPDATE_CUSTOM_STORY_DESCRIPTION,
+	UPDATE_CUSTOM_STORY_INPUT,
+	updateCustomStoryForMcp,
+} from './custom-story-mcp';
+import {
+	buildStoryMcpResultWithSandbox,
+	fetchLatestStoryVersion,
+	generateStorySlug,
+	resolveChartChatId,
+	resolveStory,
+} from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 
 const EXECUTE_SQL_BASE_DESCRIPTION =
@@ -62,7 +77,6 @@ const CREATE_STORY_DESCRIPTION =
 const UPDATE_STORY_DESCRIPTION =
 	"Update a story's title and/or full content. Creates a new version; omit a field to keep its " +
 	'current value.\n\n' +
-	'Only for classic (markdown) stories: a custom story is edited by calling `ask_nao` with the chat it was built in.\n\n' +
 	'Preserve existing `<tab>` blocks unless the requested change makes tabs relevant or unnecessary; when using tabs, keep all content inside `<tab title="...">...</tab>` blocks.\n\n' +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
 	'stays valid.';
@@ -211,7 +225,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 		registerMcpTool(server, ctx, {
 			name: 'create_story',
 			title: 'Create Story',
-			description: CREATE_STORY_DESCRIPTION,
+			description:
+				CREATE_STORY_DESCRIPTION + (ctx.customStoryCreationEnabled ? CREATE_CUSTOM_STORY_DESCRIPTION : ''),
 			inputSchema: {
 				title: z.string().describe('Story title.'),
 				content: z
@@ -236,18 +251,28 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					.describe(
 						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
 					),
+				...(ctx.customStoryCreationEnabled ? CREATE_CUSTOM_STORY_INPUT : {}),
 			},
 			outputSchema: STORY_OUTPUT_SCHEMA,
 			_meta: uiToolMeta(STORY_APP_URI),
-			handler: async ({ title, content, query_data, chat_id }) => {
-				const slug = generateSlug(title);
+			handler: async ({ title, content, query_data, chat_id, format, files }) => {
+				if (format === 'custom') {
+					if (content !== undefined || query_data !== undefined) {
+						return errorResult('A custom story takes `files`, not `content` or `query_data`.');
+					}
+					return createCustomStoryForMcp({ chatId: chat_id, title, files }, ctx);
+				}
+				if (files !== undefined) {
+					return errorResult('`files` only applies to `format: "custom"`.');
+				}
+				const slug = generateStorySlug(title);
 				const code = content ?? `# ${title}\n`;
 				const story = chat_id
 					? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
 					: await createStandaloneStory({ slug, title, code, ctx });
 
 				if ('error' in story) {
-					return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
+					return errorResult(story.error);
 				}
 
 				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
@@ -269,7 +294,9 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 	registerMcpTool(server, ctx, {
 		name: 'update_story',
 		title: 'Update Story',
-		description: UPDATE_STORY_DESCRIPTION,
+		description: ctx.customStoryCreationEnabled
+			? UPDATE_STORY_DESCRIPTION + UPDATE_CUSTOM_STORY_DESCRIPTION
+			: UPDATE_STORY_DESCRIPTION,
 		inputSchema: {
 			story_id: z
 				.string()
@@ -301,13 +328,28 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					'Chat UUID to associate this revision with (e.g. `chatId` from `ask_nao`). ' +
 						"Sets the 'Open in nao' button on the story's embedded charts.",
 				),
+			...(ctx.customStoryCreationEnabled ? UPDATE_CUSTOM_STORY_INPUT : {}),
 		},
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ story_id, title, content, query_data, chat_id }) => {
+		handler: async ({ story_id, title, content, query_data, chat_id, files, delete_paths }) => {
+			const customStory = ctx.customStoryCreationEnabled ? await resolveCustomStory(story_id, ctx) : null;
+			if (customStory) {
+				if (content !== undefined || query_data !== undefined) {
+					return errorResult('A custom story is edited with `files` and `delete_paths`, not `content`.');
+				}
+				return updateCustomStoryForMcp(
+					customStory,
+					{ title, files: files ?? [], deletePaths: delete_paths ?? [] },
+					ctx,
+				);
+			}
 			const story = await resolveStory(story_id, ctx);
 			if (story.format === 'custom') {
 				return customStoryUpdateRefusal(story);
+			}
+			if (files !== undefined || delete_paths !== undefined) {
+				return errorResult('`files` and `delete_paths` only apply to custom stories.');
 			}
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
@@ -335,15 +377,13 @@ function customStoryUpdateRefusal(story: storyQueries.UserStoryRow): ToolResult 
 	const chatHint = story.chatId
 		? ` Call \`ask_nao\` with \`chatId\` "${story.chatId}" and describe the change instead.`
 		: '';
-	return {
-		content: [
-			{
-				type: 'text' as const,
-				text: `Error: "${story.title}" is a custom story (an interactive app), which \`update_story\` cannot edit.${chatHint}`,
-			},
-		],
-		isError: true,
-	};
+	return errorResult(
+		`"${story.title}" is a custom story (an interactive app), which you cannot edit here.${chatHint}`,
+	);
+}
+
+function errorResult(message: string): ToolResult {
+	return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true };
 }
 
 async function cacheStoryQueryData(
@@ -370,15 +410,6 @@ async function cacheStoryQueryData(
 	if (chatId) {
 		await pinQueryDataToChat(chatId, resolvedQueryData);
 	}
-}
-
-function generateSlug(title: string): string {
-	return (
-		title
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-|-$/g, '') || 'untitled'
-	);
 }
 
 type CreatedStory = { id: string; title: string; slug: string; chatId: string | null; createdAt: Date };

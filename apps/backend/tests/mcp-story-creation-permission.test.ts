@@ -7,9 +7,9 @@ import { registerContextLayerTools } from '../src/mcp/tools/context-layer';
 import { registerSubAgentTools } from '../src/mcp/tools/sub-agent';
 
 class FakeMcpServer {
-	readonly tools = new Map<string, { description?: string }>();
+	readonly tools = new Map<string, { description?: string; inputSchema?: Record<string, unknown> }>();
 
-	registerTool(name: string, config: { description?: string }): void {
+	registerTool(name: string, config: { description?: string; inputSchema?: Record<string, unknown> }): void {
 		this.tools.set(name, config);
 	}
 }
@@ -70,5 +70,22 @@ describe('MCP Story creation permission', () => {
 
 		expect(withCustomStories.tools.get('ask_nao')?.description).toContain('CUSTOM STORIES');
 		expect(withoutCustomStories.tools.get('ask_nao')?.description).not.toContain('CUSTOM STORIES');
+	});
+
+	it('accepts custom story inputs only when the user can author custom stories', () => {
+		const allowed = new FakeMcpServer();
+		const denied = new FakeMcpServer();
+
+		registerContextLayerTools(allowed as never, createContext(true, true), []);
+		registerContextLayerTools(denied as never, createContext(true, false), []);
+
+		expect(Object.keys(allowed.tools.get('create_story')?.inputSchema ?? {})).toEqual(
+			expect.arrayContaining(['format', 'files']),
+		);
+		expect(Object.keys(allowed.tools.get('update_story')?.inputSchema ?? {})).toEqual(
+			expect.arrayContaining(['files', 'delete_paths']),
+		);
+		expect(Object.keys(denied.tools.get('create_story')?.inputSchema ?? {})).not.toContain('format');
+		expect(Object.keys(denied.tools.get('update_story')?.inputSchema ?? {})).not.toContain('files');
 	});
 });

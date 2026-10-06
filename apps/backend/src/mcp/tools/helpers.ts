@@ -37,6 +37,15 @@ export async function resolveChartChatId(chatId: string | undefined, ctx: McpCon
 	return chatId;
 }
 
+export function generateStorySlug(title: string): string {
+	return (
+		title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-|-$/g, '') || 'untitled'
+	);
+}
+
 export async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
 	const story = await storyQueries.getStoryByIdForUser(storyId, ctx.userId);
 	if (!story) {
@@ -49,7 +58,7 @@ export async function resolveStory(storyId: string, ctx: McpContext): Promise<Us
 	return story;
 }
 
-export async function fetchLatestStoryVersion(story: UserStoryRow) {
+export async function fetchLatestStoryVersion(story: Pick<UserStoryRow, 'chatId' | 'id' | 'slug'>) {
 	return story.chatId
 		? storyQueries.getLatestVersionByChatAndSlug(story.chatId, story.slug)
 		: storyQueries.getLatestVersionByStoryId(story.id);

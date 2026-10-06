@@ -13,7 +13,6 @@ import {
 } from '../chart-data-mode';
 import {
 	buildChartToolResult,
-	buildCustomStoryToolResult,
 	buildMapToolResult,
 	STORY_OUTPUT_SCHEMA,
 	type StoryMcpToolPayload,
@@ -21,6 +20,7 @@ import {
 import { CHART_APP_URI, MAP_APP_URI, STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
+import { getCustomStoryForMcp } from './custom-story-mcp';
 import {
 	buildChartEmbedFromArtifact,
 	buildMapEmbedFromArtifact,
@@ -51,7 +51,7 @@ const GET_STORY_DESCRIPTION =
 	'and a rendered HTML embed.\n\n' +
 	"Useful when you need the actual markdown of a story to get it's latest content and metadata.\n\n" +
 	'A custom story (`format: "custom"`) is an interactive app that only renders in nao: it returns its `url` ' +
-	'and no content or embed, so share that link with the user.\n\n' +
+	'(share that link with the user, there is no embed) and its source files in `sourceFiles`.\n\n' +
 	'`story_id` must be the UUID (returned by `list_stories.id` or `ask_nao.stories[].id`), not the kebab-case slug.';
 
 const ARCHIVE_STORY_DESCRIPTION =
@@ -323,15 +323,11 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		_meta: uiToolMeta(STORY_APP_URI),
 		errorMessage: (error) => (error instanceof Error ? error.message : 'get_story failed. Please try again.'),
 		handler: async ({ story_id }) => {
-			const story = await resolveStory(story_id, ctx);
-			if (story.format === 'custom') {
-				return buildCustomStoryToolResult({
-					id: story.id,
-					title: story.title,
-					url: storyUrl(story.id),
-					chatUrl: storyChatUrl(story),
-				});
+			const customStoryResult = await getCustomStoryForMcp(story_id, ctx);
+			if (customStoryResult) {
+				return customStoryResult;
 			}
+			const story = await resolveStory(story_id, ctx);
 			const version = await fetchLatestStoryVersion(story);
 
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
