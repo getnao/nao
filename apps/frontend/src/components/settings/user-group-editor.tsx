@@ -144,12 +144,17 @@ export function UserGroupEditor({
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
 	const hasMemberBudget = licenseFeatures.data?.['user-budget'] === true;
-	const memberBudgetSettings = useQuery({
-		...trpc.memberBudget.getSettings.queryOptions(),
+	const memberBudgetOverview = useQuery({
+		...trpc.memberBudget.getOverview.queryOptions(),
 		enabled: hasMemberBudget,
 	});
+	const userGroupOverview = useQuery(trpc.userGroup.overview.queryOptions());
+	const groupBudgetMembers = useMemo(
+		() => buildGroupBudgetMembers(memberBudgetOverview.data?.members ?? [], userGroupOverview.data),
+		[memberBudgetOverview.data?.members, userGroupOverview.data],
+	);
 	const savedGroupBudgetUsd = hasMemberBudget
-		? resolveSavedGroupBudget(existingGroup, memberBudgetSettings.data)
+		? resolveSavedGroupBudget(existingGroup, memberBudgetOverview.data)
 		: null;
 	const [groupBudgetUsd, setGroupBudgetUsd] = useState<number | null>(savedGroupBudgetUsd);
 	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
@@ -438,13 +443,16 @@ export function UserGroupEditor({
 						)}
 						{activeTab === 'budget' && (
 							<UserGroupBudget
+								groupId={existingGroup?.id ?? null}
 								isLicensed={hasMemberBudget}
 								isDefaultGroup={existingGroup?.isDefault === true}
-								isLoading={memberBudgetSettings.isLoading}
-								isError={memberBudgetSettings.isError}
+								isLoading={memberBudgetOverview.isLoading || userGroupOverview.isLoading}
+								isError={memberBudgetOverview.isError || userGroupOverview.isError}
 								limitUsd={groupBudgetUsd}
-								defaultLimitUsd={memberBudgetSettings.data?.defaultLimitUsd ?? 0}
-								period={memberBudgetSettings.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
+								defaultLimitUsd={memberBudgetOverview.data?.defaultLimitUsd ?? 0}
+								period={memberBudgetOverview.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
+								members={groupBudgetMembers}
+								groups={memberBudgetOverview.data?.groups ?? []}
 								onLimitChange={setGroupBudgetUsd}
 							/>
 						)}
@@ -837,15 +845,57 @@ export function invalidateUserGroupQueries(queryClient: QueryClient) {
 
 function resolveSavedGroupBudget(
 	group: UserGroupEditorGroup | null,
-	settings: { defaultLimitUsd: number; groupBudgets: Array<{ groupId: string; limitUsd: number }> } | undefined,
+	overview: { defaultLimitUsd: number; groups: Array<{ id: string; limitUsd: number | null }> } | undefined,
 ): number | null {
-	if (!group || !settings) {
+	if (!group || !overview) {
 		return null;
 	}
 	if (group.isDefault) {
-		return settings.defaultLimitUsd;
+		return overview.defaultLimitUsd;
 	}
-	return settings.groupBudgets.find((groupBudget) => groupBudget.groupId === group.id)?.limitUsd ?? null;
+	return overview.groups.find((candidate) => candidate.id === group.id)?.limitUsd ?? null;
+}
+
+function buildGroupBudgetMembers(
+	budgetMembers: Array<{
+		id: string;
+		name: string;
+		email: string;
+		spendUsd: number;
+		personalLimitUsd: number | null;
+		groupIds: string[];
+	}>,
+	userGroups:
+		| {
+				users: Array<{ id: string; name: string; email: string }>;
+				memberships: Array<{ groupId: string; userId: string }>;
+		  }
+		| undefined,
+) {
+	if (!userGroups) {
+		return budgetMembers;
+	}
+
+	const budgetByUserId = new Map(budgetMembers.map((member) => [member.id, member]));
+	const groupIdsByUserId = new Map<string, string[]>();
+	for (const membership of userGroups.memberships) {
+		groupIdsByUserId.set(membership.userId, [
+			...(groupIdsByUserId.get(membership.userId) ?? []),
+			membership.groupId,
+		]);
+	}
+
+	return userGroups.users.map((user) => {
+		const budget = budgetByUserId.get(user.id);
+		return {
+			id: user.id,
+			name: user.name,
+			email: user.email,
+			spendUsd: budget?.spendUsd ?? 0,
+			personalLimitUsd: budget?.personalLimitUsd ?? null,
+			groupIds: groupIdsByUserId.get(user.id) ?? [],
+		};
+	});
 }
 
 function UserGroupFeatures({
