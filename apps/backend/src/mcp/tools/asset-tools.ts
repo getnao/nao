@@ -13,7 +13,6 @@ import {
 } from '../chart-data-mode';
 import {
 	buildChartToolResult,
-	buildCustomStoryToolResult,
 	buildMapToolResult,
 	STORY_OUTPUT_SCHEMA,
 	type StoryMcpToolPayload,
@@ -329,14 +328,6 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				return customStoryResult;
 			}
 			const story = await resolveStory(story_id, ctx);
-			if (story.format === 'custom') {
-				return buildCustomStoryToolResult({
-					id: story.id,
-					title: story.title,
-					url: storyUrl(story.id),
-					chatUrl: storyChatUrl(story),
-				});
-			}
 			const version = await fetchLatestStoryVersion(story);
 
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);

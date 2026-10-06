@@ -42,7 +42,7 @@ export function generateStorySlug(title: string): string {
 		title
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-|-$/g, '') || `untitled-${randomUUID().slice(0, 8)}`
+			.replace(/^-|-$/g, '') || 'untitled'
 	);
 }
 

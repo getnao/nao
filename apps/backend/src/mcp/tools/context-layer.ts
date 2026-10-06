@@ -77,7 +77,6 @@ const CREATE_STORY_DESCRIPTION =
 const UPDATE_STORY_DESCRIPTION =
 	"Update a story's title and/or full content. Creates a new version; omit a field to keep its " +
 	'current value.\n\n' +
-	'Only for classic (markdown) stories: a custom story is edited by calling `ask_nao` with the chat it was built in.\n\n' +
 	'Preserve existing `<tab>` blocks unless the requested change makes tabs relevant or unnecessary; when using tabs, keep all content inside `<tab title="...">...</tab>` blocks.\n\n' +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
 	'stays valid.';

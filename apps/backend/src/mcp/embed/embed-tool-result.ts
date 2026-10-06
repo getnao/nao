@@ -43,6 +43,15 @@ const CUSTOM_STORY_FIELDS = {
 		.describe('Custom stories only: the draft source files, to edit and send back to `update_story`.'),
 };
 
+export const CUSTOM_STORY_OUTPUT_SCHEMA = {
+	id: z.string().describe('Story UUID.'),
+	title: z.string().describe('Story title.'),
+	url: z.url().describe('URL to open the story in nao — share it with the user.'),
+	chatUrl: z.url().nullable().describe('Chat the story was built from.'),
+	format: z.literal('custom'),
+	...CUSTOM_STORY_FIELDS,
+};
+
 export const STORY_OUTPUT_SCHEMA = {
 	id: z.string().describe('Story UUID.'),
 	title: z.string().describe('Story title.'),
