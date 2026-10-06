@@ -21,7 +21,7 @@ import {
 	CloudSubscriptionUnavailableError,
 	getCloudBillingPlans,
 } from '../services/stripe.service';
-import { CLOUD_MONTHLY_PLAN, isTerminalBillingStatus } from '../types/billing';
+import { isTerminalBillingStatus } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
 import { publicProcedure, resolveOrganizationMembership } from './trpc';
@@ -75,6 +75,7 @@ const cloudBillingAccessProcedure = cloudBillingProcedure.use(async ({ ctx, next
 });
 
 const requestInput = z.object({ requestId: z.uuid() });
+const checkoutInput = z.object({ billingInterval: z.enum(['monthly', 'yearly']) });
 
 export const billingRoutes = {
 	getAccess: cloudBillingAccessProcedure.query(async ({ ctx }) => {
@@ -106,12 +107,16 @@ export const billingRoutes = {
 			organization.trialStartedAt === null &&
 			organization.trialEndsAt === null &&
 			organization.stripeSubscriptionId === null;
-		const { availablePlan, subscriptionPlan } = await getCloudBillingPlans(organization.stripePriceId).catch(
+		const { availablePlans, subscriptionPlan } = await getCloudBillingPlans(organization.stripePriceId).catch(
 			(error: unknown) => throwBillingFailure('plan lookup', 'Unable to load billing plans', error),
 		);
+		const projectedPlan =
+			subscriptionPlan ??
+			Object.values(availablePlans).find((plan) => plan.key === organization.billingPlan) ??
+			null;
 		return {
-			plan: organization.billingPlan === CLOUD_MONTHLY_PLAN.key ? (subscriptionPlan ?? availablePlan) : null,
-			availablePlan,
+			plan: projectedPlan,
+			availablePlans,
 			planKey: organization.billingPlan,
 			status: organization.billingStatus,
 			trialStartedAt: organization.trialStartedAt,
@@ -133,9 +138,10 @@ export const billingRoutes = {
 		};
 	}),
 
-	createTrialCheckoutSession: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
+	createTrialCheckoutSession: cloudBillingAdminProcedure.input(checkoutInput).mutation(async ({ ctx, input }) => {
 		try {
 			const url = await createCloudTrialCheckoutForAdmin({
+				billingInterval: input.billingInterval,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
 			});
@@ -207,9 +213,10 @@ export const billingRoutes = {
 		}
 	}),
 
-	createResubscribeSession: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
+	createResubscribeSession: cloudBillingAdminProcedure.input(checkoutInput).mutation(async ({ ctx, input }) => {
 		try {
 			const url = await createCloudResubscribeForAdmin({
+				billingInterval: input.billingInterval,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
 			});

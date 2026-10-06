@@ -1,4 +1,4 @@
-import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing';
+import type { BillingInterval, OrganizationBillingSearch } from '@/hooks/use-organization-billing';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -183,6 +183,7 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 	return (
 		<SettingsCard title='Billing setup'>
 			<div className='flex flex-col gap-5'>
+				<BillingIntervalSelector billingState={billingState} />
 				<div>
 					<div className='mb-1 text-sm font-medium text-foreground'>{plan.name}</div>
 					<div className='text-2xl font-semibold text-foreground'>
@@ -246,6 +247,76 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 				</div>
 			</div>
 		</SettingsCard>
+	);
+}
+
+function BillingIntervalSelector({ billingState }: { billingState: BillingState }) {
+	const plans = billingState.billing.data?.availablePlans;
+	if (!plans) {
+		return null;
+	}
+	const yearlySavings = 1 - plans.yearly.amount / (plans.monthly.amount * 12);
+	const yearlyMonthlyEquivalent = plans.yearly.amount / 12;
+	const yearlyDescription = `${formatBillingPrice(yearlyMonthlyEquivalent, plans.yearly.currency)} per month equivalent${
+		yearlySavings > 0
+			? ` · Save ${new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 }).format(yearlySavings)}`
+			: ''
+	}`;
+
+	return (
+		<div className='grid gap-3 sm:grid-cols-2' role='group' aria-label='Billing interval'>
+			<BillingIntervalOption
+				billingInterval='monthly'
+				billingState={billingState}
+				title='Monthly'
+				price={`${formatBillingPrice(plans.monthly.amount, plans.monthly.currency)} per month`}
+				description='Billed monthly'
+			/>
+			<BillingIntervalOption
+				billingInterval='yearly'
+				billingState={billingState}
+				title='Yearly'
+				price={`${formatBillingPrice(plans.yearly.amount, plans.yearly.currency)} per year`}
+				description={yearlyDescription}
+			/>
+		</div>
+	);
+}
+
+function BillingIntervalOption({
+	billingInterval,
+	billingState,
+	title,
+	price,
+	description,
+}: {
+	billingInterval: BillingInterval;
+	billingState: BillingState;
+	title: string;
+	price: string;
+	description: string;
+}) {
+	const selected = billingState.selectedBillingInterval === billingInterval;
+	return (
+		<button
+			type='button'
+			aria-pressed={selected}
+			className={`flex flex-col items-start gap-1 rounded-lg border p-4 text-left transition-colors ${
+				selected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
+			}`}
+			onClick={() => {
+				billingState.setSelectedBillingInterval(billingInterval);
+			}}
+			disabled={
+				billingState.isCheckoutPolling ||
+				billingState.isTrialCheckoutPending ||
+				billingState.isResubscribePending
+			}
+		>
+			<span className='font-medium text-foreground'>{title}</span>
+			<span className='text-sm text-foreground'>{price}</span>
+			<span className='text-xs text-muted-foreground'>{description}</span>
+		</button>
 	);
 }
 
@@ -387,6 +458,11 @@ function BillingManagementCard({ billingState }: { billingState: BillingState })
 							<p className='text-sm text-muted-foreground'>
 								{getBillingManagementDescription(status, billing.data.hasDefaultPaymentMethod === true)}
 							</p>
+							{billing.data.resubscribeAvailable && (
+								<div className='w-full'>
+									<BillingIntervalSelector billingState={billingState} />
+								</div>
+							)}
 							<div className='flex flex-wrap gap-2'>
 								{billing.data.resubscribeAvailable && (
 									<Button

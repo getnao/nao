@@ -2,7 +2,7 @@ import type { DBOrganization, DBOrganizationBilling } from '../db/abstractSchema
 import * as billingQueries from '../queries/billing.queries';
 import * as organizationQueries from '../queries/organization.queries';
 import * as userQueries from '../queries/user.queries';
-import { CLOUD_MONTHLY_PLAN, isTerminalBillingStatus } from '../types/billing';
+import { CLOUD_BILLING_PLANS, type CloudBillingInterval, isTerminalBillingStatus } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { reconcileCloudBillingCustomer } from './billing-reconciliation.service';
 import {
@@ -25,6 +25,10 @@ interface AdminBillingRequestInput extends AdminBillingInput {
 	requestId: string;
 }
 
+interface AdminBillingCheckoutInput extends AdminBillingInput {
+	billingInterval: CloudBillingInterval;
+}
+
 type CloudBillingOrganization = DBOrganization & Omit<DBOrganizationBilling, 'orgId'>;
 
 export class CloudBillingManagementInputError extends HandlerError {
@@ -38,7 +42,7 @@ export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInp
 	return requireAdminOrganization(input);
 }
 
-export async function createCloudTrialCheckoutForAdmin(input: AdminBillingInput): Promise<string> {
+export async function createCloudTrialCheckoutForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
 	const organization = await requireAdminOrganization(input);
 	if (
 		organization.billingStatus ||
@@ -50,9 +54,10 @@ export async function createCloudTrialCheckoutForAdmin(input: AdminBillingInput)
 	}
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudCheckoutSession({
+		billingInterval: input.billingInterval,
 		organizationId: organization.id,
 		stripeCustomerId,
-		trialDays: CLOUD_MONTHLY_PLAN.trialDays,
+		trialDays: CLOUD_BILLING_PLANS[input.billingInterval].trialDays,
 	});
 }
 
@@ -102,7 +107,7 @@ export async function createCloudPaymentMethodPortalForAdmin(input: AdminBilling
 	});
 }
 
-export async function createCloudResubscribeForAdmin(input: AdminBillingInput): Promise<string> {
+export async function createCloudResubscribeForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
 	const organization = await requireAdminOrganization(input);
 	const isMissingSubscriptionRecovery =
 		!organization.stripeSubscriptionId &&
@@ -116,6 +121,7 @@ export async function createCloudResubscribeForAdmin(input: AdminBillingInput): 
 	}
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudResubscribeSession({
+		billingInterval: input.billingInterval,
 		organizationId: organization.id,
 		stripeCustomerId,
 		allowMissingHistory: isMissingSubscriptionRecovery,

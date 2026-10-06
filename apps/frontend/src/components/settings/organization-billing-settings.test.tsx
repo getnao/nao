@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
 	invoicePromotionCodes: [] as string[],
 	invoiceTotal: 100_000,
 	resubscribe: vi.fn(),
+	selectedBillingInterval: 'monthly' as 'monthly' | 'yearly',
+	setSelectedBillingInterval: vi.fn(),
 	status: 'trialing' as BillingData['status'],
 	trialAvailable: false,
 	trialEndsAt: new Date('2026-10-08T00:00:00.000Z') as Date | null,
@@ -30,6 +32,7 @@ const mocks = vi.hoisted(() => ({
 		nextPaymentAt: Date;
 		promotionCodes: string[];
 	} | null,
+	yearlyPlanAmount: 2_000_000,
 }));
 
 vi.mock('@/hooks/use-organization-billing', () => ({
@@ -45,11 +48,13 @@ beforeEach(() => {
 	mocks.invoiceKind = 'subscription';
 	mocks.invoicePromotionCodes = [];
 	mocks.invoiceTotal = 100_000;
+	mocks.selectedBillingInterval = 'monthly';
 	mocks.status = 'trialing';
 	mocks.trialAvailable = false;
 	mocks.trialEndsAt = new Date('2026-10-08T00:00:00.000Z');
 	mocks.trialStartedAt = new Date('2026-09-24T00:00:00.000Z');
 	mocks.upcomingInvoice = null;
+	mocks.yearlyPlanAmount = 2_000_000;
 });
 
 afterEach(cleanup);
@@ -61,6 +66,19 @@ it('offers a paid recovery Checkout when a recorded trial has no Stripe subscrip
 
 	expect(mocks.resubscribe).toHaveBeenCalledOnce();
 	expect(screen.getByText('Already used')).toBeTruthy();
+});
+
+it('offers monthly and yearly choices when restarting a canceled subscription', () => {
+	mocks.hasStripeSubscription = true;
+	mocks.status = 'canceled';
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByRole('button', { name: /Monthly/ }).getAttribute('aria-pressed')).toBe('true');
+	expect(screen.getByRole('button', { name: /Yearly/ }).getAttribute('aria-pressed')).toBe('false');
+
+	fireEvent.click(screen.getByRole('button', { name: /Yearly/ }));
+	expect(mocks.setSelectedBillingInterval).toHaveBeenCalledWith('yearly');
 });
 
 it('uses neutral trial copy when billing history has no recorded trial', () => {
@@ -161,6 +179,34 @@ it('explains trial and recurring amounts before opening Stripe Checkout', () => 
 	expect(screen.getByText(/Stripe applies promotion codes to the recurring price/)).toBeTruthy();
 });
 
+it('defaults to monthly and shows the Stripe-derived yearly discount before Checkout', () => {
+	mocks.trialAvailable = true;
+	mocks.trialEndsAt = null;
+	mocks.trialStartedAt = null;
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByRole('button', { name: /Monthly/ }).getAttribute('aria-pressed')).toBe('true');
+	expect(screen.getByRole('button', { name: /Yearly/ }).getAttribute('aria-pressed')).toBe('false');
+	expect(screen.getByText(/\$20,000 per year/)).toBeTruthy();
+	expect(screen.getByText(/\$1,666.67 per month equivalent · Save 16.67%/)).toBeTruthy();
+
+	fireEvent.click(screen.getByRole('button', { name: /Yearly/ }));
+	expect(mocks.setSelectedBillingInterval).toHaveBeenCalledWith('yearly');
+});
+
+it('does not claim savings when the yearly Price has no discount', () => {
+	mocks.trialAvailable = true;
+	mocks.trialEndsAt = null;
+	mocks.trialStartedAt = null;
+	mocks.yearlyPlanAmount = 2_400_000;
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByText('$2,000 per month equivalent')).toBeTruthy();
+	expect(screen.queryByText(/Save/)).toBeNull();
+});
+
 function billingState(): BillingState {
 	const plan = {
 		amount: 200_000,
@@ -172,8 +218,14 @@ function billingState(): BillingState {
 		trialDays: 14,
 		userLimit: null,
 	} satisfies NonNullable<BillingState['plan']>;
+	const yearlyPlan = {
+		...plan,
+		amount: mocks.yearlyPlanAmount,
+		interval: 'year',
+		key: 'cloud_yearly_v1',
+	} as const;
 	const data = {
-		availablePlan: plan,
+		availablePlans: { monthly: plan, yearly: yearlyPlan },
 		billingAccessEndsAt: null,
 		canManageBilling: true,
 		cancellationScheduled: mocks.cancellationScheduled,
@@ -185,7 +237,8 @@ function billingState(): BillingState {
 		plan: mocks.hasStripeSubscription ? plan : null,
 		planKey: mocks.hasStripeSubscription ? plan.key : null,
 		portalAvailable: false,
-		resubscribeAvailable: !mocks.hasStripeSubscription,
+		resubscribeAvailable:
+			!mocks.hasStripeSubscription || mocks.status === 'canceled' || mocks.status === 'incomplete_expired',
 		status: mocks.status,
 		trialAvailable: mocks.trialAvailable,
 		trialEndsAt: mocks.trialEndsAt,
@@ -247,6 +300,8 @@ function billingState(): BillingState {
 		plan,
 		portalFeedback: null,
 		resubscribe: mocks.resubscribe,
+		selectedBillingInterval: mocks.selectedBillingInterval,
+		setSelectedBillingInterval: mocks.setSelectedBillingInterval,
 		resume: vi.fn(),
 		retryCheckoutConfirmation: vi.fn(),
 		status: mocks.status,

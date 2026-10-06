@@ -11,9 +11,12 @@ export type OrganizationBillingSearch = {
 	portal?: 'returned';
 };
 
+export type BillingInterval = 'monthly' | 'yearly';
+
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const queryClient = useQueryClient();
 	const initialStatusSyncRequested = useRef(false);
+	const [selectedBillingInterval, setSelectedBillingInterval] = useState<BillingInterval>('monthly');
 	const [isResumeConfirming, setIsResumeConfirming] = useState(false);
 	const [isCheckoutPolling, setIsCheckoutPolling] = useState(
 		search.checkout === 'success' || search.checkout === 'subscribed',
@@ -96,7 +99,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		}),
 	);
 
-	const plan = billing.data?.plan ?? billing.data?.availablePlan;
+	const plan = billing.data?.plan ?? billing.data?.availablePlans?.[selectedBillingInterval];
 	const hasStripeSubscription = billing.data?.hasStripeSubscription === true;
 	const status = billing.data?.status ?? null;
 	const isHistoricalSubscription = isHistoricalBillingStatus(status);
@@ -183,6 +186,8 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		hasStripeSubscription,
 		isHistoricalSubscription,
 		isEndingAtPeriodEnd,
+		selectedBillingInterval,
+		setSelectedBillingInterval,
 		isCheckoutPolling,
 		isCheckoutConfirmationDelayed:
 			(search.checkout === 'success' || search.checkout === 'subscribed') &&
@@ -204,10 +209,10 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isResubscribePending: resubscribe.isPending,
 		isResumePending: resumeSubscription.isPending,
 		isBillingSyncPending: syncStripeBilling.isPending,
-		openTrialCheckout: () => trialCheckout.mutate(),
+		openTrialCheckout: () => trialCheckout.mutate({ billingInterval: selectedBillingInterval }),
 		openPortal: () => portal.mutate({ requestId: crypto.randomUUID() }),
 		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: crypto.randomUUID() }),
-		resubscribe: () => resubscribe.mutate(),
+		resubscribe: () => resubscribe.mutate({ billingInterval: selectedBillingInterval }),
 		resume: () => resumeSubscription.mutate({ requestId: crypto.randomUUID() }),
 		syncBilling: () => {
 			setIsBillingRefreshPolling(true);

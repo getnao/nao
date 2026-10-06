@@ -6,10 +6,12 @@ const stripeMocks = vi.hoisted(() => ({
 	createCustomer: vi.fn(),
 	createInvoicePreview: vi.fn(),
 	createPortalSession: vi.fn(),
+	expireCheckoutSession: vi.fn(),
 	listCheckoutSessions: vi.fn(),
 	listInvoices: vi.fn(),
 	listPrices: vi.fn(),
 	listSubscriptions: vi.fn(),
+	retrieveCheckoutSession: vi.fn(),
 	retrievePrice: vi.fn(),
 	resumeSubscription: vi.fn(),
 	retrieveCustomer: vi.fn(),
@@ -27,7 +29,9 @@ vi.mock('stripe', () => ({
 		checkout = {
 			sessions: {
 				create: stripeMocks.createCheckoutSession,
+				expire: stripeMocks.expireCheckoutSession,
 				list: stripeMocks.listCheckoutSessions,
+				retrieve: stripeMocks.retrieveCheckoutSession,
 			},
 		};
 		customers = {
@@ -64,7 +68,7 @@ import {
 	createCloudResubscribeSession,
 	findCloudSubscription,
 	getCloudBillingPlans,
-	getCloudMonthlyPrice,
+	getCloudPrice,
 	getCloudUpcomingInvoice,
 	getStripeClient,
 	listCloudInvoices,
@@ -82,14 +86,18 @@ beforeEach(() => {
 	process.env.NAO_MODE = 'cloud';
 	process.env.STRIPE_CLOUD_PRODUCT_ID = 'prod_cloud';
 	process.env.STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY = 'nao_cloud_monthly_v2';
+	process.env.STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY = 'yearly_sub';
 	process.env.STRIPE_SECRET_KEY = 'sk_test_example';
 	process.env.STRIPE_WEBHOOK_SECRET = 'whsec_example';
 	__reloadEnvForTesting();
 	__resetStripeForTesting();
 	vi.clearAllMocks();
-	stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice()] });
+	stripeMocks.listPrices.mockImplementation(({ lookup_keys }: Stripe.PriceListParams) => ({
+		data: [lookup_keys?.[0] === 'yearly_sub' ? cloudYearlyPrice() : cloudMonthlyPrice()],
+	}));
 	stripeMocks.listCheckoutSessions.mockReturnValue(paginatedList([]));
 	stripeMocks.listSubscriptions.mockReturnValue(paginatedList([]));
+	stripeMocks.expireCheckoutSession.mockResolvedValue({});
 	stripeMocks.retrieveCustomer.mockResolvedValue({
 		deleted: false,
 		default_source: null,
@@ -107,12 +115,12 @@ afterEach(() => {
 	__resetStripeForTesting();
 });
 
-describe('getCloudMonthlyPrice', () => {
+describe('getCloudPrice', () => {
 	it('resolves the configured active Price', async () => {
 		const expectedPrice = cloudMonthlyPrice();
 		stripeMocks.listPrices.mockResolvedValue({ data: [expectedPrice] });
 
-		await expect(getCloudMonthlyPrice()).resolves.toBe(expectedPrice);
+		await expect(getCloudPrice('monthly')).resolves.toBe(expectedPrice);
 		expect(stripeMocks.listPrices).toHaveBeenCalledWith({
 			active: true,
 			expand: ['data.product'],
@@ -121,10 +129,31 @@ describe('getCloudMonthlyPrice', () => {
 		});
 	});
 
+	it('resolves the configured yearly Price', async () => {
+		const expectedPrice = cloudYearlyPrice();
+		stripeMocks.listPrices.mockResolvedValue({ data: [expectedPrice] });
+
+		await expect(getCloudPrice('yearly')).resolves.toBe(expectedPrice);
+		expect(stripeMocks.listPrices).toHaveBeenCalledWith({
+			active: true,
+			expand: ['data.product'],
+			lookup_keys: ['yearly_sub'],
+			limit: 1,
+		});
+	});
+
+	it('rejects a monthly Price configured as the yearly offer', async () => {
+		stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice()] });
+
+		await expect(getCloudPrice('yearly')).rejects.toThrow(
+			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD yearly licensed Price',
+		);
+	});
+
 	it('rejects a missing Price', async () => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [] });
 
-		await expect(getCloudMonthlyPrice()).rejects.toThrow(
+		await expect(getCloudPrice('monthly')).rejects.toThrow(
 			'No active Stripe Price found for lookup key "nao_cloud_monthly_v2"',
 		);
 	});
@@ -133,7 +162,7 @@ describe('getCloudMonthlyPrice', () => {
 		const replacementPrice = cloudMonthlyPrice({ unit_amount: 250_000 });
 		stripeMocks.listPrices.mockResolvedValue({ data: [replacementPrice] });
 
-		await expect(getCloudMonthlyPrice()).resolves.toBe(replacementPrice);
+		await expect(getCloudPrice('monthly')).resolves.toBe(replacementPrice);
 	});
 
 	it.each([
@@ -149,7 +178,7 @@ describe('getCloudMonthlyPrice', () => {
 	] satisfies Array<[string, Partial<Stripe.Price>]>)('rejects an %s Price', async (_name, overrides) => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice(overrides)] });
 
-		await expect(getCloudMonthlyPrice()).rejects.toThrow(
+		await expect(getCloudPrice('monthly')).rejects.toThrow(
 			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD monthly licensed Price',
 		);
 	});
@@ -159,15 +188,17 @@ describe('getCloudMonthlyPrice', () => {
 			data: [cloudMonthlyPrice({ product: cloudProduct({ id: 'prod_other' }) })],
 		});
 
-		await expect(getCloudMonthlyPrice()).rejects.toThrow(
+		await expect(getCloudPrice('monthly')).rejects.toThrow(
 			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud"',
 		);
 	});
 
 	it("returns an existing subscription's historical Price separately from the current offer", async () => {
-		stripeMocks.listPrices.mockResolvedValue({
-			data: [cloudMonthlyPrice({ unit_amount: 250_000 })],
-		});
+		stripeMocks.listPrices.mockImplementation(({ lookup_keys }: Stripe.PriceListParams) => ({
+			data: [
+				lookup_keys?.[0] === 'yearly_sub' ? cloudYearlyPrice() : cloudMonthlyPrice({ unit_amount: 250_000 }),
+			],
+		}));
 		stripeMocks.retrievePrice.mockResolvedValue(
 			cloudMonthlyPrice({
 				id: 'price_legacy',
@@ -179,7 +210,10 @@ describe('getCloudMonthlyPrice', () => {
 		);
 
 		await expect(getCloudBillingPlans('price_legacy')).resolves.toMatchObject({
-			availablePlan: { amount: 250_000, currency: 'usd' },
+			availablePlans: {
+				monthly: { amount: 250_000, currency: 'usd' },
+				yearly: { amount: 2_000_000, currency: 'usd' },
+			},
 			subscriptionPlan: { amount: 200_000, currency: 'eur' },
 		});
 		expect(stripeMocks.retrievePrice).toHaveBeenCalledWith('price_legacy');
@@ -210,7 +244,18 @@ describe('validateCloudBillingConfiguration', () => {
 	it('validates the configured Price and active Stripe Tax settings', async () => {
 		await expect(validateCloudBillingConfiguration()).resolves.toBeUndefined();
 
-		expect(stripeMocks.listPrices).toHaveBeenCalledOnce();
+		expect(stripeMocks.listPrices).toHaveBeenCalledTimes(2);
+		expect(stripeMocks.retrieveTaxSettings).toHaveBeenCalledOnce();
+	});
+
+	it('accepts a yearly Price without a discount', async () => {
+		stripeMocks.listPrices.mockImplementation(({ lookup_keys }: Stripe.PriceListParams) => ({
+			data: [
+				lookup_keys?.[0] === 'yearly_sub' ? cloudYearlyPrice({ unit_amount: 2_400_000 }) : cloudMonthlyPrice(),
+			],
+		}));
+
+		await expect(validateCloudBillingConfiguration()).resolves.toBeUndefined();
 		expect(stripeMocks.retrieveTaxSettings).toHaveBeenCalledOnce();
 	});
 
@@ -234,6 +279,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudCheckoutSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				trialDays: 14,
@@ -261,8 +307,127 @@ describe('cloud Checkout', () => {
 					trial_settings: { end_behavior: { missing_payment_method: 'pause' } },
 				},
 			}),
-			{ idempotencyKey: 'cloud-checkout-initial-v6:org-id:trial-14' },
+			{ idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_monthly_v2:trial-14' },
 		);
+	});
+
+	it('starts the same trial with the configured yearly Price when selected', async () => {
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/yearly-trial',
+		});
+
+		await expect(
+			createCloudCheckoutSession({
+				billingInterval: 'yearly',
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				trialDays: 14,
+			}),
+		).resolves.toBe('https://checkout.stripe.com/yearly-trial');
+
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				line_items: [{ price: 'price_cloud_yearly', quantity: 1 }],
+				metadata: expect.objectContaining({ nao_plan_key: 'cloud_yearly_v1' }),
+				subscription_data: expect.objectContaining({
+					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_yearly_v1' },
+					trial_period_days: 14,
+				}),
+			}),
+			{ idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_yearly_v1:trial-14' },
+		);
+	});
+
+	it('expires an open monthly Checkout before creating a yearly Checkout', async () => {
+		const monthlySession = {
+			id: 'cs_monthly',
+			mode: 'subscription' as const,
+			allow_promotion_codes: true,
+			metadata: {
+				nao_org_id: 'org-id',
+				nao_plan_key: 'cloud_monthly_v2',
+				nao_checkout_kind: 'initial',
+			},
+			url: 'https://checkout.stripe.com/monthly',
+		};
+		stripeMocks.listCheckoutSessions.mockImplementation((params: Stripe.Checkout.SessionListParams) =>
+			paginatedList(params.status === 'open' ? [monthlySession] : []),
+		);
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/yearly',
+		});
+
+		await createCloudCheckoutSession({
+			billingInterval: 'yearly',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			trialDays: 14,
+		});
+
+		expect(stripeMocks.expireCheckoutSession).toHaveBeenCalledWith('cs_monthly');
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
+			expect.objectContaining({ line_items: [{ price: 'price_cloud_yearly', quantity: 1 }] }),
+			expect.anything(),
+		);
+		expect(stripeMocks.listCheckoutSessions).toHaveBeenCalledTimes(2);
+	});
+
+	it('continues when a superseded Checkout expires during an expiration race', async () => {
+		stripeMocks.listCheckoutSessions.mockImplementation((params: Stripe.Checkout.SessionListParams) =>
+			paginatedList(
+				params.status === 'open'
+					? [
+							{
+								id: 'cs_monthly',
+								metadata: {
+									nao_org_id: 'org-id',
+									nao_plan_key: 'cloud_monthly_v2',
+									nao_checkout_kind: 'initial',
+								},
+							},
+						]
+					: [],
+			),
+		);
+		stripeMocks.expireCheckoutSession.mockRejectedValue(new Error('Session is no longer open'));
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue({ id: 'cs_monthly', status: 'expired' });
+		stripeMocks.createCheckoutSession.mockResolvedValue({ url: 'https://checkout.stripe.com/yearly' });
+
+		await expect(
+			createCloudCheckoutSession({
+				billingInterval: 'yearly',
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				trialDays: 14,
+			}),
+		).resolves.toBe('https://checkout.stripe.com/yearly');
+	});
+
+	it('stops when a superseded Checkout completes during an expiration race', async () => {
+		stripeMocks.listCheckoutSessions.mockReturnValue(
+			paginatedList([
+				{
+					id: 'cs_monthly',
+					metadata: {
+						nao_org_id: 'org-id',
+						nao_plan_key: 'cloud_monthly_v2',
+						nao_checkout_kind: 'initial',
+					},
+				},
+			]),
+		);
+		stripeMocks.expireCheckoutSession.mockRejectedValue(new Error('Session is no longer open'));
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue({ id: 'cs_monthly', status: 'complete' });
+
+		await expect(
+			createCloudCheckoutSession({
+				billingInterval: 'yearly',
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				trialDays: 14,
+			}),
+		).rejects.toThrow('A Stripe Checkout completed while the billing interval was changing');
+		expect(stripeMocks.createCheckoutSession).not.toHaveBeenCalled();
 	});
 
 	it('replaces an open Checkout Session that does not accept promotion codes', async () => {
@@ -286,6 +451,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudCheckoutSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				trialDays: 14,
@@ -294,7 +460,7 @@ describe('cloud Checkout', () => {
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({ allow_promotion_codes: true }),
-			{ idempotencyKey: 'cloud-checkout-initial-v6:org-id:trial-14' },
+			{ idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_monthly_v2:trial-14' },
 		);
 	});
 
@@ -334,6 +500,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudCheckoutSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				trialDays: 14,
@@ -376,6 +543,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudCheckoutSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				trialDays: 14,
@@ -383,7 +551,7 @@ describe('cloud Checkout', () => {
 		).resolves.toBe('https://checkout.stripe.com/replacement');
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(expect.anything(), {
-			idempotencyKey: 'cloud-checkout-initial-v6:org-id:trial-14:cs_expired',
+			idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_monthly_v2:trial-14:cs_expired',
 		});
 	});
 
@@ -392,6 +560,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudCheckoutSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				trialDays: 14,
@@ -439,6 +608,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudResubscribeSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 			}),
@@ -458,13 +628,14 @@ describe('cloud Checkout', () => {
 				},
 				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed',
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v6:org-id:sub_cloud' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v7:org-id:cloud_monthly_v2:sub_cloud' },
 		);
 	});
 
 	it('rejects resubscription without Stripe subscription history', async () => {
 		await expect(
 			createCloudResubscribeSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 			}),
@@ -479,6 +650,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudResubscribeSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				allowMissingHistory: true,
@@ -492,7 +664,7 @@ describe('cloud Checkout', () => {
 					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
 				},
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v6:org-id:missing-subscription' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v7:org-id:cloud_monthly_v2:missing-subscription' },
 		);
 	});
 
@@ -501,6 +673,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudResubscribeSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 			}),
@@ -531,6 +704,7 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudResubscribeSession({
+				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				allowMissingHistory: true,
@@ -566,9 +740,19 @@ describe('cloud Checkout', () => {
 });
 
 describe('cloud subscription projection', () => {
-	it('rejects a non-monthly Price on the cloud Product', async () => {
+	it('projects a yearly Price to the yearly billing plan', async () => {
 		const subscription = cloudSubscription();
-		subscription.items.data[0].price = cloudMonthlyPrice({ recurring: recurring({ interval: 'year' }) });
+		subscription.items.data[0].price = cloudYearlyPrice();
+
+		await expect(cloudSubscriptionProjection(subscription)).resolves.toMatchObject({
+			billingPlan: 'cloud_yearly_v1',
+			stripePriceId: 'price_cloud_yearly',
+		});
+	});
+
+	it('rejects an unsupported recurring interval on the cloud Product', async () => {
+		const subscription = cloudSubscription();
+		subscription.items.data[0].price = cloudMonthlyPrice({ recurring: recurring({ interval: 'week' }) });
 
 		await expect(cloudSubscriptionProjection(subscription)).rejects.toThrow('has no cloud plan item');
 	});
@@ -842,6 +1026,15 @@ function cloudMonthlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price 
 		unit_amount: 200_000,
 		...overrides,
 	} as Stripe.Price;
+}
+
+function cloudYearlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
+	return cloudMonthlyPrice({
+		id: 'price_cloud_yearly',
+		recurring: recurring({ interval: 'year' }),
+		unit_amount: 2_000_000,
+		...overrides,
+	});
 }
 
 function cloudProduct(overrides: Partial<Stripe.Product> = {}): Stripe.Product {

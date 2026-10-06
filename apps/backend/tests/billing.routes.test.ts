@@ -139,7 +139,10 @@ describe('billing.getStatus', () => {
 		testState.membership = null;
 		vi.clearAllMocks();
 		stripeMocks.getBillingPlans.mockResolvedValue({
-			availablePlan: cloudPlan(250_000),
+			availablePlans: {
+				monthly: cloudPlan(250_000),
+				yearly: cloudPlan(2_000_000, 'yearly'),
+			},
 			subscriptionPlan: null,
 		});
 	});
@@ -170,21 +173,25 @@ describe('billing.getStatus', () => {
 		});
 	});
 
-	it("returns an existing subscription's historical Price separately from the current offer", async () => {
+	it("returns an existing subscription's Stripe Price when the local plan key is unknown", async () => {
 		testState.membership = membership({
-			billingPlan: 'cloud_monthly_v2',
+			billingPlan: 'legacy_cloud_plan',
 			billingStatus: 'active',
 			stripePriceId: 'price_legacy',
 			stripeSubscriptionId: 'sub_cloud',
 		});
 		stripeMocks.getBillingPlans.mockResolvedValue({
-			availablePlan: cloudPlan(250_000),
+			availablePlans: {
+				monthly: cloudPlan(250_000),
+				yearly: cloudPlan(2_000_000, 'yearly'),
+			},
 			subscriptionPlan: cloudPlan(200_000),
 		});
 
 		await expect(caller().billing.getStatus()).resolves.toMatchObject({
 			plan: { amount: 200_000 },
-			availablePlan: { amount: 250_000 },
+			planKey: 'legacy_cloud_plan',
+			availablePlans: { monthly: { amount: 250_000 }, yearly: { amount: 2_000_000 } },
 		});
 		expect(stripeMocks.getBillingPlans).toHaveBeenCalledWith('price_legacy');
 	});
@@ -274,20 +281,33 @@ describe('billing.createTrialCheckoutSession', () => {
 	});
 
 	it('opens a Stripe trial Checkout without granting local access first', async () => {
-		await expect(caller().billing.createTrialCheckoutSession()).resolves.toEqual({
+		await expect(caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly' })).resolves.toEqual({
 			url: 'https://checkout.stripe.com/trial',
 		});
 		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
+			billingInterval: 'monthly',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
 			trialDays: 14,
 		});
 	});
 
+	it('rejects an unsupported billing interval before creating Stripe objects', async () => {
+		await expect(
+			caller().billing.createTrialCheckoutSession({ billingInterval: 'weekly' } as never),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(stripeMocks.createCustomer).not.toHaveBeenCalled();
+		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
+	});
+
 	it('rejects non-admin members before creating Stripe trial objects', async () => {
 		testState.membership = membership({}, 'member');
 
-		await expect(caller().billing.createTrialCheckoutSession()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly' })).rejects.toMatchObject(
+			{
+				code: 'FORBIDDEN',
+			},
+		);
 		expect(stripeMocks.createCustomer).not.toHaveBeenCalled();
 		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
 	});
@@ -299,7 +319,9 @@ describe('billing.createTrialCheckoutSession', () => {
 			trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),
 		});
 
-		await expect(caller().billing.createTrialCheckoutSession()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(caller().billing.createTrialCheckoutSession({ billingInterval: 'yearly' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
 		expect(stripeMocks.createCustomer).not.toHaveBeenCalled();
 		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
 	});
@@ -309,10 +331,12 @@ describe('billing.createTrialCheckoutSession', () => {
 			new stripeService.CloudInitialCheckoutUnavailableError('Trial Checkout is unavailable'),
 		);
 
-		await expect(caller().billing.createTrialCheckoutSession()).rejects.toMatchObject({
-			code: 'CONFLICT',
-			message: 'Trial Checkout is unavailable',
-		});
+		await expect(caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly' })).rejects.toMatchObject(
+			{
+				code: 'CONFLICT',
+				message: 'Trial Checkout is unavailable',
+			},
+		);
 	});
 });
 
@@ -429,10 +453,11 @@ describe('billing management mutations', () => {
 			stripeSubscriptionId: 'sub_cloud',
 		});
 
-		await expect(caller().billing.createResubscribeSession()).resolves.toEqual({
+		await expect(caller().billing.createResubscribeSession({ billingInterval: 'yearly' })).resolves.toEqual({
 			url: 'https://checkout.stripe.com/subscription',
 		});
 		expect(stripeService.createCloudResubscribeSession).toHaveBeenCalledWith({
+			billingInterval: 'yearly',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
 			allowMissingHistory: false,
@@ -445,7 +470,9 @@ describe('billing management mutations', () => {
 			stripeSubscriptionId: 'sub_cloud',
 		});
 
-		await expect(caller().billing.createResubscribeSession()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(caller().billing.createResubscribeSession({ billingInterval: 'monthly' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
 		expect(stripeMocks.createCustomer).not.toHaveBeenCalled();
 		expect(stripeMocks.createResubscribe).not.toHaveBeenCalled();
 	});
@@ -462,10 +489,11 @@ describe('billing management mutations', () => {
 			stripeCustomerId: 'cus_recovery',
 		});
 
-		await expect(caller().billing.createResubscribeSession()).resolves.toEqual({
+		await expect(caller().billing.createResubscribeSession({ billingInterval: 'monthly' })).resolves.toEqual({
 			url: 'https://checkout.stripe.com/subscription',
 		});
 		expect(stripeService.createCloudResubscribeSession).toHaveBeenCalledWith({
+			billingInterval: 'monthly',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_recovery',
 			allowMissingHistory: true,
@@ -479,7 +507,9 @@ describe('billing management mutations', () => {
 			stripeSubscriptionId: 'sub_cloud',
 		});
 
-		await expect(caller().billing.createResubscribeSession()).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(caller().billing.createResubscribeSession({ billingInterval: 'monthly' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
 		expect(stripeService.createCloudResubscribeSession).not.toHaveBeenCalled();
 	});
 
@@ -493,7 +523,7 @@ describe('billing management mutations', () => {
 			new stripeService.CloudSubscriptionUnavailableError('Subscription Checkout is unavailable'),
 		);
 
-		await expect(caller().billing.createResubscribeSession()).rejects.toMatchObject({
+		await expect(caller().billing.createResubscribeSession({ billingInterval: 'monthly' })).rejects.toMatchObject({
 			code: 'CONFLICT',
 			message: 'Subscription Checkout is unavailable',
 		});
@@ -573,13 +603,13 @@ function membership(organization: Record<string, unknown>, role = 'admin') {
 	};
 }
 
-function cloudPlan(amount: number) {
+function cloudPlan(amount: number, billingInterval: 'monthly' | 'yearly' = 'monthly') {
 	return {
-		key: 'cloud_monthly_v2',
+		key: billingInterval === 'monthly' ? 'cloud_monthly_v2' : 'cloud_yearly_v1',
 		name: 'nao Cloud',
 		amount,
 		currency: 'usd',
-		interval: 'month',
+		interval: billingInterval === 'monthly' ? 'month' : 'year',
 		intervalCount: 1,
 		trialDays: 14,
 		userLimit: null,
