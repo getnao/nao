@@ -76,6 +76,13 @@ export function UserGroupBudget({
 						Cap what each member of this group can spend across all providers.
 					</p>
 				</div>
+				<Link
+					to='/settings/project/budgets'
+					search={{ tab: 'advanced' }}
+					className='shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground'
+				>
+					Manage all member budgets
+				</Link>
 			</div>
 			{!isLicensed ? (
 				<div className='flex items-start justify-between gap-4 rounded-lg border px-3 py-3'>
@@ -120,14 +127,7 @@ export function UserGroupBudget({
 			)}
 			<p className='text-xs text-muted-foreground'>
 				A member&apos;s personal budget always wins, and members in several groups get the most generous group
-				budget.{' '}
-				<Link
-					to='/settings/project/budgets'
-					search={{ tab: 'advanced' }}
-					className='underline underline-offset-2 hover:text-foreground'
-				>
-					Manage all member budgets
-				</Link>
+				budget.
 			</p>
 		</section>
 	);
