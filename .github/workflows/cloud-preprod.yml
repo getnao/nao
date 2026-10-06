@@ -1,0 +1,155 @@
+name: Cloud Preprod Deploy
+
+on:
+    push:
+        branches:
+            - '**nimbus'
+            - feat/nao-setup-help-homepage-1451
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    id-token: write
+
+# nimbus is the cloud preprod (NAO_MODE=cloud) served at nimbus.getnao.io. It runs on Cloud Run in
+# the `nao-previews` GCP project, reusing the PR preview registry and Workload Identity Federation,
+# behind the global load balancer through a dedicated serverless NEG. The SQLite database, projects
+# and storage live on the container filesystem, so like PR previews all data is reset on every deploy.
+# Access is GitHub-only and restricted to the preview allowlist.
+env:
+    GCP_PROJECT_ID: nao-previews
+    GCP_REGION: europe-west9
+    GCP_WORKLOAD_IDENTITY_PROVIDER: projects/996255898595/locations/global/workloadIdentityPools/github/providers/github
+    GCP_DEPLOYER_SERVICE_ACCOUNT: github-preview-deployer@nao-previews.iam.gserviceaccount.com
+    GCP_RUNTIME_SERVICE_ACCOUNT: nao-preview-runtime@nao-previews.iam.gserviceaccount.com
+    IMAGE: europe-west9-docker.pkg.dev/nao-previews/previews/nao
+    SERVICE_NAME: nimbus
+    NIMBUS_DOMAIN: nimbus.getnao.io
+
+jobs:
+    deploy:
+        name: Deploy nimbus
+        runs-on: ubuntu-latest
+        environment:
+            name: nimbus
+            url: https://nimbus.getnao.io
+        concurrency:
+            group: deploy-nimbus
+            cancel-in-progress: false
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Get short SHA
+              id: sha
+              run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+            - name: Get build date
+              id: build_date
+              run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+            - name: Authenticate to Google Cloud
+              id: gcp-auth
+              uses: google-github-actions/auth@v2
+              with:
+                  workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+                  service_account: ${{ env.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+                  token_format: access_token
+
+            - name: Set up gcloud
+              uses: google-github-actions/setup-gcloud@v2
+
+            - name: Log in to Artifact Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.GCP_REGION }}-docker.pkg.dev
+                  username: oauth2accesstoken
+                  password: ${{ steps.gcp-auth.outputs.access_token }}
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build and push image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  push: true
+                  tags: |
+                      ${{ env.IMAGE }}:${{ env.SERVICE_NAME }}
+                      ${{ env.IMAGE }}:${{ env.SERVICE_NAME }}-${{ steps.sha.outputs.short_sha }}
+                  cache-from: |
+                      type=registry,ref=${{ env.IMAGE }}:cache
+                      type=registry,ref=${{ env.IMAGE }}:${{ env.SERVICE_NAME }}
+                  cache-to: type=registry,ref=${{ env.IMAGE }}:cache,mode=max,image-manifest=true,oci-mediatypes=true
+                  build-args: |
+                      APP_VERSION=${{ env.SERVICE_NAME }}
+                      APP_COMMIT=${{ steps.sha.outputs.short_sha }}
+                      APP_BUILD_DATE=${{ steps.build_date.outputs.value }}
+
+            # Built as JSON so multi-line secrets (the GitHub App private key) survive intact,
+            # and unset secrets are dropped instead of being passed as empty strings.
+            - name: Write runtime environment
+              env:
+                  RUNTIME_NAO_MODE: cloud
+                  RUNTIME_NAO_CONTEXT_SOURCE: api
+                  RUNTIME_NAO_PROJECTS_DIR: /app/projects
+                  RUNTIME_NAO_STORAGE_LOCAL_PATH: /app/storage
+                  RUNTIME_BETTER_AUTH_URL: https://${{ env.NIMBUS_DOMAIN }}
+                  RUNTIME_BETTER_AUTH_SECRET: ${{ secrets.NIMBUS_BETTER_AUTH_SECRET }}
+                  RUNTIME_DB_URI: sqlite:/app/db.sqlite
+                  RUNTIME_ENABLE_USER_LOGIN: 'false'
+                  RUNTIME_ENABLE_USER_SIGNUP: 'false'
+                  RUNTIME_GITHUB_SSO: 'true'
+                  RUNTIME_GITHUB_CLIENT_ID: ${{ secrets.NIMBUS_GITHUB_CLIENT_ID }}
+                  RUNTIME_GITHUB_CLIENT_SECRET: ${{ secrets.NIMBUS_GITHUB_CLIENT_SECRET }}
+                  RUNTIME_GITHUB_ALLOWED_USERS: ${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }}
+                  RUNTIME_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  RUNTIME_CLOUD_GITHUB_PROJECT_ORG: ${{ secrets.NIMBUS_GITHUB_PROJECT_ORG }}
+                  RUNTIME_CLOUD_GITHUB_PROJECT_APP_ID: ${{ secrets.NIMBUS_GITHUB_PROJECT_APP_ID }}
+                  RUNTIME_CLOUD_GITHUB_PROJECT_INSTALLATION_ID: ${{ secrets.NIMBUS_GITHUB_PROJECT_INSTALLATION_ID }}
+                  RUNTIME_CLOUD_GITHUB_PROJECT_PRIVATE_KEY: ${{ secrets.NIMBUS_GITHUB_PROJECT_PRIVATE_KEY }}
+                  RUNTIME_SMTP_HOST: ${{ secrets.SMTP_HOST }}
+                  RUNTIME_SMTP_PORT: ${{ secrets.SMTP_PORT }}
+                  RUNTIME_SMTP_USER: ${{ secrets.SMTP_USER }}
+                  RUNTIME_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+                  RUNTIME_SMTP_MAIL_FROM: ${{ secrets.SMTP_MAIL_FROM }}
+                  RUNTIME_SMTP_SSL: ${{ secrets.SMTP_SSL }}
+                  RUNTIME_POSTHOG_DISABLED: 'true'
+                  RUNTIME_BETA_AUTOMATIONS_ENABLED: 'true'
+                  RUNTIME_BETA_CONTEXT_RECOMMENDATIONS_ENABLED: 'true'
+                  RUNTIME_BETA_STORY_FILTERS_ENABLED: 'true'
+                  RUNTIME_BETA_CUSTOM_STORIES_ENABLED: 'true'
+              run: |
+                  jq -n 'env
+                      | with_entries(select((.key | startswith("RUNTIME_")) and .value != ""))
+                      | with_entries(.key |= ltrimstr("RUNTIME_"))' > "$RUNNER_TEMP/nimbus-env.json"
+
+            # Exactly one instance that never scales to zero nor throttles CPU: the SQLite database
+            # lives on the instance, and warehouse provisioning runs `nao init` / `nao sync` in the
+            # background, outside of any request.
+            - name: Deploy to Cloud Run
+              run: |
+                  gcloud run deploy "$SERVICE_NAME" \
+                      --project "$GCP_PROJECT_ID" \
+                      --region "$GCP_REGION" \
+                      --platform managed \
+                      --image "${IMAGE}:${SERVICE_NAME}-${{ steps.sha.outputs.short_sha }}" \
+                      --service-account "$GCP_RUNTIME_SERVICE_ACCOUNT" \
+                      --port 5005 \
+                      --cpu 2 \
+                      --memory 4Gi \
+                      --cpu-boost \
+                      --no-cpu-throttling \
+                      --execution-environment gen2 \
+                      --min-instances 1 \
+                      --max-instances 1 \
+                      --concurrency 80 \
+                      --timeout 3600 \
+                      --allow-unauthenticated \
+                      --ingress internal-and-cloud-load-balancing \
+                      --startup-probe "httpGet.path=/api/health,httpGet.port=5005,periodSeconds=5,timeoutSeconds=3,failureThreshold=60" \
+                      --labels "app=nao-nimbus,commit=${{ steps.sha.outputs.short_sha }}" \
+                      --env-vars-file "$RUNNER_TEMP/nimbus-env.json" \
+                      --quiet
+
+                  echo "Deployed ${{ steps.sha.outputs.short_sha }} at https://${NIMBUS_DOMAIN}"
