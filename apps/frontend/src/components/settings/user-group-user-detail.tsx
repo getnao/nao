@@ -8,6 +8,7 @@ import type { MemberStatus, UserRole } from '@nao/shared/types';
 import type {
 	DatabaseContextAccess,
 	DocsContextAccess,
+	FilesContextAccess,
 	ProjectRowSecurity,
 	ToolCallDensityPolicy,
 	UserGroupFeature,
@@ -16,7 +17,7 @@ import type {
 } from '@nao/shared';
 
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
-import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
+import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file-tree-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { getEffectiveUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
@@ -42,6 +43,7 @@ interface EffectiveUserGroupAccess {
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
 	rowPolicies: UserGroupRowPolicies[];
 }
 
@@ -53,13 +55,17 @@ interface UserGroupUserDetailProps {
 	memberships: Array<{ groupId: string; userId: string }>;
 	effectiveAccess: EffectiveUserGroupAccess;
 	contextObjects: DatabaseContextObject[];
-	docsEntries: DocsContextCatalogEntry[];
+	docsEntries: FileTreeCatalogEntry[];
+	filesEntries: FileTreeCatalogEntry[];
 	databaseSyncState?: 'missing' | 'ready';
 	docsSyncState?: 'missing' | 'ready';
+	filesSyncState?: 'missing' | 'ready';
 	databaseCatalogState?: 'loading' | 'error' | 'ready';
 	docsCatalogState?: 'loading' | 'error' | 'ready';
+	filesCatalogState?: 'loading' | 'error' | 'ready';
 	onRetryDatabaseCatalog?: () => void;
 	onRetryDocsCatalog?: () => void;
+	onRetryFilesCatalog?: () => void;
 	projectRowSecurity?: ProjectRowSecurity;
 	securityState?: 'loading' | 'error' | 'ready';
 	onRetrySecurity?: () => void;
@@ -80,12 +86,16 @@ export function UserGroupUserDetail({
 	effectiveAccess,
 	contextObjects,
 	docsEntries,
+	filesEntries,
 	databaseSyncState,
 	docsSyncState,
+	filesSyncState,
 	databaseCatalogState = 'ready',
 	docsCatalogState = 'ready',
+	filesCatalogState = 'ready',
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
+	onRetryFilesCatalog,
 	projectRowSecurity = EMPTY_PROJECT_ROW_SECURITY,
 	securityState = 'ready',
 	onRetrySecurity,
@@ -100,9 +110,11 @@ export function UserGroupUserDetail({
 	const accessSummary =
 		databaseCatalogState === 'ready' &&
 		docsCatalogState === 'ready' &&
+		filesCatalogState === 'ready' &&
 		databaseSyncState === 'ready' &&
-		docsSyncState === 'ready'
-			? getEffectiveUserGroupAccessSummary(effectiveAccess, contextObjects, docsEntries)
+		docsSyncState === 'ready' &&
+		filesSyncState === 'ready'
+			? getEffectiveUserGroupAccessSummary(effectiveAccess, contextObjects, docsEntries, filesEntries)
 			: undefined;
 
 	return (
@@ -147,14 +159,19 @@ export function UserGroupUserDetail({
 						<UserGroupEffectiveContext
 							databaseAccess={effectiveAccess.databaseAccess}
 							docsAccess={effectiveAccess.docsAccess}
+							filesAccess={effectiveAccess.filesAccess}
 							contextObjects={contextObjects}
 							docsEntries={docsEntries}
+							filesEntries={filesEntries}
 							databaseSyncState={databaseSyncState}
 							docsSyncState={docsSyncState}
+							filesSyncState={filesSyncState}
 							databaseCatalogState={databaseCatalogState}
 							docsCatalogState={docsCatalogState}
+							filesCatalogState={filesCatalogState}
 							onRetryDatabaseCatalog={onRetryDatabaseCatalog}
 							onRetryDocsCatalog={onRetryDocsCatalog}
+							onRetryFilesCatalog={onRetryFilesCatalog}
 						/>
 					)}
 					{activeTab === 'security' && (

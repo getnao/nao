@@ -52,6 +52,7 @@ describe('test routes', () => {
 			warehouseTableAccess: { enforced: true },
 			warehouseRowSecurity: { enforced: false },
 			docsContextAccess: { enforced: false },
+			filesContextAccess: { enforced: false },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 		});
@@ -92,6 +93,7 @@ describe('test routes', () => {
 				warehouseTableAccess: { enforced: true },
 				warehouseRowSecurity: { enforced: false },
 				docsContextAccess: { enforced: false },
+				filesContextAccess: { enforced: false },
 				userGroupFeatures: [],
 				userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 				queryResults: new Map(),

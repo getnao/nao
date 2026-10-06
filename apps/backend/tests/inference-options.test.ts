@@ -137,6 +137,50 @@ describe('Anthropic (live-validated Claude rules)', () => {
 		expect(options.thinking).toEqual({ type: 'adaptive' });
 		expect(options.effort).toBe('low');
 	});
+
+	it('asks Claude 4.7+ for progress updates, whose thinking text is hidden by default', () => {
+		const { options } = resolve('anthropic', 'claude-opus-5-5', { reasoningEffort: 'high' });
+
+		expect(options.thinking).toEqual({ type: 'adaptive', display: 'updates' });
+		expect(options.effort).toBe('high');
+	});
+
+	it('keeps sending the display setting to always-thinking Claude when effort is off', () => {
+		const withoutSettings = resolve('anthropic', 'claude-opus-5-5');
+		const withEffortOff = resolve('anthropic', 'claude-opus-5-5', { reasoningEffort: 'off', temperature: 0.5 });
+
+		expect(withoutSettings.options.thinking).toEqual({ type: 'adaptive', display: 'updates' });
+		expect(withoutSettings.options).not.toHaveProperty('effort');
+		expect(withEffortOff.options.thinking).toEqual({ type: 'adaptive', display: 'updates' });
+		expect(withEffortOff.callSettings).toBeUndefined();
+	});
+
+	it('leaves thinking off on Opus 4.7 when effort is off, since it does not think by default', () => {
+		const { options } = resolve('anthropic', 'claude-opus-4-7');
+
+		expect(options).not.toHaveProperty('thinking');
+	});
+
+	it('lets the admin pick the thinking display over the model default', () => {
+		const opus = resolve('anthropic', 'claude-opus-5-5', { thinkingDisplay: 'summarized' });
+		const sonnet = resolve('anthropic', 'claude-sonnet-4-6', {
+			reasoningEffort: 'high',
+			thinkingDisplay: 'updates',
+		});
+
+		expect(opus.options.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+		expect(opus.options).not.toHaveProperty('thinkingDisplay');
+		expect(sonnet.options.thinking).toEqual({ type: 'adaptive', display: 'updates' });
+	});
+
+	it('ignores a stored thinking display on Claude via Vertex, which rejects the field', () => {
+		const { options } = resolve('vertex', 'claude-sonnet-4-6', {
+			reasoningEffort: 'high',
+			thinkingDisplay: 'updates',
+		});
+
+		expect(options.thinking).toEqual({ type: 'adaptive' });
+	});
 });
 
 describe('OpenAI / Azure', () => {
@@ -144,6 +188,20 @@ describe('OpenAI / Azure', () => {
 		const { options } = resolve('openai', 'gpt-5.5', { reasoningEffort: 'high' });
 
 		expect(options.reasoningEffort).toBe('high');
+	});
+
+	it('sets forceReasoning so the SDK does not strip reasoning options for gateway-prefixed model ids', () => {
+		const { options } = resolve('openai', 'acsw@azure/data-gpt-5.6-terra', { reasoningEffort: 'medium' });
+
+		expect(options.reasoningEffort).toBe('medium');
+		expect(options.forceReasoning).toBe(true);
+	});
+
+	it('does not set forceReasoning on azure, whose SDK has no such option', () => {
+		const { options } = resolve('azure', 'gpt-5.5', { reasoningEffort: 'high' });
+
+		expect(options.reasoningEffort).toBe('high');
+		expect(options).not.toHaveProperty('forceReasoning');
 	});
 
 	it('clamps a stale max effort to high on listed models that lack xhigh', () => {

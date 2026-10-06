@@ -131,10 +131,15 @@ describe('getModelParameterSpec', () => {
 			'sendReasoning',
 			'speed',
 			'inferenceGeo',
+			'thinkingDisplay',
 		]);
 		expect(controlByKey(controls, 'reasoningEffort')).toMatchObject({
 			kind: 'effort',
 			options: ['off', 'low', 'medium', 'high', 'max'],
+		});
+		expect(controlByKey(controls, 'thinkingDisplay')).toMatchObject({
+			kind: 'select',
+			options: ['omitted', 'updates', 'summarized'],
 		});
 		expect(controlByKey(controls, 'temperature')).toMatchObject({ max: 1, group: 'sampling' });
 		expect(controlByKey(controls, 'topP')).toMatchObject({ group: 'sampling', exclusiveWith: 'temperature' });

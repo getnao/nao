@@ -68,6 +68,7 @@ function context(): ToolContext {
 		projectFolder,
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: false },
+		filesContextAccess: { enforced: false },
 		userRulesGroupAccess: { enforced: false },
 	} as ToolContext;
 }

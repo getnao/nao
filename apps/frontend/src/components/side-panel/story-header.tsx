@@ -8,7 +8,6 @@ import {
 	Loader2,
 	Maximize2,
 	Pencil,
-	RefreshCw,
 	RotateCcw,
 	Save,
 	X,
@@ -37,7 +36,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
-import { LiveStoryTimestamp, StoryRefreshFailureBanner } from '@/components/story-page-header';
+import { LiveStoryTimestamp, StoryRefreshButton, StoryRefreshFailureBanner } from '@/components/story-page-header';
 import { cn } from '@/lib/utils';
 
 interface StoryViewModeControls {
@@ -261,27 +260,7 @@ export const StoryHeader = memo(function StoryHeader({
 			{isLive && (
 				<>
 					{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-					{!isReadonlyMode && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									variant='ghost'
-									size='icon-sm'
-									className='hover:rounded-full'
-									onClick={onRefreshData}
-									disabled={isRefreshing}
-									aria-label='Refresh data'
-								>
-									{isRefreshing ? (
-										<Loader2 className='size-3 animate-spin' strokeWidth={2.25} />
-									) : (
-										<RefreshCw className='size-3' strokeWidth={2.25} />
-									)}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>Refresh data</TooltipContent>
-						</Tooltip>
-					)}
+					{!isReadonlyMode && <StoryRefreshButton isRefreshing={isRefreshing} onRefresh={onRefreshData} />}
 				</>
 			)}
 		</>
@@ -394,7 +373,7 @@ export const StoryHeader = memo(function StoryHeader({
 				</div>
 			)}
 
-			{lastRefreshFailure && <StoryRefreshFailureBanner failure={lastRefreshFailure} />}
+			{lastRefreshFailure && <StoryRefreshFailureBanner failure={lastRefreshFailure} isRetrying={isRefreshing} />}
 			{showSubHeader && (
 				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>
 					{viewMode === 'edit' ? (

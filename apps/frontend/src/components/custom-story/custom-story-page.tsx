@@ -24,6 +24,7 @@ import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-sett
 import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { trpc, trpcClient } from '@/main';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
@@ -43,6 +44,12 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
 	const sharing = useStoryViewerSharing({ chatId, storySlug });
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
+	useRetryStaleStoryRefresh({
+		storyKey: `${chatId}/${storySlug}`,
+		needsRefresh: content?.needsRefresh ?? false,
+		isRefreshing: live.isRefreshing,
+		refresh: live.handleRefreshData,
+	});
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);

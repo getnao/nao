@@ -69,6 +69,40 @@ describe('StoryPageHeader shared-story refresh control', () => {
 	});
 });
 
+describe('StoryPageHeader refresh failure banner', () => {
+	afterEach(cleanup);
+
+	it('shows the refresh failure', () => {
+		renderFailedStory(false);
+
+		expect(screen.getByRole('alert').textContent).toContain('Story refresh failed. No output generated.');
+	});
+
+	it('announces the retry while a refresh is running', () => {
+		renderFailedStory(true);
+
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.getByRole('status').textContent).toContain(
+			'Retrying story refresh… Last attempt failed: No output generated.',
+		);
+	});
+});
+
+function renderFailedStory(isRefreshing: boolean) {
+	return render(
+		<TooltipProvider>
+			<StoryPageHeader
+				title='Revenue'
+				live={{
+					isLive: true,
+					lastRefreshFailure: { errorMessage: 'No output generated.', failedAt: new Date() },
+					isRefreshing,
+				}}
+			/>
+		</TooltipProvider>,
+	);
+}
+
 describe('StoryPageHeader actions', () => {
 	beforeEach(() => {
 		favoritesQuery.data = undefined;

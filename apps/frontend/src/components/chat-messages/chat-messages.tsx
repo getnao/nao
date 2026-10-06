@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouterState } from '@tanstack/react-router';
 import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/conversation';
 import { cn, isLast } from '@/lib/utils';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
-import { useHeight } from '@/hooks/use-height';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
 import { useChatId } from '@/hooks/use-chat-id';
@@ -34,19 +33,12 @@ const DEBUG_MESSAGES = false;
 
 export function ChatMessages() {
 	const chatId = useParams({ strict: false }).chatId;
-	const contentRef = useRef<HTMLDivElement>(null);
-	const containerHeight = useHeight(contentRef, [chatId]);
 
 	// Skip fade-in animation when navigating from home after sending a message
 	const fromMessageSend = useRouterState({ select: (state) => state.location.state.fromMessageSend });
 
 	return (
-		<div
-			className={cn('mt-6 h-full min-h-0 flex', !fromMessageSend && 'animate-fade-in')}
-			ref={contentRef}
-			style={{ '--container-height': `${containerHeight}px` } as React.CSSProperties}
-			key={chatId}
-		>
+		<div className={cn('mt-6 h-full min-h-0 flex', !fromMessageSend && 'animate-fade-in')} key={chatId}>
 			<Conversation>
 				<ConversationContent className='max-w-3xl mx-auto gap-0 pt-15 pb-0 md:pb-0 max-md:pt-0'>
 					<ChatMessagesContent />
@@ -75,8 +67,6 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
 	});
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
-	const extraComponentsRef = useRef<HTMLDivElement>(null);
-	const extraComponentsHeight = useHeight(extraComponentsRef);
 	const visibleMessages = useMemo(
 		() => filterSupersededExecuteSqlParts(messages.filter((m) => !m.isForked)),
 		[messages],
@@ -94,27 +84,26 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 	useScrollToBottomOnNewUserMessage(messages);
 
 	return (
-		<div
-			className='flex flex-col gap-8 max-md:gap-0'
-			style={{ '--extra-components-height': `${extraComponentsHeight}px` } as React.CSSProperties}
-		>
-			{messageGroups.length === 0 ? (
-				<ConversationEmptyState />
-			) : (
-				messageGroups.map((group) => (
-					<MessageGroup
-						key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
-						userMessage={group.userMessage}
-						assistantMessages={group.assistantMessages}
-						showLoader={showThinkingLoader && isLast(group, messageGroups)}
-						lastMessageId={lastMessageId}
-						isRunning={effectiveIsRunning}
-						storyIntroMessageId={storyIntroMessageId}
-					/>
-				))
-			)}
+		<div className='flex flex-col'>
+			<div className='flex flex-col gap-8 max-md:gap-0'>
+				{messageGroups.length === 0 ? (
+					<ConversationEmptyState />
+				) : (
+					messageGroups.map((group) => (
+						<MessageGroup
+							key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
+							userMessage={group.userMessage}
+							assistantMessages={group.assistantMessages}
+							showLoader={showThinkingLoader && isLast(group, messageGroups)}
+							lastMessageId={lastMessageId}
+							isRunning={effectiveIsRunning}
+							storyIntroMessageId={storyIntroMessageId}
+						/>
+					))
+				)}
+			</div>
 
-			<div className='flex flex-col gap-4' ref={extraComponentsRef} data-selection-ignore>
+			<div className='flex flex-col gap-4 pt-4 pb-6' data-selection-ignore>
 				{followUpSuggestionsToolCall && <FollowUpSuggestions toolPart={followUpSuggestionsToolCall} />}
 
 				<ChatError className='mt-4' />
@@ -141,7 +130,7 @@ const MessageGroup = memo(
 	}) => {
 		const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 		return (
-			<div className='flex flex-col gap-4 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
+			<div className='flex flex-col gap-4 group/message'>
 				{messages.map((message) => (
 					<MessageBlock
 						key={message.id}

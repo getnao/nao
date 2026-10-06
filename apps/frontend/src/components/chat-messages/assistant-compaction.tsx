@@ -19,7 +19,7 @@ export const AssistantCompaction = memo(({ part }: { part?: CompactionPart }) =>
 		<Expandable title={title} expanded={isExpanded} onExpandedChange={setIsExpanded}>
 			<div className='text-muted-foreground markdown-small'>
 				<Conversation className='p-0'>
-					<ConversationContent className='p-0 max-h-[200px]'>
+					<ConversationContent className='p-0' scrollClassName='max-h-[200px]'>
 						{part.error ? (
 							<ErrorMessage message={part.error} />
 						) : (

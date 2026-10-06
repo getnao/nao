@@ -23,20 +23,22 @@ export const AssistantReasoning = memo(({ text, isStreaming }: AssistantReasonin
 		wasStreamingRef.current = isStreaming;
 	}, [isStreaming]);
 
-	if (!isStreaming && text.trim() === '') {
+	const hasText = text.trim() !== '';
+	if (!isStreaming && !hasText) {
 		return null;
 	}
 
 	return (
 		<Expandable
 			title={isStreaming ? 'Thinking' : 'Thought'}
-			expanded={isExpanded}
+			expanded={isExpanded && hasText}
 			onExpandedChange={setIsExpanded}
+			disabled={!hasText}
 			isLoading={isStreaming}
 		>
 			<div className='text-muted-foreground markdown-small'>
 				<Conversation className='p-0'>
-					<ConversationContent className='p-0 max-h-[200px]'>
+					<ConversationContent className='p-0' scrollClassName='max-h-[200px]'>
 						{isStreaming ? (
 							<StreamingMarkdown text={text} />
 						) : (

@@ -3,25 +3,27 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
 	ALL_DATABASE_CONTEXT_ACCESS,
 	ALL_DOCS_CONTEXT_ACCESS,
+	ALL_FILES_CONTEXT_ACCESS,
 	type DatabaseContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_FILES_CONTEXT_ACCESS,
 	FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 	isDatabaseContextTableGranted,
-	isDocsContextFileGranted,
+	isFileTreeFileGranted,
 	matchesDatabaseContextPattern,
-	mayTraverseDocsContextDirectory,
+	mayTraverseFileTreeDirectory,
 	normalizeDatabaseContextAccess,
-	normalizeDocsContextAccess,
-	normalizeDocsContextPath,
-	parseDocsContextAccess,
+	normalizeFileTreeAccess,
+	normalizeFileTreePath,
+	parseFileTreeAccess,
 	parseStoredDatabaseContextAccess,
 	parseStoredUserGroupContextAccess,
 	serializeDatabaseContextAccess,
 	serializeUserGroupContextAccess,
 	type StoredLegacyDatabaseContextAccessV2,
 	unionDatabaseContextAccess,
-	unionDocsContextAccess,
+	unionFileTreeAccess,
 } from './user-group-context';
 
 describe('user group database context access', () => {
@@ -242,8 +244,8 @@ describe('user group database context access', () => {
 	});
 });
 
-describe('user group docs context access', () => {
-	it('serializes v4 and preserves independent database and docs policies', () => {
+describe('user group docs and project file context access', () => {
+	it('serializes v5 with independent database, docs, and files policies', () => {
 		const stored = serializeUserGroupContextAccess(
 			{ mode: 'all', strict: false },
 			{
@@ -253,10 +255,11 @@ describe('user group docs context access', () => {
 					{ kind: 'folder', path: 'finance' },
 				],
 			},
+			{ mode: 'restricted', grants: [{ kind: 'folder', path: ' models ' }] },
 		);
 
 		expect(stored).toEqual({
-			version: 4,
+			version: 5,
 			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: {
 				mode: 'restricted',
@@ -265,10 +268,12 @@ describe('user group docs context access', () => {
 					{ kind: 'file', path: 'finance/kpis.md' },
 				],
 			},
+			filesAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'models' }] },
 		});
 		expect(parseStoredUserGroupContextAccess(stored, false)).toEqual({
 			databaseAccess: stored.databaseAccess,
 			docsAccess: stored.docsAccess,
+			filesAccess: stored.filesAccess,
 		});
 	});
 
@@ -279,53 +284,106 @@ describe('user group docs context access', () => {
 		expect(parseStoredUserGroupContextAccess(null, true)).toEqual({
 			databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		});
 		expect(parseStoredUserGroupContextAccess(null, false)).toEqual({
 			databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		});
 	});
 
-	it('fails malformed v4 sections closed independently', () => {
-		expect(parseStoredUserGroupContextAccess('invalid', true)).toEqual({
-			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
+	it('keeps project files unrestricted for versions that predate them', () => {
+		expect(
+			parseStoredUserGroupContextAccess(
+				{ version: 4, databaseAccess: { mode: 'all', strict: false }, docsAccess: EMPTY_DOCS_CONTEXT_ACCESS },
+				false,
+			),
+		).toEqual({
+			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		});
-		expect(parseStoredUserGroupContextAccess({ version: 99 }, true)).toEqual({
-			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
-			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
-		});
+	});
+
+	it('fails malformed v4 sections closed independently while keeping project files unrestricted', () => {
 		expect(
 			parseStoredUserGroupContextAccess(
 				{
 					version: 4,
+					databaseAccess: { mode: 'all', strict: 'yes' },
+					docsAccess: { mode: 'restricted', grants: [{ kind: 'file', path: '../secret' }] },
+				},
+				true,
+			),
+		).toEqual({
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
+			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+		});
+	});
+
+	it('fails malformed v5 sections closed independently', () => {
+		expect(parseStoredUserGroupContextAccess('invalid', true)).toEqual({
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
+			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+		});
+		expect(parseStoredUserGroupContextAccess({ version: 99 }, true)).toEqual({
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
+			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+		});
+		expect(
+			parseStoredUserGroupContextAccess(
+				{
+					version: 5,
 					databaseAccess: { mode: 'all', strict: false },
 					docsAccess: { mode: 'restricted', grants: [{ kind: 'file', path: '../secret' }] },
+					filesAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'models' }] },
 				},
 				true,
 			),
 		).toEqual({
 			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'models' }] },
 		});
 		expect(
 			parseStoredUserGroupContextAccess(
 				{
-					version: 4,
+					version: 5,
 					databaseAccess: { mode: 'all', strict: 'yes' },
 					docsAccess: { mode: 'all' },
+					filesAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'models/orders.sql' }] },
 				},
 				false,
 			),
 		).toEqual({
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
+			filesAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'models/orders.sql' }] },
+		});
+		expect(
+			parseStoredUserGroupContextAccess(
+				{
+					version: 5,
+					databaseAccess: { mode: 'all', strict: false },
+					docsAccess: { mode: 'all' },
+					filesAccess: { mode: 'restricted', grants: [{ kind: 'file', path: '/etc/passwd' }] },
+				},
+				false,
+			),
+		).toEqual({
+			databaseAccess: { mode: 'all', strict: false },
+			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		});
 	});
 
 	it('normalizes, deduplicates, and sorts grants without removing redundant grants', () => {
 		expect(
-			normalizeDocsContextAccess({
+			normalizeFileTreeAccess({
 				mode: 'restricted',
 				grants: [
 					{ kind: 'file', path: 'z.md' },
@@ -358,19 +416,19 @@ describe('user group docs context access', () => {
 			'finance%2fkpis.md',
 			'finance\u0000/kpis.md',
 		]) {
-			expect(normalizeDocsContextPath(unsafe)).toBeNull();
+			expect(normalizeFileTreePath(unsafe)).toBeNull();
 		}
-		expect(normalizeDocsContextPath(' Finance/収益.md ')).toBe('Finance/収益.md');
-		expect(normalizeDocsContextPath('docs')).toBe('docs');
-		expect(normalizeDocsContextPath('docs/finance/kpis.md')).toBe('docs/finance/kpis.md');
-		expect(parseDocsContextAccess({ mode: 'restricted', grants: [{ kind: 'file', path: '../secret' }] })).toEqual(
+		expect(normalizeFileTreePath(' Finance/収益.md ')).toBe('Finance/収益.md');
+		expect(normalizeFileTreePath('docs')).toBe('docs');
+		expect(normalizeFileTreePath('docs/finance/kpis.md')).toBe('docs/finance/kpis.md');
+		expect(parseFileTreeAccess({ mode: 'restricted', grants: [{ kind: 'file', path: '../secret' }] })).toEqual(
 			EMPTY_DOCS_CONTEXT_ACCESS,
 		);
 	});
 
 	it('unions grants with all dominance', () => {
 		expect(
-			unionDocsContextAccess([
+			unionFileTreeAccess([
 				{ mode: 'restricted', grants: [{ kind: 'file', path: 'one.md' }] },
 				{ mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			]),
@@ -381,7 +439,7 @@ describe('user group docs context access', () => {
 				{ kind: 'file', path: 'one.md' },
 			],
 		});
-		expect(unionDocsContextAccess([EMPTY_DOCS_CONTEXT_ACCESS, ALL_DOCS_CONTEXT_ACCESS])).toEqual(
+		expect(unionFileTreeAccess([EMPTY_DOCS_CONTEXT_ACCESS, ALL_DOCS_CONTEXT_ACCESS])).toEqual(
 			ALL_DOCS_CONTEXT_ACCESS,
 		);
 	});
@@ -395,13 +453,13 @@ describe('user group docs context access', () => {
 				{ kind: 'file' as const, path: 'legal/terms.md' },
 			],
 		};
-		expect(isDocsContextFileGranted(access, 'finance/future/new.md')).toBe(true);
-		expect(isDocsContextFileGranted(access, 'docs/nested.md')).toBe(true);
-		expect(isDocsContextFileGranted(access, 'finance-old/leak.md')).toBe(false);
-		expect(isDocsContextFileGranted(access, 'legal/terms.md')).toBe(true);
-		expect(isDocsContextFileGranted(access, 'legal/other.md')).toBe(false);
-		expect(mayTraverseDocsContextDirectory(access, 'legal')).toBe(true);
-		expect(mayTraverseDocsContextDirectory(access, 'finance/future')).toBe(true);
-		expect(mayTraverseDocsContextDirectory(access, 'private')).toBe(false);
+		expect(isFileTreeFileGranted(access, 'finance/future/new.md')).toBe(true);
+		expect(isFileTreeFileGranted(access, 'docs/nested.md')).toBe(true);
+		expect(isFileTreeFileGranted(access, 'finance-old/leak.md')).toBe(false);
+		expect(isFileTreeFileGranted(access, 'legal/terms.md')).toBe(true);
+		expect(isFileTreeFileGranted(access, 'legal/other.md')).toBe(false);
+		expect(mayTraverseFileTreeDirectory(access, 'legal')).toBe(true);
+		expect(mayTraverseFileTreeDirectory(access, 'finance/future')).toBe(true);
+		expect(mayTraverseFileTreeDirectory(access, 'private')).toBe(false);
 	});
 });

@@ -248,8 +248,8 @@ def update_version(cli_dir: Path, new_version: str) -> None:
     print(f"✓ Version bumped to {new_version}")
 
 
-#: DuckDB names its binding packages without the NAPI-RS ABI part of the suffix
-DUCKDB_PLATFORM_SUFFIXES = {
+#: DuckDB and sharp name their native packages without the NAPI-RS ABI part of the suffix
+NODE_PLATFORM_SUFFIXES = {
     "darwin-arm64": "darwin-arm64",
     "darwin-x64": "darwin-x64",
     "linux-x64-gnu": "linux-x64",
@@ -287,7 +287,7 @@ def downloadable_native_packages(suffix: str) -> list[tuple[str, str, str]]:
     """
     packages: list[tuple[str, str, str]] = [("sandbox", "sandbox runtime", f"@boxlite-ai/boxlite-{suffix}")]
 
-    duckdb_suffix = DUCKDB_PLATFORM_SUFFIXES.get(suffix)
+    duckdb_suffix = NODE_PLATFORM_SUFFIXES.get(suffix)
     if duckdb_suffix:
         packages.insert(0, ("duckdb", "DuckDB engine", f"@duckdb/node-bindings-{duckdb_suffix}"))
 
@@ -338,8 +338,8 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
     """Copy native addons into node_modules/ next to the binary.
 
     These packages are externalized from the Bun standalone build because they load
-    platform-specific native files at runtime. Only the small loaders are copied:
-    the DuckDB engine and the sandbox runtime are ~100 MB each and are downloaded
+    platform-specific native files at runtime. Only the small loaders and sharp are
+    copied: the DuckDB engine and the sandbox runtime are ~100 MB each and are downloaded
     on first use instead (see write_native_manifest).
     """
     suffix = get_native_platform_suffix()
@@ -377,6 +377,8 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
     elif monty_hoisted.exists():
         packages_to_copy.append((monty_platform_pkg, monty_platform_pkg))
 
+    packages_to_copy += [(name, name) for name in sharp_packages(suffix)]
+
     for src_rel, dst_rel in packages_to_copy:
         src = nm_root / src_rel
         dst = out_nm / dst_rel
@@ -388,6 +390,18 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src, dst)
         print(f"   {dst_rel}")
+
+
+def sharp_packages(suffix: str) -> list[str]:
+    """sharp with its runtime dependencies, its platform addon and libvips.
+
+    On Windows libvips ships inside the addon package instead of its own package.
+    """
+    node_suffix = NODE_PLATFORM_SUFFIXES[suffix]
+    packages = ["sharp", "@img/colour", "detect-libc", "semver", f"@img/sharp-{node_suffix}"]
+    if sys.platform != "win32":
+        packages.append(f"@img/sharp-libvips-{node_suffix}")
+    return packages
 
 
 def build_server(project_root: Path, output_dir: Path) -> None:

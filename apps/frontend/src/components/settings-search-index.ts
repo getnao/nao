@@ -339,6 +339,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'top k',
 			'max tokens',
 			'thinking',
+			'thinking display',
 			'reasoning',
 			'inference',
 			'sampling',

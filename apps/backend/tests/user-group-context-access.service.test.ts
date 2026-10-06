@@ -1,3 +1,4 @@
+import { ALL_FILES_CONTEXT_ACCESS } from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/services/license.service', () => ({
@@ -51,6 +52,7 @@ describe('warehouse Context access', () => {
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			rowPolicies: [],
 		});
 	});
@@ -87,6 +89,7 @@ describe('warehouse Context access', () => {
 				enforced: true,
 				access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			},
+			filesContextAccess: { enforced: true, access: ALL_FILES_CONTEXT_ACCESS },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});

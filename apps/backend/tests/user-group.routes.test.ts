@@ -1,3 +1,4 @@
+import { EMPTY_FILES_CONTEXT_ACCESS } from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getUserGroupOverview: vi.fn(),
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
+	getFilesContextCatalog: vi.fn(),
 	listEffectiveEntraUserGroupMappings: vi.fn(),
 	listEffectiveOidcUserGroupMappings: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
@@ -64,8 +66,9 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 	getAvailableUserGroupOverview: mocks.getUserGroupOverview,
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
-vi.mock('../src/services/docs-context-catalog.service', () => ({
+vi.mock('../src/services/file-tree-catalog.service', () => ({
 	getDocsContextCatalog: mocks.getDocsContextCatalog,
+	getFilesContextCatalog: mocks.getFilesContextCatalog,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(async () => false),
@@ -92,6 +95,7 @@ describe('user group routes', () => {
 		mocks.getUserGroupOverview.mockResolvedValue({ users: [], groups: [], memberships: [] });
 		mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 		mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
+		mocks.getFilesContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
 		mocks.listEffectiveOidcUserGroupMappings.mockResolvedValue([]);
 		mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([]);
@@ -653,6 +657,9 @@ describe('user group routes', () => {
 			},
 			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -671,6 +678,9 @@ describe('user group routes', () => {
 			{ defaultDensity: 'detailed', canChange: true },
 			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -726,6 +736,8 @@ describe('user group routes', () => {
 				},
 				defaultProjectRole: 'context_admin',
 			},
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -771,6 +783,9 @@ describe('user group routes', () => {
 				patterns: [],
 			},
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -792,6 +807,9 @@ describe('user group routes', () => {
 			{ defaultDensity: 'detailed', canChange: true },
 			{ mode: 'restricted', strict: false, grants: [], patterns: ['future.*', 'sales.customer_*'] },
 			{ mode: 'restricted', grants: [] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -869,6 +887,9 @@ describe('user group routes', () => {
 				patterns: [],
 			},
 			{ mode: 'restricted', grants: [{ kind: 'file', path: 'deleted.md' }] },
+			undefined,
+			undefined,
+			EMPTY_FILES_CONTEXT_ACCESS,
 		);
 	});
 
@@ -1014,6 +1035,21 @@ describe('user group routes', () => {
 			entries: [{ kind: 'file', path: 'finance/kpis.md' }],
 		});
 		expect(mocks.getDocsContextCatalog).toHaveBeenCalledWith('/project');
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('returns an independent admin project files catalog', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.getFilesContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			entries: [{ kind: 'folder', path: 'models' }],
+		});
+
+		await expect(createCaller().filesContextCatalog()).resolves.toEqual({
+			syncState: 'ready',
+			entries: [{ kind: 'folder', path: 'models' }],
+		});
+		expect(mocks.getFilesContextCatalog).toHaveBeenCalledWith('/project');
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 

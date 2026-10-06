@@ -89,6 +89,7 @@ vi.mock('@/hooks/use-story-page-editor', () => ({
 		},
 	}),
 }));
+vi.mock('@/hooks/use-is-story-refreshing', () => ({ useIsStoryRefreshing: () => false }));
 vi.mock('@/hooks/use-story-version-query-data', () => ({
 	useStoryVersionQueryData: () => ({ queryData: {}, isPending: false }),
 }));
@@ -103,7 +104,7 @@ vi.mock('@/main', () => ({
 		},
 		storyShare: {
 			get: { queryOptions: () => ({}) },
-			refreshData: { mutationOptions: () => ({}) },
+			refreshData: { mutationOptions: () => ({}), mutationKey: () => [] },
 		},
 	},
 }));

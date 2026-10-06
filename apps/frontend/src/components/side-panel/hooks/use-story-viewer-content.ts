@@ -105,6 +105,15 @@ export const useStoryViewerContent = ({
 	const queryData = latestStoryQuery.data?.queryData as QueryDataMap | null | undefined;
 	const cachedAt = latestStoryQuery.data?.cachedAt as string | null | undefined;
 	const lastRefreshFailure = latestStoryQuery.data?.lastRefreshFailure;
+	const needsRefresh = !isReadonlyMode && (latestStoryQuery.data?.needsRefresh ?? false);
 
-	return { storyTitle, storyCode, queryData, cachedAt, lastRefreshFailure, isLoading: latestStoryQuery.isLoading };
+	return {
+		storyTitle,
+		storyCode,
+		queryData,
+		cachedAt,
+		lastRefreshFailure,
+		needsRefresh,
+		isLoading: latestStoryQuery.isLoading,
+	};
 };

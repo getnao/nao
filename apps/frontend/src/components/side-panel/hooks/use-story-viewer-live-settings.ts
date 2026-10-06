@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useIsStoryRefreshing } from '@/hooks/use-is-story-refreshing';
 import { trpc } from '@/main';
 
 interface UseStoryViewerLiveSettingsParams {
@@ -87,6 +88,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }
 	const handleRefreshData = useCallback(() => {
 		refreshDataMutation.mutate({ chatId, storySlug });
 	}, [chatId, storySlug, refreshDataMutation]);
+	const isRefreshing = useIsStoryRefreshing(trpc.story.refreshData.mutationKey(), { chatId, storySlug });
 
 	return {
 		storyId,
@@ -95,7 +97,7 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }
 		cacheSchedule,
 		cacheScheduleDescription,
 		isUpdating: updateLiveSettingsMutation.isPending,
-		isRefreshing: refreshDataMutation.isPending,
+		isRefreshing,
 		handleSaveSettings,
 		handleRefreshData,
 	};

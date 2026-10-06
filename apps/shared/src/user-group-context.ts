@@ -26,9 +26,18 @@ export type DatabaseContextAccess =
 	| { mode: 'all'; strict: boolean }
 	| { mode: 'restricted'; strict: boolean; grants: DatabaseContextGrant[]; patterns: string[] };
 
-export type DocsContextGrant = { kind: 'folder'; path: string } | { kind: 'file'; path: string };
+/** A grant over a file tree: an exact file, or a folder with every descendant, relative to the tree root. */
+export type FileTreeGrant = { kind: 'folder'; path: string } | { kind: 'file'; path: string };
 
-export type DocsContextAccess = { mode: 'all' } | { mode: 'restricted'; grants: DocsContextGrant[] };
+export type FileTreeAccess = { mode: 'all' } | { mode: 'restricted'; grants: FileTreeGrant[] };
+
+/** Grants relative to the `docs/` folder. */
+export type DocsContextGrant = FileTreeGrant;
+export type DocsContextAccess = FileTreeAccess;
+
+/** Grants over the project files outside `docs/` and `databases/`, relative to the project folder. */
+export type FilesContextGrant = FileTreeGrant;
+export type FilesContextAccess = FileTreeAccess;
 
 export interface StoredLegacyDatabaseContextAccessV1 {
 	version: 1;
@@ -45,10 +54,17 @@ export interface StoredDatabaseContextAccess {
 	access: DatabaseContextAccess;
 }
 
-export interface StoredUserGroupContextAccess {
+export interface StoredLegacyUserGroupContextAccessV4 {
 	version: 4;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+}
+
+export interface StoredUserGroupContextAccess {
+	version: 5;
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
 }
 
 export const ALL_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = { mode: 'all', strict: false };
@@ -64,8 +80,12 @@ export const FAIL_CLOSED_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = {
 	grants: [],
 	patterns: [],
 };
-export const ALL_DOCS_CONTEXT_ACCESS: DocsContextAccess = { mode: 'all' };
-export const EMPTY_DOCS_CONTEXT_ACCESS: DocsContextAccess = { mode: 'restricted', grants: [] };
+export const ALL_FILE_TREE_ACCESS: FileTreeAccess = { mode: 'all' };
+export const EMPTY_FILE_TREE_ACCESS: FileTreeAccess = { mode: 'restricted', grants: [] };
+export const ALL_DOCS_CONTEXT_ACCESS: DocsContextAccess = ALL_FILE_TREE_ACCESS;
+export const EMPTY_DOCS_CONTEXT_ACCESS: DocsContextAccess = EMPTY_FILE_TREE_ACCESS;
+export const ALL_FILES_CONTEXT_ACCESS: FilesContextAccess = ALL_FILE_TREE_ACCESS;
+export const EMPTY_FILES_CONTEXT_ACCESS: FilesContextAccess = EMPTY_FILE_TREE_ACCESS;
 
 export function normalizeDatabaseContextAccess(access: DatabaseContextAccess): DatabaseContextAccess {
 	if (access.mode === 'all') {
@@ -129,45 +149,62 @@ export function serializeDatabaseContextAccess(access: DatabaseContextAccess): S
 export function parseStoredUserGroupContextAccess(
 	value: unknown,
 	isDefault: boolean,
-): { databaseAccess: DatabaseContextAccess; docsAccess: DocsContextAccess } {
+): { databaseAccess: DatabaseContextAccess; docsAccess: DocsContextAccess; filesAccess: FilesContextAccess } {
 	const legacyDatabaseAccess = isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
 	const legacyDocsAccess = isDefault ? ALL_DOCS_CONTEXT_ACCESS : EMPTY_DOCS_CONTEXT_ACCESS;
 
 	if (value === null || value === undefined) {
-		return { databaseAccess: legacyDatabaseAccess, docsAccess: legacyDocsAccess };
+		return {
+			databaseAccess: legacyDatabaseAccess,
+			docsAccess: legacyDocsAccess,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+		};
 	}
 	if (!isRecord(value)) {
 		return {
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		};
 	}
 	if (value.version === 1 || value.version === 2 || value.version === 3) {
 		return {
 			databaseAccess: parseStoredDatabaseContextAccess(value),
 			docsAccess: legacyDocsAccess,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		};
 	}
-	if (value.version !== 4) {
+	if (value.version === 4) {
+		return {
+			databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
+			docsAccess: parseFileTreeAccess(value.docsAccess),
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+		};
+	}
+	if (value.version !== 5) {
 		return {
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 		};
 	}
 	return {
 		databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
-		docsAccess: parseDocsContextAccess(value.docsAccess),
+		docsAccess: parseFileTreeAccess(value.docsAccess),
+		filesAccess: parseFileTreeAccess(value.filesAccess),
 	};
 }
 
 export function serializeUserGroupContextAccess(
 	databaseAccess: DatabaseContextAccess,
 	docsAccess: DocsContextAccess,
+	filesAccess: FilesContextAccess,
 ): StoredUserGroupContextAccess {
 	return {
-		version: 4,
+		version: 5,
 		databaseAccess: normalizeDatabaseContextAccess(databaseAccess),
-		docsAccess: normalizeDocsContextAccess(docsAccess),
+		docsAccess: normalizeFileTreeAccess(docsAccess),
+		filesAccess: normalizeFileTreeAccess(filesAccess),
 	};
 }
 
@@ -185,13 +222,11 @@ export function unionDatabaseContextAccess(accesses: readonly DatabaseContextAcc
 	});
 }
 
-export function normalizeDocsContextAccess(access: DocsContextAccess): DocsContextAccess {
+export function normalizeFileTreeAccess(access: FileTreeAccess): FileTreeAccess {
 	if (access.mode === 'all') {
-		return ALL_DOCS_CONTEXT_ACCESS;
+		return ALL_FILE_TREE_ACCESS;
 	}
-	const grants = access.grants
-		.map(normalizeDocsContextGrant)
-		.filter((grant): grant is DocsContextGrant => grant !== null);
+	const grants = access.grants.map(normalizeFileTreeGrant).filter((grant): grant is FileTreeGrant => grant !== null);
 	const uniqueGrants = new Map(grants.map((grant) => [`${grant.kind}\0${grant.path}`, grant]));
 	return {
 		mode: 'restricted',
@@ -201,7 +236,7 @@ export function normalizeDocsContextAccess(access: DocsContextAccess): DocsConte
 	};
 }
 
-export function normalizeDocsContextGrant(value: unknown): DocsContextGrant | null {
+export function normalizeFileTreeGrant(value: unknown): FileTreeGrant | null {
 	if (
 		!isRecord(value) ||
 		!hasOnlyKeys(value, ['kind', 'path']) ||
@@ -210,11 +245,11 @@ export function normalizeDocsContextGrant(value: unknown): DocsContextGrant | nu
 	) {
 		return null;
 	}
-	const normalizedPath = normalizeDocsContextPath(value.path);
+	const normalizedPath = normalizeFileTreePath(value.path);
 	return normalizedPath === null ? null : { kind: value.kind, path: normalizedPath };
 }
 
-export function normalizeDocsContextPath(value: string): string | null {
+export function normalizeFileTreePath(value: string): string | null {
 	const normalized = value.trim();
 	if (
 		!normalized ||
@@ -235,12 +270,12 @@ export function normalizeDocsContextPath(value: string): string | null {
 	return normalized;
 }
 
-export function parseDocsContextAccess(value: unknown): DocsContextAccess {
+export function parseFileTreeAccess(value: unknown): FileTreeAccess {
 	if (!isRecord(value)) {
-		return EMPTY_DOCS_CONTEXT_ACCESS;
+		return EMPTY_FILE_TREE_ACCESS;
 	}
 	if (value.mode === 'all') {
-		return Object.keys(value).every((key) => key === 'mode') ? ALL_DOCS_CONTEXT_ACCESS : EMPTY_DOCS_CONTEXT_ACCESS;
+		return Object.keys(value).every((key) => key === 'mode') ? ALL_FILE_TREE_ACCESS : EMPTY_FILE_TREE_ACCESS;
 	}
 	if (
 		value.mode !== 'restricted' ||
@@ -248,30 +283,30 @@ export function parseDocsContextAccess(value: unknown): DocsContextAccess {
 		!Array.isArray(value.grants) ||
 		value.grants.length > 10_000
 	) {
-		return EMPTY_DOCS_CONTEXT_ACCESS;
+		return EMPTY_FILE_TREE_ACCESS;
 	}
-	const grants = value.grants.map(normalizeDocsContextGrant);
+	const grants = value.grants.map(normalizeFileTreeGrant);
 	if (grants.some((grant) => grant === null)) {
-		return EMPTY_DOCS_CONTEXT_ACCESS;
+		return EMPTY_FILE_TREE_ACCESS;
 	}
-	return normalizeDocsContextAccess({ mode: 'restricted', grants: grants as DocsContextGrant[] });
+	return normalizeFileTreeAccess({ mode: 'restricted', grants: grants as FileTreeGrant[] });
 }
 
-export function unionDocsContextAccess(accesses: readonly DocsContextAccess[]): DocsContextAccess {
+export function unionFileTreeAccess(accesses: readonly FileTreeAccess[]): FileTreeAccess {
 	if (accesses.some((access) => access.mode === 'all')) {
-		return ALL_DOCS_CONTEXT_ACCESS;
+		return ALL_FILE_TREE_ACCESS;
 	}
-	return normalizeDocsContextAccess({
+	return normalizeFileTreeAccess({
 		mode: 'restricted',
 		grants: accesses.flatMap((access) => (access.mode === 'restricted' ? access.grants : [])),
 	});
 }
 
-export function isDocsContextFileGranted(access: DocsContextAccess, filePath: string): boolean {
+export function isFileTreeFileGranted(access: FileTreeAccess, filePath: string): boolean {
 	if (access.mode === 'all') {
 		return true;
 	}
-	const normalizedPath = normalizeDocsContextPath(filePath);
+	const normalizedPath = normalizeFileTreePath(filePath);
 	if (normalizedPath === null) {
 		return false;
 	}
@@ -282,11 +317,11 @@ export function isDocsContextFileGranted(access: DocsContextAccess, filePath: st
 	);
 }
 
-export function isDocsContextDirectoryGranted(access: DocsContextAccess, directoryPath: string): boolean {
+export function isFileTreeDirectoryGranted(access: FileTreeAccess, directoryPath: string): boolean {
 	if (access.mode === 'all') {
 		return true;
 	}
-	const normalizedPath = normalizeDocsContextPath(directoryPath);
+	const normalizedPath = normalizeFileTreePath(directoryPath);
 	if (normalizedPath === null) {
 		return false;
 	}
@@ -298,11 +333,12 @@ export function isDocsContextDirectoryGranted(access: DocsContextAccess, directo
 	);
 }
 
-export function mayTraverseDocsContextDirectory(access: DocsContextAccess, directoryPath: string): boolean {
+/** The tree root (`''`) is traversable as soon as anything below it is granted. */
+export function mayTraverseFileTreeDirectory(access: FileTreeAccess, directoryPath: string): boolean {
 	if (directoryPath.trim() === '') {
 		return access.mode === 'all' || access.grants.length > 0;
 	}
-	return isDocsContextDirectoryGranted(access, directoryPath);
+	return isFileTreeDirectoryGranted(access, directoryPath);
 }
 
 export function normalizeDatabaseContextPatterns(patterns: readonly string[]): string[] {

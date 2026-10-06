@@ -4,7 +4,10 @@ import type { displayChart, displayMap } from '@nao/shared/tools';
 import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
 
 import type { WarehouseTableAccess } from '../services/context-access';
-import type { ResolvedDocsContextAccess } from '../services/user-group-context-access.service';
+import type {
+	ResolvedDocsContextAccess,
+	ResolvedFilesContextAccess,
+} from '../services/user-group-context-access.service';
 import { AgentSettings } from './agent-settings';
 
 export interface QueryResult {
@@ -37,6 +40,7 @@ export interface ToolContext {
 	warehouseTableAccess: WarehouseTableAccess;
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
+	filesContextAccess: ResolvedFilesContextAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	/**

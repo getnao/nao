@@ -23,6 +23,7 @@ import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
@@ -47,6 +48,12 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		handleSaveSettings,
 		handleRefreshData,
 	} = useStoryViewerLiveSettings({ chatId, storySlug });
+	useRetryStaleStoryRefresh({
+		storyKey: `${chatId}/${storySlug}`,
+		needsRefresh: story.needsRefresh,
+		isRefreshing,
+		refresh: handleRefreshData,
+	});
 
 	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
 	const isShared = shareQuery.data?.isShared === true;

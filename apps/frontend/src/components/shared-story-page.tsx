@@ -16,6 +16,8 @@ import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
+import { useIsStoryRefreshing } from '@/hooks/use-is-story-refreshing';
+import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -79,11 +81,22 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 
 	const refreshMutation = useMutation(
 		trpc.storyShare.refreshData.mutationOptions({
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ storyId }) });
+			onSettled: async () => {
+				await queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ storyId }) });
 			},
 		}),
 	);
+	const { mutate: refreshStory } = refreshMutation;
+	const handleRefresh = useCallback(() => {
+		refreshStory({ storyId });
+	}, [refreshStory, storyId]);
+	const isRefreshing = useIsStoryRefreshing(trpc.storyShare.refreshData.mutationKey(), { storyId });
+	useRetryStaleStoryRefresh({
+		storyKey: storyId,
+		needsRefresh: story.needsRefresh,
+		isRefreshing,
+		refresh: handleRefresh,
+	});
 
 	const forkMutation = useMutation(
 		trpc.chatFork.fork.mutationOptions({
@@ -141,9 +154,9 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 					isLive={story.isLive}
 					cachedAt={story.cachedAt}
 					lastRefreshFailure={story.lastRefreshFailure}
-					isRefreshing={refreshMutation.isPending}
+					isRefreshing={isRefreshing}
 					canRefresh={story.canRefresh}
-					onRefresh={() => refreshMutation.mutate({ storyId })}
+					onRefresh={handleRefresh}
 					storyId={session?.user?.id ? storyId : null}
 					download={{ chatId: story.chatId!, storySlug: story.slug, shareSource, isOwner: false }}
 				/>

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import type { StoryNarratives } from '@nao/shared/story-app';
-import { TAG_ATTRS } from '@nao/shared/story-segments';
+import { extractQueryIds, TAG_ATTRS } from '@nao/shared/story-segments';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { StoryFormat } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
@@ -140,6 +140,14 @@ export interface StoryQueryDataResult {
 	cachedAt: Date | null;
 	code: string;
 	allowsPersistedFallback?: boolean;
+	needsRefresh?: boolean;
+}
+
+interface StoryQueryDataOptions {
+	/** Return the stored data right away and leave the refresh to the caller, instead of refreshing inline. */
+	deferRefresh?: boolean;
+	/** Same, but only for a story that was never cached, so going live does not block on its first refresh. */
+	deferFirstRefresh?: boolean;
 }
 
 export async function getStoryQueryData(
@@ -148,6 +156,7 @@ export async function getStoryQueryData(
 	code: string,
 	isLive: boolean,
 	cacheSchedule: string | null,
+	options: StoryQueryDataOptions = {},
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
 		return {
@@ -163,6 +172,10 @@ export async function getStoryQueryData(
 		return resolveLegacyCache(chatId, code, cache);
 	}
 
+	if (shouldDeferRefresh(options, cache, code)) {
+		return { ...(await resolveStoredQueryData(chatId, code, cache)), needsRefresh: true };
+	}
+
 	try {
 		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug);
 		return {
@@ -171,15 +184,28 @@ export async function getStoryQueryData(
 			code: refreshedCode,
 		};
 	} catch {
-		if (cache) {
-			return resolveLegacyCache(chatId, code, cache);
-		}
-		return {
-			queryData: await getQueryDataFromCode(chatId, code),
-			cachedAt: null,
-			code,
-		};
+		return resolveStoredQueryData(chatId, code, cache);
 	}
+}
+
+function shouldDeferRefresh(options: StoryQueryDataOptions, cache: DBStoryDataCache | null, code: string): boolean {
+	const isDeferred = options.deferRefresh || (options.deferFirstRefresh && cache === null);
+	return Boolean(isDeferred) && extractQueryIds(code).size > 0;
+}
+
+async function resolveStoredQueryData(
+	chatId: string,
+	code: string,
+	cache: DBStoryDataCache | null,
+): Promise<StoryQueryDataResult> {
+	if (cache) {
+		return resolveLegacyCache(chatId, code, cache);
+	}
+	return {
+		queryData: await getQueryDataFromCode(chatId, code),
+		cachedAt: null,
+		code,
+	};
 }
 
 async function resolveLegacyCache(

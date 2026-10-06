@@ -478,6 +478,98 @@ describe('live story SQL execution', () => {
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
+	it('serves an expired cache without refreshing when the refresh is deferred', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		const cache = {
+			queryData: {
+				query_warehouse: {
+					columns: ['id'],
+					data: [{ id: 1 }],
+				},
+			},
+			querySources: null,
+			cachedAt: new Date(0),
+		};
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(cache);
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', code, true, '* * * * *', { deferRefresh: true }),
+		).resolves.toEqual({
+			queryData: cache.queryData,
+			cachedAt: cache.cachedAt,
+			code,
+			needsRefresh: true,
+		});
+		expect(mocks.getLatestVersionByChatAndSlug).not.toHaveBeenCalled();
+	});
+
+	it('serves the chat data of a never-cached story and leaves its first refresh to the caller', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		const queryData = {
+			query_warehouse: {
+				columns: ['id'],
+				data: [{ id: 1 }],
+			},
+		};
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
+		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', code, true, null, { deferFirstRefresh: true }),
+		).resolves.toEqual({
+			queryData,
+			cachedAt: null,
+			code,
+			needsRefresh: true,
+		});
+		expect(mocks.getLatestVersionByChatAndSlug).not.toHaveBeenCalled();
+	});
+
+	it('does not defer the refresh after a failure for a story without queries', async () => {
+		const code = '# Just a title';
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
+
+		const result = await getStoryQueryData('chat-1', 'orders', code, true, null, { deferRefresh: true });
+
+		expect(result.needsRefresh).toBeUndefined();
+	});
+
+	it('does not defer the first refresh of a story without queries', async () => {
+		const code = '# Just a title';
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', code, true, null, { deferFirstRefresh: true }),
+		).resolves.toEqual({
+			queryData: null,
+			cachedAt: expect.any(Date),
+			code,
+		});
+		expect(mocks.getLatestVersionByChatAndSlug).toHaveBeenCalled();
+	});
+
+	it('still refreshes an expired cache inline when only the first refresh is deferred', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue({
+			queryData: { query_warehouse: { columns: ['id'], data: [{ id: 1 }] } },
+			querySources: null,
+			cachedAt: new Date(0),
+		});
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
+
+		const result = await getStoryQueryData('chat-1', 'orders', code, true, '* * * * *', {
+			deferFirstRefresh: true,
+		});
+
+		expect(result.needsRefresh).toBeUndefined();
+		expect(mocks.getLatestVersionByChatAndSlug).toHaveBeenCalled();
+	});
+
 	it('falls back to stored data when refresh fails without a cache', async () => {
 		const code = '<table query_id="query_warehouse" />';
 		const queryData = {
