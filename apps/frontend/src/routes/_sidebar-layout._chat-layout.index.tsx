@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowRight, MessageCircle, PlusIcon } from 'lucide-react';
+import { ArrowRight, MessageCircle, PlusIcon, Settings } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { StoryItem } from '@/lib/stories-page';
@@ -15,6 +15,7 @@ import { ViewerHome } from '@/components/viewer-home';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useTheme } from '@/contexts/theme.provider';
 import { useMultiProject } from '@/hooks/use-multi-project';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
@@ -58,6 +59,7 @@ function HomePage() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const switchProject = useProjectSwitch(project.data?.id);
 	const multiProjectMode = useMultiProject();
+	const isCloud = useIsCloud();
 	const showProjectSetupCue = project.isSuccess && project.data === null;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const theme = useTheme();
@@ -162,30 +164,42 @@ function HomePage() {
 						)}
 					>
 						{showProjectSetupCue ? (
-							<>
-								<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
-									Welcome {username ? capitalize(username) : ''}! Let's get started.
-								</div>
-								<div className='relative flex w-full max-w-3xl mx-auto flex-col gap-4'>
-									<img
-										src={logoSrc}
-										alt=''
-										aria-hidden
-										className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
-									/>
-									<ChatInput variant='example' />
-									<SavedPromptSuggestions />
-								</div>
+							isCloud ? (
+								<>
+									<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
+										Welcome {username ? capitalize(username) : ''}! Let's get started.
+									</div>
+									<div className='relative flex w-full max-w-3xl mx-auto flex-col gap-4'>
+										<img
+											src={logoSrc}
+											alt=''
+											aria-hidden
+											className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
+										/>
+										<ChatInput variant='example' />
+										<SavedPromptSuggestions />
+									</div>
+									<div className='flex w-full max-w-3xl justify-center px-4 py-6'>
+										<HomeLinkCard
+											to='/onboarding'
+											label='Guided setup'
+											title='Set up your nao project'
+											subtitle='Chat with the onboarding agent'
+											icon={<MessageCircle className='size-5' />}
+										/>
+									</div>
+								</>
+							) : (
 								<div className='flex w-full max-w-3xl justify-center px-4 py-6'>
 									<HomeLinkCard
-										to='/onboarding'
-										label='Guided setup'
-										title='Set up your nao project'
-										subtitle='Chat with the onboarding agent'
-										icon={<MessageCircle className='size-5' />}
+										to='/settings/project'
+										label='Project required'
+										title='Configure your nao project'
+										subtitle='Set NAO_DEFAULT_PROJECT_PATH to start chatting'
+										icon={<Settings className='size-5' />}
 									/>
 								</div>
-							</>
+							)
 						) : (
 							<>
 								<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
@@ -251,7 +265,7 @@ function HomeLinkCard({
 	subtitle,
 	icon,
 }: {
-	to: '/onboarding';
+	to: '/onboarding' | '/settings/project';
 	label: string;
 	title: string;
 	subtitle: string;

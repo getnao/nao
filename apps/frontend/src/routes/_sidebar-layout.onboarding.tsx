@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Github, HelpCircle, KeyRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -28,9 +28,18 @@ import { useHeight } from '@/hooks/use-height';
 import { usePermissions } from '@/hooks/use-permissions';
 import { setActiveProjectId } from '@/lib/active-project';
 import { useSession } from '@/lib/auth-client';
-import { trpc } from '@/main';
+import { queryClient as appQueryClient, trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/onboarding')({
+	beforeLoad: async () => {
+		const project = await appQueryClient.fetchQuery({
+			...trpc.project.getCurrent.queryOptions(),
+			staleTime: 0,
+		});
+		if (project) {
+			throw redirect({ to: '/' });
+		}
+	},
 	validateSearch: (search: Record<string, unknown>): { github?: 'connected' } => ({
 		github: search.github === 'connected' ? 'connected' : undefined,
 	}),
@@ -75,7 +84,9 @@ function OnboardingPage() {
 	});
 	const showDeployKey = (progress?.flow === 'new' || progress?.flow === 'local') && progress.step === 3;
 	const showImportProviderCard = progress?.flow === 'github' && (progress.step === 0 || progress.step === 1);
+	const onboardingComplete = progress?.step === 4 || (progress?.flow === 'github' && progress.step === 2);
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
+	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (search.github !== 'connected' || !window.opener) {
@@ -97,11 +108,11 @@ function OnboardingPage() {
 		}
 
 		githubConnectionReportedRef.current = true;
-		queueOrSendMessage({ text: 'GitHub authorization completed successfully.' }).catch(console.error);
+		queueOrSendMessage({ text: 'GitHub is connected and ready to use.' }).catch(console.error);
 	}, [githubStatus.data?.connected, progress?.flow, progress?.step, queueOrSendMessage]);
 
 	useEffect(() => {
-		if (progress?.step !== 4 || !session?.user.id) {
+		if (!onboardingComplete || !session?.user.id) {
 			return;
 		}
 
@@ -119,7 +130,7 @@ function OnboardingPage() {
 		};
 
 		refreshProjects().catch(console.error);
-	}, [progress?.step, queryClient, session?.user.id]);
+	}, [onboardingComplete, queryClient, session?.user.id]);
 
 	const alignDeployDialog = () => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();
@@ -192,7 +203,13 @@ function OnboardingPage() {
 											: 'An organization admin must generate the deploy key for you.'}
 									</DialogDescription>
 								</DialogHeader>
-								{isOrgAdmin && <DeployKeyGenerator deployUrl={window.location.origin} />}
+								{isOrgAdmin && (
+									<DeployKeyGenerator
+										deployUrl={window.location.origin}
+										latestPlaintextKey={latestPlaintextDeployKey}
+										onPlaintextKeyCreated={setLatestPlaintextDeployKey}
+									/>
+								)}
 							</DialogContent>
 						</Dialog>
 					)}

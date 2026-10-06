@@ -45,6 +45,12 @@ function loadEnv(mode: 'cloud' | 'self-hosted', contextSource: (typeof contextSo
 				NAO_CONTEXT_SOURCE: contextSource,
 				NAO_DEFAULT_PROJECT_PATH: '',
 				NAO_MODE: mode,
+				...(mode === 'cloud' && {
+					CLOUD_GITHUB_PROJECT_ORG: 'test-org',
+					CLOUD_GITHUB_PROJECT_APP_ID: '123',
+					CLOUD_GITHUB_PROJECT_INSTALLATION_ID: '456',
+					CLOUD_GITHUB_PROJECT_PRIVATE_KEY: 'test-private-key',
+				}),
 			},
 		});
 	} finally {

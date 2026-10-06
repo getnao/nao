@@ -10,7 +10,7 @@ export const DefaultToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const canExpand = !!toolPart.errorText || !!toolPart.output;
 	const { isSettled } = useToolCallContext();
 	const toolName = getToolName(toolPart);
-	const title = toolName === 'generate_onboarding_rules' ? 'Finalizing your connection' : toolName;
+	const title = toolName;
 
 	const statusIcon = isSettled ? undefined : <Spinner className='size-3 opacity-50' />;
 

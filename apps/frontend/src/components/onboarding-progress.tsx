@@ -7,14 +7,14 @@ import { cn } from '@/lib/utils';
 const ONBOARDING_STEPS = {
 	new: ['Install', 'Initialize', 'Verify & sync', 'Deploy'],
 	local: ['Locate project', 'Verify', 'Sync', 'Deploy'],
-	github: ['Connect GitHub', 'Choose repository', 'Verify', 'Import'],
+	github: ['Connect GitHub', 'Import repository'],
 	database: ['Connect warehouse', 'Initialize', 'Sync metadata', 'Prepare context'],
 } as const;
 
 export function OnboardingProgress() {
 	const progress = useOnboardingProgress();
 	const steps = progress ? ONBOARDING_STEPS[progress.flow] : [''];
-	const completedSteps = progress?.step ?? 0;
+	const completedSteps = Math.min(progress?.step ?? 0, steps.length);
 
 	return (
 		<div

@@ -400,7 +400,16 @@ app.setNotFoundHandler((request, reply) => {
 
 export const startServer = async (opts: { port: number; host: string }) => {
 	if (isCloud) {
-		await ensureSystemExampleProject();
+		try {
+			await ensureSystemExampleProject();
+		} catch (err) {
+			logger.error(
+				`Failed to ensure system example project: ${err instanceof Error ? err.message : String(err)}`,
+				{
+					source: 'system',
+				},
+			);
+		}
 	} else {
 		await ensureOrganizationSetup();
 	}

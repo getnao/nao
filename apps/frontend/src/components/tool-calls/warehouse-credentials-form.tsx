@@ -159,7 +159,9 @@ export function WarehouseCredentialsForm({
 						<form.Field name='httpScheme'>
 							{(field) => (
 								<div className='grid gap-2'>
-									<label className='text-sm font-medium'>HTTP Scheme</label>
+									<label htmlFor='warehouse-http-scheme' className='text-sm font-medium'>
+										HTTP Scheme
+									</label>
 									<Select
 										value={field.state.value}
 										onValueChange={(value) => {
@@ -171,7 +173,7 @@ export function WarehouseCredentialsForm({
 											field.handleChange(nextScheme);
 										}}
 									>
-										<SelectTrigger>
+										<SelectTrigger id='warehouse-http-scheme'>
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
@@ -224,7 +226,9 @@ export function WarehouseCredentialsForm({
 							<form.Field name='protocol'>
 								{(field) => (
 									<div className='grid gap-2'>
-										<label className='text-sm font-medium'>Protocol</label>
+										<label htmlFor='warehouse-protocol' className='text-sm font-medium'>
+											Protocol
+										</label>
 										<Select
 											value={field.state.value}
 											onValueChange={(value) => {
@@ -237,7 +241,7 @@ export function WarehouseCredentialsForm({
 												field.handleChange(nextProtocol);
 											}}
 										>
-											<SelectTrigger>
+											<SelectTrigger id='warehouse-protocol'>
 												<SelectValue />
 											</SelectTrigger>
 											<SelectContent>

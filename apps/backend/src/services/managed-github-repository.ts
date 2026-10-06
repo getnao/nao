@@ -196,6 +196,8 @@ async function initializeAndPushRepository(projectDir: string, repoFullName: str
 		});
 	}
 
+	await assertRepositoryHasCommit(projectDir);
+
 	const cleanUrl = `https://github.com/${repoFullName}.git`;
 	await setOrigin(projectDir, cleanUrl);
 
@@ -208,6 +210,14 @@ async function initializeAndPushRepository(projectDir: string, repoFullName: str
 
 function isGitRepository(projectDir: string): boolean {
 	return fs.existsSync(path.join(projectDir, '.git'));
+}
+
+async function assertRepositoryHasCommit(projectDir: string): Promise<void> {
+	try {
+		await runGit(projectDir, ['rev-parse', '--verify', 'HEAD']);
+	} catch {
+		throw new Error('Cannot publish project: no files to commit');
+	}
 }
 
 async function setOrigin(projectDir: string, url: string): Promise<void> {

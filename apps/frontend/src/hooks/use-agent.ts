@@ -258,9 +258,6 @@ export const useAgent = ({
 						agentService.disposeAgent(agentId);
 					}
 				}
-				void queryClient.invalidateQueries({
-					queryKey: trpc.user.getPreferences.queryKey(),
-				});
 			},
 			onError: () => {
 				messageQueueStore.clear(agentId);
@@ -553,7 +550,8 @@ export const useAgent = ({
 
 /** Sync the messages between the useChat hook and the query client. */
 export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
-	const chatId = useChatId();
+	const contextChatId = useChatId();
+	const chatId = agent.mode === 'onboarding' ? agent.chatId : contextChatId;
 	const chat = useChatQuery({ chatId });
 	const setChat = useSetChat();
 

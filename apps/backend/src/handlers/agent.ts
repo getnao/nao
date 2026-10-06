@@ -20,6 +20,7 @@ interface HandleAgentMessageInput extends AgentRequest {
 	userId: string;
 	projectId: string | undefined;
 	onFinish?: (usage: TokenUsage) => Promise<void> | void;
+	projectAccessAlreadyAuthorized?: boolean;
 }
 
 interface HandleAgentMessageResult {
@@ -83,7 +84,10 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 					}
 				: undefined;
 
-	const agent = await agentService.create({ ...chat, userId, projectId }, model, agentOptions);
+	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
+		...agentOptions,
+		projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
+	});
 
 	const isForkedFirstMessage =
 		!isNewChat && !!chat.forkMetadata && chat.messages.filter((m) => m.role === 'user' && !m.isForked).length === 1;

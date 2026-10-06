@@ -1,6 +1,6 @@
 import type { requestWarehouseCredentials } from '@nao/shared/tools';
 
-export type SqlProvider = Exclude<requestWarehouseCredentials.Provider, 'duckdb'>;
+export type SqlProvider = requestWarehouseCredentials.Provider;
 
 export type WarehouseCredentialField =
 	| 'accessToken'
@@ -48,7 +48,6 @@ export const WAREHOUSE_PROVIDER_LABELS: Record<requestWarehouseCredentials.Provi
 	bigquery: 'BigQuery',
 	clickhouse: 'ClickHouse',
 	databricks: 'Databricks',
-	duckdb: 'DuckDB',
 	fabric: 'Microsoft Fabric',
 	motherduck: 'MotherDuck',
 	mssql: 'Microsoft SQL Server',

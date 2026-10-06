@@ -46,4 +46,19 @@ describe('onboarding system prompt', () => {
 		expect(prompt).toContain('End the turn and wait');
 		expect(prompt).toContain('Do not claim that onboarding is complete');
 	});
+
+	it('shows only the installer selected by the user', () => {
+		const prompt = renderOnboardingSystemPrompt();
+
+		expect(prompt).toContain('- Options: "uv (recommended)", "pip (Python 3.10+)"');
+		expect(prompt).toContain('Call onboarding_command only for the installer the user selected');
+	});
+
+	it('aligns GitHub progress with the events reported by the import card', () => {
+		const prompt = renderOnboardingSystemPrompt();
+
+		expect(prompt).toContain('Call onboarding_progress with flow "github" and step 2');
+		expect(prompt).toContain('GitHub: 1 Connect GitHub, 2 Import repository');
+		expect(prompt).not.toContain('flow "github" and step 4');
+	});
 });

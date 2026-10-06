@@ -20,7 +20,7 @@ export const onboardingRoutes = router({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const membership = await organizationQueries.getUserOrgMembership(ctx.user.id);
+			const membership = await organizationQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
 
 			if (!membership) {
 				throw new TRPCError({

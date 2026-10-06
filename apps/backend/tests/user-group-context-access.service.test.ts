@@ -32,9 +32,27 @@ import {
 const catalog = {
 	syncState: 'ready' as const,
 	objects: [
-		{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'orders' },
-		{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'users' },
-		{ databaseType: 'snowflake', database: 'warehouse', schema: 'raw', table: 'events' },
+		{
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+			columns: ['id', 'tenant_id'],
+		},
+		{
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'users',
+			columns: ['id'],
+		},
+		{
+			databaseType: 'snowflake',
+			database: 'warehouse',
+			schema: 'raw',
+			table: 'events',
+			columns: ['id'],
+		},
 	],
 };
 
@@ -48,7 +66,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['All Users', 'Finance'],
 			features: [],
-			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			rowPolicies: [],
@@ -76,6 +94,20 @@ describe('warehouse Context access', () => {
 		});
 		expect(hasFeature).not.toHaveBeenCalled();
 		expect(resolveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('resolves context after a system project request was already authorized', async () => {
+		vi.mocked(getUserRoleInProject).mockResolvedValue(null);
+
+		await expect(
+			resolveProjectContextAccess('system-example-project', 'user-1', '/project', {
+				projectAccessAlreadyAuthorized: true,
+			}),
+		).resolves.toMatchObject({
+			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
+		});
+		expect(getUserRoleInProject).not.toHaveBeenCalled();
+		expect(resolveUserGroupAccess).toHaveBeenCalledWith('system-example-project', 'user-1');
 	});
 
 	it('enforces docs, features, and RULES groups without unlimited entitlement', async () => {
@@ -139,7 +171,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['Finance'],
 			features: [],
-			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 			rowPolicies: [{ version: 1, policies: [{ ...orders, access: 'full' }] }],
@@ -167,7 +199,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['Context group', 'Non-Context group'],
 			features: [],
-			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: {
 				mode: 'restricted',
 				strict: true,
@@ -201,7 +233,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['Context group', 'Non-Context group'],
 			features: [],
-			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: {
 				mode: 'restricted',
 				strict: true,
@@ -252,8 +284,20 @@ describe('warehouse Context access', () => {
 			enforced: true,
 			strict: true,
 			tables: [
-				{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'orders' },
-				{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'users' },
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+					columns: ['id', 'tenant_id'],
+				},
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
 			],
 		});
 	});
@@ -280,7 +324,15 @@ describe('warehouse Context access', () => {
 		).toEqual({
 			enforced: true,
 			strict: true,
-			tables: [{ databaseType: 'snowflake', database: 'warehouse', schema: 'raw', table: 'events' }],
+			tables: [
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'raw',
+					table: 'events',
+					columns: ['id'],
+				},
+			],
 		});
 	});
 
@@ -289,7 +341,13 @@ describe('warehouse Context access', () => {
 			...catalog,
 			objects: [
 				...catalog.objects,
-				{ databaseType: 'snowflake', database: 'warehouse', schema: 'public', table: 'users' },
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
 			],
 		};
 		expect(
@@ -301,9 +359,27 @@ describe('warehouse Context access', () => {
 			enforced: true,
 			strict: true,
 			tables: [
-				{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'users' },
-				{ databaseType: 'snowflake', database: 'warehouse', schema: 'public', table: 'users' },
-				{ databaseType: 'snowflake', database: 'warehouse', schema: 'raw', table: 'events' },
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'raw',
+					table: 'events',
+					columns: ['id'],
+				},
 			],
 		});
 	});
@@ -362,7 +438,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['All Users'],
 			features: [],
-			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 			rowPolicies: [],

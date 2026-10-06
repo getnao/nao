@@ -22,6 +22,7 @@ export function OrgApiKeys({
 	description = 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 }: OrgApiKeysProps) {
 	const queryClient = useQueryClient();
+	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
 
 	const apiKeys = useQuery({
 		...trpc.apiKey.list.queryOptions(),
@@ -42,7 +43,11 @@ export function OrgApiKeys({
 
 	return (
 		<SettingsCard title={title} description={description}>
-			<DeployKeyGenerator deployUrl={deployUrl} />
+			<DeployKeyGenerator
+				deployUrl={deployUrl}
+				latestPlaintextKey={latestPlaintextKey}
+				onPlaintextKeyCreated={setLatestPlaintextKey}
+			/>
 
 			<div className='space-y-3'>
 				<div className='text-sm font-medium text-foreground'>Existing keys</div>
@@ -89,16 +94,21 @@ export function OrgApiKeys({
 	);
 }
 
-export function DeployKeyGenerator({ deployUrl }: { deployUrl?: string }) {
+interface DeployKeyGeneratorProps {
+	deployUrl?: string;
+	latestPlaintextKey: string | null;
+	onPlaintextKeyCreated: (plaintextKey: string) => void;
+}
+
+export function DeployKeyGenerator({ deployUrl, latestPlaintextKey, onPlaintextKeyCreated }: DeployKeyGeneratorProps) {
 	const queryClient = useQueryClient();
 	const [name, setName] = useState('Deploy key');
-	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
 	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
 	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
 	const createApiKey = useMutation(
 		trpc.apiKey.create.mutationOptions({
 			onSuccess: async (result) => {
-				setLatestPlaintextKey(result.plaintext);
+				onPlaintextKeyCreated(result.plaintext);
 				setName('Deploy key');
 				await queryClient.invalidateQueries({ queryKey: trpc.apiKey.list.queryOptions().queryKey });
 			},

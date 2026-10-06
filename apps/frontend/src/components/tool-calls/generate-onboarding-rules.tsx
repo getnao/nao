@@ -26,7 +26,11 @@ export function GenerateOnboardingRulesToolCall({ toolPart }: ToolCallComponentP
 	const error =
 		toolPart.errorText ??
 		(job.isError ? job.error.message : undefined) ??
-		(job.data?.status === 'failed' ? job.data.error : undefined);
+		(job.data?.status === 'failed'
+			? job.data.error
+			: job.data?.status === 'cancelled'
+				? 'Warehouse setup was cancelled.'
+				: undefined);
 	const isFinalizing = !error && job.data?.status !== 'ready';
 
 	useEffect(() => {

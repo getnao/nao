@@ -35,6 +35,9 @@ vi.mock('mcporter', () => ({
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/services/warehouse-credentials', () => ({
+	getProjectWarehouseEnvVars: async () => ({}),
+}));
 
 let projectPath = '';
 

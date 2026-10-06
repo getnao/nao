@@ -18,8 +18,11 @@ export const agentRoutes = async (app: App) => {
 		const { user, project, body, headers } = request;
 
 		const isOnboarding = body.mode === 'onboarding';
-		if (!isOnboarding && body.chatId && (await chatQueries.isOnboardingChat(body.chatId))) {
-			return reply.status(403).send({ error: 'Onboarding conversations must be continued through onboarding' });
+		const chatModeError = body.chatId
+			? getChatModeMismatchError(isOnboarding, await chatQueries.isOnboardingChat(body.chatId))
+			: null;
+		if (chatModeError) {
+			return reply.status(403).send({ error: chatModeError });
 		}
 
 		const onboardingProject = isOnboarding ? await projectQueries.getProjectById(SYSTEM_EXAMPLE_PROJECT_ID) : null;
@@ -39,7 +42,7 @@ export const agentRoutes = async (app: App) => {
 			if (!onboardingProject) {
 				return reply.status(503).send({ error: 'Onboarding is unavailable' });
 			}
-			if (projectId !== SYSTEM_EXAMPLE_PROJECT_ID) {
+			if (projectId !== SYSTEM_EXAMPLE_PROJECT_ID && !body.chatId) {
 				return reply.status(403).send({ error: 'Invalid onboarding conversation' });
 			}
 		} else if (isExampleProject) {
@@ -59,6 +62,7 @@ export const agentRoutes = async (app: App) => {
 			projectId,
 			...body,
 			adminMode: body.adminMode && canChatWithNaoData,
+			projectAccessAlreadyAuthorized: isExampleProject,
 		});
 
 		posthog.capture(user.id, PostHogEvent.MessageSent, {
@@ -95,3 +99,12 @@ export const agentRoutes = async (app: App) => {
 		});
 	});
 };
+
+export function getChatModeMismatchError(requestIsOnboarding: boolean, chatIsOnboarding: boolean): string | null {
+	if (requestIsOnboarding === chatIsOnboarding) {
+		return null;
+	}
+	return requestIsOnboarding
+		? 'Regular conversations cannot be continued through onboarding'
+		: 'Onboarding conversations must be continued through onboarding';
+}

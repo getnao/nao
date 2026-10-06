@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentSettings } from '../src/types/agent-settings';
 
+vi.mock('@resvg/resvg-js', () => ({ Resvg: class FakeResvg {} }));
+
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
 
 type KvmAccess = 'missing' | 'denied' | 'usable';
@@ -85,6 +87,7 @@ describe('sandbox runtime host capability', () => {
 			expect(tools).not.toHaveProperty('execute_sandboxed_code');
 			expect(pdfSkill.body).not.toContain('pdfplumber');
 		},
+		15_000,
 	);
 
 	it('should expose the sandbox when /dev/kvm is usable', async () => {

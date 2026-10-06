@@ -5,7 +5,6 @@ export const PROVIDERS = [
 	'bigquery',
 	'clickhouse',
 	'databricks',
-	'duckdb',
 	'fabric',
 	'motherduck',
 	'mssql',

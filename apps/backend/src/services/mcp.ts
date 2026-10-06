@@ -18,12 +18,16 @@ import {
 	getMcpOAuthClient,
 	hasMcpUserToken,
 } from '../queries/mcp-oauth.queries';
-import { getDisabledMcpServers, getDisabledMcpTools, retrieveProjectById } from '../queries/project.queries';
+import {
+	getDisabledMcpServers,
+	getDisabledMcpTools,
+	getEnvVars,
+	retrieveProjectById,
+} from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { replaceEnvVars } from '../utils/utils';
 import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
 import { buildMcpOpenApiDocument, extractToolsFromOpenApi, type McpToolDefinition } from './mcp-openapi';
-import { getProjectRuntimeEnvVars } from './project-runtime-env';
 
 const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
 const MCPS_DIR = ['agent', 'mcps'];
@@ -568,7 +572,7 @@ export class McpService {
 
 		try {
 			const fileContent = await readFile(this._mcpJsonFilePath, 'utf8');
-			const envVars = this._projectId ? await getProjectRuntimeEnvVars(this._projectId) : {};
+			const envVars = this._projectId ? await getEnvVars(this._projectId) : {};
 			const resolved = resolveConfigEnvVars(JSON.parse(fileContent), envVars);
 			const parsed = mcpJsonSchema.parse(resolved);
 			this._mcpServers = parsed.mcpServers;

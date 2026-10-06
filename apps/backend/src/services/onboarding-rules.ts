@@ -14,6 +14,7 @@ import { safeFetch } from '../utils/safe-fetch';
 
 const MAX_CONTEXT_FILES = 60;
 const MAX_CONTEXT_CHARACTERS = 60_000;
+const MAX_ADDITIONAL_CONTEXT_CHARACTERS = 15_000;
 const MAX_WEBSITE_CONTEXT_CHARACTERS = 15_000;
 
 type BusinessContext = generateOnboardingRulesTool.Input['businessContext'];
@@ -86,7 +87,7 @@ Return Markdown only, without a surrounding code fence.`,
 }
 
 async function resolveAdditionalContext(businessContext: BusinessContext): Promise<string> {
-	const additionalContext = businessContext.additionalContext?.trim();
+	const additionalContext = businessContext.additionalContext?.trim().slice(0, MAX_ADDITIONAL_CONTEXT_CHARACTERS);
 	if (!additionalContext) {
 		return 'None provided.';
 	}

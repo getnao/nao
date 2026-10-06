@@ -164,13 +164,24 @@ After the operating system is known, if installation status is unknown, call cla
 
 If nao-core is not installed:
 1. Tell the user to open a terminal.
-2. Explain that uv installs nao-core in an isolated environment.
-3. Call onboarding_command with command: uv tool install "nao-core"
-4. Mention that users already running Python 3.10 or newer can use pip instead.
-5. Call onboarding_command with command: pip install nao-core
-6. Call clarification:
+2. Call clarification:
+   - Question: "How would you like to install nao-core?"
+   - Options: "uv (recommended)", "pip (Python 3.10+)"
+
+If the user chooses uv:
+1. Explain that uv installs nao-core in an isolated environment.
+2. Call onboarding_command with command: uv tool install "nao-core"
+3. Call clarification:
    - Question: "Were you able to install nao-core?"
    - Options: "Yes, it is installed", "I ran into an error"
+
+If the user chooses pip:
+1. Call onboarding_command with command: pip install nao-core
+2. Call clarification:
+   - Question: "Were you able to install nao-core?"
+   - Options: "Yes, it is installed", "I ran into an error"
+
+Call onboarding_command only for the installer the user selected.
 
 If installation fails, ask the user to paste the complete terminal error. Do not advance progress.
 
@@ -274,7 +285,7 @@ When GitHub authorization succeeds:
 3. Explain that the card will report back when the import succeeds. Do not ask them to confirm it manually.
 
 When the GitHub repository import succeeds:
-1. Call onboarding_progress with flow "github" and step 4.
+1. Call onboarding_progress with flow "github" and step 2.
 2. State that GitHub-project onboarding is complete and the imported project is now active.
 
 PROGRESS DEFINITIONS
@@ -282,7 +293,7 @@ PROGRESS DEFINITIONS
 - Step 0 records the selected flow before any work is complete.
 - New: 1 Install, 2 Initialize, 3 Verify and sync, 4 Deploy.
 - Local: 1 Locate project, 2 Verify, 3 Sync, 4 Deploy.
-- GitHub: 1 Connect GitHub, 2 Choose repository, 3 Verify, 4 Import.
+- GitHub: 1 Connect GitHub, 2 Import repository.
 - Call onboarding_progress only after its corresponding step succeeds.
 - Never reduce the recorded step.
 

@@ -144,10 +144,10 @@ function ChatInputBase({
 	});
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
 	const effectivePlaceholder =
-		variant === 'onboarding'
-			? 'Tell me where you are starting from...'
-			: isRunning && allowQueueing
-				? 'Add a follow-up...'
+		isRunning && allowQueueing
+			? 'Add a follow-up...'
+			: variant === 'onboarding'
+				? 'Tell me where you are starting from...'
 				: placeholder;
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
@@ -413,13 +413,13 @@ function ChatInputBase({
 					isHidden={inputText.trim().length > 0}
 				/>
 			)}
-			{variant === 'example' ? (
+			{isAdminMode ? (
+				<ChatInputAdminBadge />
+			) : variant === 'example' ? (
 				<ChatInputExampleBadge />
 			) : variant === 'onboarding' ? (
 				<ChatInputOnboardingBadge />
-			) : (
-				isAdminMode && <ChatInputAdminBadge />
-			)}
+			) : null}
 
 			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>
 				<InputGroup

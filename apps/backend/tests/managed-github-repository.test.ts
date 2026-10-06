@@ -139,6 +139,61 @@ describe('managed GitHub repository provisioning', () => {
 		);
 	});
 
+	it('rejects an empty repository before pushing an unborn HEAD', async () => {
+		const fetchMock = vi.mocked(fetch);
+		fetchMock.mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' })).mockResolvedValueOnce(
+			jsonResponse(200, {
+				full_name: 'nao-org/nao-lumen-bike-share-12345678',
+				html_url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+			}),
+		);
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'rev-parse') {
+					callback(new Error('unknown revision'), '', '');
+					return;
+				}
+				callback(null, '', '');
+			},
+		);
+
+		await expect(provisionManagedGithubRepository(project)).rejects.toThrow(
+			'Cannot publish project: no files to commit',
+		);
+		expect(mocks.execFile).not.toHaveBeenCalledWith(
+			'git',
+			expect.arrayContaining(['push']),
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
+	it('pushes an existing commit when there are no staged changes', async () => {
+		const fetchMock = vi.mocked(fetch);
+		fetchMock.mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' })).mockResolvedValueOnce(
+			jsonResponse(200, {
+				full_name: 'nao-org/nao-lumen-bike-share-12345678',
+				html_url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+			}),
+		);
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				callback(null, args[0] === 'rev-parse' ? 'abc123\n' : '', '');
+			},
+		);
+
+		await expect(provisionManagedGithubRepository(project)).resolves.toEqual({
+			repoFullName: 'nao-org/nao-lumen-bike-share-12345678',
+			url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+		});
+		expect(mocks.execFile).toHaveBeenCalledWith(
+			'git',
+			['push', 'https://github.com/nao-org/nao-lumen-bike-share-12345678.git', 'HEAD:refs/heads/main'],
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
 	it('creates a missing repository as private and without an initial commit', async () => {
 		const fetchMock = vi.mocked(fetch);
 		fetchMock

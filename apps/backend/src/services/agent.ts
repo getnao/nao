@@ -215,6 +215,7 @@ export async function buildToolContext(opts: {
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
 	modelSelection?: LlmSelectedModel;
+	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -243,6 +244,7 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
+	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
@@ -253,7 +255,9 @@ async function _buildContextBase(opts: {
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
-		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
+		resolveProjectContextAccess(opts.projectId, opts.userId, project.path, {
+			projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
+		}),
 	]);
 	return {
 		projectFolder: project.path,
@@ -324,6 +328,8 @@ export class AgentService {
 			adminMode?: boolean;
 			/** Enables project-defined charts that render only in the web client. */
 			supportsCustomCharts?: boolean;
+			/** The request boundary has already authorized access to an internal system project. */
+			projectAccessAlreadyAuthorized?: boolean;
 		} = {},
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
@@ -342,6 +348,7 @@ export class AgentService {
 			adminMode: options.adminMode,
 			supportsCustomCharts: options.supportsCustomCharts,
 			modelSelection: resolvedLlmSelectedModel,
+			projectAccessAlreadyAuthorized: options.projectAccessAlreadyAuthorized,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;

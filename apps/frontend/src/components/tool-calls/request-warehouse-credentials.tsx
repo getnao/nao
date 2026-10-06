@@ -33,7 +33,7 @@ export function RequestWarehouseCredentialsToolCall({
 	const cardRef = useRef<HTMLDivElement>(null);
 	const notifiedJobId = useRef<string | null>(null);
 	const restoredJobId = useRef(false);
-	const { chatId, queueOrSendMessage } = useAgentContext();
+	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
 	const canRestoreJob = Boolean(chatId && chatId !== NEW_CHAT_ID);
 	const activeJob = useQuery({
 		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
@@ -69,6 +69,7 @@ export function RequestWarehouseCredentialsToolCall({
 		const status = job.data?.status;
 		if (
 			!jobId ||
+			isRunning ||
 			hasRequestedContext ||
 			(status !== 'syncing' && status !== 'registering' && status !== 'awaiting_context') ||
 			notifiedJobId.current === jobId
@@ -80,8 +81,13 @@ export function RequestWarehouseCredentialsToolCall({
 		setOpen(false);
 		void queueOrSendMessage({
 			text: `${ONBOARDING_CONTEXT_REQUEST_PREFIX} jobId=${jobId}`,
-		}).catch(console.error);
-	}, [hasRequestedContext, job.data?.status, jobId, queueOrSendMessage]);
+		}).catch((error) => {
+			if (notifiedJobId.current === jobId) {
+				notifiedJobId.current = null;
+			}
+			console.error(error);
+		});
+	}, [hasRequestedContext, isRunning, job.data?.status, jobId, queueOrSendMessage]);
 
 	if (!provider) {
 		return null;

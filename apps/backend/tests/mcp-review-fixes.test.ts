@@ -5,6 +5,9 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/services/warehouse-credentials', () => ({
+	getProjectWarehouseEnvVars: async () => ({}),
+}));
 
 import { getTools } from '../src/agents/tools';
 import { authRequiredOutput, createMcpCallTool } from '../src/agents/tools/mcp-call';

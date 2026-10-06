@@ -927,24 +927,46 @@ async function loadProjectChatsFacets(args: {
 }
 
 export async function upsertSystemExampleProject(projectPath: string): Promise<DBProject> {
-	const [project] = await db
+	const project = {
+		id: 'system-example-project',
+		orgId: null,
+		name: 'Jaffle Shop',
+		type: 'local' as const,
+		path: projectPath,
+	};
+	return dbConfig.dialect === Dialect.Postgres
+		? db.transaction((transaction) => upsertPostgresSystemExampleProject(project, transaction))
+		: db.transaction((transaction) => {
+				const [stored] = transaction
+					.insert(s.project)
+					.values(project)
+					.onConflictDoUpdate({
+						target: s.project.id,
+						set: {
+							name: project.name,
+							path: project.path,
+						},
+					})
+					.returning()
+					.all();
+				transaction.insert(s.userGroup).values(defaultUserGroupValues(stored.id)).onConflictDoNothing().run();
+				return stored;
+			});
+}
+
+async function upsertPostgresSystemExampleProject(project: NewProject, transaction: DBTransaction): Promise<DBProject> {
+	const [stored] = await transaction
 		.insert(s.project)
-		.values({
-			id: 'system-example-project',
-			orgId: null,
-			name: 'Jaffle Shop',
-			type: 'local',
-			path: projectPath,
-		})
+		.values(project)
 		.onConflictDoUpdate({
 			target: s.project.id,
 			set: {
-				name: 'Jaffle Shop',
-				path: projectPath,
+				name: project.name,
+				path: project.path,
 			},
 		})
 		.returning()
 		.execute();
-
-	return project;
+	await transaction.insert(s.userGroup).values(defaultUserGroupValues(stored.id)).onConflictDoNothing().execute();
+	return stored;
 }
