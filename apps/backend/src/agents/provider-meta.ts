@@ -22,7 +22,9 @@ export const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<LlmProviderKind, string
 	qwen: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
 	minimax: 'https://api.minimax.io/v1',
 	moonshot: 'https://api.moonshot.ai/v1',
+	openrouter: 'https://openrouter.ai/api/v1',
 	requesty: 'https://router.requesty.ai/v1',
+	groq: 'https://api.groq.com/openai/v1',
 };
 
 /** Claude effort vocabulary: no `minimal` (Anthropic's effort enum is low/medium/high/max). */
@@ -327,6 +329,23 @@ const OPENAI_COMPATIBLE_CUSTOM: ModelCapabilities = {
 	effortOptions: OPENAI_LISTED_EFFORTS,
 };
 
+/** GPT-OSS on Groq: reasoning driven by `reasoning_effort`, which accepts low/medium/high only. */
+const GROQ_REASONING: ModelCapabilities = {
+	thinking: 'adaptive',
+	sampling: true,
+	topK: false,
+	maxOutputTokens: true,
+	effortOptions: ['off', 'low', 'medium', 'high'],
+};
+
+/** Llama and other non-reasoning Groq models: `reasoning_effort` is rejected, so only sampling is tunable. */
+const GROQ_SAMPLING: ModelCapabilities = {
+	thinking: 'none',
+	sampling: true,
+	topK: false,
+	maxOutputTokens: true,
+};
+
 /** Provider metadata: models, auth config, env vars. No SDK imports — safe for frontend. */
 export const PROVIDER_META: ProviderMetaMap = {
 	anthropic: {
@@ -511,6 +530,13 @@ export const PROVIDER_META: ProviderMetaMap = {
 				capabilities: OPENAI_SAMPLING,
 			},
 		],
+		transcription: {
+			models: [
+				{ id: 'gpt-4o-mini-transcribe', name: 'GPT-4o Mini Transcribe', default: true, pricePerMinute: 0.003 },
+				{ id: 'gpt-4o-transcribe', name: 'GPT-4o Transcribe', pricePerMinute: 0.006 },
+				{ id: 'whisper-1', name: 'Whisper', pricePerMinute: 0.006 },
+			],
+		},
 	},
 	google: {
 		auth: { apiKey: 'required' },
@@ -618,6 +644,12 @@ export const PROVIDER_META: ProviderMetaMap = {
 				capabilities: OPENROUTER_EFFORT,
 			},
 		],
+		transcription: {
+			models: [
+				{ id: 'openai/whisper-1', name: 'Whisper', default: true },
+				{ id: 'openai/whisper-large-v3', name: 'Whisper Large V3' },
+			],
+		},
 	},
 	requesty: {
 		auth: { apiKey: 'required' },
@@ -910,6 +942,51 @@ export const PROVIDER_META: ProviderMetaMap = {
 			},
 		],
 	},
+	groq: {
+		auth: { apiKey: 'required' },
+		envVar: 'GROQ_API_KEY',
+		baseUrlEnvVar: 'GROQ_BASE_URL',
+		defaultBaseUrl: OPENAI_COMPATIBLE_BASE_URLS.groq,
+		extractorModelId: 'openai/gpt-oss-20b',
+		summaryModelId: 'openai/gpt-oss-20b',
+		models: [
+			{
+				id: 'openai/gpt-oss-120b',
+				name: 'GPT OSS 120B',
+				default: true,
+				contextWindow: 131_072,
+				costPerM: { inputNoCache: 0.15, inputCacheRead: 0.15, inputCacheWrite: 0, output: 0.6 },
+				capabilities: GROQ_REASONING,
+			},
+			{
+				id: 'openai/gpt-oss-20b',
+				name: 'GPT OSS 20B',
+				contextWindow: 131_072,
+				costPerM: { inputNoCache: 0.075, inputCacheRead: 0.075, inputCacheWrite: 0, output: 0.3 },
+				capabilities: GROQ_REASONING,
+			},
+			{
+				id: 'llama-3.3-70b-versatile',
+				name: 'Llama 3.3 70B Versatile',
+				contextWindow: 131_072,
+				costPerM: { inputNoCache: 0.59, inputCacheRead: 0.59, inputCacheWrite: 0, output: 0.79 },
+				capabilities: GROQ_SAMPLING,
+			},
+			{
+				id: 'llama-3.1-8b-instant',
+				name: 'Llama 3.1 8B Instant',
+				contextWindow: 131_072,
+				costPerM: { inputNoCache: 0.05, inputCacheRead: 0.05, inputCacheWrite: 0, output: 0.08 },
+				capabilities: GROQ_SAMPLING,
+			},
+		],
+		transcription: {
+			models: [
+				{ id: 'whisper-large-v3', name: 'Whisper Large V3', default: true, pricePerMinute: 0.0019 },
+				{ id: 'whisper-large-v3-turbo', name: 'Whisper Large V3 Turbo', pricePerMinute: 0.0007 },
+			],
+		},
+	},
 	openaiCompatible: {
 		auth: {
 			apiKey: 'optional',
@@ -923,6 +1000,8 @@ export const PROVIDER_META: ProviderMetaMap = {
 		extractorModelId: '',
 		summaryModelId: '',
 		models: [],
+		// Whether a given endpoint actually serves /audio/transcriptions is for the admin to know.
+		transcription: { models: [] },
 	},
 };
 
@@ -935,6 +1014,11 @@ export function getDefaultModelId(provider: LlmProvider): string {
 	const models = getProviderMeta(provider).models;
 	const defaultModel = models.find((m) => m.default);
 	return defaultModel?.id ?? models[0]?.id ?? '';
+}
+
+/** Whether the provider's kind exposes an OpenAI-style `/audio/transcriptions` endpoint. */
+export function supportsTranscription(provider: LlmProvider): boolean {
+	return getProviderMeta(provider).transcription !== undefined;
 }
 
 export function getProviderAuth(provider: LlmProvider): ProviderAuth {
@@ -1003,6 +1087,8 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 			return MINIMAX_SAMPLING;
 		case 'moonshot':
 			return MOONSHOT_ADAPTIVE;
+		case 'groq':
+			return modelId.startsWith('openai/gpt-oss') ? GROQ_REASONING : GROQ_SAMPLING;
 		case 'requesty':
 		case 'openaiCompatible':
 			return OPENAI_COMPATIBLE_CUSTOM;

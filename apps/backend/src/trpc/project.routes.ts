@@ -10,6 +10,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
+import { supportsTranscription } from '../agents/transcribe.providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
@@ -945,7 +946,9 @@ export const projectRoutes = {
 				transcribe: z
 					.object({
 						enabled: z.boolean().optional(),
-						provider: z.string().optional(),
+						provider: llmProviderSchema
+							.refine(supportsTranscription, { message: 'Provider does not support transcription' })
+							.optional(),
 						modelId: z.string().optional(),
 					})
 					.optional(),

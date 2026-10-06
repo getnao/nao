@@ -71,6 +71,31 @@ describe('readProjectConfigLlm', () => {
 		});
 	});
 
+	it('accepts groq as a provider kind', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: groq',
+			'    api_key: gsk-test',
+			'    models:',
+			'    - id: openai/gpt-oss-120b',
+			'      default: true',
+		]);
+
+		expect(readProjectConfigLlm(dir)?.providers).toEqual([
+			{
+				provider: 'groq',
+				apiKey: 'gsk-test',
+				baseUrl: null,
+				credentials: null,
+				enabledModels: ['openai/gpt-oss-120b'],
+				customModels: [],
+				modelSettings: {},
+				budget: null,
+			},
+		]);
+	});
+
 	it('nests a legacy single provider block under providers', () => {
 		const dir = writeConfig([
 			'llm:',

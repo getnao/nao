@@ -2,14 +2,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Mic, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { providerLabel } from '@nao/shared/types';
+import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/ui/form-fields';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Switch } from '@/components/ui/switch';
-import { capitalize } from '@/lib/utils';
 import { trpc, trpcClient } from '@/main';
 
 const TEST_DURATION_MS = 5000;
+const CUSTOM_MODEL_VALUE = '__custom__';
 
 interface SettingsTranscribeProps {
 	isAdmin: boolean;
@@ -39,7 +43,31 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 	const currentProvider = agentSettings.data?.transcribe?.provider ?? providerNames[0] ?? '';
 	const providerConfig = knownModels.data?.[currentProvider];
 	const providerModels = providerConfig?.models ?? [];
-	const currentModelId = agentSettings.data?.transcribe?.modelId ?? providerModels.find((m) => m.default)?.id ?? '';
+	const savedModelId = agentSettings.data?.transcribe?.modelId;
+	const currentModelId = savedModelId ?? providerModels.find((m) => m.default)?.id ?? '';
+	const [customMode, setCustomMode] = useState(false);
+	const [forceCatalog, setForceCatalog] = useState(false);
+	const [modelDraft, setModelDraft] = useState('');
+	const isCustomModel =
+		!forceCatalog &&
+		(customMode ||
+			providerModels.length === 0 ||
+			(savedModelId != null && !providerModels.some((m) => m.id === savedModelId)));
+	const testModelId = isCustomModel ? modelDraft.trim() : currentModelId;
+
+	useEffect(() => {
+		setCustomMode(false);
+		setForceCatalog(false);
+		setModelDraft(savedModelId ?? '');
+	}, [savedModelId, currentProvider]);
+
+	const commitCustomModel = () => {
+		const modelId = modelDraft.trim();
+		if (!modelId) {
+			return;
+		}
+		updateAgentSettings.mutate({ transcribe: { provider: currentProvider as LlmProvider, modelId } });
+	};
 
 	const handleToggle = (enabled: boolean) => {
 		updateAgentSettings.mutate({
@@ -52,17 +80,17 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 		const models = config?.models ?? [];
 		const defaultModelId = models.find((m) => m.default)?.id ?? models[0]?.id ?? '';
 		updateAgentSettings.mutate({
-			transcribe: { provider, modelId: defaultModelId },
+			transcribe: { provider: provider as LlmProvider, modelId: defaultModelId },
 		});
 	};
 
 	const handleModelChange = (modelId: string) => {
 		updateAgentSettings.mutate({
-			transcribe: { provider: currentProvider, modelId },
+			transcribe: { provider: currentProvider as LlmProvider, modelId },
 		});
 	};
 
-	const { testState, testResult, countdown, startTest } = useTranscribeTest();
+	const { testState, testResult, countdown, startTest } = useTranscribeTest(currentProvider, testModelId);
 
 	const isMutating = updateAgentSettings.isPending;
 	const isTesting = testState !== 'idle';
@@ -81,8 +109,9 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 					{hasNoProviders ? (
 						<p className='text-sm text-muted-foreground'>
 							Transcription compatible provider API key (
-							{allProviders.map(([name]) => capitalize(name)).join(', ')}) must be configured in the{' '}
-							<span className='font-medium text-foreground'>LLM Configuration</span> section above.
+							{allProviders.map(([name]) => providerLabel(name as LlmProvider)).join(', ')}) must be
+							configured in the <span className='font-medium text-foreground'>LLM Configuration</span>{' '}
+							section above.
 						</p>
 					) : (
 						<>
@@ -91,7 +120,12 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 								<Select
 									value={currentProvider}
 									onValueChange={handleProviderChange}
-									disabled={!isAdmin || isMutating || isTesting || providerNames.length <= 1}
+									disabled={
+										!isAdmin ||
+										isMutating ||
+										isTesting ||
+										(providerNames.length <= 1 && providerNames.includes(currentProvider))
+									}
 								>
 									<SelectTrigger className='w-full'>
 										<SelectValue />
@@ -99,7 +133,7 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 									<SelectContent>
 										{providerNames.map((provider) => (
 											<SelectItem key={provider} value={provider}>
-												{capitalize(provider)}
+												{providerLabel(provider as LlmProvider)}
 											</SelectItem>
 										))}
 									</SelectContent>
@@ -108,28 +142,77 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 
 							<div className='grid gap-2'>
 								<label className='text-sm font-medium text-foreground'>Model</label>
-								<Select
-									value={currentModelId}
-									onValueChange={handleModelChange}
-									disabled={!isAdmin || isMutating || isTesting || providerModels.length === 0}
-								>
-									<SelectTrigger className='w-full'>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										{providerModels.map((model) => (
-											<SelectItem key={model.id} value={model.id}>
-												{model.name}
-												{model.pricePerMinute != null && (
-													<span className='text-muted-foreground'>
-														${model.pricePerMinute}/min
-													</span>
-												)}
+								{isCustomModel ? (
+									<div className='flex gap-2'>
+										<Input
+											value={modelDraft}
+											onChange={(e) => setModelDraft(e.target.value)}
+											onKeyDown={(e) => {
+												if (e.key === 'Enter') {
+													e.preventDefault();
+													commitCustomModel();
+												}
+											}}
+											placeholder='Model ID, e.g. whisper-large-v3'
+											disabled={!isAdmin || isMutating || isTesting}
+										/>
+										<Button
+											variant='outline'
+											size='sm'
+											onClick={commitCustomModel}
+											disabled={!isAdmin || !modelDraft.trim() || isMutating || isTesting}
+										>
+											Save
+										</Button>
+										{providerModels.length > 0 && (
+											<Button
+												variant='ghost'
+												size='sm'
+												onClick={() => {
+													setForceCatalog(true);
+													setCustomMode(false);
+												}}
+											>
+												List
+											</Button>
+										)}
+									</div>
+								) : (
+									<Select
+										value={currentModelId}
+										onValueChange={(value) => {
+											if (value === CUSTOM_MODEL_VALUE) {
+												setCustomMode(true);
+												setModelDraft('');
+												return;
+											}
+											handleModelChange(value);
+										}}
+										disabled={!isAdmin || isMutating || isTesting}
+									>
+										<SelectTrigger className='w-full'>
+											<SelectValue placeholder='Model ID' />
+										</SelectTrigger>
+										<SelectContent>
+											{providerModels.map((model) => (
+												<SelectItem key={model.id} value={model.id}>
+													{model.name}
+													{model.pricePerMinute != null && (
+														<span className='text-muted-foreground'>
+															${model.pricePerMinute}/min
+														</span>
+													)}
+												</SelectItem>
+											))}
+											<SelectItem value={CUSTOM_MODEL_VALUE} className='text-muted-foreground'>
+												Custom model ID…
 											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
+										</SelectContent>
+									</Select>
+								)}
 							</div>
+
+							{updateAgentSettings.error && <FormError error={updateAgentSettings.error.message} />}
 
 							<div className='space-y-2'>
 								<div className='flex items-center gap-3'>
@@ -137,7 +220,7 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 										variant='outline'
 										size='sm'
 										onClick={startTest}
-										disabled={isTesting || !currentProvider || !currentModelId}
+										disabled={isTesting || !currentProvider || !testModelId}
 									>
 										{testState === 'recording' ? (
 											<>
@@ -172,14 +255,16 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 										}`}
 									>
 										{testResult.success ? (
-											<p>
-												<span className='font-medium'>Transcript: </span>
-												{testResult.text || (
-													<span className='italic text-muted-foreground'>
-														(no speech detected)
-													</span>
-												)}
-											</p>
+											<>
+												<p>
+													<span className='font-medium'>Transcript: </span>
+													{testResult.text || (
+														<span className='italic text-muted-foreground'>
+															(no speech detected)
+														</span>
+													)}
+												</p>
+											</>
 										) : (
 											<p className='flex items-center gap-1.5'>
 												<X className='size-3.5 shrink-0' />
@@ -208,12 +293,35 @@ export function SettingsTranscribe({ isAdmin }: SettingsTranscribeProps) {
 type TestState = 'idle' | 'recording' | 'transcribing';
 type TestResult = { success: true; text: string } | { success: false; error: string };
 
-function useTranscribeTest() {
+function useTranscribeTest(provider: string, modelId: string) {
 	const [testState, setTestState] = useState<TestState>('idle');
 	const [testResult, setTestResult] = useState<TestResult | null>(null);
 	const [countdown, setCountdown] = useState(0);
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+	const streamRef = useRef<MediaStream | null>(null);
+	const startingRef = useRef(false);
+	const disposedRef = useRef(false);
 	const chunksRef = useRef<Blob[]>([]);
+
+	useEffect(() => {
+		return () => {
+			disposedRef.current = true;
+			const recorder = mediaRecorderRef.current;
+			if (recorder) {
+				// Detach handlers so the stop below does not fire an upload after unmount.
+				recorder.onstop = null;
+				recorder.ondataavailable = null;
+				if (recorder.state !== 'inactive') {
+					try {
+						recorder.stop();
+					} catch {
+						// already stopped
+					}
+				}
+			}
+			streamRef.current?.getTracks().forEach((t) => t.stop());
+		};
+	}, []);
 
 	useEffect(() => {
 		if (testState !== 'recording' || countdown <= 0) {
@@ -226,14 +334,19 @@ function useTranscribeTest() {
 
 	useEffect(() => {
 		if (testState === 'recording' && countdown === 0) {
-			mediaRecorderRef.current?.stop();
+			try {
+				mediaRecorderRef.current?.stop();
+			} catch {
+				// already stopped
+			}
 		}
 	}, [testState, countdown]);
 
 	const startTest = useCallback(async () => {
-		if (testState !== 'idle') {
+		if (testState !== 'idle' || startingRef.current) {
 			return;
 		}
+		startingRef.current = true;
 
 		setTestResult(null);
 		setCountdown(TEST_DURATION_MS / 1000);
@@ -242,11 +355,18 @@ function useTranscribeTest() {
 		try {
 			stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 		} catch {
+			startingRef.current = false;
 			setTestResult({ success: false, error: 'Microphone access denied' });
+			return;
+		}
+		startingRef.current = false;
+		if (disposedRef.current) {
+			stream.getTracks().forEach((t) => t.stop());
 			return;
 		}
 
 		setTestState('recording');
+		streamRef.current = stream;
 		chunksRef.current = [];
 
 		const mimeType = getSupportedMimeType();
@@ -273,7 +393,11 @@ function useTranscribeTest() {
 
 			try {
 				const base64 = await blobToBase64(blob);
-				const { text } = await trpcClient.transcribe.transcribe.mutate({ audio: base64 });
+				const text = await trpcClient.transcribe.transcribe.mutate({
+					audio: base64,
+					provider: provider as LlmProvider,
+					modelId,
+				});
 				setTestResult({ success: true, text: text?.trim() ?? '' });
 			} catch (err) {
 				const message = err instanceof Error ? err.message : 'Transcription failed';
@@ -284,7 +408,7 @@ function useTranscribeTest() {
 		};
 
 		recorder.start();
-	}, [testState]);
+	}, [testState, provider, modelId]);
 
 	return { testState, testResult, countdown, startTest };
 }

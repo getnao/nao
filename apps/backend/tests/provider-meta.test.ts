@@ -105,6 +105,18 @@ describe('getModelCapabilities', () => {
 		});
 	});
 
+	it('falls back per model family for custom Groq models', () => {
+		expect(getModelCapabilities('groq', 'openai/gpt-oss-120b')).toMatchObject({
+			thinking: 'adaptive',
+			effortOptions: ['off', 'low', 'medium', 'high'],
+		});
+		expect(getModelCapabilities('groq', 'openai/gpt-oss-future')).toMatchObject({
+			thinking: 'adaptive',
+			effortOptions: ['off', 'low', 'medium', 'high'],
+		});
+		expect(getModelCapabilities('groq', 'llama-custom')).toMatchObject({ thinking: 'none', sampling: true });
+	});
+
 	it('falls back per model family for custom Bedrock models', () => {
 		expect(getModelCapabilities('bedrock', 'anthropic.claude-3-7-sonnet')).toMatchObject({
 			thinking: 'budget',

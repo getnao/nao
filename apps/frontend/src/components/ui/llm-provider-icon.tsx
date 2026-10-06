@@ -14,6 +14,7 @@ import GoogleVertexIcon from '@/components/icons/google-vertex.svg';
 import QwenIcon from '@/components/icons/qwen.svg';
 import MinimaxIcon from '@/components/icons/minimax.svg';
 import MoonshotIcon from '@/components/icons/moonshot.svg';
+import GroqIcon from '@/components/icons/groq.svg';
 
 import { Favicon } from '@/components/ui/favicon';
 import { cn } from '@/lib/utils';
@@ -54,6 +55,8 @@ export function LlmProviderIcon({ provider, baseUrl, className: customClassName 
 			return <MinimaxIcon className={className} />;
 		case 'moonshot':
 			return <MoonshotIcon className={className} />;
+		case 'groq':
+			return <GroqIcon className={className} />;
 		case 'openaiCompatible':
 			return (
 				<Favicon

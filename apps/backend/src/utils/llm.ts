@@ -327,7 +327,7 @@ type ProviderModelSource = {
  * The model list of every provider available to a project, taking each provider from the first
  * source that declares it: the database, then nao_config.yaml, then the environment.
  */
-async function getProjectModelSources(projectId: string): Promise<ProviderModelSource[]> {
+export async function getProjectModelSources(projectId: string): Promise<ProviderModelSource[]> {
 	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
 	const sources: ProviderModelSource[] = configs.map((config) => ({
 		provider: config.provider as LlmProvider,

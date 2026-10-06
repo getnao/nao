@@ -1,53 +1,37 @@
 import { createOpenAI } from '@ai-sdk/openai';
+import type { LlmProvider } from '@nao/shared/types';
+import { providerKind, providerLabel } from '@nao/shared/types';
 import type { TranscriptionModel } from 'ai';
 
-import type { ProviderSettings } from '../types/llm';
+import type { ProviderSettings, TranscribeModelDef } from '../types/llm';
+import { getProviderMeta, OPENAI_COMPATIBLE_BASE_URLS, supportsTranscription } from './provider-meta';
 
-export type TranscribeProvider = 'openai';
+export { supportsTranscription };
 
-export type TranscribeModelDef = {
-	id: string;
-	name: string;
-	default?: boolean;
-	pricePerMinute?: number;
-};
-
-export type TranscribeProviderConfig = {
-	envVar: string;
-	models: readonly TranscribeModelDef[];
-};
-
-export const TRANSCRIBE_PROVIDERS: Record<TranscribeProvider, TranscribeProviderConfig> = {
-	openai: {
-		envVar: 'OPENAI_API_KEY',
-		models: [
-			{ id: 'gpt-4o-mini-transcribe', name: 'GPT-4o Mini Transcribe', default: true, pricePerMinute: 0.003 },
-			{ id: 'gpt-4o-transcribe', name: 'GPT-4o Transcribe', pricePerMinute: 0.006 },
-			{ id: 'whisper-1', name: 'Whisper', pricePerMinute: 0.006 },
-		],
-	},
-};
-
-export const KNOWN_TRANSCRIBE_MODELS = Object.fromEntries(
-	Object.entries(TRANSCRIBE_PROVIDERS).map(([provider, config]) => [provider, config.models]),
-) as Record<TranscribeProvider, readonly TranscribeModelDef[]>;
-
-export function getDefaultTranscribeModelId(provider: TranscribeProvider): string {
-	const models = TRANSCRIBE_PROVIDERS[provider].models;
-	const defaultModel = models.find((m) => m.default);
-	return defaultModel?.id ?? models[0].id;
+export function getTranscribeModels(provider: LlmProvider): readonly TranscribeModelDef[] {
+	return getProviderMeta(provider).transcription?.models ?? [];
 }
 
-type TranscribeModelCreator = (settings: ProviderSettings, modelId: string) => TranscriptionModel;
+export function getDefaultTranscribeModelId(provider: LlmProvider): string {
+	const models = getTranscribeModels(provider);
+	return models.find((m) => m.default)?.id ?? models[0]?.id ?? '';
+}
 
-const TRANSCRIBE_MODEL_CREATORS: Record<TranscribeProvider, TranscribeModelCreator> = {
-	openai: (settings, modelId) => createOpenAI(settings).transcription(modelId),
-};
-
+/**
+ * Every transcription-capable provider speaks the OpenAI audio API, so a single creator
+ * covers them all; only the base URL differs. `createOpenAI` rejects an empty key, so
+ * endpoints that need no auth (a local Whisper server) get a placeholder.
+ */
 export function createTranscribeModel(
-	provider: TranscribeProvider,
+	provider: LlmProvider,
 	settings: ProviderSettings,
 	modelId: string,
 ): TranscriptionModel {
-	return TRANSCRIBE_MODEL_CREATORS[provider](settings, modelId);
+	const kind = providerKind(provider);
+	const meta = getProviderMeta(provider);
+	const baseURL = settings.baseURL ?? OPENAI_COMPATIBLE_BASE_URLS[kind] ?? meta.defaultBaseUrl;
+	if (!baseURL && meta.requiresBaseUrl) {
+		throw new Error(`${providerLabel(provider)} needs a base URL: set one on the provider before using it`);
+	}
+	return createOpenAI({ apiKey: settings.apiKey || 'nao', ...(baseURL && { baseURL }) }).transcription(modelId);
 }

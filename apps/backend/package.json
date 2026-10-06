@@ -116,7 +116,7 @@
 		"sharp": "^0.35.4",
 		"superjson": "^2.2.6",
 		"unpdf": "^1.8.0",
-		"zod": "^4.2.1"
+		"zod": "^4.4.0"
 	},
 	"optionalDependencies": {
 		"@esbuild/linux-x64": "^0.27.4"

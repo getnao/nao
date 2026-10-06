@@ -224,6 +224,7 @@ export type ProviderConfigMap = {
 	minimax: OpenAICompatibleOptions;
 	moonshot: OpenAICompatibleOptions;
 	requesty: OpenAICompatibleOptions;
+	groq: OpenAICompatibleOptions;
 	openaiCompatible: OpenAICompatibleOptions;
 };
 
@@ -237,6 +238,14 @@ type ProviderModel<P extends LlmProviderKind> = {
 	costPerM?: TokenCost;
 	/** Tunable inference parameters this model supports. Omit to expose no tunable parameters. */
 	capabilities?: ModelCapabilities;
+};
+
+/** A speech-to-text model served through a provider's OpenAI-style `/audio/transcriptions` endpoint. */
+export type TranscribeModelDef = {
+	id: string;
+	name: string;
+	default?: boolean;
+	pricePerMinute?: number;
 };
 
 /** An additional credential field (e.g. AWS Access Key ID) */
@@ -274,6 +283,12 @@ export type ProviderMeta<P extends LlmProviderKind> = {
 	defaultBaseUrl?: string;
 	/** Set when the provider has no vendor endpoint to fall back on, so a base URL must be supplied. */
 	requiresBaseUrl?: boolean;
+	/**
+	 * Speech-to-text support: present when the provider's endpoint speaks the OpenAI audio API
+	 * (`POST {baseURL}/audio/transcriptions`). An empty catalog means the endpoint defines its own
+	 * model ids and the admin enters one.
+	 */
+	transcription?: { models: readonly TranscribeModelDef[] };
 	models: readonly ProviderModel<P>[];
 	extractorModelId: string;
 	summaryModelId: string;

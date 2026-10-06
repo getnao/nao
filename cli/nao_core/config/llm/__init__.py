@@ -24,6 +24,7 @@ class LLMProvider(str, Enum):
     QWEN = "qwen"
     MINIMAX = "minimax"
     MOONSHOT = "moonshot"
+    GROQ = "groq"
     OPENAI_COMPATIBLE = "openaiCompatible"
 
 
@@ -100,6 +101,12 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         base_url_env_var="MOONSHOT_BASE_URL",
         default_base_url="https://api.moonshot.ai/v1",
     ),
+    LLMProvider.GROQ: ProviderAuthConfig(
+        env_var="GROQ_API_KEY",
+        api_key="required",
+        base_url_env_var="GROQ_BASE_URL",
+        default_base_url="https://api.groq.com/openai/v1",
+    ),
     LLMProvider.OPENAI_COMPATIBLE: ProviderAuthConfig(
         env_var="OPENAI_COMPATIBLE_API_KEY",
         api_key="optional",
@@ -118,6 +125,7 @@ OPENAI_COMPATIBLE_PROVIDERS: frozenset[LLMProvider] = frozenset(
         LLMProvider.QWEN,
         LLMProvider.MINIMAX,
         LLMProvider.MOONSHOT,
+        LLMProvider.GROQ,
         LLMProvider.OPENAI_COMPATIBLE,
     }
 )
@@ -139,6 +147,7 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.QWEN: "qwen3.7-flash",
     LLMProvider.MINIMAX: "MiniMax-M2.7",
     LLMProvider.MOONSHOT: "kimi-k2.5",
+    LLMProvider.GROQ: "openai/gpt-oss-20b",
 }
 
 """Spellings accepted in config on top of the provider names nao uses internally."""
@@ -353,6 +362,7 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Qwen (Alibaba Cloud Model Studio)", value="qwen"),
             questionary.Choice("MiniMax", value="minimax"),
             questionary.Choice("Moonshot (Kimi)", value="moonshot"),
+            questionary.Choice("Groq", value="groq"),
             questionary.Choice("Other OpenAI-compatible endpoint (vLLM, LiteLLM, ...)", value="openaiCompatible"),
         ]
         provider_choices = [

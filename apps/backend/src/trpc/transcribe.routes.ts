@@ -1,10 +1,14 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { supportsTranscription } from '../agents/transcribe.providers';
 import * as transcribeService from '../services/transcribe.service';
+import { llmProviderSchema } from '../types/llm';
 import { projectProtectedProcedure } from './trpc';
 
-const transcribeProviderSchema = z.enum(['openai']);
+const transcribeProviderSchema = llmProviderSchema.refine(supportsTranscription, {
+	message: 'Provider does not support transcription',
+});
 
 export const transcribeRoutes = {
 	transcribe: projectProtectedProcedure
@@ -17,11 +21,10 @@ export const transcribeRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			try {
-				const text = await transcribeService.transcribeAudio(ctx.project.id, input.audio, {
+				return await transcribeService.transcribeAudio(ctx.project.id, input.audio, {
 					provider: input.provider,
 					modelId: input.modelId,
 				});
-				return { text };
 			} catch (error) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',
