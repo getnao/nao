@@ -140,8 +140,10 @@ function renderEffectiveContext(overrides: Partial<EffectiveContextProps> = {}) 
 		<UserGroupEffectiveContext
 			databaseAccess={{ mode: 'all', strict: true }}
 			docsAccess={{ mode: 'all' }}
+			filesAccess={{ mode: 'all' }}
 			contextObjects={contextObjects}
 			docsEntries={docsEntries}
+			filesEntries={[]}
 			{...overrides}
 		/>,
 	);

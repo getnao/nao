@@ -1,7 +1,7 @@
-import { isDocsContextFileGranted, normalizeDocsContextAccess } from '@nao/shared';
+import { isFileTreeFileGranted, normalizeFileTreeAccess } from '@nao/shared';
 import { ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { DocsContextAccess, DocsContextGrant } from '@nao/shared';
+import type { FileTreeAccess, FileTreeGrant } from '@nao/shared';
 
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { Button } from '@/components/ui/button';
@@ -9,20 +9,46 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { getTreeNodePadding, removeExpandedSubtree } from '@/lib/tree-expansion';
 import { cn } from '@/lib/utils';
 
-export interface DocsContextCatalogEntry {
+export interface FileTreeCatalogEntry {
 	kind: 'folder' | 'file';
 	path: string;
 }
 
-interface DocsTreeNode extends DocsContextCatalogEntry {
+/** Copy for one grantable tree, so docs and project files share the same component. */
+export interface FileTreeLabels {
+	root: string;
+	unit: string;
+	emptyRoot: string;
+	unavailableTitle: string;
+	unavailableDescription: string;
+}
+
+export const DOCS_TREE_LABELS: FileTreeLabels = {
+	root: 'docs',
+	unit: 'doc',
+	emptyRoot: 'The docs folder is empty.',
+	unavailableTitle: 'Unavailable docs selections',
+	unavailableDescription: 'These saved selections are not in the current docs folder.',
+};
+
+export const PROJECT_FILES_TREE_LABELS: FileTreeLabels = {
+	root: 'files',
+	unit: 'file',
+	emptyRoot: 'The project has no files.',
+	unavailableTitle: 'Unavailable file selections',
+	unavailableDescription: 'These saved selections are not in the current project files.',
+};
+
+interface FileTreeNode extends FileTreeCatalogEntry {
 	name: string;
-	children: DocsTreeNode[];
+	children: FileTreeNode[];
 }
 
 const PARTIAL_CHECKBOX_CLASS =
 	'data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none';
 
-export function DocsContextTreeRoot({
+export function FileTreeAccessRoot({
+	labels,
 	entries,
 	access,
 	search,
@@ -34,8 +60,9 @@ export function DocsContextTreeRoot({
 	onRetry,
 	onChange,
 }: {
-	entries: DocsContextCatalogEntry[];
-	access: DocsContextAccess;
+	labels: FileTreeLabels;
+	entries: FileTreeCatalogEntry[];
+	access: FileTreeAccess;
 	search: string;
 	searching: boolean;
 	syncState: 'missing' | 'ready' | undefined;
@@ -43,22 +70,22 @@ export function DocsContextTreeRoot({
 	isError: boolean;
 	disabled: boolean;
 	onRetry: () => void;
-	onChange: (access: DocsContextAccess) => void;
+	onChange: (access: FileTreeAccess) => void;
 }) {
 	const query = search.trim().toLocaleLowerCase();
-	const rootMatches = query.length > 0 && 'docs'.includes(query);
+	const rootMatches = query.length > 0 && labels.root.includes(query);
 	const filteredEntries = useMemo(
-		() => (!query || rootMatches ? entries : filterDocsContextEntries(entries, search)),
+		() => (!query || rootMatches ? entries : filterFileTreeEntries(entries, search)),
 		[entries, query, rootMatches, search],
 	);
-	const nodes = useMemo(() => buildDocsTree(filteredEntries), [filteredEntries]);
+	const nodes = useMemo(() => buildFileTree(filteredEntries), [filteredEntries]);
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [rootExpanded, setRootExpanded] = useState(false);
 	const open = searching || rootExpanded;
 	const visible =
 		!query || rootMatches || filteredEntries.length > 0 || syncState === 'missing' || isLoading || isError;
 	const selected = access.mode === 'all';
-	const partial = !selected && hasSelectedDocsDescendant(access, entries);
+	const partial = !selected && hasSelectedDescendant(access, entries);
 
 	if (!visible) {
 		return null;
@@ -76,7 +103,7 @@ export function DocsContextTreeRoot({
 				<button
 					type='button'
 					className='flex size-4 shrink-0 cursor-pointer items-center justify-center'
-					aria-label={`${open ? 'Collapse' : 'Expand'} docs folder`}
+					aria-label={`${open ? 'Collapse' : 'Expand'} ${labels.root} folder`}
 					aria-expanded={open}
 					onClick={() => setRootExpanded((current) => !current)}
 				>
@@ -85,7 +112,7 @@ export function DocsContextTreeRoot({
 				<Checkbox
 					checked={partial ? 'indeterminate' : selected}
 					disabled={disabled}
-					aria-label='docs folder access'
+					aria-label={`${labels.root} folder access`}
 					className={PARTIAL_CHECKBOX_CLASS}
 					onCheckedChange={(checked) =>
 						onChange(checked === true ? { mode: 'all' } : { mode: 'restricted', grants: [] })
@@ -96,11 +123,11 @@ export function DocsContextTreeRoot({
 					className='flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left'
 					onClick={() => setRootExpanded((current) => !current)}
 				>
-					<FileExplorerIcon name='docs' type='directory' className={cn(selected && 'text-primary')} />
-					<span className='min-w-0 flex-1 truncate'>docs</span>
+					<FileExplorerIcon name={labels.root} type='directory' className={cn(selected && 'text-primary')} />
+					<span className='min-w-0 flex-1 truncate'>{labels.root}</span>
 					{partial && <span className='shrink-0 text-[10px] text-muted-foreground'>Partial</span>}
 				</button>
-				<DocsRootStatus
+				<FileTreeRootStatus
 					entryCount={entries.length}
 					syncState={syncState}
 					isLoading={isLoading}
@@ -111,7 +138,7 @@ export function DocsContextTreeRoot({
 			{open && !isLoading && !isError && syncState === 'ready' && (
 				<ul>
 					{nodes.map((node) => (
-						<DocsNode
+						<FileTreeFolderNode
 							key={`${node.kind}:${node.path}`}
 							node={node}
 							depth={1}
@@ -138,7 +165,7 @@ export function DocsContextTreeRoot({
 							className='flex h-8 items-center text-xs text-muted-foreground'
 							style={{ paddingLeft: `${getTreeNodePadding(1)}px` }}
 						>
-							{query ? 'No matching docs.' : 'The docs folder is empty.'}
+							{query ? `No matching ${labels.unit}s.` : labels.emptyRoot}
 						</li>
 					)}
 				</ul>
@@ -147,7 +174,7 @@ export function DocsContextTreeRoot({
 	);
 }
 
-function DocsRootStatus({
+function FileTreeRootStatus({
 	entryCount,
 	syncState,
 	isLoading,
@@ -188,7 +215,7 @@ function DocsRootStatus({
 	return null;
 }
 
-function DocsNode({
+function FileTreeFolderNode({
 	node,
 	depth,
 	access,
@@ -198,24 +225,24 @@ function DocsNode({
 	onToggle,
 	onChange,
 }: {
-	node: DocsTreeNode;
+	node: FileTreeNode;
 	depth: number;
-	access: DocsContextAccess;
+	access: FileTreeAccess;
 	expanded: Set<string>;
 	searching: boolean;
-	selectionEntries: DocsContextCatalogEntry[];
+	selectionEntries: FileTreeCatalogEntry[];
 	onToggle: (path: string) => void;
-	onChange: (access: DocsContextAccess) => void;
+	onChange: (access: FileTreeAccess) => void;
 }) {
 	if (node.kind === 'file') {
-		return <DocsFileRow node={node} depth={depth} access={access} onChange={onChange} />;
+		return <FileTreeFileRow node={node} depth={depth} access={access} onChange={onChange} />;
 	}
 
 	const displayed = getCompactFolder(node, access);
-	const explicit = hasDocsGrant(access, { kind: 'folder', path: displayed.path });
+	const explicit = hasGrant(access, { kind: 'folder', path: displayed.path });
 	const inherited = access.mode === 'all' || hasAncestorFolderGrant(access, displayed.path);
 	const selected = explicit || inherited;
-	const partial = !selected && hasSelectedDocsDescendant(access, selectionEntries, displayed.path);
+	const partial = !selected && hasSelectedDescendant(access, selectionEntries, displayed.path);
 	const open = searching || expanded.has(displayed.path);
 
 	return (
@@ -248,7 +275,7 @@ function DocsNode({
 					className={PARTIAL_CHECKBOX_CLASS}
 					onCheckedChange={(checked) =>
 						onChange(
-							toggleDocsContextGrant(access, { kind: 'folder', path: displayed.path }, checked === true),
+							toggleFileTreeGrant(access, { kind: 'folder', path: displayed.path }, checked === true),
 						)
 					}
 				/>
@@ -272,7 +299,7 @@ function DocsNode({
 			{open && (
 				<ul>
 					{displayed.children.map((child) => (
-						<DocsNode
+						<FileTreeFolderNode
 							key={`${child.kind}:${child.path}`}
 							node={child}
 							depth={depth + 1}
@@ -290,19 +317,19 @@ function DocsNode({
 	);
 }
 
-function DocsFileRow({
+function FileTreeFileRow({
 	node,
 	depth,
 	access,
 	onChange,
 }: {
-	node: DocsTreeNode;
+	node: FileTreeNode;
 	depth: number;
-	access: DocsContextAccess;
-	onChange: (access: DocsContextAccess) => void;
+	access: FileTreeAccess;
+	onChange: (access: FileTreeAccess) => void;
 }) {
-	const grant: DocsContextGrant = { kind: 'file', path: node.path };
-	const explicit = hasDocsGrant(access, grant);
+	const grant: FileTreeGrant = { kind: 'file', path: node.path };
+	const explicit = hasGrant(access, grant);
 	const inherited = access.mode === 'all' || hasAncestorFolderGrant(access, node.path);
 	const selected = explicit || inherited;
 	return (
@@ -323,7 +350,7 @@ function DocsFileRow({
 						: undefined
 				}
 				aria-label={`${node.name} file access`}
-				onCheckedChange={(checked) => onChange(toggleDocsContextGrant(access, grant, checked === true))}
+				onCheckedChange={(checked) => onChange(toggleFileTreeGrant(access, grant, checked === true))}
 			/>
 			<FileExplorerIcon name={node.name} type='file' />
 			<span className='min-w-0 flex-1 truncate' title={node.path}>
@@ -334,22 +361,22 @@ function DocsFileRow({
 	);
 }
 
-export function UnavailableDocsGrants({
+export function UnavailableFileTreeGrants({
+	labels,
 	grants,
 	access,
 	onChange,
 }: {
-	grants: DocsContextGrant[];
-	access: DocsContextAccess;
-	onChange: (access: DocsContextAccess) => void;
+	labels: FileTreeLabels;
+	grants: FileTreeGrant[];
+	access: FileTreeAccess;
+	onChange: (access: FileTreeAccess) => void;
 }) {
 	return (
 		<div className='flex flex-col gap-2 border-t pt-4'>
 			<div>
-				<h3 className='text-sm font-medium'>Unavailable docs selections</h3>
-				<p className='text-xs text-muted-foreground'>
-					These saved selections are not in the current docs folder.
-				</p>
+				<h3 className='text-sm font-medium'>{labels.unavailableTitle}</h3>
+				<p className='text-xs text-muted-foreground'>{labels.unavailableDescription}</p>
 			</div>
 			<ul className='rounded-lg border'>
 				{grants.map((grant) => (
@@ -362,7 +389,7 @@ export function UnavailableDocsGrants({
 							aria-label={`Remove unavailable ${grant.kind} ${grant.path}`}
 							onCheckedChange={(checked) => {
 								if (checked !== true) {
-									onChange(toggleDocsContextGrant(access, grant, false));
+									onChange(toggleFileTreeGrant(access, grant, false));
 								}
 							}}
 						/>
@@ -378,25 +405,21 @@ export function UnavailableDocsGrants({
 	);
 }
 
-export function toggleDocsContextGrant(
-	access: DocsContextAccess,
-	grant: DocsContextGrant,
-	checked: boolean,
-): DocsContextAccess {
+export function toggleFileTreeGrant(access: FileTreeAccess, grant: FileTreeGrant, checked: boolean): FileTreeAccess {
 	if (access.mode === 'all') {
 		return access;
 	}
 	const remaining = access.grants.filter((item) => item.kind !== grant.kind || item.path !== grant.path);
-	return normalizeDocsContextAccess({
+	return normalizeFileTreeAccess({
 		mode: 'restricted',
 		grants: checked ? [...remaining, grant] : remaining,
 	});
 }
 
-export function getUnavailableDocsContextGrants(
-	access: DocsContextAccess,
-	entries: readonly DocsContextCatalogEntry[],
-): DocsContextGrant[] {
+export function getUnavailableFileTreeGrants(
+	access: FileTreeAccess,
+	entries: readonly FileTreeCatalogEntry[],
+): FileTreeGrant[] {
 	if (access.mode === 'all') {
 		return [];
 	}
@@ -405,26 +428,24 @@ export function getUnavailableDocsContextGrants(
 	);
 }
 
-export function getDocsContextSelectionSummary(
-	access: DocsContextAccess,
-	entries: readonly DocsContextCatalogEntry[],
+export function getFileTreeSelectionSummary(
+	labels: FileTreeLabels,
+	access: FileTreeAccess,
+	entries: readonly FileTreeCatalogEntry[],
 ): string {
-	const count = getDocsContextSelectionCount(access, entries);
-	const unavailable = getUnavailableDocsContextGrants(access, entries).length;
-	return `${count} ${count === 1 ? 'doc' : 'docs'}${unavailable ? ` · ${unavailable} unavailable` : ''}`;
+	const count = getFileTreeSelectionCount(access, entries);
+	const unavailable = getUnavailableFileTreeGrants(access, entries).length;
+	return `${count} ${count === 1 ? labels.unit : `${labels.unit}s`}${unavailable ? ` · ${unavailable} unavailable` : ''}`;
 }
 
-export function getDocsContextSelectionCount(
-	access: DocsContextAccess,
-	entries: readonly DocsContextCatalogEntry[],
-): number {
-	return entries.filter((entry) => entry.kind === 'file' && isDocsContextFileGranted(access, entry.path)).length;
+export function getFileTreeSelectionCount(access: FileTreeAccess, entries: readonly FileTreeCatalogEntry[]): number {
+	return entries.filter((entry) => entry.kind === 'file' && isFileTreeFileGranted(access, entry.path)).length;
 }
 
-export function filterDocsContextEntries(
-	entries: readonly DocsContextCatalogEntry[],
+export function filterFileTreeEntries(
+	entries: readonly FileTreeCatalogEntry[],
 	search: string,
-): DocsContextCatalogEntry[] {
+): FileTreeCatalogEntry[] {
 	const query = search.trim().toLocaleLowerCase();
 	if (!query) {
 		return [...entries];
@@ -437,8 +458,8 @@ export function filterDocsContextEntries(
 	);
 }
 
-function buildDocsTree(entries: readonly DocsContextCatalogEntry[]): DocsTreeNode[] {
-	const nodes = new Map<string, DocsTreeNode>();
+function buildFileTree(entries: readonly FileTreeCatalogEntry[]): FileTreeNode[] {
+	const nodes = new Map<string, FileTreeNode>();
 	for (const entry of entries) {
 		const segments = entry.path.split('/');
 		for (let index = 0; index < segments.length; index++) {
@@ -457,20 +478,20 @@ function buildDocsTree(entries: readonly DocsContextCatalogEntry[]): DocsTreeNod
 		}
 	}
 	for (const node of nodes.values()) {
-		node.children.sort(compareDocsNodes);
+		node.children.sort(compareFileTreeNodes);
 	}
-	return [...nodes.values()].filter((node) => !node.path.includes('/')).sort(compareDocsNodes);
+	return [...nodes.values()].filter((node) => !node.path.includes('/')).sort(compareFileTreeNodes);
 }
 
-function getCompactFolder(node: DocsTreeNode, access: DocsContextAccess) {
+function getCompactFolder(node: FileTreeNode, access: FileTreeAccess) {
 	let current = node;
 	const names = [node.name];
 	while (
 		current.kind === 'folder' &&
-		!hasDocsGrant(access, { kind: 'folder', path: current.path }) &&
+		!hasGrant(access, { kind: 'folder', path: current.path }) &&
 		current.children.length === 1 &&
 		current.children[0].kind === 'folder' &&
-		!hasDocsGrant(access, { kind: 'folder', path: current.children[0].path })
+		!hasGrant(access, { kind: 'folder', path: current.children[0].path })
 	) {
 		current = current.children[0];
 		names.push(current.name);
@@ -478,29 +499,29 @@ function getCompactFolder(node: DocsTreeNode, access: DocsContextAccess) {
 	return { ...current, label: names.join('/') };
 }
 
-function compareDocsNodes(left: DocsTreeNode, right: DocsTreeNode): number {
+function compareFileTreeNodes(left: FileTreeNode, right: FileTreeNode): number {
 	return Number(right.kind === 'folder') - Number(left.kind === 'folder') || left.name.localeCompare(right.name);
 }
 
-function hasDocsGrant(access: DocsContextAccess, grant: DocsContextGrant): boolean {
+function hasGrant(access: FileTreeAccess, grant: FileTreeGrant): boolean {
 	return (
 		access.mode === 'restricted' &&
 		access.grants.some((item) => item.kind === grant.kind && item.path === grant.path)
 	);
 }
 
-function hasAncestorFolderGrant(access: DocsContextAccess, docsPath: string): boolean {
+function hasAncestorFolderGrant(access: FileTreeAccess, filePath: string): boolean {
 	return (
 		access.mode === 'restricted' &&
 		access.grants.some(
-			(grant) => grant.kind === 'folder' && docsPath !== grant.path && docsPath.startsWith(`${grant.path}/`),
+			(grant) => grant.kind === 'folder' && filePath !== grant.path && filePath.startsWith(`${grant.path}/`),
 		)
 	);
 }
 
-function hasSelectedDocsDescendant(
-	access: DocsContextAccess,
-	entries: readonly DocsContextCatalogEntry[],
+function hasSelectedDescendant(
+	access: FileTreeAccess,
+	entries: readonly FileTreeCatalogEntry[],
 	parentPath?: string,
 ): boolean {
 	return entries.some((entry) => {
@@ -508,7 +529,7 @@ function hasSelectedDocsDescendant(
 			return false;
 		}
 		return entry.kind === 'file'
-			? isDocsContextFileGranted(access, entry.path)
-			: hasDocsGrant(access, { kind: 'folder', path: entry.path }) || hasAncestorFolderGrant(access, entry.path);
+			? isFileTreeFileGranted(access, entry.path)
+			: hasGrant(access, { kind: 'folder', path: entry.path }) || hasAncestorFolderGrant(access, entry.path);
 	});
 }

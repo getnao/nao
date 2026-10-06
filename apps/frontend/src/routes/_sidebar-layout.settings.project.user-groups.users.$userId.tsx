@@ -25,6 +25,7 @@ function UserGroupUserDetailPage() {
 	const effectiveAccess = useQuery(trpc.userGroup.effectiveAccessForUser.queryOptions({ userId }));
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
+	const filesContextCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const overviewData = overview.data;
 	const user = overviewData?.users.find((candidate) => candidate.id === userId);
@@ -67,14 +68,20 @@ function UserGroupUserDetailPage() {
 				effectiveAccess={effectiveAccess.data}
 				contextObjects={contextCatalog.data?.objects ?? []}
 				docsEntries={docsContextCatalog.data?.entries ?? []}
+				filesEntries={filesContextCatalog.data?.entries ?? []}
 				databaseSyncState={contextCatalog.data?.syncState}
 				docsSyncState={docsContextCatalog.data?.syncState}
+				filesSyncState={filesContextCatalog.data?.syncState}
 				databaseCatalogState={contextCatalog.isLoading ? 'loading' : contextCatalog.isError ? 'error' : 'ready'}
 				docsCatalogState={
 					docsContextCatalog.isLoading ? 'loading' : docsContextCatalog.isError ? 'error' : 'ready'
 				}
+				filesCatalogState={
+					filesContextCatalog.isLoading ? 'loading' : filesContextCatalog.isError ? 'error' : 'ready'
+				}
 				onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
 				onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
+				onRetryFilesCatalog={() => void filesContextCatalog.refetch()}
 				projectRowSecurity={normalizeProjectRowSecurity(rowSecurity.data ?? EMPTY_PROJECT_ROW_SECURITY)}
 				securityState={rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready'}
 				onRetrySecurity={() => void rowSecurity.refetch()}

@@ -251,14 +251,15 @@ export const storyRoutes = {
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const { queryData, cachedAt, code } = await getStoryQueryData(
+			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
+			const { queryData, cachedAt, code, needsRefresh } = await getStoryQueryData(
 				input.chatId,
 				input.storySlug,
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				{ deferRefresh: lastRefreshFailure !== null, deferFirstRefresh: true },
 			);
-			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (projectId) {
@@ -273,7 +274,7 @@ export const storyRoutes = {
 				});
 			}
 
-			return { ...version, code, queryData, cachedAt, lastRefreshFailure };
+			return { ...version, code, queryData, cachedAt, lastRefreshFailure, needsRefresh: needsRefresh ?? false };
 		}),
 
 	listVersions: chatStoryProcedure
@@ -363,7 +364,9 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
 		.query(async ({ input }) => {
 			try {
-				return await getCustomStoryQueryData(input.chatId, input.storySlug, input.queryId);
+				return await getCustomStoryQueryData(input.chatId, input.storySlug, input.queryId, {
+					deferRefresh: true,
+				});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
@@ -383,7 +386,7 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input }) => {
 			try {
-				return await getCustomStoryNarratives(input.chatId, input.storySlug);
+				return await getCustomStoryNarratives(input.chatId, input.storySlug, { deferRefresh: true });
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}

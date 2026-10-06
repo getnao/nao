@@ -4,15 +4,18 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-	DocsContextTreeRoot,
-	filterDocsContextEntries,
-	getDocsContextSelectionCount,
-	getDocsContextSelectionSummary,
-	getUnavailableDocsContextGrants,
-	toggleDocsContextGrant,
-} from './user-group-docs-context-access';
-import type { DocsContextCatalogEntry } from './user-group-docs-context-access';
-import type { DocsContextAccess } from '@nao/shared';
+	DOCS_TREE_LABELS,
+	FileTreeAccessRoot,
+	filterFileTreeEntries,
+	getFileTreeSelectionCount,
+	getFileTreeSelectionSummary,
+	getUnavailableFileTreeGrants,
+	PROJECT_FILES_TREE_LABELS,
+	toggleFileTreeGrant,
+	UnavailableFileTreeGrants,
+} from './user-group-file-tree-access';
+import type { FileTreeCatalogEntry, FileTreeLabels } from './user-group-file-tree-access';
+import type { FileTreeAccess } from '@nao/shared';
 
 const entries = [
 	{ kind: 'folder' as const, path: 'confluence' },
@@ -25,7 +28,7 @@ const entries = [
 
 afterEach(cleanup);
 
-describe('user group docs context tree', () => {
+describe('user group docs tree', () => {
 	it('renders a docs root and grants all docs without creating a root grant', () => {
 		const onChange = vi.fn();
 		renderTree({ onChange });
@@ -115,7 +118,8 @@ describe('user group docs context tree', () => {
 		expect(screen.getByText('Missing')).toBeTruthy();
 
 		rerender(
-			<DocsContextTreeRoot
+			<FileTreeAccessRoot
+				labels={DOCS_TREE_LABELS}
 				entries={[]}
 				access={{ mode: 'restricted', grants: [] }}
 				search=''
@@ -132,7 +136,7 @@ describe('user group docs context tree', () => {
 	});
 
 	it('keeps exact grant identity and computes counts', () => {
-		const access = toggleDocsContextGrant(
+		const access = toggleFileTreeGrant(
 			{ mode: 'restricted', grants: [{ kind: 'file', path: 'finance' }] },
 			{ kind: 'folder', path: 'finance' },
 			true,
@@ -144,22 +148,78 @@ describe('user group docs context tree', () => {
 				{ kind: 'folder', path: 'finance' },
 			],
 		});
-		expect(getDocsContextSelectionCount(access, entries)).toBe(1);
-		expect(getDocsContextSelectionSummary(access, entries)).toBe('1 doc · 1 unavailable');
+		expect(getFileTreeSelectionCount(access, entries)).toBe(1);
+		expect(getFileTreeSelectionSummary(DOCS_TREE_LABELS, access, entries)).toBe('1 doc · 1 unavailable');
+		expect(getFileTreeSelectionSummary(PROJECT_FILES_TREE_LABELS, access, entries)).toBe('1 file · 1 unavailable');
 		expect(
-			getUnavailableDocsContextGrants(
+			getUnavailableFileTreeGrants(
 				{ mode: 'restricted', grants: [{ kind: 'file', path: 'deleted.md' }] },
 				entries,
 			),
 		).toEqual([{ kind: 'file', path: 'deleted.md' }]);
-		expect(filterDocsContextEntries(entries, 'KPIS')).toEqual([
+		expect(filterFileTreeEntries(entries, 'KPIS')).toEqual([
 			{ kind: 'folder', path: 'finance' },
 			{ kind: 'file', path: 'finance/kpis.md' },
 		]);
 	});
 });
 
+describe('user group project files tree', () => {
+	const projectEntries = [
+		{ kind: 'folder' as const, path: 'models' },
+		{ kind: 'file' as const, path: 'models/orders.sql' },
+		{ kind: 'file' as const, path: 'README.md' },
+	];
+
+	it('renders a files root and grants every project file without creating a root grant', () => {
+		const onChange = vi.fn();
+		renderTree({ labels: PROJECT_FILES_TREE_LABELS, entries: projectEntries, onChange });
+
+		expect(screen.getByText('files')).toBeTruthy();
+		fireEvent.click(screen.getByRole('checkbox', { name: 'files folder access' }));
+		expect(onChange).toHaveBeenCalledWith({ mode: 'all' });
+	});
+
+	it('marks granted project files as selected and siblings as unselected', () => {
+		renderTree({
+			labels: PROJECT_FILES_TREE_LABELS,
+			entries: projectEntries,
+			access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'models' }] },
+		});
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand files folder' }));
+		expect(screen.getByRole('checkbox', { name: 'models folder access' }).getAttribute('data-state')).toBe(
+			'checked',
+		);
+		expect(screen.getByRole('checkbox', { name: 'README.md file access' }).getAttribute('data-state')).toBe(
+			'unchecked',
+		);
+	});
+
+	it('uses the project files copy for empty roots and unavailable grants', () => {
+		renderTree({ labels: PROJECT_FILES_TREE_LABELS, entries: [] });
+		expect(screen.getByText('Empty')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Expand files folder' }));
+		expect(screen.getByText('The project has no files.')).toBeTruthy();
+
+		const onChange = vi.fn();
+		const access: FileTreeAccess = { mode: 'restricted', grants: [{ kind: 'file', path: 'deleted.sql' }] };
+		render(
+			<UnavailableFileTreeGrants
+				labels={PROJECT_FILES_TREE_LABELS}
+				grants={access.grants}
+				access={access}
+				onChange={onChange}
+			/>,
+		);
+		expect(screen.getByText('Unavailable file selections')).toBeTruthy();
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Remove unavailable file deleted.sql' }));
+		expect(onChange).toHaveBeenCalledWith({ mode: 'restricted', grants: [] });
+	});
+});
+
 function renderTree({
+	labels = DOCS_TREE_LABELS,
 	entries: treeEntries = entries,
 	access = { mode: 'restricted', grants: [] },
 	search = '',
@@ -171,8 +231,9 @@ function renderTree({
 	onRetry = vi.fn(),
 	onChange = vi.fn(),
 }: {
-	entries?: DocsContextCatalogEntry[];
-	access?: DocsContextAccess;
+	labels?: FileTreeLabels;
+	entries?: FileTreeCatalogEntry[];
+	access?: FileTreeAccess;
 	search?: string;
 	searching?: boolean;
 	syncState?: 'missing' | 'ready';
@@ -180,10 +241,11 @@ function renderTree({
 	isError?: boolean;
 	disabled?: boolean;
 	onRetry?: () => void;
-	onChange?: (access: DocsContextAccess) => void;
+	onChange?: (access: FileTreeAccess) => void;
 } = {}) {
 	return render(
-		<DocsContextTreeRoot
+		<FileTreeAccessRoot
+			labels={labels}
 			entries={treeEntries}
 			access={access}
 			search={search}

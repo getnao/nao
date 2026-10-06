@@ -13,16 +13,19 @@ import type {
 	DatabaseSchemaGrant,
 	DatabaseTableGrant,
 	DocsContextAccess,
+	FilesContextAccess,
 } from '@nao/shared';
 
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { UserGroupContextModeSelector } from '@/components/settings/user-group-context-mode-selector';
 import {
-	DocsContextTreeRoot,
-	getDocsContextSelectionCount,
-	getUnavailableDocsContextGrants,
-	UnavailableDocsGrants,
-} from '@/components/settings/user-group-docs-context-access';
+	DOCS_TREE_LABELS,
+	FileTreeAccessRoot,
+	getFileTreeSelectionCount,
+	getUnavailableFileTreeGrants,
+	PROJECT_FILES_TREE_LABELS,
+	UnavailableFileTreeGrants,
+} from '@/components/settings/user-group-file-tree-access';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,50 +51,69 @@ export interface DatabaseContextObject {
 interface UserGroupContextAccessProps {
 	databaseAccess: DatabaseContextAccess;
 	docsAccess?: DocsContextAccess;
+	filesAccess?: FilesContextAccess;
 	onDatabaseAccessChange: (access: DatabaseContextAccess) => void;
 	onDocsAccessChange?: (access: DocsContextAccess) => void;
+	onFilesAccessChange?: (access: FilesContextAccess) => void;
 }
 
 export function UserGroupContextAccess({
 	databaseAccess,
 	docsAccess,
+	filesAccess,
 	onDatabaseAccessChange,
 	onDocsAccessChange = () => undefined,
+	onFilesAccessChange = () => undefined,
 }: UserGroupContextAccessProps) {
 	const catalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
+	const filesCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
 	const [search, setSearch] = useState('');
 	const [draftPattern, setDraftPattern] = useState('');
 
 	const objects = catalog.data?.objects ?? [];
 	const docsEntries = docsCatalog.data?.entries ?? [];
+	const filesEntries = filesCatalog.data?.entries ?? [];
 	const unavailableGrants =
 		catalog.isLoading || catalog.isError ? [] : getUnavailableDatabaseContextGrants(databaseAccess, objects);
 	const unavailableDocsGrants =
 		docsAccess === undefined || docsCatalog.isLoading || docsCatalog.isError
 			? []
-			: getUnavailableDocsContextGrants(docsAccess, docsEntries);
+			: getUnavailableFileTreeGrants(docsAccess, docsEntries);
+	const unavailableFilesGrants =
+		filesAccess === undefined || filesCatalog.isLoading || filesCatalog.isError
+			? []
+			: getUnavailableFileTreeGrants(filesAccess, filesEntries);
 	const combinedMode =
-		databaseAccess.mode === 'all' && (docsAccess === undefined || docsAccess.mode === 'all') ? 'all' : 'restricted';
+		databaseAccess.mode === 'all' &&
+		(docsAccess === undefined || docsAccess.mode === 'all') &&
+		(filesAccess === undefined || filesAccess.mode === 'all')
+			? 'all'
+			: 'restricted';
 	const isSearchEnabled = combinedMode === 'restricted';
 	const isSearching = isSearchEnabled && search.trim().length > 0;
 	const treeObjects = isSearchEnabled ? filterDatabaseContextObjects(objects, search) : objects;
 	const tableSummary = getDatabaseContextTableSelectionSummary(databaseAccess, objects);
-	const docsCount = docsAccess === undefined ? undefined : getDocsContextSelectionCount(docsAccess, docsEntries);
+	const docsCount = docsAccess === undefined ? undefined : getFileTreeSelectionCount(docsAccess, docsEntries);
+	const filesCount = filesAccess === undefined ? undefined : getFileTreeSelectionCount(filesAccess, filesEntries);
 
 	return (
 		<div className='flex flex-col gap-4'>
 			<p className='text-sm text-muted-foreground'>
-				Choose which synced database tables and docs this group can access. Access from groups is combined.
+				Choose which synced database tables, docs, and project files this group can access. Access from groups
+				is combined.
 			</p>
 			<UserGroupContextModeSelector
 				mode={combinedMode}
-				everythingDescription='All current and future tables and docs.'
+				everythingDescription='All current and future tables, docs, and project files.'
 				specificDescription='Choose tables, folders, and files.'
 				onEverything={() => {
 					onDatabaseAccessChange({ mode: 'all', strict: databaseAccess.strict });
 					if (docsAccess !== undefined) {
 						onDocsAccessChange({ mode: 'all' });
+					}
+					if (filesAccess !== undefined) {
+						onFilesAccessChange({ mode: 'all' });
 					}
 				}}
 				onSpecific={() => {
@@ -106,6 +128,9 @@ export function UserGroupContextAccess({
 					if (docsAccess?.mode === 'all') {
 						onDocsAccessChange({ mode: 'restricted', grants: [] });
 					}
+					if (filesAccess?.mode === 'all') {
+						onFilesAccessChange({ mode: 'restricted', grants: [] });
+					}
 				}}
 			/>
 			<div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
@@ -113,7 +138,7 @@ export function UserGroupContextAccess({
 					<Input
 						value={search}
 						onChange={(event) => setSearch(event.target.value)}
-						placeholder='Search tables and docs paths'
+						placeholder='Search tables, docs, and files'
 						aria-label='Search context'
 						className='min-w-0'
 					/>
@@ -121,6 +146,7 @@ export function UserGroupContextAccess({
 				<Badge variant='secondary' className='w-fit whitespace-nowrap'>
 					{tableSummary}
 					{docsCount !== undefined && ` · ${docsCount} ${docsCount === 1 ? 'doc' : 'docs'}`}
+					{filesCount !== undefined && ` · ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`}
 				</Badge>
 			</div>
 			<div data-testid='combined-context-tree' className='h-80 overflow-auto rounded-lg border'>
@@ -151,7 +177,8 @@ export function UserGroupContextAccess({
 						/>
 					)}
 					{docsAccess !== undefined && (
-						<DocsContextTreeRoot
+						<FileTreeAccessRoot
+							labels={DOCS_TREE_LABELS}
 							entries={docsEntries}
 							access={docsAccess}
 							search={isSearchEnabled ? search : ''}
@@ -164,6 +191,21 @@ export function UserGroupContextAccess({
 							onChange={onDocsAccessChange}
 						/>
 					)}
+					{filesAccess !== undefined && (
+						<FileTreeAccessRoot
+							labels={PROJECT_FILES_TREE_LABELS}
+							entries={filesEntries}
+							access={filesAccess}
+							search={isSearchEnabled ? search : ''}
+							searching={isSearching}
+							syncState={filesCatalog.data?.syncState}
+							isLoading={filesCatalog.isLoading}
+							isError={filesCatalog.isError}
+							disabled={combinedMode === 'all'}
+							onRetry={() => filesCatalog.refetch()}
+							onChange={onFilesAccessChange}
+						/>
+					)}
 				</ul>
 			</div>
 			{databaseAccess.mode === 'restricted' && unavailableGrants.length > 0 && (
@@ -174,10 +216,19 @@ export function UserGroupContextAccess({
 				/>
 			)}
 			{docsAccess?.mode === 'restricted' && unavailableDocsGrants.length > 0 && (
-				<UnavailableDocsGrants
+				<UnavailableFileTreeGrants
+					labels={DOCS_TREE_LABELS}
 					grants={unavailableDocsGrants}
 					access={docsAccess}
 					onChange={onDocsAccessChange}
+				/>
+			)}
+			{filesAccess?.mode === 'restricted' && unavailableFilesGrants.length > 0 && (
+				<UnavailableFileTreeGrants
+					labels={PROJECT_FILES_TREE_LABELS}
+					grants={unavailableFilesGrants}
+					access={filesAccess}
+					onChange={onFilesAccessChange}
 				/>
 			)}
 			{databaseAccess.mode === 'restricted' && (

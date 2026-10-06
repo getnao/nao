@@ -9,6 +9,7 @@ from nao_core.commands.chat import (
     ensure_auth_secret,
     get_fastapi_main_path,
     get_server_binary_path,
+    resolve_ports,
     start_ngrok_tunnel,
     stop_ngrok,
     wait_for_server,
@@ -204,6 +205,34 @@ class TestWaitForServer:
 
 
 @pytest.mark.usefixtures("clean_env")
+class TestResolvePorts:
+    def test_uses_defaults_when_nothing_is_set(self):
+        assert resolve_ports(None, None) == (5005, 8005)
+
+    def test_falls_back_to_env_vars(self, monkeypatch):
+        monkeypatch.setenv("SERVER_PORT", "6000")
+        monkeypatch.setenv("FASTAPI_PORT", "9000")
+        assert resolve_ports(None, None) == (6000, 9000)
+
+    def test_explicit_ports_take_precedence_over_env_vars(self, monkeypatch):
+        monkeypatch.setenv("FASTAPI_PORT", "9000")
+        assert resolve_ports(6000, 9500) == (6000, 9500)
+
+    def test_rejects_conflicting_ports(self):
+        with pytest.raises(ValueError, match="different from FASTAPI_PORT"):
+            resolve_ports(9000, 9000)
+
+    def test_rejects_invalid_env_var(self, monkeypatch):
+        monkeypatch.setenv("FASTAPI_PORT", "not-a-port")
+        with pytest.raises(ValueError, match="FASTAPI_PORT must be a valid integer"):
+            resolve_ports(None, None)
+
+    def test_rejects_out_of_range_port(self):
+        with pytest.raises(ValueError, match="between 1024 and 65535"):
+            resolve_ports(None, 80)
+
+
+@pytest.mark.usefixtures("clean_env")
 class TestEnsureAuthSecret:
     def test_returns_none_when_env_var_already_set(self, tmp_path: Path, monkeypatch):
         """Test that ensure_auth_secret returns None when BETTER_AUTH_SECRET is set."""
@@ -337,6 +366,41 @@ class TestChatCommand:
 
         assert "NAO_DEFAULT_PROJECT_PATH" in env
         assert "BETTER_AUTH_SECRET" in env
+
+    @patch("nao_core.commands.chat.webbrowser.open")
+    @patch("nao_core.commands.chat.wait_for_server")
+    @patch("nao_core.commands.chat.subprocess.Popen")
+    @patch("nao_core.commands.chat.get_fastapi_main_path")
+    @patch("nao_core.commands.chat.get_server_binary_path")
+    @patch("nao_core.commands.chat.console")
+    def test_chat_passes_fastapi_port_to_both_servers(
+        self,
+        mock_console,
+        mock_binary_path,
+        mock_fastapi_path,
+        mock_popen,
+        mock_wait_for_server,
+        mock_webbrowser,
+        mock_chat_dependencies,
+    ):
+        """Verify --fastapi-port binds FastAPI and points the chat server at it."""
+        tmp_path, bin_dir = mock_chat_dependencies
+
+        mock_binary_path.return_value = bin_dir / "nao-chat-server"
+        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
+        mock_wait_for_server.return_value = True
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([])
+        mock_popen.return_value = mock_process
+
+        chat(fastapi_port=9005)
+
+        fastapi_env = mock_popen.call_args_list[0].kwargs["env"]
+        chat_server_env = mock_popen.call_args_list[1].kwargs["env"]
+        assert fastapi_env["PORT"] == "9005"
+        assert chat_server_env["FASTAPI_PORT"] == "9005"
+        mock_wait_for_server.assert_any_call(9005)
 
     @patch("nao_core.commands.chat.webbrowser.open")
     @patch("nao_core.commands.chat.wait_for_server")

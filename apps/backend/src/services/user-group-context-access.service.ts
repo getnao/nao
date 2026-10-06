@@ -1,5 +1,5 @@
 import {
-	type DocsContextAccess,
+	type FileTreeAccess,
 	type ProjectRowSecurity,
 	resolveWarehouseRowSecurity,
 	type UserGroupFeature,
@@ -18,7 +18,9 @@ import { resolveAvailableUserGroupAccess } from './user-group-availability.servi
 
 export * from './context-access';
 
-export type ResolvedDocsContextAccess = { enforced: false } | { enforced: true; access: DocsContextAccess };
+export type ResolvedFileTreeAccess = { enforced: false } | { enforced: true; access: FileTreeAccess };
+export type ResolvedDocsContextAccess = ResolvedFileTreeAccess;
+export type ResolvedFilesContextAccess = ResolvedFileTreeAccess;
 
 export async function resolveProjectContextAccess(
 	projectId: string,
@@ -29,6 +31,7 @@ export async function resolveProjectContextAccess(
 	warehouseTableAccess: WarehouseTableAccess;
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
+	filesContextAccess: ResolvedFilesContextAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 }> {
@@ -46,6 +49,7 @@ export async function resolveProjectContextAccess(
 		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
 		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed),
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
+		filesContextAccess: { enforced: true, access: effectiveAccess.filesAccess },
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 	};

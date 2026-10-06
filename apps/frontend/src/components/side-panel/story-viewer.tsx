@@ -32,6 +32,7 @@ import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-cu
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
+import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { selectStoryEditorCode, useStoryEditBuffer } from '@/hooks/use-story-edit-buffer';
@@ -172,6 +173,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		queryData,
 		cachedAt,
 		lastRefreshFailure,
+		needsRefresh,
 		isLoading: isContentLoading,
 	} = useStoryViewerContent({
 		storySlug,
@@ -270,6 +272,12 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		handleSaveSettings,
 		handleRefreshData,
 	} = useStoryViewerLiveSettings({ chatId, storySlug: resolvedStorySlug });
+	useRetryStaleStoryRefresh({
+		storyKey: `${chatId}/${resolvedStorySlug}`,
+		needsRefresh,
+		isRefreshing,
+		refresh: handleRefreshData,
+	});
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const { handleEnlarge } = useStoryViewerEnlarge({ storyId });
 

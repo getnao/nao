@@ -209,7 +209,9 @@ export function StoryPageHeader({
 				</div>
 			</header>
 
-			{live?.lastRefreshFailure && <StoryRefreshFailureBanner failure={live.lastRefreshFailure} />}
+			{live?.lastRefreshFailure && (
+				<StoryRefreshFailureBanner failure={live.lastRefreshFailure} isRetrying={live.isRefreshing} />
+			)}
 			<StorySubHeader viewModeControls={viewModeControls} versionControls={versionControls} />
 		</div>
 	);
@@ -362,7 +364,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					<TooltipContent>Live story</TooltipContent>
 				</Tooltip>
 				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-				{canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+				{canRefresh && onRefresh && <StoryRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			</>
 		);
 	}
@@ -404,21 +406,24 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 				</TooltipContent>
 			</Tooltip>
 			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-			{isLive && canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+			{isLive && canRefresh && onRefresh && (
+				<StoryRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />
+			)}
 		</>
 	);
 }
 
-function RefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onRefresh: () => void }) {
+/** Stays hoverable while refreshing (no `disabled`) so its tooltip can say the refresh is in progress. */
+export function StoryRefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onRefresh: () => void }) {
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
 					variant='ghost'
 					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={onRefresh}
-					disabled={isRefreshing}
+					className='hover:rounded-full aria-disabled:cursor-default'
+					onClick={isRefreshing ? undefined : onRefresh}
+					aria-disabled={isRefreshing}
 					aria-label='Refresh data'
 				>
 					{isRefreshing ? (
@@ -428,7 +433,7 @@ function RefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onR
 					)}
 				</Button>
 			</TooltipTrigger>
-			<TooltipContent>Refresh data</TooltipContent>
+			<TooltipContent>{isRefreshing ? 'Story is refreshing' : 'Refresh data'}</TooltipContent>
 		</Tooltip>
 	);
 }
@@ -449,18 +454,30 @@ export function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
 	);
 }
 
-export function StoryRefreshFailureBanner({ failure }: { failure: StoryRefreshFailure }) {
+export function StoryRefreshFailureBanner({
+	failure,
+	isRetrying = false,
+}: {
+	failure: StoryRefreshFailure;
+	isRetrying?: boolean;
+}) {
 	const failedAt = new Date(failure.failedAt);
 	const timeAgo = useTimeAgo(failedAt.getTime());
 
 	return (
 		<div
-			role='alert'
+			role={isRetrying ? 'status' : 'alert'}
 			className='flex items-start gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive md:px-6'
 		>
-			<CircleAlert className='mt-0.5 size-3.5 shrink-0' />
+			{isRetrying ? (
+				<Loader2 className='mt-0.5 size-3.5 shrink-0 animate-spin' />
+			) : (
+				<CircleAlert className='mt-0.5 size-3.5 shrink-0' />
+			)}
 			<div className='min-w-0'>
-				<span className='font-medium'>Story refresh failed.</span>{' '}
+				<span className='font-medium'>
+					{isRetrying ? 'Retrying story refresh… Last attempt failed:' : 'Story refresh failed.'}
+				</span>{' '}
 				<span className='break-words'>{failure.errorMessage}</span>
 				<span className='ml-1 opacity-70' title={failedAt.toLocaleString()}>
 					{timeAgo.humanReadable}

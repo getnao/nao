@@ -1,7 +1,6 @@
 import { isDarkSurface, relativeLuminance, rgbToHex } from '@nao/shared/story-theme-contrast';
 import { type Color, getPalette } from 'colorthief';
 import { classifySwatches } from 'colorthief/internals';
-import sharp from 'sharp';
 
 import { type ColorCandidate, type DesignSignals, emptySignals, rankBrandCandidates } from './signals';
 
@@ -91,7 +90,9 @@ function accentCandidates(palette: Color[]): ColorCandidate[] {
 		.map((swatch) => asColorCandidate(swatch.color));
 }
 
+/** sharp is a native addon shipped next to the standalone binary, so it is loaded on first use to keep startup independent of it. */
 async function decodeImage(data: Uint8Array): Promise<Bitmap> {
+	const { default: sharp } = await import('sharp');
 	const { data: pixels, info } = await sharp(Buffer.from(data), { failOn: 'error' })
 		.rotate()
 		.resize(SAMPLE_SIZE, SAMPLE_SIZE, { fit: 'inside', withoutEnlargement: true })

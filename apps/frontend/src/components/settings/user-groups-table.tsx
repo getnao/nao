@@ -6,7 +6,7 @@ import { useMemo } from 'react';
 
 import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
-import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
+import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file-tree-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
@@ -68,6 +68,7 @@ function UserGroupsContent({
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
+	const filesContextCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
 	const navigate = useNavigate();
 	const membershipKeys = useMemo(
 		() => new Set(overview.data?.memberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
@@ -109,8 +110,10 @@ function UserGroupsContent({
 	const activeGroups = groups.filter((group) => !group.isLocked);
 	const contextObjects = contextCatalog.data?.objects ?? [];
 	const docsEntries = docsContextCatalog.data?.entries ?? [];
+	const filesEntries = filesContextCatalog.data?.entries ?? [];
 	const databaseCatalogState = getCatalogState(contextCatalog);
 	const docsCatalogState = getCatalogState(docsContextCatalog);
+	const filesCatalogState = getCatalogState(filesContextCatalog);
 
 	return (
 		<>
@@ -122,10 +125,13 @@ function UserGroupsContent({
 						memberships={overview.data.memberships}
 						contextObjects={contextObjects}
 						docsEntries={docsEntries}
+						filesEntries={filesEntries}
 						databaseCatalogState={databaseCatalogState}
 						docsCatalogState={docsCatalogState}
+						filesCatalogState={filesCatalogState}
 						onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
 						onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
+						onRetryFilesCatalog={() => void filesContextCatalog.refetch()}
 						entitlement={entitlement}
 						onOpenGroup={(groupId) => {
 							void navigate({
@@ -176,10 +182,13 @@ function GroupsTable({
 	memberships,
 	contextObjects,
 	docsEntries,
+	filesEntries,
 	databaseCatalogState,
 	docsCatalogState,
+	filesCatalogState,
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
+	onRetryFilesCatalog,
 	entitlement,
 	onOpenGroup,
 	onCreateGroup,
@@ -187,11 +196,14 @@ function GroupsTable({
 	groups: UserGroup[];
 	memberships: Array<{ groupId: string; userId: string }>;
 	contextObjects: DatabaseContextObject[];
-	docsEntries: DocsContextCatalogEntry[];
+	docsEntries: FileTreeCatalogEntry[];
+	filesEntries: FileTreeCatalogEntry[];
 	databaseCatalogState: UserGroupCatalogState;
 	docsCatalogState: UserGroupCatalogState;
+	filesCatalogState: UserGroupCatalogState;
 	onRetryDatabaseCatalog: () => void;
 	onRetryDocsCatalog: () => void;
+	onRetryFilesCatalog: () => void;
 	entitlement: UserGroupsEntitlement;
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
@@ -203,7 +215,7 @@ function GroupsTable({
 	return (
 		<SettingsCard
 			title='Group access'
-			description='Configure the features, database tables, and docs each group can access.'
+			description='Configure the features, database tables, docs, and project files each group can access.'
 			action={
 				entitlement === 'loading' ? (
 					<Button disabled>Loading group access...</Button>
@@ -271,10 +283,17 @@ function GroupsTable({
 								) : (
 									<div className='flex items-center gap-1'>
 										<span>
-											{getUserGroupAccessSummary(group, contextObjects, docsEntries, {
-												database: databaseCatalogState,
-												docs: docsCatalogState,
-											})}
+											{getUserGroupAccessSummary(
+												group,
+												contextObjects,
+												docsEntries,
+												filesEntries,
+												{
+													database: databaseCatalogState,
+													docs: docsCatalogState,
+													files: filesCatalogState,
+												},
+											)}
 										</span>
 										{databaseCatalogState === 'error' && (
 											<Button
@@ -304,6 +323,21 @@ function GroupsTable({
 												}}
 											>
 												Retry docs
+											</Button>
+										)}
+										{filesCatalogState === 'error' && (
+											<Button
+												type='button'
+												size='sm'
+												variant='ghost'
+												className='h-6 px-2 text-xs'
+												aria-label={`Retry files for ${group.name}`}
+												onClick={(event) => {
+													event.stopPropagation();
+													onRetryFilesCatalog();
+												}}
+											>
+												Retry files
 											</Button>
 										)}
 									</div>

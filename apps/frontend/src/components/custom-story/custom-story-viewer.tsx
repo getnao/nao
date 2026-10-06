@@ -20,6 +20,7 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { storyBlockEditStore } from '@/stores/story-block-edit';
@@ -40,6 +41,12 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 
 	const sharing = useStoryViewerSharing({ chatId, storySlug });
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
+	useRetryStaleStoryRefresh({
+		storyKey: `${chatId}/${storySlug}`,
+		needsRefresh: !isReadonlyMode && (content?.needsRefresh ?? false),
+		isRefreshing: live.isRefreshing,
+		refresh: live.handleRefreshData,
+	});
 	const { handleEnlarge } = useStoryViewerEnlarge({ storyId });
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);

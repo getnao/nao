@@ -204,6 +204,7 @@ function context(): ToolContext {
 		envVars: {},
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: false },
+		filesContextAccess: { enforced: false },
 		userGroupFeatures: [],
 		azureAccessToken: null,
 		queryResults: new Map(),

@@ -247,7 +247,7 @@ describe('project context permissions', () => {
 		);
 	});
 
-	it('enforces partial grants while keeping granted and ordinary files readable', async () => {
+	it('enforces partial docs, warehouse, and project file grants while keeping granted files readable', async () => {
 		const grantedDoc = path.join(projectFolder, 'docs', 'finance', 'targets.csv');
 		const grantedPreview = path.join(
 			projectFolder,
@@ -259,15 +259,18 @@ describe('project context permissions', () => {
 			'databases/type=postgres/database=analytics/schema=public/table=customers/preview.md',
 		);
 		const ordinaryFile = path.join(projectFolder, 'notes.txt');
+		const deniedProjectFile = path.join(projectFolder, 'seeds', 'salaries.csv');
 		await fs.mkdir(path.dirname(grantedDoc), { recursive: true });
 		await fs.mkdir(path.dirname(grantedPreview), { recursive: true });
 		await fs.mkdir(path.dirname(deniedDoc), { recursive: true });
 		await fs.mkdir(path.dirname(deniedPreview), { recursive: true });
+		await fs.mkdir(path.dirname(deniedProjectFile), { recursive: true });
 		await fs.writeFile(grantedDoc, 'target\n100\n');
 		await fs.writeFile(grantedPreview, 'allowed order row');
 		await fs.writeFile(deniedDoc, 'private plans');
 		await fs.writeFile(deniedPreview, 'private customer row');
 		await fs.writeFile(ordinaryFile, 'visible');
+		await fs.writeFile(deniedProjectFile, 'name,salary\n');
 
 		const access = {
 			...denyAllContext(),
@@ -290,6 +293,13 @@ describe('project context permissions', () => {
 					grants: [{ kind: 'folder' as const, path: 'finance' }],
 				},
 			},
+			filesContextAccess: {
+				enforced: true as const,
+				access: {
+					mode: 'restricted' as const,
+					grants: [{ kind: 'file' as const, path: 'notes.txt' }],
+				},
+			},
 		};
 
 		expect((await run(`SELECT target FROM read_csv('${grantedDoc}')`, access)).data).toEqual([{ target: 100 }]);
@@ -303,6 +313,9 @@ describe('project context permissions', () => {
 			/file system operations are disabled|Permission Error/,
 		);
 		await expect(run(`SELECT content FROM read_text('${deniedPreview}')`, access)).rejects.toThrow(
+			/file system operations are disabled|Permission Error/,
+		);
+		await expect(run(`SELECT name FROM read_csv('${deniedProjectFile}')`, access)).rejects.toThrow(
 			/file system operations are disabled|Permission Error/,
 		);
 	});
@@ -446,6 +459,7 @@ const runOutcome = async (sql: string, overrides: RunOverrides = {}): Promise<Lo
 		queryResults: new Map(overrides.queryResults ?? []),
 		warehouseTableAccess: overrides.warehouseTableAccess ?? { enforced: false },
 		docsContextAccess: overrides.docsContextAccess ?? { enforced: false },
+		filesContextAccess: overrides.filesContextAccess ?? { enforced: false },
 	} as unknown as ToolContext;
 
 	return runQueryOnLocalFiles(sql, context, overrides.saveTo);
@@ -458,11 +472,13 @@ interface RunOverrides {
 	saveTo?: executeSql.SaveTo;
 	warehouseTableAccess?: ToolContext['warehouseTableAccess'];
 	docsContextAccess?: ToolContext['docsContextAccess'];
+	filesContextAccess?: ToolContext['filesContextAccess'];
 }
 
-function denyAllContext(): Pick<RunOverrides, 'warehouseTableAccess' | 'docsContextAccess'> {
+function denyAllContext(): Pick<RunOverrides, 'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess'> {
 	return {
 		warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 		docsContextAccess: { enforced: true, access: { mode: 'restricted', grants: [] } },
+		filesContextAccess: { enforced: false },
 	};
 }

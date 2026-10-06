@@ -1,19 +1,22 @@
 import {
 	CONTEXT_CONFIG_FILENAME,
-	isDocsContextDirectoryGranted,
-	isDocsContextFileGranted,
-	mayTraverseDocsContextDirectory,
+	isFileTreeDirectoryGranted,
+	isFileTreeFileGranted,
+	mayTraverseFileTreeDirectory,
 } from '@nao/shared';
 import path from 'path';
 
 import type { ToolContext } from '../types/tools';
 import { isContextPathAllowed } from './context-access';
+import type { ResolvedFileTreeAccess } from './user-group-context-access.service';
 
 type ProjectPathKind = 'file' | 'directory';
-type DocsPath = { kind: 'docs'; relativePath: string } | { kind: 'invalid' } | { kind: 'non-docs' };
+type ProjectPath = { kind: 'root' | 'docs' | 'files' | 'database'; relativePath: string } | { kind: 'invalid' };
+
+type ProjectPathAccessContext = Pick<ToolContext, 'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess'>;
 
 export function assertProjectContextPathAllowed(
-	context: Pick<ToolContext, 'warehouseTableAccess' | 'docsContextAccess'>,
+	context: ProjectPathAccessContext,
 	requestedVirtualPath: string,
 	canonicalVirtualPath: string,
 	kind: ProjectPathKind,
@@ -24,7 +27,7 @@ export function assertProjectContextPathAllowed(
 }
 
 export function isProjectContextPathAllowed(
-	context: Pick<ToolContext, 'warehouseTableAccess' | 'docsContextAccess'>,
+	context: ProjectPathAccessContext,
 	requestedVirtualPath: string,
 	canonicalVirtualPath: string,
 	kind: ProjectPathKind,
@@ -36,35 +39,38 @@ export function isProjectContextPathAllowed(
 		return false;
 	}
 
-	const requestedDocsPath = parseDocsPath(requestedVirtualPath);
-	const canonicalDocsPath = parseDocsPath(canonicalVirtualPath);
-	if (requestedDocsPath.kind === 'invalid' || canonicalDocsPath.kind === 'invalid') {
+	const requestedPath = parseProjectPath(requestedVirtualPath);
+	const canonicalPath = parseProjectPath(canonicalVirtualPath);
+	if (requestedPath.kind === 'invalid' || canonicalPath.kind === 'invalid') {
 		return false;
 	}
-	if (requestedDocsPath.kind === 'non-docs' && canonicalDocsPath.kind === 'non-docs') {
-		return true;
-	}
-	if (
-		requestedDocsPath.kind !== 'docs' ||
-		canonicalDocsPath.kind !== 'docs' ||
-		requestedDocsPath.relativePath !== canonicalDocsPath.relativePath
-	) {
+	if (requestedPath.kind !== canonicalPath.kind) {
 		return false;
 	}
-	if (!context.docsContextAccess.enforced) {
-		return true;
+	switch (canonicalPath.kind) {
+		case 'root':
+			return kind === 'directory';
+		case 'database':
+			return true;
+		case 'docs':
+			return isFileTreePathAllowed(
+				context.docsContextAccess,
+				requestedPath.relativePath,
+				canonicalPath.relativePath,
+				kind,
+			);
+		case 'files':
+			return isFileTreePathAllowed(
+				context.filesContextAccess,
+				requestedPath.relativePath,
+				canonicalPath.relativePath,
+				kind,
+			);
 	}
-	if (kind === 'file') {
-		return isDocsContextFileGranted(context.docsContextAccess.access, canonicalDocsPath.relativePath);
-	}
-	return (
-		isDocsContextDirectoryGranted(context.docsContextAccess.access, canonicalDocsPath.relativePath) ||
-		mayTraverseDocsContextDirectory(context.docsContextAccess.access, canonicalDocsPath.relativePath)
-	);
 }
 
 export function isDocsProjectPath(virtualPath: string): boolean {
-	return parseDocsPath(virtualPath).kind === 'docs';
+	return parseProjectPath(virtualPath).kind === 'docs';
 }
 
 /** `nao_config.yaml` can hold plaintext LLM keys and warehouse credentials, so the agent never sees it. */
@@ -72,23 +78,58 @@ function isProjectConfigPath(virtualPath: string): boolean {
 	return path.posix.basename(virtualPath).toLowerCase() === CONTEXT_CONFIG_FILENAME;
 }
 
-function parseDocsPath(virtualPath: string): DocsPath {
+/** Grants are matched on the path the agent addressed, so a restricted tree rejects symlinks and aliases to other paths. */
+function isFileTreePathAllowed(
+	resolvedAccess: ResolvedFileTreeAccess,
+	requestedPath: string,
+	canonicalPath: string,
+	kind: ProjectPathKind,
+): boolean {
+	if (!resolvedAccess.enforced || resolvedAccess.access.mode === 'all') {
+		return true;
+	}
+	if (requestedPath !== canonicalPath) {
+		return false;
+	}
+	if (kind === 'file') {
+		return isFileTreeFileGranted(resolvedAccess.access, canonicalPath);
+	}
+	return (
+		isFileTreeDirectoryGranted(resolvedAccess.access, canonicalPath) ||
+		mayTraverseFileTreeDirectory(resolvedAccess.access, canonicalPath)
+	);
+}
+
+function parseProjectPath(virtualPath: string): ProjectPath {
 	if (virtualPath.includes('\\') || hasControlCharacter(virtualPath)) {
 		return { kind: 'invalid' };
 	}
 	const relativePath = virtualPath.replace(/^\/+/, '');
 	const addressedDocs = relativePath === 'docs' || relativePath.startsWith('docs/');
-	if (addressedDocs && relativePath.split('/').some((segment) => segment === '.' || segment === '..')) {
+	const addressedDatabases = relativePath === 'databases' || relativePath.startsWith('databases/');
+	if (
+		(addressedDocs || addressedDatabases) &&
+		relativePath.split('/').some((segment) => segment === '.' || segment === '..')
+	) {
 		return { kind: 'invalid' };
 	}
 	const normalizedPath = path.posix.normalize(relativePath);
+	if (normalizedPath === '.' || normalizedPath === '') {
+		return { kind: 'root', relativePath: '' };
+	}
 	if (normalizedPath === 'docs') {
 		return { kind: 'docs', relativePath: '' };
 	}
 	if (normalizedPath.startsWith('docs/')) {
 		return { kind: 'docs', relativePath: normalizedPath.slice('docs/'.length) };
 	}
-	return addressedDocs ? { kind: 'invalid' } : { kind: 'non-docs' };
+	if (normalizedPath === 'databases' || normalizedPath.startsWith('databases/')) {
+		return { kind: 'database', relativePath: normalizedPath };
+	}
+	if (addressedDocs || addressedDatabases) {
+		return { kind: 'invalid' };
+	}
+	return { kind: 'files', relativePath: normalizedPath };
 }
 
 function hasControlCharacter(value: string): boolean {

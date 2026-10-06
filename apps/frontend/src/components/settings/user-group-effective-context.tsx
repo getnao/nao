@@ -1,10 +1,10 @@
-import { isDatabaseContextTableGranted, isDocsContextFileGranted, matchesDatabaseContextPattern } from '@nao/shared';
+import { isDatabaseContextTableGranted, isFileTreeFileGranted, matchesDatabaseContextPattern } from '@nao/shared';
 import { ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { DatabaseContextAccess, DocsContextAccess } from '@nao/shared';
+import type { DatabaseContextAccess, DocsContextAccess, FilesContextAccess } from '@nao/shared';
 
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
-import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
+import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file-tree-access';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,14 +18,19 @@ type SyncState = 'missing' | 'ready';
 interface UserGroupEffectiveContextProps {
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
 	contextObjects: DatabaseContextObject[];
-	docsEntries: DocsContextCatalogEntry[];
+	docsEntries: FileTreeCatalogEntry[];
+	filesEntries: FileTreeCatalogEntry[];
 	databaseCatalogState?: CatalogState;
 	docsCatalogState?: CatalogState;
+	filesCatalogState?: CatalogState;
 	databaseSyncState?: SyncState;
 	docsSyncState?: SyncState;
+	filesSyncState?: SyncState;
 	onRetryDatabaseCatalog?: () => void;
 	onRetryDocsCatalog?: () => void;
+	onRetryFilesCatalog?: () => void;
 }
 
 interface DatabaseGroup {
@@ -41,29 +46,39 @@ interface DatabaseSchemaGroup {
 	tables: DatabaseContextObject[];
 }
 
-interface DocsTreeNode {
+interface ContextTreeEntry {
 	kind: 'folder' | 'file';
 	path: string;
+}
+
+interface ContextTreeNode extends ContextTreeEntry {
 	name: string;
-	children: DocsTreeNode[];
+	children: ContextTreeNode[];
 }
 
 export function UserGroupEffectiveContext({
 	databaseAccess,
 	docsAccess,
+	filesAccess,
 	contextObjects,
 	docsEntries,
+	filesEntries,
 	databaseCatalogState = 'ready',
 	docsCatalogState = 'ready',
+	filesCatalogState = 'ready',
 	databaseSyncState = 'ready',
 	docsSyncState = 'ready',
+	filesSyncState = 'ready',
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
+	onRetryFilesCatalog,
 }: UserGroupEffectiveContextProps) {
 	const [search, setSearch] = useState('');
 	const [expandedDatabaseKeys, setExpandedDatabaseKeys] = useState<Set<string>>(new Set());
 	const [expandedDocsPaths, setExpandedDocsPaths] = useState<Set<string>>(new Set());
+	const [expandedFilesPaths, setExpandedFilesPaths] = useState<Set<string>>(new Set());
 	const [docsExpanded, setDocsExpanded] = useState(false);
+	const [filesExpanded, setFilesExpanded] = useState(false);
 	const query = search.trim().toLocaleLowerCase();
 	const searching = query.length > 0;
 
@@ -85,10 +100,8 @@ export function UserGroupEffectiveContext({
 	);
 	const allowedDocsFiles = useMemo(
 		() =>
-			deduplicateDocsFiles(
-				docsEntries.filter(
-					(entry) => entry.kind === 'file' && isDocsContextFileGranted(docsAccess, entry.path),
-				),
+			deduplicateEntries(
+				docsEntries.filter((entry) => entry.kind === 'file' && isFileTreeFileGranted(docsAccess, entry.path)),
 			),
 		[docsAccess, docsEntries],
 	);
@@ -99,18 +112,41 @@ export function UserGroupEffectiveContext({
 				: allowedDocsFiles,
 		[allowedDocsFiles, query],
 	);
+	const allowedFiles = useMemo(
+		() =>
+			deduplicateEntries(
+				filesEntries.filter((entry) => entry.kind === 'file' && isFileTreeFileGranted(filesAccess, entry.path)),
+			),
+		[filesAccess, filesEntries],
+	);
+	const visibleFiles = useMemo(
+		() => (query ? allowedFiles.filter((entry) => entry.path.toLocaleLowerCase().includes(query)) : allowedFiles),
+		[allowedFiles, query],
+	);
 	const databaseGroups = useMemo(() => groupDatabaseObjects(visibleTables), [visibleTables]);
-	const docsNodes = useMemo(() => buildDocsTree(visibleDocsFiles), [visibleDocsFiles]);
-	const mode = databaseAccess.mode === 'all' && docsAccess.mode === 'all' ? 'Everything' : 'Specific selection';
+	const docsNodes = useMemo(() => buildContextTree(visibleDocsFiles), [visibleDocsFiles]);
+	const filesNodes = useMemo(() => buildContextTree(visibleFiles), [visibleFiles]);
+	const mode =
+		databaseAccess.mode === 'all' && docsAccess.mode === 'all' && filesAccess.mode === 'all'
+			? 'Everything'
+			: 'Specific selection';
 	const databaseStatus = getCatalogIssueStatus(databaseCatalogState, databaseSyncState);
 	const docsStatus = getCatalogIssueStatus(docsCatalogState, docsSyncState);
-	const hasCurrentContext = allowedTables.length > 0 || allowedDocsFiles.length > 0;
+	const filesStatus = getCatalogIssueStatus(filesCatalogState, filesSyncState);
+	const hasCurrentContext = allowedTables.length > 0 || allowedDocsFiles.length > 0 || allowedFiles.length > 0;
 	const showDatabaseTree =
 		Boolean(databaseStatus) || (searching ? visibleTables.length > 0 : allowedTables.length > 0);
 	const showDocsTree = Boolean(docsStatus) || (searching ? visibleDocsFiles.length > 0 : allowedDocsFiles.length > 0);
-	const showContextEmptyState = !searching && !hasCurrentContext && !databaseStatus && !docsStatus;
+	const showFilesTree = Boolean(filesStatus) || (searching ? visibleFiles.length > 0 : allowedFiles.length > 0);
+	const showContextEmptyState = !searching && !hasCurrentContext && !databaseStatus && !docsStatus && !filesStatus;
 	const showSearchEmptyState =
-		searching && !databaseStatus && !docsStatus && visibleTables.length === 0 && visibleDocsFiles.length === 0;
+		searching &&
+		!databaseStatus &&
+		!docsStatus &&
+		!filesStatus &&
+		visibleTables.length === 0 &&
+		visibleDocsFiles.length === 0 &&
+		visibleFiles.length === 0;
 
 	const toggleDatabaseFolder = (key: string) => {
 		setExpandedDatabaseKeys((current) => {
@@ -136,6 +172,18 @@ export function UserGroupEffectiveContext({
 		});
 	};
 
+	const toggleFilesFolder = (path: string) => {
+		setExpandedFilesPaths((current) => {
+			const next = new Set(current);
+			if (next.has(path)) {
+				removeExpandedSubtree(next, path, '/');
+			} else {
+				next.add(path);
+			}
+			return next;
+		});
+	};
+
 	return (
 		<div className='flex flex-col gap-4'>
 			<div className='flex flex-wrap items-center gap-2'>
@@ -143,14 +191,15 @@ export function UserGroupEffectiveContext({
 				<Badge variant='outline'>{databaseAccess.strict ? 'Strict' : 'Not strict'}</Badge>
 				<span className='text-xs text-muted-foreground'>
 					{formatCatalogCount(databaseCatalogState, allowedTables.length, 'table')} ·{' '}
-					{formatCatalogCount(docsCatalogState, allowedDocsFiles.length, 'doc')}
+					{formatCatalogCount(docsCatalogState, allowedDocsFiles.length, 'doc')} ·{' '}
+					{formatCatalogCount(filesCatalogState, allowedFiles.length, 'file')}
 				</span>
 			</div>
 			{hasCurrentContext && (
 				<Input
 					value={search}
 					onChange={(event) => setSearch(event.target.value)}
-					placeholder='Search available tables and docs'
+					placeholder='Search available tables, docs, and files'
 					aria-label='Search effective context'
 				/>
 			)}
@@ -168,7 +217,10 @@ export function UserGroupEffectiveContext({
 						/>
 					)}
 					{showDocsTree && (
-						<DocsAccessTree
+						<ContextAccessTree
+							label='docs'
+							statusLabel='Docs'
+							panelId='effective-docs-root'
 							nodes={docsNodes}
 							catalogState={docsCatalogState}
 							syncState={docsSyncState}
@@ -178,6 +230,22 @@ export function UserGroupEffectiveContext({
 							onToggleRoot={() => setDocsExpanded((current) => !current)}
 							onToggleFolder={toggleDocsFolder}
 							onRetry={onRetryDocsCatalog}
+						/>
+					)}
+					{showFilesTree && (
+						<ContextAccessTree
+							label='files'
+							statusLabel='Files'
+							panelId='effective-files-root'
+							nodes={filesNodes}
+							catalogState={filesCatalogState}
+							syncState={filesSyncState}
+							searching={searching}
+							expanded={filesExpanded}
+							expandedPaths={expandedFilesPaths}
+							onToggleRoot={() => setFilesExpanded((current) => !current)}
+							onToggleFolder={toggleFilesFolder}
+							onRetry={onRetryFilesCatalog}
 						/>
 					)}
 					{showContextEmptyState && <ContextEmptyState />}
@@ -344,7 +412,10 @@ function DatabaseSchemaNode({
 	);
 }
 
-function DocsAccessTree({
+function ContextAccessTree({
+	label,
+	statusLabel,
+	panelId,
 	nodes,
 	catalogState,
 	syncState,
@@ -355,7 +426,10 @@ function DocsAccessTree({
 	onToggleFolder,
 	onRetry,
 }: {
-	nodes: DocsTreeNode[];
+	label: string;
+	statusLabel: string;
+	panelId: string;
+	nodes: ContextTreeNode[];
 	catalogState: CatalogState;
 	syncState: SyncState;
 	searching: boolean;
@@ -368,23 +442,27 @@ function DocsAccessTree({
 	const status = getCatalogIssueStatus(catalogState, syncState);
 	if (status) {
 		return (
-			<ContextStatusRow label='Docs' status={status} onRetry={catalogState === 'error' ? onRetry : undefined} />
+			<ContextStatusRow
+				label={statusLabel}
+				status={status}
+				onRetry={catalogState === 'error' ? onRetry : undefined}
+			/>
 		);
 	}
 	if (nodes.length === 0) {
 		return null;
 	}
 	const open = searching || expanded;
-	const panelId = 'effective-docs-root';
 
 	return (
 		<li>
-			<FolderButton label='docs' open={open} depth={0} panelId={panelId} onClick={onToggleRoot} />
+			<FolderButton label={label} open={open} depth={0} panelId={panelId} onClick={onToggleRoot} />
 			{open && (
 				<ul id={panelId}>
 					{nodes.map((node) => (
-						<DocsNode
+						<ContextNode
 							key={node.path}
+							label={label}
 							node={node}
 							depth={1}
 							searching={searching}
@@ -398,14 +476,16 @@ function DocsAccessTree({
 	);
 }
 
-function DocsNode({
+function ContextNode({
+	label,
 	node,
 	depth,
 	searching,
 	expandedPaths,
 	onToggle,
 }: {
-	node: DocsTreeNode;
+	label: string;
+	node: ContextTreeNode;
 	depth: number;
 	searching: boolean;
 	expandedPaths: Set<string>;
@@ -427,7 +507,7 @@ function DocsNode({
 	}
 
 	const open = searching || expandedPaths.has(node.path);
-	const panelId = `effective-docs-${toDomId(node.path)}`;
+	const panelId = `effective-${label}-folder-${toDomId(node.path)}`;
 	return (
 		<li>
 			<FolderButton
@@ -440,8 +520,9 @@ function DocsNode({
 			{open && (
 				<ul id={panelId}>
 					{node.children.map((child) => (
-						<DocsNode
+						<ContextNode
 							key={child.path}
+							label={label}
 							node={child}
 							depth={depth + 1}
 							searching={searching}
@@ -557,7 +638,7 @@ function deduplicateTables(objects: DatabaseContextObject[]): DatabaseContextObj
 	return [...new Map(objects.map((object) => [databaseObjectKey(object), object])).values()];
 }
 
-function deduplicateDocsFiles(entries: DocsContextCatalogEntry[]): DocsContextCatalogEntry[] {
+function deduplicateEntries(entries: readonly ContextTreeEntry[]): ContextTreeEntry[] {
 	return [...new Map(entries.map((entry) => [entry.path, entry])).values()];
 }
 
@@ -584,8 +665,8 @@ function groupDatabaseObjects(objects: DatabaseContextObject[]): DatabaseGroup[]
 	}));
 }
 
-function buildDocsTree(entries: DocsContextCatalogEntry[]): DocsTreeNode[] {
-	const nodes = new Map<string, DocsTreeNode>();
+function buildContextTree(entries: readonly ContextTreeEntry[]): ContextTreeNode[] {
+	const nodes = new Map<string, ContextTreeNode>();
 	for (const entry of entries) {
 		const segments = entry.path.split('/');
 		for (let index = 0; index < segments.length; index++) {
@@ -603,9 +684,9 @@ function buildDocsTree(entries: DocsContextCatalogEntry[]): DocsTreeNode[] {
 		}
 	}
 	for (const node of nodes.values()) {
-		node.children.sort(compareDocsNodes);
+		node.children.sort(compareContextNodes);
 	}
-	return [...nodes.values()].filter((node) => !node.path.includes('/')).sort(compareDocsNodes);
+	return [...nodes.values()].filter((node) => !node.path.includes('/')).sort(compareContextNodes);
 }
 
 function getCatalogIssueStatus(catalogState: CatalogState, syncState: SyncState): string {
@@ -621,7 +702,7 @@ function getCatalogIssueStatus(catalogState: CatalogState, syncState: SyncState)
 	return '';
 }
 
-function compareDocsNodes(left: DocsTreeNode, right: DocsTreeNode): number {
+function compareContextNodes(left: ContextTreeNode, right: ContextTreeNode): number {
 	return Number(right.kind === 'folder') - Number(left.kind === 'folder') || left.name.localeCompare(right.name);
 }
 

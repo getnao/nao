@@ -149,6 +149,7 @@ function context(groupNames: string[] | null): ToolContext {
 		projectFolder,
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: false },
+		filesContextAccess: { enforced: false },
 		userRulesGroupAccess: groupNames === null ? { enforced: false } : { enforced: true, groupNames },
 	} as ToolContext;
 }

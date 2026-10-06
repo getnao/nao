@@ -46,6 +46,10 @@ export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 /** Every effort level that is actually sent to a provider (`off` means "leave it to the model"). */
 export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
 
+/** What Claude returns in its thinking blocks: nothing, the notes written between tool calls, or everything summarized. */
+export const thinkingDisplaySchema = z.enum(['omitted', 'updates', 'summarized']);
+export type ThinkingDisplay = z.infer<typeof thinkingDisplaySchema>;
+
 export const serviceTierSchema = z.enum(['auto', 'default', 'standard', 'flex', 'priority', 'reserved']);
 export type ServiceTier = z.infer<typeof serviceTierSchema>;
 
@@ -77,6 +81,7 @@ export const modelInferenceSettingsSchema = z.object({
 	maxOutputTokens: z.number().int().min(1).optional(),
 	reasoningEffort: reasoningEffortSchema.optional(),
 	thinkingBudgetTokens: z.number().int().min(1024).optional(),
+	thinkingDisplay: thinkingDisplaySchema.optional(),
 	textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
 	reasoningSummary: z.enum(['auto', 'detailed']).optional(),
 	parallelToolCalls: z.boolean().optional(),
@@ -142,6 +147,10 @@ export type ModelCapabilities = {
 	/** Provider physical max output tokens; budget-thinking Claude clamps budgets under this since the SDK sends max_tokens = maxOutputTokens + budgetTokens. */
 	maxOutputCap?: number;
 	thinkingBudgetRange?: { min: number; max: number };
+	/** Thinking display sent when the admin has not picked one; Claude 4.7+ otherwise returns every thinking block empty. */
+	thinkingDisplay?: ThinkingDisplay;
+	/** Thinking runs even without a configured effort (Claude 5+), so the display setting must be sent on every request. */
+	thinkingAlwaysOn?: boolean;
 };
 
 /** A single editable inference-parameter control, derived from a model's capabilities. */
