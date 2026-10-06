@@ -95,13 +95,12 @@ jobs:
                   RUNTIME_NAO_STORAGE_LOCAL_PATH: /app/storage
                   RUNTIME_BETTER_AUTH_URL: https://${{ env.NIMBUS_DOMAIN }}
                   RUNTIME_BETTER_AUTH_SECRET: ${{ secrets.NIMBUS_BETTER_AUTH_SECRET }}
-                  RUNTIME_NAO_BACKOFFICE_API_KEY: ${{ secrets.NIMBUS_BACKOFFICE_API_KEY }}
                   RUNTIME_DB_URI: sqlite:/app/db.sqlite
                   RUNTIME_ENABLE_USER_LOGIN: 'false'
                   RUNTIME_ENABLE_USER_SIGNUP: 'false'
                   RUNTIME_GITHUB_SSO: 'true'
-                  RUNTIME_GITHUB_CLIENT_ID: ${{ secrets.PREVIEW_GITHUB_CLIENT_ID }}
-                  RUNTIME_GITHUB_CLIENT_SECRET: ${{ secrets.PREVIEW_GITHUB_CLIENT_SECRET }}
+                  RUNTIME_GITHUB_CLIENT_ID: ${{ secrets.NIMBUS_GITHUB_CLIENT_ID }}
+                  RUNTIME_GITHUB_CLIENT_SECRET: ${{ secrets.NIMBUS_GITHUB_CLIENT_SECRET }}
                   RUNTIME_GITHUB_ALLOWED_USERS: ${{ secrets.PREVIEW_GITHUB_ALLOWED_USERS }}
                   RUNTIME_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   RUNTIME_CLOUD_GITHUB_PROJECT_ORG: ${{ secrets.NIMBUS_GITHUB_PROJECT_ORG }}
