@@ -173,12 +173,4 @@ describe('getUnpricedModels', () => {
 
 		await expect(getUnpricedModels('project-1')).resolves.toEqual([]);
 	});
-
-	it('ignores self-hosted providers, whose usage has no token cost', async () => {
-		mocks.getProjectLlmConfigs.mockResolvedValue([
-			{ provider: 'ollama', enabledModels: ['qwen3:8b', 'gemma3:4b'], customModels: [], baseUrl: null },
-		]);
-
-		await expect(getUnpricedModels('project-1')).resolves.toEqual([]);
-	});
 });

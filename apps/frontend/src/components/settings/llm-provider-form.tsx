@@ -71,14 +71,24 @@ export function LlmProviderForm({
 	const [customModelInput, setCustomModelInput] = useState('');
 	const isCustomModel = (modelId: string) => !currentModels.some((m) => m.id === modelId);
 	const supportsModelParameters = (modelId: string) => getModelParameterSpec(provider, modelId).length > 0;
+	function resolveEditingCustomModelId(modelId: string | undefined): string | null {
+		return modelId && isCustomModel(modelId) ? modelId : null;
+	}
+	function resolveEditingModelParamsId(modelId: string | undefined): string | null {
+		return modelId && !isCustomModel(modelId) && supportsModelParameters(modelId) ? modelId : null;
+	}
 	const [editingCustomModelId, setEditingCustomModelId] = useState<string | null>(() =>
-		initialEditedModelId && isCustomModel(initialEditedModelId) ? initialEditedModelId : null,
+		resolveEditingCustomModelId(initialEditedModelId),
 	);
 	const [editingModelParamsId, setEditingModelParamsId] = useState<string | null>(() =>
-		initialEditedModelId && !isCustomModel(initialEditedModelId) && supportsModelParameters(initialEditedModelId)
-			? initialEditedModelId
-			: null,
+		resolveEditingModelParamsId(initialEditedModelId),
 	);
+	const [focusedModelId, setFocusedModelId] = useState(initialEditedModelId);
+	if (initialEditedModelId !== focusedModelId) {
+		setFocusedModelId(initialEditedModelId);
+		setEditingCustomModelId(resolveEditingCustomModelId(initialEditedModelId));
+		setEditingModelParamsId(resolveEditingModelParamsId(initialEditedModelId));
+	}
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {

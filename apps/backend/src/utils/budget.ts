@@ -94,7 +94,6 @@ export async function getUnpricedModels(projectId: string): Promise<UnpricedMode
 		getProjectDeclaredModels(projectId),
 	]);
 	return activeModels
-		.filter(({ provider }) => !PROVIDER_META[providerKind(provider)].selfHosted)
 		.filter(({ provider, modelId }) => !hasModelCost(provider, modelId, declaredSources))
 		.map(({ provider, modelId, name }) => ({ provider, modelId, name }));
 }

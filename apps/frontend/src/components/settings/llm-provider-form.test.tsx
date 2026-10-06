@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LlmProviderForm } from './llm-provider-form';
 
@@ -27,29 +27,37 @@ describe('LlmProviderForm', () => {
 		expect(screen.queryByText(/leave empty to use AWS credentials from environment/)).toBeNull();
 	});
 
-	it('opens the settings dialog of the model it is focused on', () => {
+	it('opens the settings dialog of the model it is focused on, and follows a new focus', () => {
 		Element.prototype.scrollIntoView = vi.fn();
-		render(
-			<LlmProviderForm
-				provider='openrouter'
-				isEditing={true}
-				inheritedKeySource={null}
-				initialValues={{
-					enabledModels: ['acme/new-model'],
-					customModels: [{ id: 'acme/new-model' }],
-					modelSettings: {},
-					baseUrl: '',
-				}}
-				initialEditedModelId='acme/new-model'
-				currentModels={[]}
-				onSubmit={vi.fn()}
-				onCancel={vi.fn()}
-				isPending={false}
-				error={null}
-				title='Edit OpenRouter'
-			/>,
-		);
+		const { rerender } = render(renderFocusedForm('acme/new-model'));
 
-		expect(screen.getByText('Token cost')).toBeTruthy();
+		expect(within(screen.getByRole('dialog')).getByText(/acme\/new-model/)).toBeTruthy();
+
+		rerender(renderFocusedForm('acme/other-model'));
+
+		expect(within(screen.getByRole('dialog')).getByText(/acme\/other-model/)).toBeTruthy();
 	});
 });
+
+function renderFocusedForm(focusedModelId: string) {
+	return (
+		<LlmProviderForm
+			provider='openrouter'
+			isEditing={true}
+			inheritedKeySource={null}
+			initialValues={{
+				enabledModels: ['acme/new-model', 'acme/other-model'],
+				customModels: [{ id: 'acme/new-model' }, { id: 'acme/other-model' }],
+				modelSettings: {},
+				baseUrl: '',
+			}}
+			initialEditedModelId={focusedModelId}
+			currentModels={[]}
+			onSubmit={vi.fn()}
+			onCancel={vi.fn()}
+			isPending={false}
+			error={null}
+			title='Edit OpenRouter'
+		/>
+	);
+}
