@@ -251,7 +251,7 @@ export async function getCloudUpcomingInvoice(stripeSubscriptionId: string): Pro
 	return {
 		amountDue: invoice.amount_due,
 		currency: invoice.currency,
-		nextPaymentAt: new Date(invoice.period_end * 1_000),
+		nextPaymentAt: new Date(invoice.period_start * 1_000),
 		promotionCodes: invoicePromotionCodes(invoice),
 	};
 }

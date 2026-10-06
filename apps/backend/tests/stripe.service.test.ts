@@ -610,7 +610,8 @@ describe('cloud billing recovery', () => {
 		stripeMocks.createInvoicePreview.mockResolvedValue({
 			amount_due: 100_000,
 			currency: 'usd',
-			period_end: 1_796_000_000,
+			period_start: 1_796_000_000,
+			period_end: 1_798_592_000,
 			discounts: [
 				{
 					id: 'di_early_customer',
