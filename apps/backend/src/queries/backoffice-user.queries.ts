@@ -158,15 +158,8 @@ export async function updateUserForBackoffice(userId: string, values: { name?: s
 	return updated ?? null;
 }
 
-export async function getUserByEmail(email: string) {
-	const [user] = await db
-		.select({ id: s.user.id })
-		.from(s.user)
-		.where(sql`lower(${s.user.email}) = ${email.toLowerCase()}`)
-		.limit(1)
-		.execute();
-	return user ?? null;
-}
+// Re-exported: the case-insensitive lookup lives in user.queries so it stays defined once.
+export { getUserByEmail } from './user.queries';
 
 async function getOrganizationMemberships(userIds: string[], ordered = false) {
 	const query = db

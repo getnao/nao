@@ -15,6 +15,8 @@ import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as discordConfigQueries from '../queries/project-discord-config.queries';
+import * as discordLinkQueries from '../queries/project-discord-link.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
@@ -24,6 +26,8 @@ import * as telegramConfigQueries from '../queries/project-telegram-config.queri
 import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
+import { discordService } from '../services/discord';
+import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -689,6 +693,141 @@ export const projectRoutes = {
 	deleteMattermostConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await mattermostConfigQueries.deleteProjectMattermostConfig(ctx.project.id);
 		await mattermostService.stopProject(ctx.project.id);
+		return { success: true };
+	}),
+
+	getDiscordConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '', connected: false };
+		}
+
+		const config = await discordConfigQueries.getProjectDiscordConfig(ctx.project.id);
+		const projectConfig = config
+			? {
+					applicationId: config.applicationId,
+					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+					publicKey: config.publicKey,
+					modelSelection: config.modelSelection,
+					mentionRoleIds: config.mentionRoleIds ?? [],
+					respondToChannelIds: config.respondToChannelIds ?? [],
+					fallbackUserEmail: config.fallbackUserEmail ?? '',
+					hideAnswerLink: config.hideAnswerLink ?? false,
+				}
+			: null;
+
+		return {
+			projectConfig,
+			projectId: ctx.project.id,
+			connected: discordService.getAdapter(ctx.project.id) !== null,
+		};
+	}),
+
+	upsertDiscordConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				botToken: z.string().trim().min(1),
+				applicationId: z.string().trim().min(1),
+				publicKey: z
+					.string()
+					.trim()
+					.regex(/^[0-9a-f]{64}$/i, 'Enter the 64-character hex public key from the Discord application.'),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+				mentionRoleIds: z.array(z.string()).optional(),
+				respondToChannelIds: z.array(z.string()).optional(),
+				fallbackUserEmail: z.string().trim().optional(),
+				hideAnswerLink: z.boolean().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				await validateDiscordConnection({ botToken: input.botToken });
+			} catch (error) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message:
+						error instanceof DiscordConnectionError
+							? error.message
+							: 'Could not verify the Discord connection. Try again.',
+				});
+			}
+
+			const fallbackUserEmail = input.fallbackUserEmail || undefined;
+			const fallbackUser = fallbackUserEmail ? await userQueries.getUserByEmail(fallbackUserEmail) : null;
+			const fallbackUserRole = fallbackUser
+				? await projectQueries.getUserRoleInProject(ctx.project.id, fallbackUser.id)
+				: null;
+			if (fallbackUserEmail && !canUseDiscordInProject(fallbackUserRole)) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: fallbackUser
+						? `${fallbackUserEmail} does not have access to this project.`
+						: `No user found with the email ${fallbackUserEmail}.`,
+				});
+			}
+
+			const config = await discordConfigQueries.upsertProjectDiscordConfig({
+				projectId: ctx.project.id,
+				botToken: input.botToken,
+				applicationId: input.applicationId,
+				publicKey: input.publicKey,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+				mentionRoleIds: input.mentionRoleIds,
+				respondToChannelIds: input.respondToChannelIds,
+				fallbackUserId: fallbackUser?.id,
+				fallbackUserEmail,
+				hideAnswerLink: input.hideAnswerLink,
+			});
+			try {
+				await discordService.syncProject(config, ctx.project.id);
+			} catch {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Discord connected, but the bot could not start. Try again.',
+				});
+			}
+
+			posthog.capture(ctx.user.id, PostHogEvent.DiscordConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return {
+				applicationId: config.applicationId,
+				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+				publicKey: config.publicKey,
+				modelSelection: config.modelSelection,
+				mentionRoleIds: config.mentionRoleIds ?? [],
+				respondToChannelIds: config.respondToChannelIds ?? [],
+				fallbackUserEmail: config.fallbackUserEmail ?? '',
+			};
+		}),
+
+	updateDiscordModelConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await discordConfigQueries.updateProjectDiscordModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
+			const refreshedConfig = await discordConfigQueries.getProjectDiscordConfig(ctx.project.id);
+			await discordService.syncProject(refreshedConfig, ctx.project.id);
+		}),
+
+	deleteDiscordConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await discordConfigQueries.deleteProjectDiscordConfig(ctx.project.id);
+		// Stop first: the gateway is still delivering messages until it is stopped, and a `login`
+		// that arrives in that window would write a link back after the cleanup below.
+		await discordService.stopProject(ctx.project.id);
+		await discordLinkQueries.deleteLinkedDiscordUsers(ctx.project.id);
 		return { success: true };
 	}),
 

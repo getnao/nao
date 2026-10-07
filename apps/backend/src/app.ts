@@ -46,6 +46,7 @@ import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { cliAuthRoutes } from './routes/cli-auth';
 import { deployRoutes } from './routes/deploy';
+import { discordRoutes } from './routes/discord';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
@@ -61,6 +62,7 @@ import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
+import { discordService } from './services/discord';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
 import { mattermostService } from './services/mattermost';
@@ -245,6 +247,10 @@ app.register(telegramRoutes, {
 
 app.register(mattermostRoutes, {
 	prefix: '/api/webhooks/mattermost',
+});
+
+app.register(discordRoutes, {
+	prefix: '/api/webhooks/discord',
 });
 
 app.register(whatsappRoutes, {
@@ -490,6 +496,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	void pingLicensesServer();
 	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());
 	void mattermostService.startForAllProjects();
+	void discordService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 

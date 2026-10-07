@@ -204,6 +204,7 @@ export interface UsageRecord {
 	teamsMessageCount: number;
 	telegramMessageCount: number;
 	mattermostMessageCount: number;
+	discordMessageCount: number;
 	whatsappMessageCount: number;
 	adminMessageCount: number;
 	mcpMessageCount: number;

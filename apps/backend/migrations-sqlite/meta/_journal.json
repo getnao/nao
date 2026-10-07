@@ -533,6 +533,20 @@
       "when": 1791306204428,
       "tag": "0075_bypass_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "6",
+      "when": 1791384059932,
+      "tag": "0076_add_discord",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1791384102845,
+      "tag": "0077_add_discord_message_id",
+      "breakpoints": true
     }
   ]
 }

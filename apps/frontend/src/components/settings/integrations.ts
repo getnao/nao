@@ -3,6 +3,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { ComponentType } from 'react';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
+import DiscordIcon from '@/components/icons/discord.svg';
 import MattermostIcon from '@/components/icons/mattermost.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import SlackIcon from '@/components/icons/slack.svg';
@@ -10,7 +11,7 @@ import TelegramIcon from '@/components/icons/telegram.svg';
 import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 import { trpc } from '@/main';
 
-export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp', 'mattermost'] as const;
+export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp', 'mattermost', 'discord'] as const;
 
 export type IntegrationId = (typeof integrationIds)[number];
 
@@ -53,6 +54,11 @@ export const integrations: IntegrationMetadata[] = [
 		name: 'Mattermost',
 		icon: MattermostIcon,
 	},
+	{
+		id: 'discord',
+		name: 'Discord',
+		icon: DiscordIcon,
+	},
 ];
 
 export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatus> {
@@ -62,12 +68,14 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
 	const whatsappLinks = useQuery(trpc.project.getCurrentUserWhatsappLinks.queryOptions());
 	const mattermostConfig = useQuery(trpc.project.getMattermostConfig.queryOptions());
+	const discordConfig = useQuery(trpc.project.getDiscordConfig.queryOptions());
 
 	const slackProjectConfig = slackConfig.data?.projectConfig;
 	const teamsProjectConfig = teamsConfig.data?.projectConfig;
 	const telegramProjectConfig = telegramConfig.data?.projectConfig;
 	const whatsappProjectConfig = whatsappConfig.data?.projectConfig;
 	const mattermostProjectConfig = mattermostConfig.data?.projectConfig;
+	const discordProjectConfig = discordConfig.data?.projectConfig;
 
 	return {
 		slack: {
@@ -98,6 +106,15 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 					: mattermostProjectConfig
 						? 'Saved configuration is not connected'
 						: 'Chat with nao from Mattermost',
+		},
+		discord: {
+			connected: discordConfig.data?.connected === true,
+			summary:
+				discordConfig.data?.connected === true
+					? 'Bot connected'
+					: discordProjectConfig
+						? 'Saved configuration is not connected'
+						: 'Chat with nao from Discord',
 		},
 	};
 }

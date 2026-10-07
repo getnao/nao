@@ -59,8 +59,8 @@ export const createFeedbackModal = (): ModalElement => ({
 	],
 });
 
-export const createStopButtonActions = (): CardChild =>
-	Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })]);
+export const createStopButtonActions = (disabled = false): CardChild =>
+	Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary', disabled })]);
 
 export const createStopButtonCard = (): CardElement =>
 	Card({
@@ -130,6 +130,10 @@ export const createMattermostAnswerMessage = (markdown: string, chatUrl?: string
 	const link = `**[Open in nao](${chatUrl})**`;
 	return { markdown: body ? `${body}\n\n${link}` : link };
 };
+
+// Identical to the Mattermost postable: a plain markdown answer with the nao footer. Aliased rather
+// than copied so the footer (and its truncation budget) stays defined in one place.
+export const createDiscordAnswerMessage = createMattermostAnswerMessage;
 
 export const createTextBlock = (text: string): CardChild => {
 	const rendered = mdToMrkdwn(text);

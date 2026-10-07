@@ -35,7 +35,7 @@ export type StreamState = {
 	toolGroupBlockIndex: number;
 };
 
-export type Provider = 'slack' | 'teams' | 'telegram' | 'mattermost' | 'whatsapp' | 'automation';
+export type Provider = 'slack' | 'teams' | 'telegram' | 'mattermost' | 'discord' | 'whatsapp' | 'automation';
 
 export const SLACK_TRANSPORT_MODES = ['webhook', 'socket'] as const;
 export type SlackTransportMode = (typeof SLACK_TRANSPORT_MODES)[number];
@@ -82,6 +82,24 @@ export type MattermostSettings = {
 	mattermostLlmModelId: string;
 	mattermostInteractiveButtonsEnabled?: boolean;
 	mattermostCallbackUrl?: string;
+};
+
+export type DiscordSettings = {
+	discordBotToken: string;
+	discordApplicationId: string;
+	discordPublicKey: string;
+	discordLlmProvider: string;
+	discordLlmModelId: string;
+	discordMentionRoleIds?: string[];
+	discordRespondToChannelIds?: string[];
+	// Community servers: Discord never exposes member emails, so no member can auto-link. When set,
+	// messages from unlinked members are answered as this one user instead of being rejected.
+	// The email is kept alongside the id purely so the settings form can round-trip the value.
+	discordFallbackUserId?: string;
+	discordFallbackUserEmail?: string;
+	// Community servers: the "Open in nao" footer links to a UI these members may not have
+	// access to, so it can be turned off per project.
+	discordHideAnswerLink?: boolean;
 };
 
 export type WhatsappSettings = {
