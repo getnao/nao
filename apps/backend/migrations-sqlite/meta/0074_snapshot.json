@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e15bc1e9-7f62-44b2-8b84-5893657b1675",
+  "id": "6c654db6-50de-4e89-ae3f-60db1e86955d",
   "prevId": "c6d3b95b-4dd6-4014-a984-b0ec84d636fe",
   "tables": {
     "account": {
@@ -5629,67 +5629,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "project_warehouse_credentials": {
-      "name": "project_warehouse_credentials",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "encrypted_credentials": {
-          "name": "encrypted_credentials",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "project_warehouse_credentials_project_id_project_id_fk": {
-          "name": "project_warehouse_credentials_project_id_project_id_fk",
-          "tableFrom": "project_warehouse_credentials",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "project_whatsapp_link": {
       "name": "project_whatsapp_link",
       "columns": {
@@ -7974,195 +7913,135 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "warehouse_provisioning_job": {
-      "name": "warehouse_provisioning_job",
+    "organization_billing": {
+      "name": "organization_billing",
       "columns": {
-        "id": {
-          "name": "id",
+        "org_id": {
+          "name": "org_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "org_id": {
-          "name": "org_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "onboarding_chat_id": {
-          "name": "onboarding_chat_id",
+        "billing_plan": {
+          "name": "billing_plan",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "project_id": {
-          "name": "project_id",
+        "billing_status": {
+          "name": "billing_status",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "project_name": {
-          "name": "project_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "encrypted_credentials": {
-          "name": "encrypted_credentials",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "business_context": {
-          "name": "business_context",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "model_selection": {
-          "name": "model_selection",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "model_project_id": {
-          "name": "model_project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'queued'"
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "temporary_directory": {
-          "name": "temporary_directory",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "locked_by": {
-          "name": "locked_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "locked_at": {
-          "name": "locked_at",
+        "trial_started_at": {
+          "name": "trial_started_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "attempts": {
-          "name": "attempts",
+        "trial_ends_at": {
+          "name": "trial_ends_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": false,
+          "autoincrement": false
         },
-        "created_at": {
-          "name": "created_at",
+        "stripe_customer_id": {
+          "name": "stripe_customer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stripe_subscription_id": {
+          "name": "stripe_subscription_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stripe_price_id": {
+          "name": "stripe_price_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "current_period_starts_at": {
+          "name": "current_period_starts_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+          "notNull": false,
+          "autoincrement": false
         },
-        "updated_at": {
-          "name": "updated_at",
+        "current_period_ends_at": {
+          "name": "current_period_ends_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+          "notNull": false,
+          "autoincrement": false
         },
-        "finished_at": {
-          "name": "finished_at",
+        "cancellation_scheduled": {
+          "name": "cancellation_scheduled",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "has_default_payment_method": {
+          "name": "has_default_payment_method",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "billing_access_ends_at": {
+          "name": "billing_access_ends_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "billing_updated_at": {
+          "name": "billing_updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "billing_sync_token": {
+          "name": "billing_sync_token",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         }
       },
       "indexes": {
-        "warehouse_provisioning_job_userId_idx": {
-          "name": "warehouse_provisioning_job_userId_idx",
+        "organization_billing_stripe_customer_id_unique": {
+          "name": "organization_billing_stripe_customer_id_unique",
           "columns": [
-            "user_id"
+            "stripe_customer_id"
           ],
-          "isUnique": false
+          "isUnique": true
         },
-        "warehouse_provisioning_job_status_idx": {
-          "name": "warehouse_provisioning_job_status_idx",
+        "organization_billing_stripe_subscription_id_unique": {
+          "name": "organization_billing_stripe_subscription_id_unique",
           "columns": [
-            "status"
+            "stripe_subscription_id"
           ],
-          "isUnique": false
-        },
-        "warehouse_provisioning_job_active_user_idx": {
-          "name": "warehouse_provisioning_job_active_user_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": true,
-          "where": "\"warehouse_provisioning_job\".\"status\" NOT IN ('ready', 'failed', 'cancelled')"
+          "isUnique": true
         }
       },
       "foreignKeys": {
-        "warehouse_provisioning_job_user_id_user_id_fk": {
-          "name": "warehouse_provisioning_job_user_id_user_id_fk",
-          "tableFrom": "warehouse_provisioning_job",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "warehouse_provisioning_job_org_id_organization_id_fk": {
-          "name": "warehouse_provisioning_job_org_id_organization_id_fk",
-          "tableFrom": "warehouse_provisioning_job",
+        "organization_billing_org_id_organization_id_fk": {
+          "name": "organization_billing_org_id_organization_id_fk",
+          "tableFrom": "organization_billing",
           "tableTo": "organization",
           "columnsFrom": [
             "org_id"
@@ -8172,21 +8051,68 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "warehouse_provisioning_job_project_id_project_id_fk": {
-          "name": "warehouse_provisioning_job_project_id_project_id_fk",
-          "tableFrom": "warehouse_provisioning_job",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "stripe_webhook_event": {
+      "name": "stripe_webhook_event",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stripe_object_id": {
+          "name": "stripe_object_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "livemode": {
+          "name": "livemode",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

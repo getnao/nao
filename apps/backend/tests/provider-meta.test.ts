@@ -112,6 +112,19 @@ describe('getModelCapabilities', () => {
 		});
 		expect(getModelCapabilities('bedrock', 'meta.llama4')).toMatchObject({ thinking: 'none', sampling: true });
 	});
+
+	it('uses adaptive thinking for Claude 5.x on Bedrock', () => {
+		for (const modelId of [
+			'global.anthropic.claude-opus-5-5',
+			'us.anthropic.claude-opus-5-5',
+			'global.anthropic.claude-sonnet-5-5',
+			'us.anthropic.claude-sonnet-5-5',
+			'global.anthropic.claude-sonnet-5',
+			'us.anthropic.claude-sonnet-5',
+		]) {
+			expect(getModelCapabilities('bedrock', modelId)).toMatchObject({ thinking: 'adaptive', topK: false });
+		}
+	});
 });
 
 describe('getModelParameterSpec', () => {

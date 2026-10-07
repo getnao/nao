@@ -73,10 +73,14 @@ export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: 
 	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
-export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> =>
-	transaction
+export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> => {
+	if (isCloud && !project.orgId) {
+		throw new Error('Cloud projects must belong to an organization.');
+	}
+	return transaction
 		? createProjectWithDefaultGroup(project, transaction)
 		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
+};
 
 export const deleteProject = async (projectId: string): Promise<void> => {
 	await db.delete(s.project).where(eq(s.project.id, projectId)).execute();

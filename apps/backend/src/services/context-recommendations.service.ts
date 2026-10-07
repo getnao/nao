@@ -17,6 +17,7 @@ import { resolveDefaultModelSelection } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { readProjectContext } from '../utils/nao-config';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
 import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
 import { flagExpensiveContextFiles } from './context-recommendations.file-costs';
@@ -37,8 +38,15 @@ const ANALYSIS_STEP_BUDGET = 40;
 
 export async function runContextRecommendations(
 	projectId: string,
-	options?: { trigger?: 'schedule' | 'manual'; period?: { start?: Date; end?: Date } },
+	options?: {
+		billingAccessVerifiedProjectId?: string;
+		trigger?: 'schedule' | 'manual';
+		period?: { start?: Date; end?: Date };
+	},
 ): Promise<{ runId: string }> {
+	if (options?.billingAccessVerifiedProjectId !== projectId) {
+		await assertProjectCloudBillingAccess(projectId);
+	}
 	const period = options?.period;
 	const now = new Date();
 	const periodEnd = period?.end ?? now;
@@ -103,6 +111,7 @@ export async function runContextRecommendations(
 
 		const collector = createRecommendationCollector();
 		const agent = await agentService.create({ ...uiChat, id: chat.id, projectId, userId }, model, {
+			billingAccessVerifiedProjectId: options?.billingAccessVerifiedProjectId,
 			excludeFollowUps: true,
 			maxSteps: ANALYSIS_STEP_BUDGET,
 			systemPrompt: renderContextRecommendationsSystemPrompt({

@@ -10,6 +10,7 @@ import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
+import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import {
 	ContextPullRequestInputError,
 	createBatchRecommendationPullRequest,
@@ -86,7 +87,11 @@ export const contextRecommendationRoutes = {
 		if (latestRun?.status === 'running') {
 			throw new TRPCError({ code: 'CONFLICT', message: 'A recommendations run is already in progress.' });
 		}
-		void runContextRecommendations(ctx.project.id, { trigger: 'manual' }).catch((err) => {
+		await assertProjectCloudBillingAccess(ctx.project.id);
+		void runContextRecommendations(ctx.project.id, {
+			billingAccessVerifiedProjectId: ctx.project.id,
+			trigger: 'manual',
+		}).catch((err) => {
 			logger.error(`Manual context recommendations run failed: ${String(err)}`, { source: 'agent' });
 		});
 		return { started: true };

@@ -1,6 +1,7 @@
 import type { DBScheduledJob } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
+import { hasProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { refreshStoryData } from '../services/live-story';
 import {
 	NotificationChannelDeliveryError,
@@ -54,6 +55,9 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!projectId || !userId) {
 		throw new Error(`Story ${storyId} is missing project or user ownership; cannot schedule refresh.`);
 	}
+	if (!(await hasProjectCloudBillingAccess(projectId))) {
+		return;
+	}
 
 	const activity = await activityQueries.startStoryRefreshActivity({
 		projectId,
@@ -64,7 +68,9 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	});
 
 	try {
-		const { queryData } = await refreshStoryData(story.chatId, story.slug);
+		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
+			billingAccessVerifiedProjectId: projectId,
+		});
 		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 		await notifyStoryRefreshed({

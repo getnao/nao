@@ -558,6 +558,13 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: 'mistral-medium-latest',
 		models: [
 			{
+				id: 'mistral-large-4',
+				name: 'Mistral Large 4',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 1.36, inputCacheRead: 0.14, inputCacheWrite: 0, output: 4.18 },
+				capabilities: MISTRAL_SAMPLING,
+			},
+			{
 				id: 'mistral-medium-latest',
 				name: 'Mistral Medium 3.1',
 				default: true,
@@ -698,6 +705,48 @@ export const PROVIDER_META: ProviderMetaMap = {
 		extractorModelId: 'anthropic.claude-sonnet-4-6',
 		summaryModelId: 'anthropic.claude-sonnet-4-6',
 		models: [
+			{
+				id: 'global.anthropic.claude-opus-5-5',
+				name: 'Claude Opus 5.5 (Bedrock Global)',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 5, output: 20 },
+				capabilities: BEDROCK_ADAPTIVE,
+			},
+			{
+				id: 'us.anthropic.claude-opus-5-5',
+				name: 'Claude Opus 5.5 (Bedrock US)',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 5, output: 20 },
+				capabilities: BEDROCK_ADAPTIVE,
+			},
+			{
+				id: 'global.anthropic.claude-sonnet-5-5',
+				name: 'Claude Sonnet 5.5 (Bedrock Global)',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: BEDROCK_ADAPTIVE,
+			},
+			{
+				id: 'us.anthropic.claude-sonnet-5-5',
+				name: 'Claude Sonnet 5.5 (Bedrock US)',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: BEDROCK_ADAPTIVE,
+			},
+			{
+				id: 'global.anthropic.claude-sonnet-5',
+				name: 'Claude Sonnet 5 (Bedrock Global)',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: BEDROCK_ADAPTIVE,
+			},
+			{
+				id: 'us.anthropic.claude-sonnet-5',
+				name: 'Claude Sonnet 5 (Bedrock US)',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: BEDROCK_ADAPTIVE,
+			},
 			{
 				id: 'us.anthropic.claude-sonnet-4-6',
 				name: 'Claude Sonnet 4.6 (Bedrock US)',

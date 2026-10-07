@@ -64,6 +64,7 @@ import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService, defaultAgentToolsExcluding } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
 import { readUserFileBytes } from './storage/user-files';
@@ -609,6 +610,13 @@ export class ProjectSlackBot {
 			timezone: undefined,
 		};
 
+		try {
+			await assertProjectCloudBillingAccess(this.projectId);
+		} catch (error) {
+			await ctx.thread.post(formatMessagingError(error));
+			return;
+		}
+
 		await this._validateUserAccess(ctx);
 		const activeStream: SlackActiveStream = { agent: null, stopRequested: false };
 		this._activeStreamsByThread.set(ctx.thread.id, activeStream);
@@ -818,6 +826,13 @@ export class ProjectSlackBot {
 				'❌ `/new <question>` is only available in direct messages and private channels. Send `/new` on its own here, or ask your question in a private conversation with nao.',
 				ephemeralOpts,
 			);
+			return;
+		}
+
+		try {
+			await assertProjectCloudBillingAccess(this.projectId);
+		} catch (error) {
+			await event.channel.postEphemeral(event.user, formatMessagingError(error), ephemeralOpts);
 			return;
 		}
 

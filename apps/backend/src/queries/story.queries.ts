@@ -25,7 +25,7 @@ export type UserStoryRow = Pick<
 	| 'format'
 	| 'createdAt'
 	| 'updatedAt'
-> & { code: string; version: number; certifiedByName: string | null };
+> & { code: string; version: number; versionCreatedAt: DBStoryVersion['createdAt']; certifiedByName: string | null };
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
 
@@ -129,6 +129,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
 			version: s.storyVersion.version,
+			versionCreatedAt: s.storyVersion.createdAt,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
@@ -653,6 +654,7 @@ async function queryStoriesWithLatestVersion(
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
 			version: s.storyVersion.version,
+			versionCreatedAt: s.storyVersion.createdAt,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))

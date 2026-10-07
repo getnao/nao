@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as transcribeService from '../services/transcribe.service';
+import { HandlerError } from '../utils/error';
 import { projectProtectedProcedure } from './trpc';
 
 const transcribeProviderSchema = z.enum(['openai']);
@@ -23,6 +24,9 @@ export const transcribeRoutes = {
 				});
 				return { text };
 			} catch (error) {
+				if (error instanceof HandlerError) {
+					throw error;
+				}
 				throw new TRPCError({
 					code: 'BAD_REQUEST',
 					message: error instanceof Error ? error.message : 'Transcription failed',

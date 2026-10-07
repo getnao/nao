@@ -120,7 +120,7 @@ export const enqueueOnceJob = async (input: EnqueueOnceInput): Promise<DBSchedul
  */
 export const claimDueJobs = async (now: Date, limit: number, lockedBy: string): Promise<DBScheduledJob[]> => {
 	const candidates = await db
-		.select({ id: s.scheduledJob.id })
+		.select({ id: s.scheduledJob.id, name: s.scheduledJob.name })
 		.from(s.scheduledJob)
 		.where(and(eq(s.scheduledJob.status, 'pending'), lte(s.scheduledJob.runAt, now)))
 		.orderBy(s.scheduledJob.runAt)
@@ -128,7 +128,7 @@ export const claimDueJobs = async (now: Date, limit: number, lockedBy: string): 
 		.execute();
 
 	const claimed: DBScheduledJob[] = [];
-	for (const { id } of candidates) {
+	for (const { id, name } of candidates) {
 		const [row] = await db
 			.update(s.scheduledJob)
 			.set({
@@ -137,7 +137,7 @@ export const claimDueJobs = async (now: Date, limit: number, lockedBy: string): 
 				lockedBy,
 				attempts: sql`${s.scheduledJob.attempts} + 1`,
 			})
-			.where(and(eq(s.scheduledJob.id, id), eq(s.scheduledJob.status, 'pending')))
+			.where(and(eq(s.scheduledJob.id, id), eq(s.scheduledJob.name, name), eq(s.scheduledJob.status, 'pending')))
 			.returning()
 			.execute();
 		if (row) {

@@ -73,6 +73,7 @@ import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGeneratio
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
@@ -329,10 +330,14 @@ export class AgentService {
 			adminMode?: boolean;
 			/** Enables project-defined charts that render only in the web client. */
 			supportsCustomCharts?: boolean;
+			billingAccessVerifiedProjectId?: string;
 			/** The request boundary has already authorized access to an internal system project. */
 			projectAccessAlreadyAuthorized?: boolean;
 		} = {},
 	): Promise<AgentManager> {
+		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
+			await assertProjectCloudBillingAccess(chat.projectId);
+		}
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);

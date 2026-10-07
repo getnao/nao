@@ -54,26 +54,22 @@ describe('organization selection', () => {
 		expect(mocks.execute).toHaveBeenCalledOnce();
 	});
 
-	it('falls back without granting access to an unauthorized organization', async () => {
-		mocks.execute
-			.mockResolvedValueOnce([])
-			.mockResolvedValueOnce([membershipRow(FIRST_ORG_ID, 'Zulu Organization', 'admin')]);
+	it('rejects an unauthorized organization selection', async () => {
+		mocks.execute.mockResolvedValueOnce([]);
 
 		const membership = await getUserOrgMembership(USER_ID, UNAUTHORIZED_ORG_ID);
 
-		expect(membership?.orgId).toBe(FIRST_ORG_ID);
-		expect(membership?.orgId).not.toBe(UNAUTHORIZED_ORG_ID);
-		expect(mocks.execute).toHaveBeenCalledTimes(2);
+		expect(membership).toBeNull();
+		expect(mocks.execute).toHaveBeenCalledOnce();
 	});
 
-	it('falls back when the selected organization no longer exists', async () => {
-		mocks.execute
-			.mockResolvedValueOnce([])
-			.mockResolvedValueOnce([membershipRow(FIRST_ORG_ID, 'Zulu Organization', 'admin')]);
+	it('rejects a stale organization selection', async () => {
+		mocks.execute.mockResolvedValueOnce([]);
 
 		const membership = await getUserOrgMembership(USER_ID, 'stale-organization-id');
 
-		expect(membership?.orgId).toBe(FIRST_ORG_ID);
+		expect(membership).toBeNull();
+		expect(mocks.execute).toHaveBeenCalledOnce();
 	});
 
 	it('lists only the membership fields needed by the selector', async () => {

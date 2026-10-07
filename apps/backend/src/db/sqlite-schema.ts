@@ -54,6 +54,7 @@ import {
 
 import { AgentSettings } from '../types/agent-settings';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
+import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
 	CONTEXT_RECOMMENDATION_CATEGORIES,
@@ -202,6 +203,7 @@ export const organization = sqliteTable('organization', {
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
+	bypassBilling: integer('bypass_billing', { mode: 'boolean' }).default(false).notNull(),
 
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -210,6 +212,38 @@ export const organization = sqliteTable('organization', {
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.$onUpdate(() => new Date())
 		.notNull(),
+});
+
+export const organizationBilling = sqliteTable('organization_billing', {
+	orgId: text('org_id')
+		.primaryKey()
+		.references(() => organization.id, { onDelete: 'cascade' }),
+	billingPlan: text('billing_plan'),
+	billingStatus: text('billing_status', { enum: BILLING_STATUSES }),
+	trialStartedAt: integer('trial_started_at', { mode: 'timestamp_ms' }),
+	trialEndsAt: integer('trial_ends_at', { mode: 'timestamp_ms' }),
+	stripeCustomerId: text('stripe_customer_id').unique(),
+	stripeSubscriptionId: text('stripe_subscription_id').unique(),
+	stripePriceId: text('stripe_price_id'),
+	currentPeriodStartsAt: integer('current_period_starts_at', { mode: 'timestamp_ms' }),
+	currentPeriodEndsAt: integer('current_period_ends_at', { mode: 'timestamp_ms' }),
+	cancellationScheduled: integer('cancellation_scheduled', { mode: 'boolean' }),
+	hasDefaultPaymentMethod: integer('has_default_payment_method', { mode: 'boolean' }),
+	billingAccessEndsAt: integer('billing_access_ends_at', { mode: 'timestamp_ms' }),
+	billingUpdatedAt: integer('billing_updated_at', { mode: 'timestamp_ms' }),
+	billingSyncToken: text('billing_sync_token'),
+});
+
+export const stripeWebhookEvent = sqliteTable('stripe_webhook_event', {
+	id: text('id').primaryKey(),
+	type: text('type').notNull(),
+	stripeObjectId: text('stripe_object_id'),
+	livemode: integer('livemode', { mode: 'boolean' }).notNull(),
+	receivedAt: integer('received_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	processedAt: integer('processed_at', { mode: 'timestamp_ms' }),
+	lastError: text('last_error'),
 });
 
 export const orgMember = sqliteTable(

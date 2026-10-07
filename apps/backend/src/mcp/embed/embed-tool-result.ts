@@ -19,12 +19,44 @@ export type ChartToolPayload = McpChartAppPayload & Record<string, unknown>;
 
 export type MapToolPayload = McpMapAppPayload & Record<string, unknown>;
 
+export type CustomStorySourceFile = { path: string; content: string };
+
+export type CustomStoryMcpToolPayload = {
+	id: string;
+	title: string;
+	url: string;
+	chatUrl: string | null;
+	version?: number;
+	buildErrors?: string[];
+	sourceFiles?: CustomStorySourceFile[];
+};
+
+const CUSTOM_STORY_FIELDS = {
+	version: z.number().optional().describe('Custom stories only: latest published version, 0 while still a draft.'),
+	buildErrors: z
+		.array(z.string())
+		.optional()
+		.describe('Custom stories only: why the draft does not build. Nothing was published.'),
+	sourceFiles: z
+		.array(z.object({ path: z.string(), content: z.string() }))
+		.optional()
+		.describe('Custom stories only: the draft source files, to edit and send back to `update_story`.'),
+};
+
 export const STORY_OUTPUT_SCHEMA = {
 	id: z.string().describe('Story UUID.'),
 	title: z.string().describe('Story title.'),
 	url: z.url().describe('URL to open the story in the nao UI.'),
 	chatUrl: z.url().nullable().describe('Source chat URL, or null for standalone stories.'),
-	embedUrl: z.url().describe('Sandboxed embed URL — render this in an iframe to show the story.'),
+	format: z
+		.literal('custom')
+		.optional()
+		.describe('Set for a custom story: an interactive app that only renders in nao, so share `url` with the user.'),
+	...CUSTOM_STORY_FIELDS,
+	embedUrl: z
+		.url()
+		.optional()
+		.describe('Sandboxed embed URL — render this in an iframe to show the story. Absent for custom stories.'),
 	sandboxStoryHtml: z
 		.string()
 		.optional()
@@ -54,6 +86,29 @@ export function buildStoryToolResult(
 		structuredBase: slimPayload,
 		sandboxHtml: options?.sandboxStoryHtml,
 	});
+}
+
+/** A custom story is a React app that only renders inside nao, so its result carries the link instead of an embed. */
+export function buildCustomStoryToolResult(output: CustomStoryMcpToolPayload): ToolResult {
+	const structuredContent = { ...output, format: 'custom' as const };
+	return {
+		content: [
+			{ type: 'text', text: JSON.stringify(structuredContent) },
+			{ type: 'text', text: describeCustomStoryResult(output) },
+		],
+		structuredContent,
+	};
+}
+
+function describeCustomStoryResult(output: CustomStoryMcpToolPayload): string {
+	if (output.buildErrors?.length) {
+		const errors = output.buildErrors.map((error) => `- ${error}`).join('\n');
+		return `**${output.title}** does not build, so nothing was published:\n${errors}\n\nFix the files and call \`update_story\` with story_id "${output.id}".`;
+	}
+	if (output.version === 0) {
+		return `**${output.title}** is a draft and is not published yet. Edit its \`sourceFiles\`, then send them to \`update_story\` with story_id "${output.id}" to publish it.`;
+	}
+	return `**${output.title}**\n\n[Open in nao](${output.url})`;
 }
 
 export function buildChartToolResult(

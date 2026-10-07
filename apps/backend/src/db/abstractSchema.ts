@@ -54,6 +54,12 @@ export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferIns
 export type DBOrganization = typeof sqliteSchema.organization.$inferSelect;
 export type NewOrganization = typeof sqliteSchema.organization.$inferInsert;
 
+export type DBOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferSelect;
+export type NewOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferInsert;
+
+export type DBStripeWebhookEvent = typeof sqliteSchema.stripeWebhookEvent.$inferSelect;
+export type NewStripeWebhookEvent = typeof sqliteSchema.stripeWebhookEvent.$inferInsert;
+
 export type DBOrgMember = typeof sqliteSchema.orgMember.$inferSelect;
 export type NewOrgMember = typeof sqliteSchema.orgMember.$inferInsert;
 

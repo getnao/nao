@@ -10,6 +10,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
+import { hasProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
 import { refreshStoryData } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
@@ -65,7 +66,12 @@ export async function runScheduledStoryDelivery(
 		if (!context) {
 			return;
 		}
-		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug);
+		if (!(await hasProjectCloudBillingAccess(context.projectId))) {
+			return;
+		}
+		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug, {
+			billingAccessVerifiedProjectId: context.projectId,
+		});
 		await deliver(context, queryData, skipDeliveries);
 	});
 }

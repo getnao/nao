@@ -9,12 +9,14 @@ import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
-import { buildStoryApp } from '../../services/story-app-build';
+import {
+	applyCustomStoryDraftChanges,
+	createCustomStoryDraft,
+	publishCustomStoryDraft,
+} from '../../services/custom-story-authoring';
 import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
-import { scaffoldCustomStoryFiles } from '../../services/story-scaffold';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
-import { formatStoryFiles } from '../../utils/story-file-format';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
 import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
 import { createTool } from '../../utils/tools';
@@ -228,17 +230,9 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 	}
 
 	try {
-		const initialFiles = scaffoldCustomStoryFiles(title, await formatStoryFiles(input.files ?? []));
-		const files = await db.transaction(async (tx) => {
-			const created = await storyQueries.createCustomStory({ chatId, slug: input.id, title }, tx);
-			return storyFileQueries.seedDraftFiles(created.id, initialFiles, tx);
-		});
+		const { files } = await createCustomStoryDraft({ chatId, slug: input.id, title, files: input.files ?? [] });
 		rememberStoryArtifact(context, input.id, title);
-		return customResult(
-			input.id,
-			{ title, version: 0 },
-			files.map((file) => file.path),
-		);
+		return customResult(input.id, { title, version: 0 }, files);
 	} catch (error) {
 		return fail(input.id, `Could not create story "${input.id}": ${(error as Error).message}`);
 	}
@@ -279,24 +273,14 @@ async function deleteCustomStoryFiles(existingStory: DBStory, paths: string[]): 
 	} catch (error) {
 		return fail(slug, (error as Error).message, published);
 	}
-	const draft = new Set((await storyFileQueries.listDraftFiles(existingStory.id)).map((file) => file.path));
-	const missing = targets.filter((path) => !draft.has(path));
-	if (missing.length > 0) {
-		return fail(slug, `Not in the draft of "${slug}": ${missing.join(', ')}. Nothing was deleted.`, published);
+	let files: string[];
+	try {
+		files = await applyCustomStoryDraftChanges(existingStory.id, { files: [], deletePaths: targets });
+	} catch (error) {
+		return fail(slug, (error as Error).message, published);
 	}
-
-	await db.transaction(async (tx) => {
-		for (const path of targets) {
-			await storyFileQueries.deleteDraftFile(existingStory.id, path, tx);
-		}
-	});
-	const files = await storyFileQueries.listDraftFiles(existingStory.id);
 	return {
-		...customResult(
-			slug,
-			published,
-			files.map((file) => file.path),
-		),
+		...customResult(slug, published, files),
 		message: `Deleted ${targets.join(', ')} from the draft. Publish to make the change live.`,
 	};
 }
@@ -359,8 +343,8 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 			);
 		}
 
-		const build = await buildStoryApp(draft.map((file) => ({ path: file.path, content: file.content })));
-		if (!build.ok) {
+		const result = await publishCustomStoryDraft(existingStory, context, 'assistant');
+		if (!result.ok) {
 			return {
 				...fail(
 					existingStory.slug,
@@ -368,36 +352,12 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 					published,
 				),
 				format: 'custom',
-				files: draft.map((file) => file.path),
-				build_errors: build.errors,
+				files: result.files,
+				build_errors: result.buildErrors,
 			};
 		}
-
-		const { version, files } = await db.transaction(async (tx) => {
-			if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(existingStory.id, tx), draft)) {
-				throw new Error('The draft changed while it was being built. Publish again.');
-			}
-			const cut = await storyFileQueries.cutVersionFromDraft(
-				{ storyId: existingStory.id, action: 'publish', source: 'assistant' },
-				tx,
-			);
-			await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
-			if (cut.version.version === 1) {
-				await storyFolderQueries.saveStoryInPrivateRoot(
-					context.userId,
-					context.projectId,
-					existingStory.id,
-					tx,
-				);
-			}
-			return cut;
-		});
 		rememberStoryArtifact(context, existingStory.slug, existingStory.title);
-		return customResult(
-			existingStory.slug,
-			{ title: existingStory.title, version: version.version },
-			files.map((file) => file.path),
-		);
+		return customResult(existingStory.slug, { title: existingStory.title, version: result.version }, result.files);
 	} catch (error) {
 		return fail(
 			existingStory.slug,

@@ -16,6 +16,10 @@ function buildStoryRow(overrides: Partial<UserStoryRow> = {}): UserStoryRow {
 		cacheSchedule: null,
 		cacheScheduleDescription: null,
 		archivedAt: null,
+		certifiedAt: null,
+		certifiedByName: null,
+		format: 'classic',
+		version: 1,
 		createdAt: new Date('2024-01-01T00:00:00.000Z'),
 		updatedAt: new Date('2024-01-02T03:04:05.000Z'),
 		code: '# Revenue\n',
@@ -43,6 +47,16 @@ describe('list_stories output mapping', () => {
 
 		expect(item.archived).toBe(true);
 		expect(item.chatUrl).toBe('http://localhost:5005/chats/chat-1');
+		expect(() => STORY_LIST_ITEM_SCHEMA.parse(item)).not.toThrow();
+	});
+
+	it('exposes the story format', () => {
+		const item = toStoryListItem(buildStoryRow({ format: 'custom' }), {
+			url: 'http://localhost:5005/stories/story-1',
+			chatUrl: null,
+		});
+
+		expect(item.format).toBe('custom');
 		expect(() => STORY_LIST_ITEM_SCHEMA.parse(item)).not.toThrow();
 	});
 });

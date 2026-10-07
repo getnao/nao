@@ -4,6 +4,7 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { getSession } from '../auth';
+import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { HandlerError } from '../utils/error';
@@ -65,6 +66,34 @@ export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
 
 	return next({ ctx: { user: ctx.session.user } });
 });
+
+export async function resolveOrganizationMembership(
+	userId: string,
+	selectedProjectId: string | null,
+	selectedOrganizationId?: string | null,
+) {
+	if (selectedOrganizationId) {
+		const membership = await orgQueries.getUserOrgMembership(userId, selectedOrganizationId);
+		if (!membership) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
+		}
+		return membership;
+	}
+
+	if (selectedProjectId) {
+		const membership = await orgQueries.getUserOrgMembershipByProject(userId, selectedProjectId);
+		if (!membership) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Selected project organization was not found' });
+		}
+		return membership;
+	}
+
+	const membership = await orgQueries.getUserOrgMembership(userId);
+	if (!membership) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
+	}
+	return membership;
+}
 
 export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);

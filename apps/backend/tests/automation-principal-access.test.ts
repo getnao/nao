@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
 	getGithubToken: vi.fn(),
 	createAgent: vi.fn(),
 	initializeSkills: vi.fn(),
+	assertProjectCloudBillingAccess: vi.fn(),
+	hasProjectCloudBillingAccess: vi.fn(),
 }));
 
 vi.mock('../src/queries/automation.queries', () => ({
@@ -36,6 +38,10 @@ vi.mock('../src/services/mcp', () => ({
 vi.mock('../src/services/skill', () => ({
 	skillService: { initializeSkills: mocks.initializeSkills },
 }));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	hasProjectCloudBillingAccess: mocks.hasProjectCloudBillingAccess,
+}));
 vi.mock('../src/services/automation-tools', () => ({
 	AUTOMATION_INTEGRATION_TOOL_NAMES: [],
 	createAutomationTools: vi.fn(() => ({})),
@@ -52,7 +58,7 @@ vi.mock('../src/utils/logger', () => ({
 	logger: { info: vi.fn(), error: vi.fn() },
 }));
 
-import { runAutomation } from '../src/handlers/automation.handler';
+import { automationHandler, runAutomation } from '../src/handlers/automation.handler';
 
 describe('automation owner project access', () => {
 	beforeEach(() => {
@@ -85,15 +91,52 @@ describe('automation owner project access', () => {
 		mocks.getGithubToken.mockResolvedValue(null);
 		mocks.initializeSkills.mockResolvedValue(undefined);
 		mocks.createAgent.mockRejectedValue(new Error('You do not have access to this project.'));
+		mocks.hasProjectCloudBillingAccess.mockResolvedValue(true);
 	});
 
 	it('fails the run instead of changing principals after owner access is revoked', async () => {
 		await expect(runAutomation('automation-1')).rejects.toThrow('access to this project');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 		expect(mocks.createAgent).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 'removed-owner', projectId: 'project-1' }),
 			undefined,
 			expect.any(Object),
 		);
 		expect(mocks.failAutomationRun).toHaveBeenCalledWith('run-1', 'You do not have access to this project.');
+	});
+
+	it('reuses the scheduled billing access check throughout the run', async () => {
+		await expect(automationHandler({ automationId: 'automation-1' })).rejects.toThrow(
+			'You do not have access to this project.',
+		);
+
+		expect(mocks.hasProjectCloudBillingAccess).toHaveBeenCalledOnce();
+		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
+		expect(mocks.createAgent).toHaveBeenCalledWith(
+			expect.any(Object),
+			undefined,
+			expect.objectContaining({ billingAccessVerifiedProjectId: 'project-1' }),
+		);
+	});
+
+	it('skips a scheduled run when cloud billing access is restricted', async () => {
+		mocks.hasProjectCloudBillingAccess.mockResolvedValue(false);
+
+		await automationHandler({ automationId: 'automation-1' });
+
+		expect(mocks.hasProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.createAutomationRun).not.toHaveBeenCalled();
+		expect(mocks.createAgent).not.toHaveBeenCalled();
+	});
+
+	it('rejects an on-demand run before creating it when cloud billing access is restricted', async () => {
+		const restrictedError = new Error('Cloud billing access is restricted.');
+		mocks.assertProjectCloudBillingAccess.mockRejectedValueOnce(restrictedError);
+
+		await expect(runAutomation('automation-1')).rejects.toBe(restrictedError);
+
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.createAutomationRun).not.toHaveBeenCalled();
+		expect(mocks.failAutomationRun).not.toHaveBeenCalled();
 	});
 });

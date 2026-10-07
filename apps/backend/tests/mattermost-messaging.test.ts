@@ -32,6 +32,7 @@ import {
 } from '../src/services/mattermost-helpers';
 import {
 	createMattermostAnswerMessage,
+	formatMessagingError,
 	getMessagingProviderWebhookUrl,
 	resolveMattermostCallbackBaseUrl,
 } from '../src/utils/messaging-provider';
@@ -45,6 +46,23 @@ vi.mock('../src/utils/logger', () => ({
 		debug: vi.fn(),
 	},
 }));
+
+describe('formatMessagingError', () => {
+	it.each([
+		[
+			'billing errors ending in punctuation',
+			new Error('Ask an organization admin to update billing.'),
+			'❌ An error occurred while processing your message. Ask an organization admin to update billing.',
+		],
+		[
+			'errors without terminal punctuation',
+			new Error('Unknown failure'),
+			'❌ An error occurred while processing your message. Unknown failure.',
+		],
+	])('%s', (_description, error, expected) => {
+		expect(formatMessagingError(error)).toBe(expected);
+	});
+});
 
 describe('validateMattermostConnection', () => {
 	it('accepts a valid Mattermost user response', async () => {

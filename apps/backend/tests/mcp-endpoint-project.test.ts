@@ -7,6 +7,7 @@ const testState = vi.hoisted(() => ({
 	projects: [] as Array<{ id: string; name: string }>,
 	roles: {} as Record<string, string | null>,
 	createdForProjects: [] as string[],
+	assertProjectCloudBillingAccess: vi.fn(),
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -31,6 +32,10 @@ vi.mock('../src/queries/mcp-endpoint.queries', () => ({
 		subAgentModeEnabled: true,
 		contextLayerModeEnabled: true,
 	}),
+}));
+
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: testState.assertProjectCloudBillingAccess,
 }));
 
 vi.mock('../src/mcp/server', () => ({
@@ -134,6 +139,7 @@ describe('MCP endpoint project scoping', () => {
 		];
 		testState.roles = { 'project-a': 'admin', 'project-b': 'user' };
 		testState.createdForProjects = [];
+		testState.assertProjectCloudBillingAccess.mockReset();
 		app = await createApp();
 	});
 
@@ -147,6 +153,19 @@ describe('MCP endpoint project scoping', () => {
 		expect(response.statusCode).toBe(200);
 		expect(response.body).toContain('"serverInfo"');
 		expect(testState.createdForProjects).toEqual(['project-b']);
+		expect(testState.assertProjectCloudBillingAccess).toHaveBeenCalledOnce();
+		expect(testState.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-b');
+	});
+
+	it('rejects a project with restricted cloud billing before creating the server', async () => {
+		testState.assertProjectCloudBillingAccess.mockRejectedValueOnce(
+			Object.assign(new Error('restricted'), { statusCode: 403 }),
+		);
+
+		const response = await postInitialize(app, '/mcp/project-b');
+
+		expect(response.statusCode).toBe(403);
+		expect(testState.createdForProjects).toEqual([]);
 	});
 
 	it('rejects the bare endpoint for users in several projects and points to the scoped URLs', async () => {

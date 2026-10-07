@@ -9,8 +9,9 @@ import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
-import { env, isCloud } from './env';
+import { env, isCloud, isCloudBillingEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
+import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
@@ -30,6 +31,7 @@ import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './h
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
+import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
@@ -54,6 +56,7 @@ import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
+import { stripeWebhookRoutes } from './routes/stripe-webhook';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
@@ -67,6 +70,7 @@ import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
+import { validateCloudBillingConfiguration } from './services/stripe.service';
 import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -249,6 +253,12 @@ app.register(whatsappRoutes, {
 	prefix: '/api/webhooks/whatsapp',
 });
 
+if (isCloudBillingEnabled()) {
+	app.register(stripeWebhookRoutes, {
+		prefix: '/api/billing/stripe/webhook',
+	});
+}
+
 app.register(deployRoutes, {
 	prefix: '/api',
 });
@@ -400,6 +410,9 @@ app.setNotFoundHandler((request, reply) => {
 
 export const startServer = async (opts: { port: number; host: string }) => {
 	if (isCloud) {
+		if (isCloudBillingEnabled()) {
+			await validateCloudBillingConfiguration();
+		}
 		try {
 			await ensureSystemExampleProject();
 		} catch (err) {
@@ -437,6 +450,16 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler);
+	if (isCloudBillingEnabled()) {
+		// Process accepted webhooks in the background so Stripe receives an immediate response.
+		registerJob(STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler);
+		registerJob(BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler);
+		await ensureRecurring({
+			name: BILLING_LIFECYCLE_JOB_NAME,
+			cron: '0 * * * *',
+			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
+		});
+	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({

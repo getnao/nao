@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	assertProjectCloudBillingAccess: vi.fn(),
 	createForkedChat: vi.fn(),
 	createStoryVersion: vi.fn(),
 	getChatMessages: vi.fn(),
@@ -42,6 +43,9 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 }));
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
+}));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
@@ -132,6 +136,7 @@ describe('chat fork Story creation permission', () => {
 		).resolves.toEqual({ chatId: 'fork-chat-id' });
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith('source-chat-id', '# Story');
+		expect(mocks.createForkedChat.mock.calls[0][0].forkMetadata.id).toBe('story-id');
 	});
 
 	it('allows the Story owner to create a full fork without checking the creation grant', async () => {
@@ -262,7 +267,35 @@ describe('chat fork Story creation permission', () => {
 		).resolves.toEqual({
 			chatId: 'fork-chat-id',
 		});
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
 		expect(mocks.getChatMessages).toHaveBeenCalledWith('source-chat-id');
+	});
+
+	it('rejects a restricted shared chat before creating the fork', async () => {
+		const accessError = new Error('Cloud billing access is restricted');
+		mocks.assertProjectCloudBillingAccess.mockRejectedValueOnce(accessError);
+
+		await expect(
+			createCaller().chatFork.fork({ source: { type: 'chat', shareId: 'chat-share-id' } }),
+		).rejects.toMatchObject({
+			message: accessError.message,
+		});
+
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
+	it('rejects a restricted shared Story before checking the creation grant', async () => {
+		const accessError = new Error('Cloud billing access is restricted');
+		mocks.assertProjectCloudBillingAccess.mockRejectedValueOnce(accessError);
+
+		await expect(
+			createCaller().chatFork.fork({ source: { type: 'story', storyId: 'story-id' } }),
+		).rejects.toMatchObject({ message: accessError.message });
+
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
 	});
 
 	it('opens an existing standalone Story without the creation grant', async () => {
@@ -270,6 +303,19 @@ describe('chat fork Story creation permission', () => {
 			chatId: 'existing-chat-id',
 		});
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('rejects a restricted standalone Story before creating its chat', async () => {
+		const accessError = new Error('Cloud billing access is restricted');
+		mocks.getStoryByIdForUser.mockResolvedValue({ id: 'story-id', projectId: 'project-id', chatId: null });
+		mocks.assertProjectCloudBillingAccess.mockRejectedValueOnce(accessError);
+
+		await expect(createCaller().chatFork.openStandalone({ storyId: 'story-id' })).rejects.toMatchObject({
+			message: accessError.message,
+		});
+
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
 	});
 });
 

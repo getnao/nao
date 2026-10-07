@@ -344,6 +344,25 @@ describe('Bedrock', () => {
 		expect(options.reasoningConfig).toEqual({ type: 'enabled', budgetTokens: 4096 });
 	});
 
+	it.each(['global.anthropic.claude-opus-5-5', 'us.anthropic.claude-sonnet-5-5', 'global.anthropic.claude-sonnet-5'])(
+		'reports the 1M window and sends adaptive reasoningConfig for %s',
+		(modelId) => {
+			const { providerOptions, contextWindow } = createProviderModel('bedrock', SETTINGS, modelId, {
+				reasoningEffort: 'high',
+				thinkingBudgetTokens: 4096,
+			});
+
+			expect(contextWindow).toBe(1_000_000);
+			expect(providerOptions.bedrock?.reasoningConfig).toEqual({ type: 'adaptive', maxReasoningEffort: 'high' });
+		},
+	);
+
+	it('keeps the 200K default window for custom Claude model ids', () => {
+		const { contextWindow } = createProviderModel('bedrock', SETTINGS, 'anthropic.claude-3-7-sonnet');
+
+		expect(contextWindow).toBe(200_000);
+	});
+
 	it('keeps sampling and skips reasoning for non-Claude models', () => {
 		const { options, callSettings } = resolve('bedrock', 'deepseek.v3.2', {
 			reasoningEffort: 'high',

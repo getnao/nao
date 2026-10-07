@@ -279,6 +279,23 @@ body.is-loading{min-height:160px}
 		frame.hidden = false;
 	}
 
+	// Custom stories only render inside nao: the tool reply already carries their link, so the app stays empty.
+	function collapse() {
+		detachEmbedResizeListener();
+		clearPendingBlobFallback();
+		clearEmbedLoadWatch();
+		frame.hidden = true;
+		if (lastBlobUrl) {
+			try {
+				URL.revokeObjectURL(lastBlobUrl);
+			} catch (e) {}
+			lastBlobUrl = null;
+		}
+		frame.removeAttribute('src');
+		body.classList.remove('is-loading');
+		statusEl.hidden = true;
+	}
+
 	function setBlobHtml(html) {
 		if (!html) return;
 		var u;
@@ -317,8 +334,9 @@ body.is-loading{min-height:160px}
 		var storyBlob = typeof p.sandboxStoryHtml === 'string' ? p.sandboxStoryHtml : '';
 		var mapBlob = typeof p.sandboxMapHtml === 'string' ? p.sandboxMapHtml : '';
 		var sandboxBlob = chartBlob || storyBlob || mapBlob;
-		if (!embedUrl && !sandboxBlob) return null;
-		return { embedUrl: embedUrl, sandboxChartHtml: sandboxBlob };
+		var linkOnly = p.format === 'custom';
+		if (!embedUrl && !sandboxBlob && !linkOnly) return null;
+		return { embedUrl: embedUrl, sandboxChartHtml: sandboxBlob, linkOnly: linkOnly };
 	}
 
 	function payloadFromContentBlocks(content) {
@@ -345,10 +363,12 @@ body.is-loading{min-height:160px}
 			primary.sandboxStoryHtml ||
 			secondary.sandboxStoryHtml ||
 			primary.sandboxMapHtml ||
-			secondary.sandboxMapHtml;
+			secondary.sandboxMapHtml ||
+			'';
 		return {
-			embedUrl: primary.embedUrl || secondary.embedUrl,
+			embedUrl: primary.embedUrl || secondary.embedUrl || '',
 			sandboxChartHtml: sandboxBlob,
+			linkOnly: Boolean(primary.linkOnly || secondary.linkOnly),
 		};
 	}
 
@@ -401,7 +421,11 @@ body.is-loading{min-height:160px}
 		try {
 			sessionStorage.setItem(
 				resultStorageKey,
-				JSON.stringify({ embedUrl: p.embedUrl || '', sandboxChartHtml: p.sandboxChartHtml || '' }),
+				JSON.stringify({
+					embedUrl: p.embedUrl || '',
+					sandboxChartHtml: p.sandboxChartHtml || '',
+					linkOnly: Boolean(p.linkOnly),
+				}),
 			);
 		} catch (e) {}
 	}
@@ -416,6 +440,7 @@ body.is-loading{min-height:160px}
 			return {
 				embedUrl: typeof p.embedUrl === 'string' ? p.embedUrl : '',
 				sandboxChartHtml: typeof p.sandboxChartHtml === 'string' ? p.sandboxChartHtml : '',
+				linkOnly: p.linkOnly === true,
 			};
 		} catch (e) {
 			return null;
@@ -438,6 +463,11 @@ body.is-loading{min-height:160px}
 			hasRenderedPreview = true;
 			return true;
 		}
+		if (p.linkOnly) {
+			collapse();
+			hasRenderedPreview = true;
+			return true;
+		}
 		return false;
 	}
 
@@ -456,6 +486,11 @@ body.is-loading{min-height:160px}
 		}
 		if (chartBlob.length > 0) {
 			setBlobHtml(chartBlob);
+			hasRenderedPreview = true;
+			return true;
+		}
+		if (p.linkOnly) {
+			collapse();
 			hasRenderedPreview = true;
 			return true;
 		}

@@ -786,5 +786,5 @@ export function formatMessagingError(error: unknown): string {
 		return `🚦 ${error.message}`;
 	}
 	const detail = error instanceof Error ? error.message : 'Unknown error';
-	return `❌ An error occurred while processing your message. ${detail}.`;
+	return `❌ An error occurred while processing your message. ${detail}${/[.!?]$/.test(detail) ? '' : '.'}`;
 }

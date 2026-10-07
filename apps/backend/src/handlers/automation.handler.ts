@@ -16,6 +16,10 @@ import {
 	getAutomationIntegrationToolNames,
 	isGithubAutomationTool,
 } from '../services/automation-tools';
+import {
+	assertProjectCloudBillingAccess,
+	hasProjectCloudBillingAccess,
+} from '../services/cloud-billing-access.service';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
 import type { AutomationIntegrationResult } from '../types/automation';
@@ -30,6 +34,7 @@ type AutomationJobPayload = {
 };
 
 type RunAutomationOptions = {
+	billingAccessVerifiedProjectId?: string;
 	requireEnabled?: boolean;
 };
 
@@ -38,29 +43,45 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	if (!automationId) {
 		throw new Error('automationId is required.');
 	}
-	await runAutomation(automationId, { requireEnabled: true });
+	const automation = await automationQueries.getAutomationById(automationId);
+	if (!automation) {
+		throw new Error(`Automation not found: ${automationId}`);
+	}
+	if (!(await hasProjectCloudBillingAccess(automation.projectId))) {
+		return;
+	}
+	await runAutomation(automationId, {
+		billingAccessVerifiedProjectId: automation.projectId,
+		requireEnabled: true,
+	});
 }
 
 export async function runAutomation(
 	automationId: string,
-	{ requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, { requireEnabled });
-	return finishAutomationRun(automation, run);
+	const { automation, run } = await createAutomationRun(automationId, {
+		billingAccessVerifiedProjectId,
+		requireEnabled,
+	});
+	return finishAutomationRun(automation, run, billingAccessVerifiedProjectId);
 }
 
 export async function startAutomationRun(
 	automationId: string,
-	{ requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, { requireEnabled });
-	void finishAutomationRun(automation, run).catch(() => undefined);
+	const { automation, run } = await createAutomationRun(automationId, {
+		billingAccessVerifiedProjectId,
+		requireEnabled,
+	});
+	void finishAutomationRun(automation, run, billingAccessVerifiedProjectId).catch(() => undefined);
 	return run;
 }
 
 async function createAutomationRun(
 	automationId: string,
-	{ requireEnabled }: Required<RunAutomationOptions>,
+	{ billingAccessVerifiedProjectId, requireEnabled }: RunAutomationOptions & { requireEnabled: boolean },
 ): Promise<{ automation: AutomationWithSchedule; run: DBAutomationRun }> {
 	const automation = await automationQueries.getAutomationById(automationId);
 	if (!automation) {
@@ -68,6 +89,9 @@ async function createAutomationRun(
 	}
 	if (requireEnabled && !automation.enabled) {
 		throw new Error(`Automation is disabled: ${automationId}`);
+	}
+	if (billingAccessVerifiedProjectId !== automation.projectId) {
+		await assertProjectCloudBillingAccess(automation.projectId);
 	}
 
 	const run = await automationQueries.createAutomationRun({
@@ -79,7 +103,11 @@ async function createAutomationRun(
 	return { automation, run };
 }
 
-async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAutomationRun): Promise<DBAutomationRun> {
+async function finishAutomationRun(
+	automation: AutomationWithSchedule,
+	run: DBAutomationRun,
+	billingAccessVerifiedProjectId: string | undefined,
+): Promise<DBAutomationRun> {
 	const automationId = automation.id;
 	try {
 		const automationUser = await userQueries.getUser({ id: automation.userId });
@@ -122,6 +150,7 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 				? { provider: automation.modelProvider, modelId: automation.modelId }
 				: undefined,
 			{
+				billingAccessVerifiedProjectId,
 				excludeFollowUps: true,
 				supportsCustomCharts: false,
 				tools: ({ agentSettings, toolContext, webTools }) =>

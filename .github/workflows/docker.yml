@@ -353,6 +353,11 @@ jobs:
                           -e "BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true" \
                           -e "BETA_STORY_FILTERS_ENABLED=true" \
                           -e "BETA_CUSTOM_STORIES_ENABLED=true" \
+                          -e "CLOUD_BILLING_ENABLED=true" \
+                          -e "STRIPE_SECRET_KEY=${{ secrets.NAOCLOUD_STRIPE_SECRET_KEY }}" \
+                          -e "STRIPE_WEBHOOK_SECRET=${{ secrets.NAOCLOUD_STRIPE_WEBHOOK_SECRET }}" \
+                          -e "STRIPE_CLOUD_PRODUCT_ID=${{ secrets.NAOCLOUD_STRIPE_CLOUD_PRODUCT_ID }}" \
+                          -e "STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=${{ secrets.NAOCLOUD_STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY }}" \
                           -e "GOOGLE_CLIENT_ID=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_ID }}" \
                           -e "GOOGLE_CLIENT_SECRET=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_SECRET }}" \
                           -e "CLOUD_GITHUB_PROJECT_ORG=${{ secrets.NAOCLOUD_GITHUB_PROJECT_ORG }}" \

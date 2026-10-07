@@ -25,10 +25,13 @@ export async function getOrganizationDetail(orgId: string) {
 	return { organization: toOrganizationSummary(organization), members, projects, apiKeys, stats };
 }
 
-export async function updateOrganization(orgId: string, values: { name?: string }) {
+export async function updateOrganization(orgId: string, values: { name?: string; bypassBilling?: boolean }) {
 	await requireOrganization(orgId);
 	if (values.name !== undefined) {
 		await orgQueries.updateOrganizationName(orgId, values.name);
+	}
+	if (values.bypassBilling !== undefined) {
+		await orgQueries.updateOrganizationBypassBilling(orgId, values.bypassBilling);
 	}
 	return toOrganizationSummary(await requireOrganization(orgId));
 }
@@ -184,6 +187,7 @@ function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOr
 			.map((domain) => domain.trim())
 			.filter(Boolean),
 		hasGoogleSso: isSet(organization.googleClientId) && isSet(organization.googleClientSecret),
+		bypassBilling: organization.bypassBilling,
 		createdAt: organization.createdAt,
 		updatedAt: organization.updatedAt,
 	};

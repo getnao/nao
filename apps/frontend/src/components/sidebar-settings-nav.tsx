@@ -8,8 +8,10 @@ import { cn, hideIf } from '@/lib/utils';
 
 interface NavContext {
 	isAdmin: boolean;
+	isCloudBillingEnabled: boolean;
 	isContextAdmin: boolean;
 	isCloud: boolean;
+	isOrgAdmin: boolean;
 	isViewer: boolean;
 }
 
@@ -78,8 +80,6 @@ const settingsNavGroups: NavGroup[] = [
 				label: 'Recommendations',
 				to: '/settings/recommendations',
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-				badge: 'Beta',
-				badgeVariant: 'new',
 			},
 			{
 				label: 'File Explorer',
@@ -132,6 +132,12 @@ const settingsNavGroups: NavGroup[] = [
 				exact: true,
 			},
 			{
+				label: 'Plan & Billing',
+				to: '/settings/organization/billing',
+				visible: ({ isCloudBillingEnabled, isOrgAdmin }) => isCloudBillingEnabled && isOrgAdmin,
+				exact: true,
+			},
+			{
 				label: 'Storage',
 				to: '/settings/storage',
 				visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,
@@ -154,6 +160,8 @@ interface SidebarSettingsNavProps {
 	isContextAdmin: boolean;
 	isViewer: boolean;
 	isCloud: boolean;
+	isCloudBillingEnabled: boolean;
+	isOrgAdmin: boolean;
 	isTrial: boolean;
 }
 
@@ -163,6 +171,8 @@ export function SidebarSettingsNav({
 	isContextAdmin,
 	isViewer,
 	isCloud,
+	isCloudBillingEnabled,
+	isOrgAdmin,
 	isTrial,
 }: SidebarSettingsNavProps) {
 	const navigate = useNavigate();
@@ -172,8 +182,10 @@ export function SidebarSettingsNav({
 
 	const navContext: NavContext = {
 		isAdmin,
+		isCloudBillingEnabled,
 		isContextAdmin,
 		isCloud,
+		isOrgAdmin,
 		isViewer,
 	};
 	const navGroups = settingsNavGroups

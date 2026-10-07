@@ -58,7 +58,7 @@ export function Sidebar() {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const branding = useBranding();
 	const customColor = branding.enabled ? branding.brandColor : null;
-	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
+	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const isCloud = useIsCloud();
 	const hasActiveProject = project.isSuccess && project.data !== null;
 	const showJaffleShopTab = isCloud && hasActiveProject;
@@ -271,6 +271,8 @@ export function Sidebar() {
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
+					isCloudBillingEnabled={config.data?.cloudBillingEnabled === true}
+					isOrgAdmin={isOrgAdmin}
 					isTrial={project.data === null}
 				/>
 			) : (

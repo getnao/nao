@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { STORY_FORMATS } from '@nao/shared/types';
 import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
@@ -6,13 +7,14 @@ import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
+import { assertProjectCloudBillingAccess } from '../../services/cloud-billing-access.service';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
-import { chatUrl } from '../urls';
-import { type AskNaoClarification, type AskNaoResult, askNaoRuns } from './ask-nao-runs';
+import { chatUrl, storyUrl } from '../urls';
+import { type AskNaoClarification, type AskNaoResult, askNaoRuns, type AskNaoStory } from './ask-nao-runs';
 import { registerMcpTool } from './register-mcp-tool';
 
 type Agent = Awaited<ReturnType<typeof agentService.create>>;
@@ -44,7 +46,10 @@ const ASK_NAO_DESCRIPTION =
 	'with a `clarification.question` (and optional `clarification.options`). Relay the question to the user, ' +
 	'then call `ask_nao` again with the SAME `chatId` and their answer as `question`.';
 
-const ASK_NAO_DATA_MODE_DESCRIPTION = ASK_NAO_DESCRIPTION + CHART_DATA_MODE_ASK_NAO_ADDENDUM;
+const ASK_NAO_CUSTOM_STORY_ADDENDUM =
+	'\n\nCUSTOM STORIES: besides classic markdown stories, nao can build a custom story — an interactive app ' +
+	'(slides, simulator, what-if sliders, drill-down views). Ask for "a custom story" or describe the app in ' +
+	'`question` and nao picks the format. A custom story only renders in nao: share its `stories[].url` with the user.';
 
 const ASK_NAO_STORY_RESTRICTED_DESCRIPTION =
 	'Default tool for analytics questions, chart requests, and updates to existing Stories. ' +
@@ -58,7 +63,7 @@ const GET_NAO_ANSWER_DESCRIPTION =
 	'Fetch the result of an `ask_nao` run that is still in progress. ' +
 	"USE WHEN: a previous `ask_nao` (or `get_nao_answer`) call returned `status: 'running'`. " +
 	'Pass the `chatId` it returned. Poll every few seconds until `status` is `complete` ' +
-	'(the response then carries the final `text`, `queries` and `story_ids`) or `error`.';
+	'(the response then carries the final `text`, `queries`, `stories` — with the link to share for each — and `story_ids`) or `error`.';
 
 const ASK_NAO_QUERIES_SCHEMA = z
 	.array(
@@ -78,6 +83,17 @@ const ASK_NAO_QUERIES_SCHEMA = z
 			'Forward `id` to `display_chart` as `query_id`; pick `x_axis_key` / `series[].data_key` from `columns`.',
 	);
 
+const ASK_NAO_STORIES_SCHEMA = z
+	.array(
+		z.object({
+			id: z.string().describe('Story UUID.'),
+			title: z.string(),
+			format: z.enum(STORY_FORMATS).describe('`custom` stories are interactive apps that only render in nao.'),
+			url: z.url().describe('Link to open the story in nao — share it with the user.'),
+		}),
+	)
+	.describe('Stories the sub-agent created or updated, with the link to open each one in nao.');
+
 const ASK_NAO_CLARIFICATION_SCHEMA = z
 	.object({
 		question: z.string(),
@@ -89,11 +105,7 @@ const ASK_NAO_CLARIFICATION_SCHEMA = z
 	);
 
 export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
-	const askNaoDescription = ctx.storyCreationEnabled
-		? ctx.chartDataMode
-			? ASK_NAO_DATA_MODE_DESCRIPTION
-			: ASK_NAO_DESCRIPTION
-		: ASK_NAO_STORY_RESTRICTED_DESCRIPTION + (ctx.chartDataMode ? CHART_DATA_MODE_ASK_NAO_ADDENDUM : '');
+	const askNaoDescription = buildAskNaoDescription(ctx);
 
 	registerMcpTool(server, ctx, {
 		name: 'ask_nao',
@@ -134,6 +146,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			text: z.string().describe('The assistant final text response. Empty while `status` is `running`.'),
 			clarification: ASK_NAO_CLARIFICATION_SCHEMA,
 			queries: ASK_NAO_QUERIES_SCHEMA,
+			stories: ASK_NAO_STORIES_SCHEMA,
 			story_ids: z
 				.array(z.string())
 				.describe(
@@ -142,6 +155,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 		},
 		errorMessage: () => 'Nao agent failed to process the request.',
 		handler: async ({ question, chatId }) => {
+			await assertProjectCloudBillingAccess(ctx.projectId);
 			await mcpService.initializeMcpState(ctx.projectId);
 			await skillService.initializeSkills(ctx.projectId);
 
@@ -179,6 +193,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			text: z.string().describe('The assistant final text response. Empty unless `status` is `complete`.'),
 			clarification: ASK_NAO_CLARIFICATION_SCHEMA,
 			queries: ASK_NAO_QUERIES_SCHEMA,
+			stories: ASK_NAO_STORIES_SCHEMA,
 			story_ids: z.array(z.string()),
 			error: z.string().optional().describe('Failure reason when `status` is `error`.'),
 		},
@@ -205,13 +220,15 @@ async function runAskNaoInBackground(
 		if (!answer.text && !answer.clarification) {
 			answer = await extractAnswerFromChat(chatId);
 		}
+		const stories = await resolveStories(agent.generatedArtifacts.stories, chatId);
 		const result: AskNaoResult = {
 			chatId,
 			chatUrl: naoChatUrl,
 			text: answer.text,
 			...(answer.clarification ? { clarification: answer.clarification } : {}),
 			queries: agent.queryResultsSummary,
-			story_ids: await resolveStoryIds(agent.generatedArtifacts.stories, chatId),
+			stories,
+			story_ids: stories.map((story) => story.id),
 		};
 		askNaoRuns.complete(chatId, result);
 		return result;
@@ -256,11 +273,12 @@ async function resolveAnswerPayload(chatId: string, ctx: McpContext): Promise<To
 
 /**
  * Best-effort recovery when the run is no longer tracked in memory (e.g. expired or a
- * restart): rebuild the final answer from the persisted chat. Query/story metadata is
- * not reconstructed since it only lives on the in-memory run.
+ * restart): rebuild the final answer and the chat's stories from the persisted chat. Query
+ * metadata is not reconstructed since it only lives on the in-memory run.
  */
 async function reconstructAnswerFromDb(chatId: string, ctx: McpContext): Promise<ToolResult> {
 	const answer = await extractAnswerFromChat(chatId);
+	const stories = await resolveChatStories(chatId);
 	return answerCompletePayload(
 		{
 			chatId,
@@ -268,9 +286,18 @@ async function reconstructAnswerFromDb(chatId: string, ctx: McpContext): Promise
 			text: answer.text,
 			...(answer.clarification ? { clarification: answer.clarification } : {}),
 			queries: [],
-			story_ids: [],
+			stories,
+			story_ids: stories.map((story) => story.id),
 		},
 		ctx,
+	);
+}
+
+async function resolveChatStories(chatId: string): Promise<AskNaoStory[]> {
+	const stories = await storyQueries.listStoriesInChat(chatId);
+	return resolveStories(
+		stories.map((story) => ({ id: story.slug, title: story.title })),
+		chatId,
 	);
 }
 
@@ -299,7 +326,15 @@ function runningPayload(chatId: string, naoChatUrl: string): ToolResult {
 					`Follow along live at ${naoChatUrl}.`,
 			},
 		],
-		structuredContent: { status: 'running', chatId, chatUrl: naoChatUrl, text: '', queries: [], story_ids: [] },
+		structuredContent: {
+			status: 'running',
+			chatId,
+			chatUrl: naoChatUrl,
+			text: '',
+			queries: [],
+			stories: [],
+			story_ids: [],
+		},
 	};
 }
 
@@ -311,9 +346,12 @@ function answerCompletePayload(result: AskNaoResult, ctx: McpContext): ToolResul
 	const content: ToolResult['content'] = [
 		{
 			type: 'text' as const,
-			text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]`,
+			text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]${formatStoryLinks(result.stories)}`,
 		},
-		{ type: 'text' as const, text: JSON.stringify({ queries: result.queries, story_ids: result.story_ids }) },
+		{
+			type: 'text' as const,
+			text: JSON.stringify({ queries: result.queries, stories: result.stories, story_ids: result.story_ids }),
+		},
 	];
 	if (ctx.chartDataMode && result.queries.length > 0 && result.story_ids.length === 0) {
 		content.push({ type: 'text' as const, text: CHART_DATA_MODE_RESULT_NUDGE });
@@ -351,6 +389,7 @@ function clarificationPayload(result: AskNaoResult, clarification: AskNaoClarifi
 			text: result.text,
 			clarification: structuredClarification,
 			queries: result.queries,
+			stories: result.stories,
 			story_ids: result.story_ids,
 		},
 	};
@@ -365,7 +404,15 @@ function answerRunningPayload(chatId: string): ToolResult {
 				text: `Still running (chatId: ${chatId}). Call get_nao_answer again in a few seconds.`,
 			},
 		],
-		structuredContent: { status: 'running', chatId, chatUrl: naoChatUrl, text: '', queries: [], story_ids: [] },
+		structuredContent: {
+			status: 'running',
+			chatId,
+			chatUrl: naoChatUrl,
+			text: '',
+			queries: [],
+			stories: [],
+			story_ids: [],
+		},
 	};
 }
 
@@ -380,23 +427,42 @@ function answerErrorPayload(chatId: string, error: string): ToolResult {
 			chatUrl: naoChatUrl,
 			text: '',
 			queries: [],
+			stories: [],
 			story_ids: [],
 			error,
 		},
 	};
 }
 
-async function resolveStoryIds(stories: { id: string; title: string }[], chatId: string): Promise<string[]> {
-	if (stories.length === 0) {
-		return [];
+function buildAskNaoDescription(ctx: McpContext): string {
+	const dataModeAddendum = ctx.chartDataMode ? CHART_DATA_MODE_ASK_NAO_ADDENDUM : '';
+	if (!ctx.storyCreationEnabled) {
+		return ASK_NAO_STORY_RESTRICTED_DESCRIPTION + dataModeAddendum;
 	}
+	const customStoryAddendum = ctx.customStoryCreationEnabled ? ASK_NAO_CUSTOM_STORY_ADDENDUM : '';
+	return ASK_NAO_DESCRIPTION + customStoryAddendum + dataModeAddendum;
+}
+
+async function resolveStories(stories: { id: string; title: string }[], chatId: string): Promise<AskNaoStory[]> {
 	const resolved = await Promise.all(
-		stories.map(async (story) => {
+		stories.map(async (story): Promise<AskNaoStory | null> => {
 			const row = await storyQueries.getStoryByChatAndSlug(chatId, story.id);
-			return row ? row.id : null;
+			return row ? { id: row.id, title: row.title, format: row.format, url: storyUrl(row.id) } : null;
 		}),
 	);
-	return resolved.filter((id): id is string => id !== null);
+	return resolved.filter((story): story is AskNaoStory => story !== null);
+}
+
+function formatStoryLinks(stories: AskNaoStory[]): string {
+	if (stories.length === 0) {
+		return '';
+	}
+	const links = stories.map((story) => `- [${escapeMarkdownLinkText(story.title)}](${story.url})`);
+	return `\n\nStories:\n${links.join('\n')}`;
+}
+
+function escapeMarkdownLinkText(text: string): string {
+	return text.replace(/\s+/g, ' ').replace(/[\\[\]()]/g, '\\$&');
 }
 
 async function buildChatContext(
