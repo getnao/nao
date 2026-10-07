@@ -108,6 +108,9 @@ export type NewStoryBundle = typeof sqliteSchema.storyBundle.$inferInsert;
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
 
+export type DBStoryAppState = typeof sqliteSchema.storyAppState.$inferSelect;
+export type NewStoryAppState = typeof sqliteSchema.storyAppState.$inferInsert;
+
 export type DBActivity = typeof sqliteSchema.activity.$inferSelect;
 export type NewActivity = typeof sqliteSchema.activity.$inferInsert;
 export type ActivityType = DBActivity['type'];

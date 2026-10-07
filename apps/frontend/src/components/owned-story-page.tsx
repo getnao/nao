@@ -146,7 +146,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					<Button
 						variant='outline'
 						size='sm'
-						className='gap-1.5 shrink-0'
+						className='gap-1.5 shrink-0 rounded-full'
 						onClick={() => unarchiveMutation.mutate({ chatId, storySlug })}
 						disabled={unarchiveMutation.isPending}
 					>

@@ -1,4 +1,10 @@
-import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_MANIFEST_PATH, STORY_HTML_API_GLOBAL } from '@nao/shared/story-app';
+import {
+	MAX_STORY_STATE_KEYS,
+	MAX_STORY_STATE_VALUE_BYTES,
+	STORY_APP_ALLOWED_IMPORTS,
+	STORY_APP_MANIFEST_PATH,
+	STORY_HTML_API_GLOBAL,
+} from '@nao/shared/story-app';
 import type { ReactElement } from 'react';
 
 import { Bold, List, ListItem, renderToMarkdown } from '../../lib/markdown';
@@ -50,6 +56,24 @@ export function storyKitGuideItems(): ReactElement[] {
 			your own element (e.g. {'<p>'}): when the story is live, each refresh rewrites that text from the new data.
 			Use a distinct literal id and plain literal text; text built from query rows in code is already live and
 			needs no Narrative.
+		</ListItem>,
+		<ListItem key='state'>
+			<Bold>Persist what a viewer would otherwise redo on every visit</Bold> with{' '}
+			<Bold>{'const [value, setValue] = useStoryState("key", initial)'}</Bold>, used like useState: gauge or
+			slider positions, the slide or tab they were on, chosen filters, a simulator's scenario, a game's history
+			(cards drawn, score). The owner's saved state is the view everyone starts from; every other viewer saves
+			their own view on top of it and can switch to the owner's. Keep transient UI (hover, an open menu) in
+			useState, and never store query rows or secrets. Use stable literal keys and small JSON values (up to{' '}
+			{MAX_STORY_STATE_VALUE_BYTES / 1024} KB, {MAX_STORY_STATE_KEYS} keys); a stored value may predate your
+			latest version, so check its shape and fall back to the initial value. In an HTML story use{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.state.get(key)`}</Bold> and{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.state.set(key, value)`}</Bold>.
+		</ListItem>,
+		<ListItem key='auto-save'>
+			When the story uses state, set <Bold>"autoSave"</Bold> in <Bold>{STORY_APP_MANIFEST_PATH}</Bold> to how
+			viewers most likely want it saved; they can still flip it. <Bold>true</Bold> saves every change as it
+			happens — a game, a collection, a tracker. <Bold>false</Bold> lets them explore freely and save the view
+			they like with a Save button — a dashboard or a what-if simulator people come back to from the same start.
 		</ListItem>,
 		<ListItem key='bespoke-visuals'>
 			For bespoke visuals the kit has no block for, wrap Recharts or your own markup in{' '}

@@ -337,9 +337,6 @@ body.is-loading{min-height:160px}
 		var linkOnly = p.format === 'custom';
 		if (!embedUrl && !sandboxBlob && !linkOnly) return null;
 		return { embedUrl: embedUrl, sandboxChartHtml: sandboxBlob, linkOnly: linkOnly };
-		var linkOnly = p.format === 'custom';
-		if (!embedUrl && !sandboxBlob && !linkOnly) return null;
-		return { embedUrl: embedUrl, sandboxChartHtml: sandboxBlob, linkOnly: linkOnly };
 	}
 
 	function payloadFromContentBlocks(content) {
@@ -368,13 +365,9 @@ body.is-loading{min-height:160px}
 			primary.sandboxMapHtml ||
 			secondary.sandboxMapHtml ||
 			'';
-			secondary.sandboxMapHtml ||
-			'';
 		return {
 			embedUrl: primary.embedUrl || secondary.embedUrl || '',
-			embedUrl: primary.embedUrl || secondary.embedUrl || '',
 			sandboxChartHtml: sandboxBlob,
-			linkOnly: Boolean(primary.linkOnly || secondary.linkOnly),
 			linkOnly: Boolean(primary.linkOnly || secondary.linkOnly),
 		};
 	}
@@ -433,11 +426,6 @@ body.is-loading{min-height:160px}
 					sandboxChartHtml: p.sandboxChartHtml || '',
 					linkOnly: Boolean(p.linkOnly),
 				}),
-				JSON.stringify({
-					embedUrl: p.embedUrl || '',
-					sandboxChartHtml: p.sandboxChartHtml || '',
-					linkOnly: Boolean(p.linkOnly),
-				}),
 			);
 		} catch (e) {}
 	}
@@ -452,7 +440,6 @@ body.is-loading{min-height:160px}
 			return {
 				embedUrl: typeof p.embedUrl === 'string' ? p.embedUrl : '',
 				sandboxChartHtml: typeof p.sandboxChartHtml === 'string' ? p.sandboxChartHtml : '',
-				linkOnly: p.linkOnly === true,
 				linkOnly: p.linkOnly === true,
 			};
 		} catch (e) {
@@ -481,11 +468,6 @@ body.is-loading{min-height:160px}
 			hasRenderedPreview = true;
 			return true;
 		}
-		if (p.linkOnly) {
-			collapse();
-			hasRenderedPreview = true;
-			return true;
-		}
 		return false;
 	}
 
@@ -504,11 +486,6 @@ body.is-loading{min-height:160px}
 		}
 		if (chartBlob.length > 0) {
 			setBlobHtml(chartBlob);
-			hasRenderedPreview = true;
-			return true;
-		}
-		if (p.linkOnly) {
-			collapse();
 			hasRenderedPreview = true;
 			return true;
 		}

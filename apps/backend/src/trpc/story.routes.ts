@@ -23,6 +23,7 @@ import {
 	getCustomStoryQuerySql,
 	getCustomStoryVersion,
 } from '../services/custom-story';
+import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -48,7 +49,12 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { storySnapshotHtml, toCustomStoryQueryTrpcError, toCustomStoryTrpcError } from '../utils/custom-story-trpc';
+import {
+	storySnapshotHtml,
+	storyStateChange,
+	toCustomStoryQueryTrpcError,
+	toCustomStoryTrpcError,
+} from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -387,6 +393,26 @@ export const storyRoutes = {
 		.query(async ({ input }) => {
 			try {
 				return await getCustomStoryNarratives(input.chatId, input.storySlug, { deferRefresh: true });
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryState: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input, ctx }) => {
+			try {
+				return await getCustomStoryState(input.chatId, input.storySlug, ctx.user.id);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	setCustomStoryState: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), change: storyStateChange }))
+		.mutation(async ({ input, ctx }) => {
+			try {
+				await setCustomStoryState(input.chatId, input.storySlug, ctx.user.id, input.change);
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}

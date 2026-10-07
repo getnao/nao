@@ -80,6 +80,11 @@ export function CustomStoryBody({
 						onEditTableFormat={onEditTableFormat}
 						onAskBlock={onAskBlock}
 						onError={handleRuntimeError}
+						stateControls={{
+							storyId: content.storyId,
+							usesState: content.usesState,
+							autoSaveDefault: content.autoSave,
+						}}
 					/>
 				) : (
 					<BuildFailure message={content?.bundleError ?? 'This version has no build output.'} />

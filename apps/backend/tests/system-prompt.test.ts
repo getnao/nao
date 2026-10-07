@@ -267,6 +267,18 @@ describe('SystemPrompt saved files rules', () => {
 		expect(markdown).not.toContain('**save_to**');
 	});
 
+	it('tells custom stories to persist what a viewer would redo on every visit', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				toolNames: ['execute_sql', 'write', 'story'],
+				options: { customStoriesEnabled: true },
+			}),
+		);
+		expect(markdown).toContain('useStoryState("key", initial)');
+		expect(markdown).toContain('nao.state.set(key, value)');
+		expect(markdown).toContain('**"autoSave"**');
+	});
+
 	it('explains that an attachment arrives as a path, not as content', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('**/home/uploads**');

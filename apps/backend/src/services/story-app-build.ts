@@ -10,6 +10,7 @@ import {
 } from '@nao/shared/story-app';
 import { FONT_STYLESHEET_HOSTS, isAllowedFontStylesheet } from '@nao/shared/story-theme';
 
+import { parseStoryManifest } from '../utils/story-manifest';
 import {
 	type StoryBuildDiagnostic,
 	type StoryBuildRequest,
@@ -120,20 +121,8 @@ function remoteStylesheetErrors(files: StorySourceFile[]): string[] {
 }
 
 function declaredEntry(sources: Record<string, string>): { path?: string; error?: string } {
-	const manifest = sources[STORY_APP_MANIFEST_PATH];
-	if (manifest === undefined) {
-		return {};
-	}
-	try {
-		const parsed: unknown = JSON.parse(manifest);
-		const entry = typeof parsed === 'object' && parsed !== null ? (parsed as { entry?: unknown }).entry : undefined;
-		if (entry !== undefined && typeof entry !== 'string') {
-			return { error: `${STORY_APP_MANIFEST_PATH}: "entry" must be a string path relative to the story root.` };
-		}
-		return { path: entry };
-	} catch (error) {
-		return { error: `${STORY_APP_MANIFEST_PATH} is not valid JSON: ${(error as Error).message}` };
-	}
+	const { manifest, error } = parseStoryManifest(sources[STORY_APP_MANIFEST_PATH]);
+	return error ? { error } : { path: manifest.entry };
 }
 
 function formatDiagnostic(diagnostic: StoryBuildDiagnostic): string {

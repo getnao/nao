@@ -46,6 +46,10 @@ export interface StoryHtmlApi {
 	onTheme(listener: (theme: StoryTheme) => void): () => void;
 	isExport(): boolean;
 	isPrint(): boolean;
+	state: {
+		get(key: string): unknown;
+		set(key: string, value: unknown): void;
+	};
 }
 
 export const MAX_STORY_BUNDLE_BYTES = 2 * 1024 * 1024;
@@ -93,7 +97,34 @@ export type StoryNarratives = Record<string, string>;
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
 	narratives: StoryNarratives;
+	state?: StoryStateValues;
 }
+
+/** Stored as `project` rows when the owner saves them, as `user` rows when any other viewer does. */
+export const STORY_STATE_SCOPES = ['user', 'project'] as const;
+
+export type StoryStateScope = (typeof STORY_STATE_SCOPES)[number];
+
+/** What a custom story saved through `useStoryState`, by key. It outlives versions. */
+export type StoryStateValues = Record<string, unknown>;
+
+export interface StoryStateSnapshot {
+	shared: StoryStateValues;
+	own: StoryStateValues;
+	isOwner: boolean;
+	ownerName: string | null;
+}
+
+export interface StoryStateChange {
+	key: string;
+	value: unknown;
+}
+
+export const STORY_STATE_KEY_PATTERN = /^[A-Za-z0-9][\w.:-]{0,99}$/;
+export const MAX_STORY_STATE_VALUE_BYTES = 32 * 1024;
+export const MAX_STORY_STATE_KEYS = 50;
+
+export const EMPTY_STORY_STATE_SNAPSHOT: StoryStateSnapshot = { shared: {}, own: {}, isOwner: false, ownerName: null };
 
 /** File under `STORY_RUNTIME_PATH` holding every runtime module in one classic script, for downloaded stories. */
 export const STORY_STANDALONE_RUNTIME_FILE = 'standalone.js';
@@ -180,6 +211,7 @@ export type StoryFrameMessage =
 	| ({ type: 'nao-story:edit-block' } & StoryBlockEditPayload)
 	| ({ type: 'nao-story:edit-table-format' } & StoryTableFormatEditRequest)
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
+	| ({ type: 'nao-story:set-state' } & StoryStateChange)
 	| { type: 'nao-story:ask-block'; block: StoryBlockReference }
 	| ({ type: 'nao-story:keydown' } & KeydownSnapshot);
 
@@ -196,6 +228,7 @@ export type StoryHostMessage =
 	| { type: 'nao-story:editing'; enabled: boolean }
 	| { type: 'nao-story:theme'; theme: StoryTheme }
 	| { type: 'nao-story:shortcuts'; shortcuts: Shortcut[] }
+	| { type: 'nao-story:state'; state: StoryStateValues }
 	| ({ type: 'nao-story:keydown' } & KeydownSnapshot);
 
 /**
@@ -229,6 +262,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:edit-block',
 			'nao-story:edit-table-format',
 			'nao-story:query-sql',
+			'nao-story:set-state',
 			'nao-story:ask-block',
 			'nao-story:keydown',
 		].includes(value.type)
@@ -247,6 +281,7 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:editing',
 			'nao-story:theme',
 			'nao-story:shortcuts',
+			'nao-story:state',
 			'nao-story:keydown',
 		].includes(value.type)
 	);

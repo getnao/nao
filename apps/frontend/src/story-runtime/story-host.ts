@@ -10,6 +10,7 @@ import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { resolveBlockColors } from './story-colors';
+import { initStoryState, readStoryState, replaceStoryState, writeStoryState } from './story-state';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { Shortcut } from '@nao/shared/keyboard-shortcut';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -24,6 +25,7 @@ import type {
 	StoryHtmlApi,
 	StoryNarratives,
 	StoryQueryResult,
+	StoryStateValues,
 	StoryTableExportFormat,
 } from '@nao/shared/story-app';
 
@@ -32,6 +34,7 @@ interface BootOptions {
 	source: string;
 	theme: StoryTheme;
 	exportData?: StoryExportData;
+	state?: StoryStateValues;
 	channel?: string;
 }
 
@@ -59,11 +62,13 @@ export async function bootStory({
 	source,
 	theme,
 	exportData: embeddedData,
+	state,
 	channel,
 }: BootOptions): Promise<void> {
 	activeTheme = theme;
 	frameChannel = channel;
 	exportData = embeddedData ?? null;
+	bootStoryState(state);
 	installGlobalErrorReporting();
 
 	try {
@@ -111,6 +116,10 @@ function exposeHtmlApi(): void {
 			}),
 		isExport: isStoryExport,
 		isPrint: isPrintMode,
+		state: {
+			get: readStoryState,
+			set: writeStoryState,
+		},
 	};
 	Object.defineProperty(globalThis, STORY_HTML_API_GLOBAL, { value: Object.freeze(api), enumerable: true });
 }
@@ -244,6 +253,10 @@ function handleHostMessage(message: unknown): void {
 		hostShortcuts = message.shortcuts;
 		return;
 	}
+	if (message.type === 'nao-story:state') {
+		replaceStoryState(message.state);
+		return;
+	}
 	if (message.type === 'nao-story:keydown') {
 		replayKeydown(window, message);
 		return;
@@ -327,6 +340,14 @@ function awaitReply<T>(
 		});
 		send(buildMessage(requestId));
 	});
+}
+
+function bootStoryState(state: StoryStateValues | undefined): void {
+	if (exportData) {
+		initStoryState(exportData.state, null);
+		return;
+	}
+	initStoryState(state, ({ key, value }) => send({ type: 'nao-story:set-state', key, value: toJsonSafe(value) }));
 }
 
 function send(message: StoryFrameMessage): void {

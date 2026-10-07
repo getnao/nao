@@ -6,22 +6,24 @@ import { formatDownloadFilename } from '../utils/story-download';
 import { renderStoryPdf } from '../utils/story-snapshot';
 import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
 import { getCustomStoryNarratives, getCustomStoryVersion } from './custom-story';
+import { getSharedCustomStoryState } from './custom-story-state';
 
 export async function renderCustomStoryPdf(
 	chatId: string,
 	storySlug: string,
 	queryData: Record<string, StoryQueryResult>,
 ): Promise<{ filename: string; buffer: Buffer }> {
-	const [version, narratives, runtime] = await Promise.all([
+	const [version, narratives, state, runtime] = await Promise.all([
 		getCustomStoryVersion(chatId, storySlug),
 		getCustomStoryNarratives(chatId, storySlug),
+		getSharedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
 	]);
 	if (!version.app) {
 		throw new Error(version.bundleError ?? 'The latest version of this story did not build.');
 	}
 
-	const data: StoryExportData = { queries: pickQueries(queryData, version.queryIds), narratives };
+	const data: StoryExportData = { queries: pickQueries(queryData, version.queryIds), narratives, state };
 	const html = buildStoryExportDocument({
 		title: version.title,
 		app: version.app,

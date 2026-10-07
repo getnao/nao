@@ -15,6 +15,7 @@ import {
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 } from '../services/custom-story';
+import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import {
@@ -31,7 +32,12 @@ import {
 } from '../services/story-filters';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { storySnapshotHtml, toCustomStoryQueryTrpcError, toCustomStoryTrpcError } from '../utils/custom-story-trpc';
+import {
+	storySnapshotHtml,
+	storyStateChange,
+	toCustomStoryQueryTrpcError,
+	toCustomStoryTrpcError,
+} from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
@@ -277,6 +283,26 @@ export const sharedStoryRoutes = {
 			throw toCustomStoryTrpcError(error);
 		}
 	}),
+
+	getCustomStoryState: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
+		const shared = ctx.resource;
+		try {
+			return await getCustomStoryState(shared.chatId!, shared.slug, ctx.user.id);
+		} catch (error) {
+			throw toCustomStoryTrpcError(error);
+		}
+	}),
+
+	setCustomStoryState: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), change: storyStateChange }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				await setCustomStoryState(shared.chatId!, shared.slug, ctx.user.id, input.change);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
 
 	downloadCustom: shareAccessProcedure
 		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS), html: storySnapshotHtml }))

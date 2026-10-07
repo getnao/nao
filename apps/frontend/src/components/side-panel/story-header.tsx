@@ -430,7 +430,7 @@ export const StoryHeader = memo(function StoryHeader({
 								size='sm'
 								onClick={onRestore}
 								disabled={isSaving}
-								className='gap-1.5'
+								className='gap-1.5 rounded-full'
 							>
 								<RotateCcw className='size-3' strokeWidth={2.25} />
 								<span>Restore</span>
