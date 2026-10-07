@@ -56,7 +56,11 @@ function assertValidKey(key: string): void {
 }
 
 function assertValueSize(key: string, value: unknown): void {
-	const bytes = new TextEncoder().encode(JSON.stringify(value) ?? '').length;
+	const serialized = JSON.stringify(value);
+	if (serialized === undefined || (serialized === 'null' && value !== null)) {
+		throw new Error(`State "${key}" must be a JSON value.`);
+	}
+	const bytes = new TextEncoder().encode(serialized).length;
 	if (bytes > MAX_STORY_STATE_VALUE_BYTES) {
 		throw new Error(
 			`State "${key}" is ${bytes} bytes; a value may not exceed ${MAX_STORY_STATE_VALUE_BYTES} bytes.`,
