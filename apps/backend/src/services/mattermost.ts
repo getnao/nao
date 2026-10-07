@@ -281,10 +281,10 @@ class ProjectMattermostBot {
 		};
 
 		try {
-			await assertProjectCloudBillingAccess(this._config.projectId);
 			if (!(await this._validateUserAccess(ctx))) {
 				return;
 			}
+			await assertProjectCloudBillingAccess(this._config.projectId);
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			this._answerPostStates.set(ctx.convMessage.id, {
 				baseProps: getMattermostPostBaseProps(ctx.convMessage.raw),

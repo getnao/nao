@@ -17,6 +17,7 @@ import {
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2026-08-26.dahlia';
 const CLOUD_PRICE_CACHE_TTL_MS = 5 * 60 * 1000;
+const SUBSCRIPTION_CURRENCY_CACHE_LIMIT = 1_000;
 const ORGANIZATION_METADATA_KEY = 'nao_org_id';
 const PLAN_METADATA_KEY = 'nao_plan_key';
 const CHECKOUT_KIND_METADATA_KEY = 'nao_checkout_kind';
@@ -330,11 +331,14 @@ export async function getCloudSubscription(stripeSubscriptionId: string): Promis
 	return subscription;
 }
 
-/** A subscription's currency never changes, so it is cached for the process lifetime. */
+/** A subscription's currency never changes, so entries only need eviction to bound memory. */
 export function getCloudSubscriptionCurrency(stripeSubscriptionId: string): Promise<string> {
 	const cached = subscriptionCurrencyCache.get(stripeSubscriptionId);
 	if (cached) {
 		return cached;
+	}
+	if (subscriptionCurrencyCache.size >= SUBSCRIPTION_CURRENCY_CACHE_LIMIT) {
+		subscriptionCurrencyCache.clear();
 	}
 	const currency = getCloudSubscription(stripeSubscriptionId).then((subscription) => subscription.currency);
 	subscriptionCurrencyCache.set(stripeSubscriptionId, currency);
