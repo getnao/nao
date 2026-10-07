@@ -1,11 +1,16 @@
-import { MAX_STORY_STATE_VALUE_BYTES, STORY_STATE_KEY_PATTERN } from '@nao/shared/story-app';
-import type { StoryStateChange, StoryStateValues } from '@nao/shared/story-app';
+import {
+	IDLE_STORY_STATE_SAVE_STATUS,
+	MAX_STORY_STATE_VALUE_BYTES,
+	STORY_STATE_KEY_PATTERN,
+} from '@nao/shared/story-app';
+import type { StoryStateChange, StoryStateSaveStatus, StoryStateValues } from '@nao/shared/story-app';
 
 type PersistChange = (change: StoryStateChange) => void;
 
 const listeners = new Set<() => void>();
 let values: StoryStateValues = {};
 let persist: PersistChange | null = null;
+let saveStatus: StoryStateSaveStatus = IDLE_STORY_STATE_SAVE_STATUS;
 
 export function initStoryState(initial: StoryStateValues | undefined, persistChange: PersistChange | null): void {
 	values = initial ?? {};
@@ -36,6 +41,15 @@ export function writeStoryState(key: string, value: unknown): void {
 
 export function replaceStoryState(next: StoryStateValues): void {
 	values = next;
+	notify();
+}
+
+export function readStorySaveStatus(): StoryStateSaveStatus {
+	return saveStatus;
+}
+
+export function replaceStorySaveStatus(next: StoryStateSaveStatus): void {
+	saveStatus = next;
 	notify();
 }
 

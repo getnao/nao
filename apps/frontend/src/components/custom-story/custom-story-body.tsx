@@ -84,10 +84,9 @@ export function CustomStoryBody({
 						onRememberState={onRememberState}
 						onError={handleRuntimeError}
 						stateControls={{
-							storyId: content.storyId,
 							usesState: content.usesState,
 							hasLocalState: content.hasLocalState,
-							autoSaveDefault: content.autoSave,
+							autoSave: content.autoSave,
 						}}
 					/>
 				) : (

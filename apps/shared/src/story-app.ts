@@ -49,6 +49,10 @@ export interface StoryHtmlApi {
 	state: {
 		get(key: string): unknown;
 		set(key: string, value: unknown): void;
+		save(): void;
+		discard(): void;
+		saveStatus(): StoryStateSaveStatus;
+		onSaveStatus(listener: (status: StoryStateSaveStatus) => void): () => void;
 	};
 }
 
@@ -119,6 +123,15 @@ export interface StoryStateChange {
 	key: string;
 	value: unknown;
 }
+
+/** Where a story with auto-save off stands with its unsaved changes; the story renders its own save controls from it. */
+export interface StoryStateSaveStatus {
+	hasChanges: boolean;
+	isSaving: boolean;
+	error: string | null;
+}
+
+export const IDLE_STORY_STATE_SAVE_STATUS: StoryStateSaveStatus = { hasChanges: false, isSaving: false, error: null };
 
 export const STORY_STATE_KEY_PATTERN = /^[A-Za-z0-9][\w.:-]{0,99}$/;
 export const MAX_STORY_STATE_VALUE_BYTES = 32 * 1024;
@@ -212,6 +225,8 @@ export type StoryFrameMessage =
 	| ({ type: 'nao-story:edit-table-format' } & StoryTableFormatEditRequest)
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
 	| ({ type: 'nao-story:set-state' } & StoryStateChange)
+	| { type: 'nao-story:save-state' }
+	| { type: 'nao-story:discard-state' }
 	| { type: 'nao-story:ask-block'; block: StoryBlockReference }
 	| ({ type: 'nao-story:keydown' } & KeydownSnapshot);
 
@@ -229,6 +244,7 @@ export type StoryHostMessage =
 	| { type: 'nao-story:theme'; theme: StoryTheme }
 	| { type: 'nao-story:shortcuts'; shortcuts: Shortcut[] }
 	| { type: 'nao-story:state'; state: StoryStateValues }
+	| ({ type: 'nao-story:save-status' } & StoryStateSaveStatus)
 	| ({ type: 'nao-story:keydown' } & KeydownSnapshot);
 
 /**
@@ -263,6 +279,8 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:edit-table-format',
 			'nao-story:query-sql',
 			'nao-story:set-state',
+			'nao-story:save-state',
+			'nao-story:discard-state',
 			'nao-story:ask-block',
 			'nao-story:keydown',
 		].includes(value.type)
@@ -282,6 +300,7 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:theme',
 			'nao-story:shortcuts',
 			'nao-story:state',
+			'nao-story:save-status',
 			'nao-story:keydown',
 		].includes(value.type)
 	);

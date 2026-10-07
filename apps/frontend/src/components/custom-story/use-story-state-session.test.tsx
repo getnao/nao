@@ -31,7 +31,7 @@ const MEMBER: StoryStateSnapshot = {
 };
 const OWNER: StoryStateSnapshot = { shared: { tab: 'revenue' }, own: {}, isOwner: true, ownerName: 'Sarah' };
 
-async function setup(snapshot: StoryStateSnapshot, autoSaveDefault: boolean) {
+async function setup(snapshot: StoryStateSnapshot, autoSave: boolean) {
 	snapshotRef.current = snapshot;
 	const queryClient = new QueryClient();
 	const pushToFrame = vi.fn();
@@ -42,9 +42,8 @@ async function setup(snapshot: StoryStateSnapshot, autoSaveDefault: boolean) {
 		() =>
 			useStoryStateSession({
 				dataSource: DATA_SOURCE,
-				storyId: 'story-1',
 				enabled: true,
-				autoSaveDefault,
+				autoSave,
 				pushToFrame,
 			}),
 		{ wrapper },
@@ -56,7 +55,6 @@ async function setup(snapshot: StoryStateSnapshot, autoSaveDefault: boolean) {
 
 describe('useStoryStateSession', () => {
 	beforeEach(() => {
-		localStorage.clear();
 		saveStoryState.mockReset();
 		saveStoryState.mockResolvedValue(undefined);
 		saveLater.mockReset();
@@ -143,16 +141,5 @@ describe('useStoryStateSession', () => {
 		act(() => result.current.setView('mine'));
 		expect(pushToFrame).toHaveBeenLastCalledWith({ tab: 'orders', zoom: 3 });
 		expect(saveLater).not.toHaveBeenCalled();
-	});
-
-	it('saves the pending draft when auto-save is turned on and remembers the choice', async () => {
-		const { result } = await setup(OWNER, false);
-		act(() => result.current.record({ key: 'tab', value: 'orders' }));
-
-		await act(async () => result.current.setAutoSave(true));
-
-		expect(saveStoryState).toHaveBeenCalledWith(DATA_SOURCE, { key: 'tab', value: 'orders' });
-		const next = await setup(OWNER, false);
-		expect(next.result.current.autoSave).toBe(true);
 	});
 });

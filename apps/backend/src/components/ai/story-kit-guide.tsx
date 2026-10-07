@@ -70,10 +70,15 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>{`${STORY_HTML_API_GLOBAL}.state.set(key, value)`}</Bold>.
 		</ListItem>,
 		<ListItem key='auto-save'>
-			When the story uses state, set <Bold>"autoSave"</Bold> in <Bold>{STORY_APP_MANIFEST_PATH}</Bold> to how
-			viewers most likely want it saved; they can still flip it. <Bold>true</Bold> saves every change as it
-			happens — a game, a collection, a tracker. <Bold>false</Bold> lets them explore freely and save the view
-			they like with a Save button — a dashboard or a what-if simulator people come back to from the same start.
+			When the story uses state, set <Bold>"autoSave"</Bold> in <Bold>{STORY_APP_MANIFEST_PATH}</Bold> to how this
+			kind of data should be kept; viewers never see the setting. <Bold>true</Bold> saves every change as it
+			happens: a game, a collection, a tracker. <Bold>false</Bold> keeps changes unsaved until the story saves
+			them: a dashboard or a what-if simulator people explore and come back to from the same start. Then render
+			your own Save and Discard buttons, only while there are changes, with{' '}
+			<Bold>{'const { hasChanges, isSaving, error, save, discard } = useStorySave()'}</Bold>; in an HTML story use{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.state.save()`}</Bold>,{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.state.discard()`}</Bold> and{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.state.onSaveStatus(listener)`}</Bold>.
 		</ListItem>,
 		<ListItem key='bespoke-visuals'>
 			For bespoke visuals the kit has no block for, wrap Recharts or your own markup in{' '}

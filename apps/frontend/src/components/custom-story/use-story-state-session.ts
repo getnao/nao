@@ -18,30 +18,26 @@ export interface StoryStateSession {
 	error: string | null;
 	record: (change: StoryStateChange) => void;
 	setView: (view: StoryStateView) => void;
-	setAutoSave: (autoSave: boolean) => void;
 	save: () => Promise<void>;
 	discard: () => void;
 }
 
 interface StoryStateSessionOptions {
 	dataSource: CustomStoryDataSource;
-	storyId: string;
 	enabled: boolean;
-	autoSaveDefault: boolean;
+	autoSave: boolean;
 	pushToFrame: (values: StoryStateValues) => void;
 }
 
 export function useStoryStateSession({
 	dataSource,
-	storyId,
 	enabled,
-	autoSaveDefault,
+	autoSave,
 	pushToFrame,
 }: StoryStateSessionOptions): StoryStateSession {
 	const queryClient = useQueryClient();
 	const { data: snapshot } = useQuery({ ...stateOptions(dataSource), enabled });
 	const [view, setViewState] = useState<StoryStateView>('mine');
-	const [autoSave, setAutoSaveState] = useState(() => readAutoSavePreference(storyId) ?? autoSaveDefault);
 	const [draft, setDraft] = useState<StoryStateValues>({});
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -121,17 +117,6 @@ export function useStoryStateSession({
 		[draft, pushToFrame, snapshot],
 	);
 
-	const setAutoSave = useCallback(
-		(next: boolean) => {
-			setAutoSaveState(next);
-			writeAutoSavePreference(storyId, next);
-			if (next) {
-				void save();
-			}
-		},
-		[save, storyId],
-	);
-
 	return {
 		snapshot,
 		view,
@@ -141,7 +126,6 @@ export function useStoryStateSession({
 		error,
 		record,
 		setView,
-		setAutoSave,
 		save,
 		discard,
 	};
@@ -176,25 +160,4 @@ function withoutSavedChanges(draft: StoryStateValues, saved: StoryStateValues): 
 
 function isSameValue(saved: unknown, value: unknown): boolean {
 	return JSON.stringify(saved ?? null) === JSON.stringify(value ?? null);
-}
-
-function readAutoSavePreference(storyId: string): boolean | null {
-	try {
-		const stored = localStorage.getItem(autoSaveStorageKey(storyId));
-		return stored === null ? null : stored === 'true';
-	} catch {
-		return null;
-	}
-}
-
-function writeAutoSavePreference(storyId: string, autoSave: boolean): void {
-	try {
-		localStorage.setItem(autoSaveStorageKey(storyId), String(autoSave));
-	} catch {
-		return;
-	}
-}
-
-function autoSaveStorageKey(storyId: string): string {
-	return `nao:story-auto-save:${storyId}`;
 }

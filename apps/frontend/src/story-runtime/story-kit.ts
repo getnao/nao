@@ -27,5 +27,7 @@ export type { SlideProps, SlidesProps } from './story-kit/slides';
 export { Slide, Slides } from './story-kit/slides';
 export type { BlockData, BlockDataSource, Row } from './story-kit/use-block-data';
 export { useBlockData } from './story-kit/use-block-data';
+export type { StorySave } from './story-kit/use-story-save';
+export { useStorySave } from './story-kit/use-story-save';
 export type { StoryStateSetter } from './story-kit/use-story-state';
 export { useStoryState } from './story-kit/use-story-state';

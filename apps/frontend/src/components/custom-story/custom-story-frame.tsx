@@ -56,12 +56,11 @@ interface CustomStoryFrameProps {
 	className?: string;
 }
 
-/** Shown only for a story that saves state; `autoSaveDefault` is what its author set in its manifest. */
+/** How a story saves state, as its author set it in its manifest. */
 export interface StoryStateControls {
-	storyId: string;
 	usesState: boolean;
 	hasLocalState: boolean;
-	autoSaveDefault: boolean;
+	autoSave: boolean;
 }
 
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
@@ -104,12 +103,17 @@ export function CustomStoryFrame({
 	);
 	const stateSession = useStoryStateSession({
 		dataSource,
-		storyId: stateControls?.storyId ?? '',
 		enabled: usesState,
-		autoSaveDefault: stateControls?.autoSaveDefault ?? true,
+		autoSave: stateControls?.autoSave ?? true,
 		pushToFrame: pushStateToFrame,
 	});
 	const recordStateChange = stateSession.record;
+	const saveState = useEffectEvent(() => void stateSession.save());
+	const discardState = useEffectEvent(() => stateSession.discard());
+	const { hasChanges, isSaving, error: saveError } = stateSession;
+	const syncSaveStatus = useEffectEvent(() =>
+		reply({ type: 'nao-story:save-status', hasChanges, isSaving, error: saveError }),
+	);
 
 	const syncThemeOnReady = useEffectEvent(() => {
 		if (theme !== bootTheme) {
@@ -188,6 +192,7 @@ export function CustomStoryFrame({
 					reply({ type: 'nao-story:editing', enabled: editable });
 					reply({ type: 'nao-story:shortcuts', shortcuts: getAppWideShortcuts() });
 					syncThemeOnReady();
+					syncSaveStatus();
 					onReady?.();
 					break;
 				case 'nao-story:query':
@@ -241,6 +246,12 @@ export function CustomStoryFrame({
 				case 'nao-story:set-state':
 					recordStateChange({ key: message.key, value: message.value });
 					break;
+				case 'nao-story:save-state':
+					saveState();
+					break;
+				case 'nao-story:discard-state':
+					discardState();
+					break;
 				case 'nao-story:keydown':
 					replayKeydown(document, message);
 					break;
@@ -273,6 +284,12 @@ export function CustomStoryFrame({
 			reply({ type: 'nao-story:editing', enabled: editable });
 		}
 	}, [editable, reply]);
+
+	useEffect(() => {
+		if (isFrameReadyRef.current) {
+			reply({ type: 'nao-story:save-status', hasChanges, isSaving, error: saveError });
+		}
+	}, [hasChanges, isSaving, saveError, reply]);
 
 	useEffect(() => {
 		if (isFrameReadyRef.current) {
