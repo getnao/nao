@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { narrativesOptions, queryDataOptions, querySqlOptions, stateOptions } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
+import { RememberStateHeader } from './remember-state-header';
 import { StoryStateHeader } from './story-state-header';
 import { savedViewOf, useStoryStateSession } from './use-story-state-session';
 import type {
@@ -50,6 +51,8 @@ interface CustomStoryFrameProps {
 	onReady?: () => void;
 	onError?: (error: CustomStoryRuntimeError) => void;
 	stateControls?: StoryStateControls;
+	/** Offered on a story that saves no state yet, to have the agent add it. */
+	onRememberState?: () => void;
 	className?: string;
 }
 
@@ -57,6 +60,7 @@ interface CustomStoryFrameProps {
 export interface StoryStateControls {
 	storyId: string;
 	usesState: boolean;
+	hasLocalState: boolean;
 	autoSaveDefault: boolean;
 }
 
@@ -74,6 +78,7 @@ export function CustomStoryFrame({
 	onReady,
 	onError,
 	stateControls,
+	onRememberState,
 	className,
 }: CustomStoryFrameProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -308,7 +313,11 @@ export function CustomStoryFrame({
 
 	return (
 		<div className='flex h-full flex-col'>
-			{stateControls?.usesState && <StoryStateHeader session={stateSession} />}
+			{stateControls?.usesState ? (
+				<StoryStateHeader session={stateSession} />
+			) : (
+				stateControls?.hasLocalState && onRememberState && <RememberStateHeader onRemember={onRememberState} />
+			)}
 			<iframe
 				ref={iframeRef}
 				aria-label='Custom story'

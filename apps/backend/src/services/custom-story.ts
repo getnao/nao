@@ -15,7 +15,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyThemeQueries from '../queries/story-theme.queries';
 import { isViewableStoryFile } from '../utils/story-file-path';
-import { parseStoryManifest, storyUsesState } from '../utils/story-manifest';
+import { parseStoryManifest, storyHasLocalState, storyUsesState } from '../utils/story-manifest';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import type { RefreshResult } from './live-story';
 import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
@@ -37,6 +37,7 @@ export interface CustomStoryVersionView {
 	/** The live story was never cached or its last refresh failed: its viewer refreshes it in the background. */
 	needsRefresh: boolean;
 	usesState: boolean;
+	hasLocalState: boolean;
 	autoSave: boolean;
 }
 
@@ -119,6 +120,7 @@ export async function getCustomStoryVersion(
 			!isCacheFresh(story, cache) &&
 			(cache === null || lastRefreshFailure !== null),
 		usesState: storyUsesState(files),
+		hasLocalState: storyHasLocalState(files),
 		autoSave:
 			parseStoryManifest(files.find((file) => file.path === STORY_APP_MANIFEST_PATH)?.content).manifest
 				.autoSave ?? true,
