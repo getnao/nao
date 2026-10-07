@@ -18,7 +18,7 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 }));
 
 vi.mock('../src/utils/logger', () => ({
-	logger: { error: vi.fn(), warn: vi.fn() },
+	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 	serializeError: (error: unknown) => ({ error: String(error) }),
 }));
 

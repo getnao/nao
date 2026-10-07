@@ -69,6 +69,7 @@ import {
 	findCloudSubscription,
 	getCloudBillingPlans,
 	getCloudPrice,
+	getCloudSubscriptionCurrency,
 	getCloudUpcomingInvoice,
 	getStripeClient,
 	listCloudInvoices,
@@ -626,6 +627,18 @@ describe('cloud Checkout', () => {
 
 		await expect(findCloudSubscription('sub_cloud')).resolves.toBe(cloud);
 		await expect(findCloudSubscription('sub_unrelated')).resolves.toBeNull();
+	});
+
+	it('retrieves a subscription currency from Stripe once and drops failed lookups', async () => {
+		stripeMocks.retrieveSubscription
+			.mockRejectedValueOnce(new Error('stripe down'))
+			.mockResolvedValue(cloudSubscription({ currency: 'eur' }));
+
+		await expect(getCloudSubscriptionCurrency('sub_cloud')).rejects.toThrow('stripe down');
+		await expect(getCloudSubscriptionCurrency('sub_cloud')).resolves.toBe('eur');
+		await expect(getCloudSubscriptionCurrency('sub_cloud')).resolves.toBe('eur');
+
+		expect(stripeMocks.retrieveSubscription).toHaveBeenCalledTimes(2);
 	});
 
 	it('creates a paid Checkout Session after a canceled subscription without another trial', async () => {

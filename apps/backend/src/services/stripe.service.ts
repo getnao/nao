@@ -65,6 +65,7 @@ const cloudPriceCache = new Map<
 	CloudBillingInterval,
 	{ lookupKey: string; productId: string; expiresAt: number; price: Promise<CloudPrice> }
 >();
+const subscriptionCurrencyCache = new Map<string, Promise<string>>();
 
 export async function createCloudCustomer(input: {
 	organizationId: string;
@@ -329,6 +330,18 @@ export async function getCloudSubscription(stripeSubscriptionId: string): Promis
 	return subscription;
 }
 
+/** A subscription's currency never changes, so it is cached for the process lifetime. */
+export function getCloudSubscriptionCurrency(stripeSubscriptionId: string): Promise<string> {
+	const cached = subscriptionCurrencyCache.get(stripeSubscriptionId);
+	if (cached) {
+		return cached;
+	}
+	const currency = getCloudSubscription(stripeSubscriptionId).then((subscription) => subscription.currency);
+	subscriptionCurrencyCache.set(stripeSubscriptionId, currency);
+	currency.catch(() => subscriptionCurrencyCache.delete(stripeSubscriptionId));
+	return currency;
+}
+
 export async function findCloudSubscription(stripeSubscriptionId: string): Promise<Stripe.Subscription | null> {
 	const subscription = await getStripeClient().subscriptions.retrieve(stripeSubscriptionId);
 	return hasProduct(subscription, configuredCloudProductId()) ? subscription : null;
@@ -474,6 +487,7 @@ async function fetchCloudPrice(
 export function __resetStripeForTesting(): void {
 	stripeClient = undefined;
 	cloudPriceCache.clear();
+	subscriptionCurrencyCache.clear();
 }
 
 export async function getCloudBillingPlans(

@@ -49,14 +49,15 @@ const automationCostProcedure = cloudBillingProjectProcedure.use(({ next }) => {
 
 const setAutomationEnabledSchema = z.object({ id: z.string(), enabled: z.boolean() });
 
+/** Only enabling an automation needs billing access; editing or disabling one does not. */
+const enablingAutomationBillingMiddleware = cloudBillingMiddleware<
+	{ project: { id: string; orgId: string | null } },
+	{ enabled?: boolean }
+>(({ project }, input) => ((input.enabled ?? true) ? { projectId: project.id, organizationId: project.orgId } : null));
+
 const automationToggleProcedure = automationProcedure
 	.input(setAutomationEnabledSchema)
-	.use(
-		cloudBillingMiddleware<
-			{ project: { id: string; orgId: string | null } },
-			z.infer<typeof setAutomationEnabledSchema>
-		>(({ project }, input) => (input.enabled ? { projectId: project.id, organizationId: project.orgId } : null)),
-	);
+	.use(enablingAutomationBillingMiddleware);
 
 const integrationSchema = z
 	.object({
@@ -152,8 +153,9 @@ export const automationRoutes = {
 		return syncAutomationJob(automation, cron, enabled);
 	}),
 
-	update: automationMutationProcedure
+	update: automationProcedure
 		.input(writeAutomationSchema.extend({ id: z.string() }))
+		.use(enablingAutomationBillingMiddleware)
 		.mutation(async ({ ctx, input }) => {
 			assertTriggers(input.cron, input.webhookEnabled);
 			const { id, cron, enabled, ...data } = input;

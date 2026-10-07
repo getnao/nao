@@ -20,7 +20,7 @@ import {
 	CloudSubscriptionResumeError,
 	CloudSubscriptionUnavailableError,
 	getCloudBillingPlans,
-	getCloudSubscription,
+	getCloudSubscriptionCurrency,
 } from '../services/stripe.service';
 import { CLOUD_BILLING_CURRENCIES, isTerminalBillingStatus, isTrialAvailable } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
@@ -108,7 +108,7 @@ export const billingRoutes = {
 		const trialAvailable = isTrialAvailable(billing);
 		const { availablePlans, subscriptionPlan } = await (async () => {
 			const subscriptionCurrency = billing?.stripeSubscriptionId
-				? (await getCloudSubscription(billing.stripeSubscriptionId)).currency
+				? await getCloudSubscriptionCurrency(billing.stripeSubscriptionId)
 				: null;
 			return getCloudBillingPlans(billing?.stripePriceId ?? null, input?.currency ?? 'usd', subscriptionCurrency);
 		})().catch((error: unknown) => throwBillingFailure('plan lookup', 'Unable to load billing plans', error));

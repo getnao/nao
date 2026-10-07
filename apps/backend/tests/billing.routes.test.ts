@@ -13,7 +13,7 @@ const stripeMocks = vi.hoisted(() => ({
 	createPortal: vi.fn(),
 	createResubscribe: vi.fn(),
 	getBillingPlans: vi.fn(),
-	getSubscription: vi.fn(),
+	getSubscriptionCurrency: vi.fn(),
 	getUpcomingInvoice: vi.fn(),
 	listInvoices: vi.fn(),
 	reconcileCustomer: vi.fn(),
@@ -61,7 +61,7 @@ vi.mock('../src/services/stripe.service', () => ({
 	createCloudPortalSession: stripeMocks.createPortal,
 	createCloudResubscribeSession: stripeMocks.createResubscribe,
 	getCloudBillingPlans: stripeMocks.getBillingPlans,
-	getCloudSubscription: stripeMocks.getSubscription,
+	getCloudSubscriptionCurrency: stripeMocks.getSubscriptionCurrency,
 	getCloudUpcomingInvoice: stripeMocks.getUpcomingInvoice,
 	listCloudInvoices: stripeMocks.listInvoices,
 	resumeCloudSubscription: stripeMocks.resumeSubscription,
@@ -170,7 +170,7 @@ describe('billing.getStatus', () => {
 			},
 			subscriptionPlan: null,
 		});
-		stripeMocks.getSubscription.mockResolvedValue({ currency: 'usd' });
+		stripeMocks.getSubscriptionCurrency.mockResolvedValue('usd');
 	});
 
 	it('returns the organization billing projection and matching plan', async () => {

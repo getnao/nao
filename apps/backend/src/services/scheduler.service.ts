@@ -163,6 +163,10 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 		const payload = job.payload ?? {};
 		const projectId = await registration.resolveProjectId?.(payload);
 		if (projectId && !(await hasProjectCloudBillingAccess(projectId))) {
+			logger.info(`Scheduler skipped job '${job.name}': cloud billing access is restricted`, {
+				source: 'system',
+				context: { jobId: job.id, name: job.name, projectId },
+			});
 			await onJobSuccess(job);
 			return;
 		}

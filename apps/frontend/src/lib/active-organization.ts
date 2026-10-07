@@ -36,7 +36,7 @@ export function clearStaleActiveOrganization(
 		return true;
 	}
 
-	if (!organizationId && projectId && getActiveProjectId() === projectId) {
+	if (!organizationId && !getActiveOrganizationId() && projectId && getActiveProjectId() === projectId) {
 		setActiveProjectId(null);
 		return true;
 	}

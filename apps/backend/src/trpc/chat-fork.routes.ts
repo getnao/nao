@@ -38,16 +38,20 @@ const cloudBillingForkProcedure = resolvedForkProcedure.use(
 	}>(({ source }) => ({ projectId: source.share.projectId })),
 );
 
-const openStandaloneProcedure = projectProtectedProcedure.input(openStandaloneInputSchema).use(
-	cloudBillingMiddleware<
-		{ project: { id: string; orgId: string | null }; user: { id: string } },
-		z.infer<typeof openStandaloneInputSchema>
-	>(async (ctx, input) => {
+const resolvedStandaloneStoryProcedure = projectProtectedProcedure
+	.input(openStandaloneInputSchema)
+	.use(async ({ ctx, input, next }) => {
 		const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
-		return story?.projectId === ctx.project.id && !story.chatId
-			? { projectId: ctx.project.id, organizationId: ctx.project.orgId }
-			: null;
-	}),
+		if (!story || story.projectId !== ctx.project.id) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		return next({ ctx: { story } });
+	});
+
+const openStandaloneProcedure = resolvedStandaloneStoryProcedure.use(
+	cloudBillingMiddleware<{ project: { id: string; orgId: string | null }; story: { chatId: string | null } }>(
+		({ project, story }) => (story.chatId ? null : { projectId: project.id, organizationId: project.orgId }),
+	),
 );
 
 export interface SelectionInfo {
@@ -64,11 +68,8 @@ export const chatForkRoutes = {
 		return forkSharedStoryItem(ctx.source.share, input.selection, ctx.user.id);
 	}),
 
-	openStandalone: openStandaloneProcedure.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
-		const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
-		if (!story || story.projectId !== ctx.project.id) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-		}
+	openStandalone: openStandaloneProcedure.mutation(async ({ ctx }): Promise<{ chatId: string }> => {
+		const { story } = ctx;
 		if (story.chatId) {
 			return { chatId: story.chatId };
 		}

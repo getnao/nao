@@ -225,6 +225,15 @@ describe('user group feature route enforcement', () => {
 		);
 
 		await expect(createCaller().automation.setEnabled({ id: 'automation-id', enabled: false })).resolves.toBeNull();
+		await expect(
+			createCaller().automation.update({
+				id: 'automation-id',
+				title: 'Paused',
+				prompt: 'Prompt',
+				webhookEnabled: true,
+				enabled: false,
+			}),
+		).resolves.toBeNull();
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
 
 		await expect(
