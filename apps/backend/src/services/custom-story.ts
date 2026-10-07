@@ -1,10 +1,5 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import {
-	STORY_APP_MANIFEST_PATH,
-	type StoryApp,
-	type StoryNarratives,
-	type StoryQueryResult,
-} from '@nao/shared/story-app';
+import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import type { DBStory, DBStoryDataCache } from '../db/abstractSchema';
@@ -15,7 +10,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyThemeQueries from '../queries/story-theme.queries';
 import { isViewableStoryFile } from '../utils/story-file-path';
-import { parseStoryManifest, storyHasLocalState, storyUsesState } from '../utils/story-manifest';
+import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import type { RefreshResult } from './live-story';
 import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
@@ -38,7 +33,6 @@ export interface CustomStoryVersionView {
 	needsRefresh: boolean;
 	usesState: boolean;
 	hasLocalState: boolean;
-	autoSave: boolean;
 }
 
 interface CustomStoryDataOptions {
@@ -121,9 +115,6 @@ export async function getCustomStoryVersion(
 			(cache === null || lastRefreshFailure !== null),
 		usesState: storyUsesState(files),
 		hasLocalState: storyHasLocalState(files),
-		autoSave:
-			parseStoryManifest(files.find((file) => file.path === STORY_APP_MANIFEST_PATH)?.content).manifest
-				.autoSave ?? true,
 	};
 }
 

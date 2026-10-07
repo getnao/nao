@@ -11,7 +11,6 @@ import type { DBStory, DBStoryAppState } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyAppStateQueries from '../queries/story-app-state.queries';
-import * as userQueries from '../queries/user.queries';
 import { CustomStoryNotFoundError } from './custom-story';
 
 export class InvalidStoryStateError extends Error {}
@@ -25,12 +24,11 @@ export async function getCustomStoryState(
 	const story = await requireCustomStory(chatId, storySlug);
 	const ownerId = await chatQueries.getChatOwnerId(chatId);
 	const isOwner = ownerId === viewerId;
-	const [shared, own, ownerName] = await Promise.all([
+	const [shared, own] = await Promise.all([
 		storyAppStateQueries.listProjectStoryAppState(story.id),
 		isOwner ? [] : storyAppStateQueries.listUserStoryAppState(story.id, viewerId),
-		ownerId ? userQueries.getUserName(ownerId) : null,
 	]);
-	return { shared: toValues(shared), own: toValues(own), isOwner, ownerName };
+	return { shared: toValues(shared), own: toValues(own), isOwner };
 }
 
 /** With no viewer, e.g. in a delivered PDF, a story renders with the shared view its owner saved. */

@@ -71,13 +71,11 @@ describe('custom story state', () => {
 			shared: { churn: 40 },
 			own: {},
 			isOwner: true,
-			ownerName: 'Sarah',
 		});
 		expect(await getCustomStoryState(CHAT, SLUG, VIEWER)).toEqual({
 			shared: { churn: 40 },
 			own: {},
 			isOwner: false,
-			ownerName: 'Sarah',
 		});
 	});
 

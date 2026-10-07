@@ -10,15 +10,7 @@ import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { resolveBlockColors } from './story-colors';
-import {
-	initStoryState,
-	readStorySaveStatus,
-	readStoryState,
-	replaceStorySaveStatus,
-	replaceStoryState,
-	subscribeToStoryState,
-	writeStoryState,
-} from './story-state';
+import { initStoryState, readStoryState, writeStoryState } from './story-state';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { Shortcut } from '@nao/shared/keyboard-shortcut';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -127,10 +119,6 @@ function exposeHtmlApi(): void {
 		state: {
 			get: readStoryState,
 			set: writeStoryState,
-			save: requestStateSave,
-			discard: requestStateDiscard,
-			saveStatus: readStorySaveStatus,
-			onSaveStatus: (listener) => subscribeToStoryState(() => listener(readStorySaveStatus())),
 		},
 	};
 	Object.defineProperty(globalThis, STORY_HTML_API_GLOBAL, { value: Object.freeze(api), enumerable: true });
@@ -185,18 +173,6 @@ export function exportTable(
 	rows: Record<string, unknown>[],
 ): void {
 	send({ type: 'nao-story:export-table', format, filename, columns, rows });
-}
-
-export function requestStateSave(): void {
-	if (!exportData) {
-		send({ type: 'nao-story:save-state' });
-	}
-}
-
-export function requestStateDiscard(): void {
-	if (!exportData) {
-		send({ type: 'nao-story:discard-state' });
-	}
 }
 
 export function isEditingEnabled(): boolean {
@@ -275,14 +251,6 @@ function handleHostMessage(message: unknown): void {
 	}
 	if (message.type === 'nao-story:shortcuts') {
 		hostShortcuts = message.shortcuts;
-		return;
-	}
-	if (message.type === 'nao-story:state') {
-		replaceStoryState(message.state);
-		return;
-	}
-	if (message.type === 'nao-story:save-status') {
-		replaceStorySaveStatus({ hasChanges: message.hasChanges, isSaving: message.isSaving, error: message.error });
 		return;
 	}
 	if (message.type === 'nao-story:keydown') {

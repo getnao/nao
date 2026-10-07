@@ -53,6 +53,7 @@ function savePending(pending: Map<string, PendingSave>, key: string): void {
 	clearTimeout(entry.timer);
 	pending.delete(key);
 	saveStoryState(entry.dataSource, entry.change).catch((error: unknown) => {
-		entry.reportError(error instanceof Error ? error.message : `The story state "${key}" could not be saved.`);
+		const reason = error instanceof Error ? `: ${error.message}` : '.';
+		entry.reportError(`The story state "${key}" could not be saved${reason}`);
 	});
 }

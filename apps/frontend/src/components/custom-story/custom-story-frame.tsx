@@ -12,8 +12,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { narrativesOptions, queryDataOptions, querySqlOptions, stateOptions } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
 import { RememberStateHeader } from './remember-state-header';
-import { StoryStateHeader } from './story-state-header';
-import { savedViewOf, useStoryStateSession } from './use-story-state-session';
+import { useStoryStateRecorder, viewerStateOf } from './use-story-state-recorder';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
@@ -56,11 +55,9 @@ interface CustomStoryFrameProps {
 	className?: string;
 }
 
-/** How a story saves state, as its author set it in its manifest. */
 export interface StoryStateControls {
 	usesState: boolean;
 	hasLocalState: boolean;
-	autoSave: boolean;
 }
 
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
@@ -97,23 +94,8 @@ export function CustomStoryFrame({
 		portRef.current?.postMessage(message);
 	}, []);
 
-	const pushStateToFrame = useCallback(
-		(values: StoryStateValues) => reply({ type: 'nao-story:state', state: values }),
-		[reply],
-	);
-	const stateSession = useStoryStateSession({
-		dataSource,
-		enabled: usesState,
-		autoSave: stateControls?.autoSave ?? true,
-		pushToFrame: pushStateToFrame,
-	});
-	const recordStateChange = stateSession.record;
-	const saveState = useEffectEvent(() => void stateSession.save());
-	const discardState = useEffectEvent(() => stateSession.discard());
-	const { hasChanges, isSaving, error: saveError } = stateSession;
-	const syncSaveStatus = useEffectEvent(() =>
-		reply({ type: 'nao-story:save-status', hasChanges, isSaving, error: saveError }),
-	);
+	const reportStateError = useCallback((message: string) => onError?.({ message }), [onError]);
+	const recordStateChange = useStoryStateRecorder(dataSource, reportStateError);
 
 	const syncThemeOnReady = useEffectEvent(() => {
 		if (theme !== bootTheme) {
@@ -192,7 +174,6 @@ export function CustomStoryFrame({
 					reply({ type: 'nao-story:editing', enabled: editable });
 					reply({ type: 'nao-story:shortcuts', shortcuts: getAppWideShortcuts() });
 					syncThemeOnReady();
-					syncSaveStatus();
 					onReady?.();
 					break;
 				case 'nao-story:query':
@@ -246,12 +227,6 @@ export function CustomStoryFrame({
 				case 'nao-story:set-state':
 					recordStateChange({ key: message.key, value: message.value });
 					break;
-				case 'nao-story:save-state':
-					saveState();
-					break;
-				case 'nao-story:discard-state':
-					discardState();
-					break;
 				case 'nao-story:keydown':
 					replayKeydown(document, message);
 					break;
@@ -284,12 +259,6 @@ export function CustomStoryFrame({
 			reply({ type: 'nao-story:editing', enabled: editable });
 		}
 	}, [editable, reply]);
-
-	useEffect(() => {
-		if (isFrameReadyRef.current) {
-			reply({ type: 'nao-story:save-status', hasChanges, isSaving, error: saveError });
-		}
-	}, [hasChanges, isSaving, saveError, reply]);
 
 	useEffect(() => {
 		if (isFrameReadyRef.current) {
@@ -332,10 +301,8 @@ export function CustomStoryFrame({
 
 	return (
 		<div className='flex h-full flex-col'>
-			{stateControls?.usesState ? (
-				<StoryStateHeader session={stateSession} />
-			) : (
-				stateControls?.hasLocalState && onRememberState && <RememberStateHeader onRemember={onRememberState} />
+			{!usesState && stateControls?.hasLocalState && onRememberState && (
+				<RememberStateHeader onRemember={onRememberState} />
 			)}
 			<iframe
 				ref={iframeRef}
@@ -377,7 +344,7 @@ function useStoryFrameDocument(
 		const snapshot = await queryClient
 			.fetchQuery(options)
 			.catch(() => queryClient.getQueryData(options.queryKey) ?? EMPTY_STORY_STATE_SNAPSHOT);
-		return savedViewOf(snapshot, 'mine');
+		return viewerStateOf(snapshot);
 	});
 	useEffect(() => {
 		let cancelled = false;

@@ -276,7 +276,7 @@ describe('SystemPrompt saved files rules', () => {
 		);
 		expect(markdown).toContain('useStoryState("key", initial)');
 		expect(markdown).toContain('nao.state.set(key, value)');
-		expect(markdown).toContain('**"autoSave"**');
+		expect(markdown).toContain('It works like localStorage');
 	});
 
 	it('explains that an attachment arrives as a path, not as content', () => {

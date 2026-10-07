@@ -3,7 +3,7 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { initStoryState, replaceStoryState } from '../story-state';
+import { initStoryState } from '../story-state';
 import { useStoryState } from './use-story-state';
 
 let setGauge: (next: number | ((current: number) => number) | null) => void = () => {};
@@ -45,15 +45,6 @@ describe('useStoryState', () => {
 
 		expect(screen.getByTestId('gauge').textContent).toBe('50');
 		expect(persist).toHaveBeenCalledWith({ key: 'gauge', value: null });
-	});
-
-	it('shows whatever the host switches the story to', () => {
-		initStoryState({ gauge: 80 }, vi.fn());
-		render(<Gauge />);
-
-		act(() => replaceStoryState({ gauge: 10 }));
-
-		expect(screen.getByTestId('gauge').textContent).toBe('10');
 	});
 
 	it('keeps changes to the page in a downloaded story', () => {

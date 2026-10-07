@@ -86,7 +86,6 @@ export function CustomStoryBody({
 						stateControls={{
 							usesState: content.usesState,
 							hasLocalState: content.hasLocalState,
-							autoSave: content.autoSave,
 						}}
 					/>
 				) : (

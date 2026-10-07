@@ -19,6 +19,6 @@ export function rememberStatePrompt(title: string, storySlug: string): string {
 	return (
 		`Make the custom story "${title}" (id "${storySlug}") remember its state between visits: switch the ` +
 		'useState calls holding what a viewer would otherwise redo on every visit to useStoryState, keep transient ' +
-		'UI in useState, set "autoSave" in nao.json to suit this kind of app, then publish.'
+		'UI in useState, then publish.'
 	);
 }

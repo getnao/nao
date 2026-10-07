@@ -61,24 +61,14 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>Persist what a viewer would otherwise redo on every visit</Bold> with{' '}
 			<Bold>{'const [value, setValue] = useStoryState("key", initial)'}</Bold>, used like useState: gauge or
 			slider positions, the slide or tab they were on, chosen filters, a simulator's scenario, a game's history
-			(cards drawn, score). The owner's saved state is the view everyone starts from; every other viewer saves
-			their own view on top of it and can switch to the owner's. Keep transient UI (hover, an open menu) in
-			useState, and never store query rows or secrets. Use stable literal keys and small JSON values (up to{' '}
-			{MAX_STORY_STATE_VALUE_BYTES / 1024} KB, {MAX_STORY_STATE_KEYS} keys); a stored value may predate your
-			latest version, so check its shape and fall back to the initial value. In an HTML story use{' '}
+			(cards drawn, score). It works like localStorage: every change is saved as it happens, so to let viewers
+			explore before keeping something, hold the draft in useState and set it on their own action. The owner's
+			values are what everyone starts from; every other viewer keeps their own on top of them. Keep transient UI
+			(hover, an open menu) in useState, and never store query rows or secrets. Use stable literal keys and small
+			JSON values (up to {MAX_STORY_STATE_VALUE_BYTES / 1024} KB, {MAX_STORY_STATE_KEYS} keys); a stored value may
+			predate your latest version, so check its shape and fall back to the initial value. In an HTML story use{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.state.get(key)`}</Bold> and{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.state.set(key, value)`}</Bold>.
-		</ListItem>,
-		<ListItem key='auto-save'>
-			When the story uses state, set <Bold>"autoSave"</Bold> in <Bold>{STORY_APP_MANIFEST_PATH}</Bold> to how this
-			kind of data should be kept; viewers never see the setting. <Bold>true</Bold> saves every change as it
-			happens: a game, a collection, a tracker. <Bold>false</Bold> keeps changes unsaved until the story saves
-			them: a dashboard or a what-if simulator people explore and come back to from the same start. Then render
-			your own Save and Discard buttons, only while there are changes, with{' '}
-			<Bold>{'const { hasChanges, isSaving, error, save, discard } = useStorySave()'}</Bold>; in an HTML story use{' '}
-			<Bold>{`${STORY_HTML_API_GLOBAL}.state.save()`}</Bold>,{' '}
-			<Bold>{`${STORY_HTML_API_GLOBAL}.state.discard()`}</Bold> and{' '}
-			<Bold>{`${STORY_HTML_API_GLOBAL}.state.onSaveStatus(listener)`}</Bold>.
 		</ListItem>,
 		<ListItem key='bespoke-visuals'>
 			For bespoke visuals the kit has no block for, wrap Recharts or your own markup in{' '}
