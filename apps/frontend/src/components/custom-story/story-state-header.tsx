@@ -77,7 +77,7 @@ function SaveControls({ session }: { session: StoryStateSession }) {
 				role='switch'
 				aria-checked={session.autoSave}
 				onClick={() => session.setAutoSave(!session.autoSave)}
-				className='flex items-center gap-2 rounded-full border px-2 py-0.75 text-xs font-medium hover:bg-secondary'
+				className='flex items-center gap-2 rounded-full border px-2 py-0.75 text-xs font-medium hover:bg-secondary hover:cursor-pointer'
 			>
 				<SaveIcon className='size-3.5' strokeWidth={2.25} />
 				<span>Auto-save data</span>
