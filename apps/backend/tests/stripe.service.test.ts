@@ -218,24 +218,28 @@ describe('getCloudPrice', () => {
 				lookup_keys?.[0] === 'yearly_sub' ? cloudYearlyPrice() : cloudMonthlyPrice({ unit_amount: 250_000 }),
 			],
 		}));
-		stripeMocks.retrievePrice.mockResolvedValue(
+		stripeMocks.retrievePrice.mockImplementation((_priceId: string, params?: Stripe.PriceRetrieveParams) =>
 			cloudMonthlyPrice({
 				id: 'price_legacy',
 				active: false,
-				currency: 'eur',
+				currency_options: params?.expand?.includes('currency_options')
+					? ({ eur: { unit_amount: 200_000 } } as Stripe.Price['currency_options'])
+					: undefined,
 				product: 'prod_cloud',
 				unit_amount: 200_000,
 			}),
 		);
 
-		await expect(getCloudBillingPlans('price_legacy')).resolves.toMatchObject({
+		await expect(getCloudBillingPlans('price_legacy', 'usd', 'eur')).resolves.toMatchObject({
 			availablePlans: {
 				monthly: { amount: 250_000, currency: 'usd' },
 				yearly: { amount: 2_000_000, currency: 'usd' },
 			},
 			subscriptionPlan: { amount: 200_000, currency: 'eur' },
 		});
-		expect(stripeMocks.retrievePrice).toHaveBeenCalledWith('price_legacy');
+		expect(stripeMocks.retrievePrice).toHaveBeenCalledWith('price_legacy', {
+			expand: ['currency_options'],
+		});
 	});
 
 	it('rejects a historical Price from another Product', async () => {

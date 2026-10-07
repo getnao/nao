@@ -63,7 +63,10 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		}),
 	);
 
-	const plan = billing.data?.plan ?? billing.data?.availablePlans?.[selectedBillingInterval];
+	const selectedPlan = billing.data?.availablePlans?.[selectedBillingInterval];
+	const plan = billing.data?.hasStripeSubscription
+		? (billing.data.plan ?? selectedPlan)
+		: (selectedPlan ?? billing.data?.plan);
 	const { hasStripeSubscription, isHistoricalSubscription, status } = billingSync;
 	const statusView = getBillingStatusView(
 		status,

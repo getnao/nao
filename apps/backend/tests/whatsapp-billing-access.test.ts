@@ -71,9 +71,9 @@ describe('WhatsApp billing access', () => {
 			{ post },
 			{
 				id: 'message-1',
-				text: '',
+				text: '[Voice message]',
 				author: { userId: 'whatsapp-user-1' },
-				attachments: [{ contentType: 'audio/ogg' }],
+				attachments: [{ type: 'audio', contentType: 'audio/ogg' }],
 			},
 		);
 
@@ -81,5 +81,33 @@ describe('WhatsApp billing access', () => {
 		expect(mocks.transcribeAudio).not.toHaveBeenCalled();
 		expect(mocks.createAgent).not.toHaveBeenCalled();
 		expect(post).toHaveBeenCalledWith('billing blocked');
+	});
+
+	it('does not reuse the earlier billing check when creating the agent', async () => {
+		const stream = new ReadableStream();
+		mocks.createAgent.mockResolvedValue({
+			getModelId: () => 'model-1',
+			stream: () => stream,
+		});
+
+		await (
+			whatsappService as unknown as {
+				_createAgentStream: (
+					chat: { id: string; messages: unknown[] },
+					ctx: { user: { id: string }; timezone: string },
+					chatUrl: string,
+				) => Promise<ReadableStream>;
+			}
+		)._createAgentStream(
+			{ id: 'chat-1', messages: [] },
+			{ user: { id: 'user-1' }, timezone: 'UTC' },
+			'https://example.com/chat-1',
+		);
+
+		expect(mocks.createAgent).toHaveBeenCalledWith(
+			{ id: 'chat-1', messages: [], projectId: 'project-1', userId: 'user-1' },
+			undefined,
+			{ supportsCustomCharts: false },
+		);
 	});
 });

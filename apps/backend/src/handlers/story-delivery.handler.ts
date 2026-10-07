@@ -56,13 +56,13 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job
 	}
 }
 
-export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPayload): Promise<string> {
+export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPayload): Promise<string | null> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
 	const story = await storyQueries.getStoryById(payload.storyId);
 	if (!story) {
-		throw new Error(`Story not found: ${payload.storyId}`);
+		return null;
 	}
 	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
 	if (!projectId) {

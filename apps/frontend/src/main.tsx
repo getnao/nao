@@ -67,7 +67,7 @@ export const trpcClient = createTRPCClient<TrpcRouter>({
 				const activeOrganizationId = getActiveOrganizationId();
 				activeOrganizationRecovery.trackRequests(
 					opList.map((operation) => operation.id),
-					activeOrganizationId,
+					{ organizationId: activeOrganizationId, projectId: activeProjectId },
 				);
 				return {
 					...(activeProjectId ? { 'x-nao-project-id': activeProjectId } : {}),

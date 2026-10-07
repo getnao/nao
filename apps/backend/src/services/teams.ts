@@ -35,6 +35,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 
 interface TeamsRawMessage {
@@ -166,6 +167,7 @@ class TeamsService {
 		await this._validateUserAccess(ctx);
 
 		try {
+			await assertProjectCloudBillingAccess(ctx.config.projectId);
 			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
 			await this._saveOrUpdateUserMessage(ctx);
 
@@ -296,7 +298,7 @@ class TeamsService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: ctx.config.projectId },
 			ctx.config.modelSelection,
-			{ supportsCustomCharts: false },
+			{ billingAccessVerifiedProjectId: ctx.config.projectId, supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'teams', timezone: ctx.timezone });

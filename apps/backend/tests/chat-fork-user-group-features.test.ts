@@ -134,6 +134,7 @@ describe('chat fork Story creation permission', () => {
 				selection: { start: 0, end: 5, text: 'Story' },
 			}),
 		).resolves.toEqual({ chatId: 'fork-chat-id' });
+		expect(mocks.getSharedStoryByStoryId).toHaveBeenCalledTimes(1);
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith('source-chat-id', '# Story');
 		expect(mocks.createForkedChat.mock.calls[0][0].forkMetadata.id).toBe('story-id');
@@ -267,6 +268,7 @@ describe('chat fork Story creation permission', () => {
 		).resolves.toEqual({
 			chatId: 'fork-chat-id',
 		});
+		expect(mocks.getSharedChatInfo).toHaveBeenCalledTimes(1);
 		expect(mocks.getChatMessages).toHaveBeenCalledWith('source-chat-id');
 	});
 

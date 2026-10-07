@@ -18,6 +18,7 @@ import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from '../u
 interface HandleAgentMessageInput extends AgentRequest {
 	userId: string;
 	projectId: string | undefined;
+	billingAccessVerifiedProjectId?: string;
 }
 
 interface HandleAgentMessageResult {
@@ -28,7 +29,8 @@ interface HandleAgentMessageResult {
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
-	const { userId, message, messageToEditId, model, mentions, projectId, adminMode } = opts;
+	const { userId, message, messageToEditId, model, mentions, projectId, adminMode, billingAccessVerifiedProjectId } =
+		opts;
 
 	if (!projectId) {
 		throw new HandlerError('BAD_REQUEST', noProjectMessage());
@@ -68,6 +70,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await skillService.initializeSkills(projectId);
 
 	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
+		billingAccessVerifiedProjectId,
 		...(adminMode
 			? {
 					tools: adminAgentTools,

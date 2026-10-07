@@ -1,6 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	getStoryById: vi.fn(async () => ({
+		id: 'story-id',
+		archivedAt: null,
+		chatId: 'chat-id',
+		projectId: 'project-id',
+		slug: 'story-slug',
+		userId: 'user-id',
+	})),
 	notifyUsers: vi.fn(),
 	refreshStoryData: vi.fn(),
 	updateJobPayload: vi.fn(),
@@ -15,14 +23,7 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	})),
 }));
 vi.mock('../src/queries/story.queries', () => ({
-	getStoryById: vi.fn(async () => ({
-		id: 'story-id',
-		archivedAt: null,
-		chatId: 'chat-id',
-		projectId: 'project-id',
-		slug: 'story-slug',
-		userId: 'user-id',
-	})),
+	getStoryById: mocks.getStoryById,
 	getLatestVersionByChatAndSlug: vi.fn(async () => ({
 		code: 'export default {}',
 		title: 'Story title',
@@ -61,7 +62,11 @@ vi.mock('../src/utils/story-links', () => ({
 	storyPath: vi.fn(() => '/stories/story-id'),
 }));
 
-import { runScheduledStoryDelivery, storyDeliveryHandler } from '../src/handlers/story-delivery.handler';
+import {
+	resolveStoryDeliveryProjectId,
+	runScheduledStoryDelivery,
+	storyDeliveryHandler,
+} from '../src/handlers/story-delivery.handler';
 import { NotificationChannelDeliveryError } from '../src/services/notification.service';
 
 beforeEach(() => {
@@ -81,6 +86,12 @@ it('delivers the refreshed story with scheduler-verified billing access', async 
 		expect.objectContaining({ channels: ['email'] }),
 		{ skipDeliveries: [], throwOnChannelError: true },
 	);
+});
+
+it('lets the handler no-op when the scheduled story no longer exists', async () => {
+	mocks.getStoryById.mockResolvedValueOnce(undefined);
+
+	await expect(resolveStoryDeliveryProjectId({ storyId: 'deleted-story-id' })).resolves.toBeNull();
 });
 
 it('preserves successful channels when the scheduler retries delivery', async () => {

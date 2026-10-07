@@ -8,8 +8,45 @@ describe('cloud billing access UI', () => {
 		expect(isCloudBillingAccessError({ message: 'Provider failed' })).toBe(false);
 	});
 
-	it('stops polling after active access is confirmed', () => {
-		expect(getCloudBillingAccessRefetchInterval({ status: 'active', hasAccess: true })).toBe(false);
-		expect(getCloudBillingAccessRefetchInterval({ status: 'trialing', hasAccess: true })).toBe(60_000);
+	it('refetches active access when its entitlement expires', () => {
+		const now = new Date('2026-10-07T12:00:00.000Z');
+		const accessEndsAt = new Date(now.getTime() + 30_000);
+
+		expect(
+			getCloudBillingAccessRefetchInterval(
+				{ status: 'active', hasAccess: true, accessEndsAt, bypassBilling: false, canManageBilling: false },
+				now.getTime(),
+			),
+		).toBe(30_000);
+		expect(
+			getCloudBillingAccessRefetchInterval(
+				{
+					status: 'active',
+					hasAccess: true,
+					accessEndsAt: null,
+					bypassBilling: false,
+					canManageBilling: false,
+				},
+				now.getTime(),
+			),
+		).toBe(false);
+		expect(
+			getCloudBillingAccessRefetchInterval(
+				{ status: 'trialing', hasAccess: true, accessEndsAt, bypassBilling: false, canManageBilling: false },
+				now.getTime(),
+			),
+		).toBe(60_000);
+	});
+
+	it('stops polling bypassed billing for members but not admins', () => {
+		const access = {
+			status: null,
+			hasAccess: false,
+			accessEndsAt: null,
+			bypassBilling: true,
+		};
+
+		expect(getCloudBillingAccessRefetchInterval({ ...access, canManageBilling: false })).toBe(false);
+		expect(getCloudBillingAccessRefetchInterval({ ...access, canManageBilling: true })).toBe(60_000);
 	});
 });

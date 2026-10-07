@@ -36,15 +36,29 @@ describe('active organization storage', () => {
 		expect(getActiveOrganizationId()).toBeNull();
 	});
 
-	it('leaves storage unchanged when no organization is selected', () => {
+	it('leaves storage unchanged when the request has no selection', () => {
 		setActiveProjectId('project-id');
 		const error = TRPCClientError.from<TrpcRouter>({
 			error: { code: -32004, message: 'error', data: { code: 'NOT_FOUND', httpStatus: 404 } },
 		});
 
-		expect(clearStaleActiveOrganization(null, error)).toBe(false);
+		expect(clearStaleActiveOrganization(null, null, error)).toBe(false);
 		expect(getActiveOrganizationId()).toBeNull();
 		expect(getActiveProjectId()).toBe('project-id');
+	});
+
+	it.each([
+		['project-id', null, true],
+		['previous-project-id', 'project-id', false],
+	])('handles a project fallback request for %s', (requestedProject, expectedProject, expectedCleared) => {
+		setActiveProjectId('project-id');
+		const error = TRPCClientError.from<TrpcRouter>({
+			error: { code: -32004, message: 'error', data: { code: 'NOT_FOUND', httpStatus: 404 } },
+		});
+
+		expect(clearStaleActiveOrganization(null, requestedProject, error)).toBe(expectedCleared);
+		expect(getActiveOrganizationId()).toBeNull();
+		expect(getActiveProjectId()).toBe(expectedProject);
 	});
 
 	it.each([
@@ -61,7 +75,7 @@ describe('active organization storage', () => {
 			});
 
 			expect(error.data?.code).toBe(code);
-			expect(clearStaleActiveOrganization(requestedOrganization, error)).toBe(expectedCleared);
+			expect(clearStaleActiveOrganization(requestedOrganization, null, error)).toBe(expectedCleared);
 			expect(getActiveOrganizationId()).toBe(expectedOrganization);
 			expect(getActiveProjectId()).toBe(expectedProject);
 		},

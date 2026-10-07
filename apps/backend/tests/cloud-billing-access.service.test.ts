@@ -185,6 +185,25 @@ describe('cloud billing access assertions', () => {
 		await expect(assertProjectCloudBillingAccess('project-1')).resolves.toBeUndefined();
 		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
 	});
+
+	it('rejects an organization without billing access', async () => {
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
+
+		await expect(assertOrganizationCloudBillingAccess('organization-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+			message: 'Cloud billing access is restricted. Ask an organization admin to update billing.',
+		});
+	});
+
+	it('rejects a project without billing access', async () => {
+		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
+
+		await expect(assertProjectCloudBillingAccess('project-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+			message: 'Cloud billing access is restricted. Ask an organization admin to update billing.',
+		});
+	});
 });
 
 function entitlement(

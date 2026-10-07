@@ -1,8 +1,10 @@
+import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	automationsEnabled: true,
 	archiveStory: vi.fn(),
+	assertOrganizationCloudBillingAccess: vi.fn(),
 	buildDownloadResponse: vi.fn(),
 	deleteAutomation: vi.fn(),
 	createSharedStory: vi.fn(),
@@ -101,7 +103,7 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 vi.mock('../src/services/activity', () => ({ logActivity: mocks.logActivity }));
 vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
-	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
 }));
 vi.mock('../src/services/live-story', () => ({
@@ -215,6 +217,23 @@ describe('user group feature route enforcement', () => {
 			expect.objectContaining({ title: 'Existing Automation', prompt: 'Updated prompt' }),
 		);
 		expect(mocks.deleteAutomation).toHaveBeenCalledWith('project-id', 'user-id', 'automation-id');
+	});
+
+	it('requires billing access to enable an Automation but allows disabling', async () => {
+		mocks.assertOrganizationCloudBillingAccess.mockRejectedValueOnce(
+			new TRPCError({ code: 'FORBIDDEN', message: 'Cloud billing access is restricted' }),
+		);
+
+		await expect(createCaller().automation.setEnabled({ id: 'automation-id', enabled: false })).resolves.toBeNull();
+		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+
+		await expect(
+			createCaller().automation.setEnabled({ id: 'automation-id', enabled: true }),
+		).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Cloud billing access is restricted',
+		});
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
 	});
 
 	it('preserves the Automation beta check before the creation grant', async () => {

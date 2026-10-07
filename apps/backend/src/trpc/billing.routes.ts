@@ -14,7 +14,7 @@ import {
 	resumeCloudSubscriptionForAdmin,
 	syncCloudBillingForAdmin,
 } from '../services/billing-management.service';
-import { hasCloudBillingAccess } from '../services/cloud-billing-access.service';
+import { getCloudBillingAccessEndsAt, hasCloudBillingAccess } from '../services/cloud-billing-access.service';
 import {
 	CloudInitialCheckoutUnavailableError,
 	CloudSubscriptionResumeError,
@@ -92,6 +92,7 @@ export const billingRoutes = {
 			bypassBilling: ctx.organization.bypassBilling,
 			status: billing?.billingStatus ?? null,
 			trialEndsAt: billing?.trialEndsAt ?? null,
+			accessEndsAt: getCloudBillingAccessEndsAt(billing),
 			canManageBilling: ctx.orgRole === 'admin',
 			trialAvailable: isTrialAvailable(billing),
 			requiresBillingAction: billing?.billingStatus === 'trialing' && billing.hasDefaultPaymentMethod !== true,

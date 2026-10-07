@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	getLatestStoryRefreshFailure: vi.fn(),
 	getStoryQueryData: vi.fn(),
 	refreshStoryData: vi.fn(),
+	assertProjectCloudBillingAccess: vi.fn(),
 	logAnalyticsEvent: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
 }));
@@ -46,7 +47,7 @@ vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
-	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
@@ -209,9 +210,22 @@ describe('shared Story manual refresh', () => {
 		expect(mocks.startStoryRefreshActivity).not.toHaveBeenCalled();
 	});
 
+	it('rejects refresh when cloud billing access is restricted', async () => {
+		mocks.assertProjectCloudBillingAccess.mockRejectedValueOnce(new Error('Cloud billing access is restricted'));
+
+		await expect(createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' })).rejects.toThrow(
+			'Cloud billing access is restricted',
+		);
+
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
+		expect(mocks.startStoryRefreshActivity).not.toHaveBeenCalled();
+	});
+
 	it('lets the owner refresh using the owner execution principal', async () => {
 		await createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' });
 
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
@@ -229,6 +243,7 @@ describe('shared Story manual refresh', () => {
 	it('lets an admin trigger an owner-scoped refresh while recording the admin actor', async () => {
 		await createCaller('admin-1').storyShare.refreshData({ storyId: 'story-1' });
 
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});

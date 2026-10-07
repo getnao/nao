@@ -15,6 +15,7 @@ import { llmProviderSchema } from '../types/llm';
 import {
 	canSendProcedure,
 	cloudBillingCanSendProcedure,
+	cloudBillingMiddleware,
 	cloudBillingProjectProcedure,
 	projectProtectedProcedure,
 } from './trpc';
@@ -45,6 +46,17 @@ const automationCostProcedure = cloudBillingProjectProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
 	return next();
 });
+
+const setAutomationEnabledSchema = z.object({ id: z.string(), enabled: z.boolean() });
+
+const automationToggleProcedure = automationProcedure
+	.input(setAutomationEnabledSchema)
+	.use(
+		cloudBillingMiddleware<
+			{ project: { id: string; orgId: string | null } },
+			z.infer<typeof setAutomationEnabledSchema>
+		>(({ project }, input) => (input.enabled ? { projectId: project.id, organizationId: project.orgId } : null)),
+	);
 
 const integrationSchema = z
 	.object({
@@ -159,15 +171,13 @@ export const automationRoutes = {
 			return syncAutomationJob(automation, cron, enabled);
 		}),
 
-	setEnabled: automationProcedure
-		.input(z.object({ id: z.string(), enabled: z.boolean() }))
-		.mutation(async ({ ctx, input }) => {
-			const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
-			if (!automation) {
-				return null;
-			}
-			return syncAutomationJob(automation, automation.cron, input.enabled);
-		}),
+	setEnabled: automationToggleProcedure.mutation(async ({ ctx, input }) => {
+		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
+		if (!automation) {
+			return null;
+		}
+		return syncAutomationJob(automation, automation.cron, input.enabled);
+	}),
 
 	delete: automationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
 		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);

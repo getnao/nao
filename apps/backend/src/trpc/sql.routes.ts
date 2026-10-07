@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 
-import { getLatestExecuteSqlByQueryId } from '../queries/execute-sql.queries';
+import { getLatestExecuteSqlByQueryId, type LatestExecuteSqlRow } from '../queries/execute-sql.queries';
 import { previewSqlQueryInChat, updateSqlQueryInChat } from '../services/update-sql';
 import { cloudBillingMiddleware, protectedProcedure } from './trpc';
 
@@ -11,11 +11,18 @@ const sqlEditInput = z.object({
 	name: z.string().nullish(),
 });
 
-const cloudBillingSqlEditProcedure = protectedProcedure.input(sqlEditInput).use(
-	cloudBillingMiddleware<{ user: { id: string } }, z.infer<typeof sqlEditInput>>(async (ctx, input) => {
-		const existing = await getLatestExecuteSqlByQueryId(input.queryId);
-		return existing?.userId === ctx.user.id ? { projectId: existing.projectId } : null;
-	}),
+const resolvedSqlEditProcedure = protectedProcedure.input(sqlEditInput).use(async ({ input, next }) => {
+	const existingSqlQuery = await getLatestExecuteSqlByQueryId(input.queryId);
+	return next({ ctx: { existingSqlQuery } });
+});
+
+const cloudBillingSqlEditProcedure = resolvedSqlEditProcedure.use(
+	cloudBillingMiddleware<{
+		user: { id: string };
+		existingSqlQuery: LatestExecuteSqlRow | null;
+	}>(({ existingSqlQuery, user }) =>
+		existingSqlQuery?.userId === user.id ? { projectId: existingSqlQuery.projectId } : null,
+	),
 );
 
 export const sqlRoutes = {
@@ -25,6 +32,7 @@ export const sqlRoutes = {
 			sqlQuery: input.sql_query,
 			databaseId: input.database_id ?? undefined,
 			userId: ctx.user.id,
+			existing: ctx.existingSqlQuery,
 		});
 	}),
 
@@ -35,6 +43,7 @@ export const sqlRoutes = {
 			databaseId: input.database_id ?? undefined,
 			name: input.name ?? undefined,
 			userId: ctx.user.id,
+			existing: ctx.existingSqlQuery,
 		});
 	}),
 };

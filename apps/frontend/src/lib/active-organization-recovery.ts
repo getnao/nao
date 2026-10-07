@@ -10,7 +10,7 @@ export function createActiveOrganizationRecovery({
 	invalidateQueries: () => void;
 	invalidateRouter: () => void;
 }) {
-	const requestOrganizationIds = new Map<number, string | null>();
+	const requestSelections = new Map<number, { organizationId: string | null; projectId: string | null }>();
 	const link: TRPCLink<TrpcRouter> = () => {
 		return ({ next, op }) => {
 			return observable((observer) => {
@@ -19,10 +19,15 @@ export function createActiveOrganizationRecovery({
 						observer.next(result);
 					},
 					error(error) {
-						const organizationId = requestOrganizationIds.get(op.id) ?? null;
-						requestOrganizationIds.delete(op.id);
+						const selection = requestSelections.get(op.id);
+						requestSelections.delete(op.id);
 						const cleared =
-							op.path === 'organization.get' && clearStaleActiveOrganization(organizationId, error);
+							op.path === 'organization.get' &&
+							clearStaleActiveOrganization(
+								selection?.organizationId ?? null,
+								selection?.projectId ?? null,
+								error,
+							);
 
 						observer.error(error);
 						if (cleared) {
@@ -33,13 +38,13 @@ export function createActiveOrganizationRecovery({
 						}
 					},
 					complete() {
-						requestOrganizationIds.delete(op.id);
+						requestSelections.delete(op.id);
 						observer.complete();
 					},
 				});
 
 				return () => {
-					requestOrganizationIds.delete(op.id);
+					requestSelections.delete(op.id);
 					subscription.unsubscribe();
 				};
 			});
@@ -48,9 +53,9 @@ export function createActiveOrganizationRecovery({
 
 	return {
 		link,
-		trackRequests(operationIds: number[], organizationId: string | null) {
+		trackRequests(operationIds: number[], selection: { organizationId: string | null; projectId: string | null }) {
 			for (const operationId of operationIds) {
-				requestOrganizationIds.set(operationId, organizationId);
+				requestSelections.set(operationId, selection);
 			}
 		},
 	};

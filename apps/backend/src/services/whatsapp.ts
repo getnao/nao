@@ -478,7 +478,7 @@ class WhatsappService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
-			{ billingAccessVerifiedProjectId: this._projectId, supportsCustomCharts: false },
+			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });

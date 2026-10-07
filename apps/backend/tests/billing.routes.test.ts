@@ -109,9 +109,27 @@ describe('billing.getAccess', () => {
 			bypassBilling: false,
 			status: 'trialing',
 			trialEndsAt,
+			accessEndsAt: trialEndsAt,
 			canManageBilling: false,
 			trialAvailable: false,
 			requiresBillingAction: true,
+		});
+	});
+
+	it('returns the effective end of scheduled active access', async () => {
+		const accessEndsAt = new Date('2099-11-05T00:00:00.000Z');
+		testState.membership = membership({
+			billingStatus: 'active',
+			stripeSubscriptionId: 'sub_active',
+			currentPeriodEndsAt: accessEndsAt,
+			billingAccessEndsAt: accessEndsAt,
+			cancellationScheduled: true,
+		});
+
+		await expect(caller().billing.getAccess()).resolves.toMatchObject({
+			hasAccess: true,
+			status: 'active',
+			accessEndsAt,
 		});
 	});
 

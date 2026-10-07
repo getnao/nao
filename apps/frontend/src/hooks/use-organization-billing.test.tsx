@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useOrganizationBilling } from './use-organization-billing';
 import type { ReactNode } from 'react';
@@ -53,6 +53,49 @@ describe('useOrganizationBilling', () => {
 		await waitFor(() => expect(result.current.isCheckoutPolling).toBe(false));
 		expect(result.current.isCheckoutConfirmationDelayed).toBe(false);
 		expect(result.current.checkoutFeedback).toBeNull();
+	});
+
+	it('uses the selected available plan when no Stripe subscription exists', async () => {
+		const yearlyPlan = {
+			key: 'cloud_yearly',
+			name: 'nao Cloud',
+			amount: 2_000_000,
+			currency: 'usd',
+			interval: 'year',
+			intervalCount: 1,
+		};
+		mocks.getStatus.mockResolvedValue({
+			hasStripeSubscription: false,
+			plan: {
+				key: 'cloud_monthly',
+				name: 'nao Cloud',
+				amount: 150_000,
+				currency: 'usd',
+				interval: 'month',
+				intervalCount: 1,
+			},
+			availablePlans: {
+				monthly: {
+					key: 'cloud_monthly',
+					name: 'nao Cloud',
+					amount: 200_000,
+					currency: 'usd',
+					interval: 'month',
+					intervalCount: 1,
+				},
+				yearly: yearlyPlan,
+			},
+			status: null,
+			canManageBilling: true,
+		});
+
+		const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
+
+		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
+		act(() => {
+			result.current.setSelectedBillingInterval('yearly');
+		});
+		expect(result.current.plan).toEqual(yearlyPlan);
 	});
 });
 

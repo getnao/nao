@@ -500,7 +500,9 @@ export async function getCloudBillingPlans(
 		return { availablePlans, subscriptionPlan: cloudBillingPlan(yearlyPrice, currentCurrency) };
 	}
 
-	const subscriptionPrice = await getStripeClient().prices.retrieve(stripePriceId);
+	const subscriptionPrice = await getStripeClient().prices.retrieve(stripePriceId, {
+		expand: ['currency_options'],
+	});
 	if (
 		!isCloudRecurringPriceDetails(subscriptionPrice) ||
 		stripeProductId(subscriptionPrice.product) !== configuredCloudProductId()

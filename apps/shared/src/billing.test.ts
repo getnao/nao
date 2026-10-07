@@ -22,13 +22,26 @@ describe('billing state', () => {
 				stripeSubscriptionId: null,
 			}),
 		).toBe(true);
-		expect(
-			isTrialAvailable({
-				billingStatus: null,
-				trialStartedAt: new Date(),
-				trialEndsAt: null,
-				stripeSubscriptionId: null,
-			}),
-		).toBe(false);
+	});
+
+	it.each([
+		[
+			'billing status',
+			{ billingStatus: 'canceled', trialStartedAt: null, trialEndsAt: null, stripeSubscriptionId: null },
+		],
+		[
+			'trial start',
+			{ billingStatus: null, trialStartedAt: new Date(), trialEndsAt: null, stripeSubscriptionId: null },
+		],
+		[
+			'trial end',
+			{ billingStatus: null, trialStartedAt: null, trialEndsAt: new Date(), stripeSubscriptionId: null },
+		],
+		[
+			'Stripe subscription',
+			{ billingStatus: null, trialStartedAt: null, trialEndsAt: null, stripeSubscriptionId: 'sub_123' },
+		],
+	] as const)('does not offer a trial when %s history exists', (_label, billing) => {
+		expect(isTrialAvailable(billing)).toBe(false);
 	});
 });
