@@ -75,7 +75,16 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled),
 				)
 				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
-		[betaSubagentsEnabled, cloudBillingEnabled, enabledLicenseFeatures, isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer],
+		[
+			betaSubagentsEnabled,
+			cloudBillingEnabled,
+			enabledLicenseFeatures,
+			isAdmin,
+			isCloud,
+			isContextAdmin,
+			isOrgAdmin,
+			isViewer,
+		],
 	);
 }
 
