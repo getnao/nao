@@ -641,6 +641,26 @@ describe('cloud Checkout', () => {
 		expect(stripeMocks.retrieveSubscription).toHaveBeenCalledTimes(2);
 	});
 
+	it('does not let an evicted failed lookup delete a newer cached lookup', async () => {
+		let rejectFirstLookup: (error: Error) => void;
+		const firstLookup = new Promise<Stripe.Subscription>((_resolve, reject) => {
+			rejectFirstLookup = reject;
+		});
+		stripeMocks.retrieveSubscription
+			.mockReturnValueOnce(firstLookup)
+			.mockResolvedValue(cloudSubscription({ currency: 'eur' }));
+
+		const evictedLookup = getCloudSubscriptionCurrency('sub_cloud');
+		__resetStripeForTesting();
+		await expect(getCloudSubscriptionCurrency('sub_cloud')).resolves.toBe('eur');
+
+		rejectFirstLookup!(new Error('stripe down'));
+		await expect(evictedLookup).rejects.toThrow('stripe down');
+		await expect(getCloudSubscriptionCurrency('sub_cloud')).resolves.toBe('eur');
+
+		expect(stripeMocks.retrieveSubscription).toHaveBeenCalledTimes(2);
+	});
+
 	it('creates a paid Checkout Session after a canceled subscription without another trial', async () => {
 		stripeMocks.listSubscriptions.mockReturnValue(paginatedList([cloudSubscription({ status: 'canceled' })]));
 		stripeMocks.createCheckoutSession.mockResolvedValue({

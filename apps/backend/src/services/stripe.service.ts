@@ -342,7 +342,11 @@ export function getCloudSubscriptionCurrency(stripeSubscriptionId: string): Prom
 	}
 	const currency = getCloudSubscription(stripeSubscriptionId).then((subscription) => subscription.currency);
 	subscriptionCurrencyCache.set(stripeSubscriptionId, currency);
-	currency.catch(() => subscriptionCurrencyCache.delete(stripeSubscriptionId));
+	currency.catch(() => {
+		if (subscriptionCurrencyCache.get(stripeSubscriptionId) === currency) {
+			subscriptionCurrencyCache.delete(stripeSubscriptionId);
+		}
+	});
 	return currency;
 }
 
