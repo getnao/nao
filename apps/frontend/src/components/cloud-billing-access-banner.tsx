@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { Clock3, Info } from 'lucide-react';
 
+import type { CloudBillingAccess } from '@/lib/cloud-billing-access';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
+import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
 import { trpc } from '@/main';
 
@@ -11,11 +13,9 @@ const TRIAL_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
 export function CloudBillingAccessBanner() {
 	const openOrganizationBilling = useOpenOrganizationBilling();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const access = useQuery({
-		...trpc.billing.getAccess.queryOptions(),
+	const access = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
-		refetchInterval: (query) =>
-			query.state.data?.status === 'active' && query.state.data.hasAccess ? false : 60_000,
+		pollWhileRestricted: true,
 	});
 	const notice = getAccessNotice(access.data);
 
@@ -48,21 +48,7 @@ export function CloudBillingAccessBanner() {
 	);
 }
 
-function getAccessNotice(
-	access:
-		| {
-				organizationId: string;
-				hasAccess: boolean;
-				bypassBilling: boolean;
-				status: string | null;
-				trialEndsAt: Date | null;
-				trialAvailable: boolean;
-				canManageBilling: boolean;
-				requiresBillingAction: boolean;
-		  }
-		| undefined,
-	now = Date.now(),
-) {
+function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now()) {
 	if (!access) {
 		return null;
 	}

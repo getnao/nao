@@ -22,7 +22,7 @@ import {
 	getCloudBillingPlans,
 	getCloudSubscription,
 } from '../services/stripe.service';
-import { CLOUD_BILLING_CURRENCIES, isTerminalBillingStatus } from '../types/billing';
+import { CLOUD_BILLING_CURRENCIES, isTerminalBillingStatus, isTrialAvailable } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
 import { publicProcedure, resolveOrganizationMembership } from './trpc';
@@ -93,12 +93,7 @@ export const billingRoutes = {
 			status: billing?.billingStatus ?? null,
 			trialEndsAt: billing?.trialEndsAt ?? null,
 			canManageBilling: ctx.orgRole === 'admin',
-			trialAvailable:
-				!billing ||
-				(billing.billingStatus === null &&
-					billing.trialStartedAt === null &&
-					billing.trialEndsAt === null &&
-					billing.stripeSubscriptionId === null),
+			trialAvailable: isTrialAvailable(billing),
 			requiresBillingAction: billing?.billingStatus === 'trialing' && billing.hasDefaultPaymentMethod !== true,
 		};
 	}),
@@ -108,42 +103,37 @@ export const billingRoutes = {
 			userId: ctx.user.id,
 			organizationId: ctx.organization.id,
 		});
-		const trialAvailable =
-			organization.billingStatus === null &&
-			organization.trialStartedAt === null &&
-			organization.trialEndsAt === null &&
-			organization.stripeSubscriptionId === null;
+		const billing = organization.billing;
+		const trialAvailable = isTrialAvailable(billing);
 		const { availablePlans, subscriptionPlan } = await (async () => {
-			const subscriptionCurrency = organization.stripeSubscriptionId
-				? (await getCloudSubscription(organization.stripeSubscriptionId)).currency
+			const subscriptionCurrency = billing?.stripeSubscriptionId
+				? (await getCloudSubscription(billing.stripeSubscriptionId)).currency
 				: null;
-			return getCloudBillingPlans(organization.stripePriceId, input?.currency ?? 'usd', subscriptionCurrency);
+			return getCloudBillingPlans(billing?.stripePriceId ?? null, input?.currency ?? 'usd', subscriptionCurrency);
 		})().catch((error: unknown) => throwBillingFailure('plan lookup', 'Unable to load billing plans', error));
 		const projectedPlan =
-			subscriptionPlan ??
-			Object.values(availablePlans).find((plan) => plan.key === organization.billingPlan) ??
-			null;
+			subscriptionPlan ?? Object.values(availablePlans).find((plan) => plan.key === billing?.billingPlan) ?? null;
 		return {
 			plan: projectedPlan,
 			availablePlans,
-			planKey: organization.billingPlan,
-			status: organization.billingStatus,
-			trialStartedAt: organization.trialStartedAt,
-			trialEndsAt: organization.trialEndsAt,
-			currentPeriodEndsAt: organization.currentPeriodEndsAt,
-			cancellationScheduled: organization.cancellationScheduled,
-			hasDefaultPaymentMethod: organization.hasDefaultPaymentMethod,
-			billingAccessEndsAt: organization.billingAccessEndsAt,
+			planKey: billing?.billingPlan ?? null,
+			status: billing?.billingStatus ?? null,
+			trialStartedAt: billing?.trialStartedAt ?? null,
+			trialEndsAt: billing?.trialEndsAt ?? null,
+			currentPeriodEndsAt: billing?.currentPeriodEndsAt ?? null,
+			cancellationScheduled: billing?.cancellationScheduled ?? null,
+			hasDefaultPaymentMethod: billing?.hasDefaultPaymentMethod ?? null,
+			billingAccessEndsAt: billing?.billingAccessEndsAt ?? null,
 			canManageBilling: true,
 			trialAvailable,
-			portalAvailable: Boolean(organization.stripeCustomerId && organization.stripeSubscriptionId),
-			invoiceHistoryAvailable: Boolean(organization.stripeCustomerId),
-			paymentMethodManagementAvailable: Boolean(organization.stripeCustomerId),
+			portalAvailable: Boolean(billing?.stripeCustomerId && billing.stripeSubscriptionId),
+			invoiceHistoryAvailable: Boolean(billing?.stripeCustomerId),
+			paymentMethodManagementAvailable: Boolean(billing?.stripeCustomerId),
 			resubscribeAvailable:
-				(!organization.stripeSubscriptionId && !trialAvailable) ||
-				(Boolean(organization.stripeCustomerId && organization.stripeSubscriptionId) &&
-					isTerminalBillingStatus(organization.billingStatus)),
-			hasStripeSubscription: Boolean(organization.stripeSubscriptionId),
+				(!billing?.stripeSubscriptionId && !trialAvailable) ||
+				(Boolean(billing?.stripeCustomerId && billing.stripeSubscriptionId) &&
+					isTerminalBillingStatus(billing?.billingStatus)),
+			hasStripeSubscription: Boolean(billing?.stripeSubscriptionId),
 		};
 	}),
 

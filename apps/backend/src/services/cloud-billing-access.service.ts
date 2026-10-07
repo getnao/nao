@@ -55,12 +55,6 @@ export function hasCloudBillingAccess(entitlement: CloudBillingEntitlement | nul
 	}
 }
 
-export function assertCloudBillingAccess(entitlement: CloudBillingEntitlement | null): void {
-	if (!hasCloudBillingAccess(entitlement)) {
-		throw new CloudBillingAccessRestrictedError();
-	}
-}
-
 export async function hasOrganizationCloudBillingAccess(organizationId: string): Promise<boolean> {
 	if (!isCloudBillingEnabled()) {
 		return true;
@@ -88,18 +82,15 @@ export async function hasProjectCloudBillingAccess(projectId: string): Promise<b
 }
 
 export async function assertOrganizationCloudBillingAccess(organizationId: string): Promise<void> {
-	if (!isCloudBillingEnabled()) {
-		return;
+	if (!(await hasOrganizationCloudBillingAccess(organizationId))) {
+		throw new CloudBillingAccessRestrictedError();
 	}
-	assertCloudBillingAccess(await getOrganizationBilling(organizationId));
 }
 
 export async function assertProjectCloudBillingAccess(projectId: string): Promise<void> {
-	if (!isCloudBillingEnabled()) {
-		return;
+	if (!(await hasProjectCloudBillingAccess(projectId))) {
+		throw new CloudBillingAccessRestrictedError();
 	}
-	const project = await getProjectById(projectId);
-	assertCloudBillingAccess(project?.orgId ? await getOrganizationBilling(project.orgId) : null);
 }
 
 function isAfter(date: Date | null, now: Date): boolean {

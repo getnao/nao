@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { ChatsReplayPanel } from '@/components/settings/chats-replay-panel';
 import { validateUsageSearch } from '@/components/settings/usage-route-search';
 import { useReplayOrigin } from '@/hooks/use-replay-origin';
-import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage/replay/$chatId')({
 	beforeLoad: requireContextAdminOrAdmin,

@@ -280,11 +280,10 @@ function BillingIntervalSelector({ billingState }: { billingState: BillingState 
 	}
 	const yearlySavings = 1 - plans.yearly.amount / (plans.monthly.amount * 12);
 	const yearlyMonthlyEquivalent = plans.yearly.amount / 12;
-	const yearlyDescription = `${formatBillingPrice(yearlyMonthlyEquivalent, plans.yearly.currency)} per month equivalent${
+	const yearlyDiscount =
 		yearlySavings > 0
-			? ` · Save ${new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 }).format(yearlySavings)}`
-			: ''
-	}`;
+			? `${new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 }).format(yearlySavings)} off`
+			: undefined;
 
 	return (
 		<div className='grid gap-3 sm:grid-cols-2' role='group' aria-label='Billing interval'>
@@ -299,8 +298,9 @@ function BillingIntervalSelector({ billingState }: { billingState: BillingState 
 				billingInterval='yearly'
 				billingState={billingState}
 				title='Yearly'
+				badge={yearlyDiscount}
 				price={`${formatBillingPrice(plans.yearly.amount, plans.yearly.currency)} per year`}
-				description={yearlyDescription}
+				description={`${formatBillingPrice(yearlyMonthlyEquivalent, plans.yearly.currency)} per month equivalent`}
 			/>
 		</div>
 	);
@@ -309,12 +309,14 @@ function BillingIntervalSelector({ billingState }: { billingState: BillingState 
 function BillingIntervalOption({
 	billingInterval,
 	billingState,
+	badge,
 	title,
 	price,
 	description,
 }: {
 	billingInterval: BillingInterval;
 	billingState: BillingState;
+	badge?: string;
 	title: string;
 	price: string;
 	description: string;
@@ -324,7 +326,7 @@ function BillingIntervalOption({
 		<button
 			type='button'
 			aria-pressed={selected}
-			className={`flex flex-col items-start gap-1 rounded-lg border p-4 text-left transition-colors ${
+			className={`flex cursor-pointer flex-col items-start gap-1 rounded-lg border p-4 text-left transition-colors disabled:cursor-not-allowed ${
 				selected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
 			}`}
 			onClick={() => {
@@ -336,7 +338,10 @@ function BillingIntervalOption({
 				billingState.isResubscribePending
 			}
 		>
-			<span className='font-medium text-foreground'>{title}</span>
+			<span className='flex items-center gap-2 font-medium text-foreground'>
+				{title}
+				{badge && <Badge>{badge}</Badge>}
+			</span>
 			<span className='text-sm text-foreground'>{price}</span>
 			<span className='text-xs text-muted-foreground'>{description}</span>
 		</button>

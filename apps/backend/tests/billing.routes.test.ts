@@ -40,6 +40,11 @@ vi.mock('../src/queries/user.queries', () => ({
 vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: stripeMocks.attachCustomer,
 	getOrganizationBilling: vi.fn(async () => testState.billing),
+	getOrganizationWithBilling: vi.fn(async () =>
+		testState.membership?.organization
+			? { ...testState.membership.organization, billing: testState.billing }
+			: null,
+	),
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({

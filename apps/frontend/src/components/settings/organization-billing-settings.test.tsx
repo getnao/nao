@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { isTerminalBillingStatus } from '@nao/shared/billing';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { OrganizationBillingSettings } from './organization-billing-settings';
 
 import type { useOrganizationBilling } from '@/hooks/use-organization-billing';
-import { getBillingStatusView, isHistoricalBillingStatus } from '@/lib/billing-display';
+import { getBillingStatusView } from '@/lib/billing-display';
 
 type BillingState = ReturnType<typeof useOrganizationBilling>;
 type BillingData = NonNullable<BillingState['billing']['data']>;
@@ -192,7 +193,8 @@ it('defaults to monthly and shows the Stripe-derived yearly discount before Chec
 	expect(screen.getByRole('button', { name: /Monthly/ }).getAttribute('aria-pressed')).toBe('true');
 	expect(screen.getByRole('button', { name: /Yearly/ }).getAttribute('aria-pressed')).toBe('false');
 	expect(screen.getByText(/\$20,000 per year/)).toBeTruthy();
-	expect(screen.getByText(/\$1,666.67 per month equivalent · Save 16.67%/)).toBeTruthy();
+	expect(screen.getByText('$1,666.67 per month equivalent')).toBeTruthy();
+	expect(screen.getByText('16.67% off')).toBeTruthy();
 
 	fireEvent.click(screen.getByRole('button', { name: /Yearly/ }));
 	expect(mocks.setSelectedBillingInterval).toHaveBeenCalledWith('yearly');
@@ -220,7 +222,7 @@ it('does not claim savings when the yearly Price has no discount', () => {
 	render(<OrganizationBillingSettings search={{}} />);
 
 	expect(screen.getByText('$2,000 per month equivalent')).toBeTruthy();
-	expect(screen.queryByText(/Save/)).toBeNull();
+	expect(screen.queryByText(/% off/)).toBeNull();
 });
 
 function billingState(): BillingState {
@@ -303,7 +305,7 @@ function billingState(): BillingState {
 		isCheckoutConfirmationDelayed: false,
 		isCheckoutPolling: mocks.isCheckoutPolling,
 		isEndingAtPeriodEnd: data.cancellationScheduled && (data.status === 'active' || data.status === 'trialing'),
-		isHistoricalSubscription: isHistoricalBillingStatus(mocks.status),
+		isHistoricalSubscription: isTerminalBillingStatus(mocks.status),
 		isPaymentMethodPortalPending: false,
 		isPortalPending: false,
 		isResubscribePending: false,

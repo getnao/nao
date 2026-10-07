@@ -1,6 +1,11 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 
-import s, { DBOrganizationBilling, DBStripeWebhookEvent, NewStripeWebhookEvent } from '../db/abstractSchema';
+import s, {
+	DBOrganization,
+	DBOrganizationBilling,
+	DBStripeWebhookEvent,
+	NewStripeWebhookEvent,
+} from '../db/abstractSchema';
 import { db } from '../db/db';
 import { BillingStatus } from '../types/billing';
 
@@ -22,6 +27,18 @@ export interface SubscriptionProjection {
 interface BillingSyncClaim {
 	billing: DBOrganizationBilling;
 	token: string;
+}
+
+export type OrganizationWithBilling = DBOrganization & { billing: DBOrganizationBilling | null };
+
+export async function getOrganizationWithBilling(orgId: string): Promise<OrganizationWithBilling | null> {
+	const [result] = await db
+		.select({ organization: s.organization, billing: s.organizationBilling })
+		.from(s.organization)
+		.leftJoin(s.organizationBilling, eq(s.organizationBilling.orgId, s.organization.id))
+		.where(eq(s.organization.id, orgId))
+		.execute();
+	return result ? { ...result.organization, billing: result.billing } : null;
 }
 
 export async function getOrganizationBilling(orgId: string): Promise<DBOrganizationBilling | null> {

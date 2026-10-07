@@ -1,3 +1,5 @@
+import { isTerminalBillingStatus } from '@nao/shared/billing';
+
 type BillingStatusView = {
 	label: string;
 	description: string;
@@ -93,11 +95,7 @@ export function getBillingManagementDescription(status: string | null, hasDefaul
 }
 
 export function getBillingPortalButtonLabel(status: string | null): string {
-	return isHistoricalBillingStatus(status) ? 'Open billing history' : 'Manage subscription';
-}
-
-export function isHistoricalBillingStatus(status: string | null | undefined): boolean {
-	return status === 'canceled' || status === 'incomplete_expired';
+	return isTerminalBillingStatus(status) ? 'Open billing history' : 'Manage subscription';
 }
 
 export function formatBillingPrice(amount: number, currency: string): string {

@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { isMac } from '@/lib/platform';
-import { requireAutomationsEnabled } from '@/lib/require-admin';
+import { requireAutomationsEnabled } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 

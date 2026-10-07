@@ -11,9 +11,9 @@ import {
 	getStripeInvoice,
 	getStripePaymentMethod,
 } from '../services/stripe.service';
-import { isCloudBillingPlanKey, STRIPE_WEBHOOK_PROCESS_JOB_NAME } from '../types/billing';
+import { isCloudBillingPlanKey } from '../types/billing';
 
-export { STRIPE_WEBHOOK_PROCESS_JOB_NAME };
+export const STRIPE_WEBHOOK_PROCESS_JOB_NAME = 'stripe.webhook.process';
 
 const SUBSCRIPTION_EVENTS = new Set([
 	'customer.subscription.created',

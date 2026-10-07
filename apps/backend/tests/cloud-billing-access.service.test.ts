@@ -12,7 +12,12 @@ vi.mock('../src/queries/billing.queries', () => ({ getOrganizationBilling: mocks
 vi.mock('../src/queries/organization.queries', () => ({ getOrganizationById: mocks.getOrganizationById }));
 vi.mock('../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
 
-import { hasCloudBillingAccess, hasProjectCloudBillingAccess } from '../src/services/cloud-billing-access.service';
+import {
+	assertOrganizationCloudBillingAccess,
+	assertProjectCloudBillingAccess,
+	hasCloudBillingAccess,
+	hasProjectCloudBillingAccess,
+} from '../src/services/cloud-billing-access.service';
 import type { BillingStatus } from '../src/types/billing';
 
 const now = new Date('2026-09-24T12:00:00.000Z');
@@ -157,6 +162,27 @@ describe('project cloud billing access', () => {
 		mocks.getOrganizationBilling.mockResolvedValue(null);
 
 		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
+		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
+	});
+});
+
+describe('cloud billing access assertions', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.isCloudBillingEnabled.mockReturnValue(true);
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: true });
+		mocks.getOrganizationBilling.mockResolvedValue(null);
+	});
+
+	it('allows an organization that bypasses billing', async () => {
+		await expect(assertOrganizationCloudBillingAccess('organization-1')).resolves.toBeUndefined();
+		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
+	});
+
+	it('allows a project whose organization bypasses billing', async () => {
+		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
+
+		await expect(assertProjectCloudBillingAccess('project-1')).resolves.toBeUndefined();
 		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
 	});
 });

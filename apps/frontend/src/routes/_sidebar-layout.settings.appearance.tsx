@@ -14,7 +14,7 @@ import { SidePanelProvider } from '@/contexts/side-panel';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSidePanel } from '@/hooks/use-side-panel';
-import { requireNonViewer } from '@/lib/require-admin';
+import { requireNonViewer } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
 type AppearanceTab = 'general' | 'custom-stories';
