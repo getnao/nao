@@ -88,7 +88,8 @@ export function CustomStoryFrame({
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
 	const dateFormat = useDateFormat();
-	const frameDocument = useStoryFrameDocument(app, styles, theme, dataSource, onError);
+	const usesState = stateControls?.usesState ?? false;
+	const frameDocument = useStoryFrameDocument(app, styles, theme, dataSource, usesState, onError);
 	const srcDoc = frameDocument?.html ?? null;
 	const channel = frameDocument?.channel;
 	const bootTheme = frameDocument?.theme;
@@ -104,6 +105,7 @@ export function CustomStoryFrame({
 	const stateSession = useStoryStateSession({
 		dataSource,
 		storyId: stateControls?.storyId ?? '',
+		enabled: usesState,
 		autoSaveDefault: stateControls?.autoSaveDefault ?? true,
 		pushToFrame: pushStateToFrame,
 	});
@@ -343,19 +345,23 @@ function useStoryFrameDocument(
 	styles: string[],
 	theme: StoryTheme,
 	dataSource: CustomStoryDataSource,
+	usesState: boolean,
 	onError?: (error: CustomStoryRuntimeError) => void,
 ): StoryFrameDocument | null {
 	const [frameDocument, setFrameDocument] = useState<StoryFrameDocument | null>(null);
 	const queryClient = useQueryClient();
 	const reportError = useEffectEvent((error: unknown) => onError?.({ message: describeError(error) }));
 	const readTheme = useEffectEvent(() => theme);
-	const loadState = useEffectEvent(
-		(): Promise<StoryStateValues> =>
-			queryClient
-				.fetchQuery(stateOptions(dataSource))
-				.catch(() => EMPTY_STORY_STATE_SNAPSHOT)
-				.then((snapshot) => savedViewOf(snapshot, 'mine')),
-	);
+	const loadState = useEffectEvent(async (): Promise<StoryStateValues> => {
+		if (!usesState) {
+			return {};
+		}
+		const options = stateOptions(dataSource);
+		const snapshot = await queryClient
+			.fetchQuery(options)
+			.catch(() => queryClient.getQueryData(options.queryKey) ?? EMPTY_STORY_STATE_SNAPSHOT);
+		return savedViewOf(snapshot, 'mine');
+	});
 	useEffect(() => {
 		let cancelled = false;
 		setFrameDocument(null);

@@ -39,7 +39,14 @@ async function setup(snapshot: StoryStateSnapshot, autoSaveDefault: boolean) {
 		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 	);
 	const { result } = renderHook(
-		() => useStoryStateSession({ dataSource: DATA_SOURCE, storyId: 'story-1', autoSaveDefault, pushToFrame }),
+		() =>
+			useStoryStateSession({
+				dataSource: DATA_SOURCE,
+				storyId: 'story-1',
+				enabled: true,
+				autoSaveDefault,
+				pushToFrame,
+			}),
 		{ wrapper },
 	);
 	await waitFor(() => expect(result.current.snapshot).toBeDefined());
@@ -85,6 +92,25 @@ describe('useStoryStateSession', () => {
 		expect(saveStoryState).toHaveBeenCalledWith(DATA_SOURCE, { key: 'tab', value: 'orders' });
 		expect(cached()?.shared).toEqual({ tab: 'orders' });
 		expect(result.current.hasChanges).toBe(false);
+	});
+
+	it('keeps a change made while saving as a draft', async () => {
+		const { result } = await setup(OWNER, false);
+		let finishSave = () => {};
+		saveStoryState.mockReturnValueOnce(new Promise<void>((resolve) => (finishSave = resolve)));
+
+		act(() => result.current.record({ key: 'tab', value: 'orders' }));
+		let saving = Promise.resolve();
+		act(() => {
+			saving = result.current.save();
+		});
+		act(() => result.current.record({ key: 'zoom', value: 2 }));
+		await act(async () => {
+			finishSave();
+			await saving;
+		});
+
+		expect(result.current.hasChanges).toBe(true);
 	});
 
 	it('drops a draft change that goes back to the saved value', async () => {

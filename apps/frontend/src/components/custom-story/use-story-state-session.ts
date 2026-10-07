@@ -26,6 +26,7 @@ export interface StoryStateSession {
 interface StoryStateSessionOptions {
 	dataSource: CustomStoryDataSource;
 	storyId: string;
+	enabled: boolean;
 	autoSaveDefault: boolean;
 	pushToFrame: (values: StoryStateValues) => void;
 }
@@ -33,17 +34,18 @@ interface StoryStateSessionOptions {
 export function useStoryStateSession({
 	dataSource,
 	storyId,
+	enabled,
 	autoSaveDefault,
 	pushToFrame,
 }: StoryStateSessionOptions): StoryStateSession {
 	const queryClient = useQueryClient();
-	const { data: snapshot } = useQuery(stateOptions(dataSource));
-	const saveLater = useStoryStateWriter(dataSource);
+	const { data: snapshot } = useQuery({ ...stateOptions(dataSource), enabled });
 	const [view, setViewState] = useState<StoryStateView>('mine');
 	const [autoSave, setAutoSaveState] = useState(() => readAutoSavePreference(storyId) ?? autoSaveDefault);
 	const [draft, setDraft] = useState<StoryStateValues>({});
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const saveLater = useStoryStateWriter(dataSource, setError);
 
 	const isViewingShared = view === 'shared' && snapshot?.isOwner === false;
 
@@ -62,13 +64,14 @@ export function useStoryStateSession({
 	);
 
 	const save = useCallback(async () => {
+		const saving = draft;
 		setIsSaving(true);
 		try {
-			for (const [key, value] of Object.entries(draft)) {
+			for (const [key, value] of Object.entries(saving)) {
 				await saveStoryState(dataSource, { key, value });
 			}
-			applyToCache(draft);
-			setDraft({});
+			applyToCache(saving);
+			setDraft((current) => withoutSavedChanges(current, saving));
 			setError(null);
 		} catch (saveError) {
 			setError(saveError instanceof Error ? saveError.message : 'The story view could not be saved.');
@@ -162,6 +165,13 @@ function applyChanges(values: StoryStateValues, changes: StoryStateValues): Stor
 		}
 	}
 	return next;
+}
+
+/** Changes recorded while the save was in flight stay in the draft. */
+function withoutSavedChanges(draft: StoryStateValues, saved: StoryStateValues): StoryStateValues {
+	return Object.fromEntries(
+		Object.entries(draft).filter(([key, value]) => !(key in saved) || !isSameValue(saved[key], value)),
+	);
 }
 
 function isSameValue(saved: unknown, value: unknown): boolean {

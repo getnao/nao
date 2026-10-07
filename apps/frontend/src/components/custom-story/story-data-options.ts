@@ -3,13 +3,8 @@ import { trpc, trpcClient } from '@/main';
 import { chatActivityStore } from '@/stores/chat-activity';
 
 /** Where a custom story's `useQueryData` calls are answered from: the owner's chat, a share link, or a read-only viewer. */
-type CustomStoryOwnerDataSource = { kind: 'owner'; storySlug: string } & (
-	| { chatId: string; storyId?: never }
-	| { storyId: string; chatId?: never }
-);
-
 export type CustomStoryDataSource =
-	| CustomStoryOwnerDataSource
+	| { kind: 'owner'; chatId: string; storySlug: string }
 	| { kind: 'share'; storyId: string; versionNumber?: number }
 	| { kind: 'viewer'; access: CustomStoryViewerAccess; storySlug: string; versionNumber?: number };
 
@@ -28,10 +23,9 @@ export function fileOptions(source: CustomStoryFileSource, path: string, version
 			versionNumber,
 		});
 	}
-	const { chatId, storySlug } = ownerChatSource(source);
 	return trpc.story.getCustomVersionFile.queryOptions({
-		chatId,
-		storySlug,
+		chatId: source.chatId,
+		storySlug: source.storySlug,
 		path,
 		versionNumber,
 	});
@@ -49,7 +43,7 @@ export function queryDataOptions(dataSource: CustomStoryDataSource, queryId: str
 			versionNumber: dataSource.versionNumber,
 		});
 	}
-	const { chatId, storySlug } = ownerChatSource(dataSource);
+	const { chatId, storySlug } = dataSource;
 	return {
 		...trpc.story.getCustomStoryQueryData.queryOptions({ chatId, storySlug, queryId }),
 		retry: (failureCount: number) =>
@@ -70,7 +64,7 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 			versionNumber: dataSource.versionNumber,
 		});
 	}
-	const { chatId, storySlug } = ownerChatSource(dataSource);
+	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId });
 }
 
@@ -82,7 +76,7 @@ export function narrativesOptions(dataSource: CustomStoryDataSource) {
 	if (dataSource.kind === 'share') {
 		return trpc.storyShare.getCustomStoryNarratives.queryOptions({ storyId: dataSource.storyId });
 	}
-	const { chatId, storySlug } = ownerChatSource(dataSource);
+	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryNarratives.queryOptions({ chatId, storySlug });
 }
 
@@ -94,7 +88,7 @@ export function stateOptions(dataSource: CustomStoryDataSource) {
 	if (dataSource.kind === 'share') {
 		return trpc.storyShare.getCustomStoryState.queryOptions({ storyId: dataSource.storyId });
 	}
-	const { chatId, storySlug } = ownerChatSource(dataSource);
+	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryState.queryOptions({ chatId, storySlug });
 }
 
@@ -108,16 +102,6 @@ export async function saveStoryState(dataSource: CustomStoryDataSource, change: 
 		await trpcClient.storyShare.setCustomStoryState.mutate({ storyId: dataSource.storyId, change });
 		return;
 	}
-	const { chatId, storySlug } = ownerChatSource(dataSource);
+	const { chatId, storySlug } = dataSource;
 	await trpcClient.story.setCustomStoryState.mutate({ chatId, storySlug, change });
-}
-
-function ownerChatSource(source: Extract<CustomStoryDataSource, { kind: 'owner' }>): {
-	chatId: string;
-	storySlug: string;
-} {
-	if (typeof source.chatId === 'string') {
-		return { chatId: source.chatId, storySlug: source.storySlug };
-	}
-	throw new Error('This custom story is not attached to a chat.');
 }
