@@ -4,8 +4,9 @@ import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { UserMessageBubble } from './user-message';
 import type { StickToBottomContext } from 'use-stick-to-bottom';
-import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
+import type { ForkMetadata, MessageModel, UIMessage } from '@nao/backend/chat';
 import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
+import { MessageModelLabel } from '@/components/chat-messages/message-model-label';
 import { checkAssistantMessageHasContent, groupMessages, groupToolCalls } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import {
@@ -20,6 +21,7 @@ import { MessageParts } from '@/components/chat-messages/assistant-message';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 
 export type FeedbackRecommendationMap = Record<string, { id: string; title: string; status: string }>;
+export type MessageModelMap = Record<string, MessageModel>;
 
 function recommendationTabForStatus(status: string): 'recommendations' | 'applied' | 'dismissed' {
 	if (status === 'applied') {
@@ -37,12 +39,14 @@ export function ChatMessagesReadonly({
 	forkMetadata,
 	conversationContextRef,
 	feedbackRecommendations,
+	messageModels,
 }: {
 	messages: UIMessage[];
 	className?: string;
 	forkMetadata?: ForkMetadata;
 	conversationContextRef?: React.Ref<StickToBottomContext>;
 	feedbackRecommendations?: FeedbackRecommendationMap;
+	messageModels?: MessageModelMap;
 }) {
 	const messageGroups = useMemo(() => groupMessages(filterSupersededExecuteSqlParts(messages)), [messages]);
 
@@ -74,6 +78,7 @@ export function ChatMessagesReadonly({
 								assistantMessages={group.assistantMessages}
 								citation={citation}
 								feedbackRecommendations={feedbackRecommendations}
+								messageModels={messageModels}
 							/>
 						))
 					)}
@@ -90,11 +95,13 @@ const MessageGroupReadonly = ({
 	assistantMessages,
 	citation,
 	feedbackRecommendations,
+	messageModels,
 }: {
 	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
 	citation: { id: string; citation: string; text: string } | null;
 	feedbackRecommendations?: FeedbackRecommendationMap;
+	messageModels?: MessageModelMap;
 }) => {
 	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 	return (
@@ -105,6 +112,7 @@ const MessageGroupReadonly = ({
 					message={message}
 					citation={citation}
 					feedbackRecommendations={feedbackRecommendations}
+					messageModels={messageModels}
 				/>
 			))}
 		</div>
@@ -115,10 +123,12 @@ const MessageBlockReadonly = ({
 	message,
 	citation,
 	feedbackRecommendations,
+	messageModels,
 }: {
 	message: UIMessage;
 	citation: { id: string; citation: string; text: string } | null;
 	feedbackRecommendations?: FeedbackRecommendationMap;
+	messageModels?: MessageModelMap;
 }) => {
 	if (message.isForked && citation?.id === message.id) {
 		return <CitationBlockReadonly citation={citation} />;
@@ -128,7 +138,13 @@ const MessageBlockReadonly = ({
 		return <UserMessageReadonly message={message} />;
 	}
 
-	return <AssistantMessageReadonly message={message} linkedRecommendation={feedbackRecommendations?.[message.id]} />;
+	return (
+		<AssistantMessageReadonly
+			message={message}
+			linkedRecommendation={feedbackRecommendations?.[message.id]}
+			model={messageModels?.[message.id]}
+		/>
+	);
 };
 
 const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
@@ -143,9 +159,11 @@ const AssistantMessageReadonly = memo(
 	({
 		message,
 		linkedRecommendation,
+		model,
 	}: {
 		message: UIMessage;
 		linkedRecommendation?: { id: string; title: string; status: string };
+		model?: MessageModel;
 	}) => {
 		const [toolCallDensity] = useToolCallDensity();
 		const messageParts = useMemo(
@@ -163,6 +181,8 @@ const AssistantMessageReadonly = memo(
 			<AssistantMessageProvider isSettled={true}>
 				<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')} data-replay-target-id={message.id}>
 					<MessageParts parts={messageParts} />
+
+					{model && <MessageModelLabel model={model} />}
 
 					{message.feedback && (
 						<div

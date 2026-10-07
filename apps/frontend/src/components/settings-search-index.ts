@@ -973,7 +973,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Chats replay',
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
-		keywords: ['history', 'conversation', 'replay', 'review'],
+		keywords: ['history', 'conversation', 'replay', 'review', 'search conversations', 'find chat'],
 		adminOrContextAdmin: true,
 	},
 

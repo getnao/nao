@@ -70,3 +70,37 @@ describe('file parts', () => {
 		expect(convertDBPartToUIPart(part)).toBeUndefined();
 	});
 });
+
+describe('compaction parts', () => {
+	it('stores a compaction summary and reads it back', () => {
+		const dbPart = convertUIPartToDBPart(
+			{ type: 'data-compaction', data: { summary: 'Conversation summary' } },
+			'msg-1',
+			0,
+		);
+
+		expect(dbPart).toMatchObject({ type: 'data-compaction', text: 'Conversation summary' });
+		expect(convertDBPartToUIPart(asDBPart(dbPart))).toEqual({
+			type: 'data-compaction',
+			data: { summary: 'Conversation summary' },
+		});
+	});
+
+	it('stores a compaction error and reads it back', () => {
+		const dbPart = convertUIPartToDBPart(
+			{ type: 'data-compaction', data: { summary: '', error: 'CompactionError: Failed to resolve LLM.' } },
+			'msg-1',
+			0,
+		);
+
+		expect(dbPart).toMatchObject({
+			type: 'data-compaction',
+			text: '',
+			toolErrorText: 'CompactionError: Failed to resolve LLM.',
+		});
+		expect(convertDBPartToUIPart(asDBPart(dbPart))).toEqual({
+			type: 'data-compaction',
+			data: { summary: '', error: 'CompactionError: Failed to resolve LLM.' },
+		});
+	});
+});

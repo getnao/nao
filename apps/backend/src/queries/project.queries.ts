@@ -623,6 +623,14 @@ export const listProjectChats = async (
 				or CAST(${upvotesExpr} AS TEXT) like ${like}
 				or CAST(${toolErrorCountExpr} AS TEXT) like ${like}
 				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like}
+				or exists (
+					select 1
+					from ${s.chatMessage}
+					inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
+					where ${s.chatMessage.chatId} = ${s.chat.id}
+						and ${s.chatMessage.supersededAt} is null
+						and lower(${s.messagePart.text}) like ${like}
+				)
 			)
 		`);
 	}

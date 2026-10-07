@@ -11,6 +11,7 @@ import { ChatsReplayTable } from '@/components/settings/chats-replay-table';
 import { trpc } from '@/main';
 
 type ChatsReplayPageProps = {
+	search?: string;
 	selectedUserNames: string[] | undefined;
 	selectedFeedbackStates: ChatReplayFeedbackState[] | undefined;
 	selectedToolStates: ChatReplayToolState[] | undefined;
@@ -24,6 +25,7 @@ type ProjectChatsFilter = {
 };
 
 export function ChatsReplayPage({
+	search,
 	selectedUserNames,
 	selectedFeedbackStates,
 	selectedToolStates,
@@ -39,7 +41,7 @@ export function ChatsReplayPage({
 
 	useEffect(() => {
 		setPagination((current) => ({ ...current, pageIndex: 0 }));
-	}, [selectedFeedbackStates, selectedSources, selectedToolStates, selectedUserNames]);
+	}, [search, selectedFeedbackStates, selectedSources, selectedToolStates, selectedUserNames]);
 
 	const queryInput = useMemo(() => {
 		const filters: ProjectChatsFilter[] = [];
@@ -59,12 +61,14 @@ export function ChatsReplayPage({
 		return {
 			page: pagination.pageIndex,
 			pageSize: pagination.pageSize,
+			search,
 			filters: filters.length ? filters : undefined,
 			sorting: sorting.length ? sorting : undefined,
 		};
 	}, [
 		pagination.pageIndex,
 		pagination.pageSize,
+		search,
 		selectedFeedbackStates,
 		selectedSources,
 		selectedToolStates,

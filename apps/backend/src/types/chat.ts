@@ -1,5 +1,5 @@
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
-import { type CitationData } from '@nao/shared/types';
+import { type CitationData, type LlmProvider } from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -37,6 +37,13 @@ export interface UIChat {
 		DBAutomationRun,
 		'id' | 'automationId' | 'status' | 'startedAt' | 'completedAt' | 'errorMessage'
 	>;
+}
+
+/** The model that generated an assistant message. */
+export interface MessageModel {
+	provider: LlmProvider;
+	modelId: string;
+	name: string;
 }
 
 export interface ChatListItem {

@@ -1,8 +1,8 @@
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
-import { type LlmProvider, providerKind } from '@nao/shared/types';
+import { type LlmProvider } from '@nao/shared/types';
 import { convertToModelMessages, type ModelMessage, type Tool } from 'ai';
 
-import { KNOWN_MODELS } from '../agents/providers';
+import { getContextWindow } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { SystemPrompt } from '../components/ai';
 import { renderToMarkdown } from '../lib/markdown';
@@ -33,7 +33,10 @@ export async function getChatContextUsage(opts: {
 	const messages = await getChatAsModelMessages({ ...opts, projectId, tools });
 	const messageTokens = tokenCounter.estimateMessages(messages);
 	const toolTokens = await tokenCounter.estimateTools(tools);
-	return { tokensUsed: messageTokens + toolTokens, contextWindow: opts.model ? getContextWindow(opts.model) : null };
+	return {
+		tokensUsed: messageTokens + toolTokens,
+		contextWindow: opts.model ? getContextWindow(opts.model.provider, opts.model.modelId) : null,
+	};
 }
 
 export async function getChatAsModelMessages(opts: {
@@ -51,10 +54,4 @@ export async function getChatAsModelMessages(opts: {
 		parts: [{ type: 'text', text: systemPrompt }],
 	};
 	return convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction], { tools: opts.tools });
-}
-
-function getContextWindow({ provider, modelId }: { provider: LlmProvider; modelId: string }): number | null {
-	const models = KNOWN_MODELS[providerKind(provider)] ?? [];
-	const contextWindow = models.find((m) => m.id === modelId)?.contextWindow;
-	return contextWindow ?? null;
 }
