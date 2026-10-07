@@ -2,13 +2,17 @@ import { Search, X } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { cn } from '@/lib/utils';
 
-export function StoriesSearchBar({
+export function SearchBar({
 	value,
 	onChange,
+	placeholder,
+	ariaLabel,
 	className,
 }: {
 	value: string;
 	onChange: (value: string) => void;
+	placeholder: string;
+	ariaLabel: string;
 	className?: string;
 }) {
 	function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -30,8 +34,8 @@ export function StoriesSearchBar({
 				value={value}
 				onChange={(event) => onChange(event.target.value)}
 				onKeyDown={handleKeyDown}
-				placeholder='Search stories or paste an ID...'
-				aria-label='Search stories'
+				placeholder={placeholder}
+				aria-label={ariaLabel}
 				className='flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground'
 			/>
 			{value && (

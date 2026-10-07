@@ -316,6 +316,17 @@ export const getProjectDeclaredModels = async (
 	return sources.map(({ provider, customModels }) => ({ provider, models: customModels }));
 };
 
+/** Names models the way the project lists them, falling back to nao's catalogue then the raw model id. */
+export const getProjectModelNameResolver = async (
+	projectId: string,
+): Promise<(provider: LlmProvider, modelId: string) => string> => {
+	const declaredModels = await getProjectDeclaredModels(projectId);
+	return (provider, modelId) => {
+		const declared = declaredModels.find((d) => d.provider === provider)?.models.find((m) => m.id === modelId);
+		return declared?.displayName?.trim() || getModelName(provider, modelId);
+	};
+};
+
 type ProviderModelSource = {
 	provider: LlmProvider;
 	enabledModels: string[];

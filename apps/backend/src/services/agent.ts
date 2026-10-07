@@ -678,7 +678,7 @@ class AgentManager {
 			tools: this._agentTools,
 		});
 
-		return sanitizeToolCallIds(modelMessages);
+		return sanitizeToolCallIds(modelMessages, this._modelSelection.provider);
 	}
 
 	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {

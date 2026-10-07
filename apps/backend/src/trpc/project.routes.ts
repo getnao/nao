@@ -33,7 +33,7 @@ import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
 import { AgentSettings } from '../types/agent-settings';
-import type { ContextUsage } from '../types/chat';
+import type { ContextUsage, MessageModel } from '../types/chat';
 import {
 	configLlmProviderSchema,
 	customModelMetadataSchema,
@@ -50,6 +50,7 @@ import {
 	getEnvProviders,
 	getProjectAvailableModels,
 	getProjectConfigLlm,
+	getProjectModelNameResolver,
 } from '../utils/llm';
 import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
@@ -1123,12 +1124,22 @@ export const projectRoutes = {
 				};
 			}
 
+			const [assistantModels, resolveModelName] = await Promise.all([
+				chatQueries.getAssistantMessageModels(input.chatId),
+				getProjectModelNameResolver(ctx.project.id),
+			]);
+			const messageModels: Record<string, MessageModel> = {};
+			for (const { messageId, provider, modelId } of assistantModels) {
+				messageModels[messageId] = { provider, modelId, name: resolveModelName(provider, modelId) };
+			}
+
 			return {
 				...chat,
 				ownerId: ownerId ?? null,
 				ownerName,
 				chatOwnerId: ownerId ?? null,
 				feedbackRecommendations,
+				messageModels,
 			};
 		}),
 

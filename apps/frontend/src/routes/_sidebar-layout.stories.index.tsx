@@ -30,7 +30,7 @@ import { ProjectSwitcher } from '@/components/project-selector';
 import { SortHeader } from '@/components/stories-sort-header';
 import { StoriesExplorer } from '@/components/stories-explorer';
 import { PromotedSections } from '@/components/stories-pinned-favorites';
-import { StoriesSearchBar } from '@/components/stories-search-bar';
+import { SearchBar } from '@/components/search-bar';
 import { StoriesToolbarControls } from '@/components/stories-toolbar-controls';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSession } from '@/lib/auth-client';
@@ -603,7 +603,13 @@ function StoriesPage() {
 					</div>
 
 					{!isEmpty && !showArchived && (
-						<StoriesSearchBar value={searchQuery} onChange={setSearchQuery} className='mb-6' />
+						<SearchBar
+							value={searchQuery}
+							onChange={setSearchQuery}
+							placeholder='Search stories or paste an ID...'
+							ariaLabel='Search stories'
+							className='mb-6'
+						/>
 					)}
 
 					{!showArchived && !isCertifiedScope && (

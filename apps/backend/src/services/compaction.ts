@@ -15,6 +15,7 @@ import {
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
 import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { sanitizeToolCallIds } from '../utils/model-message';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
@@ -38,6 +39,11 @@ interface CompactConversationOptions {
 	tools: Record<string, Tool>;
 	maxOutputTokens: number;
 	contextWindow: number;
+}
+
+interface ResolvedCompactionLLM {
+	llm: ICompactionLLM;
+	provider: LlmProvider;
 }
 
 interface CompactionServiceOptions {
@@ -143,13 +149,13 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const llm = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider, opts.modelId);
-		if (!llm) {
+		const compaction = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider, opts.modelId);
+		if (!compaction) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
 
-		const result = await this._compactUpToLastUserMessage(llm, opts, firstNonSystemIndex, lastUserIndex);
-		this._trackInference(opts, llm.modelId, result.usage);
+		const result = await this._compactUpToLastUserMessage(compaction, opts, firstNonSystemIndex, lastUserIndex);
+		this._trackInference(opts, compaction.llm.modelId, result.usage);
 
 		return result;
 	}
@@ -170,7 +176,11 @@ export class CompactionService {
 		return index;
 	}
 
-	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider, selectedModelId: string) {
+	private async _resolveCompactionLLM(
+		projectId: string,
+		provider: LlmProvider,
+		selectedModelId: string,
+	): Promise<ResolvedCompactionLLM | undefined> {
 		const pinned = await resolveDefaultModelSelection(projectId, 'compaction');
 		const effectiveProvider = pinned?.provider ?? provider;
 		const modelId =
@@ -184,12 +194,15 @@ export class CompactionService {
 		if (!model) {
 			return undefined;
 		}
-		return this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc);
+		return {
+			llm: this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc),
+			provider: effectiveProvider,
+		};
 	}
 
 	/** Summarizes conversation up to the latest user message and replaces that range in-place. */
 	private async _compactUpToLastUserMessage(
-		llm: ICompactionLLM,
+		{ llm, provider }: ResolvedCompactionLLM,
 		opts: CompactConversationOptions,
 		firstNonSystemIndex: number,
 		lastUserIndex: number,
@@ -199,7 +212,7 @@ export class CompactionService {
 		}
 
 		const messagesToSummarize = opts.messages.slice(firstNonSystemIndex, lastUserIndex);
-		const { summary, usage } = await llm.compact(messagesToSummarize);
+		const { summary, usage } = await llm.compact(sanitizeToolCallIds(messagesToSummarize, provider));
 
 		this._replaceCompactedMessages(
 			opts.messages,
