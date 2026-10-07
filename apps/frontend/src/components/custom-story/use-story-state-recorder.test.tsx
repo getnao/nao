@@ -9,10 +9,18 @@ import type { StoryStateSnapshot } from '@nao/shared/story-app';
 import type { ReactNode } from 'react';
 
 const STATE_KEY = ['story-state'];
-const { saveLater } = vi.hoisted(() => ({ saveLater: vi.fn() }));
+const { saveLater, writerErrorRef } = vi.hoisted(() => ({
+	saveLater: vi.fn(),
+	writerErrorRef: { current: (_message: string) => {} },
+}));
 
 vi.mock('./story-data-options', () => ({ stateOptions: () => ({ queryKey: STATE_KEY }) }));
-vi.mock('./use-story-state-writer', () => ({ useStoryStateWriter: () => saveLater }));
+vi.mock('./use-story-state-writer', () => ({
+	useStoryStateWriter: (_dataSource: unknown, reportError: (message: string) => void) => {
+		writerErrorRef.current = reportError;
+		return saveLater;
+	},
+}));
 
 const DATA_SOURCE = { kind: 'share', storyId: 'story-1' } as const;
 const MEMBER: StoryStateSnapshot = { shared: { tab: 'revenue', zoom: 1 }, own: { zoom: 3 }, isOwner: false };
@@ -24,9 +32,11 @@ function setup(snapshot: StoryStateSnapshot) {
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 	);
-	const { result } = renderHook(() => useStoryStateRecorder(DATA_SOURCE, vi.fn()), { wrapper });
+	const reportError = vi.fn();
+	const { result } = renderHook(() => useStoryStateRecorder(DATA_SOURCE, reportError), { wrapper });
 	const cached = () => queryClient.getQueryData<StoryStateSnapshot>(STATE_KEY);
-	return { record: result.current, cached };
+	const isStale = () => queryClient.getQueryState(STATE_KEY)?.isInvalidated ?? false;
+	return { record: result.current, cached, isStale, reportError };
 }
 
 describe('useStoryStateRecorder', () => {
@@ -56,5 +66,15 @@ describe('useStoryStateRecorder', () => {
 		act(() => record({ key: 'zoom', value: null }));
 
 		expect(viewerStateOf(cached())).toEqual({ tab: 'revenue', zoom: 1 });
+	});
+
+	it('reports a failed save and stops trusting the cached value', () => {
+		const { record, isStale, reportError } = setup(OWNER);
+		act(() => record({ key: 'tab', value: 'orders' }));
+
+		act(() => writerErrorRef.current('The story state "tab" could not be saved.'));
+
+		expect(reportError).toHaveBeenCalledWith('The story state "tab" could not be saved.');
+		expect(isStale()).toBe(true);
 	});
 });

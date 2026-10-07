@@ -12,7 +12,14 @@ export function useStoryStateRecorder(
 	reportError: (message: string) => void,
 ): (change: StoryStateChange) => void {
 	const queryClient = useQueryClient();
-	const saveLater = useStoryStateWriter(dataSource, reportError);
+	const handleSaveError = useCallback(
+		(message: string) => {
+			reportError(message);
+			void queryClient.invalidateQueries({ queryKey: stateOptions(dataSource).queryKey });
+		},
+		[dataSource, queryClient, reportError],
+	);
+	const saveLater = useStoryStateWriter(dataSource, handleSaveError);
 
 	return useCallback(
 		(change: StoryStateChange) => {
