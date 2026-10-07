@@ -9,11 +9,12 @@ import {
 	type MapSettings,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
+	SYSTEM_EXAMPLE_PROJECT_ID,
 	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -137,7 +138,12 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
 		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
-		.where(or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)))
+		.where(
+			and(
+				ne(s.project.id, SYSTEM_EXAMPLE_PROJECT_ID),
+				or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)),
+			),
+		)
 		.orderBy(asc(s.project.name))
 		.execute();
 	return results;

@@ -103,9 +103,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 		.from(s.chat)
 		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
 		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
-		.where(
-			and(eq(s.chat.userId, userId), isNull(s.chat.deletedAt), isNotAutomationRunChat(), isNotOnboardingChat()),
-		)
+		.where(and(eq(s.chat.userId, userId), isNull(s.chat.deletedAt), isNotAutomationRunChat()))
 		.orderBy(desc(s.chat.updatedAt))
 		.execute();
 	return rows satisfies EnrichedChat[];

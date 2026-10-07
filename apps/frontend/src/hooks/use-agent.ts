@@ -40,7 +40,7 @@ import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { chatInputRestoreStore } from '@/stores/chat-input-restore';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 
-export type AgentMode = 'default' | 'onboarding';
+export type AgentMode = 'default' | 'onboarding' | 'example';
 
 export interface AgentHelpers {
 	chatId: string | undefined;
@@ -90,6 +90,7 @@ const agentAdminModeStore = new WeakMap<Agent<UIMessage>, boolean>();
 
 interface AgentSendRefs {
 	adminModeRef: { current: boolean };
+	modeRef: { current: AgentMode };
 	selectedModelRef: { current: LlmSelectedModel | null };
 	mentionsRef: { current: MentionOption[] };
 }
@@ -118,6 +119,8 @@ export const useAgent = ({
 	chatIdRef.current = chatId;
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
 	selectedModelRef.current = selectedModel;
+	const modeRef = useRef(mode);
+	modeRef.current = mode;
 	const mentionsRef = useRef<MentionOption[]>([]);
 	const [adminMode, setAdminModeState] = useState(false);
 	const adminModeRef = useRef(false);
@@ -148,10 +151,11 @@ export const useAgent = ({
 		}
 
 		const handleAgentDataPart = (dataPart: InferUIMessageChunk<UIMessage>, agent: Agent<UIMessage>) => {
+			const activeMode = agentSendRefsStore.get(agent)?.modeRef.current ?? modeRef.current;
 			if (dataPart.type === 'data-newChat') {
 				const newChat = dataPart.data;
 				setChatId(newChat.id);
-				if (mode === 'onboarding' && userIdRef.current) {
+				if (activeMode === 'onboarding' && userIdRef.current) {
 					getOnboardingChatIdStorage(userIdRef.current).set(newChat.id);
 				}
 				if (agentId !== newChat.id) {
@@ -190,7 +194,7 @@ export const useAgent = ({
 								...message,
 								id: newId,
 								...(citation && { citation }),
-								...(mode === 'onboarding'
+								...(activeMode === 'onboarding'
 									? { source: 'onboarding' as const }
 									: sentInAdminMode && { source: 'admin' as const }),
 							}
@@ -210,6 +214,7 @@ export const useAgent = ({
 
 					const liveRefs = agentSendRefsStore.get(newAgent);
 					const activeMentionsRef = liveRefs?.mentionsRef ?? mentionsRef;
+					const activeModeRef = liveRefs?.modeRef ?? modeRef;
 					const activeSelectedModelRef = liveRefs?.selectedModelRef ?? selectedModelRef;
 					const activeAdminModeRef = liveRefs?.adminModeRef ?? adminModeRef;
 
@@ -224,7 +229,7 @@ export const useAgent = ({
 						headers: getProjectRequestHeaders(),
 						body: {
 							...body,
-							mode,
+							mode: activeModeRef.current,
 							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
@@ -232,7 +237,10 @@ export const useAgent = ({
 								documents: documents.length > 0 ? documents : undefined,
 								citation,
 							},
-							model: mode === 'onboarding' ? undefined : (activeSelectedModelRef.current ?? undefined),
+							model:
+								activeModeRef.current === 'onboarding'
+									? undefined
+									: (activeSelectedModelRef.current ?? undefined),
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 							adminMode: adminModeAtSend || undefined,
@@ -269,9 +277,9 @@ export const useAgent = ({
 		}
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [contextChatId, disableNavigation, navigate, setChat, queryClient, mode]);
+	}, [contextChatId, disableNavigation, navigate, setChat, queryClient]);
 
-	agentSendRefsStore.set(agentInstance, { adminModeRef, selectedModelRef, mentionsRef });
+	agentSendRefsStore.set(agentInstance, { adminModeRef, modeRef, selectedModelRef, mentionsRef });
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,

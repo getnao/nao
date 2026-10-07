@@ -2,10 +2,12 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
+
 import { isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
 
-export const SYSTEM_EXAMPLE_PROJECT_ID = 'system-example-project';
+export { SYSTEM_EXAMPLE_PROJECT_ID };
 
 export async function ensureSystemExampleProject() {
 	const projectPath = fileURLToPath(new URL('../../../../example', import.meta.url));
@@ -25,6 +27,14 @@ export async function getExampleProjectForUser(userId: string) {
 	const projects = await projectQueries.listUserProjects(userId);
 
 	if (projects.length > 0) {
+		return null;
+	}
+
+	return getSystemExampleProject();
+}
+
+export async function getSystemExampleProject() {
+	if (!isCloud) {
 		return null;
 	}
 

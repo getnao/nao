@@ -313,6 +313,8 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
 		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS);
 
+		writeWarehouseConfig(projectDir, input.name, provisionConfig.database_config);
+
 		await updateJob(jobId, { status: 'syncing' });
 		await runNaoCommand(['sync', '--provider', 'databases'], projectDir, commandEnvironment, SYNC_TIMEOUT_MS);
 

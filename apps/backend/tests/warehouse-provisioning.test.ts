@@ -390,6 +390,64 @@ describe('warehouse provisioning', () => {
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});
 
+	it('restores environment references after init before registering the project', async () => {
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-safe-config');
+		let registeredConfig = '';
+		vi.mocked(createNewProject).mockImplementation(async ({ sourceDir }) => {
+			registeredConfig = fs.readFileSync(path.join(sourceDir, 'nao_config.yaml'), 'utf8');
+			return {
+				projectId: 'project-safe-config',
+				projectName: 'analytics',
+				status: 'created',
+			};
+		});
+		vi.mocked(spawn).mockImplementation((_command, args, options) => {
+			const child = Object.assign(new EventEmitter(), {
+				stdout: new EventEmitter(),
+				stderr: new EventEmitter(),
+				kill: vi.fn(),
+			});
+			if (args?.[0] === 'init') {
+				fs.writeFileSync(
+					path.join(String(options?.cwd), 'nao_config.yaml'),
+					'project_name: analytics\ndatabases:\n  - type: postgres\n    password: super-secret\n',
+				);
+			}
+			queueMicrotask(() => child.emit('close', 0));
+			return child as never;
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						database_config: {
+							type: 'postgres',
+							password: "${{ env('NAO_ONBOARDING_POSTGRES_PASSWORD') }}",
+						},
+						env_vars: { NAO_ONBOARDING_POSTGRES_PASSWORD: '"super-secret"' },
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				),
+			),
+		);
+
+		const { jobId } = await startWarehouseProvisioning({
+			userId: 'user-1',
+			orgId: 'org-1',
+			name: 'analytics',
+			provider: 'postgres',
+			credentials: { password: 'super-secret' },
+		});
+
+		await vi.waitFor(async () => {
+			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('awaiting_context');
+		});
+		expect(registeredConfig).toContain("env('NAO_ONBOARDING_POSTGRES_PASSWORD')");
+		expect(registeredConfig).not.toContain('super-secret');
+		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
+	});
+
 	it('fails and rolls back finalization when the onboarding model is unavailable', async () => {
 		const registeredProjectDirectory = mockSuccessfulProvisioning('project-3');
 		vi.mocked(projectQueries.deleteProject).mockResolvedValue();

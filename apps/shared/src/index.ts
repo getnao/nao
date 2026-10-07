@@ -1,3 +1,5 @@
+export const SYSTEM_EXAMPLE_PROJECT_ID = 'system-example-project';
+
 export * from './assistant-tags';
 export * from './attachments';
 export * from './background-models';

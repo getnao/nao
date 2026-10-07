@@ -22,10 +22,26 @@ const LOADING_ACCESS: EffectiveUserGroupAccess = {
 	},
 };
 
+const EXAMPLE_PROJECT_ACCESS: EffectiveUserGroupAccess = {
+	features: {
+		storyCreation: true,
+		customStoryCreation: true,
+		automationCreation: false,
+	},
+	toolCallDensityPolicy: {
+		defaultDensity: 'detailed',
+		canChange: false,
+	},
+};
+
 export function getRenderableUserGroupAccess(
 	access: EffectiveUserGroupAccess | undefined,
 	isAvailable: boolean,
+	isExampleProject = false,
 ): EffectiveUserGroupAccess {
+	if (isExampleProject) {
+		return EXAMPLE_PROJECT_ACCESS;
+	}
 	return isAvailable && access ? access : LOADING_ACCESS;
 }
 

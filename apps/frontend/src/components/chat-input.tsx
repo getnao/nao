@@ -428,7 +428,7 @@ function ChatInputBase({
 						'bg-background dark:bg-background shadow-xs border-none max-md:rounded-4xl',
 						isDragging && 'ring-2 ring-primary/50 border-primary',
 						isAdminMode && 'ring-4 ring-amber-500/60',
-						variant === 'example' && 'ring-4 ring-blue-500/60',
+						variant === 'example' && 'ring-4 ring-violet/60',
 						variant === 'onboarding' && 'ring-4 ring-foreground/10',
 					)}
 				>
@@ -652,7 +652,7 @@ function ChatInputAdminBadge() {
 function ChatInputExampleBadge() {
 	return (
 		<div className='flex justify-end pr-4'>
-			<span className='mb-1 flex w-fit items-center rounded-t-lg bg-blue-500/60 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300'>
+			<span className='mb-1 flex w-fit items-center rounded-t-lg bg-violet/60 px-2 py-0.5 text-[10px] font-medium text-primary-foreground'>
 				Example
 			</span>
 		</div>

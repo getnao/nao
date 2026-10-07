@@ -106,14 +106,14 @@ export function RequestWarehouseCredentialsToolCall({
 		>
 			<div
 				ref={cardRef}
-				className='animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-2xl border-2 border-emerald-500/60 bg-gradient-to-r from-emerald-50 via-emerald-50 to-background p-5 shadow-lg shadow-emerald-500/10 ring-4 ring-emerald-500/10 sm:flex-row sm:items-center dark:from-emerald-950 dark:via-emerald-950 dark:to-background'
+				className='animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-2xl border-2 border-violet/40 bg-violet/15 p-5 shadow-lg shadow-violet/10 sm:flex-row sm:items-center'
 			>
 				<div className='flex min-w-0 items-center gap-3'>
-					<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm'>
+					<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet text-white shadow-sm'>
 						<Database className='size-5' />
 					</div>
 					<div className='min-w-0'>
-						<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300'>
+						<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet'>
 							Action required
 						</div>
 						<div className='font-medium'>{WAREHOUSE_PROVIDER_LABELS[provider]} credentials required</div>
@@ -123,7 +123,7 @@ export function RequestWarehouseCredentialsToolCall({
 					</div>
 				</div>
 				<DialogTrigger asChild>
-					<Button className='w-full shrink-0 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 sm:w-auto dark:bg-emerald-600 dark:hover:bg-emerald-500'>
+					<Button className='w-full shrink-0 bg-violet text-white shadow-sm hover:bg-violet/90 sm:w-auto'>
 						Enter credentials
 					</Button>
 				</DialogTrigger>
@@ -134,7 +134,7 @@ export function RequestWarehouseCredentialsToolCall({
 			>
 				<DialogHeader className='pr-8'>
 					<div className='flex items-start gap-3 text-left'>
-						<div className='flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'>
+						<div className='flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet'>
 							<Database className='size-5' />
 						</div>
 						<div className='space-y-1'>
@@ -219,7 +219,7 @@ function WarehouseProvisioningProgress({
 		publishing: 'Publishing your project…',
 		failed: 'Warehouse setup failed. Please try again.',
 		cancelled: 'Warehouse setup was cancelled.',
-		ready: 'Connection ready. Opening your project…',
+		ready: 'Connection ready.',
 	}[job.data?.status ?? 'queued'];
 
 	return (

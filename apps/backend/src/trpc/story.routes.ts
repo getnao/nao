@@ -23,6 +23,7 @@ import {
 	getCustomStoryQuerySql,
 	getCustomStoryVersion,
 } from '../services/custom-story';
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '../services/example-project';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -73,7 +74,7 @@ const chatStoryProcedure = chatOwnerProcedure.use(async ({ ctx, getRawInput, nex
 	if (!projectId) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 	}
-	if (!(await projectQueries.getUserRoleInProject(projectId, ctx.user.id))) {
+	if (!(await canAccessStoryProject(projectId, ctx.user.id))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
 	return next();
@@ -84,7 +85,7 @@ const storyOwnerProjectProcedure = storyOwnerProcedure.use(async ({ ctx, getRawI
 	if (!projectId) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
-	if (!(await projectQueries.getUserRoleInProject(projectId, ctx.user.id))) {
+	if (!(await canAccessStoryProject(projectId, ctx.user.id))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
 	return next();
@@ -1053,8 +1054,8 @@ export const storyRoutes = {
 };
 
 async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<void> {
-	const userRole = projectId ? await projectQueries.getUserRoleInProject(projectId, userId) : null;
-	if (!userRole || !(await storyQueries.canUserAccessStory(storyId, userId))) {
+	const hasProjectAccess = projectId ? await canAccessStoryProject(projectId, userId) : false;
+	if (!hasProjectAccess || !(await storyQueries.canUserAccessStory(storyId, userId))) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
 }
@@ -1074,8 +1075,7 @@ async function filterStoriesByProjectAccess(
 	explicitProjectId?: string,
 ) {
 	if (explicitProjectId) {
-		const userRole = await projectQueries.getUserRoleInProject(explicitProjectId, userId);
-		if (!userRole) {
+		if (!(await canAccessStoryProject(explicitProjectId, userId))) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 		}
 		return stories;
@@ -1089,13 +1089,19 @@ async function filterStoriesByProjectAccess(
 	const projectAccess = await Promise.all(
 		projectIds.map(async (projectId) => ({
 			projectId,
-			hasAccess: Boolean(await projectQueries.getUserRoleInProject(projectId, userId)),
+			hasAccess: await canAccessStoryProject(projectId, userId),
 		})),
 	);
 	const accessibleProjectIds = new Set(
 		projectAccess.filter(({ hasAccess }) => hasAccess).map(({ projectId }) => projectId),
 	);
 	return stories.filter((story) => story.projectId !== null && accessibleProjectIds.has(story.projectId));
+}
+
+async function canAccessStoryProject(projectId: string, userId: string): Promise<boolean> {
+	return (
+		projectId === SYSTEM_EXAMPLE_PROJECT_ID || Boolean(await projectQueries.getUserRoleInProject(projectId, userId))
+	);
 }
 
 /**

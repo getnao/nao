@@ -12,6 +12,7 @@ interface ImportProviderCardProps {
 	resourceNounSingular: string;
 	resourceNounPlural: string;
 	connected: boolean;
+	className?: string;
 	Picker: ComponentType<{
 		open: boolean;
 		onOpenChange: (open: boolean) => void;
@@ -38,6 +39,7 @@ export function ImportProviderCard({
 	resourceNounSingular,
 	resourceNounPlural,
 	connected,
+	className,
 	Picker,
 	onImported,
 }: ImportProviderCardProps) {
@@ -53,6 +55,7 @@ export function ImportProviderCard({
 						: `Connect your ${providerLabel} account to browse and import ${resourceNounPlural}.`
 				}
 				icon={<Icon className='size-4' />}
+				className={className}
 			>
 				{connected ? (
 					<div className='flex items-center justify-between'>

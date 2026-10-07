@@ -97,6 +97,28 @@ export function ChatInputModelSelect() {
 		);
 	}
 
+	if (isTrial && !isOnboarding) {
+		const singleModel = (
+			<>
+				{selectedModel && (
+					<LlmProviderIcon
+						provider={selectedModel.provider}
+						baseUrl={selectedAvailableModel?.baseUrl}
+						className='size-4'
+					/>
+				)}
+				<span>{selectedModelName}</span>
+				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			</>
+		);
+		return (
+			<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>
+				{singleModel}
+				<span className='text-sm text-muted-foreground'>Trial</span>
+			</div>
+		);
+	}
+
 	if (!canCycleModels) {
 		const singleModel = (
 			<>
@@ -111,15 +133,6 @@ export function ChatInputModelSelect() {
 				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
 			</>
 		);
-
-		if (isTrial && !isOnboarding) {
-			return (
-				<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>
-					{singleModel}
-					<span className='text-sm text-muted-foreground'>Trial</span>
-				</div>
-			);
-		}
 
 		if (!isAdmin) {
 			return (

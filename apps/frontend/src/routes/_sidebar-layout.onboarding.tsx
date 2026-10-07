@@ -1,6 +1,6 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Github, HelpCircle, KeyRound } from 'lucide-react';
+import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { ChatInput } from '@/components/chat-input';
@@ -28,18 +28,9 @@ import { useHeight } from '@/hooks/use-height';
 import { usePermissions } from '@/hooks/use-permissions';
 import { setActiveProjectId } from '@/lib/active-project';
 import { useSession } from '@/lib/auth-client';
-import { queryClient as appQueryClient, trpc } from '@/main';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/onboarding')({
-	beforeLoad: async () => {
-		const project = await appQueryClient.fetchQuery({
-			...trpc.project.getCurrent.queryOptions(),
-			staleTime: 0,
-		});
-		if (project) {
-			throw redirect({ to: '/' });
-		}
-	},
 	validateSearch: (search: Record<string, unknown>): { github?: 'connected' } => ({
 		github: search.github === 'connected' ? 'connected' : undefined,
 	}),
@@ -116,8 +107,6 @@ function OnboardingPage() {
 			return;
 		}
 
-		getOnboardingChatIdStorage(session.user.id).set(null);
-
 		const refreshProjects = async () => {
 			await queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() });
 			const project = await queryClient.fetchQuery(trpc.project.getCurrent.queryOptions());
@@ -166,14 +155,14 @@ function OnboardingPage() {
 						<Dialog>
 							<div
 								ref={actionAreaRef}
-								className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 flex-col items-start justify-between gap-4 rounded-2xl border-2 border-emerald-500/60 bg-gradient-to-r from-emerald-50 via-emerald-50 to-background p-5 shadow-lg shadow-emerald-500/10 ring-4 ring-emerald-500/10 sm:flex-row sm:items-center md:w-[calc(100%-2rem)] md:max-w-[calc(48rem-2rem)] dark:from-emerald-950 dark:via-emerald-950 dark:to-background'
+								className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 flex-col items-start justify-between gap-4 rounded-2xl border-2 border-violet/40 bg-violet/15 p-5 shadow-lg shadow-violet/10 sm:flex-row sm:items-center md:w-[calc(100%-2rem)] md:max-w-[calc(48rem-2rem)]'
 							>
 								<div className='flex min-w-0 items-center gap-3'>
-									<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm'>
+									<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet text-white shadow-sm'>
 										<KeyRound className='size-5' />
 									</div>
 									<div className='min-w-0'>
-										<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300'>
+										<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet'>
 											Action required
 										</div>
 										<div className='font-medium'>Ready to deploy your project</div>
@@ -185,7 +174,7 @@ function OnboardingPage() {
 								<DialogTrigger asChild>
 									<Button
 										onClick={alignDeployDialog}
-										className='bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500'
+										className='bg-violet text-white hover:bg-violet/90'
 									>
 										{isOrgAdmin ? 'Generate deploy key' : 'Deployment key required'}
 									</Button>
@@ -216,14 +205,14 @@ function OnboardingPage() {
 					{showImportProviderCard && (
 						<div
 							ref={actionAreaRef}
-							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 rounded-2xl border-2 border-violet-500/60 bg-gradient-to-r from-violet-50 via-violet-50 to-background p-5 shadow-lg shadow-violet-500/10 ring-4 ring-violet-500/10 md:w-[calc(100%-2rem)] md:max-w-[calc(48rem-2rem)] dark:from-violet-950 dark:via-violet-950 dark:to-background'
+							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 rounded-2xl border-2 border-violet/40 bg-violet/15 p-5 shadow-lg shadow-violet/10 md:w-[calc(100%-2rem)] md:max-w-[calc(48rem-2rem)]'
 						>
 							<div className='mb-4 flex items-center gap-3'>
-								<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet-500 text-white shadow-sm'>
+								<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet text-white shadow-sm'>
 									<Github className='size-5' />
 								</div>
 								<div>
-									<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300'>
+									<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet'>
 										Action required
 									</div>
 									<div className='font-medium'>Import your GitHub project</div>
@@ -240,6 +229,7 @@ function OnboardingPage() {
 									resourceNounSingular='repository'
 									resourceNounPlural='repositories'
 									connected={githubStatus.data?.connected === true}
+									className='border-violet/30 bg-violet/20'
 									Picker={GitHubRepoPicker}
 									onImported={(project) =>
 										queueOrSendMessage({
@@ -264,7 +254,24 @@ function OnboardingPage() {
 							ref={inputAreaRef}
 							className='pointer-events-auto bg-gradient-to-t from-background via-background via-70% to-transparent'
 						>
-							<ChatInput variant='onboarding' />
+							{onboardingComplete ? (
+								<div className='flex flex-col items-center gap-2 pb-4'>
+									<Button
+										asChild
+										className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
+									>
+										<Link to='/'>
+											Start chatting
+											<ArrowRight className='size-4' />
+										</Link>
+									</Button>
+									<p className='text-center text-sm text-muted-foreground'>
+										This onboarding conversation is complete.
+									</p>
+								</div>
+							) : (
+								<ChatInput variant='onboarding' />
+							)}
 						</div>
 					</div>
 				</>

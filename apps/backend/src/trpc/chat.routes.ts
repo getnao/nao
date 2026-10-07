@@ -18,7 +18,7 @@ import { llmProviderSchema } from '../types/llm';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { buildChatDownloadResponse } from '../utils/chat-download';
-import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 
@@ -93,7 +93,7 @@ export const chatRoutes = {
 			return response;
 		}),
 
-	listGrouped: projectProtectedProcedure
+	listGrouped: protectedProcedure
 		.input(
 			z.object({
 				groupBy: z.enum(CHAT_GROUP_BY_OPTIONS).default('none'),
