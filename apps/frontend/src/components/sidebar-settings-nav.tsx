@@ -33,10 +33,10 @@ interface NavGroup {
 
 const settingsNavGroups: NavGroup[] = [
 	{
-		label: 'Account',
+		label: 'User',
 		items: [
 			{
-				label: 'Profile',
+				label: 'Account',
 				to: '/settings/account',
 				visible: ({ isViewer }) => !isViewer,
 				exact: true,
