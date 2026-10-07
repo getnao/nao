@@ -2,7 +2,12 @@ import type { DBOrganization, DBOrganizationBilling } from '../db/abstractSchema
 import * as billingQueries from '../queries/billing.queries';
 import * as organizationQueries from '../queries/organization.queries';
 import * as userQueries from '../queries/user.queries';
-import { CLOUD_BILLING_PLANS, type CloudBillingInterval, isTerminalBillingStatus } from '../types/billing';
+import {
+	CLOUD_BILLING_PLANS,
+	type CloudBillingCurrency,
+	type CloudBillingInterval,
+	isTerminalBillingStatus,
+} from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { reconcileCloudBillingCustomer } from './billing-reconciliation.service';
 import {
@@ -27,6 +32,7 @@ interface AdminBillingRequestInput extends AdminBillingInput {
 
 interface AdminBillingCheckoutInput extends AdminBillingInput {
 	billingInterval: CloudBillingInterval;
+	currency: CloudBillingCurrency;
 }
 
 type CloudBillingOrganization = DBOrganization & Omit<DBOrganizationBilling, 'orgId'>;
@@ -55,6 +61,7 @@ export async function createCloudTrialCheckoutForAdmin(input: AdminBillingChecko
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudCheckoutSession({
 		billingInterval: input.billingInterval,
+		currency: input.currency,
 		organizationId: organization.id,
 		stripeCustomerId,
 		trialDays: CLOUD_BILLING_PLANS[input.billingInterval].trialDays,
@@ -122,6 +129,7 @@ export async function createCloudResubscribeForAdmin(input: AdminBillingCheckout
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudResubscribeSession({
 		billingInterval: input.billingInterval,
+		currency: input.currency,
 		organizationId: organization.id,
 		stripeCustomerId,
 		allowMissingHistory: isMissingSubscriptionRecovery,

@@ -123,7 +123,7 @@ describe('getCloudPrice', () => {
 		await expect(getCloudPrice('monthly')).resolves.toBe(expectedPrice);
 		expect(stripeMocks.listPrices).toHaveBeenCalledWith({
 			active: true,
-			expand: ['data.product'],
+			expand: ['data.currency_options', 'data.product'],
 			lookup_keys: ['nao_cloud_monthly_v2'],
 			limit: 1,
 		});
@@ -136,7 +136,7 @@ describe('getCloudPrice', () => {
 		await expect(getCloudPrice('yearly')).resolves.toBe(expectedPrice);
 		expect(stripeMocks.listPrices).toHaveBeenCalledWith({
 			active: true,
-			expand: ['data.product'],
+			expand: ['data.currency_options', 'data.product'],
 			lookup_keys: ['yearly_sub'],
 			limit: 1,
 		});
@@ -146,7 +146,7 @@ describe('getCloudPrice', () => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice()] });
 
 		await expect(getCloudPrice('yearly')).rejects.toThrow(
-			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD yearly licensed Price',
+			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD and EUR yearly licensed Price',
 		);
 	});
 
@@ -165,11 +165,21 @@ describe('getCloudPrice', () => {
 		await expect(getCloudPrice('monthly')).resolves.toBe(replacementPrice);
 	});
 
+	it('accepts EUR as the default when the Price also supports USD', async () => {
+		const price = cloudMonthlyPrice({
+			currency: 'eur',
+			currency_options: { usd: { unit_amount: 200_000 } } as Stripe.Price['currency_options'],
+		});
+		stripeMocks.listPrices.mockResolvedValue({ data: [price] });
+
+		await expect(getCloudPrice('monthly')).resolves.toBe(price);
+	});
+
 	it.each([
 		['inactive', { active: false }],
 		['inactive product', { product: cloudProduct({ active: false }) }],
 		['tiered', { billing_scheme: 'tiered' }],
-		['different currency', { currency: 'eur' }],
+		['missing USD currency option', { currency: 'eur' }],
 		['zero amount', { unit_amount: 0 }],
 		['one-time', { type: 'one_time', recurring: null }],
 		['yearly', { recurring: recurring({ interval: 'year' }) }],
@@ -179,8 +189,17 @@ describe('getCloudPrice', () => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice(overrides)] });
 
 		await expect(getCloudPrice('monthly')).rejects.toThrow(
-			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD monthly licensed Price',
+			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD and EUR monthly licensed Price',
 		);
+	});
+
+	it('returns the selected currency option for every available plan', async () => {
+		await expect(getCloudBillingPlans(undefined, 'eur')).resolves.toMatchObject({
+			availablePlans: {
+				monthly: { amount: 200_000, currency: 'eur' },
+				yearly: { amount: 2_000_000, currency: 'eur' },
+			},
+		});
 	});
 
 	it('rejects a Price from a different Product', async () => {
@@ -288,6 +307,7 @@ describe('cloud Checkout', () => {
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({
+				currency: 'usd',
 				line_items: [{ price: 'price_cloud_monthly', quantity: 1 }],
 				allow_promotion_codes: true,
 				custom_text: {
@@ -307,11 +327,11 @@ describe('cloud Checkout', () => {
 					trial_settings: { end_behavior: { missing_payment_method: 'pause' } },
 				},
 			}),
-			{ idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_monthly_v2:trial-14' },
+			{ idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_monthly_v2:usd:trial-14' },
 		);
 	});
 
-	it('starts the same trial with the configured yearly Price when selected', async () => {
+	it('starts the same EUR trial with the configured yearly Price when selected', async () => {
 		stripeMocks.createCheckoutSession.mockResolvedValue({
 			url: 'https://checkout.stripe.com/yearly-trial',
 		});
@@ -319,6 +339,7 @@ describe('cloud Checkout', () => {
 		await expect(
 			createCloudCheckoutSession({
 				billingInterval: 'yearly',
+				currency: 'eur',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 				trialDays: 14,
@@ -327,6 +348,7 @@ describe('cloud Checkout', () => {
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({
+				currency: 'eur',
 				line_items: [{ price: 'price_cloud_yearly', quantity: 1 }],
 				metadata: expect.objectContaining({ nao_plan_key: 'cloud_yearly_v1' }),
 				subscription_data: expect.objectContaining({
@@ -334,7 +356,7 @@ describe('cloud Checkout', () => {
 					trial_period_days: 14,
 				}),
 			}),
-			{ idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_yearly_v1:trial-14' },
+			{ idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_yearly_v1:eur:trial-14' },
 		);
 	});
 
@@ -460,7 +482,7 @@ describe('cloud Checkout', () => {
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({ allow_promotion_codes: true }),
-			{ idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_monthly_v2:trial-14' },
+			{ idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_monthly_v2:usd:trial-14' },
 		);
 	});
 
@@ -472,6 +494,7 @@ describe('cloud Checkout', () => {
 		const existingSession = {
 			id: 'cs_existing',
 			mode: 'subscription' as const,
+			currency: 'usd',
 			allow_promotion_codes: true,
 			custom_text: {
 				submit: {
@@ -522,6 +545,7 @@ describe('cloud Checkout', () => {
 				{
 					id: 'cs_expired',
 					mode: 'subscription',
+					currency: 'usd',
 					allow_promotion_codes: true,
 					custom_text: {
 						submit: {
@@ -551,7 +575,7 @@ describe('cloud Checkout', () => {
 		).resolves.toBe('https://checkout.stripe.com/replacement');
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(expect.anything(), {
-			idempotencyKey: 'cloud-checkout-initial-v7:org-id:cloud_monthly_v2:trial-14:cs_expired',
+			idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_monthly_v2:usd:trial-14:cs_expired',
 		});
 	});
 
@@ -628,7 +652,7 @@ describe('cloud Checkout', () => {
 				},
 				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed',
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v7:org-id:cloud_monthly_v2:sub_cloud' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v11:org-id:cloud_monthly_v2:usd:sub_cloud' },
 		);
 	});
 
@@ -664,7 +688,7 @@ describe('cloud Checkout', () => {
 					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
 				},
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v7:org-id:cloud_monthly_v2:missing-subscription' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v11:org-id:cloud_monthly_v2:usd:missing-subscription' },
 		);
 	});
 
@@ -1014,10 +1038,13 @@ describe('cloud billing recovery', () => {
 });
 
 function cloudMonthlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
-	return {
+	const price = {
 		active: true,
 		billing_scheme: 'per_unit',
 		currency: 'usd',
+		currency_options: {
+			eur: { unit_amount: 200_000 },
+		},
 		id: 'price_cloud_monthly',
 		object: 'price',
 		product: cloudProduct(),
@@ -1026,6 +1053,10 @@ function cloudMonthlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price 
 		unit_amount: 200_000,
 		...overrides,
 	} as Stripe.Price;
+	if (!overrides.currency_options && price.currency_options?.eur) {
+		price.currency_options.eur.unit_amount = price.unit_amount;
+	}
+	return price;
 }
 
 function cloudYearlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {

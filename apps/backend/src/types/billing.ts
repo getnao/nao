@@ -17,11 +17,13 @@ export function isTerminalBillingStatus(status: string | null | undefined): bool
 
 export const STRIPE_WEBHOOK_PROCESS_JOB_NAME = 'stripe.webhook.process';
 
+export const CLOUD_BILLING_CURRENCIES = ['usd', 'eur'] as const;
+export type CloudBillingCurrency = (typeof CLOUD_BILLING_CURRENCIES)[number];
+
 export const CLOUD_BILLING_PLANS = {
 	monthly: {
 		key: 'cloud_monthly_v2',
 		name: 'nao Cloud',
-		currency: 'usd',
 		interval: 'month',
 		intervalCount: 1,
 		trialDays: 14,
@@ -30,7 +32,6 @@ export const CLOUD_BILLING_PLANS = {
 	yearly: {
 		key: 'cloud_yearly_v1',
 		name: 'nao Cloud',
-		currency: 'usd',
 		interval: 'year',
 		intervalCount: 1,
 		trialDays: 14,

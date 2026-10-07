@@ -12,18 +12,20 @@ export type OrganizationBillingSearch = {
 };
 
 export type BillingInterval = 'monthly' | 'yearly';
+export type BillingCurrency = 'usd' | 'eur';
 
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const queryClient = useQueryClient();
 	const initialStatusSyncRequested = useRef(false);
 	const [selectedBillingInterval, setSelectedBillingInterval] = useState<BillingInterval>('monthly');
+	const [selectedBillingCurrency, setSelectedBillingCurrency] = useState<BillingCurrency>('usd');
 	const [isResumeConfirming, setIsResumeConfirming] = useState(false);
 	const [isCheckoutPolling, setIsCheckoutPolling] = useState(
 		search.checkout === 'success' || search.checkout === 'subscribed',
 	);
 	const [isBillingRefreshPolling, setIsBillingRefreshPolling] = useState(search.portal === 'returned');
 	const billing = useQuery({
-		...trpc.billing.getStatus.queryOptions(),
+		...trpc.billing.getStatus.queryOptions({ currency: selectedBillingCurrency }),
 		refetchOnWindowFocus: false,
 		refetchInterval: (query) =>
 			(isCheckoutPolling &&
@@ -188,6 +190,8 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isEndingAtPeriodEnd,
 		selectedBillingInterval,
 		setSelectedBillingInterval,
+		selectedBillingCurrency,
+		setSelectedBillingCurrency,
 		isCheckoutPolling,
 		isCheckoutConfirmationDelayed:
 			(search.checkout === 'success' || search.checkout === 'subscribed') &&
@@ -209,10 +213,18 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isResubscribePending: resubscribe.isPending,
 		isResumePending: resumeSubscription.isPending,
 		isBillingSyncPending: syncStripeBilling.isPending,
-		openTrialCheckout: () => trialCheckout.mutate({ billingInterval: selectedBillingInterval }),
+		openTrialCheckout: () =>
+			trialCheckout.mutate({
+				billingInterval: selectedBillingInterval,
+				currency: selectedBillingCurrency,
+			}),
 		openPortal: () => portal.mutate({ requestId: crypto.randomUUID() }),
 		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: crypto.randomUUID() }),
-		resubscribe: () => resubscribe.mutate({ billingInterval: selectedBillingInterval }),
+		resubscribe: () =>
+			resubscribe.mutate({
+				billingInterval: selectedBillingInterval,
+				currency: selectedBillingCurrency,
+			}),
 		resume: () => resumeSubscription.mutate({ requestId: crypto.randomUUID() }),
 		syncBilling: () => {
 			setIsBillingRefreshPolling(true);

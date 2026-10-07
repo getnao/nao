@@ -20,8 +20,9 @@ import {
 	CloudSubscriptionResumeError,
 	CloudSubscriptionUnavailableError,
 	getCloudBillingPlans,
+	getCloudSubscription,
 } from '../services/stripe.service';
-import { isTerminalBillingStatus } from '../types/billing';
+import { CLOUD_BILLING_CURRENCIES, isTerminalBillingStatus } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
 import { publicProcedure, resolveOrganizationMembership } from './trpc';
@@ -75,7 +76,12 @@ const cloudBillingAccessProcedure = cloudBillingProcedure.use(async ({ ctx, next
 });
 
 const requestInput = z.object({ requestId: z.uuid() });
-const checkoutInput = z.object({ billingInterval: z.enum(['monthly', 'yearly']) });
+const currencyInput = z.enum(CLOUD_BILLING_CURRENCIES);
+const billingStatusInput = z.object({ currency: currencyInput }).optional();
+const checkoutInput = z.object({
+	billingInterval: z.enum(['monthly', 'yearly']),
+	currency: currencyInput.default('usd'),
+});
 
 export const billingRoutes = {
 	getAccess: cloudBillingAccessProcedure.query(async ({ ctx }) => {
@@ -97,7 +103,7 @@ export const billingRoutes = {
 		};
 	}),
 
-	getStatus: cloudBillingAdminProcedure.query(async ({ ctx }) => {
+	getStatus: cloudBillingAdminProcedure.input(billingStatusInput).query(async ({ ctx, input }) => {
 		const organization = await getCloudBillingOrganizationForAdmin({
 			userId: ctx.user.id,
 			organizationId: ctx.organization.id,
@@ -107,9 +113,12 @@ export const billingRoutes = {
 			organization.trialStartedAt === null &&
 			organization.trialEndsAt === null &&
 			organization.stripeSubscriptionId === null;
-		const { availablePlans, subscriptionPlan } = await getCloudBillingPlans(organization.stripePriceId).catch(
-			(error: unknown) => throwBillingFailure('plan lookup', 'Unable to load billing plans', error),
-		);
+		const { availablePlans, subscriptionPlan } = await (async () => {
+			const subscriptionCurrency = organization.stripeSubscriptionId
+				? (await getCloudSubscription(organization.stripeSubscriptionId)).currency
+				: null;
+			return getCloudBillingPlans(organization.stripePriceId, input?.currency ?? 'usd', subscriptionCurrency);
+		})().catch((error: unknown) => throwBillingFailure('plan lookup', 'Unable to load billing plans', error));
 		const projectedPlan =
 			subscriptionPlan ??
 			Object.values(availablePlans).find((plan) => plan.key === organization.billingPlan) ??
@@ -142,6 +151,7 @@ export const billingRoutes = {
 		try {
 			const url = await createCloudTrialCheckoutForAdmin({
 				billingInterval: input.billingInterval,
+				currency: input.currency,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
 			});
@@ -217,6 +227,7 @@ export const billingRoutes = {
 		try {
 			const url = await createCloudResubscribeForAdmin({
 				billingInterval: input.billingInterval,
+				currency: input.currency,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
 			});

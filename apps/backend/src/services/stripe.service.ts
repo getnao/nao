@@ -5,7 +5,9 @@ import type { SubscriptionProjection } from '../queries/billing.queries';
 import {
 	BILLING_STATUSES,
 	type BillingStatus,
+	CLOUD_BILLING_CURRENCIES,
 	CLOUD_BILLING_PLANS,
+	type CloudBillingCurrency,
 	type CloudBillingInterval,
 	type CloudBillingPlan,
 	type CloudBillingPlanDefinition,
@@ -81,6 +83,7 @@ export async function createCloudCustomer(input: {
 
 export async function createCloudCheckoutSession(input: {
 	billingInterval: CloudBillingInterval;
+	currency?: CloudBillingCurrency;
 	organizationId: string;
 	stripeCustomerId: string;
 	trialDays: number;
@@ -92,6 +95,7 @@ export async function createCloudCheckoutSession(input: {
 	}
 	return createSubscriptionCheckoutSession({
 		...input,
+		currency: input.currency ?? 'usd',
 		kind: 'initial',
 		operationKey: `trial-${input.trialDays}`,
 	});
@@ -99,6 +103,7 @@ export async function createCloudCheckoutSession(input: {
 
 export async function createCloudResubscribeSession(input: {
 	billingInterval: CloudBillingInterval;
+	currency?: CloudBillingCurrency;
 	organizationId: string;
 	stripeCustomerId: string;
 	allowMissingHistory?: boolean;
@@ -113,6 +118,7 @@ export async function createCloudResubscribeSession(input: {
 	}
 	return createSubscriptionCheckoutSession({
 		...input,
+		currency: input.currency ?? 'usd',
 		kind: 'resubscribe',
 		operationKey: latestSubscription?.id ?? 'missing-subscription',
 	});
@@ -120,6 +126,7 @@ export async function createCloudResubscribeSession(input: {
 
 async function createSubscriptionCheckoutSession(input: {
 	billingInterval: CloudBillingInterval;
+	currency: CloudBillingCurrency;
 	organizationId: string;
 	stripeCustomerId: string;
 	kind: 'initial' | 'resubscribe';
@@ -130,6 +137,7 @@ async function createSubscriptionCheckoutSession(input: {
 	const trialMessage = input.trialDays === undefined ? null : checkoutTrialMessage(input.trialDays);
 	const matchesCheckout = (session: Stripe.Checkout.Session) =>
 		session.mode === 'subscription' &&
+		session.currency === input.currency &&
 		session.allow_promotion_codes === true &&
 		session.metadata?.[ORGANIZATION_METADATA_KEY] === input.organizationId &&
 		session.metadata?.[PLAN_METADATA_KEY] === plan.key &&
@@ -146,6 +154,7 @@ async function createSubscriptionCheckoutSession(input: {
 	const session = await getStripeClient().checkout.sessions.create(
 		{
 			mode: 'subscription',
+			currency: input.currency,
 			customer: input.stripeCustomerId,
 			customer_update: { address: 'auto', name: 'auto' },
 			automatic_tax: { enabled: true },
@@ -178,7 +187,7 @@ async function createSubscriptionCheckoutSession(input: {
 			cancel_url: `${billingUrl}?checkout=canceled`,
 		},
 		{
-			idempotencyKey: `cloud-checkout-${input.kind}-v7:${input.organizationId}:${plan.key}:${input.operationKey}${latestExpiredSession ? `:${latestExpiredSession.id}` : ''}`,
+			idempotencyKey: `cloud-checkout-${input.kind}-v11:${input.organizationId}:${plan.key}:${input.currency}:${input.operationKey}${latestExpiredSession ? `:${latestExpiredSession.id}` : ''}`,
 		},
 	);
 	if (!session.url) {
@@ -444,7 +453,7 @@ async function fetchCloudPrice(
 	const [price] = (
 		await getStripeClient().prices.list({
 			active: true,
-			expand: ['data.product'],
+			expand: ['data.currency_options', 'data.product'],
 			lookup_keys: [lookupKey],
 			limit: 1,
 		})
@@ -455,7 +464,7 @@ async function fetchCloudPrice(
 	}
 	if (!isExpectedCloudPrice(price, plan) || price.product.id !== productId) {
 		throw new Error(
-			`Stripe Price "${price.id}" must belong to configured active Product "${productId}" and be a fixed positive ${plan.currency.toUpperCase()} ${plan.interval}ly licensed Price`,
+			`Stripe Price "${price.id}" must belong to configured active Product "${productId}" and be a fixed positive USD and EUR ${plan.interval}ly licensed Price`,
 		);
 	}
 
@@ -467,23 +476,28 @@ export function __resetStripeForTesting(): void {
 	cloudPriceCache.clear();
 }
 
-export async function getCloudBillingPlans(stripePriceId?: string | null): Promise<{
+export async function getCloudBillingPlans(
+	stripePriceId?: string | null,
+	currency: CloudBillingCurrency = 'usd',
+	subscriptionCurrency?: string | null,
+): Promise<{
 	availablePlans: Record<CloudBillingInterval, CloudBillingPlan>;
 	subscriptionPlan: CloudBillingPlan | null;
 }> {
 	const { monthly: monthlyPrice, yearly: yearlyPrice } = await getAvailableCloudPrices();
 	const availablePlans = {
-		monthly: cloudBillingPlan(monthlyPrice),
-		yearly: cloudBillingPlan(yearlyPrice),
+		monthly: cloudBillingPlan(monthlyPrice, currency),
+		yearly: cloudBillingPlan(yearlyPrice, currency),
 	};
 	if (!stripePriceId) {
 		return { availablePlans, subscriptionPlan: null };
 	}
+	const currentCurrency = subscriptionCurrency ?? currency;
 	if (stripePriceId === monthlyPrice.id) {
-		return { availablePlans, subscriptionPlan: availablePlans.monthly };
+		return { availablePlans, subscriptionPlan: cloudBillingPlan(monthlyPrice, currentCurrency) };
 	}
 	if (stripePriceId === yearlyPrice.id) {
-		return { availablePlans, subscriptionPlan: availablePlans.yearly };
+		return { availablePlans, subscriptionPlan: cloudBillingPlan(yearlyPrice, currentCurrency) };
 	}
 
 	const subscriptionPrice = await getStripeClient().prices.retrieve(stripePriceId);
@@ -493,7 +507,10 @@ export async function getCloudBillingPlans(stripePriceId?: string | null): Promi
 	) {
 		throw new Error(`Stripe Price "${stripePriceId}" is not a valid historical cloud Price`);
 	}
-	return { availablePlans, subscriptionPlan: cloudBillingPlan(subscriptionPrice) };
+	return {
+		availablePlans,
+		subscriptionPlan: cloudBillingPlan(subscriptionPrice, subscriptionCurrency ?? subscriptionPrice.currency),
+	};
 }
 
 export function getStripeClient(): Stripe {
@@ -673,10 +690,10 @@ function isExpectedCloudPrice(price: Stripe.Price, plan: CloudBillingPlanDefinit
 		typeof price.product !== 'string' &&
 		!price.product.deleted &&
 		price.product.active &&
-		price.currency === plan.currency &&
 		isCloudRecurringPriceDetails(price) &&
 		price.recurring.interval === plan.interval &&
-		price.recurring.interval_count === plan.intervalCount
+		price.recurring.interval_count === plan.intervalCount &&
+		CLOUD_BILLING_CURRENCIES.every((currency) => cloudPriceAmount(price, currency) !== null)
 	);
 }
 
@@ -709,10 +726,19 @@ function findCloudBillingPlanDefinition(price: Stripe.Price): CloudBillingPlanDe
 	);
 }
 
-function cloudBillingPlan(price: CloudRecurringPriceDetails): CloudBillingPlan {
+function cloudBillingPlan(price: CloudRecurringPriceDetails, currency: string): CloudBillingPlan {
+	const amount = cloudPriceAmount(price, currency);
+	if (amount === null) {
+		throw new Error(`Stripe Price "${price.id}" does not support ${currency.toUpperCase()}`);
+	}
 	return {
 		...cloudBillingPlanDefinition(price),
-		amount: price.unit_amount,
-		currency: price.currency,
+		amount,
+		currency,
 	};
+}
+
+function cloudPriceAmount(price: CloudRecurringPriceDetails, currency: string): number | null {
+	const amount = price.currency === currency ? price.unit_amount : price.currency_options?.[currency]?.unit_amount;
+	return typeof amount === 'number' && amount > 0 ? amount : null;
 }

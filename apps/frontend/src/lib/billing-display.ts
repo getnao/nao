@@ -108,12 +108,23 @@ export function formatBillingPrice(amount: number, currency: string): string {
 	}).resolvedOptions();
 	const minorUnitDivisor = 10 ** minorUnitDigits;
 	const fractionDigits = amount % minorUnitDivisor === 0 ? 0 : minorUnitDigits;
+	const majorAmount = amount / minorUnitDivisor;
+	const formattedAmount = new Intl.NumberFormat(undefined, {
+		minimumFractionDigits: fractionDigits,
+		maximumFractionDigits: fractionDigits,
+	}).format(majorAmount);
+	if (normalizedCurrency === 'USD') {
+		return `$${formattedAmount}`;
+	}
+	if (normalizedCurrency === 'EUR') {
+		return `${formattedAmount}€`;
+	}
 	return new Intl.NumberFormat(undefined, {
 		style: 'currency',
 		currency: normalizedCurrency,
 		minimumFractionDigits: fractionDigits,
 		maximumFractionDigits: fractionDigits,
-	}).format(amount / minorUnitDivisor);
+	}).format(majorAmount);
 }
 
 export function formatBillingInterval(interval: string, intervalCount: number): string {

@@ -13,6 +13,7 @@ const stripeMocks = vi.hoisted(() => ({
 	createPortal: vi.fn(),
 	createResubscribe: vi.fn(),
 	getBillingPlans: vi.fn(),
+	getSubscription: vi.fn(),
 	getUpcomingInvoice: vi.fn(),
 	listInvoices: vi.fn(),
 	reconcileCustomer: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('../src/services/stripe.service', () => ({
 	createCloudPortalSession: stripeMocks.createPortal,
 	createCloudResubscribeSession: stripeMocks.createResubscribe,
 	getCloudBillingPlans: stripeMocks.getBillingPlans,
+	getCloudSubscription: stripeMocks.getSubscription,
 	getCloudUpcomingInvoice: stripeMocks.getUpcomingInvoice,
 	listCloudInvoices: stripeMocks.listInvoices,
 	resumeCloudSubscription: stripeMocks.resumeSubscription,
@@ -145,6 +147,7 @@ describe('billing.getStatus', () => {
 			},
 			subscriptionPlan: null,
 		});
+		stripeMocks.getSubscription.mockResolvedValue({ currency: 'usd' });
 	});
 
 	it('returns the organization billing projection and matching plan', async () => {
@@ -193,7 +196,23 @@ describe('billing.getStatus', () => {
 			planKey: 'legacy_cloud_plan',
 			availablePlans: { monthly: { amount: 250_000 }, yearly: { amount: 2_000_000 } },
 		});
-		expect(stripeMocks.getBillingPlans).toHaveBeenCalledWith('price_legacy');
+		expect(stripeMocks.getBillingPlans).toHaveBeenCalledWith('price_legacy', 'usd', 'usd');
+	});
+
+	it('returns plans in the currency selected by the client', async () => {
+		testState.membership = membership({});
+		stripeMocks.getBillingPlans.mockResolvedValue({
+			availablePlans: {
+				monthly: { ...cloudPlan(250_000), currency: 'eur' },
+				yearly: { ...cloudPlan(2_000_000, 'yearly'), currency: 'eur' },
+			},
+			subscriptionPlan: null,
+		});
+
+		await expect(caller().billing.getStatus({ currency: 'eur' })).resolves.toMatchObject({
+			availablePlans: { monthly: { currency: 'eur' }, yearly: { currency: 'eur' } },
+		});
+		expect(stripeMocks.getBillingPlans).toHaveBeenCalledWith(null, 'eur', null);
 	});
 
 	it('does not invent a plan for an uninitialized organization', async () => {
@@ -280,12 +299,13 @@ describe('billing.createTrialCheckoutSession', () => {
 		stripeMocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/trial');
 	});
 
-	it('opens a Stripe trial Checkout without granting local access first', async () => {
-		await expect(caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly' })).resolves.toEqual({
-			url: 'https://checkout.stripe.com/trial',
-		});
+	it('opens a Stripe trial Checkout in the selected currency without granting local access first', async () => {
+		await expect(
+			caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly', currency: 'eur' }),
+		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
 		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
 			billingInterval: 'monthly',
+			currency: 'eur',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
 			trialDays: 14,
@@ -458,6 +478,7 @@ describe('billing management mutations', () => {
 		});
 		expect(stripeService.createCloudResubscribeSession).toHaveBeenCalledWith({
 			billingInterval: 'yearly',
+			currency: 'usd',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
 			allowMissingHistory: false,
@@ -494,6 +515,7 @@ describe('billing management mutations', () => {
 		});
 		expect(stripeService.createCloudResubscribeSession).toHaveBeenCalledWith({
 			billingInterval: 'monthly',
+			currency: 'usd',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_recovery',
 			allowMissingHistory: true,

@@ -31,7 +31,7 @@ export function CloudBillingAccessBanner() {
 			role='status'
 			aria-live='polite'
 		>
-			<div className='flex flex-wrap items-center gap-3'>
+			<div className='flex min-h-8 flex-wrap items-center gap-3'>
 				<div className='min-w-0 flex-1'>
 					<span className='font-medium text-foreground'>{notice.title}</span>{' '}
 					<span className='text-muted-foreground'>{notice.description}</span>
