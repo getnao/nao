@@ -442,6 +442,28 @@ class TestTemplateEngine:
             base_url=None,
         )
 
+    def test_generate_anthropic_omits_temperature(self, tmp_path: Path, monkeypatch):
+        """anthropic SDK 1.x and Claude 5.x models both reject temperature, so it must not be sent."""
+        llm_config = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant-test")],
+            annotation_model="claude-sonnet-5-5",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+        fake_client = MagicMock()
+        fake_client.messages.create.return_value = MagicMock(content=[MagicMock(text="summary")])
+        fake_module = MagicMock()
+        fake_module.Anthropic.return_value = fake_client
+        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+
+        engine._generate_anthropic("claude-sonnet-5-5", "summarize this")
+
+        fake_client.messages.create.assert_called_once_with(
+            model="claude-sonnet-5-5",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": "summarize this"}],
+        )
+
     def test_prompt_helper_anthropic_with_base_url(self, tmp_path: Path):
         """prompt helper should pass through to _generate_anthropic when provider is anthropic."""
         templates_dir = tmp_path / "templates"
