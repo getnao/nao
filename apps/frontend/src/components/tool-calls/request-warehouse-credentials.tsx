@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -34,6 +34,7 @@ export function RequestWarehouseCredentialsToolCall({
 	const notifiedJobId = useRef<string | null>(null);
 	const restoredJobId = useRef(false);
 	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
+	const queryClient = useQueryClient();
 	const canRestoreJob = Boolean(chatId && chatId !== NEW_CHAT_ID);
 	const activeJob = useQuery({
 		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
@@ -53,7 +54,16 @@ export function RequestWarehouseCredentialsToolCall({
 	);
 	const startProvisioning = useMutation(
 		trpc.onboarding.startWarehouseProvisioning.mutationOptions({
-			onSuccess: ({ jobId: nextJobId }) => setJobId(nextJobId),
+			onSuccess: ({ jobId: nextJobId }) => {
+				setJobId(nextJobId);
+				if (canRestoreJob) {
+					void queryClient.invalidateQueries({
+						queryKey: trpc.onboarding.getActiveWarehouseProvisioningJob.queryKey({
+							onboardingChatId: chatId!,
+						}),
+					});
+				}
+			},
 		}),
 	);
 

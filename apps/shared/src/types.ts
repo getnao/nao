@@ -452,6 +452,7 @@ export interface GroupedChatItem {
 	projectId: string;
 	title: string;
 	isStarred: boolean;
+	isOnboarding: boolean;
 	createdAt: number;
 	updatedAt: number;
 	kind: 'own' | 'shared';

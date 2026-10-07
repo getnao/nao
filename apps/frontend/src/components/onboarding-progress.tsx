@@ -11,10 +11,10 @@ const ONBOARDING_STEPS = {
 	database: ['Connect warehouse', 'Initialize', 'Sync metadata', 'Prepare context'],
 } as const;
 
-export function OnboardingProgress() {
+export function OnboardingProgress({ complete = false }: { complete?: boolean }) {
 	const progress = useOnboardingProgress();
 	const steps = progress ? ONBOARDING_STEPS[progress.flow] : [''];
-	const completedSteps = Math.min(progress?.step ?? 0, steps.length);
+	const completedSteps = complete ? steps.length : Math.min(progress?.step ?? 0, steps.length);
 
 	return (
 		<div

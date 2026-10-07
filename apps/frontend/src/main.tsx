@@ -13,7 +13,7 @@ import { ThemeProvider } from './contexts/theme.provider';
 import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
 import { clearStaleActiveOrganization, getActiveOrganizationId } from './lib/active-organization';
-import { getProjectRequestHeaders, getActiveProjectId } from './lib/active-project';
+import { getProjectRequestHeaders } from './lib/active-project';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TRPCLink } from '@trpc/client';
@@ -95,7 +95,6 @@ export const trpcClient = createTRPCClient<TrpcRouter>({
 			url: '/api/trpc',
 			transformer: superjson,
 			headers({ opList }) {
-				const activeProjectId = getActiveProjectId();
 				const activeOrganizationId = getActiveOrganizationId();
 				for (const operation of opList) {
 					requestOrganizationIds.set(operation.id, activeOrganizationId);

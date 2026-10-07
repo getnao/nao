@@ -223,6 +223,65 @@ describe('managed GitHub repository provisioning', () => {
 		);
 	});
 
+	it('retries an authentication failure with a fresh installation token', async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.mocked(fetch);
+		fetchMock
+			.mockResolvedValueOnce(jsonResponse(201, { token: 'first-token' }))
+			.mockResolvedValueOnce(jsonResponse(404, { message: 'Not Found' }))
+			.mockResolvedValueOnce(
+				jsonResponse(201, {
+					full_name: 'nao-org/nao-lumen-bike-share-12345678',
+					html_url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+				}),
+			)
+			.mockResolvedValueOnce(jsonResponse(201, { token: 'refreshed-token' }));
+		let pushAttempts = 0;
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'diff') {
+					callback(null, 'nao_config.yaml\n', '');
+					return;
+				}
+				if (args[0] === 'push' && ++pushAttempts === 1) {
+					callback(
+						new Error('push failed'),
+						'',
+						'remote: Invalid username or token.\nfatal: Authentication failed',
+					);
+					return;
+				}
+				callback(null, '', '');
+			},
+		);
+
+		try {
+			const provisioning = provisionManagedGithubRepository(project);
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			await expect(provisioning).resolves.toEqual({
+				repoFullName: 'nao-org/nao-lumen-bike-share-12345678',
+				url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+			});
+			expect(pushAttempts).toBe(2);
+			expect(fetchMock).toHaveBeenNthCalledWith(
+				4,
+				'https://api.github.com/app/installations/456/access_tokens',
+				expect.objectContaining({ method: 'POST' }),
+			);
+			expect(mocks.execFile).toHaveBeenLastCalledWith(
+				'git',
+				['push', 'https://github.com/nao-org/nao-lumen-bike-share-12345678.git', 'HEAD:refs/heads/main'],
+				expect.objectContaining({
+					env: expect.objectContaining({ NAO_GIT_TOKEN: 'refreshed-token' }),
+				}),
+				expect.any(Function),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('deletes a newly created repository when publishing fails', async () => {
 		const fetchMock = vi.mocked(fetch);
 		fetchMock

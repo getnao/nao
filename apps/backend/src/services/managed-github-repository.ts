@@ -10,6 +10,7 @@ import { NAO_CO_AUTHOR } from '../utils/git-identity';
 import { getGitOAuthCredential, runGitWithOAuthAsync } from '../utils/git-oauth';
 
 const GITHUB_API = 'https://api.github.com';
+const GITHUB_AUTH_RETRY_DELAY_MS = 1_000;
 
 interface ManagedRepositoryInput {
 	projectId: string;
@@ -47,12 +48,13 @@ export async function provisionManagedGithubRepository(
 		return null;
 	}
 
-	const token = await createInstallationToken(config);
+	let token = await createInstallationToken(config);
 	const repoName = buildRepositoryName(input.projectName, input.projectId);
 	const { repository, created } = await getOrCreateRepository(config.org, repoName, token);
 
 	try {
-		await initializeAndPushRepository(input.projectDir, repository.full_name, token);
+		await initializeRepository(input.projectDir, repository.full_name);
+		token = await pushRepositoryWithAuthenticationRetry(input.projectDir, repository.full_name, token, config);
 	} catch (error) {
 		if (created) {
 			try {
@@ -178,7 +180,7 @@ async function deleteRepository(repoFullName: string, token: string): Promise<vo
 	}
 }
 
-async function initializeAndPushRepository(projectDir: string, repoFullName: string, token: string): Promise<void> {
+async function initializeRepository(projectDir: string, repoFullName: string): Promise<void> {
 	if (!isGitRepository(projectDir)) {
 		await runGit(projectDir, ['init', '-b', 'main']);
 	}
@@ -200,12 +202,41 @@ async function initializeAndPushRepository(projectDir: string, repoFullName: str
 
 	const cleanUrl = `https://github.com/${repoFullName}.git`;
 	await setOrigin(projectDir, cleanUrl);
+}
 
+async function pushRepositoryWithAuthenticationRetry(
+	projectDir: string,
+	repoFullName: string,
+	token: string,
+	config: ManagedGithubConfig,
+): Promise<string> {
+	try {
+		await pushRepository(projectDir, repoFullName, token);
+		return token;
+	} catch (error) {
+		if (!isGithubAuthenticationError(error)) {
+			throw error;
+		}
+	}
+
+	await new Promise((resolve) => setTimeout(resolve, GITHUB_AUTH_RETRY_DELAY_MS));
+	const refreshedToken = await createInstallationToken(config);
+	await pushRepository(projectDir, repoFullName, refreshedToken);
+	return refreshedToken;
+}
+
+async function pushRepository(projectDir: string, repoFullName: string, token: string): Promise<void> {
+	const cleanUrl = `https://github.com/${repoFullName}.git`;
 	await runGitWithOAuthAsync(
 		projectDir,
 		['push', cleanUrl, 'HEAD:refs/heads/main'],
 		getGitOAuthCredential('github', token),
 	);
+}
+
+function isGithubAuthenticationError(error: unknown): boolean {
+	const message = getErrorMessage(error).toLowerCase();
+	return message.includes('invalid username or token') || message.includes('authentication failed');
 }
 
 function isGitRepository(projectDir: string): boolean {

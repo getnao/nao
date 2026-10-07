@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { UIMessage } from '@nao/backend/chat';
 
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
@@ -10,6 +11,7 @@ import { OnboardingProgress, useOnboardingProgress } from '@/components/onboardi
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
+import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -39,7 +41,9 @@ export const Route = createFileRoute('/_sidebar-layout/onboarding')({
 
 function OnboardingRoute() {
 	const { data: session } = useSession();
-	const chatId = session?.user.id ? (getOnboardingChatIdStorage(session.user.id).get() ?? undefined) : undefined;
+	const [chatId] = useState(() =>
+		session?.user.id ? (getOnboardingChatIdStorage(session.user.id).get() ?? undefined) : undefined,
+	);
 	return (
 		<ChatIdContext.Provider value={chatId}>
 			<SetChatInputCallbackProvider>
@@ -57,6 +61,8 @@ function OnboardingPage() {
 	const messages = useAgentMessages();
 	const { isRunning, queueOrSendMessage } = useAgentContext();
 	const progress = useOnboardingProgress();
+	const warehouseJobId = useMemo(() => findWarehouseJobId(messages), [messages]);
+	const warehouseJob = useWarehouseProvisioningJob(warehouseJobId);
 	const { isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
@@ -75,7 +81,10 @@ function OnboardingPage() {
 	});
 	const showDeployKey = (progress?.flow === 'new' || progress?.flow === 'local') && progress.step === 3;
 	const showImportProviderCard = progress?.flow === 'github' && (progress.step === 0 || progress.step === 1);
-	const onboardingComplete = progress?.step === 4 || (progress?.flow === 'github' && progress.step === 2);
+	const onboardingComplete =
+		warehouseJob.data?.status === 'ready' ||
+		progress?.step === 4 ||
+		(progress?.flow === 'github' && progress.step === 2);
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
 
@@ -150,7 +159,7 @@ function OnboardingPage() {
 			<MobileHeader />
 			<div className='shrink-0 pb-2 pt-4'>
 				<div className='mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 md:px-4'>
-					<OnboardingProgress />
+					<OnboardingProgress complete={onboardingComplete} />
 					{showDeployKey && (
 						<Dialog>
 							<div
@@ -256,6 +265,9 @@ function OnboardingPage() {
 						>
 							{onboardingComplete ? (
 								<div className='flex flex-col items-center gap-2 pb-4'>
+									<p className='text-center text-sm font-medium text-violet'>
+										Project setup successful!
+									</p>
 									<Button
 										asChild
 										className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
@@ -324,4 +336,17 @@ function OnboardingPage() {
 			)}
 		</div>
 	);
+}
+
+function findWarehouseJobId(messages: UIMessage[]): string | null {
+	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+		const parts = messages[messageIndex].parts;
+		for (let partIndex = parts.length - 1; partIndex >= 0; partIndex--) {
+			const part = parts[partIndex];
+			if (part.type === 'tool-generate_onboarding_rules' && part.state === 'output-available') {
+				return part.output.jobId;
+			}
+		}
+	}
+	return null;
 }

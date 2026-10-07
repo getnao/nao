@@ -291,6 +291,9 @@ function ChatPage() {
 								{showTrialOnboardingBanner && <TrialOnboardingBanner />}
 								{chat.data?.isOnboarding ? (
 									<div className='flex flex-col items-center gap-2 pb-4'>
+										<p className='text-center text-sm font-medium text-violet'>
+											Project setup successful!
+										</p>
 										<Button
 											asChild
 											className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
@@ -353,7 +356,7 @@ function TrialOnboardingBanner() {
 					</span>
 					<p className='mt-0.5 text-sm font-semibold text-foreground'>Ready to use your own data?</p>
 					<p className='mt-0.5 text-xs text-muted-foreground'>
-						Connect a database or import your existing nao project.
+						Set up your project with the help of our onboarding agent
 					</p>
 				</div>
 				<Button asChild size='sm' className='relative z-10 shrink-0 self-start rounded-full sm:self-center'>

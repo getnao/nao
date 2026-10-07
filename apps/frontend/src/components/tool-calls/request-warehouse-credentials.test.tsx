@@ -22,6 +22,7 @@ vi.mock('@tanstack/react-query', () => ({
 		options.queryKey[0] === 'active-job'
 			? { data: { id: 'job-1' } }
 			: { data: { status: 'awaiting_context' }, isError: false },
+	useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({

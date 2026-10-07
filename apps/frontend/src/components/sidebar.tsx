@@ -431,13 +431,28 @@ function SidebarNav({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
 		placeholderData: keepPreviousData,
 	});
+	const onboardingChatId = groupedChats.data?.groups
+		.flatMap((group) => group.chats)
+		.find((chat) => chat.isOnboarding)?.id;
+	const activeOnboardingJob = useQuery({
+		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+			onboardingChatId: onboardingChatId ?? '',
+		}),
+		enabled: Boolean(onboardingChatId),
+		refetchInterval: (query) => (query.state.data ? 1000 : false),
+		refetchOnWindowFocus: 'always',
+	});
+	const onboardingNeedsAttention =
+		activeOnboardingJob.data?.status === 'syncing' ||
+		activeOnboardingJob.data?.status === 'registering' ||
+		activeOnboardingJob.data?.status === 'awaiting_context';
 	const groups = groupedChats.data?.groups.map((group) => {
 		if (!separateExampleChats) {
 			return group;
 		}
 		return {
 			...group,
-			chats: group.chats.filter((chat) => chat.projectId !== SYSTEM_EXAMPLE_PROJECT_ID),
+			chats: group.chats.filter((chat) => chat.projectId !== SYSTEM_EXAMPLE_PROJECT_ID || chat.isOnboarding),
 		};
 	});
 	const isEmpty = groups?.every((group) => group.chats.length === 0);
@@ -451,7 +466,12 @@ function SidebarNav({
 			)}
 		>
 			{groups?.map((group) => (
-				<GroupSection key={group.label} group={group} groupBy={groupBy} />
+				<GroupSection
+					key={group.label}
+					group={group}
+					groupBy={groupBy}
+					attentionChatId={onboardingNeedsAttention ? onboardingChatId : undefined}
+				/>
 			))}
 
 			{isEmpty && (
@@ -498,7 +518,7 @@ function JaffleShopHistory({
 	});
 	const groups = groupedChats.data?.groups.map((group) => ({
 		...group,
-		chats: group.chats.filter((chat) => chat.projectId === SYSTEM_EXAMPLE_PROJECT_ID),
+		chats: group.chats.filter((chat) => chat.projectId === SYSTEM_EXAMPLE_PROJECT_ID && !chat.isOnboarding),
 	}));
 	const isEmpty = groups?.every((group) => group.chats.length === 0);
 
@@ -653,7 +673,15 @@ function AutomationListItem({
 
 const GROUP_INITIAL_COUNT = 10;
 
-function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroupBy }) {
+function GroupSection({
+	group,
+	groupBy,
+	attentionChatId,
+}: {
+	group: ChatGroup;
+	groupBy: ChatGroupBy;
+	attentionChatId?: string;
+}) {
 	const { isOpen, toggle } = useSidebarSectionOpen(`section:chat-group:${group.label}`);
 	const [expanded, setExpanded] = useState(false);
 	const hasMore = group.chats.length > GROUP_INITIAL_COUNT;
@@ -679,7 +707,7 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 						item.kind === 'shared' ? (
 							<SharedChatGroupItem key={`shared-${item.shareId}`} item={item} groupBy={groupBy} />
 						) : (
-							<ChatListItem key={item.id} chat={item} />
+							<ChatListItem key={item.id} chat={item} needsAttention={item.id === attentionChatId} />
 						),
 					)}
 

@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { EllipsisVertical, Pencil, StarIcon, StarOffIcon, TrashIcon, Upload } from 'lucide-react';
+import { CircleAlert, EllipsisVertical, Pencil, StarIcon, StarOffIcon, TrashIcon, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { ShareChatDialog } from './share-dialog.chat';
 import {
@@ -25,9 +25,10 @@ import { trpc } from '@/main';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
 	chat: GroupedChatItem;
+	needsAttention?: boolean;
 }
 
-export function ChatListItem({ chat }: Props) {
+export function ChatListItem({ chat, needsAttention = false }: Props) {
 	const navigate = useNavigate();
 	const timeAgo = useTimeAgo(chat.updatedAt);
 	const activity = useChatActivity(chat.id);
@@ -92,7 +93,9 @@ export function ChatListItem({ chat }: Props) {
 	};
 
 	const handleDoubleClick = () => {
-		setIsRenaming(true);
+		if (!chat.isOnboarding) {
+			setIsRenaming(true);
+		}
 	};
 
 	return (
@@ -105,10 +108,23 @@ export function ChatListItem({ chat }: Props) {
 					!isRenaming && 'hover:pr-9 has-data-[state=open]:pr-9',
 				)}
 				inactiveProps={{
-					className: cn('text-sidebar-foreground hover:bg-sidebar-accent opacity-75'),
+					className: cn(
+						needsAttention
+							? 'bg-violet/15 text-foreground opacity-100 ring-1 ring-inset ring-violet/40 hover:bg-violet/20'
+							: 'text-sidebar-foreground hover:bg-sidebar-accent opacity-75',
+					),
 				}}
 				activeProps={{
-					className: cn('text-foreground bg-sidebar-accent font-medium'),
+					className: cn(
+						'text-foreground font-medium',
+						needsAttention ? 'bg-violet/20 ring-1 ring-inset ring-violet/50' : 'bg-sidebar-accent',
+					),
+				}}
+				onClick={(event) => {
+					if (needsAttention) {
+						event.preventDefault();
+						navigate({ to: '/onboarding' });
+					}
 				}}
 				onDoubleClick={handleDoubleClick}
 			>
@@ -123,8 +139,18 @@ export function ChatListItem({ chat }: Props) {
 				) : (
 					<>
 						{activity.unread && <span className='size-1.5 shrink-0 rounded-full bg-primary' />}
-						<div className='truncate text-sm mr-auto'>{chat.title}</div>
-						{activity.running ? (
+						{needsAttention && (
+							<CircleAlert
+								className='size-4 shrink-0 text-violet'
+								aria-label='Action needed: answer the setup question'
+							/>
+						)}
+						<div className='truncate text-sm mr-auto'>
+							{chat.isOnboarding ? 'Project setup' : chat.title}
+						</div>
+						{needsAttention ? (
+							<div className='whitespace-nowrap text-xs font-medium text-violet'>Finish setup</div>
+						) : activity.running ? (
 							<Spinner className='size-3.5 shrink-0' />
 						) : (
 							<div className='text-xs text-muted-foreground whitespace-nowrap'>
@@ -149,10 +175,12 @@ export function ChatListItem({ chat }: Props) {
 										{chat.isStarred ? <StarOffIcon /> : <StarIcon />}
 										{chat.isStarred ? 'Unstar' : 'Star'}
 									</DropdownMenuItem>
-									<DropdownMenuItem onSelect={handleRenameSelect}>
-										<Pencil />
-										Rename
-									</DropdownMenuItem>
+									{!chat.isOnboarding && (
+										<DropdownMenuItem onSelect={handleRenameSelect}>
+											<Pencil />
+											Rename
+										</DropdownMenuItem>
+									)}
 									<DropdownMenuItem onSelect={() => setIsShareDialogOpen(true)}>
 										<Upload />
 										Share

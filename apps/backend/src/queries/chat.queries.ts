@@ -43,6 +43,12 @@ const chatUpdatedAtMs =
 
 const sqlFalse = dbConfig.dialect === Dialect.Postgres ? sql<boolean>`false` : sql<boolean>`0`;
 
+const isOnboardingExpr = sql<boolean>`exists(
+	select 1 from ${s.chatMessage}
+	where ${s.chatMessage.chatId} = ${s.chat.id}
+	and ${s.chatMessage.source} = 'onboarding'
+)`;
+
 const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.slackThreadId} is not null then 'Slack'
 	when ${s.chat.teamsThreadId} is not null then 'Teams'
@@ -91,6 +97,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 			id: s.chat.id,
 			title: s.chat.title,
 			isStarred: s.chat.isStarred,
+			isOnboarding: isOnboardingExpr,
 			createdAt: chatCreatedAtMs,
 			updatedAt: chatUpdatedAtMs,
 			kind: sql<'own'>`'own'`,
@@ -115,6 +122,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 			id: s.sharedChat.chatId,
 			title: s.chat.title,
 			isStarred: sqlFalse,
+			isOnboarding: isOnboardingExpr,
 			createdAt: chatCreatedAtMs,
 			updatedAt: chatUpdatedAtMs,
 			kind: sql<'shared'>`'shared'`,
