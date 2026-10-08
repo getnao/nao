@@ -1951,6 +1951,7 @@ export const apiKey = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
+		scope: text('scope').default('deploy').notNull(),
 		keyHash: text('key_hash').notNull().unique(),
 		keyPrefix: text('key_prefix').notNull(),
 		createdBy: text('created_by')
