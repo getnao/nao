@@ -48,10 +48,15 @@ const settingsNavGroups: NavGroup[] = [
 		label: 'Project',
 		items: [
 			{
-				label: 'Project Settings & Budget',
+				label: 'Project Settings',
 				to: '/settings/project',
 				visible: ({ isViewer }) => !isViewer,
 				exact: true,
+			},
+			{
+				label: 'Budget',
+				to: '/settings/project/budgets',
+				visible: ({ isViewer }) => !isViewer,
 			},
 			{
 				label: 'Users & Groups',

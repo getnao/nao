@@ -540,6 +540,13 @@
       "when": 1791306215210,
       "tag": "0076_warehouse_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1791466621092,
+      "tag": "0077_member_budgets",
+      "breakpoints": true
     }
   ]
 }

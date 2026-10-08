@@ -332,6 +332,8 @@ export class AgentService {
 			/** Enables project-defined charts that render only in the web client. */
 			supportsCustomCharts?: boolean;
 			billingAccessVerifiedProjectId?: string;
+			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
+			isBudgetChecked?: boolean;
 			/** The request boundary has already authorized access to an internal system project. */
 			projectAccessAlreadyAuthorized?: boolean;
 		} = {},
@@ -341,7 +343,9 @@ export class AgentService {
 		}
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
-		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
+		if (!options.isBudgetChecked) {
+			await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
+		}
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),

@@ -17,6 +17,7 @@
 		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",
 		"./map": "./src/map.ts",
 		"./types": "./src/types.ts",
+		"./member-budget": "./src/member-budget.ts",
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts",
 		"./conditional-formatting": "./src/conditional-formatting.ts",

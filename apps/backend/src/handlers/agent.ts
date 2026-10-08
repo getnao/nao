@@ -87,6 +87,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
 		...agentOptions,
 		billingAccessVerifiedProjectId: projectId,
+		isBudgetChecked: true,
 		projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
 	});
 

@@ -25,6 +25,7 @@ import { mapRoutes } from './map.routes';
 import { mcpRoutes } from './mcp.routes';
 import { mcpEndpointRoutes } from './mcp-endpoint.routes';
 import { mcpOAuthClientsRoutes } from './mcp-oauth-clients.routes';
+import { memberBudgetRoutes } from './member-budget.routes';
 import { memoryRoutes } from './memory.routes';
 import { notificationRoutes } from './notification.routes';
 import { onboardingRoutes } from './onboarding.routes';
@@ -52,6 +53,7 @@ export const trpcRouter = router({
 	billing: billingRoutes,
 	branding: brandingRoutes,
 	budget: budgetRoutes,
+	memberBudget: memberBudgetRoutes,
 	embed: embedRoutes,
 	chart: chartRoutes,
 	chartPlugin: chartPluginRoutes,

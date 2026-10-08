@@ -1,5 +1,5 @@
 import { getCurrentPeriodStart } from '@nao/shared/date';
-import type { LlmProvider } from '@nao/shared/types';
+import type { CalendarPeriod, LlmProvider } from '@nao/shared/types';
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
 
 import s, { DBProjectProviderBudget } from '../db/abstractSchema';
@@ -20,7 +20,7 @@ export const getProviderBudget = async (
 	return row ?? null;
 };
 
-export type ProviderPeriod = { provider: LlmProvider; period: BudgetPeriod; periodStart?: Date };
+export type ProviderPeriod = { provider: LlmProvider; period: CalendarPeriod; periodStart?: Date };
 
 export const getProviderBudgetSpend = async (
 	projectId: string,
@@ -130,9 +130,9 @@ export const setProjectProviderBudgets = async (
 
 type ProviderPeriodCostRow = { provider: LlmProvider | null; userId: string | null; totalCost: number };
 
-const roundCost = (value: number): number => Math.round(value * 100) / 100;
+export const roundCost = (value: number): number => Math.round(value * 100) / 100;
 
-const queryProviderPeriodCosts = async (
+export const queryProviderPeriodCosts = async (
 	projectId: string,
 	budgets: ProviderPeriod[],
 	options: { userId?: string } = {},

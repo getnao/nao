@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 
-import { BudgetSettings } from '@/components/settings/budget-settings';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { ProjectIdentifier } from '@/components/settings/project-identifier';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -44,8 +43,6 @@ function ProjectSettingsPage() {
 			</SettingsCard>
 
 			<EnvVarsSection isAdmin={isAdmin} />
-
-			<BudgetSettings />
 		</>
 	);
 }

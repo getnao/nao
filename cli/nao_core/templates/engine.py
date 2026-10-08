@@ -204,7 +204,6 @@ class TemplateEngine:
         response = client.messages.create(
             model=model,
             max_tokens=1024,
-            temperature=0,
             messages=[{"role": "user", "content": prompt_text}],
         )
 
