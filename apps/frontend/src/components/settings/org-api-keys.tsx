@@ -124,18 +124,19 @@ export function DeployKeyGenerator({
 	const [name, setName] = useState(DEFAULT_KEY_NAMES[scopes[0] ?? 'deploy']);
 	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
 	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
+	// The deploy command is only useful for a deploy-scoped key, so remember what was just created.
+	const [latestKeyScope, setLatestKeyScope] = useState<ApiKeyScope>('deploy');
 	const createApiKey = useMutation(
 		trpc.apiKey.create.mutationOptions({
 			onSuccess: async (result) => {
 				const createdScope: ApiKeyScope = result.scope === 'user_management' ? 'user_management' : 'deploy';
 				onPlaintextKeyCreated(result.plaintext);
+				setLatestKeyScope(createdScope);
 				setName(DEFAULT_KEY_NAMES[createdScope]);
 				await queryClient.invalidateQueries({ queryKey: trpc.apiKey.list.queryOptions().queryKey });
 			},
 		}),
 	);
-	// The deploy command is only useful for a deploy-scoped key, so remember what was just created.
-	const [latestKeyScope, setLatestKeyScope] = useState<ApiKeyScope>('deploy');
 	const deployCommand = useMemo(() => {
 		if (!deployUrl || !latestPlaintextKey || latestKeyScope !== 'deploy') {
 			return null;

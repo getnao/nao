@@ -19,8 +19,15 @@ import { assertProjectCloudBillingAccess } from '../src/services/cloud-billing-a
 import { logger } from '../src/utils/logger';
 
 const ORG = { id: 'org-1' };
-const API_KEY = { createdBy: 'user-1', organization: ORG };
 const AUTOMATION_ID = 'automation-1';
+const ACTOR_ID = 'user-id';
+
+const deployKeyCheck = (org: { id: string } = ORG) => ({
+	status: 'ok' as const,
+	org,
+	scope: 'deploy' as const,
+	createdBy: ACTOR_ID,
+});
 
 function buildAutomation(overrides: Record<string, unknown> = {}) {
 	return { id: AUTOMATION_ID, projectId: 'project-1', webhookEnabled: true, ...overrides };
@@ -51,13 +58,20 @@ describe('automation webhook route', () => {
 	});
 
 	it('rejects an invalid api key', async () => {
-		vi.mocked(validateApiKey).mockResolvedValue(null);
+		vi.mocked(validateApiKey).mockResolvedValue({ status: 'invalid' } as never);
 		const res = await post(app, { authorization: 'Bearer nao_invalid' });
 		expect(res.statusCode).toBe(401);
 	});
 
+	it('rejects a key that is scoped to another API with a 403', async () => {
+		vi.mocked(validateApiKey).mockResolvedValue({ status: 'scope_mismatch' } as never);
+		const res = await post(app, { authorization: 'Bearer nao_user_management' });
+		expect(res.statusCode).toBe(403);
+		expect(vi.mocked(startAutomationRun)).not.toHaveBeenCalled();
+	});
+
 	it('returns 404 when the automation does not exist', async () => {
-		vi.mocked(validateApiKey).mockResolvedValue(API_KEY as never);
+		vi.mocked(validateApiKey).mockResolvedValue(deployKeyCheck() as never);
 		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(null);
 		const res = await post(app, { authorization: 'Bearer nao_valid' });
 		expect(res.statusCode).toBe(404);
@@ -65,7 +79,7 @@ describe('automation webhook route', () => {
 	});
 
 	it('returns 404 when the api key belongs to a different organization', async () => {
-		vi.mocked(validateApiKey).mockResolvedValue(API_KEY as never);
+		vi.mocked(validateApiKey).mockResolvedValue(deployKeyCheck() as never);
 		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(buildAutomation() as never);
 		vi.mocked(projectQueries.getProjectById).mockResolvedValue({ id: 'project-1', orgId: 'other-org' } as never);
 		const res = await post(app, { authorization: 'Bearer nao_valid' });
@@ -74,7 +88,7 @@ describe('automation webhook route', () => {
 	});
 
 	it('returns 403 when the webhook trigger is disabled', async () => {
-		vi.mocked(validateApiKey).mockResolvedValue(API_KEY as never);
+		vi.mocked(validateApiKey).mockResolvedValue(deployKeyCheck() as never);
 		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(
 			buildAutomation({ webhookEnabled: false }) as never,
 		);
@@ -85,7 +99,7 @@ describe('automation webhook route', () => {
 	});
 
 	it('returns 409 when the automation is paused', async () => {
-		vi.mocked(validateApiKey).mockResolvedValue(API_KEY as never);
+		vi.mocked(validateApiKey).mockResolvedValue(deployKeyCheck() as never);
 		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(
 			buildAutomation({ scheduledJob: { status: 'paused' }, enabled: false }) as never,
 		);
@@ -96,7 +110,7 @@ describe('automation webhook route', () => {
 	});
 
 	it('triggers a run for a valid, authorized webhook request', async () => {
-		vi.mocked(validateApiKey).mockResolvedValue(API_KEY as never);
+		vi.mocked(validateApiKey).mockResolvedValue(deployKeyCheck() as never);
 		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(buildAutomation() as never);
 		vi.mocked(projectQueries.getProjectById).mockResolvedValue({ id: 'project-1', orgId: ORG.id } as never);
 		vi.mocked(startAutomationRun).mockResolvedValue({ id: 'run-1', status: 'running' } as never);
@@ -112,12 +126,12 @@ describe('automation webhook route', () => {
 		});
 		expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
 			'Automation webhook triggered run',
-			expect.objectContaining({ userId: API_KEY.createdBy }),
+			expect.objectContaining({ userId: ACTOR_ID }),
 		);
 	});
 
 	it('triggers a run for an enabled scheduled automation', async () => {
-		vi.mocked(validateApiKey).mockResolvedValue(API_KEY as never);
+		vi.mocked(validateApiKey).mockResolvedValue(deployKeyCheck() as never);
 		vi.mocked(automationQueries.getAutomationById).mockResolvedValue(
 			buildAutomation({ scheduledJob: { status: 'pending' }, enabled: true }) as never,
 		);
