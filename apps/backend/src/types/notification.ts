@@ -14,7 +14,7 @@ export interface NotifyInput {
 	channels?: NotificationChannel[];
 	emailAttachments?: EmailAttachment[];
 	emailBodyHtml?: string;
-	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
+	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => Promise<CreatedEmail>;
 }
 
 export interface NotificationRecipient {

@@ -1,3 +1,4 @@
+import type { EmailBranding } from '../../utils/email-branding';
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 import { EmailParagraph } from './email-text';
@@ -10,6 +11,7 @@ interface SharedItemEmailProps {
 	itemTitle: string;
 	itemUrl: string;
 	unsubscribeUrl?: string;
+	branding: EmailBranding;
 }
 
 export function SharedItemEmail({
@@ -19,16 +21,20 @@ export function SharedItemEmail({
 	itemTitle,
 	itemUrl,
 	unsubscribeUrl,
+	branding,
 }: SharedItemEmailProps) {
 	return (
-		<EmailLayout title={`${sharerName} shared "${itemTitle}" with you on nao`}>
+		<EmailLayout title={`${sharerName} shared "${itemTitle}" with you on ${branding.appName}`} branding={branding}>
 			<EmailParagraph>Hi {userName},</EmailParagraph>
 
 			<EmailParagraph>
-				<strong>{sharerName}</strong> shared the {itemLabel} <strong>{itemTitle}</strong> with you on nao.
+				<strong>{sharerName}</strong> shared the {itemLabel} <strong>{itemTitle}</strong> with you on{' '}
+				{branding.appName}.
 			</EmailParagraph>
 
-			<EmailButton href={itemUrl}>View {itemLabel}</EmailButton>
+			<EmailButton href={itemUrl} color={branding.brandColor}>
+				View {itemLabel}
+			</EmailButton>
 
 			{unsubscribeUrl && (
 				<EmailParagraph muted>

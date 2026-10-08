@@ -22,7 +22,7 @@ export interface DeliverableNotification {
 	projectId: string;
 	emailAttachments?: EmailAttachment[];
 	emailBodyHtml?: string;
-	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
+	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => Promise<CreatedEmail>;
 }
 
 export interface DeliveryChannelOptions {
@@ -69,14 +69,14 @@ const emailChannel: NotificationChannelHandler = {
 		if (notification.emailOverride) {
 			await emailService.sendEmail(
 				recipient.email,
-				notification.emailOverride(recipient, unsubscribeUrl),
+				await notification.emailOverride(recipient, unsubscribeUrl),
 				sendOptions,
 			);
 			return;
 		}
 		await emailService.sendEmail(
 			recipient.email,
-			buildNotificationEmail(
+			await buildNotificationEmail(
 				recipient,
 				notification.title,
 				notification.body,

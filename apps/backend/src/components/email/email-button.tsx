@@ -4,15 +4,16 @@ import { emailColors, emailFonts } from './email-theme';
 
 interface EmailButtonProps {
 	href: string;
+	color?: string;
 	children: ReactNode;
 }
 
-export function EmailButton({ href, children }: EmailButtonProps) {
+export function EmailButton({ href, color = emailColors.brand, children }: EmailButtonProps) {
 	return (
 		<table role='presentation' cellPadding={0} cellSpacing={0} style={{ margin: '4px 0 24px' }}>
 			<tbody>
 				<tr>
-					<td style={{ borderRadius: '6px', backgroundColor: emailColors.brand }}>
+					<td style={{ borderRadius: '6px', backgroundColor: color }}>
 						<a
 							href={href}
 							style={{

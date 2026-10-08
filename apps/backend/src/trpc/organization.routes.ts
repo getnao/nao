@@ -170,7 +170,7 @@ export const organizationRoutes = {
 
 			const user = await userQueries.getUser({ id: input.userId });
 			if (user) {
-				await emailService.sendEmail(user.email, buildResetPasswordEmail(user, ctx.org.name, password));
+				await emailService.sendEmail(user.email, await buildResetPasswordEmail(user, ctx.org.name, password));
 			}
 
 			return { password };

@@ -1,3 +1,4 @@
+import type { EmailBranding } from '../../utils/email-branding';
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 import { EmailParagraph } from './email-text';
@@ -11,6 +12,7 @@ interface NotificationEmailProps {
 	linkUrl?: string;
 	ctaLabel?: string;
 	unsubscribeUrl?: string;
+	branding: EmailBranding;
 }
 
 export function NotificationEmail({
@@ -21,9 +23,10 @@ export function NotificationEmail({
 	linkUrl,
 	ctaLabel,
 	unsubscribeUrl,
+	branding,
 }: NotificationEmailProps) {
 	return (
-		<EmailLayout title={`${title} — nao`}>
+		<EmailLayout title={`${title} — ${branding.appName}`} branding={branding}>
 			<EmailParagraph>Hi {userName},</EmailParagraph>
 
 			<EmailParagraph>
@@ -32,7 +35,11 @@ export function NotificationEmail({
 
 			{body && <EmailParagraph>{body}</EmailParagraph>}
 
-			{linkUrl && <EmailButton href={linkUrl}>{ctaLabel ?? 'Open in nao'}</EmailButton>}
+			{linkUrl && (
+				<EmailButton href={linkUrl} color={branding.brandColor}>
+					{ctaLabel ?? `Open in ${branding.appName}`}
+				</EmailButton>
+			)}
 
 			{bodyHtml && (
 				<div

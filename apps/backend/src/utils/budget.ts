@@ -343,7 +343,7 @@ async function notifyAdminsOnBudgetLimitReached(
 					}
 					await emailService.sendEmail(
 						admin.email,
-						buildBudgetLimitReachedEmail(
+						await buildBudgetLimitReachedEmail(
 							admin,
 							label,
 							budget.limitUsd,

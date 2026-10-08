@@ -16,6 +16,7 @@ import { hasFeature } from './license.service';
 const WHITE_LABEL_FEATURE = LICENSE_FEATURES.whiteLabel;
 
 export const DEFAULT_APP_NAME = 'nao';
+export const DEFAULT_BRAND_COLOR = '#522bff';
 
 export async function isWhiteLabelEnabled(): Promise<boolean> {
 	return hasFeature(WHITE_LABEL_FEATURE);

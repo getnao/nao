@@ -1,14 +1,16 @@
 import type { ReactNode } from 'react';
 
-import { EMAIL_LOGO_CID, emailLogoAttachment } from '../../utils/email-logo';
+import type { EmailBranding } from '../../utils/email-branding';
+import { EMAIL_LOGO_CID } from '../../utils/email-logo';
 import { emailColors, emailFonts, emailFontsUrl, emailText } from './email-theme';
 
 interface EmailLayoutProps {
 	title: string;
+	branding: EmailBranding;
 	children: ReactNode;
 }
 
-export function EmailLayout({ title, children }: EmailLayoutProps) {
+export function EmailLayout({ title, branding, children }: EmailLayoutProps) {
 	return (
 		<html lang='en'>
 			<head>
@@ -34,7 +36,7 @@ export function EmailLayout({ title, children }: EmailLayoutProps) {
 									<tbody>
 										<tr>
 											<td style={{ paddingBottom: '36px' }}>
-												<EmailBrand />
+												<EmailBrand branding={branding} />
 											</td>
 										</tr>
 										<tr>
@@ -42,7 +44,7 @@ export function EmailLayout({ title, children }: EmailLayoutProps) {
 										</tr>
 										<tr>
 											<td style={{ paddingTop: '28px' }}>
-												<EmailFooter />
+												<EmailFooter branding={branding} />
 											</td>
 										</tr>
 									</tbody>
@@ -56,12 +58,12 @@ export function EmailLayout({ title, children }: EmailLayoutProps) {
 	);
 }
 
-function EmailBrand() {
+function EmailBrand({ branding }: { branding: EmailBranding }) {
 	return (
 		<table role='presentation' cellPadding={0} cellSpacing={0}>
 			<tbody>
 				<tr>
-					{emailLogoAttachment && (
+					{branding.logo && (
 						<td style={{ paddingRight: '10px', verticalAlign: 'middle' }}>
 							<img
 								src={`cid:${EMAIL_LOGO_CID}`}
@@ -83,7 +85,7 @@ function EmailBrand() {
 								color: emailColors.foreground,
 							}}
 						>
-							nao
+							{branding.appName}
 						</span>
 					</td>
 				</tr>
@@ -92,7 +94,10 @@ function EmailBrand() {
 	);
 }
 
-function EmailFooter() {
+function EmailFooter({ branding }: { branding: EmailBranding }) {
+	if (branding.isWhiteLabel) {
+		return <p style={{ ...emailText.muted, margin: 0 }}>This is an automated message from {branding.appName}.</p>;
+	}
 	return (
 		<p style={{ ...emailText.muted, margin: 0 }}>
 			This is an automated message from{' '}
