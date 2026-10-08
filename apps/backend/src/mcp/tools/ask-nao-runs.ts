@@ -22,6 +22,8 @@ export interface AskNaoClarification {
 export interface AskNaoResult {
 	chatId: string;
 	chatUrl: string;
+	/** Model that answered, as `provider/model-id`. */
+	model?: string;
 	text: string;
 	clarification?: AskNaoClarification;
 	queries: AskNaoQuery[];

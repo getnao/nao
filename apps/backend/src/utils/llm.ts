@@ -308,6 +308,66 @@ export const getProjectAvailableModels = async (
 	});
 };
 
+export type ProjectAvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[number];
+
+/** Raised when an MCP caller names a model the project does not expose. The message is safe to relay. */
+export class RequestedModelError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'RequestedModelError';
+	}
+}
+
+/**
+ * Picks the model an MCP caller asked for among the project's available models. `requested` is a
+ * model id as the model picker lists it (`mistral-large-4`), or `provider/model-id` when the same
+ * id is served by several providers. Matching ignores case and also accepts the display name.
+ */
+export function pickRequestedModel(available: ProjectAvailableModel[], requested: string): LlmSelectedModel {
+	const wanted = requested.trim().toLowerCase();
+	if (!wanted) {
+		throw new RequestedModelError('`model` must not be empty.');
+	}
+
+	const matchesId = (m: ProjectAvailableModel, id: string): boolean =>
+		m.modelId.toLowerCase() === id || m.name.trim().toLowerCase() === id;
+
+	let candidates = available.filter((m) => matchesId(m, wanted));
+	const slash = wanted.indexOf('/');
+	if (candidates.length === 0 && slash > 0) {
+		const provider = wanted.slice(0, slash);
+		const id = wanted.slice(slash + 1);
+		candidates = available.filter((m) => m.provider.toLowerCase() === provider && matchesId(m, id));
+	}
+
+	if (candidates.length === 1) {
+		return { provider: candidates[0].provider, modelId: candidates[0].modelId };
+	}
+	if (candidates.length === 0) {
+		const list = available.map((m) => `${m.provider}/${m.modelId}`).join(', ') || 'none';
+		throw new RequestedModelError(`Unknown model "${requested}". Available models: ${list}.`);
+	}
+	const qualified = candidates.map((m) => `${m.provider}/${m.modelId}`).join(', ');
+	throw new RequestedModelError(
+		`Model "${requested}" is served by several providers. Qualify it as provider/model-id: ${qualified}.`,
+	);
+}
+
+/**
+ * Model for an MCP sub-agent run: the one the caller named, else the project's default background
+ * model ("other" category) when an admin configured one, else `undefined` so the agent falls back
+ * to the first available model as before.
+ */
+export async function resolveSubAgentModelSelection(
+	projectId: string,
+	requested?: string,
+): Promise<LlmSelectedModel | undefined> {
+	if (requested !== undefined) {
+		return pickRequestedModel(await getProjectAvailableModels(projectId), requested);
+	}
+	return (await resolveDefaultModelSelection(projectId, 'other')) ?? undefined;
+}
+
 /** The models declared for each provider, used to price usage on top of nao's built-in table. */
 export const getProjectDeclaredModels = async (
 	projectId: string,
