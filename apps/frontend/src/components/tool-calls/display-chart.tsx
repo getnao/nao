@@ -402,6 +402,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					config={{ ...chartConfig, chart_type: chartConfig.chart_type }}
 					availableColumns={sourceData.columns ?? []}
 					data={sourceData.data ?? []}
+					sqlQuery={sqlQuery}
 				/>
 			)}
 
