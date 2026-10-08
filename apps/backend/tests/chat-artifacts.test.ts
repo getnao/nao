@@ -1,8 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatArtifactsPrompt } from '../src/components/ai/chat-artifacts-prompt';
+import type { StoryModelOutput } from '../src/components/tool-outputs/story';
+import { StoryOutput } from '../src/components/tool-outputs/story';
 import { renderToMarkdown } from '../src/lib/markdown';
-import { collectQueryArtifacts, getChatArtifacts, hasChatArtifacts } from '../src/services/chat-artifacts';
+import {
+	appendChatArtifacts,
+	collapseStoryToolOutputs,
+	collectQueryArtifacts,
+	getChatArtifacts,
+	hasChatArtifacts,
+	safeGetChatArtifacts,
+} from '../src/services/chat-artifacts';
 import type { ChatArtifacts } from '../src/types/artifacts';
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
 
@@ -226,6 +235,71 @@ describe('getChatArtifacts', () => {
 	});
 });
 
+describe('collapseStoryToolOutputs', () => {
+	const liveArtifacts: ChatArtifacts = {
+		queries: [],
+		stories: [
+			{
+				id: 'revenue',
+				title: 'Revenue',
+				version: 2,
+				format: 'classic',
+				code: STORY_CODE,
+				files: [],
+				editedByUser: false,
+				templateWarnings: [],
+			},
+		],
+	};
+
+	it('empties every story output and points live ones to the artifacts block', () => {
+		const [message] = collapseStoryToolOutputs(
+			[assistant('a1', storyPart('revenue', 'Revenue', 1, '# v1'))],
+			liveArtifacts,
+		);
+		const output = (message.parts[0] as { output: StoryModelOutput }).output;
+
+		expect(output).toMatchObject({ _stale: true, _archived: false, code: '' });
+		expect(renderToMarkdown(StoryOutput({ output }))).toContain('<conversation-artifacts> block');
+	});
+
+	it('marks the output of a story missing from the artifacts as archived', () => {
+		const [message] = collapseStoryToolOutputs([assistant('a1', storyPart('revenue', 'Revenue', 1, '# v1'))], {
+			queries: [],
+			stories: [],
+		});
+		const output = (message.parts[0] as { output: StoryModelOutput }).output;
+
+		expect(output).toMatchObject({ _stale: true, _archived: true, code: '' });
+		const rendered = renderToMarkdown(StoryOutput({ output }));
+		expect(rendered).toContain('has since been archived');
+		expect(rendered).not.toContain('<conversation-artifacts>');
+	});
+});
+
+describe('appendChatArtifacts', () => {
+	it('adds the block to the last user message only when there is something to carry', () => {
+		const messages = [user('u1', 'First'), assistant('a1'), user('u2', 'Second')];
+		const artifacts: ChatArtifacts = {
+			queries: [{ id: 'query_aaaa1111', columns: ['total'], rowCount: 1 }],
+			stories: [],
+		};
+
+		const appended = appendChatArtifacts(messages, artifacts);
+		expect(appended[2].parts).toHaveLength(2);
+		expect(appended[0].parts).toHaveLength(1);
+		expect(appendChatArtifacts(messages, { queries: [], stories: [] })).toBe(messages);
+	});
+});
+
+describe('safeGetChatArtifacts', () => {
+	it('returns undefined instead of failing when the stories cannot be loaded', async () => {
+		mocks.listLatestVersionsInChat.mockRejectedValue(new Error('db down'));
+
+		await expect(safeGetChatArtifacts('chat-1', [user('u1', 'Hello')])).resolves.toBeUndefined();
+	});
+});
+
 describe('ChatArtifactsPrompt', () => {
 	const artifacts: ChatArtifacts = {
 		queries: [
@@ -251,8 +325,8 @@ describe('ChatArtifactsPrompt', () => {
 
 		expect(rendered.startsWith('<conversation-artifacts>')).toBe(true);
 		expect(rendered.trimEnd().endsWith('</conversation-artifacts>')).toBe(true);
-		expect(rendered).toContain('- query_aaaa1111 — Monthly revenue — 12 rows — columns: month, revenue');
-		expect(rendered).toContain('- query_bbbb2222 — 1 row — columns: total');
+		expect(rendered).toContain('- query_aaaa1111 — Monthly revenue — 12 rows — columns: ["month","revenue"]');
+		expect(rendered).toContain('- query_bbbb2222 — 1 row — columns: ["total"]');
 		expect(rendered).toContain('<story id="revenue" title="Revenue \\"2025\\"" version="3" format="classic">');
 		expect(renderToMarkdown(ChatArtifactsPrompt({ artifacts: withStoryId(artifacts, 'x" evil="y') }))).toContain(
 			'<story id="x\\" evil=\\"y" title=',

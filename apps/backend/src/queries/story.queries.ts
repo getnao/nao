@@ -248,6 +248,8 @@ export async function listLatestVersionsInChat(chatId: string): Promise<ChatStor
 			maxVersion: max(s.storyVersion.version).as('max_version'),
 		})
 		.from(s.storyVersion)
+		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
+		.where(eq(s.story.chatId, chatId))
 		.groupBy(s.storyVersion.storyId)
 		.as('latest');
 

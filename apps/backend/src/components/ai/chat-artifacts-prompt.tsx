@@ -29,9 +29,10 @@ function QueriesSection({ queries }: { queries: QueryArtifact[] }) {
 				))}
 			</List>
 			<Span>
-				Reuse these ids as they are in display_chart and in story chart/table blocks. A new question or metric
-				needs a new execute_sql call, which returns a new id. Pass query_id to execute_sql only to fix or refine
-				the SQL of a query a chart or table already displays, keeping the same result shape.
+				Reuse these ids as they are in display_chart, display_map and in story chart/table/map blocks. A new
+				question or metric needs a new execute_sql call, which returns a new id. Pass query_id to execute_sql
+				only to fix or refine the SQL of a query a chart, table or map already displays, keeping the same result
+				shape.
 			</Span>
 		</Block>
 	);
@@ -40,7 +41,7 @@ function QueriesSection({ queries }: { queries: QueryArtifact[] }) {
 function describeQuery(query: QueryArtifact): string {
 	const title = query.title ? ` — ${query.title}` : '';
 	const rows = `${query.rowCount} ${query.rowCount === 1 ? 'row' : 'rows'}`;
-	return `${query.id}${title} — ${rows} — columns: ${query.columns.join(', ')}`;
+	return `${query.id}${title} — ${rows} — columns: ${JSON.stringify(query.columns)}`;
 }
 
 function StoriesSection({ stories }: { stories: StoryArtifact[] }) {
