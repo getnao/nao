@@ -31,7 +31,12 @@ const ORG_PROJECT = { id: 'org-project-id', orgId: 'org-id' };
 describe('sessionOrApiKeyAuthMiddleware', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.validateApiKey.mockResolvedValue({ createdBy: KEY_CREATOR.id, organization: { id: 'org-id' } });
+		mocks.validateApiKey.mockResolvedValue({
+			status: 'ok',
+			org: { id: 'org-id' },
+			scope: 'deploy',
+			createdBy: KEY_CREATOR.id,
+		});
 		mocks.getUser.mockResolvedValue(KEY_CREATOR);
 		mocks.getProjectByOrgAndName.mockResolvedValue(ORG_PROJECT);
 		mocks.getProjectByUserId.mockResolvedValue(null);
@@ -53,7 +58,7 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 	});
 
 	it('rejects an unknown API key without falling back to session auth', async () => {
-		mocks.validateApiKey.mockResolvedValue(null);
+		mocks.validateApiKey.mockResolvedValue({ status: 'invalid' });
 
 		const { request, reply } = await authenticate({ authorization: 'Bearer nao_revoked' });
 
