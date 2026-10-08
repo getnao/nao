@@ -7,8 +7,10 @@ import {
 	chunkSlackText,
 	countHiddenTableNotices,
 	createCompletionCard,
+	createSlackTableBlocksFromRows,
 	createSlackTableRenderState,
 	createStopButtonCard,
+	createStoryLinkCard,
 	createTextBlocks,
 	isRecoverableSlackPayloadError,
 	SLACK_SECTION_TEXT_MAX_CHARS,
@@ -838,5 +840,59 @@ describe('buildSlackTableBlocks', () => {
 
 		expect(tableBlocks).toHaveLength(1);
 		expect(sectionBlocks.every((block) => (block.text?.text.length ?? 0) <= 3000)).toBe(true);
+	});
+});
+
+describe('createSlackTableBlocksFromRows', () => {
+	it('renders SQL rows as a native Slack table with the row keys as headers', () => {
+		const blocks = createSlackTableBlocksFromRows([
+			{ region: 'EU', count: 3 },
+			{ region: 'US', count: 7 },
+		]);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0]).toMatchObject({
+			type: 'table',
+			headers: ['region', 'count'],
+			rows: [
+				['EU', '3'],
+				['US', '7'],
+			],
+		});
+	});
+
+	it('returns no blocks for an empty result set', () => {
+		expect(createSlackTableBlocksFromRows([])).toEqual([]);
+	});
+
+	it('renders null and undefined cell values as empty strings', () => {
+		const blocks = createSlackTableBlocksFromRows([{ a: null, b: undefined, c: 'x' }]);
+		const table = blocks[0] as { rows: string[][] };
+		expect(table.rows[0]).toEqual(['', '', 'x']);
+	});
+
+	it('serializes object cell values as JSON', () => {
+		const blocks = createSlackTableBlocksFromRows([{ meta: { tag: 'a' } }]);
+		const table = blocks[0] as { rows: string[][] };
+		expect(table.rows[0]).toEqual(['{"tag":"a"}']);
+	});
+
+	it('appends a link-truncation notice when rows are dropped', () => {
+		const rows = Array.from({ length: 200 }, (_, index) => ({ id: index, note: 'x'.repeat(50) }));
+		const blocks = createSlackTableBlocksFromRows(rows, {
+			truncation: { kind: 'link', url: 'https://nao.example/c/abc' },
+		});
+		const kinds = blocks.map((block) => block.type);
+		expect(kinds).toContain('table');
+		expect(kinds).toContain('actions');
+	});
+});
+
+describe('createStoryLinkCard', () => {
+	it('renders a titled link that opens the story in nao', () => {
+		const blocks = createStoryLinkCard('Q3 revenue review', 'https://nao.example/stories/preview/chat-1/q3');
+		expect(blocks).toHaveLength(2);
+		expect(blocks[0]).toMatchObject({ type: 'text', content: '📖 **Q3 revenue review**' });
+		const actions = blocks[1] as { type: string; children?: unknown[] };
+		expect(actions.type).toBe('actions');
 	});
 });

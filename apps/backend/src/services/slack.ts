@@ -44,8 +44,10 @@ import {
 	createLiveToolCall,
 	createMapLinkCard,
 	createNotificationCard,
+	createSlackTableBlocksFromRows,
 	createSlackTableRenderState,
 	createStopButtonActions,
+	createStoryLinkCard,
 	createSummaryToolCalls,
 	createTextBlock,
 	createTextBlocks,
@@ -1282,6 +1284,8 @@ export class ProjectSlackBot {
 				await this._handleClarificationPart(part, state, ctx);
 			} else if (part.type === 'tool-write') {
 				await this._handleWritePart(part, state, ctx);
+			} else if (part.type === 'tool-story') {
+				await this._handleStoryPart(part, state, ctx);
 			}
 		}
 
@@ -1333,6 +1337,7 @@ export class ProjectSlackBot {
 			return;
 		}
 		if (displayChart.isTableInput(part.input)) {
+			await this._handleChartTablePart(part, state, ctx);
 			return;
 		}
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
@@ -1364,6 +1369,52 @@ export class ProjectSlackBot {
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});
 		}
+	}
+
+	private async _handleChartTablePart(
+		part: Extract<UIMessagePart, { type: 'tool-display_chart' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available' || !displayChart.isTableInput(part.input)) {
+			return;
+		}
+		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		if (!sqlOutput) {
+			return;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+		const tableBlocks = createSlackTableBlocksFromRows(sqlOutput.rows, {
+			truncation: { kind: 'link', url: chatUrl },
+		});
+		if (tableBlocks.length === 0) {
+			return;
+		}
+		this._closeCurrentTextRun(ctx);
+		ctx.blocks.push(...tableBlocks);
+		await this._editConversationCard(ctx, ctx.blocks);
+	}
+
+	private async _handleStoryPart(
+		part: Extract<UIMessagePart, { type: 'tool-story' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
+			return;
+		}
+		if (!part.output?.success) {
+			return;
+		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		const storyUrl = new URL(
+			`stories/preview/${encodeURIComponent(ctx.chatId)}/${encodeURIComponent(part.output.id)}`,
+			this._redirectUrl,
+		).toString();
+		this._closeCurrentTextRun(ctx);
+		ctx.blocks.push(...createStoryLinkCard(part.output.title, storyUrl));
+		await this._editConversationCard(ctx, ctx.blocks);
 	}
 
 	private async _handleMapPart(
