@@ -3,7 +3,8 @@ import crypto from 'crypto';
 import { and, count, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, DBTransaction } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import { takeFirstOrThrow } from '../utils/queries';
 
 export const userMemberStatus = sql<MemberStatus>`case when ${s.user.requiresPasswordReset} then 'invited' else 'active' end`;
@@ -153,12 +154,31 @@ export const updateGitlabToken = async (userId: string, token: string | null): P
 };
 
 export const createUser = async (user: NewUser, account: NewAccount): Promise<User> => {
-	return await db.transaction(async (tx) => {
-		user.messagingProviderCode = createMessagingProviderCode();
-		const [created] = await tx.insert(s.user).values(user).returning().execute();
-		await tx.insert(s.account).values(account).execute();
-		return created;
-	});
+	user.messagingProviderCode = createMessagingProviderCode();
+	return db.transaction((tx) => createUserWithAccount(tx, user, account));
+};
+
+const createUserWithAccount = (
+	transaction: DBTransaction,
+	user: NewUser,
+	account: NewAccount,
+): User | Promise<User> => {
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return createPostgresUser(transaction, user, account);
+	}
+	const created = transaction.insert(s.user).values(user).returning().get();
+	transaction.insert(s.account).values(account).run();
+	return created;
+};
+
+const createPostgresUser = async (transaction: DBTransaction, user: NewUser, account: NewAccount): Promise<User> => {
+	const [created] = await transaction.insert(s.user).values(user).returning().execute();
+	await transaction.insert(s.account).values(account).execute();
+	return created;
+};
+
+export const deleteUser = async (id: string): Promise<void> => {
+	await db.delete(s.user).where(eq(s.user.id, id)).execute();
 };
 
 /** Removes users whose temporary password was issued (or re-issued) over a week ago and never replaced. */

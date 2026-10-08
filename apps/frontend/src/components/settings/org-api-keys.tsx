@@ -6,7 +6,10 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
+
+type ApiKeyScope = 'deploy' | 'user_management';
 
 interface OrgApiKeysProps {
 	isAdmin?: boolean;
@@ -23,6 +26,7 @@ export function OrgApiKeys({
 }: OrgApiKeysProps) {
 	const queryClient = useQueryClient();
 	const [name, setName] = useState('Deploy key');
+	const [scope, setScope] = useState<ApiKeyScope>('deploy');
 	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
 	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
 	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
@@ -68,7 +72,7 @@ export function OrgApiKeys({
 			return;
 		}
 
-		await createApiKey.mutateAsync({ name: trimmedName });
+		await createApiKey.mutateAsync({ name: trimmedName, scope });
 	};
 
 	return (
@@ -79,15 +83,35 @@ export function OrgApiKeys({
 						<KeyRound className='size-4' />
 					</div>
 					<div className='min-w-0 flex-1 space-y-1'>
-						<div className='text-sm font-medium text-foreground'>Generate a deploy key</div>
+						<div className='text-sm font-medium text-foreground'>
+							{scope === 'deploy' ? 'Generate a deploy key' : 'Generate a user management key'}
+						</div>
 						<p className='text-sm text-muted-foreground'>
-							Create an API key for your organization, then use it with{' '}
-							<code className='dollar'>nao deploy</code> to upload a project context.
+							{scope === 'deploy' ? (
+								<>
+									Create an API key for your organization, then use it with{' '}
+									<code className='dollar'>nao deploy</code> to upload a project context.
+								</>
+							) : (
+								<>
+									Create an API key for the user management API: it can list, invite and remove users
+									and manage groups and roles, but cannot deploy.
+								</>
+							)}
 						</p>
 					</div>
 				</div>
 
 				<div className='flex flex-col gap-2 sm:flex-row'>
+					<Select value={scope} onValueChange={(value) => setScope(value as ApiKeyScope)}>
+						<SelectTrigger aria-label='API key scope'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='deploy'>Deploy</SelectItem>
+							<SelectItem value='user_management'>User management</SelectItem>
+						</SelectContent>
+					</Select>
 					<Input
 						value={name}
 						onChange={(event) => setName(event.target.value)}
@@ -179,6 +203,9 @@ export function OrgApiKeys({
 										{apiKey.name}{' '}
 										<span className='text-xs font-mono text-muted-foreground'>
 											{apiKey.keyPrefix}...
+										</span>
+										<span className='ml-2 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase text-muted-foreground'>
+											{apiKey.scope === 'user_management' ? 'user management' : 'deploy'}
 										</span>
 									</div>
 									<div className='text-xs text-muted-foreground'>
