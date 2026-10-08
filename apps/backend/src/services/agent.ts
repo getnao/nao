@@ -19,6 +19,7 @@ import {
 	UIMessageStreamWriter,
 } from 'ai';
 
+import type { ManagedAiContext } from '../agents/managed-ai';
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
@@ -263,13 +264,17 @@ export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
 	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
-		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
+		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection, userId);
 		await assertBudgetNotExceeded(projectId, resolved.provider, userId);
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
-	async resolveModelSelection(projectId: string, modelSelection?: LlmSelectedModel): Promise<LlmSelectedModel> {
-		return this._getResolvedLlmSelectedModel(projectId, modelSelection);
+	async resolveModelSelection(
+		projectId: string,
+		modelSelection?: LlmSelectedModel,
+		userId?: string,
+	): Promise<LlmSelectedModel> {
+		return this._getResolvedLlmSelectedModel(projectId, modelSelection, userId);
 	}
 
 	async create(
@@ -316,9 +321,17 @@ export class AgentService {
 			await assertProjectCloudBillingAccess(chat.projectId);
 		}
 		this._disposeAgent(chat.id);
-		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
+		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(
+			chat.projectId,
+			modelSelection,
+			chat.userId,
+		);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, {
+			userId: chat.userId,
+			projectId: chat.projectId,
+			chatId: chat.id,
+		});
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
@@ -359,13 +372,14 @@ export class AgentService {
 	protected async _getResolvedLlmSelectedModel(
 		projectId: string,
 		modelSelection?: LlmSelectedModel,
+		userId?: string,
 	): Promise<LlmSelectedModel> {
 		if (modelSelection) {
 			return modelSelection;
 		}
 
 		// Same order the model picker offers, across the database, nao_config.yaml and the environment.
-		const available = await getProjectAvailableModels(projectId);
+		const available = await getProjectAvailableModels(projectId, userId);
 		const first = available.at(0);
 		if (first) {
 			return { provider: first.provider, modelId: first.modelId };
@@ -406,8 +420,18 @@ export class AgentService {
 		return createWebSearchTools(provider, settings);
 	}
 
-	protected async _getModelConfig(projectId: string, modelSelection: LlmSelectedModel): Promise<ProviderModelResult> {
-		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
+	protected async _getModelConfig(
+		projectId: string,
+		modelSelection: LlmSelectedModel,
+		managedContext?: ManagedAiContext,
+	): Promise<ProviderModelResult> {
+		const result = await resolveProviderModel(
+			projectId,
+			modelSelection.provider,
+			modelSelection.modelId,
+			true,
+			managedContext,
+		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
 		}
@@ -823,7 +847,11 @@ class AgentManager {
 			this._modelSelection,
 			getProviderMeta(provider).summaryModelId,
 		);
-		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false);
+		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false, {
+			userId: this.chat.userId,
+			projectId: this.chat.projectId,
+			chatId: this.chat.id,
+		});
 		if (!modelResult) {
 			return;
 		}

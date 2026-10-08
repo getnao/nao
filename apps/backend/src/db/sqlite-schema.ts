@@ -1379,6 +1379,32 @@ export const llmInference = sqliteTable(
 	],
 );
 
+export const managedAiUsage = sqliteTable(
+	'managed_ai_usage',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id),
+		orgId: text('org_id').references(() => organization.id, { onDelete: 'set null' }),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'set null' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		modelId: text('model_id').notNull(),
+		inputNoCacheTokens: integer('input_no_cache_tokens').notNull().default(0),
+		inputCacheReadTokens: integer('input_cache_read_tokens').notNull().default(0),
+		inputCacheWriteTokens: integer('input_cache_write_tokens').notNull().default(0),
+		outputTokens: integer('output_tokens').notNull().default(0),
+		reasoningTokens: integer('reasoning_tokens').notNull().default(0),
+		costMicroUsd: integer('cost_micro_usd').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [index('managed_ai_usage_userId_idx').on(t.userId)],
+);
+
 export const messageImage = sqliteTable('message_image', {
 	id: text('id')
 		.$defaultFn(() => crypto.randomUUID())

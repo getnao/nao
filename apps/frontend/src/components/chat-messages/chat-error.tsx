@@ -5,7 +5,7 @@ import { Callout } from '../ui/callout';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
-import { parseBudgetError } from '@/lib/ai';
+import { parseBudgetError, parseManagedCreditsError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -55,7 +55,7 @@ export function ChatError({ className }: Props) {
 		enabled: isBillingAccessError,
 	});
 
-	if (!error || parseBudgetError(error)) {
+	if (!error || parseBudgetError(error) || parseManagedCreditsError(error)) {
 		return null;
 	}
 

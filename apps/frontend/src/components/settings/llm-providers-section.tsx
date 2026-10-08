@@ -1,13 +1,22 @@
+import { PROVIDER_META } from '@nao/backend/provider-meta';
 import { providerLabel, providerLabels } from '@nao/shared/types';
+import { useQuery } from '@tanstack/react-query';
 import { ProviderCard } from './llm-provider-card';
 import { LlmProviderForm } from './llm-provider-form';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
+import { trpc } from '@/main';
 
 interface LlmProvidersSectionProps {
 	isAdmin: boolean;
 }
 
+const managedModelIds = PROVIDER_META.nao.models.map((model) => model.id);
+
 export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
+	const managedAi = useQuery({
+		...trpc.account.getManagedAiBalance.queryOptions(),
+		refetchOnWindowFocus: false,
+	});
 	const {
 		projectConfigs,
 		configProviders,
@@ -46,6 +55,18 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 
 	return (
 		<div className='grid gap-4'>
+			{managedAi.data?.enabled && (
+				<ProviderCard
+					provider='nao'
+					enabledModels={managedModelIds}
+					status={`Remaining credits: $${(managedAi.data.remainingMicroUsd / 1_000_000).toFixed(2)} of $${(managedAi.data.allowanceMicroUsd / 1_000_000).toFixed(2)}.`}
+					badges={['MANAGED']}
+					isAdmin={isAdmin}
+					isFormActive={!!editingState}
+					getModelDisplayName={getModelDisplayName}
+				/>
+			)}
+
 			{/* Unconfigured env providers */}
 			{unconfiguredEnvProviders.map((provider) => {
 				if (editingState?.isEditing && editingState.provider === provider) {

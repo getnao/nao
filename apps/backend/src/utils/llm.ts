@@ -1,6 +1,7 @@
 import { type BackgroundModelCategory, selectBackgroundModel } from '@nao/shared';
 import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
 
+import { isManagedAiEnabled, type ManagedAiContext, withManagedAiMetering } from '../agents/managed-ai';
 import {
 	createProviderModel,
 	getDefaultModelId,
@@ -9,6 +10,7 @@ import {
 	type ProviderModelResult,
 } from '../agents/providers';
 import { env } from '../env';
+import * as managedAiUsageQueries from '../queries/managed-ai-usage.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import type { CustomModelMetadata, ProviderSettings } from '../types/llm';
@@ -18,7 +20,8 @@ export { getDefaultModelId };
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
-	return process.env[getProviderMeta(provider).envVar];
+	const { envVar } = getProviderMeta(provider);
+	return envVar ? process.env[envVar] : undefined;
 }
 
 /** Get the base URL from environment for a provider (e.g. OPENAI_BASE_URL) */
@@ -102,6 +105,9 @@ export async function resolveProviderSettings(
 	if (isProviderDisabled(provider)) {
 		return null;
 	}
+	if (provider === 'nao') {
+		return null;
+	}
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
 		return {
@@ -139,9 +145,28 @@ export async function resolveProviderModel(
 	provider: LlmProvider,
 	modelId: string,
 	applyUserSettings = true,
+	managedContext?: ManagedAiContext,
 ): Promise<ProviderModelResult | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
+	}
+	if (provider === 'nao') {
+		const apiKey = process.env.NAO_MANAGED_OPENAI_API_KEY;
+		if (!isManagedAiEnabled() || !managedContext?.userId || !apiKey || !isKnownModel(provider, modelId)) {
+			return null;
+		}
+		const byokSources = await getProjectModelSources(projectId);
+		if (byokSources.length > 0) {
+			return null;
+		}
+		const model = createProviderModel(provider, { apiKey }, modelId);
+		const project = await projectQueries.getProjectById(projectId);
+		const attribution = {
+			...managedContext,
+			projectId,
+			orgId: managedContext.orgId ?? project?.orgId ?? undefined,
+		};
+		return { ...model, model: withManagedAiMetering(model.model, modelId, attribution) };
 	}
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
@@ -268,13 +293,14 @@ function resolveConfigAnnotationTarget(configLlm: ConfigLlm | null): { provider:
 export async function resolveDefaultModelSelection(
 	projectId: string,
 	category: BackgroundModelCategory,
+	userId?: string,
 ): Promise<LlmSelectedModel | null> {
 	const configured = selectBackgroundModel(await projectQueries.getDefaultModelSettings(projectId), category);
 	if (!configured) {
 		return null;
 	}
 
-	const available = await getProjectAvailableModels(projectId);
+	const available = await getProjectAvailableModels(projectId, userId);
 	if (available.length === 0) {
 		return null;
 	}
@@ -288,8 +314,9 @@ export async function resolveDefaultModelSelection(
 
 export const getProjectAvailableModels = async (
 	projectId: string,
+	userId?: string,
 ): Promise<Array<{ provider: LlmProvider; modelId: string; name: string; baseUrl: string | null }>> => {
-	const sources = await getProjectModelSources(projectId);
+	const sources = await getProjectModelSources(projectId, userId);
 
 	return sources.flatMap(({ provider, enabledModels, customModels, baseUrl }) => {
 		if (enabledModels.length === 0) {
@@ -327,7 +354,7 @@ type ProviderModelSource = {
  * The model list of every provider available to a project, taking each provider from the first
  * source that declares it: the database, then nao_config.yaml, then the environment.
  */
-async function getProjectModelSources(projectId: string): Promise<ProviderModelSource[]> {
+async function getProjectModelSources(projectId: string, userId?: string): Promise<ProviderModelSource[]> {
 	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
 	const sources: ProviderModelSource[] = configs.map((config) => ({
 		provider: config.provider as LlmProvider,
@@ -361,7 +388,21 @@ async function getProjectModelSources(projectId: string): Promise<ProviderModelS
 		}
 	}
 
-	return sources.filter((source) => !isProviderDisabled(source.provider));
+	const enabledSources = sources.filter(
+		(source) => source.provider !== 'nao' && !isProviderDisabled(source.provider),
+	);
+	if (enabledSources.length === 0 && userId && isManagedAiEnabled()) {
+		const { remainingMicroUsd } = await managedAiUsageQueries.getManagedAiBalance(userId);
+		if (remainingMicroUsd > 0) {
+			enabledSources.push({
+				provider: 'nao',
+				enabledModels: getKnownModelIds('nao'),
+				customModels: [],
+				baseUrl: null,
+			});
+		}
+	}
+	return enabledSources;
 }
 
 const getModelName = (provider: LlmProvider, modelId: string): string =>

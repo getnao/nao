@@ -110,7 +110,7 @@ export const automationRoutes = {
 				? { provider: input.modelProvider, modelId: input.modelId }
 				: undefined;
 		const resolvedTitle =
-			title?.trim() || (await inferAutomationTitle(ctx.project.id, input.prompt, modelSelection));
+			title?.trim() || (await inferAutomationTitle(ctx.project.id, ctx.user.id, input.prompt, modelSelection));
 		const automation = await automationQueries.createAutomation({
 			...promptInput,
 			title: resolvedTitle,
@@ -220,7 +220,7 @@ export const automationRoutes = {
 	parseCronFromText: automationReadProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ ctx, input }) => {
-			const cron = await naturalLanguageToCron(ctx.project.id, input.text);
+			const cron = await naturalLanguageToCron(ctx.project.id, ctx.user.id, input.text);
 			return { cron };
 		}),
 };

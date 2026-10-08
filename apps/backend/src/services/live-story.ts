@@ -413,7 +413,7 @@ async function generateDynamicStoryCode(
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 ): Promise<string | null> {
-	const liveStoryModel = await resolveLiveStoryModel(target.projectId);
+	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
 		return null;
 	}
@@ -451,7 +451,7 @@ async function regenerateCustomStoryNarratives(
 	if (sources.length === 0) {
 		return {};
 	}
-	const liveStoryModel = await resolveLiveStoryModel(target.projectId);
+	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
 		return {};
 	}
@@ -487,15 +487,20 @@ function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNa
 
 type LiveStoryModel = NonNullable<Awaited<ReturnType<typeof resolveLiveStoryModel>>>;
 
-async function resolveLiveStoryModel(projectId: string) {
-	const pinned = await resolveDefaultModelSelection(projectId, 'live_story');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
+async function resolveLiveStoryModel(target: StoryRefreshTarget) {
+	const pinned = await resolveDefaultModelSelection(target.projectId, 'live_story', target.userId);
+	const provider =
+		pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(target.projectId, target.userId));
 	if (!provider) {
 		return null;
 	}
 
 	const modelId = pinned?.modelId ?? getDefaultModelId(provider);
-	const model = await resolveProviderModel(projectId, provider, modelId);
+	const model = await resolveProviderModel(target.projectId, provider, modelId, true, {
+		userId: target.userId,
+		projectId: target.projectId,
+		chatId: target.chatId,
+	});
 	return model ? { provider, model } : null;
 }
 

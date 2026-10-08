@@ -12,11 +12,12 @@ interface ProviderCardProps {
 	baseUrl?: string | null;
 	envBaseUrl?: string;
 	enabledModels?: string[] | null;
+	status?: string;
 	/** Where this provider comes from, e.g. `ENV` or `nao_config.yaml`. */
 	badges?: string[];
 	isAdmin: boolean;
 	isFormActive: boolean;
-	onEdit: () => void;
+	onEdit?: () => void;
 	onDelete?: () => void;
 	isDeleting?: boolean;
 	getModelDisplayName: (provider: LlmProvider, modelId: string) => string;
@@ -29,6 +30,7 @@ export function ProviderCard({
 	baseUrl,
 	envBaseUrl,
 	enabledModels,
+	status,
 	badges = [],
 	isAdmin,
 	isFormActive,
@@ -79,11 +81,12 @@ export function ProviderCard({
 					) : (
 						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
 							<span>
-								{getProviderAuth(provider).apiKey === 'required'
-									? 'API key from environment'
-									: getProviderAuth(provider).apiKey === 'optional'
-										? 'Using credentials from environment'
-										: 'No API key required'}
+								{status ??
+									(getProviderAuth(provider).apiKey === 'required'
+										? 'API key from environment'
+										: getProviderAuth(provider).apiKey === 'optional'
+											? 'Using credentials from environment'
+											: 'No API key required')}
 							</span>
 							{envBaseUrl && (
 								<>
@@ -96,11 +99,13 @@ export function ProviderCard({
 						</div>
 					)}
 				</div>
-				{isAdmin && (
+				{isAdmin && (onEdit || onDelete) && (
 					<div className='flex items-center gap-1'>
-						<Button variant='ghost' size='icon-sm' onClick={onEdit} disabled={isFormActive}>
-							<Pencil className='size-3 text-muted-foreground' />
-						</Button>
+						{onEdit && (
+							<Button variant='ghost' size='icon-sm' onClick={onEdit} disabled={isFormActive}>
+								<Pencil className='size-3 text-muted-foreground' />
+							</Button>
+						)}
 						{onDelete && (
 							<Button
 								variant='ghost'

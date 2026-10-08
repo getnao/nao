@@ -45,7 +45,7 @@ export async function ensureFeedbackCoverage(
 	projectId: string,
 	runId: string,
 	model: LlmSelectedModel,
-	context: { existing: ExistingRecommendation[]; dismissedFingerprints: string[] },
+	context: { existing: ExistingRecommendation[]; dismissedFingerprints: string[]; userId: string },
 ): Promise<void> {
 	const unlinked = await crQueries.getUnlinkedNegativeFeedbacks(projectId);
 	if (unlinked.length === 0) {
@@ -60,7 +60,7 @@ export async function ensureFeedbackCoverage(
 	const dismissedSet = new Set(context.dismissedFingerprints);
 	const existingByFingerprint = new Map(context.existing.map((r) => [r.fingerprint, r]));
 
-	const clusters = await clusterFeedbacks(projectId, model, remaining);
+	const clusters = await clusterFeedbacks(projectId, context.userId, model, remaining);
 	if (clusters.length > 0) {
 		await applyFeedbackClusters(projectId, runId, clusters, { dismissedSet, existingByFingerprint });
 	} else {
@@ -161,10 +161,14 @@ function resolveRecommendationForFeedback(
 
 async function clusterFeedbacks(
 	projectId: string,
+	userId: string,
 	model: LlmSelectedModel,
 	unlinked: crQueries.UnlinkedFeedback[],
 ): Promise<FeedbackCluster[]> {
-	const providerModel = await resolveProviderModel(projectId, model.provider, model.modelId);
+	const providerModel = await resolveProviderModel(projectId, model.provider, model.modelId, true, {
+		userId,
+		projectId,
+	});
 	if (!providerModel) {
 		logger.warn(`Feedback coverage: could not resolve model ${model.provider}/${model.modelId}`, {
 			source: 'agent',

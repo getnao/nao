@@ -22,6 +22,13 @@ export class BudgetExceededError extends HandlerError {
 	}
 }
 
+export class ManagedCreditsExhaustedError extends HandlerError {
+	constructor() {
+		super('FORBIDDEN', 'Your $5 nao-managed AI allowance has been used. Add a project provider key to continue.');
+		this.name = 'ManagedCreditsExhaustedError';
+	}
+}
+
 const httpStatusByHandlerErrorCode: Record<HandlerErrorCode, number> = {
 	BAD_REQUEST: 400,
 	UNAUTHORIZED: 401,

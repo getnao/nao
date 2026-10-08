@@ -19,7 +19,11 @@ type AvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[numb
 export async function resolveSubagentModel(context: ToolContext, requestedModelId?: string): Promise<SubagentModel> {
 	const selection = await resolveSelection(context, requestedModelId);
 	await assertBudgetNotExceeded(context.projectId, selection.provider, context.userId);
-	const config = await resolveProviderModel(context.projectId, selection.provider, selection.modelId);
+	const config = await resolveProviderModel(context.projectId, selection.provider, selection.modelId, true, {
+		userId: context.userId,
+		projectId: context.projectId,
+		chatId: context.chatId ?? undefined,
+	});
 	if (!config) {
 		throw new Error(`The model ${selection.modelId} (${selection.provider}) could not be resolved.`);
 	}
@@ -27,7 +31,7 @@ export async function resolveSubagentModel(context: ToolContext, requestedModelI
 }
 
 async function resolveSelection(context: ToolContext, requestedModelId?: string): Promise<LlmSelectedModel> {
-	const available = await getProjectAvailableModels(context.projectId);
+	const available = await getProjectAvailableModels(context.projectId, context.userId);
 
 	if (requestedModelId) {
 		return findRequestedModel(available, requestedModelId);

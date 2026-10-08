@@ -65,8 +65,9 @@ export interface GeneratePairResult {
 export async function generateStoryThemePairFromSources(
 	projectId: string,
 	input: StoryThemeSourceInput,
+	userId?: string,
 ): Promise<GeneratePairResult> {
-	const result = await generateStoryThemeFromSources(projectId, input);
+	const result = await generateStoryThemeFromSources(projectId, input, userId);
 	const sourceMode = storyThemeMode(result.theme);
 	const derivedMode = oppositeStoryThemeMode(sourceMode);
 	const theme = {
@@ -83,7 +84,11 @@ export async function generateStoryThemePairFromSources(
 	};
 }
 
-async function generateStoryThemeFromSources(projectId: string, input: StoryThemeSourceInput): Promise<GenerateResult> {
+async function generateStoryThemeFromSources(
+	projectId: string,
+	input: StoryThemeSourceInput,
+	userId?: string,
+): Promise<GenerateResult> {
 	const pdfs = input.pdfs ?? [];
 	const extraWarnings = pdfs.flatMap(describePdfCoverage);
 	const visualImages = [...(input.image ? [input.image] : []), ...pdfs.flatMap((pdf) => pdf.pages)];
@@ -144,7 +149,7 @@ async function generateStoryThemeFromSources(projectId: string, input: StoryThem
 			throw new DesignSourceError('Add a website, an image, a PDF or a ZIP.');
 		}
 		const prompt = visualPrompt(Boolean(input.image), pdfs.length > 0);
-		const result = await generateStoryThemeFromImages(projectId, vision, prompt);
+		const result = await generateStoryThemeFromImages(projectId, vision, prompt, userId);
 		return { theme: result.theme, notes: [...extraWarnings, ...result.notes] };
 	}
 
@@ -156,7 +161,12 @@ async function generateStoryThemeFromSources(projectId: string, input: StoryThem
 	}
 
 	const merged = mergeSignals(parts);
-	return generateStoryTheme(projectId, { ...merged, warnings: [...extraWarnings, ...merged.warnings] }, vision);
+	return generateStoryTheme(
+		projectId,
+		{ ...merged, warnings: [...extraWarnings, ...merged.warnings] },
+		vision,
+		userId,
+	);
 }
 
 async function readZipSignals(zip: { data: Uint8Array; fileName: string }) {
@@ -174,9 +184,10 @@ export async function generateStoryTheme(
 	projectId: string,
 	signals: DesignSignals,
 	images: SourceImage[] = [],
+	userId?: string,
 ): Promise<GenerateResult> {
 	const warnings = [...signals.warnings];
-	const proposal = await proposeOrExplain(projectId, renderSignals(signals), images, warnings, {
+	const proposal = await proposeOrExplain(projectId, renderSignals(signals), images, warnings, userId, {
 		consequence: 'the theme was read directly from the strongest signals',
 	});
 	if (proposal) {
@@ -191,6 +202,7 @@ export async function generateStoryThemeFromImages(
 	projectId: string,
 	images: SourceImage[],
 	prompt = IMAGE_PROMPT,
+	userId?: string,
 ): Promise<GenerateResult> {
 	const warnings = [IMAGE_APPROXIMATION_WARNING];
 	let sample: ImageSample | null = null;
@@ -203,7 +215,7 @@ export async function generateStoryThemeFromImages(
 	if (sample?.ground?.shellDetected) {
 		warnings.push(SHELL_WARNING);
 	}
-	const proposal = await proposeOrExplain(projectId, prompt, images, warnings, {
+	const proposal = await proposeOrExplain(projectId, prompt, images, warnings, userId, {
 		consequence: 'its colours were sampled directly',
 	});
 	if (sample) {
@@ -224,11 +236,12 @@ async function proposeOrExplain(
 	prompt: string,
 	images: SourceImage[],
 	warnings: string[],
+	userId: string | undefined,
 	{ consequence }: { consequence: string },
 ): Promise<ThemeProposal | null> {
 	let model: ResolvedModel | null;
 	try {
-		model = await resolveModel(projectId);
+		model = await resolveModel(projectId, userId);
 	} catch (error) {
 		warnings.push(`The configured model could not be loaded (${describeError(error)}), so ${consequence}.`);
 		return null;
@@ -402,14 +415,20 @@ async function proposeWithModel(
 	return output;
 }
 
-async function resolveModel(projectId: string): Promise<ResolvedModel | null> {
-	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
+async function resolveModel(projectId: string, userId?: string): Promise<ResolvedModel | null> {
+	const pinned = await resolveDefaultModelSelection(projectId, 'other', userId);
+	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId, userId));
 	if (!provider) {
 		return null;
 	}
 	const modelId = pinned?.modelId ?? getProviderMeta(provider).summaryModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false);
+	const model = await resolveProviderModel(
+		projectId,
+		provider,
+		modelId,
+		false,
+		userId ? { userId, projectId } : undefined,
+	);
 	return model ? { provider, model } : null;
 }
 

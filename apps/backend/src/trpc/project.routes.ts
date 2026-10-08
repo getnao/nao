@@ -208,7 +208,7 @@ export const projectRoutes = {
 			if (!ctx.project) {
 				return [];
 			}
-			return getProjectAvailableModels(ctx.project.id);
+			return getProjectAvailableModels(ctx.project.id, ctx.user.id);
 		}),
 
 	upsertLlmConfig: adminProtectedProcedure
@@ -225,6 +225,9 @@ export const projectRoutes = {
 		)
 		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
 		.mutation(async ({ ctx, input }) => {
+			if (input.provider === 'nao') {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'The nao-managed provider is configured by nao.' });
+			}
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const inheritedConfig = existingConfig
 				? null
@@ -1049,7 +1052,7 @@ export const projectRoutes = {
 		}
 		const [settings, availableModels] = await Promise.all([
 			projectQueries.getDefaultModelSettings(ctx.project.id),
-			getProjectAvailableModels(ctx.project.id),
+			getProjectAvailableModels(ctx.project.id, ctx.user.id),
 		]);
 		return { settings, availableModels };
 	}),

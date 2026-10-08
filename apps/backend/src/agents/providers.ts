@@ -57,6 +57,11 @@ export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
 export const CACHE_5M = { type: 'ephemeral' } as const;
 
 export const LLM_PROVIDERS: LlmProvidersType = {
+	nao: {
+		...PROVIDER_META.nao,
+		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
+		defaultOptions: { store: false, truncation: 'auto', reasoningSummary: 'auto' },
+	},
 	anthropic: {
 		...PROVIDER_META.anthropic,
 		create: (settings, modelId) => withProgressUpdates(createAnthropic(settings).chat(modelId)),
@@ -252,7 +257,11 @@ export type ProviderModelResult = {
 
 export function disableModelReasoning(provider: LlmProvider, modelResult: ProviderModelResult): ProviderModelResult {
 	const optionKey =
-		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-') ? 'anthropic' : provider;
+		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-')
+			? 'anthropic'
+			: providerKind(provider) === 'nao'
+				? 'openai'
+				: provider;
 	const options = { ...(modelResult.providerOptions[optionKey] ?? {}) } as Record<string, unknown>;
 
 	delete options.thinking;
@@ -266,6 +275,7 @@ export function disableModelReasoning(provider: LlmProvider, modelResult: Provid
 	delete options.sendReasoning;
 
 	switch (providerKind(provider)) {
+		case 'nao':
 		case 'openai':
 		case 'azure':
 		case 'requesty':
@@ -304,7 +314,8 @@ export function createProviderModel(
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
 
 	// Claude-on-Vertex keys provider options under `anthropic`, not `vertex`.
-	const optionKey: LlmProvider = kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
+	const optionKey: LlmProvider =
+		kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : kind === 'nao' ? 'openai' : provider;
 
 	return {
 		model: createModel(provider, settings, modelId),
@@ -469,6 +480,7 @@ function resolveThinking(
 	}
 
 	switch (kind) {
+		case 'nao':
 		case 'openai':
 			return resolveEffortThinking(effort, (e) => ({
 				reasoningEffort: (capabilities?.effortMap ?? EFFORT_TO_OPENAI)[e],

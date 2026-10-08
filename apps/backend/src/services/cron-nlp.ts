@@ -12,9 +12,9 @@ import { assertProjectCloudBillingAccess } from './cloud-billing-access.service'
 /** Reasoning models spend most of the budget thinking before writing the expression. */
 const MAX_OUTPUT_TOKENS = 1024;
 
-export async function naturalLanguageToCron(projectId: string, text: string): Promise<string | null> {
+export async function naturalLanguageToCron(projectId: string, userId: string, text: string): Promise<string | null> {
 	await assertProjectCloudBillingAccess(projectId);
-	const modelConfig = await resolveModelForProject(projectId);
+	const modelConfig = await resolveModelForProject(projectId, userId);
 	if (!modelConfig) {
 		return null;
 	}
@@ -53,14 +53,15 @@ export async function naturalLanguageToCron(projectId: string, text: string): Pr
 
 async function resolveModelForProject(
 	projectId: string,
+	userId: string,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
+	const pinned = await resolveDefaultModelSelection(projectId, 'other', userId);
+	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId, userId));
 	if (!provider) {
 		return null;
 	}
 
 	const modelId = pinned?.modelId ?? getProviderMeta(provider).extractorModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false);
+	const model = await resolveProviderModel(projectId, provider, modelId, false, { userId, projectId });
 	return model ? { provider, model } : null;
 }

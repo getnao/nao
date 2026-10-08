@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
 import { settleInterruptedToolParts } from '../src/utils/ai';
+import { ManagedCreditsExhaustedError } from '../src/utils/error';
 import { buildUsernameAllowlist, formatErrorMessageForUI, replaceEnvVars, truncateMiddle } from '../src/utils/utils';
 
 describe('buildUsernameAllowlist', () => {
@@ -29,6 +30,13 @@ describe('formatErrorMessageForUI', () => {
 	it('returns the message from a normal Error', () => {
 		const reason = 'Query blocked because main.customers.last_name is an excluded column.';
 		expect(formatErrorMessageForUI(new Error(reason))).toBe(reason);
+	});
+
+	it('preserves the managed-credit code for streamed errors', () => {
+		expect(JSON.parse(formatErrorMessageForUI(new ManagedCreditsExhaustedError()))).toEqual({
+			error: 'Your $5 nao-managed AI allowance has been used. Add a project provider key to continue.',
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+		});
 	});
 
 	it('replaces provider payload validation errors with a concise message', () => {

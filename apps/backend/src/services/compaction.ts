@@ -143,7 +143,7 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const llm = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider, opts.modelId);
+		const llm = await this._resolveCompactionLLM(opts.chat, opts.provider, opts.modelId);
 		if (!llm) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
@@ -170,17 +170,25 @@ export class CompactionService {
 		return index;
 	}
 
-	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider, selectedModelId: string) {
-		const pinned = await resolveDefaultModelSelection(projectId, 'compaction');
+	private async _resolveCompactionLLM(
+		chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>,
+		provider: LlmProvider,
+		selectedModelId: string,
+	) {
+		const pinned = await resolveDefaultModelSelection(chat.projectId, 'compaction', chat.userId);
 		const effectiveProvider = pinned?.provider ?? provider;
 		const modelId =
 			pinned?.modelId ??
 			(await resolveAnnotationModelId(
-				projectId,
+				chat.projectId,
 				{ provider, modelId: selectedModelId },
 				getProviderMeta(provider).extractorModelId,
 			));
-		const model = await resolveProviderModel(projectId, effectiveProvider, modelId, false);
+		const model = await resolveProviderModel(chat.projectId, effectiveProvider, modelId, false, {
+			userId: chat.userId,
+			projectId: chat.projectId,
+			chatId: chat.id,
+		});
 		if (!model) {
 			return undefined;
 		}

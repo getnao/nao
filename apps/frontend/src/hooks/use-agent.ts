@@ -27,6 +27,7 @@ import {
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
 	parseBudgetError,
+	parseManagedCreditsError,
 	resolveImagesFromMessage,
 } from '@/lib/ai';
 import { createLocalStorage } from '@/lib/local-storage';
@@ -212,6 +213,12 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
+				if (selectedModelRef.current?.provider === 'nao') {
+					queryClient.invalidateQueries({ queryKey: trpc.account.getManagedAiBalance.queryKey() });
+					queryClient.invalidateQueries({
+						queryKey: trpc.project.listAvailableTranscribeModels.queryKey(),
+					});
+				}
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
@@ -268,7 +275,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	}, [chatId]);
 
 	useEffect(() => {
-		if (!parseBudgetError(error)) {
+		if (!parseBudgetError(error) && !parseManagedCreditsError(error)) {
 			return;
 		}
 		const lastMsg = messages.at(-1);

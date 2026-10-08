@@ -12,6 +12,7 @@ const FALLBACK_TITLE = 'Untitled automation';
 
 export async function inferAutomationTitle(
 	projectId: string,
+	userId: string,
 	prompt: string,
 	modelSelection?: LlmSelectedModel,
 ): Promise<string> {
@@ -21,7 +22,7 @@ export async function inferAutomationTitle(
 	}
 	await assertProjectCloudBillingAccess(projectId);
 
-	const modelConfig = await resolveModelForProject(projectId, modelSelection);
+	const modelConfig = await resolveModelForProject(projectId, userId, modelSelection);
 	if (!modelConfig) {
 		return fallbackTitleFromPrompt(trimmedPrompt);
 	}
@@ -43,11 +44,14 @@ export async function inferAutomationTitle(
 
 async function resolveModelForProject(
 	projectId: string,
+	userId: string,
 	modelSelection?: LlmSelectedModel,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const pinned = modelSelection ? null : await resolveDefaultModelSelection(projectId, 'title');
+	const pinned = modelSelection ? null : await resolveDefaultModelSelection(projectId, 'title', userId);
 	const provider =
-		modelSelection?.provider ?? pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
+		modelSelection?.provider ??
+		pinned?.provider ??
+		(await llmConfigQueries.getProjectModelProvider(projectId, userId));
 	if (!provider) {
 		return null;
 	}
@@ -56,7 +60,7 @@ async function resolveModelForProject(
 	const modelId = modelSelection
 		? await resolveAnnotationModelId(projectId, modelSelection, defaultModelId)
 		: (pinned?.modelId ?? defaultModelId);
-	const model = await resolveProviderModel(projectId, provider, modelId, false);
+	const model = await resolveProviderModel(projectId, provider, modelId, false, { userId, projectId });
 	return model ? { provider, model } : null;
 }
 

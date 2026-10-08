@@ -77,6 +77,7 @@ export const testRoutes = async (app: App) => {
 					);
 					const verified = await testAgentService.runVerification(
 						projectId,
+						userId,
 						prompt,
 						result,
 						expectedColumns,

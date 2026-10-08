@@ -2,8 +2,10 @@ import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
+import { isManagedAiEnabled } from '../agents/managed-ai';
 import { isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
+import * as managedAiUsageQueries from '../queries/managed-ai-usage.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
@@ -12,6 +14,12 @@ import { regexPassword } from '../utils/utils';
 import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
 export const accountRoutes = {
+	getManagedAiBalance: protectedProcedure.query(async ({ ctx }) => {
+		return {
+			...(await managedAiUsageQueries.getManagedAiBalance(ctx.user.id)),
+			enabled: isManagedAiEnabled(),
+		};
+	}),
 	resetPassword: adminProtectedProcedure
 		.input(
 			z.object({

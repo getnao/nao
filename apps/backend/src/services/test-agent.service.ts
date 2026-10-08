@@ -69,6 +69,7 @@ export class TestAgentService extends AgentService {
 	 */
 	async runVerification(
 		projectId: string,
+		userId: string,
 		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
@@ -80,8 +81,8 @@ export class TestAgentService extends AgentService {
 		}
 		await assertProjectCloudBillingAccess(projectId);
 
-		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
+		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection, userId);
+		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, { userId, projectId });
 
 		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 

@@ -107,30 +107,34 @@ export const storyThemeRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			try {
-				return await generateStoryThemePairFromSources(ctx.project.id, {
-					url: input.url,
-					image: input.image
-						? {
-								data: decodeBase64(input.image.data, MAX_IMAGE_BYTES, 'Image'),
-								mediaType: input.image.mediaType,
-							}
-						: undefined,
-					zip: input.zip
-						? {
-								data: decodeBase64(input.zip.data, MAX_ZIP_BYTES, 'ZIP'),
-								fileName: input.zip.fileName ?? 'upload.zip',
-							}
-						: undefined,
-					pdfs: input.pdfs.map((pdf) => ({
-						fileName: pdf.fileName,
-						pageCount: pdf.pageCount,
-						fromZip: pdf.fromZip,
-						pages: pdf.pages.map((page) => ({
-							data: decodeBase64(page.data, MAX_IMAGE_BYTES, 'PDF page'),
-							mediaType: page.mediaType,
+				return await generateStoryThemePairFromSources(
+					ctx.project.id,
+					{
+						url: input.url,
+						image: input.image
+							? {
+									data: decodeBase64(input.image.data, MAX_IMAGE_BYTES, 'Image'),
+									mediaType: input.image.mediaType,
+								}
+							: undefined,
+						zip: input.zip
+							? {
+									data: decodeBase64(input.zip.data, MAX_ZIP_BYTES, 'ZIP'),
+									fileName: input.zip.fileName ?? 'upload.zip',
+								}
+							: undefined,
+						pdfs: input.pdfs.map((pdf) => ({
+							fileName: pdf.fileName,
+							pageCount: pdf.pageCount,
+							fromZip: pdf.fromZip,
+							pages: pdf.pages.map((page) => ({
+								data: decodeBase64(page.data, MAX_IMAGE_BYTES, 'PDF page'),
+								mediaType: page.mediaType,
+							})),
 						})),
-					})),
-				});
+					},
+					ctx.user.id,
+				);
 			} catch (error) {
 				if (error instanceof DesignSourceError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });

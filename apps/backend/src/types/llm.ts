@@ -211,6 +211,7 @@ export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'reques
 
 /** Map each provider kind to its specific config type */
 export type ProviderConfigMap = {
+	nao: OpenAIResponsesProviderOptions;
 	google: GoogleGenerativeAIProviderOptions;
 	openai: OpenAIResponsesProviderOptions;
 	anthropic: Omit<AnthropicProviderOptions, 'fallbacks'>;
@@ -268,7 +269,7 @@ export type ProviderAuth = {
 /** Data-only provider config (no SDK imports, safe for frontend) */
 export type ProviderMeta<P extends LlmProviderKind> = {
 	auth: ProviderAuth;
-	envVar: string;
+	envVar?: string;
 	baseUrlEnvVar?: string;
 	/** Endpoint used when neither the config nor the environment sets a base URL. */
 	defaultBaseUrl?: string;

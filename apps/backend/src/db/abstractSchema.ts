@@ -132,6 +132,9 @@ export type NewBudgetNotification = typeof sqliteSchema.budgetNotification.$infe
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 
+export type DBManagedAiUsage = typeof sqliteSchema.managedAiUsage.$inferSelect;
+export type NewManagedAiUsage = typeof sqliteSchema.managedAiUsage.$inferInsert;
+
 export type DBContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferSelect;
 export type NewContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferInsert;
 

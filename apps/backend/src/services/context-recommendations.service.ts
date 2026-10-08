@@ -52,9 +52,10 @@ export async function runContextRecommendations(
 	const periodEnd = period?.end ?? now;
 	const periodStart = period?.start ?? (await resolvePeriodStart(projectId, periodEnd));
 
+	const userId = await crQueries.getFirstProjectAdminUserId(projectId);
 	const config = await crQueries.getConfig(projectId);
-	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation');
-	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);
+	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation', userId);
+	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined, userId);
 
 	const run = await crQueries.createRun({
 		projectId,
@@ -84,7 +85,6 @@ export async function runContextRecommendations(
 			await crQueries.getContextFileReadCosts(projectId, periodStart, periodEnd),
 		);
 
-		const userId = await crQueries.getFirstProjectAdminUserId(projectId);
 		const [chat] = await chatQueries.createChat(
 			{ title: 'Context recommendations run', userId, projectId },
 			{
@@ -162,6 +162,7 @@ export async function runContextRecommendations(
 		await ensureFeedbackCoverage(projectId, run.id, model, {
 			existing: existing.map(toExistingRec),
 			dismissedFingerprints,
+			userId,
 		});
 
 		await normalizeFeedbackLinks(projectId);
