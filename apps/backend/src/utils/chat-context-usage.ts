@@ -4,10 +4,11 @@ import { convertToModelMessages, type ModelMessage, type Tool } from 'ai';
 
 import { getContextWindow } from '../agents/providers';
 import { getTools } from '../agents/tools';
-import { SystemPrompt } from '../components/ai';
+import { ChatArtifactsPrompt, SystemPrompt } from '../components/ai';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
+import { getChatArtifacts, hasChatArtifacts } from '../services/chat-artifacts';
 import { compactionService } from '../services/compaction';
 import { memoryService } from '../services/memory';
 import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
@@ -47,11 +48,19 @@ export async function getChatAsModelMessages(opts: {
 }): Promise<ModelMessage[]> {
 	const uiMessages = markSupersededExecuteSqlParts(await chatQueries.getChatMessages(opts.chatId));
 	const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessages);
-	const memories = await memoryService.safeGetUserMemories(opts.userId, opts.projectId, opts.chatId);
+	const [memories, artifacts] = await Promise.all([
+		memoryService.safeGetUserMemories(opts.userId, opts.projectId, opts.chatId),
+		getChatArtifacts(opts.chatId, uiMessages),
+	]);
 	const systemPrompt = renderToMarkdown(SystemPrompt({ memories }));
 	const systemMessage: Omit<UIMessage, 'id'> = {
 		role: 'system',
 		parts: [{ type: 'text', text: systemPrompt }],
 	};
-	return convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction], { tools: opts.tools });
+	const artifactsMessages: Omit<UIMessage, 'id'>[] = hasChatArtifacts(artifacts)
+		? [{ role: 'user', parts: [{ type: 'text', text: renderToMarkdown(ChatArtifactsPrompt({ artifacts })) }] }]
+		: [];
+	return convertToModelMessages<UIMessage>([systemMessage, ...uiMessagesWithCompaction, ...artifactsMessages], {
+		tools: opts.tools,
+	});
 }
