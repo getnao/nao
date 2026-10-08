@@ -30,6 +30,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
@@ -571,7 +572,7 @@ class WhatsappService {
 		}
 
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		return { link: createWhatsappMapLink(part.input.title, chatUrl) };
+		return { link: createWhatsappMapLink(part.input.title, chatUrl, await getAppName()) };
 	}
 
 	private async _handleChartPart(

@@ -7,6 +7,7 @@ import type { CreatedEmail, EmailAttachment } from '../types/email';
 import type { NotificationRecipient } from '../types/notification';
 import { buildNotificationEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
+import { getAppName } from './branding.service';
 import { emailService } from './email';
 import { buildUnsubscribeUrl, resolveUnsubscribeScope } from './notification-unsubscribe';
 import { slackService } from './slack';
@@ -111,7 +112,7 @@ const slackChannel: NotificationChannelHandler = {
 			lines.push(notification.body);
 		}
 		const text = lines.join('\n');
-		const button = url ? { url, label: 'Open in nao' } : undefined;
+		const button = url ? { url, label: `Open in ${await getAppName()}` } : undefined;
 		const unsubscribeUrl = scope ? buildUnsubscribeUrl(recipient.id, scope) : undefined;
 
 		const files = (notification.emailAttachments ?? [])

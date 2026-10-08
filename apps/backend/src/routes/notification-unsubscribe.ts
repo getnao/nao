@@ -4,12 +4,11 @@ import { z } from 'zod/v4';
 import type { App } from '../app';
 import * as notificationUnsubscribeQueries from '../queries/notification-unsubscribe.queries';
 import * as userQueries from '../queries/user.queries';
-import { getActiveBranding } from '../services/branding.service';
+import { DEFAULT_APP_NAME, getActiveBranding } from '../services/branding.service';
 import { verifyUnsubscribeSignature } from '../services/notification-unsubscribe';
 
 const unsubscribeSchema = z.object({ u: z.string(), s: z.string(), sig: z.string() });
 
-const DEFAULT_APP_NAME = 'nao';
 const DEFAULT_BRAND_COLOR = '#522bff';
 
 const CHANNEL_LABELS: Record<NotificationChannel, string> = {

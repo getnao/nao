@@ -15,8 +15,15 @@ import { hasFeature } from './license.service';
 
 const WHITE_LABEL_FEATURE = LICENSE_FEATURES.whiteLabel;
 
+export const DEFAULT_APP_NAME = 'nao';
+
 export async function isWhiteLabelEnabled(): Promise<boolean> {
 	return hasFeature(WHITE_LABEL_FEATURE);
+}
+
+export async function getAppName(): Promise<string> {
+	const branding = await getActiveBranding();
+	return branding?.appName?.trim() || DEFAULT_APP_NAME;
 }
 
 /**

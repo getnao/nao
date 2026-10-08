@@ -7,9 +7,13 @@ import {
 	chunkSlackText,
 	countHiddenTableNotices,
 	createCompletionCard,
+	createMapLinkCard,
 	createSlackTableRenderState,
 	createStopButtonCard,
+	createTelegramCompletionCard,
+	createTelegramMapLinkCard,
 	createTextBlocks,
+	createWhatsappMapLink,
 	isRecoverableSlackPayloadError,
 	SLACK_SECTION_TEXT_MAX_CHARS,
 } from '../src/utils/messaging-provider';
@@ -618,7 +622,7 @@ describe('createCompletionCard', () => {
 		[1, 'Open the other table in nao'],
 		[3, 'Open the other 3 tables in nao'],
 	])('labels the link for %i hidden tables', (hiddenTables, label) => {
-		const card = createCompletionCard('https://nao.example/chats/chat-123', undefined, hiddenTables);
+		const card = createCompletionCard('https://nao.example/chats/chat-123', { hiddenTables });
 
 		expect(card.children[0]).toMatchObject({
 			type: 'actions',
@@ -637,6 +641,85 @@ describe('createCompletionCard', () => {
 		} else {
 			expect(actions.children[0]).toHaveProperty('style', 'primary');
 		}
+	});
+
+	it.each([
+		[0, 'Open in Fibi'],
+		[1, 'Open the other table in Fibi'],
+		[3, 'Open the other 3 tables in Fibi'],
+	])('uses the white-label app name for %i hidden tables', (hiddenTables, label) => {
+		const card = createCompletionCard('https://nao.example/chats/chat-123', { hiddenTables, appName: 'Fibi' });
+
+		expect(card.children[0]).toMatchObject({
+			type: 'actions',
+			children: [
+				{ type: 'link-button', label },
+				{ type: 'button', id: 'feedback_positive' },
+				{ type: 'button', id: 'feedback_negative' },
+			],
+		});
+	});
+});
+
+describe('white-label app name', () => {
+	it('labels the full-table link with the app name', () => {
+		const url = 'https://nao.example/chats/chat-123';
+		const rows = Array.from({ length: 150 }, (_, index) => `| row-${index} | value |`);
+		const children = createTextBlocks(['| Name | Value |', '|---|---|', ...rows].join('\n'), {
+			truncation: { kind: 'link', url },
+			appName: 'Fibi',
+		});
+
+		expect(children.at(-1)).toMatchObject({
+			type: 'actions',
+			children: [{ type: 'link-button', url, label: 'Open in Fibi to see full table' }],
+		});
+	});
+
+	it('mentions the app name in the omitted-rows note', () => {
+		const rows = Array.from({ length: 150 }, (_, index) => `| row-${index} | value |`);
+		const children = createTextBlocks(['| Name | Value |', '|---|---|', ...rows].join('\n'), { appName: 'Fibi' });
+
+		expect(children.at(-1)).toMatchObject({ type: 'text', content: '_…51 more rows, open in Fibi_' });
+	});
+
+	it('uses the app name in Slack notification text', () => {
+		const tableChildren = createTextBlocks(['| Name | Value |', '|---|---|', '| Alpha | 123 |'].join('\n'));
+		expect(buildSlackCardNotificationText(tableChildren, 'Fibi')).toBe(
+			'Results table (open in Fibi for full data)',
+		);
+
+		const actionsChildren = createCompletionCard('https://nao.example/chats/chat-123', {
+			appName: 'Fibi',
+		}).children;
+		expect(buildSlackCardNotificationText(actionsChildren, 'Fibi')).toBe('Fibi answer');
+	});
+
+	it('uses the app name in map link cards', () => {
+		const url = 'https://nao.example/chats/chat-123';
+
+		expect(createMapLinkCard('Stores', url, 'Fibi')[1]).toMatchObject({
+			type: 'actions',
+			children: [{ type: 'link-button', url, label: 'View interactive map in Fibi' }],
+		});
+		expect(createTelegramMapLinkCard('Stores', url, 'Fibi')[1]).toMatchObject({
+			type: 'actions',
+			children: [{ type: 'link-button', url, label: 'View interactive map in Fibi' }],
+		});
+		expect(createWhatsappMapLink('Stores', url, 'Fibi')).toBe(`🗺️ Stores\nView interactive map in Fibi: ${url}`);
+	});
+
+	it('uses the app name in the Telegram completion card', () => {
+		const card = createTelegramCompletionCard('https://nao.example/chats/chat-123', { appName: 'Fibi' });
+
+		expect(card.children[1]).toMatchObject({
+			type: 'actions',
+			children: [
+				{ type: 'link-button', label: 'Open in Fibi' },
+				{ type: 'button', id: 'feedback_positive' },
+				{ type: 'button', id: 'feedback_negative' },
+			],
+		});
 	});
 });
 

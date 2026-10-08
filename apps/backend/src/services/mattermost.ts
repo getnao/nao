@@ -30,6 +30,7 @@ import {
 	resolveMattermostCallbackBaseUrl,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import {
 	cacheMattermostEmail,
@@ -530,12 +531,13 @@ class ProjectMattermostBot {
 		if (!answerMessage) {
 			return;
 		}
-		const linkLength = chatUrl ? createMattermostAnswerMessage('', chatUrl).markdown.length + 2 : 0;
+		const appName = await getAppName();
+		const linkLength = chatUrl ? createMattermostAnswerMessage('', chatUrl, appName).markdown.length + 2 : 0;
 		const body = truncateMattermostMarkdown(
 			this._renderBody(ctx),
 			Math.max(MATTERMOST_POST_MAX_LENGTH - linkLength, 0),
 		);
-		const message = createMattermostAnswerMessage(body, chatUrl).markdown;
+		const message = createMattermostAnswerMessage(body, chatUrl, appName).markdown;
 		await this._patchAnswerPost(answerMessage.id, (state) => {
 			state.message = message;
 		});
@@ -662,7 +664,10 @@ class ProjectMattermostBot {
 			state.renderedToolCallIds.add(part.toolCallId);
 			ctx.answerTextPartIndex = -1;
 			const chatUrl = new URL(ctx.chatId, this._config.redirectUrl).toString();
-			ctx.bodyParts.push(`⚠️ This chart couldn't be rendered in Mattermost. [Open it in nao](${chatUrl}).`);
+			const appName = await getAppName();
+			ctx.bodyParts.push(
+				`⚠️ This chart couldn't be rendered in Mattermost. [Open it in ${appName}](${chatUrl}).`,
+			);
 			try {
 				await this._editAnswerMessage(ctx);
 			} catch (editError) {
@@ -717,8 +722,9 @@ class ProjectMattermostBot {
 		}
 		try {
 			const chatUrl = new URL(ctx.chatId, this._config.redirectUrl).toString();
+			const appName = await getAppName();
 			ctx.answerTextPartIndex = -1;
-			ctx.bodyParts.push(`🗺️ **${part.input.title}**\n\n[View interactive map in nao](${chatUrl})`);
+			ctx.bodyParts.push(`🗺️ **${part.input.title}**\n\n[View interactive map in ${appName}](${chatUrl})`);
 			await this._editAnswerMessage(ctx);
 		} catch (error) {
 			logger.error(`Error rendering Mattermost map link: ${String(error)}`, {

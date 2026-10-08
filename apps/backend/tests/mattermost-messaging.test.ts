@@ -596,6 +596,12 @@ describe('Mattermost answer rendering', () => {
 		expect(message).not.toHaveProperty('card');
 		expect(message).not.toHaveProperty('attachments');
 	});
+
+	it('labels the link with the white-label app name', () => {
+		expect(createMattermostAnswerMessage('Answer text', 'https://nao.example/chat-1', 'Fibi')).toEqual({
+			markdown: 'Answer text\n\n**[Open in Fibi](https://nao.example/chat-1)**',
+		});
+	});
 });
 
 describe('createMattermostMarkdownTable', () => {
