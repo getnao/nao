@@ -6,6 +6,8 @@ import { CHAT_ARTIFACTS_TAG } from '../ai/chat-artifacts-prompt';
 export type StoryModelOutput = story.Output & {
 	/** Set on persisted outputs: the conversation artifacts carry the story's current content. */
 	_stale?: boolean;
+	/** Set with `_stale` when the story has since been archived and left the conversation artifacts. */
+	_archived?: boolean;
 };
 
 export function StoryOutput({ output }: { output: StoryModelOutput }) {
@@ -32,8 +34,10 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 	if (output._stale) {
 		return (
 			<Block>
-				Story "{output.title}" ({output.id}) — v{output.version} at the time. Its current content is in the{' '}
-				{`<${CHAT_ARTIFACTS_TAG}>`} block of the latest user message.
+				Story "{output.title}" ({output.id}) — v{output.version} at the time.{' '}
+				{output._archived
+					? 'It has since been archived and is no longer part of this conversation.'
+					: `Its current content is in the <${CHAT_ARTIFACTS_TAG}> block of the latest user message.`}
 			</Block>
 		);
 	}

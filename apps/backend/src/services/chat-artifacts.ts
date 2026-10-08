@@ -1,13 +1,17 @@
 import { isQueryResultPart } from '@nao/shared/execute-sql-parts';
 import { isToolUIPart } from 'ai';
 
+import { ChatArtifactsPrompt } from '../components/ai/chat-artifacts-prompt';
+import { renderToMarkdown } from '../lib/markdown';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import type { ChatArtifacts, QueryArtifact, StoryArtifact } from '../types/artifacts';
 import type { UIMessage, UIMessagePart } from '../types/chat';
+import { logger } from '../utils/logger';
 import { getStoryTemplateWarnings } from './story-template-validation';
 
 type StoryToolPart = Extract<UIMessagePart, { type: 'tool-story'; state: 'output-available' }>;
+type MessageLike = Omit<UIMessage, 'id'>;
 
 /**
  * Rebuilds the conversation's artifacts for a turn: the query results found in the loaded
@@ -21,8 +25,66 @@ export async function getChatArtifacts(chatId: string, messages: UIMessage[]): P
 	return { queries, stories };
 }
 
+/** Undefined when the artifacts cannot be built, so callers keep the history as it is. */
+export async function safeGetChatArtifacts(
+	chatId: string,
+	messages: UIMessage[],
+	projectId?: string,
+): Promise<ChatArtifacts | undefined> {
+	try {
+		return await getChatArtifacts(chatId, messages);
+	} catch (error) {
+		logger.error(`Failed to build chat artifacts: ${String(error)}`, {
+			source: 'agent',
+			projectId,
+			context: { chatId },
+		});
+		return undefined;
+	}
+}
+
 export function hasChatArtifacts(artifacts: ChatArtifacts): boolean {
 	return artifacts.queries.length > 0 || artifacts.stories.length > 0;
+}
+
+/**
+ * Story tool outputs in the history shrink to a one-line placeholder: the artifacts carry the
+ * current content of every live story, so repeating each version is waste. A story missing from
+ * the artifacts has been archived, and its placeholder says so.
+ */
+export function collapseStoryToolOutputs<T extends MessageLike>(messages: T[], artifacts: ChatArtifacts): T[] {
+	const liveStoryIds = new Set(artifacts.stories.map((story) => story.id));
+	return messages.map((message) => ({
+		...message,
+		parts: message.parts.map((part): UIMessagePart => {
+			if (!isStoryToolPart(part)) {
+				return part;
+			}
+			const isArchived = !liveStoryIds.has(part.output.id);
+			return { ...part, output: { ...part.output, _stale: true, _archived: isArchived, code: '' } };
+		}),
+	}));
+}
+
+/** The artifacts travel in the current user message so that only one copy is ever in context. */
+export function appendChatArtifacts<T extends MessageLike>(messages: T[], artifacts: ChatArtifacts): T[] {
+	if (!hasChatArtifacts(artifacts)) {
+		return messages;
+	}
+	const artifactsPart: UIMessagePart = { type: 'text', text: renderToMarkdown(ChatArtifactsPrompt({ artifacts })) };
+	return appendToLastUserMessage(messages, artifactsPart);
+}
+
+function appendToLastUserMessage<T extends MessageLike>(messages: T[], part: UIMessagePart): T[] {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message.role === 'user') {
+			const updatedMessages = [...messages];
+			updatedMessages[index] = { ...message, parts: [...message.parts, part] };
+			return updatedMessages;
+		}
+	}
+	return messages;
 }
 
 /** A query id re-run in place keeps its position but takes the columns of its latest run. */
