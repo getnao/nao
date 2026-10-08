@@ -14,8 +14,8 @@ import { checkApiKey } from '../services/api-key.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { putOrganizationMember, putProjectMember, removeOrganizationMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
-import { assertUserGroupManageable } from '../services/user-group-availability.service';
-import type { ApiKeyScope } from '../types/api-key';
+import { assertUserGroupManageable, validateAssignableUserGroupIds } from '../services/user-group-availability.service';
+import { apiKeyRejection, type ApiKeyScope } from '../types/api-key';
 import { ORG_ROLES } from '../types/organization';
 import { buildUserAddedEmail } from '../utils/email-builders';
 import { HandlerError } from '../utils/error';
@@ -28,13 +28,14 @@ const paginationSchema = z.object({
 	offset: z.coerce.number().int().min(0).default(0),
 });
 const userParamsSchema = z.object({ userId: z.string().min(1) });
-const deleteUserQuerySchema = z.object({ purge: z.coerce.boolean().default(false) });
+// `?purge=` is a literal boolean: `z.coerce.boolean()` would read "false" as truthy and delete the account.
+const deleteUserQuerySchema = z.object({ purge: z.stringbool().default(false) });
 const projectParamsSchema = z.object({ projectId: z.string().min(1) });
 const groupParamsSchema = projectParamsSchema.extend({ groupId: z.string().min(1) });
 const groupMemberParamsSchema = groupParamsSchema.extend({ userId: z.string().min(1) });
 const projectMemberParamsSchema = projectParamsSchema.extend({ userId: z.string().min(1) });
 const createUserSchema = z.object({
-	email: z.string().trim().min(3).max(320),
+	email: z.string().trim().max(320).pipe(z.email()),
 	name: z.string().trim().min(1).max(200),
 	role: z.enum(ORG_ROLES).default(env.DEFAULT_USER_ROLE),
 	groupIds: z.array(z.string().min(1)).max(100).default([]),
@@ -46,16 +47,11 @@ const projectMemberSchema = z.object({ role: z.enum(USER_ROLES) });
 export const userManagementRoutes = async (app: App) => {
 	app.addHook('onRequest', async (request, reply) => {
 		const check = await checkApiKey(readBearerToken(request), USER_MANAGEMENT_SCOPE);
-		if (check.status === 'ok') {
-			(request as ApiKeyRequest).apiKeyOrg = check.org;
-			return;
+		if (check.status !== 'ok') {
+			const rejection = apiKeyRejection(check.status, 'user management');
+			return reply.status(rejection.statusCode).send({ error: rejection.error });
 		}
-		return reply.status(check.status === 'scope_mismatch' ? 403 : 401).send({
-			error:
-				check.status === 'scope_mismatch'
-					? 'This API key is not scoped for user management'
-					: 'Invalid API key',
-		});
+		(request as ApiKeyRequest).apiKeyOrg = check.org;
 	});
 
 	app.get('/user-management/users', async (request, reply) => {
@@ -134,17 +130,25 @@ export const userManagementRoutes = async (app: App) => {
 		const removed = await run(reply, async () => {
 			const org = requireOrg(request);
 			await requireOrgMember(org.id, params.userId);
+			// The account is global, so purging it from one organization would also drop every other
+			// organization's membership. Reach for revoke without purge instead.
+			if (query.purge && (await orgQueries.listUserOrgMemberships(params.userId)).length > 1) {
+				throw new HandlerError(
+					'CONFLICT',
+					'This user belongs to another organization: revoke without purge to keep the account.',
+				);
+			}
+			// An invitation nobody accepted is not an account at all — it IS the invitation, so the row
+			// goes with it (that is what cancels the temporary password already sitting in their inbox).
+			const deletesAccount = query.purge || (await userQueries.isPendingInvitation(params.userId));
+			// Sessions die before the membership row does: a failure mid-way then leaves a signed-out
+			// member (retryable), never a revoked member with a live session.
+			await userQueries.deleteUserSessions(params.userId);
 			await removeOrganizationMember(org.id, params.userId);
-			// A removal has to mean access is gone NOW, and an invitation nobody accepted is not an
-			// account at all — it IS the invitation, so the row goes with it (that is what cancels the
-			// temporary password already sitting in that person's inbox).
-			if (query.purge || (await userQueries.isPendingInvitation(params.userId))) {
+			// purge stays opt-in: the cascade also takes the person's stories, which a membership sync
+			// has no business doing.
+			if (deletesAccount) {
 				await userQueries.deleteUser(params.userId);
-			} else {
-				// purge stays opt-in: it cascades to the person's stories, which a membership sync has no
-				// business doing. Killing the sessions is what makes an accepted member actually lose
-				// access instead of waiting out their cookie.
-				await userQueries.deleteUserSessions(params.userId);
 			}
 			return true;
 		});
@@ -327,14 +331,24 @@ async function requireGroup(projectId: string, groupId: string): Promise<userGro
 }
 
 async function requireGroupIdsInOrg(orgId: string, groupIds: string[]): Promise<string[]> {
-	if (groupIds.length === 0) {
+	const uniqueGroupIds = [...new Set(groupIds)];
+	if (uniqueGroupIds.length === 0) {
 		return [];
 	}
-	const known = await userGroupQueries.filterUserGroupIdsForOrg(orgId, groupIds);
-	if (known.length !== new Set(groupIds).size) {
+	const groups = await userGroupQueries.getUserGroupProjectsForOrg(orgId, uniqueGroupIds);
+	if (groups.length !== uniqueGroupIds.length) {
 		throw new HandlerError('BAD_REQUEST', 'One or more group ids do not belong to this organization.');
 	}
-	return known;
+	// Belonging to the organization is not the same as being assignable: the default "All Users" group
+	// and license-locked groups have to be rejected here exactly as the normal assignment path rejects them.
+	const idsByProject = new Map<string, string[]>();
+	for (const group of groups) {
+		idsByProject.set(group.projectId, [...(idsByProject.get(group.projectId) ?? []), group.id]);
+	}
+	for (const [projectId, ids] of idsByProject) {
+		await validateAssignableUserGroupIds(projectId, ids);
+	}
+	return uniqueGroupIds;
 }
 
 function readBearerToken(request: FastifyRequest): string {
