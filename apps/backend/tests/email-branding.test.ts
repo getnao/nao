@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/env', () => ({ env: { BETTER_AUTH_URL: 'https://app.example' } }));
+vi.mock('../src/utils/logger', () => ({ logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('../src/services/branding.service', () => ({
 	DEFAULT_APP_NAME: 'nao',
 	DEFAULT_BRAND_COLOR: '#522bff',
@@ -54,6 +55,21 @@ describe('resolveEmailBranding', () => {
 		expect(branding).toMatchObject({ appName: 'Fibi', brandColor: '#ff6600', isWhiteLabel: true });
 		expect(branding.logo).toMatchObject({ contentType: 'image/png', cid: 'nao-logo' });
 		expect(branding.logo?.content).toEqual(Buffer.from('png-bytes'));
+	});
+
+	it('accepts media types regardless of casing', async () => {
+		mocks.getActiveBranding.mockResolvedValue(whiteLabel);
+		mocks.getActiveBrandingAsset.mockResolvedValue({ ...pngLogo, mediaType: 'image/PNG' });
+
+		const branding = await resolveEmailBranding();
+
+		expect(branding.logo).toMatchObject({ contentType: 'image/png', filename: 'logo.png' });
+	});
+
+	it('falls back to defaults when the branding lookup fails', async () => {
+		mocks.getActiveBranding.mockRejectedValue(new Error('db down'));
+
+		await expect(resolveEmailBranding()).resolves.toMatchObject({ appName: 'nao', isWhiteLabel: false });
 	});
 
 	it('drops SVG logos that email clients cannot render', async () => {

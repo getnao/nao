@@ -20,13 +20,17 @@ export const DEFAULT_APP_NAME = 'nao';
 export const DEFAULT_BRAND_COLOR = '#522bff';
 
 /**
- * Messaging providers resolve the app name on every streamed card edit, so the
- * summary is memoised briefly. Writes through this service invalidate it; other
- * instances pick up changes once the TTL elapses.
+ * Messaging providers resolve the app name on every streamed card edit and bulk
+ * emails resolve the logo per recipient, so lookups are memoised briefly. Writes
+ * through this service invalidate them; other instances pick up changes once the
+ * TTL elapses.
  */
-const BRANDING_SUMMARY_TTL_MS = 60_000;
+const BRANDING_CACHE_TTL_MS = 60_000;
 
-let cachedSummary: { promise: Promise<BrandingSummary | null>; expiresAt: number } | null = null;
+type CacheEntry<T> = { promise: Promise<T>; expiresAt: number };
+
+let cachedSummary: CacheEntry<BrandingSummary | null> | null = null;
+const cachedAssets = new Map<BrandingAssetKind, CacheEntry<BrandingAsset | null>>();
 
 export async function isWhiteLabelEnabled(): Promise<boolean> {
 	return hasFeature(WHITE_LABEL_FEATURE);
@@ -65,7 +69,7 @@ export async function getActiveBrandingAsset(kind: BrandingAssetKind): Promise<B
 	if (!(await isWhiteLabelEnabled())) {
 		return null;
 	}
-	return getBrandingAsset(kind);
+	return getCachedBrandingAsset(kind);
 }
 
 export async function updateBranding(update: BrandingUpdate): Promise<void> {
@@ -80,17 +84,36 @@ export async function removeBrandingAsset(kind: BrandingAssetKind): Promise<void
 
 export function invalidateBrandingCache(): void {
 	cachedSummary = null;
+	cachedAssets.clear();
 }
 
 function getCachedBrandingSummary(): Promise<BrandingSummary | null> {
-	const now = Date.now();
-	if (cachedSummary && cachedSummary.expiresAt > now) {
+	if (cachedSummary && cachedSummary.expiresAt > Date.now()) {
 		return cachedSummary.promise;
 	}
-	const promise = getBrandingSummary().catch((error: unknown) => {
-		invalidateBrandingCache();
+	cachedSummary = createCacheEntry(getBrandingSummary(), () => {
+		cachedSummary = null;
+	});
+	return cachedSummary.promise;
+}
+
+function getCachedBrandingAsset(kind: BrandingAssetKind): Promise<BrandingAsset | null> {
+	const cached = cachedAssets.get(kind);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.promise;
+	}
+	const entry = createCacheEntry(getBrandingAsset(kind), () => {
+		cachedAssets.delete(kind);
+	});
+	cachedAssets.set(kind, entry);
+	return entry.promise;
+}
+
+/** Failed lookups are evicted immediately so a transient error is not served for the whole TTL. */
+function createCacheEntry<T>(lookup: Promise<T>, evict: () => void): CacheEntry<T> {
+	const promise = lookup.catch((error: unknown) => {
+		evict();
 		throw error;
 	});
-	cachedSummary = { promise, expiresAt: now + BRANDING_SUMMARY_TTL_MS };
-	return promise;
+	return { promise, expiresAt: Date.now() + BRANDING_CACHE_TTL_MS };
 }

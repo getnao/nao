@@ -2,21 +2,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getBrandingSummary: vi.fn(),
+	getBrandingAsset: vi.fn(),
 	upsertBranding: vi.fn(),
+	clearBrandingAsset: vi.fn(),
 	hasFeature: vi.fn(),
 	warn: vi.fn(),
 }));
 
 vi.mock('../src/queries/branding.queries', () => ({
 	getBrandingSummary: mocks.getBrandingSummary,
-	getBrandingAsset: vi.fn(),
+	getBrandingAsset: mocks.getBrandingAsset,
 	upsertBranding: mocks.upsertBranding,
-	clearBrandingAsset: vi.fn(),
+	clearBrandingAsset: mocks.clearBrandingAsset,
 }));
 vi.mock('../src/services/license.service', () => ({ hasFeature: mocks.hasFeature }));
 vi.mock('../src/utils/logger', () => ({ logger: { warn: mocks.warn, error: vi.fn(), info: vi.fn() } }));
 
-import { getAppName, invalidateBrandingCache, resolveAppName, updateBranding } from '../src/services/branding.service';
+import {
+	getActiveBrandingAsset,
+	getAppName,
+	invalidateBrandingCache,
+	removeBrandingAsset,
+	resolveAppName,
+	updateBranding,
+} from '../src/services/branding.service';
 
 const summary = (appName: string | null) => ({
 	appName,
@@ -33,7 +42,9 @@ describe('branding service', () => {
 		vi.setSystemTime(new Date('2026-10-08T12:00:00.000Z'));
 		invalidateBrandingCache();
 		mocks.getBrandingSummary.mockReset();
+		mocks.getBrandingAsset.mockReset();
 		mocks.upsertBranding.mockReset().mockResolvedValue(undefined);
+		mocks.clearBrandingAsset.mockReset().mockResolvedValue(undefined);
 		mocks.hasFeature.mockReset().mockResolvedValue(true);
 		mocks.warn.mockReset();
 	});
@@ -79,6 +90,23 @@ describe('branding service', () => {
 		await expect(getAppName()).resolves.toBe('Fibi');
 		await updateBranding({ appName: 'Zed' });
 		await expect(getAppName()).resolves.toBe('Zed');
+	});
+
+	it('memoises assets per kind and invalidates them on removal', async () => {
+		const logo = { data: 'bG9nbw==', mediaType: 'image/png' };
+		mocks.getBrandingAsset.mockResolvedValue(logo);
+
+		await expect(Promise.all([getActiveBrandingAsset('logo'), getActiveBrandingAsset('logo')])).resolves.toEqual([
+			logo,
+			logo,
+		]);
+		await getActiveBrandingAsset('favicon');
+		expect(mocks.getBrandingAsset).toHaveBeenCalledTimes(2);
+
+		await removeBrandingAsset('logo');
+		mocks.getBrandingAsset.mockResolvedValue(null);
+		await expect(getActiveBrandingAsset('logo')).resolves.toBeNull();
+		expect(mocks.getBrandingAsset).toHaveBeenCalledTimes(3);
 	});
 
 	it('does not cache failed lookups and falls back to nao', async () => {

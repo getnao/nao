@@ -47,13 +47,14 @@ export async function resolveEmailBranding(): Promise<EmailBranding> {
 
 async function resolveWhiteLabelLogo(): Promise<EmailAttachment | undefined> {
 	const asset = await getActiveBrandingAsset('logo');
-	if (!asset || !EMAIL_SAFE_LOGO_MEDIA_TYPES.has(asset.mediaType)) {
+	const mediaType = asset?.mediaType.trim().toLowerCase();
+	if (!asset || !mediaType || !EMAIL_SAFE_LOGO_MEDIA_TYPES.has(mediaType)) {
 		return undefined;
 	}
 	return {
-		filename: `logo.${asset.mediaType.split('/')[1]}`,
+		filename: `logo.${mediaType.split('/')[1]}`,
 		content: Buffer.from(asset.data, 'base64'),
-		contentType: asset.mediaType,
+		contentType: mediaType,
 		cid: EMAIL_LOGO_CID,
 	};
 }
