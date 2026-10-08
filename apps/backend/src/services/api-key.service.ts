@@ -43,7 +43,12 @@ export const checkApiKey = async (plaintext: string, requiredScope: ApiKeyScope)
 
 	apiKeyQueries.updateApiKeyLastUsed(apiKey.id).catch(() => {});
 
-	const scope = isApiKeyScope(apiKey.scope) ? apiKey.scope : DEFAULT_API_KEY_SCOPE;
+	// Unknown scopes fail closed: only a row written before migration 0077 (no scope at all) keeps the
+	// legacy deploy behaviour, so a bad value from a manual edit or a newer server cannot grant a scope.
+	const scope = apiKey.scope ?? DEFAULT_API_KEY_SCOPE;
+	if (!isApiKeyScope(scope)) {
+		return { status: 'invalid' };
+	}
 	if (scope !== requiredScope) {
 		return { status: 'scope_mismatch' };
 	}
@@ -53,7 +58,9 @@ export const checkApiKey = async (plaintext: string, requiredScope: ApiKeyScope)
 	return org ? { status: 'ok', org, scope } : { status: 'invalid' };
 };
 
-export const validateApiKey = async (plaintext: string): Promise<DBOrganization | null> => {
-	const check = await checkApiKey(plaintext, DEFAULT_API_KEY_SCOPE);
-	return check.status === 'ok' ? check.org : null;
-};
+/**
+ * The key check for the deploy and automation routes. Returns the full check so a caller can answer
+ * 403 for a real key scoped elsewhere instead of collapsing that to "invalid" (401).
+ */
+export const validateApiKey = (plaintext: string): Promise<ApiKeyCheck> =>
+	checkApiKey(plaintext, DEFAULT_API_KEY_SCOPE);

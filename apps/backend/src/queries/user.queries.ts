@@ -186,23 +186,25 @@ export const deleteUserSessions = async (id: string): Promise<void> => {
 	await db.delete(s.session).where(eq(s.session.userId, id)).execute();
 };
 
+/** Shared predicate for "this row was never used": `deleteExpiredInvitations` and the revoke path agree. */
+const neverAcceptedInvitation = () => [
+	eq(s.user.requiresPasswordReset, true),
+	sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
+	sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
+	sql`not exists(select 1 from ${s.chatMessage} where ${s.chatMessage.senderUserId} = ${s.user.id})`,
+];
+
 /**
  * True while a user row is still only an invitation: a temporary password nobody has used, with no
- * session and no chat of their own. Deliberately the same test `deleteExpiredInvitations` uses, so
- * "has this person ever actually used the account" has exactly one definition.
+ * session, no chat and no message of their own. Deliberately the same test
+ * `deleteExpiredInvitations` uses, so "has this person ever actually used the account" has exactly
+ * one definition.
  */
 export const isPendingInvitation = async (id: string): Promise<boolean> => {
 	const [row] = await db
 		.select({ id: s.user.id })
 		.from(s.user)
-		.where(
-			and(
-				eq(s.user.id, id),
-				eq(s.user.requiresPasswordReset, true),
-				sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
-				sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
-			),
-		)
+		.where(and(eq(s.user.id, id), ...neverAcceptedInvitation()))
 		.execute();
 	return !!row;
 };
@@ -212,15 +214,7 @@ export const deleteExpiredInvitations = async (now = new Date()): Promise<number
 	const cutoff = new Date(now.getTime() - INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
 	const deleted = await db
 		.delete(s.user)
-		.where(
-			and(
-				eq(s.user.requiresPasswordReset, true),
-				lt(s.user.updatedAt, cutoff),
-				sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
-				sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
-				sql`not exists(select 1 from ${s.chatMessage} where ${s.chatMessage.senderUserId} = ${s.user.id})`,
-			),
-		)
+		.where(and(...neverAcceptedInvitation(), lt(s.user.updatedAt, cutoff)))
 		.returning({ id: s.user.id })
 		.execute();
 	return deleted.length;

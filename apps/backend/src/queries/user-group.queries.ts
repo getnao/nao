@@ -215,18 +215,20 @@ export const listUserGroups = async (projectId: string): Promise<UserGroup[]> =>
 		.execute()
 		.then((groups) => groups.map(normalizeUserGroup));
 
-export const filterUserGroupIdsForOrg = async (orgId: string, groupIds: string[]): Promise<string[]> => {
+export const getUserGroupProjectsForOrg = async (
+	orgId: string,
+	groupIds: string[],
+): Promise<{ id: string; projectId: string }[]> => {
 	const uniqueGroupIds = [...new Set(groupIds)];
 	if (uniqueGroupIds.length === 0) {
 		return [];
 	}
-	const rows = await db
-		.select({ id: s.userGroup.id })
+	return db
+		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId })
 		.from(s.userGroup)
 		.innerJoin(s.project, eq(s.project.id, s.userGroup.projectId))
 		.where(and(eq(s.project.orgId, orgId), inArray(s.userGroup.id, uniqueGroupIds)))
 		.execute();
-	return rows.map((row) => row.id);
 };
 
 export const countCustomUserGroups = async (projectId: string): Promise<number> => {

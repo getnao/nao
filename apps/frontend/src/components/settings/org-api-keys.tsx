@@ -11,6 +11,11 @@ import { SettingsCard } from '@/components/ui/settings-card';
 
 type ApiKeyScope = 'deploy' | 'user_management';
 
+const DEFAULT_KEY_NAMES: Record<ApiKeyScope, string> = {
+	deploy: 'Deploy key',
+	user_management: 'User management key',
+};
+
 interface OrgApiKeysProps {
 	isAdmin?: boolean;
 	deployUrl?: string;
@@ -25,9 +30,11 @@ export function OrgApiKeys({
 	description = 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 }: OrgApiKeysProps) {
 	const queryClient = useQueryClient();
-	const [name, setName] = useState('Deploy key');
+	const [name, setName] = useState(DEFAULT_KEY_NAMES.deploy);
 	const [scope, setScope] = useState<ApiKeyScope>('deploy');
 	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
+	// The deploy command is only useful for a deploy-scoped key, so remember what was just created.
+	const [latestKeyScope, setLatestKeyScope] = useState<ApiKeyScope>('deploy');
 	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
 	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
 
@@ -39,8 +46,10 @@ export function OrgApiKeys({
 	const createApiKey = useMutation(
 		trpc.apiKey.create.mutationOptions({
 			onSuccess: async (result) => {
+				const createdScope: ApiKeyScope = result.scope === 'user_management' ? 'user_management' : 'deploy';
 				setLatestPlaintextKey(result.plaintext);
-				setName('Deploy key');
+				setLatestKeyScope(createdScope);
+				setName(DEFAULT_KEY_NAMES[createdScope]);
 				await queryClient.invalidateQueries({ queryKey: trpc.apiKey.list.queryOptions().queryKey });
 			},
 		}),
@@ -55,12 +64,19 @@ export function OrgApiKeys({
 	);
 
 	const deployCommand = useMemo(() => {
-		if (!deployUrl) {
+		if (!deployUrl || latestKeyScope !== 'deploy') {
 			return null;
 		}
 
 		return `nao deploy ${deployUrl} --api-key ${latestPlaintextKey ?? '<your-api-key>'}`;
-	}, [deployUrl, latestPlaintextKey]);
+	}, [deployUrl, latestPlaintextKey, latestKeyScope]);
+
+	const handleScopeChange = (value: string) => {
+		const nextScope = value as ApiKeyScope;
+		// Only rename a name the user never touched: swapping the scope must not overwrite their own label.
+		setName((current) => (current === DEFAULT_KEY_NAMES[scope] ? DEFAULT_KEY_NAMES[nextScope] : current));
+		setScope(nextScope);
+	};
 
 	if (!isAdmin) {
 		return null;
@@ -103,7 +119,7 @@ export function OrgApiKeys({
 				</div>
 
 				<div className='flex flex-col gap-2 sm:flex-row'>
-					<Select value={scope} onValueChange={(value) => setScope(value as ApiKeyScope)}>
+					<Select value={scope} onValueChange={handleScopeChange}>
 						<SelectTrigger aria-label='API key scope'>
 							<SelectValue />
 						</SelectTrigger>
@@ -115,7 +131,7 @@ export function OrgApiKeys({
 					<Input
 						value={name}
 						onChange={(event) => setName(event.target.value)}
-						placeholder='Deploy key'
+						placeholder={DEFAULT_KEY_NAMES[scope]}
 						aria-label='API key name'
 					/>
 					<Button

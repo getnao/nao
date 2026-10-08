@@ -10,6 +10,7 @@ import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
+import { apiKeyRejection } from '../types/api-key';
 
 export const deployRoutes = async (app: App) => {
 	app.post('/deploy', async (request, reply) => {
@@ -18,10 +19,12 @@ export const deployRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Missing or invalid Authorization header' });
 		}
 
-		const org = await validateApiKey(authHeader.slice(7));
-		if (!org) {
-			return reply.status(401).send({ error: 'Invalid API key' });
+		const check = await validateApiKey(authHeader.slice(7));
+		if (check.status !== 'ok') {
+			const rejection = apiKeyRejection(check.status, 'deploy');
+			return reply.status(rejection.statusCode).send({ error: rejection.error });
 		}
+		const org = check.org;
 
 		const file = await request.file();
 		if (!file) {

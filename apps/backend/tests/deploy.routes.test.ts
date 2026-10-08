@@ -30,7 +30,11 @@ import { deployRoutes } from '../src/routes/deploy';
 describe('deploy route cloud billing access', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
-		mocks.validateApiKey.mockResolvedValue({ id: 'organization-id' });
+		mocks.validateApiKey.mockResolvedValue({
+			status: 'ok',
+			org: { id: 'organization-id' },
+			scope: 'deploy',
+		});
 		mocks.assertOrganizationCloudBillingAccess.mockRejectedValue(new Error('Cloud billing access is restricted'));
 		await deployRoutes({ post: mocks.post } as never);
 	});
@@ -53,6 +57,20 @@ describe('deploy route cloud billing access', () => {
 		expect(status).toHaveBeenCalledWith(400);
 		expect(send).toHaveBeenCalledWith({ error: 'No file uploaded. Send a tar.gz as multipart field "context".' });
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('answers 403 for a key scoped to another API, and 401 for a key that is not one', async () => {
+		mocks.validateApiKey.mockResolvedValue({ status: 'scope_mismatch' });
+		const unscoped = reply();
+		await handler()({ headers: { authorization: 'Bearer nao_user_management' }, file: vi.fn() }, unscoped);
+		expect(unscoped.status).toHaveBeenCalledWith(403);
+		expect(unscoped.send).toHaveBeenCalledWith({ error: 'This API key is not scoped for deploy' });
+
+		mocks.validateApiKey.mockResolvedValue({ status: 'invalid' });
+		const invalid = reply();
+		await handler()({ headers: { authorization: 'Bearer nao_nope' }, file: vi.fn() }, invalid);
+		expect(invalid.status).toHaveBeenCalledWith(401);
+		expect(invalid.send).toHaveBeenCalledWith({ error: 'Invalid API key' });
 	});
 });
 
@@ -131,6 +149,11 @@ function createArchive(sourceDir: string): Buffer {
 
 async function* toAsyncIterable(buffer: Buffer): AsyncIterable<Buffer> {
 	yield buffer;
+}
+
+function reply() {
+	const send = vi.fn();
+	return { send, status: vi.fn(() => ({ send })) };
 }
 
 function handler() {
