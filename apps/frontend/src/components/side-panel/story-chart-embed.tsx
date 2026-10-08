@@ -224,6 +224,11 @@ export function StoryChartEmbedShell({
 					isSaving={edit.isSaving}
 					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
 					description={edit.saveDescription}
+					queryView={
+						querySqlSource ? (
+							<StoryChartQueryView queryId={chart.queryId} source={querySqlSource} />
+						) : undefined
+					}
 				/>
 			)}
 		</div>
