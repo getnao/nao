@@ -10,7 +10,7 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { ImageUploadData } from '@nao/shared/attachments';
 import type { ToolCallDensity } from '@nao/shared/types';
-import type { GroupablePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
+import type { GroupablePart, ToolGroupPart, QueryGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
 
 /** The ID used for new chats not yet persisted to the db. */
@@ -100,8 +100,14 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 };
 
 /** Check if a part is a reasoning part */
-export const isReasoningPart = (part: UIMessagePart): part is ReasoningUIPart => {
+export const isReasoningPart = (part: GroupedMessagePart): part is ReasoningUIPart => {
 	return part.type === 'reasoning';
+};
+
+const QUERY_TOOL_NAMES: string[] = ['execute_sql', 'execute_semantic_query'];
+
+export const isQueryToolPart = (part: GroupedMessagePart): part is UIToolPart => {
+	return !isGroupPart(part) && isToolUIPart(part) && QUERY_TOOL_NAMES.includes(getToolName(part));
 };
 
 /** Claude returns the note it writes before a tool call as a reasoning part; the backend tags it so it counts as readable content. */
@@ -113,10 +119,21 @@ export const isToolGroupPart = (part: GroupedMessagePart): part is ToolGroupPart
 	return part.type === 'tool-group';
 };
 
+export const isQueryGroupPart = (part: GroupedMessagePart): part is QueryGroupPart => {
+	return part.type === 'query-group';
+};
+
+const isGroupPart = (part: GroupedMessagePart): part is ToolGroupPart | QueryGroupPart => {
+	return isToolGroupPart(part) || isQueryGroupPart(part);
+};
+
 export const areGroupedMessagePartsEqual = (left: GroupedMessagePart, right: GroupedMessagePart): boolean => {
-	if (isToolGroupPart(left) || isToolGroupPart(right)) {
+	if (isGroupPart(left) || isGroupPart(right)) {
 		return (
-			isToolGroupPart(left) && isToolGroupPart(right) && areGroupedMessagePartArraysEqual(left.parts, right.parts)
+			isGroupPart(left) &&
+			isGroupPart(right) &&
+			left.type === right.type &&
+			areGroupedMessagePartArraysEqual(left.parts, right.parts)
 		);
 	}
 
@@ -181,7 +198,53 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 	}
 
 	flushGroup();
+	return groupConsecutiveQueries(result);
+};
+
+/** Several queries in a row read as one step rather than a stack of cards. */
+const groupConsecutiveQueries = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
+	const result: GroupedMessagePart[] = [];
+	let index = 0;
+
+	while (index < parts.length) {
+		const part = parts[index];
+		if (!isQueryToolPart(part)) {
+			result.push(part);
+			index++;
+			continue;
+		}
+
+		const { run, end } = collectQueryRun(parts, index);
+		if (run.filter(isQueryToolPart).length > 1) {
+			result.push({ type: 'query-group', parts: run });
+		} else {
+			result.push(...run);
+		}
+		index = end;
+	}
+
 	return result;
+};
+
+const collectQueryRun = (parts: GroupedMessagePart[], start: number): { run: GroupablePart[]; end: number } => {
+	const run: GroupablePart[] = [];
+	let pendingReasoning: ReasoningUIPart[] = [];
+	let end = start;
+
+	for (let index = start; index < parts.length; index++) {
+		const part = parts[index];
+		if (isQueryToolPart(part)) {
+			run.push(...pendingReasoning, part);
+			pendingReasoning = [];
+			end = index + 1;
+		} else if (isReasoningPart(part)) {
+			pendingReasoning.push(part);
+		} else {
+			break;
+		}
+	}
+
+	return { run, end };
 };
 
 /** Some providers emit reasoning parts without any readable text (redacted or encrypted reasoning). */

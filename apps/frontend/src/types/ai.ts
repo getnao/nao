@@ -13,8 +13,11 @@ export type McpSubGroupPart = { type: 'mcp-sub-group'; id: string; server: strin
 /** A groupable part or a nested MCP sub-group, as rendered inside a tool group. */
 export type McpGroupedPart = GroupablePart | McpSubGroupPart;
 
+/** Consecutive query tool calls rendered as one card, with any reasoning the model wrote between them. */
+export type QueryGroupPart = { type: 'query-group'; parts: GroupablePart[] };
+
 /** Union of regular message parts and tool groups */
-export type GroupedMessagePart = UIMessagePart | ToolGroupPart;
+export type GroupedMessagePart = UIMessagePart | ToolGroupPart | QueryGroupPart;
 
 /** A group of user and assistant messages. */
 export interface MessageGroup {
