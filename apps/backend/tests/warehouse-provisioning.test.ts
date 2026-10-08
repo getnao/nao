@@ -29,6 +29,7 @@ type MockWarehouseJob = {
 };
 
 const warehouseJobs = vi.hoisted(() => new Map<string, MockWarehouseJob>());
+const controls = vi.hoisted(() => ({ failReadyUpdate: false }));
 
 vi.mock('../src/handlers/context-recommendations.handler', () => ({
 	contextRecommendationsJobUniqueKey: (projectId: string) => `context.recommendations:${projectId}`,
@@ -105,6 +106,9 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 		);
 	}),
 	updateWarehouseProvisioningJob: vi.fn(async (jobId: string, changes: Partial<MockWarehouseJob>) => {
+		if (controls.failReadyUpdate && changes.status === 'ready') {
+			throw new Error('Database unavailable');
+		}
 		const job = warehouseJobs.get(jobId);
 		if (!job) {
 			return null;
@@ -154,6 +158,7 @@ vi.mock('../src/utils/project-import.utils', () => ({
 	createTempProjectDir: vi.fn(),
 }));
 vi.mock('../src/services/managed-github-repository', () => ({
+	deleteManagedGithubRepository: vi.fn(),
 	provisionManagedGithubRepository: vi.fn(),
 }));
 vi.mock('../src/services/onboarding-rules', () => ({
@@ -176,7 +181,10 @@ import { spawn } from 'node:child_process';
 
 import * as projectQueries from '../src/queries/project.queries';
 import * as scheduledJobQueries from '../src/queries/scheduled-job.queries';
-import { provisionManagedGithubRepository } from '../src/services/managed-github-repository';
+import {
+	deleteManagedGithubRepository,
+	provisionManagedGithubRepository,
+} from '../src/services/managed-github-repository';
 import { generateOnboardingRules } from '../src/services/onboarding-rules';
 import { saveProjectWarehouseEnvVars } from '../src/services/warehouse-credentials';
 import {
@@ -191,6 +199,7 @@ import { createNewProject, createTempProjectDir } from '../src/utils/project-imp
 beforeEach(() => {
 	vi.clearAllMocks();
 	warehouseJobs.clear();
+	controls.failReadyUpdate = false;
 	vi.mocked(projectQueries.listUserProjects).mockResolvedValue([]);
 });
 
@@ -390,6 +399,38 @@ describe('warehouse provisioning', () => {
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});
 
+	it('deletes a newly created managed repository when the final database update fails', async () => {
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-publish-failure');
+		controls.failReadyUpdate = true;
+
+		const { jobId } = await startWarehouseProvisioning({
+			userId: 'user-1',
+			orgId: 'org-1',
+			name: 'analytics',
+			provider: 'postgres',
+			credentials: {
+				host: 'warehouse.example.com',
+				port: 5432,
+				database: 'analytics',
+				user: 'nao',
+				password: 'secret',
+			},
+		});
+
+		await queueWarehouseFinalization(jobId, 'user-1', {
+			businessContext: { additionalContext: 'A bicycle rental company.' },
+			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
+			modelProjectId: 'example-project',
+		});
+
+		await vi.waitFor(async () => {
+			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
+		});
+		expect(deleteManagedGithubRepository).toHaveBeenCalledWith('nao-org/nao-analytics-project');
+		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-publish-failure');
+		expect(fs.existsSync(registeredProjectDirectory)).toBe(false);
+	});
+
 	it('restores environment references after init before registering the project', async () => {
 		const registeredProjectDirectory = mockSuccessfulProvisioning('project-safe-config');
 		let registeredConfig = '';
@@ -587,6 +628,7 @@ function mockSuccessfulProvisioning(projectId: string): string {
 	vi.mocked(provisionManagedGithubRepository).mockResolvedValue({
 		repoFullName: 'nao-org/nao-analytics-project',
 		url: 'https://github.com/nao-org/nao-analytics-project',
+		created: true,
 	});
 	vi.mocked(spawn).mockImplementation(() => {
 		const child = Object.assign(new EventEmitter(), {

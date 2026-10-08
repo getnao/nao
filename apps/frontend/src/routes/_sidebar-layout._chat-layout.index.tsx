@@ -139,7 +139,7 @@ function HomePage() {
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
 			<MobileHeader />
 			{showExampleProject && (
-				<div className='absolute left-3 top-14 z-10 w-[calc(100%-1.5rem)] max-w-xs md:left-4'>
+				<div className='absolute left-3 top-14 z-20 w-[calc(100%-1.5rem)] max-w-xs md:left-4'>
 					<ExampleProjectInfoCard />
 				</div>
 			)}

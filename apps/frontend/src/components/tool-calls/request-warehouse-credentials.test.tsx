@@ -8,6 +8,7 @@ import type { ToolCallComponentProps } from '.';
 
 const mocks = vi.hoisted(() => ({
 	isRunning: true,
+	jobStatus: 'awaiting_context',
 	queueOrSendMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -21,7 +22,7 @@ vi.mock('@tanstack/react-query', () => ({
 	useQuery: (options: { queryKey: string[] }) =>
 		options.queryKey[0] === 'active-job'
 			? { data: { id: 'job-1' } }
-			: { data: { status: 'awaiting_context' }, isError: false },
+			: { data: { status: mocks.jobStatus }, isError: false },
 	useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 
@@ -57,6 +58,7 @@ vi.mock('./warehouse-credentials-form', () => ({
 afterEach(() => {
 	cleanup();
 	mocks.isRunning = true;
+	mocks.jobStatus = 'awaiting_context';
 	vi.clearAllMocks();
 });
 
@@ -81,5 +83,19 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 				text: '[internal:onboarding-context-request] jobId=job-1',
 			}),
 		);
+	});
+
+	it('hides the credentials request after provisioning completes', async () => {
+		mocks.jobStatus = 'ready';
+		const toolPart = {
+			type: 'tool-request_warehouse_credentials',
+			toolCallId: 'tool-1',
+			state: 'output-available',
+			input: { provider: 'postgres' },
+			output: { provider: 'postgres', status: 'credentials-required' },
+		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
+		const view = render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+
+		await waitFor(() => expect(view.queryByText('Action required')).toBeNull());
 	});
 });

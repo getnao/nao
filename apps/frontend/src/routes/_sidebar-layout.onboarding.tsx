@@ -1,13 +1,17 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { UIMessage } from '@nao/backend/chat';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
-import { OnboardingProgress, useOnboardingProgress } from '@/components/onboarding-progress';
+import {
+	findWarehouseJobId,
+	isOnboardingComplete,
+	OnboardingProgress,
+	useOnboardingProgress,
+} from '@/components/onboarding-progress';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
@@ -33,7 +37,8 @@ import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/onboarding')({
-	validateSearch: (search: Record<string, unknown>): { github?: 'connected' } => ({
+	validateSearch: (search: Record<string, unknown>): { chatId?: string; github?: 'connected' } => ({
+		chatId: typeof search.chatId === 'string' ? search.chatId : undefined,
 		github: search.github === 'connected' ? 'connected' : undefined,
 	}),
 	component: OnboardingRoute,
@@ -41,8 +46,11 @@ export const Route = createFileRoute('/_sidebar-layout/onboarding')({
 
 function OnboardingRoute() {
 	const { data: session } = useSession();
-	const [chatId] = useState(() =>
-		session?.user.id ? (getOnboardingChatIdStorage(session.user.id).get() ?? undefined) : undefined,
+	const search = Route.useSearch();
+	const [chatId] = useState(
+		() =>
+			search.chatId ??
+			(session?.user.id ? (getOnboardingChatIdStorage(session.user.id).get() ?? undefined) : undefined),
 	);
 	return (
 		<ChatIdContext.Provider value={chatId}>
@@ -66,6 +74,7 @@ function OnboardingPage() {
 	const { isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
+	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const search = Route.useSearch();
 	const inputAreaRef = useRef<HTMLDivElement>(null);
 	const actionAreaRef = useRef<HTMLDivElement>(null);
@@ -79,13 +88,18 @@ function OnboardingPage() {
 		enabled: githubAvailable.data === true,
 		refetchOnWindowFocus: 'always',
 	});
-	const showDeployKey = (progress?.flow === 'new' || progress?.flow === 'local') && progress.step === 3;
-	const showImportProviderCard = progress?.flow === 'github' && (progress.step === 0 || progress.step === 1);
-	const onboardingComplete =
-		warehouseJob.data?.status === 'ready' ||
-		progress?.step === 4 ||
-		(progress?.flow === 'github' && progress.step === 2);
+	const projectIsMissing = currentProject.isSuccess && currentProject.data === null;
+	const showDeployKey =
+		(progress?.flow === 'new' || progress?.flow === 'local') &&
+		(progress.step === 3 || (progress.step === 4 && projectIsMissing));
+	const showImportProviderCard =
+		progress?.flow === 'github' &&
+		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
+	const warehouseReady = warehouseJob.data?.status === 'ready';
+	const setupReportedComplete = isOnboardingComplete(true, progress, warehouseReady);
+	const onboardingComplete = isOnboardingComplete(currentProject.data != null, progress, warehouseReady);
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
+	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -112,7 +126,7 @@ function OnboardingPage() {
 	}, [githubStatus.data?.connected, progress?.flow, progress?.step, queueOrSendMessage]);
 
 	useEffect(() => {
-		if (!onboardingComplete || !session?.user.id) {
+		if (!setupReportedComplete || !session?.user.id) {
 			return;
 		}
 
@@ -128,14 +142,15 @@ function OnboardingPage() {
 		};
 
 		refreshProjects().catch(console.error);
-	}, [onboardingComplete, queryClient, session?.user.id]);
+	}, [queryClient, session?.user.id, setupReportedComplete]);
 
-	const alignDeployDialog = () => {
+	const alignActionDialogs = useCallback(() => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();
 		if (!rect) {
 			return;
 		}
 
+		setImportDialogStyle({ left: rect.left + rect.width / 2 });
 		setDeployDialogStyle({
 			top: 'auto',
 			bottom: window.innerHeight - rect.bottom,
@@ -144,7 +159,17 @@ function OnboardingPage() {
 			maxWidth: rect.width,
 			translate: 'none',
 		});
-	};
+	}, []);
+
+	useEffect(() => {
+		if (!showDeployKey && !showImportProviderCard) {
+			return;
+		}
+
+		alignActionDialogs();
+		window.addEventListener('resize', alignActionDialogs);
+		return () => window.removeEventListener('resize', alignActionDialogs);
+	}, [alignActionDialogs, showDeployKey, showImportProviderCard]);
 
 	return (
 		<div
@@ -164,27 +189,26 @@ function OnboardingPage() {
 						<Dialog>
 							<div
 								ref={actionAreaRef}
-								className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 flex-col items-start justify-between gap-4 rounded-2xl border-2 border-violet/40 bg-violet/15 p-5 shadow-lg shadow-violet/10 sm:flex-row sm:items-center md:w-[calc(100%-2rem)] md:max-w-[calc(48rem-2rem)]'
+								className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 flex-col items-start justify-between gap-4 rounded-xl border border-violet/20 bg-background p-5 shadow-xs sm:flex-row sm:items-center'
 							>
 								<div className='flex min-w-0 items-center gap-3'>
-									<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet text-white shadow-sm'>
+									<div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-violet/20 bg-violet/10 text-primary'>
 										<KeyRound className='size-5' />
 									</div>
 									<div className='min-w-0'>
-										<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet'>
+										<div className='mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
 											Action required
 										</div>
-										<div className='font-medium'>Ready to deploy your project</div>
+										<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
+											Ready to deploy your project
+										</div>
 										<p className='text-xs text-muted-foreground'>
 											Generate your organization key and copy the complete deploy command.
 										</p>
 									</div>
 								</div>
 								<DialogTrigger asChild>
-									<Button
-										onClick={alignDeployDialog}
-										className='bg-violet text-white hover:bg-violet/90'
-									>
+									<Button onClick={alignActionDialogs} className='rounded-full'>
 										{isOrgAdmin ? 'Generate deploy key' : 'Deployment key required'}
 									</Button>
 								</DialogTrigger>
@@ -214,17 +238,19 @@ function OnboardingPage() {
 					{showImportProviderCard && (
 						<div
 							ref={actionAreaRef}
-							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 rounded-2xl border-2 border-violet/40 bg-violet/15 p-5 shadow-lg shadow-violet/10 md:w-[calc(100%-2rem)] md:max-w-[calc(48rem-2rem)]'
+							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 rounded-xl border border-violet/20 bg-background p-5 shadow-xs'
 						>
 							<div className='mb-4 flex items-center gap-3'>
-								<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet text-white shadow-sm'>
+								<div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-violet/20 bg-violet/10 text-primary'>
 									<Github className='size-5' />
 								</div>
 								<div>
-									<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet'>
+									<div className='mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
 										Action required
 									</div>
-									<div className='font-medium'>Import your GitHub project</div>
+									<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
+										Import your GitHub project
+									</div>
 								</div>
 							</div>
 							{githubAvailable.isPending ? (
@@ -238,7 +264,8 @@ function OnboardingPage() {
 									resourceNounSingular='repository'
 									resourceNounPlural='repositories'
 									connected={githubStatus.data?.connected === true}
-									className='border-violet/30 bg-violet/20'
+									className='border-violet/20 bg-muted/20 [&_[data-slot=button]]:rounded-full'
+									pickerDialogStyle={importDialogStyle}
 									Picker={GitHubRepoPicker}
 									onImported={(project) =>
 										queueOrSendMessage({
@@ -336,17 +363,4 @@ function OnboardingPage() {
 			)}
 		</div>
 	);
-}
-
-function findWarehouseJobId(messages: UIMessage[]): string | null {
-	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
-		const parts = messages[messageIndex].parts;
-		for (let partIndex = parts.length - 1; partIndex >= 0; partIndex--) {
-			const part = parts[partIndex];
-			if (part.type === 'tool-generate_onboarding_rules' && part.state === 'output-available') {
-				return part.output.jobId;
-			}
-		}
-	}
-	return null;
 }

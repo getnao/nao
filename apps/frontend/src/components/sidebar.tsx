@@ -431,21 +431,23 @@ function SidebarNav({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
 		placeholderData: keepPreviousData,
 	});
-	const onboardingChatId = groupedChats.data?.groups
+	const unfilteredChats = useQuery(trpc.chat.listGrouped.queryOptions({ groupBy: 'none', filters: ['all'] }));
+	const onboardingChat = unfilteredChats.data?.groups
 		.flatMap((group) => group.chats)
-		.find((chat) => chat.isOnboarding)?.id;
+		.find((chat) => chat.isOnboarding);
+	const onboardingChatId = onboardingChat?.id;
 	const activeOnboardingJob = useQuery({
 		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
 			onboardingChatId: onboardingChatId ?? '',
 		}),
 		enabled: Boolean(onboardingChatId),
-		refetchInterval: (query) => (query.state.data ? 1000 : false),
+		refetchInterval: (query) => {
+			const status = query.state.data?.status;
+			return status && status !== 'awaiting_context' ? 2000 : false;
+		},
 		refetchOnWindowFocus: 'always',
 	});
-	const onboardingNeedsAttention =
-		activeOnboardingJob.data?.status === 'syncing' ||
-		activeOnboardingJob.data?.status === 'registering' ||
-		activeOnboardingJob.data?.status === 'awaiting_context';
+	const onboardingNeedsAttention = activeOnboardingJob.data?.status === 'awaiting_context';
 	const groups = groupedChats.data?.groups.map((group) => {
 		if (!separateExampleChats) {
 			return group;
@@ -455,7 +457,11 @@ function SidebarNav({
 			chats: group.chats.filter((chat) => chat.projectId !== SYSTEM_EXAMPLE_PROJECT_ID || chat.isOnboarding),
 		};
 	});
-	const isEmpty = groups?.every((group) => group.chats.length === 0);
+	const showAttentionChat =
+		onboardingNeedsAttention &&
+		onboardingChat &&
+		!groups?.some((group) => group.chats.some((chat) => chat.id === onboardingChat.id));
+	const isEmpty = !showAttentionChat && groups?.every((group) => group.chats.length === 0);
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	return (
@@ -465,12 +471,18 @@ function SidebarNav({
 				hideIf(isCollapsed),
 			)}
 		>
+			{showAttentionChat && (
+				<div className='px-2 space-y-1'>
+					<ChatListItem chat={onboardingChat} needsAttention resumeOnboarding={isTrial} />
+				</div>
+			)}
 			{groups?.map((group) => (
 				<GroupSection
 					key={group.label}
 					group={group}
 					groupBy={groupBy}
 					attentionChatId={onboardingNeedsAttention ? onboardingChatId : undefined}
+					resumeOnboardingChatId={isTrial ? onboardingChatId : undefined}
 				/>
 			))}
 
@@ -552,7 +564,7 @@ function JaffleShopHistory({
 						New chat
 					</Link>
 					{groups?.map((group) => (
-						<GroupSection key={group.label} group={group} groupBy={groupBy} />
+						<GroupSection key={group.label} group={group} groupBy={groupBy} storageNamespace='example' />
 					))}
 					{isEmpty && (
 						<p className='px-3 py-4 text-center text-xs text-muted-foreground'>No Jaffle Shop chats yet.</p>
@@ -677,12 +689,19 @@ function GroupSection({
 	group,
 	groupBy,
 	attentionChatId,
+	resumeOnboardingChatId,
+	storageNamespace,
 }: {
 	group: ChatGroup;
 	groupBy: ChatGroupBy;
 	attentionChatId?: string;
+	resumeOnboardingChatId?: string;
+	storageNamespace?: string;
 }) {
-	const { isOpen, toggle } = useSidebarSectionOpen(`section:chat-group:${group.label}`);
+	const storageKey = storageNamespace
+		? `section:${storageNamespace}:chat-group:${group.label}`
+		: `section:chat-group:${group.label}`;
+	const { isOpen, toggle } = useSidebarSectionOpen(storageKey);
 	const [expanded, setExpanded] = useState(false);
 	const hasMore = group.chats.length > GROUP_INITIAL_COUNT;
 	const visibleChats = expanded ? group.chats : group.chats.slice(0, GROUP_INITIAL_COUNT);
@@ -707,7 +726,12 @@ function GroupSection({
 						item.kind === 'shared' ? (
 							<SharedChatGroupItem key={`shared-${item.shareId}`} item={item} groupBy={groupBy} />
 						) : (
-							<ChatListItem key={item.id} chat={item} needsAttention={item.id === attentionChatId} />
+							<ChatListItem
+								key={item.id}
+								chat={item}
+								needsAttention={item.id === attentionChatId}
+								resumeOnboarding={item.id === resumeOnboardingChatId}
+							/>
 						),
 					)}
 

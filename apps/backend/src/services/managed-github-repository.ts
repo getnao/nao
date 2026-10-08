@@ -21,6 +21,7 @@ interface ManagedRepositoryInput {
 interface ManagedRepository {
 	repoFullName: string;
 	url: string;
+	created: boolean;
 }
 
 interface ManagedGithubConfig {
@@ -54,7 +55,15 @@ export async function provisionManagedGithubRepository(
 
 	try {
 		await initializeRepository(input.projectDir, repository.full_name);
-		token = await pushRepositoryWithAuthenticationRetry(input.projectDir, repository.full_name, token, config);
+		await pushRepositoryWithAuthenticationRetry(
+			input.projectDir,
+			repository.full_name,
+			token,
+			config,
+			(refreshedToken) => {
+				token = refreshedToken;
+			},
+		);
 	} catch (error) {
 		if (created) {
 			try {
@@ -72,7 +81,18 @@ export async function provisionManagedGithubRepository(
 	return {
 		repoFullName: repository.full_name,
 		url: repository.html_url,
+		created,
 	};
+}
+
+export async function deleteManagedGithubRepository(repoFullName: string): Promise<void> {
+	const config = getManagedGithubConfig();
+	if (!config) {
+		return;
+	}
+
+	const token = await createInstallationToken(config);
+	await deleteRepository(repoFullName, token);
 }
 
 function getManagedGithubConfig(): ManagedGithubConfig | null {
@@ -209,10 +229,11 @@ async function pushRepositoryWithAuthenticationRetry(
 	repoFullName: string,
 	token: string,
 	config: ManagedGithubConfig,
-): Promise<string> {
+	onTokenRefresh: (token: string) => void,
+): Promise<void> {
 	try {
 		await pushRepository(projectDir, repoFullName, token);
-		return token;
+		return;
 	} catch (error) {
 		if (!isGithubAuthenticationError(error)) {
 			throw error;
@@ -221,8 +242,8 @@ async function pushRepositoryWithAuthenticationRetry(
 
 	await new Promise((resolve) => setTimeout(resolve, GITHUB_AUTH_RETRY_DELAY_MS));
 	const refreshedToken = await createInstallationToken(config);
+	onTokenRefresh(refreshedToken);
 	await pushRepository(projectDir, repoFullName, refreshedToken);
-	return refreshedToken;
 }
 
 async function pushRepository(projectDir: string, repoFullName: string, token: string): Promise<void> {

@@ -11,6 +11,16 @@ describe('onboarding system prompt', () => {
 		expect(prompt).not.toContain('Start off all conversations with a clarification');
 	});
 
+	it('updates progress when the user changes setup flows', () => {
+		const prompt = renderOnboardingSystemPrompt();
+
+		expect(prompt).toContain('the user may change their selected setup flow at any time');
+		expect(prompt).toContain('Immediately call onboarding_progress for the newly selected flow');
+		expect(prompt).toContain('Call onboarding_progress even when the same flow and step were recorded earlier');
+		expect(prompt).toContain('Changing flows may also use a lower numerical step');
+		expect(prompt).toContain('if they clarify that they have not run the deploy command, record step 3');
+	});
+
 	it('offers popular databases first and handles unsupported providers', () => {
 		const prompt = renderOnboardingSystemPrompt();
 
@@ -34,6 +44,7 @@ describe('onboarding system prompt', () => {
 
 		expect(prompt).toContain('warehouse synchronization is continuing in the background');
 		expect(prompt).toContain('write one or two sentences, paste a link to your company website, or reply Skip');
+		expect(prompt).toContain('The direct open-ended business-context question');
 		expect(prompt).toContain('"additionalContext": "<their complete answer>"');
 		expect(prompt).toContain('If they reply Skip, use an empty "businessContext" object');
 		expect(prompt).not.toContain('companyDescription');
@@ -52,6 +63,14 @@ describe('onboarding system prompt', () => {
 
 		expect(prompt).toContain('- Options: "uv (recommended)", "pip (Python 3.10+)"');
 		expect(prompt).toContain('Call onboarding_command only for the installer the user selected');
+	});
+
+	it('explains the local project directory placeholder', () => {
+		const prompt = renderOnboardingSystemPrompt();
+
+		expect(prompt).toContain(
+			'Tell them to replace <your-project-folder> with the directory containing nao_config.yaml',
+		);
 	});
 
 	it('aligns GitHub progress with the events reported by the import card', () => {

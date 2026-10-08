@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Loader2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { buildWarehouseCredentials } from './warehouse-credentials';
 import { WarehouseCredentialsForm } from './warehouse-credentials-form';
@@ -17,6 +17,7 @@ import {
 	DialogTrigger,
 } from '@/components/ui/dialog';
 import { FormError } from '@/components/ui/form-fields';
+import { findWarehouseJobId } from '@/components/onboarding-progress';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { getMessageText, NEW_CHAT_ID, ONBOARDING_CONTEXT_REQUEST_PREFIX } from '@/lib/ai';
 import { trpc } from '@/main';
@@ -36,12 +37,17 @@ export function RequestWarehouseCredentialsToolCall({
 	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
 	const queryClient = useQueryClient();
 	const canRestoreJob = Boolean(chatId && chatId !== NEW_CHAT_ID);
+	const alignDialog = useCallback(() => {
+		const cardBounds = cardRef.current?.getBoundingClientRect();
+		setDialogCenter(cardBounds ? cardBounds.left + cardBounds.width / 2 : undefined);
+	}, []);
 	const activeJob = useQuery({
 		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
 			onboardingChatId: canRestoreJob ? chatId! : '',
 		}),
 		enabled: canRestoreJob,
 	});
+	const persistedJobId = useAgentMessagesSelector(findWarehouseJobId);
 	const job = useWarehouseProvisioningJob(jobId);
 	const hasRequestedContext = useAgentMessagesSelector((messages) =>
 		jobId
@@ -68,12 +74,13 @@ export function RequestWarehouseCredentialsToolCall({
 	);
 
 	useEffect(() => {
-		if (restoredJobId.current || !activeJob.data) {
+		const restoredId = activeJob.data?.id ?? persistedJobId;
+		if (restoredJobId.current || !restoredId) {
 			return;
 		}
 		restoredJobId.current = true;
-		setJobId(activeJob.data.id);
-	}, [activeJob.data]);
+		setJobId(restoredId);
+	}, [activeJob.data, persistedJobId]);
 
 	useEffect(() => {
 		const status = job.data?.status;
@@ -99,43 +106,44 @@ export function RequestWarehouseCredentialsToolCall({
 		});
 	}, [hasRequestedContext, isRunning, job.data?.status, jobId, queueOrSendMessage]);
 
-	if (!provider) {
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+
+		alignDialog();
+		window.addEventListener('resize', alignDialog);
+		return () => window.removeEventListener('resize', alignDialog);
+	}, [alignDialog, open]);
+
+	if (!provider || job.data?.status === 'ready') {
 		return null;
 	}
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={(nextOpen) => {
-				if (nextOpen) {
-					const cardBounds = cardRef.current?.getBoundingClientRect();
-					setDialogCenter(cardBounds ? cardBounds.left + cardBounds.width / 2 : undefined);
-				}
-				setOpen(nextOpen);
-			}}
-		>
+		<Dialog open={open} onOpenChange={setOpen}>
 			<div
 				ref={cardRef}
-				className='animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-2xl border-2 border-violet/40 bg-violet/15 p-5 shadow-lg shadow-violet/10 sm:flex-row sm:items-center'
+				className='animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-xl border border-violet/20 bg-background p-5 shadow-xs sm:flex-row sm:items-center'
 			>
 				<div className='flex min-w-0 items-center gap-3'>
-					<div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet text-white shadow-sm'>
+					<div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-violet/20 bg-violet/10 text-primary'>
 						<Database className='size-5' />
 					</div>
 					<div className='min-w-0'>
-						<div className='mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet'>
+						<div className='mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
 							Action required
 						</div>
-						<div className='font-medium'>{WAREHOUSE_PROVIDER_LABELS[provider]} credentials required</div>
+						<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
+							{WAREHOUSE_PROVIDER_LABELS[provider]} credentials required
+						</div>
 						<p className='text-xs text-muted-foreground'>
 							Credentials are submitted securely and are never shared with the agent.
 						</p>
 					</div>
 				</div>
 				<DialogTrigger asChild>
-					<Button className='w-full shrink-0 bg-violet text-white shadow-sm hover:bg-violet/90 sm:w-auto'>
-						Enter credentials
-					</Button>
+					<Button className='w-full shrink-0 rounded-full sm:w-auto'>Enter credentials</Button>
 				</DialogTrigger>
 			</div>
 			<DialogContent

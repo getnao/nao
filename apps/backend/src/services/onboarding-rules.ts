@@ -121,9 +121,16 @@ function readProjectContext(projectPath: string): string {
 		}
 
 		const relativePath = path.relative(projectPath, file);
-		const content = fs.readFileSync(file, 'utf8').slice(0, remainingCharacters);
-		sections.push(`## ${relativePath}\n\n${content}`);
-		remainingCharacters -= content.length;
+		const fd = fs.openSync(file, 'r');
+		try {
+			const buf = Buffer.alloc(Math.min(fs.fstatSync(fd).size, remainingCharacters));
+			fs.readSync(fd, buf, 0, buf.length, 0);
+			const content = buf.toString('utf8');
+			sections.push(`## ${relativePath}\n\n${content}`);
+			remainingCharacters -= content.length;
+		} finally {
+			fs.closeSync(fd);
+		}
 	}
 
 	return sections.join('\n\n');

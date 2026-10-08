@@ -25,7 +25,7 @@ import {
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger, serializeError } from '../utils/logger';
 import { createNewProject, createTempProjectDir } from '../utils/project-import.utils';
-import { provisionManagedGithubRepository } from './managed-github-repository';
+import { deleteManagedGithubRepository, provisionManagedGithubRepository } from './managed-github-repository';
 import { generateOnboardingRules } from './onboarding-rules';
 import { saveProjectWarehouseEnvVars } from './warehouse-credentials';
 
@@ -399,6 +399,7 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 	}
 
 	let registeredProjectPath = path.resolve(env.NAO_PROJECTS_DIR, job.projectId);
+	let managedRepository: Awaited<ReturnType<typeof provisionManagedGithubRepository>> = null;
 
 	try {
 		const registeredProject = await projectQueries.getProjectById(job.projectId);
@@ -414,7 +415,7 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 		await generateOnboardingRules(job.projectId, job.businessContext, job.modelSelection, job.modelProjectId);
 
 		await updateJob(jobId, { status: 'publishing' });
-		await provisionManagedGithubRepository({
+		managedRepository = await provisionManagedGithubRepository({
 			projectId: job.projectId,
 			projectName: job.projectName,
 			projectDir: registeredProjectPath,
@@ -437,7 +438,11 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 				error: serializedError,
 			},
 		});
-		await rollbackRegisteredProject(job.projectId, registeredProjectPath);
+		await rollbackRegisteredProject(
+			job.projectId,
+			registeredProjectPath,
+			managedRepository?.created ? managedRepository.repoFullName : undefined,
+		);
 		await updateJob(jobId, {
 			status: 'failed',
 			error: 'Project setup could not be completed. Please try again.',
@@ -448,9 +453,20 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 	}
 }
 
-async function rollbackRegisteredProject(projectId: string, projectPath: string): Promise<void> {
+async function rollbackRegisteredProject(
+	projectId: string,
+	projectPath: string,
+	managedRepositoryFullName?: string,
+): Promise<void> {
 	const cleanupErrors: unknown[] = [];
 
+	if (managedRepositoryFullName) {
+		try {
+			await deleteManagedGithubRepository(managedRepositoryFullName);
+		} catch (error) {
+			cleanupErrors.push(error);
+		}
+	}
 	try {
 		await scheduledJobQueries.deleteJobByUniqueKey(contextRecommendationsJobUniqueKey(projectId));
 	} catch (error) {

@@ -14,6 +14,7 @@ import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { trpc } from '@/main';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
@@ -25,7 +26,7 @@ export function ChatInputModelSelect() {
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const isTrial = project.data === null;
+	const isTrial = useIsCloud() && project.data === null;
 
 	const isOnboarding = useAgentContext().mode === 'onboarding';
 

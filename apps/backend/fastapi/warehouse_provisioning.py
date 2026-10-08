@@ -68,6 +68,8 @@ def replace_with_env_references(
     env_name = "NAO_ONBOARDING_" + "_".join(
         part.upper().replace("-", "_") for part in path
     )
+    if env_name in env_vars:
+        raise ValueError(f"Conflicting onboarding environment variable: {env_name}")
     env_vars[env_name] = json.dumps(value)
 
     return f"${{{{ env('{env_name}') }}}}"

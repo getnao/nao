@@ -47,7 +47,7 @@ const isOnboardingExpr = sql<boolean>`exists(
 	select 1 from ${s.chatMessage}
 	where ${s.chatMessage.chatId} = ${s.chat.id}
 	and ${s.chatMessage.source} = 'onboarding'
-)`;
+)`.mapWith(Boolean);
 
 const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.slackThreadId} is not null then 'Slack'

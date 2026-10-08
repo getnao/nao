@@ -14,7 +14,7 @@ import { trpc } from '@/main';
 export function GenerateOnboardingRulesToolCall({ toolPart }: ToolCallComponentProps<'generate_onboarding_rules'>) {
 	const jobId = toolPart.output?.jobId ?? null;
 	const job = useWarehouseProvisioningJob(jobId);
-	const { isRunning } = useAgentContext();
+	const { chatId, isRunning } = useAgentContext();
 	const queryClient = useQueryClient();
 	const activatedProjectId = useRef<string | null>(null);
 	const projectId = job.data?.status === 'ready' ? job.data.projectId : undefined;
@@ -27,6 +27,16 @@ export function GenerateOnboardingRulesToolCall({ toolPart }: ToolCallComponentP
 				? 'Warehouse setup was cancelled.'
 				: undefined);
 	const isFinalizing = !error && job.data?.status !== 'ready';
+	useEffect(() => {
+		if (!chatId || !jobId) {
+			return;
+		}
+
+		void queryClient.invalidateQueries({
+			queryKey: trpc.onboarding.getActiveWarehouseProvisioningJob.queryKey({ onboardingChatId: chatId }),
+		});
+	}, [chatId, jobId, queryClient]);
+
 	useEffect(() => {
 		if (!projectId || isRunning || activatedProjectId.current === projectId) {
 			return;

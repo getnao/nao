@@ -79,10 +79,9 @@ export const getTools = (
 		excludeFollowUps?: boolean;
 		onboarding?: boolean;
 		/**
-		 * Restricts the built-in tools to this allowlist (by tool name). MCP, python,
-		 * sandboxing and clarification tools are dropped entirely. `extraTools` are
-		 * always kept. Used by focused runs (e.g. context recommendations) that should
-		 * only discover context, not query the warehouse or render charts.
+		 * Restricts generated tools to this allowlist by tool name. `extraTools` are always
+		 * kept. Used by focused runs (e.g. context recommendations) that should only discover
+		 * context, not query the warehouse or render charts.
 		 */
 		builtinToolAllowlist?: string[];
 		/**

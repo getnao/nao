@@ -951,7 +951,7 @@ async function loadProjectChatsFacets(args: {
 
 export async function upsertSystemExampleProject(projectPath: string): Promise<DBProject> {
 	const project = {
-		id: 'system-example-project',
+		id: SYSTEM_EXAMPLE_PROJECT_ID,
 		orgId: null,
 		name: 'Jaffle Shop',
 		type: 'local' as const,

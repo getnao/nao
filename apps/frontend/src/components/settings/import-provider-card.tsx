@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ComponentType } from 'react';
+import type { ComponentType, CSSProperties } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -13,10 +13,12 @@ interface ImportProviderCardProps {
 	resourceNounPlural: string;
 	connected: boolean;
 	className?: string;
+	pickerDialogStyle?: CSSProperties;
 	Picker: ComponentType<{
 		open: boolean;
 		onOpenChange: (open: boolean) => void;
 		onImported?: (project: ImportedProject) => void;
+		dialogStyle?: CSSProperties;
 	}>;
 	onImported?: (project: ImportedProject) => void;
 }
@@ -40,6 +42,7 @@ export function ImportProviderCard({
 	resourceNounPlural,
 	connected,
 	className,
+	pickerDialogStyle,
 	Picker,
 	onImported,
 }: ImportProviderCardProps) {
@@ -79,7 +82,12 @@ export function ImportProviderCard({
 					</div>
 				)}
 			</SettingsCard>
-			<Picker open={pickerOpen} onOpenChange={setPickerOpen} onImported={onImported} />
+			<Picker
+				open={pickerOpen}
+				onOpenChange={setPickerOpen}
+				onImported={onImported}
+				dialogStyle={pickerDialogStyle}
+			/>
 		</>
 	);
 }

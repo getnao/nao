@@ -14,7 +14,7 @@ const ONBOARDING_STEPS = {
 export function OnboardingProgress({ complete = false }: { complete?: boolean }) {
 	const progress = useOnboardingProgress();
 	const steps = progress ? ONBOARDING_STEPS[progress.flow] : [''];
-	const completedSteps = complete ? steps.length : Math.min(progress?.step ?? 0, steps.length);
+	const completedSteps = complete ? steps.length : Math.min(progress?.step ?? 0, Math.max(steps.length - 1, 0));
 
 	return (
 		<div
@@ -36,7 +36,7 @@ export function OnboardingProgress({ complete = false }: { complete?: boolean })
 						<div
 							className={cn(
 								'h-1.5 rounded-full transition-colors',
-								index < completedSteps ? 'bg-emerald-500' : 'bg-muted',
+								index < completedSteps ? 'bg-violet' : 'bg-muted',
 							)}
 						/>
 						<span className='mt-1 block truncate text-xs text-muted-foreground'>{label}</span>
@@ -52,10 +52,34 @@ export function useOnboardingProgress() {
 	return useMemo(() => findLatestProgress(messages), [messages]);
 }
 
-type OnboardingProgressState = {
+export function findWarehouseJobId(messages: UIMessage[]): string | null {
+	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+		const parts = messages[messageIndex].parts;
+		for (let partIndex = parts.length - 1; partIndex >= 0; partIndex--) {
+			const part = parts[partIndex];
+			if (part.type === 'tool-generate_onboarding_rules' && part.state === 'output-available') {
+				return part.output.jobId;
+			}
+		}
+	}
+	return null;
+}
+
+export type OnboardingProgressState = {
 	flow: keyof typeof ONBOARDING_STEPS;
 	step: number;
 };
+
+export function isOnboardingComplete(
+	hasProject: boolean,
+	progress: OnboardingProgressState | null,
+	warehouseReady: boolean,
+): boolean {
+	const progressComplete =
+		((progress?.flow === 'new' || progress?.flow === 'local') && progress.step === 4) ||
+		(progress?.flow === 'github' && progress.step === 2);
+	return hasProject && (warehouseReady || progressComplete);
+}
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {
 	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {

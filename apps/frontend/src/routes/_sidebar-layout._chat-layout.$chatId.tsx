@@ -15,8 +15,10 @@ import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
+import { findWarehouseJobId, isOnboardingComplete, useOnboardingProgress } from '@/components/onboarding-progress';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
+import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -97,10 +99,19 @@ function ChatPage() {
 	const isShared = !!shareQuery.data?.shareId;
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const showTrialOnboardingBanner = currentProject.isSuccess && currentProject.data === null;
+	const onboardingProgress = useOnboardingProgress();
+	const onboardingWarehouseJobId = useAgentMessagesSelector(findWarehouseJobId);
+	const onboardingWarehouseJob = useWarehouseProvisioningJob(onboardingWarehouseJobId);
+	const showTrialOnboardingBanner =
+		currentProject.isSuccess && currentProject.data === null && !chat.data?.isOnboarding;
 	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
+	const onboardingComplete = isOnboardingComplete(
+		currentProject.data != null,
+		onboardingProgress,
+		onboardingWarehouseJob.data?.status === 'ready',
+	);
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -176,7 +187,7 @@ function ChatPage() {
 					>
 						<MobileHeader chatId={chatId} title={title} automationId={automationId} />
 						{isExampleChat && !chat.data?.isOnboarding && (
-							<div className='absolute left-3 top-14 z-10 w-[calc(100%-1.5rem)] max-w-xs md:left-4'>
+							<div className='absolute left-3 top-14 z-20 w-[calc(100%-1.5rem)] max-w-xs md:left-4'>
 								<ExampleProjectInfoCard />
 							</div>
 						)}
@@ -290,23 +301,27 @@ function ChatPage() {
 							>
 								{showTrialOnboardingBanner && <TrialOnboardingBanner />}
 								{chat.data?.isOnboarding ? (
-									<div className='flex flex-col items-center gap-2 pb-4'>
-										<p className='text-center text-sm font-medium text-violet'>
-											Project setup successful!
-										</p>
-										<Button
-											asChild
-											className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
-										>
-											<Link to='/'>
-												Start chatting
-												<ArrowRight className='size-4' />
-											</Link>
-										</Button>
-										<p className='text-center text-sm text-muted-foreground'>
-											This onboarding conversation is complete.
-										</p>
-									</div>
+									onboardingComplete ? (
+										<div className='flex flex-col items-center gap-2 pb-4'>
+											<p className='text-center text-sm font-medium text-violet'>
+												Project setup successful!
+											</p>
+											<Button
+												asChild
+												className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
+											>
+												<Link to='/'>
+													Start chatting
+													<ArrowRight className='size-4' />
+												</Link>
+											</Button>
+											<p className='text-center text-sm text-muted-foreground'>
+												This onboarding conversation is complete.
+											</p>
+										</div>
+									) : (
+										<ChatInput variant='onboarding' />
+									)
 								) : (
 									<ChatInput />
 								)}

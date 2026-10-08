@@ -121,6 +121,7 @@ describe('managed GitHub repository provisioning', () => {
 		await expect(provisionManagedGithubRepository(project)).resolves.toEqual({
 			repoFullName: 'nao-org/nao-lumen-bike-share-12345678',
 			url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+			created: false,
 		});
 
 		expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -185,6 +186,7 @@ describe('managed GitHub repository provisioning', () => {
 		await expect(provisionManagedGithubRepository(project)).resolves.toEqual({
 			repoFullName: 'nao-org/nao-lumen-bike-share-12345678',
 			url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+			created: false,
 		});
 		expect(mocks.execFile).toHaveBeenCalledWith(
 			'git',
@@ -262,6 +264,7 @@ describe('managed GitHub repository provisioning', () => {
 			await expect(provisioning).resolves.toEqual({
 				repoFullName: 'nao-org/nao-lumen-bike-share-12345678',
 				url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+				created: true,
 			});
 			expect(pushAttempts).toBe(2);
 			expect(fetchMock).toHaveBeenNthCalledWith(
@@ -276,6 +279,59 @@ describe('managed GitHub repository provisioning', () => {
 					env: expect.objectContaining({ NAO_GIT_TOKEN: 'refreshed-token' }),
 				}),
 				expect.any(Function),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('uses the refreshed token to delete a new repository when the retry fails', async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.mocked(fetch);
+		fetchMock
+			.mockResolvedValueOnce(jsonResponse(201, { token: 'first-token' }))
+			.mockResolvedValueOnce(jsonResponse(404, { message: 'Not Found' }))
+			.mockResolvedValueOnce(
+				jsonResponse(201, {
+					full_name: 'nao-org/nao-lumen-bike-share-12345678',
+					html_url: 'https://github.com/nao-org/nao-lumen-bike-share-12345678',
+				}),
+			)
+			.mockResolvedValueOnce(jsonResponse(201, { token: 'refreshed-token' }))
+			.mockResolvedValueOnce(new Response(null, { status: 204 }));
+		let pushAttempts = 0;
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'diff') {
+					callback(null, 'nao_config.yaml\n', '');
+					return;
+				}
+				if (args[0] === 'push') {
+					pushAttempts++;
+					callback(
+						new Error('push failed'),
+						'',
+						pushAttempts === 1 ? 'remote: Invalid username or token.' : 'retry failed',
+					);
+					return;
+				}
+				callback(null, '', '');
+			},
+		);
+
+		try {
+			const provisioning = provisionManagedGithubRepository(project);
+			const rejection = expect(provisioning).rejects.toThrow('retry failed');
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			await rejection;
+			expect(fetchMock).toHaveBeenNthCalledWith(
+				5,
+				'https://api.github.com/repos/nao-org/nao-lumen-bike-share-12345678',
+				expect.objectContaining({
+					method: 'DELETE',
+					headers: expect.objectContaining({ Authorization: 'Bearer refreshed-token' }),
+				}),
 			);
 		} finally {
 			vi.useRealTimers();
