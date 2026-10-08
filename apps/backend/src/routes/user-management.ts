@@ -135,8 +135,16 @@ export const userManagementRoutes = async (app: App) => {
 			const org = requireOrg(request);
 			await requireOrgMember(org.id, params.userId);
 			await removeOrganizationMember(org.id, params.userId);
-			if (query.purge) {
+			// A removal has to mean access is gone NOW, and an invitation nobody accepted is not an
+			// account at all — it IS the invitation, so the row goes with it (that is what cancels the
+			// temporary password already sitting in that person's inbox).
+			if (query.purge || (await userQueries.isPendingInvitation(params.userId))) {
 				await userQueries.deleteUser(params.userId);
+			} else {
+				// purge stays opt-in: it cascades to the person's stories, which a membership sync has no
+				// business doing. Killing the sessions is what makes an accepted member actually lose
+				// access instead of waiting out their cookie.
+				await userQueries.deleteUserSessions(params.userId);
 			}
 			return true;
 		});

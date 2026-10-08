@@ -168,6 +168,18 @@ describe('user management API', () => {
 	});
 
 	it('removes a member and keeps the account unless it is purged', async () => {
+		// An accepted member is signed in right now; the removal has to take effect immediately, not
+		// when their cookie happens to expire.
+		await db
+			.insert(s.session)
+			.values({
+				id: 'sess-member',
+				token: 'tok-member',
+				userId: MEMBER_ID,
+				expiresAt: new Date(Date.now() + 86_400_000),
+			})
+			.execute();
+
 		const removed = await del(`/user-management/users/${MEMBER_ID}`);
 		expect(removed.statusCode).toBe(204);
 
@@ -177,7 +189,17 @@ describe('user management API', () => {
 			.where(and(eq(s.orgMember.orgId, ORG_ID), eq(s.orgMember.userId, MEMBER_ID)))
 			.execute();
 		expect(membership).toHaveLength(0);
+		expect(await db.select().from(s.session).where(eq(s.session.userId, MEMBER_ID)).execute()).toHaveLength(0);
 		expect(await db.select().from(s.user).where(eq(s.user.id, MEMBER_ID)).execute()).toHaveLength(1);
+	});
+
+	it('cancels an invitation that was never accepted, and purges on request', async () => {
+		// A user whose temporary password was never used is not an account — it is the invitation, so
+		// removing them has to take the row (and therefore the temporary password) with it.
+		const invited = await post('/user-management/users', { email: 'never-used@example.com', name: 'Never Used' });
+		const invitedId = invited.json().user.id;
+		expect((await del(`/user-management/users/${invitedId}`)).statusCode).toBe(204);
+		expect(await db.select().from(s.user).where(eq(s.user.id, invitedId)).execute()).toHaveLength(0);
 
 		const created = await post('/user-management/users', { email: 'purge@example.com', name: 'Purge Me' });
 		const purgedId = created.json().user.id;

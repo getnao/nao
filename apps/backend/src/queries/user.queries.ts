@@ -181,6 +181,32 @@ export const deleteUser = async (id: string): Promise<void> => {
 	await db.delete(s.user).where(eq(s.user.id, id)).execute();
 };
 
+/** Kills every session for a user: how a removal takes effect now rather than at cookie expiry. */
+export const deleteUserSessions = async (id: string): Promise<void> => {
+	await db.delete(s.session).where(eq(s.session.userId, id)).execute();
+};
+
+/**
+ * True while a user row is still only an invitation: a temporary password nobody has used, with no
+ * session and no chat of their own. Deliberately the same test `deleteExpiredInvitations` uses, so
+ * "has this person ever actually used the account" has exactly one definition.
+ */
+export const isPendingInvitation = async (id: string): Promise<boolean> => {
+	const [row] = await db
+		.select({ id: s.user.id })
+		.from(s.user)
+		.where(
+			and(
+				eq(s.user.id, id),
+				eq(s.user.requiresPasswordReset, true),
+				sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
+				sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
+			),
+		)
+		.execute();
+	return !!row;
+};
+
 /** Removes users whose temporary password was issued (or re-issued) over a week ago and never replaced. */
 export const deleteExpiredInvitations = async (now = new Date()): Promise<number> => {
 	const cutoff = new Date(now.getTime() - INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
