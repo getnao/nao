@@ -32,6 +32,7 @@ import {
 } from '../src/services/mattermost-helpers';
 import {
 	createMattermostAnswerMessage,
+	escapeMarkdownText,
 	formatMessagingError,
 	getMessagingProviderWebhookUrl,
 	resolveMattermostCallbackBaseUrl,
@@ -601,6 +602,17 @@ describe('Mattermost answer rendering', () => {
 		expect(createMattermostAnswerMessage('Answer text', 'https://nao.example/chat-1', 'Fibi')).toEqual({
 			markdown: 'Answer text\n\n**[Open in Fibi](https://nao.example/chat-1)**',
 		});
+	});
+
+	it('escapes markdown punctuation in the app name so it cannot break the link', () => {
+		const { markdown } = createMattermostAnswerMessage(
+			'',
+			'https://nao.example/chat-1',
+			'yolo](https://evil.example)',
+		);
+
+		expect(markdown).toBe('**[Open in yolo\\]\\(https://evil.example\\)](https://nao.example/chat-1)**');
+		expect(escapeMarkdownText('Data_Hub *beta*')).toBe('Data\\_Hub \\*beta\\*');
 	});
 });
 

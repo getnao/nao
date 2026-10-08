@@ -11,6 +11,7 @@ vi.mock('../src/services/branding.service', () => ({
 	DEFAULT_BRAND_COLOR: '#522bff',
 	getActiveBranding: mocks.getActiveBranding,
 	getActiveBrandingAsset: mocks.getActiveBrandingAsset,
+	resolveAppName: (branding: { appName: string | null } | null) => branding?.appName?.trim() || 'nao',
 }));
 
 import { resolveEmailBranding } from '../src/utils/email-branding';

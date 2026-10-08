@@ -142,9 +142,14 @@ export const createMattermostAnswerMessage = (
 		return { markdown };
 	}
 	const body = markdown.trim();
-	const link = `**[Open in ${appName}](${chatUrl})**`;
+	const link = `**[Open in ${escapeMarkdownText(appName)}](${chatUrl})**`;
 	return { markdown: body ? `${body}\n\n${link}` : link };
 };
+
+/** Escapes punctuation that would otherwise break a Markdown link label or emphasis span. */
+export function escapeMarkdownText(text: string): string {
+	return text.replace(/[\\`*_[\]()~<>|]/g, '\\$&');
+}
 
 export const createTextBlock = (text: string): CardChild => {
 	const rendered = mdToMrkdwn(text);
@@ -363,19 +368,26 @@ function fitRowToBudget(row: string[], characterBudget: number): string[] {
 	});
 }
 
-export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlockKit> | null {
+export function buildSlackTableBlocks(
+	text: string,
+	appName = DEFAULT_APP_NAME,
+): ReturnType<typeof cardToBlockKit> | null {
 	const sanitized = stripAssistantTags(text);
-	const children = createTextBlocks(sanitized);
+	const children = createTextBlocks(sanitized, { appName });
 	if (!children.some((child) => child.type === 'table')) {
 		return null;
 	}
 	return cardToBlockKit(Card({ children }));
 }
 
-export const createNotificationCard = (text: string, buttons: { url: string; label: string }[]): CardElement =>
+export const createNotificationCard = (
+	text: string,
+	buttons: { url: string; label: string }[],
+	appName = DEFAULT_APP_NAME,
+): CardElement =>
 	Card({
 		children: [
-			...createTextBlocks(text),
+			...createTextBlocks(text, { appName }),
 			Actions(buttons.map((button) => LinkButton({ url: button.url, label: button.label }))),
 		],
 	});

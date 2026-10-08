@@ -22,6 +22,7 @@ import {
 	createLiveToolCall,
 	createMattermostAnswerMessage,
 	createSummaryToolCalls,
+	escapeMarkdownText,
 	EXCLUDED_TOOLS,
 	formatClarificationText,
 	formatMessagingError,
@@ -666,7 +667,7 @@ class ProjectMattermostBot {
 			const chatUrl = new URL(ctx.chatId, this._config.redirectUrl).toString();
 			const appName = await getAppName();
 			ctx.bodyParts.push(
-				`⚠️ This chart couldn't be rendered in Mattermost. [Open it in ${appName}](${chatUrl}).`,
+				`⚠️ This chart couldn't be rendered in Mattermost. [Open it in ${escapeMarkdownText(appName)}](${chatUrl}).`,
 			);
 			try {
 				await this._editAnswerMessage(ctx);
@@ -724,7 +725,9 @@ class ProjectMattermostBot {
 			const chatUrl = new URL(ctx.chatId, this._config.redirectUrl).toString();
 			const appName = await getAppName();
 			ctx.answerTextPartIndex = -1;
-			ctx.bodyParts.push(`🗺️ **${part.input.title}**\n\n[View interactive map in ${appName}](${chatUrl})`);
+			ctx.bodyParts.push(
+				`🗺️ **${part.input.title}**\n\n[View interactive map in ${escapeMarkdownText(appName)}](${chatUrl})`,
+			);
 			await this._editAnswerMessage(ctx);
 		} catch (error) {
 			logger.error(`Error rendering Mattermost map link: ${String(error)}`, {

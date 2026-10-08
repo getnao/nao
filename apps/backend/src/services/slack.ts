@@ -221,7 +221,7 @@ export class ProjectSlackBot {
 			text: formatSlackMessageText(resolvedText),
 			thread_ts: threadTs,
 		};
-		const blocks = buildSlackTableBlocks(resolvedText);
+		const blocks = buildSlackTableBlocks(resolvedText, await getAppName());
 		if (blocks) {
 			(args as { blocks?: unknown }).blocks = blocks;
 		}
@@ -420,7 +420,7 @@ export class ProjectSlackBot {
 		}
 
 		const thread = await this._openDirectMessageThread(userId);
-		const message = buttons.length > 0 ? createNotificationCard(text, buttons) : text;
+		const message = buttons.length > 0 ? createNotificationCard(text, buttons, await getAppName()) : text;
 		const sent = await thread.post(message);
 
 		if (files.length > 0) {

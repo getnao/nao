@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 import type { App } from '../app';
 import * as notificationUnsubscribeQueries from '../queries/notification-unsubscribe.queries';
 import * as userQueries from '../queries/user.queries';
-import { DEFAULT_APP_NAME, DEFAULT_BRAND_COLOR, getActiveBranding } from '../services/branding.service';
+import { DEFAULT_BRAND_COLOR, getActiveBranding, resolveAppName } from '../services/branding.service';
 import { verifyUnsubscribeSignature } from '../services/notification-unsubscribe';
 
 const unsubscribeSchema = z.object({ u: z.string(), s: z.string(), sig: z.string() });
@@ -70,7 +70,7 @@ export const notificationUnsubscribeRoutes = async (app: App) => {
 async function resolveBranding(): Promise<Branding> {
 	const branding = await getActiveBranding();
 	return {
-		appName: branding?.appName ?? DEFAULT_APP_NAME,
+		appName: resolveAppName(branding),
 		brandColor: branding?.brandColor ?? DEFAULT_BRAND_COLOR,
 		logoUrl: branding?.logo ? `/branding/logo?v=${branding.updatedAt.getTime()}` : null,
 	};
