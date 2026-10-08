@@ -53,7 +53,7 @@ export function buildStoryToolDescription({
 		'Use consecutive <tab title="...">...</tab> blocks to organize a story into top-level tabs.',
 		'Default to a single flowing story. Use tabs only when the user asks for tabs, or when the content splits into clearly distinct sections that are better separated than stacked (e.g. overview vs. detail, one topic/department/metric per tab). Avoid tabs for a short or single-topic story. Always follow the user\'s explicit request (e.g. "a tab per chart" means one chart per tab). When using tabs, the entire story must consist of <tab title="...">...</tab> blocks — no content outside a tab.',
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
-		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
+		'Users may edit stories directly; the <conversation-artifacts> block of the latest user message always holds the current content of every story in this conversation, including user edits, and the tool result reflects the version just produced.',
 		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
 		...(customStories ? [customStoryDescription(canReplace)] : []),
 	].join(' ');

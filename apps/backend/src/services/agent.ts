@@ -26,15 +26,20 @@ import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
-import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
+import {
+	ChatArtifactsPrompt,
+	ChatForkContextPrompt,
+	MessagingProviderSystemPrompt,
+	SystemPrompt,
+} from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
-import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
+import type { ChatArtifacts } from '../types/artifacts';
 import {
 	AgentTools,
 	ForkMetadata,
@@ -73,6 +78,7 @@ import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGeneratio
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
+import { getChatArtifacts, hasChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
@@ -85,7 +91,6 @@ import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import { customStoryAuthoringError } from './story-mount';
-import { getStoryTemplateWarnings } from './story-template-validation';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
 	type AgentUserGroupAccess,
@@ -635,14 +640,20 @@ class AgentManager {
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
 		const settledUiMessages = settleInterruptedToolParts(uiMessages);
+		const artifacts = await this._loadChatArtifacts(settledUiMessages);
 		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(settledUiMessages);
-		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessagesWithoutStaleQueries);
-		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
+		const uiMessagesWithCollapsedStories = artifacts
+			? collapseStoryToolOutputs(uiMessagesWithoutStaleQueries)
+			: uiMessagesWithoutStaleQueries;
+		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithCollapsedStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
-		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithCompaction);
+		const uiMessagesWithArtifacts = artifacts
+			? appendChatArtifacts(uiMessagesWithCompaction, artifacts)
+			: uiMessagesWithCompaction;
+		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithArtifacts);
 
 		const selectedSystemPrompt =
 			this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
@@ -719,83 +730,20 @@ class AgentManager {
 	}
 
 	/**
-	 * Sync story tool outputs with the DB and deduplicate: only the last occurrence
-	 * of each story carries the full content; earlier ones are marked `_stale` so the
-	 * model sees a short placeholder instead of redundant code.
+	 * The conversation's artifacts, rebuilt from the full history so the agent keeps every query id
+	 * and the current story content once compaction has summarized the messages that introduced
+	 * them. Undefined when they cannot be built, so the history keeps its story tool outputs.
 	 */
-	private async _syncStoryToolOutputs(messages: UIMessage[]): Promise<UIMessage[]> {
-		type StoryPart = Extract<UIMessage['parts'][number], { type: 'tool-story'; state: 'output-available' }>;
-		const isStoryPart = (part: UIMessage['parts'][number]): part is StoryPart =>
-			isToolUIPart(part) && part.type === 'tool-story' && part.state === 'output-available';
-
-		const lastToolCallByStory = new Map<string, string>();
-		for (const message of messages) {
-			for (const part of message.parts) {
-				if (isStoryPart(part) && part.output.id) {
-					lastToolCallByStory.set(part.output.id, part.toolCallId);
-				}
-			}
-		}
-
-		if (lastToolCallByStory.size === 0) {
-			return messages;
-		}
-
+	private async _loadChatArtifacts(fullHistory: UIMessage[]): Promise<ChatArtifacts | undefined> {
 		try {
-			const latestStories = new Map<
-				string,
-				{
-					version: NonNullable<Awaited<ReturnType<typeof storyQueries.getLatestVersionByChatAndSlug>>>;
-					templateWarnings: string[];
-				}
-			>();
-			await Promise.all(
-				[...lastToolCallByStory.keys()].map(async (storyId) => {
-					const version = await storyQueries.getLatestVersionByChatAndSlug(this.chat.id, storyId);
-					if (!version) {
-						return;
-					}
-					latestStories.set(storyId, {
-						version,
-						templateWarnings: await getStoryTemplateWarnings(this.chat.id, version.code),
-					});
-				}),
-			);
-
-			return messages.map((message) => ({
-				...message,
-				parts: message.parts.map((part) => {
-					if (!isStoryPart(part) || !part.output.id) {
-						return part;
-					}
-
-					const storyId = part.output.id;
-
-					if (lastToolCallByStory.get(storyId) !== part.toolCallId) {
-						return { ...part, output: { ...part.output, _stale: true, code: '' } };
-					}
-
-					const latestStory = latestStories.get(storyId);
-					if (!latestStory) {
-						return part;
-					}
-					const { version: latest, templateWarnings } = latestStory;
-
-					return {
-						...part,
-						output: {
-							...part.output,
-							version: latest.version,
-							code: latest.code,
-							title: latest.title,
-							_editedByUser: latest.source === 'user',
-							template_warnings: templateWarnings.length > 0 ? templateWarnings : undefined,
-						},
-					};
-				}),
-			}));
-		} catch {
-			return messages;
+			return await getChatArtifacts(this.chat.id, fullHistory);
+		} catch (error) {
+			logger.error(`Failed to build chat artifacts: ${String(error)}`, {
+				source: 'agent',
+				projectId: this.chat.projectId,
+				context: { chatId: this.chat.id },
+			});
+			return undefined;
 		}
 	}
 
@@ -1094,6 +1042,43 @@ class AgentManager {
 const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
 
 type MessageLike = Omit<UIMessage, 'id'>;
+
+/**
+ * Story tool outputs in the history shrink to a one-line placeholder: the conversation
+ * artifacts carry the current content of every story, so repeating each version is waste.
+ */
+function collapseStoryToolOutputs<T extends MessageLike>(messages: T[]): T[] {
+	return messages.map((message) => ({
+		...message,
+		parts: message.parts.map((part): UIMessagePart => {
+			if (!isToolUIPart(part) || part.type !== 'tool-story' || part.state !== 'output-available') {
+				return part;
+			}
+			return { ...part, output: { ...part.output, _stale: true, code: '' } };
+		}),
+	}));
+}
+
+/** The artifacts travel in the current user message so that only one copy is ever in context. */
+function appendChatArtifacts<T extends MessageLike>(messages: T[], artifacts: ChatArtifacts): T[] {
+	if (!hasChatArtifacts(artifacts)) {
+		return messages;
+	}
+	const artifactsPart: UIMessagePart = { type: 'text', text: renderToMarkdown(ChatArtifactsPrompt({ artifacts })) };
+	return appendToLastUserMessage(messages, artifactsPart);
+}
+
+function appendToLastUserMessage<T extends MessageLike>(messages: T[], part: UIMessagePart): T[] {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message.role === 'user') {
+			const updatedMessages = [...messages];
+			updatedMessages[index] = { ...message, parts: [...message.parts, part] };
+			return updatedMessages;
+		}
+	}
+	return messages;
+}
 
 /**
  * Turns the attachments of a conversation into something a provider can consume.
