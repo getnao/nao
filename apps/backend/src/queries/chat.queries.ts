@@ -372,6 +372,26 @@ export const deleteLastEmptyTurn = async (
 	});
 };
 
+/** Provider and model id recorded on the chat's last assistant message, if any. */
+export const getLastAssistantModel = async (chatId: string): Promise<string | undefined> => {
+	const [result] = await db
+		.select({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				eq(s.chatMessage.role, 'assistant'),
+				isNull(s.chatMessage.supersededAt),
+				isNotNull(s.chatMessage.llmProvider),
+				isNotNull(s.chatMessage.llmModelId),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
+		.execute();
+	return result ? `${result.provider}/${result.modelId}` : undefined;
+};
+
 export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {
 	const [result] = await db
 		.select({
