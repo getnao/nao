@@ -18,6 +18,8 @@ import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { ChartEditorPreview } from './chart-editor-preview';
+import { SqlQueryDisplay } from './sql-query-display';
 import type { ChartType } from '@nao/shared/chart-types';
 import type { LucideIcon } from 'lucide-react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
@@ -113,33 +115,66 @@ function remapOpenIndexesAfterRemoval(openIndexes: Set<number>, removedIndex: nu
 	return next;
 }
 
-interface ChartConfigEditDialogProps extends Omit<ChartConfigEditFormProps, 'onCancel' | 'onSaved'> {
+interface ChartConfigEditDialogProps extends Omit<
+	ChartConfigEditFormProps,
+	'onCancel' | 'onSaved' | 'onDraftChange' | 'className' | 'footerClassName'
+> {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	description?: string;
+	queryView?: React.ReactNode;
 }
 
-/** Presentational edit dialog for `display_chart` configuration. */
+/**
+ * Chart editor dialog: the configuration form on the left, with a live preview of the
+ * chart, its source data and query, and a summary of the selection on the right.
+ */
 export function ChartConfigEditDialog({
 	open,
 	onOpenChange,
 	description = 'Tweak the chart parameters.',
+	queryView,
 	...form
 }: ChartConfigEditDialogProps) {
+	const [draft, setDraft] = useState<EditableChartInput>(form.config);
+	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
+
+	useEffect(() => {
+		if (open) {
+			setPaletteHexes(form.palette ?? resolveChartPaletteHexes());
+		}
+	}, [open, form.palette]);
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
-				<DialogHeader>
+			<DialogContent className='flex h-[min(90vh,56rem)] w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[80rem]'>
+				<DialogHeader className='shrink-0 border-b px-6 py-4'>
 					<DialogTitle>Edit chart</DialogTitle>
 					<DialogDescription className='text-sm text-muted-foreground font-medium'>
 						{description}
 					</DialogDescription>
 				</DialogHeader>
-				<ChartConfigEditForm
-					{...form}
-					onCancel={() => onOpenChange(false)}
-					onSaved={() => onOpenChange(false)}
-				/>
+				<div className='flex min-h-0 flex-1 flex-col md:flex-row'>
+					<div className='max-h-[45%] shrink-0 overflow-y-auto border-b md:max-h-none md:w-[26rem] md:border-b-0 md:border-r'>
+						<ChartConfigEditForm
+							{...form}
+							className='p-6'
+							footerClassName='sticky bottom-0 -mx-6 -mb-6 mt-2 border-t bg-background px-6 py-3'
+							onDraftChange={setDraft}
+							onCancel={() => onOpenChange(false)}
+							onSaved={() => onOpenChange(false)}
+						/>
+					</div>
+					<div className='min-h-0 flex-1 overflow-hidden bg-muted/20 p-6'>
+						<ChartEditorPreview
+							draft={draft}
+							data={form.data ?? []}
+							availableColumns={form.availableColumns}
+							palette={paletteHexes}
+							queryView={queryView}
+						/>
+					</div>
+				</div>
 			</DialogContent>
 		</Dialog>
 	);
@@ -151,10 +186,13 @@ interface ChartConfigEditFormProps {
 	onSave: (next: EditableChartInput) => Promise<void>;
 	onCancel: () => void;
 	onSaved: () => void;
+	onDraftChange?: (draft: EditableChartInput) => void;
 	isSaving?: boolean;
 	data?: Record<string, unknown>[];
 	palette?: string[];
 	enforceExportSafeFormats?: boolean;
+	className?: string;
+	footerClassName?: string;
 }
 
 /** The chart editing fields and their validation, for a dialog or any other container. */
@@ -164,10 +202,13 @@ export function ChartConfigEditForm({
 	onSave,
 	onCancel,
 	onSaved,
+	onDraftChange,
 	isSaving = false,
 	data,
 	palette,
 	enforceExportSafeFormats = true,
+	className,
+	footerClassName,
 }: ChartConfigEditFormProps) {
 	const [draft, setDraft] = useState<EditableChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
@@ -213,6 +254,10 @@ export function ChartConfigEditForm({
 		setError(null);
 		setOpenValueFormatIndexes(new Set());
 	}, [config, palette]);
+
+	useEffect(() => {
+		onDraftChange?.(draft);
+	}, [draft, onDraftChange]);
 
 	const xAxisOptions = useMemo(() => {
 		if (availableColumns.length === 0) {
@@ -340,7 +385,7 @@ export function ChartConfigEditForm({
 	};
 
 	return (
-		<form onSubmit={handleSubmit} className='flex flex-col gap-4'>
+		<form onSubmit={handleSubmit} className={cn('flex flex-col gap-4', className)}>
 			<div className='grid gap-2'>
 				<label htmlFor='chart-title' className='text-sm font-semibold text-foreground'>
 					Title
@@ -707,7 +752,7 @@ export function ChartConfigEditForm({
 				<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
 			)}
 
-			<DialogFooter>
+			<DialogFooter className={footerClassName}>
 				<Button type='button' variant='ghost' className='rounded-full border' onClick={onCancel}>
 					Cancel
 				</Button>
@@ -732,6 +777,7 @@ interface DisplayChartEditDialogProps {
 	config: EditableChartInput;
 	availableColumns: string[];
 	data?: Record<string, unknown>[];
+	sqlQuery?: string;
 }
 
 /** Edit dialog bound to a `tool-display_chart` message part: persists through `chart.updateConfig`. */
@@ -742,6 +788,7 @@ export function DisplayChartEditDialog({
 	config,
 	availableColumns,
 	data,
+	sqlQuery,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
 	const { setMessages } = useAgentContext();
@@ -776,6 +823,7 @@ export function DisplayChartEditDialog({
 			onSave={handleSave}
 			isSaving={updateMutation.isPending}
 			description='Tweak the chart parameters. Changes are saved to the chat.'
+			queryView={sqlQuery ? <SqlQueryDisplay query={sqlQuery} /> : undefined}
 		/>
 	);
 }
