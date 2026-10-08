@@ -86,6 +86,10 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		isInInteractiveContext,
 	]);
 
+	if (toolPart.state === 'output-error') {
+		return <StoryError message={toolPart.errorText ?? 'The story could not be saved.'} />;
+	}
+
 	if (!input) {
 		const partialAction = (toolPart as { input?: { action?: string } }).input?.action;
 		const loadingLabel =
@@ -101,11 +105,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	}
 
 	if (output?.error) {
-		return (
-			<div className='my-2 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-400'>
-				{output.error}
-			</div>
-		);
+		return <StoryError message={output.error} />;
 	}
 
 	const isCustomStory = (latestStory?.format ?? output?.format ?? input.format) === 'custom';
@@ -168,6 +168,12 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		</button>
 	);
 };
+
+function StoryError({ message }: { message: string }) {
+	return (
+		<div className='my-2 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-400'>{message}</div>
+	);
+}
 
 function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
 	const timestampMs = new Date(cachedAt).getTime();
