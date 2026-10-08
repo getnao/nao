@@ -2,6 +2,7 @@ import { task } from '@nao/shared/tools';
 import { ArrowUpRight } from 'lucide-react';
 
 import type { ToolCallComponentProps } from '.';
+
 import { SubagentLink } from '@/components/subagent/subagent-link';
 import { useSubagentDuration } from '@/components/subagent/use-subagent-duration';
 import { Spinner } from '@/components/ui/spinner';

@@ -6,7 +6,7 @@ import type { ToolCallComponentProps } from '.';
 import type { UIMessage } from '@nao/backend/chat';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
-import { getMessageText } from '@/lib/ai';
+import { getMessageText, isOnboardingContextRequestMessage } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 
 type AnsweredState = { isAnswered: true; answer: string } | { isAnswered: false; answer?: undefined };
@@ -116,7 +116,7 @@ function getAnsweredStateForToolCall(messages: UIMessage[], toolCallId: string):
 
 	for (let i = toolMessageIndex + 1; i < messages.length; i++) {
 		const message = messages[i];
-		if (message.role === 'user') {
+		if (message.role === 'user' && !isOnboardingContextRequestMessage(message)) {
 			return { isAnswered: true, answer: getMessageText(message).trim() };
 		}
 	}

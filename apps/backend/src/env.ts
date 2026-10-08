@@ -16,6 +16,11 @@ dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
 });
 
+const optionalNonEmptyString = z
+	.string()
+	.optional()
+	.transform((value) => value?.trim() || undefined);
+
 const emittedDeprecationWarnings = new Set<string>();
 
 function resolveOidcGroupNaoRoleMapping(
@@ -144,6 +149,11 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'GITLAB_REDIRECT_URI must be a valid URL' }).optional()),
+
+	CLOUD_GITHUB_PROJECT_ORG: optionalNonEmptyString,
+	CLOUD_GITHUB_PROJECT_APP_ID: optionalNonEmptyString,
+	CLOUD_GITHUB_PROJECT_INSTALLATION_ID: optionalNonEmptyString,
+	CLOUD_GITHUB_PROJECT_PRIVATE_KEY: optionalNonEmptyString,
 
 	AZURE_AD_CLIENT_ID: z.string().optional(),
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
@@ -487,6 +497,31 @@ const envSchema = rawEnvSchema
 				path: ['SLACK_SIGNING_SECRET'],
 				message: 'SLACK_SIGNING_SECRET is required when Slack runs in webhook mode',
 			});
+		}
+	})
+	.superRefine((data, ctx) => {
+		const fields = [
+			'CLOUD_GITHUB_PROJECT_ORG',
+			'CLOUD_GITHUB_PROJECT_APP_ID',
+			'CLOUD_GITHUB_PROJECT_INSTALLATION_ID',
+			'CLOUD_GITHUB_PROJECT_PRIVATE_KEY',
+		] as const;
+		const managedGithubIsConfigured = fields.some((field) => !!data[field]);
+		if (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured) {
+			return;
+		}
+
+		for (const field of fields) {
+			if (!data[field]) {
+				ctx.addIssue({
+					code: 'custom',
+					path: [field],
+					message:
+						data.NAO_MODE === 'cloud'
+							? `${field} is required when NAO_MODE=cloud`
+							: `${field} is required when managed GitHub project provisioning is configured`,
+				});
+			}
 		}
 	})
 	// Refresh tokens must outlive access tokens, otherwise a client can hold a valid

@@ -30,6 +30,12 @@ export type NewMessageFeedback = typeof sqliteSchema.messageFeedback.$inferInser
 export type DBProject = typeof sqliteSchema.project.$inferSelect;
 export type NewProject = typeof sqliteSchema.project.$inferInsert;
 
+export type DBProjectWarehouseCredentials = typeof sqliteSchema.projectWarehouseCredentials.$inferSelect;
+export type NewProjectWarehouseCredentials = typeof sqliteSchema.projectWarehouseCredentials.$inferInsert;
+
+export type DBWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferSelect;
+export type NewWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferInsert;
+
 export type DBProjectMember = typeof sqliteSchema.projectMember.$inferSelect;
 export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 

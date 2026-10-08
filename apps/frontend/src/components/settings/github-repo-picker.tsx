@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Github, Loader2 } from 'lucide-react';
+import type { ImportedProject } from '@/components/settings/import-provider-card';
+import type { CSSProperties } from 'react';
 
 import {
 	AlertDialog,
@@ -28,9 +30,11 @@ import { trpc } from '@/main';
 interface GitHubRepoPickerProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	onImported?: (project: ImportedProject) => void;
+	dialogStyle?: CSSProperties;
 }
 
-export function GitHubRepoPicker({ open, onOpenChange }: GitHubRepoPickerProps) {
+export function GitHubRepoPicker({ open, onOpenChange, onImported, dialogStyle }: GitHubRepoPickerProps) {
 	const queryClient = useQueryClient();
 	const [selected, setSelected] = useState<string | null>(null);
 	const [repoToReplace, setRepoToReplace] = useState<{ repoFullName: string; projectName: string } | null>(null);
@@ -48,6 +52,7 @@ export function GitHubRepoPicker({ open, onOpenChange }: GitHubRepoPickerProps) 
 				queryClient.invalidateQueries({ queryKey: trpc.organization.getProjects.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() });
+				onImported?.(data);
 				onOpenChange(false);
 				setRepoToReplace(null);
 				setSelected(null);
@@ -102,7 +107,7 @@ export function GitHubRepoPicker({ open, onOpenChange }: GitHubRepoPickerProps) 
 	return (
 		<>
 			<Dialog open={open} onOpenChange={handleOpenChange}>
-				<DialogContent className='sm:max-w-lg'>
+				<DialogContent className='sm:max-w-lg' style={dialogStyle}>
 					<DialogHeader>
 						<DialogTitle className='flex items-center gap-2'>
 							<Github className='size-5' />

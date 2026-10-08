@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	getChatProjectId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	handleAgentRoute: vi.fn(),
+	isOnboardingChat: vi.fn(),
 	post: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock('../src/middleware/auth', () => ({
 
 vi.mock('../src/queries/chat.queries', () => ({
 	getChatProjectId: mocks.getChatProjectId,
+	isOnboardingChat: mocks.isOnboardingChat,
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
@@ -41,6 +43,7 @@ describe('agent route cloud billing access', () => {
 		vi.clearAllMocks();
 		mocks.getChatProjectId.mockResolvedValue('chat-project-id');
 		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.isOnboardingChat.mockResolvedValue(false);
 		await agentRoutes({ addHook: mocks.addHook, post: mocks.post } as never);
 	});
 

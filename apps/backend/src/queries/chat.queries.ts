@@ -43,6 +43,12 @@ const chatUpdatedAtMs =
 
 const sqlFalse = dbConfig.dialect === Dialect.Postgres ? sql<boolean>`false` : sql<boolean>`0`;
 
+const isOnboardingExpr = sql<boolean>`exists(
+	select 1 from ${s.chatMessage}
+	where ${s.chatMessage.chatId} = ${s.chat.id}
+	and ${s.chatMessage.source} = 'onboarding'
+)`.mapWith(Boolean);
+
 const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.slackThreadId} is not null then 'Slack'
 	when ${s.chat.teamsThreadId} is not null then 'Teams'
@@ -91,6 +97,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 			id: s.chat.id,
 			title: s.chat.title,
 			isStarred: s.chat.isStarred,
+			isOnboarding: isOnboardingExpr,
 			createdAt: chatCreatedAtMs,
 			updatedAt: chatUpdatedAtMs,
 			kind: sql<'own'>`'own'`,
@@ -115,6 +122,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 			id: s.sharedChat.chatId,
 			title: s.chat.title,
 			isStarred: sqlFalse,
+			isOnboarding: isOnboardingExpr,
 			createdAt: chatCreatedAtMs,
 			updatedAt: chatUpdatedAtMs,
 			kind: sql<'shared'>`'shared'`,
@@ -137,6 +145,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 			and(
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
+				isNotOnboardingChat(),
 				ne(s.chat.userId, userId),
 				or(
 					and(
@@ -193,6 +202,7 @@ export const getChat = async (
 			projectId: chat.projectId,
 			title: chat.title,
 			isStarred: chat.isStarred,
+			isOnboarding: messages.some((message) => message.source === 'onboarding'),
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
 			messages: messagesWithVersions,
@@ -848,6 +858,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				eq(s.chat.userId, userId),
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
+				isNotOnboardingChat(),
 				caseInsensitiveLike(s.chat.title, searchPattern),
 			),
 		)
@@ -874,6 +885,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				eq(s.chat.userId, userId),
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
+				isNotOnboardingChat(),
 				caseInsensitiveLike(s.messagePart.text, searchPattern),
 			),
 		)
@@ -916,6 +928,14 @@ const caseInsensitiveLike = (column: Parameters<typeof like>[0], pattern: string
 
 const isNotAutomationRunChat = () => {
 	return sql`not exists (select 1 from ${s.automationRun} where ${s.automationRun.chatId} = ${s.chat.id})`;
+};
+
+const isNotOnboardingChat = () => {
+	return sql`not exists (
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} = 'onboarding'
+	)`;
 };
 
 export const getSelectionForksBySourceId = async (
@@ -968,6 +988,16 @@ export const getChatProjectId = async (chatId: string): Promise<string | undefin
 		.where(eq(s.chat.id, chatId))
 		.execute();
 	return result?.projectId;
+};
+
+export const isOnboardingChat = async (chatId: string): Promise<boolean> => {
+	const [result] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.source, 'onboarding')))
+		.limit(1)
+		.execute();
+	return Boolean(result);
 };
 
 export const getLatestAssistantModel = async (

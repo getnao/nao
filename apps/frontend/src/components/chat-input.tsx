@@ -46,9 +46,12 @@ import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
+type ChatInputVariant = 'default' | 'example' | 'onboarding';
+
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
 	className?: string;
+	variant?: ChatInputVariant;
 	placeholder?: string;
 	initialText?: string;
 	onCancel?: () => void;
@@ -63,7 +66,7 @@ type ChatInputInlineProps = {
 	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
 };
 
-export function ChatInput() {
+export function ChatInput({ variant = 'default' }: { variant?: ChatInputVariant }) {
 	const promptRef = useRef<PromptHandle>(null);
 	const { queueOrSendMessage } = useAgentContext();
 
@@ -75,7 +78,7 @@ export function ChatInput() {
 		requestAnimationFrame(() => promptRef.current?.focus());
 	});
 
-	return <ChatInputBase promptRef={promptRef} onSubmitMessage={queueOrSendMessage} allowQueueing />;
+	return <ChatInputBase promptRef={promptRef} variant={variant} onSubmitMessage={queueOrSendMessage} allowQueueing />;
 }
 
 export function ChatInputInline({ className, initialText, onCancel, onSubmitMessage }: ChatInputInlineProps) {
@@ -95,6 +98,7 @@ export function ChatInputInline({ className, initialText, onCancel, onSubmitMess
 function ChatInputBase({
 	promptRef,
 	className,
+	variant = 'default',
 	placeholder = 'Ask anything about your data...',
 	initialText,
 	onCancel,
@@ -139,7 +143,12 @@ function ChatInputBase({
 		maxDocumentSizeMb: uploadLimits.data?.maxFileSizeMb ?? 0,
 	});
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
-	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
+	const effectivePlaceholder =
+		isRunning && allowQueueing
+			? 'Add a follow-up...'
+			: variant === 'onboarding'
+				? 'Tell me where you are starting from...'
+				: placeholder;
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const transcribeModels = useQuery(trpc.project.getKnownTranscribeModels.queryOptions());
@@ -404,7 +413,13 @@ function ChatInputBase({
 					isHidden={inputText.trim().length > 0}
 				/>
 			)}
-			{isAdminMode && <ChatInputAdminBadge />}
+			{isAdminMode ? (
+				<ChatInputAdminBadge />
+			) : variant === 'example' ? (
+				<ChatInputExampleBadge />
+			) : variant === 'onboarding' ? (
+				<ChatInputOnboardingBadge />
+			) : null}
 
 			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>
 				<InputGroup
@@ -413,9 +428,11 @@ function ChatInputBase({
 						'bg-background dark:bg-background shadow-xs border-none max-md:rounded-4xl',
 						isDragging && 'ring-2 ring-primary/50 border-primary',
 						isAdminMode && 'ring-4 ring-amber-500/60',
+						variant === 'example' && 'ring-4 ring-violet/60',
+						variant === 'onboarding' && 'ring-4 ring-foreground/10',
 					)}
 				>
-					{!isAdminMode && <ChatInputAnimatedBorder />}
+					{!isAdminMode && variant === 'default' && <ChatInputAnimatedBorder />}
 					<ChatInputAttachmentPreview
 						attachments={attachmentUpload.attachments}
 						rejection={attachmentUpload.rejection}
@@ -423,7 +440,11 @@ function ChatInputBase({
 					/>
 					<ChatPrompt
 						promptRef={promptRef}
-						placeholder={effectivePlaceholder}
+						placeholder={
+							variant === 'example'
+								? 'Try asking: "Make a pie chart of my sales data."'
+								: effectivePlaceholder
+						}
 						storyCreationEnabled={storyCreationEnabled}
 						onChange={(value) => setInputText(value)}
 						onEnter={(value, mentions) => submitMessage(value, mentions)}
@@ -624,6 +645,26 @@ function ChatInputAdminBadge() {
 					Admin Mode
 				</span>
 			</SimpleTooltip>
+		</div>
+	);
+}
+
+function ChatInputExampleBadge() {
+	return (
+		<div className='flex justify-end pr-4'>
+			<span className='mb-1 flex w-fit items-center rounded-t-lg bg-violet/60 px-2 py-0.5 text-[10px] font-medium text-primary-foreground'>
+				Example
+			</span>
+		</div>
+	);
+}
+
+function ChatInputOnboardingBadge() {
+	return (
+		<div className='flex justify-end pr-4'>
+			<span className='mb-1 flex w-fit items-center rounded-t-lg bg-foreground/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground'>
+				Onboarding
+			</span>
 		</div>
 	);
 }

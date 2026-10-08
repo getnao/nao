@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { providerLabel, providerName } from '@nao/shared/types';
+import { useQuery } from '@tanstack/react-query';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Settings, TriangleAlert } from 'lucide-react';
-import { providerLabel, providerName } from '@nao/shared/types';
+
 import type { LlmProvider } from '@nao/shared/types';
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useAgentContext } from '@/contexts/agent.provider';
 import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
+import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { trpc } from '@/main';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
@@ -18,6 +24,11 @@ export function ChatInputModelSelect() {
 	const { isAdmin } = usePermissions();
 	const { availableModels, selectedModel, setSelectedModel, isPending, canCycleModels } = useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
+
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const isTrial = useIsCloud() && project.data === null;
+
+	const isOnboarding = useAgentContext().mode === 'onboarding';
 
 	// Set default model when available models load, or reset if current selection is no longer available
 	useEffect(() => {
@@ -53,7 +64,7 @@ export function ChatInputModelSelect() {
 		return null;
 	}
 
-	if (!availableModels?.length) {
+	if (!availableModels?.length && !isOnboarding && !isTrial) {
 		return (
 			<Link
 				to='/settings/project/models'
@@ -62,6 +73,50 @@ export function ChatInputModelSelect() {
 				<TriangleAlert className='size-3.5' />
 				<span>Configure a model</span>
 			</Link>
+		);
+	}
+
+	if (isOnboarding) {
+		const singleModel = (
+			<>
+				{selectedModel && (
+					<LlmProviderIcon
+						provider={selectedModel.provider}
+						baseUrl={selectedAvailableModel?.baseUrl}
+						className='size-4'
+					/>
+				)}
+				<span>{selectedModelName}</span>
+				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			</>
+		);
+		return (
+			<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>
+				{singleModel}
+				<span className='text-sm'>Onboarding Assistant</span>
+			</div>
+		);
+	}
+
+	if (isTrial && !isOnboarding) {
+		const singleModel = (
+			<>
+				{selectedModel && (
+					<LlmProviderIcon
+						provider={selectedModel.provider}
+						baseUrl={selectedAvailableModel?.baseUrl}
+						className='size-4'
+					/>
+				)}
+				<span>{selectedModelName}</span>
+				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			</>
+		);
+		return (
+			<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>
+				{singleModel}
+				<span className='text-sm text-muted-foreground'>Trial</span>
+			</div>
 		);
 	}
 
@@ -124,7 +179,7 @@ export function ChatInputModelSelect() {
 			</Tooltip>
 
 			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
-				{availableModels.map((model) => (
+				{availableModels?.map((model) => (
 					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
 						<LlmProviderIcon
 							provider={model.provider}

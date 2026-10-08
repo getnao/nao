@@ -14,7 +14,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 __all__ = ["BlockedRowAccessTable", "EnforcedRowSecurity", "PredicateRowAccessTable"]
 
@@ -64,6 +64,7 @@ from nao_core.semantic_layer import (  # noqa: E402
     metricflow_dialect_for,
     runtime_manifest_path,
 )
+from warehouse_provisioning import prepare_warehouse_config
 
 port = int(os.environ.get("PORT", 8005))
 
@@ -143,6 +144,17 @@ class CompileSemanticQueryResponse(BaseModel):
     sql: str
     database_id: str
     dialect: str
+
+
+class PrepareWarehouseRequest(BaseModel):
+    project_name: str
+    provider: str
+    credentials: dict[str, object]
+
+
+class PrepareWarehouseResponse(BaseModel):
+    database_config: dict[str, object]
+    env_vars: dict[str, str]
 
 
 def _validate_sql(
@@ -653,6 +665,43 @@ def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | Non
         status_code=400,
         detail="semantic_layer.database must name the database that runs semantic queries when several are configured",
     )
+
+
+@app.post(
+    "/warehouse/prepare",
+    response_model=PrepareWarehouseResponse,
+    dependencies=internal_only,
+)
+async def prepare_warehouse(request: PrepareWarehouseRequest):
+    try:
+        database_config, env_vars = prepare_warehouse_config(
+            request.project_name,
+            request.provider,
+            request.credentials,
+        )
+        return PrepareWarehouseResponse(
+            database_config=database_config,
+            env_vars=env_vars,
+        )
+    except ValidationError as error:
+        fields = sorted(
+            {
+                ".".join(str(part) for part in issue["loc"])
+                for issue in error.errors(include_input=False)
+            }
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_warehouse_credentials",
+                "fields": fields,
+            },
+        ) from error
+    except (ValueError, TypeError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid warehouse credentials",
+        ) from error
 
 
 if __name__ == "__main__":

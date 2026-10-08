@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,6 +39,15 @@ export function runGitWithOAuth(
 	timeout = 120_000,
 ): Buffer {
 	return runGitWithAskpass(cwd, args, credential, timeout);
+}
+
+export async function runGitWithOAuthAsync(
+	cwd: string,
+	args: string[],
+	credential: GitOAuthCredential,
+	timeout = 120_000,
+): Promise<Buffer> {
+	return runGitWithAskpassAsync(cwd, args, credential, timeout);
 }
 
 export function runGitFetchWithCredentials(
@@ -95,6 +104,30 @@ function runGitWithAskpass(cwd: string, args: string[], credential: GitOAuthCred
 	}
 }
 
+async function runGitWithAskpassAsync(
+	cwd: string,
+	args: string[],
+	credential: GitOAuthCredential,
+	timeout: number,
+): Promise<Buffer> {
+	const helperDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-git-auth-'));
+	const helperPath = path.join(helperDirectory, 'askpass');
+	try {
+		fs.writeFileSync(helperPath, ASKPASS_SCRIPT, { mode: 0o700 });
+		return await execGitAsync(cwd, args, timeout, {
+			...process.env,
+			GIT_ASKPASS: helperPath,
+			GIT_TERMINAL_PROMPT: '0',
+			NAO_GIT_TOKEN: credential.token,
+			NAO_GIT_USERNAME: credential.username,
+		});
+	} catch (error) {
+		throw toGitError(error);
+	} finally {
+		fs.rmSync(helperDirectory, { recursive: true, force: true });
+	}
+}
+
 function runGitWithSshKey(cwd: string, args: string[], sshKey: string, timeout: number): Buffer {
 	const helperDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-git-ssh-'));
 	const keyPath = path.join(helperDirectory, 'key');
@@ -129,6 +162,19 @@ function runGit(cwd: string, args: string[], timeout: number): Buffer {
 	} catch (error) {
 		throw toGitError(error);
 	}
+}
+
+function execGitAsync(cwd: string, args: string[], timeout: number, env: NodeJS.ProcessEnv): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		execFile('git', args, { cwd, timeout, env, encoding: 'buffer' }, (error, stdout, stderr) => {
+			if (error) {
+				Object.assign(error, { stdout, stderr });
+				reject(error);
+				return;
+			}
+			resolve(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
+		});
+	});
 }
 
 function readEmbeddedCredential(repositoryUrl: string, platform?: GitPlatform | null): GitOAuthCredential | null {

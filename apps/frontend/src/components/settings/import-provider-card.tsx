@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ComponentType } from 'react';
+import type { ComponentType, CSSProperties } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -8,11 +8,26 @@ interface ImportProviderCardProps {
 	providerLabel: string;
 	icon: ComponentType<{ className?: string }>;
 	connectHref: string;
+	connectTarget?: string;
 	resourceNounSingular: string;
 	resourceNounPlural: string;
 	connected: boolean;
-	Picker: ComponentType<{ open: boolean; onOpenChange: (open: boolean) => void }>;
+	className?: string;
+	pickerDialogStyle?: CSSProperties;
+	Picker: ComponentType<{
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+		onImported?: (project: ImportedProject) => void;
+		dialogStyle?: CSSProperties;
+	}>;
+	onImported?: (project: ImportedProject) => void;
 }
+
+export type ImportedProject = {
+	projectId: string;
+	projectName: string;
+	status: 'created' | 'updated';
+};
 
 /**
  * Card for importing a project from a git provider (GitHub, GitLab, ...), including the
@@ -22,10 +37,14 @@ export function ImportProviderCard({
 	providerLabel,
 	icon: Icon,
 	connectHref,
+	connectTarget,
 	resourceNounSingular,
 	resourceNounPlural,
 	connected,
+	className,
+	pickerDialogStyle,
 	Picker,
+	onImported,
 }: ImportProviderCardProps) {
 	const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -39,6 +58,7 @@ export function ImportProviderCard({
 						: `Connect your ${providerLabel} account to browse and import ${resourceNounPlural}.`
 				}
 				icon={<Icon className='size-4' />}
+				className={className}
 			>
 				{connected ? (
 					<div className='flex items-center justify-between'>
@@ -54,7 +74,7 @@ export function ImportProviderCard({
 					<div className='flex items-center justify-between'>
 						<p className='text-sm text-muted-foreground'>{providerLabel} is not connected yet.</p>
 						<Button variant='secondary' size='sm' asChild>
-							<a href={connectHref}>
+							<a href={connectHref} target={connectTarget}>
 								<Icon className='size-3.5' />
 								Connect {providerLabel}
 							</a>
@@ -62,7 +82,12 @@ export function ImportProviderCard({
 					</div>
 				)}
 			</SettingsCard>
-			<Picker open={pickerOpen} onOpenChange={setPickerOpen} />
+			<Picker
+				open={pickerOpen}
+				onOpenChange={setPickerOpen}
+				onImported={onImported}
+				dialogStyle={pickerDialogStyle}
+			/>
 		</>
 	);
 }

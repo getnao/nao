@@ -1,31 +1,34 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
-import { PlusIcon, Settings } from 'lucide-react';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { ArrowRight, PlusIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import type { StoryItem } from '@/lib/stories-page';
-import { buildStoryItems } from '@/lib/stories-page';
-import { useSession } from '@/lib/auth-client';
-import { capitalize, cn } from '@/lib/utils';
+
+import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
+import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
+import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
+import { MobileHeader } from '@/components/mobile-header';
 import { ProjectSwitcher } from '@/components/project-selector';
+import { StoryCard } from '@/components/stories-groups';
 import { ViewerHome } from '@/components/viewer-home';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useIsDarkMode } from '@/contexts/theme.provider';
+import { useMultiProject } from '@/hooks/use-multi-project';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
-import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
-import { ChatInput } from '@/components/chat-input';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { MobileHeader } from '@/components/mobile-header';
-import { trpc } from '@/main';
-import { useTheme } from '@/contexts/theme.provider';
-import { StoryCard } from '@/components/stories-groups';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
-import { useMultiProject } from '@/hooks/use-multi-project';
+import { useSession } from '@/lib/auth-client';
+import { buildStoryItems } from '@/lib/stories-page';
+import { capitalize, cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
-	validateSearch: (search: Record<string, unknown>): { admin?: boolean } => ({
+	validateSearch: (search: Record<string, unknown>): { admin?: boolean; example?: boolean } => ({
 		admin: search.admin === true || search.admin === 'true' ? true : undefined,
+		example: search.example === true || search.example === 'true' ? true : undefined,
 	}),
 	component: RouteComponent,
 });
@@ -44,7 +47,7 @@ function HomePage() {
 	const { setAdminMode } = useAgentContext();
 	const messages = useAgentMessages();
 	const { canChatWithNaoData } = usePermissions();
-	const { admin: adminSearch } = Route.useSearch();
+	const { admin: adminSearch, example: exampleSearch } = Route.useSearch();
 	const navigate = useNavigate();
 
 	useEffect(() => {
@@ -58,9 +61,11 @@ function HomePage() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const switchProject = useProjectSwitch(project.data?.id);
 	const multiProjectMode = useMultiProject();
+	const isCloud = useIsCloud();
 	const showProjectSetupCue = project.isSuccess && project.data === null;
+	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true);
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
-	const theme = useTheme();
+	const isDark = useIsDarkMode();
 	const isEmptyState = messages.length === 0;
 	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
 	const sharedStories = useQuery({
@@ -127,15 +132,19 @@ function HomePage() {
 	const storyGroups = useMemo(() => buildStoryGroups(latestStoryItems), [latestStoryItems]);
 	const hasMoreStories = (stories.data?.length ?? 0) > storyCols;
 
-	const isDark =
-		theme.theme === 'dark' ||
-		(theme.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 	const logoSrc = isDark ? '/darkLogo.svg' : '/lightLogo.svg';
+	const cardLogoSrc = isDark ? '/dark-card-logo.svg' : '/light-card-logo.svg';
 
 	return (
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
 			<MobileHeader />
+			{showExampleProject && (
+				<div className='absolute left-3 top-14 z-20 w-[calc(100%-1.5rem)] max-w-xs md:left-4'>
+					<ExampleProjectInfoCard />
+				</div>
+			)}
 			{messages.length === 0 &&
+				!showExampleProject &&
 				multiProjectMode === 'switch' &&
 				project.data &&
 				(projects.data?.length ?? 0) > 1 && (
@@ -158,30 +167,57 @@ function HomePage() {
 					<div
 						className={cn(
 							'relative flex flex-col items-center justify-center gap-4 p-4 w-full flex-1',
-							showProjectSetupCue ? '' : latestStoryItems.length > 0 ? 'mt-30' : '-mt-30',
+							showExampleProject || showProjectSetupCue
+								? ''
+								: latestStoryItems.length > 0
+									? 'mt-30'
+									: '-mt-30',
 						)}
 					>
-						{showProjectSetupCue ? (
-							<Card className='w-full max-w-xl border shadow-none'>
-								<CardContent className='flex flex-col gap-4 px-5 py-5'>
-									<div className='flex flex-col items-center gap-8 text-left'>
-										<div className='mt-0.5 rounded-full bg-amber-500/10 p-6 text-amber-600 dark:text-amber-400'>
-											<Settings className='size-8' strokeWidth={1.5} />
-										</div>
-										<div className='gap-3 flex flex-col items-center'>
-											<p className='font-medium text-foreground'>
-												Set up a project to start analyzing data
-											</p>
-											<p className='text-sm text-foreground'>
-												Open project settings to connect a project before starting a chat.
-											</p>
-										</div>
-										<Button asChild variant='ghost' className='border rounded-full bg-panel/50'>
-											<Link to='/settings/project'>Get started</Link>
-										</Button>
+						{showExampleProject ? (
+							<>
+								<div className='relative z-10 mb-6 max-w-2xl space-y-2 px-6 text-center'>
+									<h1 className='font-borna text-xl tracking-tight md:text-3xl'>
+										Try out nao through our Jaffle Shop data
+									</h1>
+									<p className='text-sm leading-relaxed text-muted-foreground'>
+										{username ? `Welcome, ${capitalize(username)}! ` : ''}
+										Just type what you’d like to know, nao will explore the data and turn it into a
+										clear answer.
+									</p>
+								</div>
+								<div className='relative flex w-full max-w-3xl mx-auto flex-col gap-4'>
+									<img
+										src={logoSrc}
+										alt=''
+										aria-hidden
+										className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
+									/>
+									<ChatInput variant='example' />
+									<SavedPromptSuggestions />
+								</div>
+								{showProjectSetupCue && (
+									<div className='flex w-full max-w-3xl justify-center px-4 py-6'>
+										<HomeLinkCard
+											to='/onboarding'
+											label='Guided setup'
+											title='Set up your nao project'
+											subtitle='Chat with the onboarding agent'
+											logoSrc={cardLogoSrc}
+										/>
 									</div>
-								</CardContent>
-							</Card>
+								)}
+							</>
+						) : showProjectSetupCue ? (
+							<div className='flex w-full max-w-3xl justify-center px-4 py-6'>
+								<HomeLinkCard
+									to='/settings/project'
+									label='Project required'
+									title='Configure your nao project'
+									subtitle='Set NAO_DEFAULT_PROJECT_PATH to start chatting'
+									logoSrc={cardLogoSrc}
+								/>
+							</div>
 						) : (
 							<>
 								<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
@@ -237,6 +273,49 @@ function HomePage() {
 				</>
 			)}
 		</div>
+	);
+}
+
+function HomeLinkCard({
+	to,
+	label,
+	title,
+	subtitle,
+	logoSrc,
+}: {
+	to: '/onboarding' | '/settings/project';
+	label: string;
+	title: string;
+	subtitle: string;
+	logoSrc: string;
+}) {
+	return (
+		<Link
+			to={to}
+			className={cn(
+				'group relative flex min-h-36 w-full max-w-md items-end gap-6 overflow-hidden rounded-xl border border-violet/20 bg-background p-5 text-left shadow-xs',
+				'transition-colors duration-200 hover:border-violet/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+			)}
+		>
+			<img
+				src={logoSrc}
+				alt=''
+				aria-hidden
+				className='pointer-events-none absolute left-1/2 top-1/2 w-full -translate-x-1/2 -translate-y-1/2 scale-150 select-none'
+			/>
+			<div className='relative z-10 flex min-h-24 min-w-0 flex-1 flex-col justify-between'>
+				<span className='block text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
+					{label}
+				</span>
+				<div className='max-w-72'>
+					<span className='font-borna block text-lg font-medium tracking-tight text-foreground'>{title}</span>
+					<span className='mt-1 block text-xs leading-relaxed text-muted-foreground'>{subtitle}</span>
+				</div>
+			</div>
+			<div className='bg-brand-gradient-border group-hover:bg-brand-gradient-border-hover relative z-10 flex size-9 shrink-0 self-center items-center justify-center rounded-full border border-transparent text-[oklch(1_0_0)] transition-colors'>
+				<ArrowRight className='size-4' />
+			</div>
+		</Link>
 	);
 }
 

@@ -28,6 +28,7 @@ import { mcpOAuthClientsRoutes } from './mcp-oauth-clients.routes';
 import { memberBudgetRoutes } from './member-budget.routes';
 import { memoryRoutes } from './memory.routes';
 import { notificationRoutes } from './notification.routes';
+import { onboardingRoutes } from './onboarding.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
@@ -84,6 +85,7 @@ export const trpcRouter = router({
 	userGroup: userGroupRoutes,
 	memory: memoryRoutes,
 	notification: notificationRoutes,
+	onboarding: onboardingRoutes,
 	organization: organizationRoutes,
 	authConfig: authConfigRoutes,
 	account: accountRoutes,

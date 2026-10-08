@@ -7,9 +7,11 @@ import {
 	NewspaperIcon,
 	PlusIcon,
 	SearchIcon,
+	Store,
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
 import { ChatListItem } from './sidebar-chat-list-item';
@@ -36,10 +38,11 @@ import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { invalidateStoriesCaches } from '@/lib/stories-cache';
-import { cn, hideIf } from '@/lib/utils';
+import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
+import { useSession } from '@/lib/auth-client';
 
 export function Sidebar() {
 	const navigate = useNavigate();
@@ -47,6 +50,7 @@ export function Sidebar() {
 	const matchRoute = useMatchRoute();
 	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
 	const [toggleHintOpen, setToggleHintOpen] = useState(false);
+	const [showExampleHistory, setShowExampleHistory] = useState(false);
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
@@ -56,6 +60,8 @@ export function Sidebar() {
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const isCloud = useIsCloud();
+	const hasActiveProject = project.isSuccess && project.data !== null;
+	const showJaffleShopTab = isCloud && hasActiveProject;
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const showAutomations = !isViewer && betaAutomationsEnabled;
 	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
@@ -267,6 +273,7 @@ export function Sidebar() {
 					isCloud={isCloud}
 					isCloudBillingEnabled={config.data?.cloudBillingEnabled === true}
 					isOrgAdmin={isOrgAdmin}
+					isTrial={project.data === null}
 				/>
 			) : (
 				<>
@@ -283,10 +290,21 @@ export function Sidebar() {
 						groupBy={groupBy}
 						filters={filters}
 						isViewer={isViewer}
+						isTrial={project.isSuccess && project.data === null}
+						separateExampleChats={showJaffleShopTab}
 					/>
 				</>
 			)}
 
+			{!isInSettings && showJaffleShopTab && (
+				<JaffleShopHistory
+					isCollapsed={effectiveIsCollapsed}
+					isOpen={showExampleHistory}
+					groupBy={groupBy}
+					filters={filters}
+					onToggle={() => setShowExampleHistory((isOpen) => !isOpen)}
+				/>
+			)}
 			{!isInSettings && <div className='border-b border-sidebar-border mx-2'></div>}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
@@ -399,18 +417,53 @@ function SidebarNav({
 	groupBy,
 	filters,
 	isViewer,
+	isTrial,
+	separateExampleChats,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
 	isViewer: boolean;
+	isTrial: boolean;
+	separateExampleChats: boolean;
 }) {
 	const groupedChats = useQuery({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
 		placeholderData: keepPreviousData,
 	});
-	const groups = groupedChats.data?.groups;
-	const isEmpty = groups?.every((group) => group.chats.length === 0);
+	const unfilteredChats = useQuery(trpc.chat.listGrouped.queryOptions({ groupBy: 'none', filters: ['all'] }));
+	const onboardingChat = unfilteredChats.data?.groups
+		.flatMap((group) => group.chats)
+		.find((chat) => chat.isOnboarding);
+	const onboardingChatId = onboardingChat?.id;
+	const activeOnboardingJob = useQuery({
+		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+			onboardingChatId: onboardingChatId ?? '',
+		}),
+		enabled: Boolean(onboardingChatId),
+		refetchInterval: (query) => {
+			const status = query.state.data?.status;
+			return status && status !== 'awaiting_context' ? 2000 : false;
+		},
+		refetchOnWindowFocus: 'always',
+	});
+	const onboardingNeedsAttention = activeOnboardingJob.data?.status === 'awaiting_context';
+	const groups = groupedChats.data?.groups.map((group) => {
+		if (!separateExampleChats) {
+			return group;
+		}
+		return {
+			...group,
+			chats: group.chats.filter((chat) => chat.projectId !== SYSTEM_EXAMPLE_PROJECT_ID || chat.isOnboarding),
+		};
+	});
+	const showAttentionChat =
+		onboardingNeedsAttention &&
+		onboardingChat &&
+		!groups?.some((group) => group.chats.some((chat) => chat.id === onboardingChat.id));
+	const isEmpty = !showAttentionChat && groups?.every((group) => group.chats.length === 0);
+	const { data: session } = useSession();
+	const username = session?.user?.name;
 	return (
 		<div
 			className={cn(
@@ -418,14 +471,33 @@ function SidebarNav({
 				hideIf(isCollapsed),
 			)}
 		>
+			{showAttentionChat && (
+				<div className='px-2 space-y-1'>
+					<ChatListItem chat={onboardingChat} needsAttention resumeOnboarding={isTrial} />
+				</div>
+			)}
 			{groups?.map((group) => (
-				<GroupSection key={group.label} group={group} groupBy={groupBy} />
+				<GroupSection
+					key={group.label}
+					group={group}
+					groupBy={groupBy}
+					attentionChatId={onboardingNeedsAttention ? onboardingChatId : undefined}
+					resumeOnboardingChatId={isTrial ? onboardingChatId : undefined}
+				/>
 			))}
 
 			{isEmpty && (
 				<p className='text-sm text-muted-foreground text-center p-4'>
 					{isViewer ? (
 						'No chats shared with you.'
+					) : isTrial ? (
+						<>
+							{username ? `Welcome to nao, ${capitalize(username)}! ` : ''}
+							<br />
+							Your chat history will appear here.
+							<br />
+							Start a new chat!
+						</>
 					) : (
 						<>
 							No chats yet.
@@ -434,6 +506,70 @@ function SidebarNav({
 						</>
 					)}
 				</p>
+			)}
+		</div>
+	);
+}
+
+function JaffleShopHistory({
+	isCollapsed,
+	isOpen,
+	groupBy,
+	filters,
+	onToggle,
+}: {
+	isCollapsed: boolean;
+	isOpen: boolean;
+	groupBy: ChatGroupBy;
+	filters: ChatFilterType[];
+	onToggle: () => void;
+}) {
+	const groupedChats = useQuery({
+		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
+		placeholderData: keepPreviousData,
+	});
+	const groups = groupedChats.data?.groups.map((group) => ({
+		...group,
+		chats: group.chats.filter((chat) => chat.projectId === SYSTEM_EXAMPLE_PROJECT_ID && !chat.isOnboarding),
+	}));
+	const isEmpty = groups?.every((group) => group.chats.length === 0);
+
+	return (
+		<div
+			className={cn(
+				'mx-2 mb-2 shrink-0 overflow-hidden rounded-lg border border-sidebar-border text-foreground',
+				isOpen && 'bg-sidebar-accent/40',
+				hideIf(isCollapsed),
+			)}
+		>
+			<button
+				type='button'
+				aria-expanded={isOpen}
+				onClick={onToggle}
+				className='flex w-full items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent'
+			>
+				<Store className='size-4 shrink-0 text-primary' />
+				<span className='truncate'>Jaffle Shop</span>
+				<span className='ml-auto text-[10px] font-semibold uppercase tracking-wide text-primary/70' />
+				<ChevronRight className={cn('size-3.5 shrink-0 transition-transform', isOpen && 'rotate-90')} />
+			</button>
+			{isOpen && (
+				<div className='max-h-56 overflow-y-auto border-t border-sidebar-border bg-sidebar py-1 text-foreground'>
+					<Link
+						to='/'
+						search={{ example: true }}
+						className='mx-2 flex items-center gap-2 rounded-full px-2 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-sidebar-accent'
+					>
+						<PlusIcon className='size-3.5' />
+						New chat
+					</Link>
+					{groups?.map((group) => (
+						<GroupSection key={group.label} group={group} groupBy={groupBy} storageNamespace='example' />
+					))}
+					{isEmpty && (
+						<p className='px-3 py-4 text-center text-xs text-muted-foreground'>No Jaffle Shop chats yet.</p>
+					)}
+				</div>
 			)}
 		</div>
 	);
@@ -549,8 +685,23 @@ function AutomationListItem({
 
 const GROUP_INITIAL_COUNT = 10;
 
-function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroupBy }) {
-	const { isOpen, toggle } = useSidebarSectionOpen(`section:chat-group:${group.label}`);
+function GroupSection({
+	group,
+	groupBy,
+	attentionChatId,
+	resumeOnboardingChatId,
+	storageNamespace,
+}: {
+	group: ChatGroup;
+	groupBy: ChatGroupBy;
+	attentionChatId?: string;
+	resumeOnboardingChatId?: string;
+	storageNamespace?: string;
+}) {
+	const storageKey = storageNamespace
+		? `section:${storageNamespace}:chat-group:${group.label}`
+		: `section:chat-group:${group.label}`;
+	const { isOpen, toggle } = useSidebarSectionOpen(storageKey);
 	const [expanded, setExpanded] = useState(false);
 	const hasMore = group.chats.length > GROUP_INITIAL_COUNT;
 	const visibleChats = expanded ? group.chats : group.chats.slice(0, GROUP_INITIAL_COUNT);
@@ -575,7 +726,12 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 						item.kind === 'shared' ? (
 							<SharedChatGroupItem key={`shared-${item.shareId}`} item={item} groupBy={groupBy} />
 						) : (
-							<ChatListItem key={item.id} chat={item} />
+							<ChatListItem
+								key={item.id}
+								chat={item}
+								needsAttention={item.id === attentionChatId}
+								resumeOnboarding={item.id === resumeOnboardingChatId}
+							/>
 						),
 					)}
 

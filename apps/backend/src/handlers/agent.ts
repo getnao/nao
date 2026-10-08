@@ -1,15 +1,16 @@
 import { documentMediaType, type ImageUploadData } from '@nao/shared/attachments';
 
 import { renderAdminSystemPrompt } from '../components/ai';
+import { renderOnboardingSystemPrompt } from '../components/ai/onboarding-system-prompt';
 import { noProjectMessage } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
-import { adminAgentTools, agentService } from '../services/agent';
+import { adminAgentTools, agentService, onboardingAgentTools } from '../services/agent';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
 import type { StorageScope } from '../services/storage';
 import { statUserFile } from '../services/storage/user-files';
-import { AgentRequest, AgentRequestUserMessage, MessageSource, UIMessagePart } from '../types/chat';
+import { AgentRequest, AgentRequestUserMessage, MessageSource, TokenUsage, UIMessagePart } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { buildImageUrl } from '../utils/image';
@@ -18,6 +19,8 @@ import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from '../u
 interface HandleAgentMessageInput extends AgentRequest {
 	userId: string;
 	projectId: string | undefined;
+	onFinish?: (usage: TokenUsage) => Promise<void> | void;
+	projectAccessAlreadyAuthorized?: boolean;
 }
 
 interface HandleAgentMessageResult {
@@ -28,7 +31,7 @@ interface HandleAgentMessageResult {
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
-	const { userId, message, messageToEditId, model, mentions, projectId, adminMode } = opts;
+	const { userId, message, messageToEditId, model, mentions, projectId, adminMode, mode } = opts;
 
 	if (!projectId) {
 		throw new HandlerError('BAD_REQUEST', noProjectMessage());
@@ -36,7 +39,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	await agentService.assertBudget(projectId, model, userId);
 
-	const source: MessageSource = adminMode ? 'admin' : 'web';
+	const source: MessageSource = mode === 'onboarding' ? 'onboarding' : adminMode ? 'admin' : 'web';
 	const scope: StorageScope = { projectId, userId };
 	let chatId = opts.chatId;
 	const isNewChat = !chatId;
@@ -67,16 +70,25 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
 
-	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
-		billingAccessVerifiedProjectId: projectId,
-		...(adminMode
+	const agentOptions =
+		mode === 'onboarding'
 			? {
-					tools: adminAgentTools,
-					systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
-					adminMode: true,
-					isBudgetChecked: true,
+					tools: onboardingAgentTools,
+					systemPrompt: renderOnboardingSystemPrompt(),
 				}
-			: { isBudgetChecked: true }),
+			: adminMode
+				? {
+						tools: adminAgentTools,
+						systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
+						adminMode: true,
+					}
+				: undefined;
+
+	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
+		...agentOptions,
+		billingAccessVerifiedProjectId: projectId,
+		isBudgetChecked: true,
+		projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
 	});
 
 	const isForkedFirstMessage =
@@ -87,6 +99,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	const stream = agent.stream(chat.messages, {
 		mentions,
 		timezone: opts.timezone,
+		onFinish: opts.onFinish,
 		events: {
 			newChat: shouldEmitNewChat
 				? {

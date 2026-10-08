@@ -96,6 +96,12 @@ function loadEnvWithOverrides(overrides: NodeJS.ProcessEnv) {
 			env: {
 				PATH: process.env.PATH,
 				...overrides,
+				...(overrides.NAO_MODE === 'cloud' && {
+					CLOUD_GITHUB_PROJECT_ORG: 'test-org',
+					CLOUD_GITHUB_PROJECT_APP_ID: '123',
+					CLOUD_GITHUB_PROJECT_INSTALLATION_ID: '456',
+					CLOUD_GITHUB_PROJECT_PRIVATE_KEY: 'test-private-key',
+				}),
 			},
 		});
 	} finally {

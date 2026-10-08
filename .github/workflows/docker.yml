@@ -360,6 +360,10 @@ jobs:
                           -e "STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=${{ secrets.NAOCLOUD_STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY }}" \
                           -e "GOOGLE_CLIENT_ID=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_ID }}" \
                           -e "GOOGLE_CLIENT_SECRET=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_SECRET }}" \
+                          -e "CLOUD_GITHUB_PROJECT_ORG=${{ secrets.NAOCLOUD_GITHUB_PROJECT_ORG }}" \
+                          -e "CLOUD_GITHUB_PROJECT_APP_ID=${{ secrets.NAOCLOUD_GITHUB_PROJECT_APP_ID }}" \
+                          -e "CLOUD_GITHUB_PROJECT_INSTALLATION_ID=${{ secrets.NAOCLOUD_GITHUB_PROJECT_INSTALLATION_ID }}" \
+                          -e "CLOUD_GITHUB_PROJECT_PRIVATE_KEY=${{ secrets.NAOCLOUD_GITHUB_PROJECT_PRIVATE_KEY }}" \
                           "$IMAGE"
 
                       HEALTHY=false

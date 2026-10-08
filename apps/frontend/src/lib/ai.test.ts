@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { areGroupedMessagePartsEqual, checkAssistantMessageHasContent, groupToolCalls } from './ai';
+import {
+	areGroupedMessagePartsEqual,
+	checkAssistantMessageHasContent,
+	groupToolCalls,
+	isOnboardingContextRequestMessage,
+	ONBOARDING_CONTEXT_REQUEST_PREFIX,
+} from './ai';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
 import type { GroupedMessagePart } from '@/types/ai';
 
@@ -181,5 +187,17 @@ describe('progress updates', () => {
 
 		expect(checkAssistantMessageHasContent(withUpdate)).toBe(true);
 		expect(checkAssistantMessageHasContent(withoutUpdate)).toBe(false);
+	});
+});
+
+describe('isOnboardingContextRequestMessage', () => {
+	it('recognizes only internal onboarding context requests', () => {
+		const message = {
+			role: 'user',
+			parts: [{ type: 'text', text: `${ONBOARDING_CONTEXT_REQUEST_PREFIX} jobId=test` }],
+		} as UIMessage;
+
+		expect(isOnboardingContextRequestMessage(message)).toBe(true);
+		expect(isOnboardingContextRequestMessage({ ...message, role: 'assistant' })).toBe(false);
 	});
 });

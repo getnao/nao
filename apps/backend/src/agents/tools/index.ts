@@ -19,13 +19,17 @@ import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSemanticQuery from './execute-semantic-query';
 import executeSql, { localOnlyExecuteSql } from './execute-sql';
+import generateOnboardingRules from './generate-onboarding-rules';
 import grep from './grep';
 import list from './list';
 import loadSkill from './load-skill';
 import { createMcpCallTool } from './mcp-call';
 import { createMcpConnectTool } from './mcp-connect';
+import onboardingCommand from './onboarding-command';
+import onboardingProgress from './onboarding-progress';
 import read from './read';
 import readQueryResult from './read-query-result';
+import requestWarehouseCredentials from './request-warehouse-credentials';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import strReplace, { buildStrReplaceToolDescription } from './str-replace';
@@ -52,6 +56,10 @@ export const tools = {
 	grep,
 	list,
 	load_skill: loadSkill,
+	onboarding_command: onboardingCommand,
+	onboarding_progress: onboardingProgress,
+	request_warehouse_credentials: requestWarehouseCredentials,
+	generate_onboarding_rules: generateOnboardingRules,
 	read,
 	search,
 	task,
@@ -69,11 +77,11 @@ export const getTools = (
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
 		excludeFollowUps?: boolean;
+		onboarding?: boolean;
 		/**
-		 * Restricts the built-in tools to this allowlist (by tool name). MCP, python,
-		 * sandboxing and clarification tools are dropped entirely. `extraTools` are
-		 * always kept. Used by focused runs (e.g. context recommendations) that should
-		 * only discover context, not query the warehouse or render charts.
+		 * Restricts generated tools to this allowlist by tool name. `extraTools` are always
+		 * kept. Used by focused runs (e.g. context recommendations) that should only discover
+		 * context, not query the warehouse or render charts.
 		 */
 		builtinToolAllowlist?: string[];
 		/**
@@ -116,6 +124,11 @@ export const getTools = (
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
+		clarification: clarificationTool,
+		onboarding_command: onboardingCommandTool,
+		onboarding_progress: onboardingProgressTool,
+		request_warehouse_credentials: requestWarehouseCredentialsTool,
+		generate_onboarding_rules: generateOnboardingRulesTool,
 		suggest_follow_ups,
 		task: taskTool,
 		write: writeTool,
@@ -139,6 +152,13 @@ export const getTools = (
 
 	const allTools = {
 		...baseTools,
+		clarification: clarificationTool,
+		...(options.onboarding && {
+			onboarding_command: onboardingCommandTool,
+			onboarding_progress: onboardingProgressTool,
+			request_warehouse_credentials: requestWarehouseCredentialsTool,
+			generate_onboarding_rules: generateOnboardingRulesTool,
+		}),
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),

@@ -65,6 +65,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
+import { serializeError } from '../utils/logger';
 import { sanitizeToolCallIds } from '../utils/model-message';
 import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
@@ -79,6 +80,7 @@ import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
+import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
@@ -170,6 +172,22 @@ export const defaultAgentToolsExcluding =
 			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 		});
 
+export const onboardingAgentTools: AgentToolsResolver = ({ agentSettings }) =>
+	getTools(
+		agentSettings,
+		{},
+		{
+			onboarding: true,
+			builtinToolAllowlist: [
+				'clarification',
+				'onboarding_command',
+				'onboarding_progress',
+				'request_warehouse_credentials',
+				'generate_onboarding_rules',
+			],
+		},
+	);
+
 /**
  * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
  * runs against nao's own app database when `ToolContext.adminMode` is set),
@@ -199,6 +217,7 @@ export async function buildToolContext(opts: {
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
 	modelSelection?: LlmSelectedModel;
+	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -227,6 +246,7 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
+	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
@@ -235,9 +255,11 @@ async function _buildContextBase(opts: {
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
-		projectQueries.getEnvVars(opts.projectId),
+		getProjectRuntimeEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
-		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
+		resolveProjectContextAccess(opts.projectId, opts.userId, project.path, {
+			projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
+		}),
 	]);
 	return {
 		projectFolder: project.path,
@@ -312,6 +334,8 @@ export class AgentService {
 			billingAccessVerifiedProjectId?: string;
 			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
 			isBudgetChecked?: boolean;
+			/** The request boundary has already authorized access to an internal system project. */
+			projectAccessAlreadyAuthorized?: boolean;
 		} = {},
 	): Promise<AgentManager> {
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
@@ -335,6 +359,7 @@ export class AgentService {
 			adminMode: options.adminMode,
 			supportsCustomCharts: options.supportsCustomCharts,
 			modelSelection: resolvedLlmSelectedModel,
+			projectAccessAlreadyAuthorized: options.projectAccessAlreadyAuthorized,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
@@ -539,6 +564,7 @@ class AgentManager {
 			provider?: Provider;
 			timezone?: string;
 			chatUrl?: string;
+			onFinish?: (usage: TokenUsage) => Promise<void> | void;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -617,6 +643,17 @@ class AgentManager {
 						llmProvider: this._modelSelection.provider,
 						llmModelId: this._modelSelection.modelId,
 					});
+					if (tokenUsage) {
+						try {
+							await opts.onFinish?.(tokenUsage);
+						} catch (err) {
+							logger.error('Agent onFinish callback failed', {
+								source: 'agent',
+								projectId: this.chat.projectId,
+								context: { error: serializeError(err), chatId: this.chat.id },
+							});
+						}
+					}
 				} finally {
 					this._finish();
 				}

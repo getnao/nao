@@ -8,13 +8,16 @@ import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSemanticQueryToolCall } from './execute-semantic-query';
 import { ExecuteSqlToolCall } from './execute-sql';
+import { GenerateOnboardingRulesToolCall } from './generate-onboarding-rules';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { McpToolCall } from './mcp';
+import { OnboardingCommandToolCall } from './onboarding-command';
 import { QueryAppDbToolCall } from './query-app-db';
 import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
+import { RequestWarehouseCredentialsToolCall } from './request-warehouse-credentials';
 import { SearchToolCall } from './search';
 import { StrReplaceToolCall } from './str-replace';
 import { TaskToolCall } from './task';
@@ -41,10 +44,13 @@ const toolComponents: Partial<{
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	execute_semantic_query: ExecuteSemanticQueryToolCall,
+	generate_onboarding_rules: GenerateOnboardingRulesToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
+	onboarding_command: OnboardingCommandToolCall,
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
+	request_warehouse_credentials: RequestWarehouseCredentialsToolCall,
 	search: SearchToolCall,
 	str_replace: StrReplaceToolCall,
 	task: TaskToolCall,
@@ -68,7 +74,11 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 
 	// Neither is the agent talking to the user: follow-ups render in their own strip, and a
 	// built-in skill is internal guidance nobody should have to see the agent consult.
-	if (toolPart.type === 'tool-suggest_follow_ups' || toolPart.type === 'tool-load_skill') {
+	if (
+		toolPart.type === 'tool-suggest_follow_ups' ||
+		toolPart.type === 'tool-load_skill' ||
+		toolPart.type === 'tool-onboarding_progress'
+	) {
 		return null;
 	}
 
