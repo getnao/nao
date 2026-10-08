@@ -4,6 +4,7 @@ import { McpTitle } from './mcp-title';
 import type { ToolCallComponentProps } from '.';
 import type { McpTarget } from '@/lib/mcp';
 import { getMcpTarget } from '@/lib/mcp';
+import { getReadContextLabel } from '@/lib/file-path';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { markdownPlugins } from '@/lib/markdown';
 
@@ -176,28 +177,4 @@ const FilePathBreadcrumb = ({ filePath }: { filePath: string }) => {
 			))}
 		</span>
 	);
-};
-
-const getReadContextLabel = (filePath?: string): string | null => {
-	if (!filePath) {
-		return null;
-	}
-
-	const schemaMatch = filePath.match(/\/schema=([^/]+)/);
-	const tableMatch = filePath.match(/\/table=([^/]+)/);
-	if (schemaMatch && tableMatch) {
-		return `${schemaMatch[1]}.${tableMatch[1]}`;
-	}
-
-	const pathSegments = filePath.split('/').filter(Boolean);
-	if (pathSegments.length < 2) {
-		return null;
-	}
-
-	const parentDir = pathSegments[pathSegments.length - 2];
-	if (!parentDir || parentDir.includes('=')) {
-		return null;
-	}
-
-	return parentDir;
 };

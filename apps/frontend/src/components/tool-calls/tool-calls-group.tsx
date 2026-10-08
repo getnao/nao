@@ -19,15 +19,15 @@ export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
 	const isLoading = !isSettled;
 	const hasError = parts.some((p) => !isReasoningPart(p) && p.state === 'output-error');
 	const { expandOnError } = useChatView();
-	const [isExpanded, setIsExpanded] = useState(isLoading || (expandOnError && hasError));
+	const [isExpanded, setIsExpanded] = useState(expandOnError && hasError);
 
 	useEffect(() => {
-		if (isLoading || (expandOnError && hasError)) {
+		if (expandOnError && hasError) {
 			setIsExpanded(true);
 		}
-	}, [isLoading, expandOnError, hasError]);
+	}, [expandOnError, hasError]);
 
-	const title = useToolGroupSummaryTitle({ parts, isLoading });
+	const title = useToolGroupSummaryTitle({ parts, isLoading, isExpanded });
 	const groupedParts = useMemo(() => groupMcpToolCalls(parts), [parts]);
 
 	return (
