@@ -213,6 +213,22 @@ describe('user management API', () => {
 		expect(await db.select().from(s.user).where(eq(s.user.id, invitedId)).execute()).toHaveLength(0);
 	});
 
+	it('keeps the account of an invitation that was used, even before it was accepted', async () => {
+		// The integrations answer as the linked user, so someone still on their temporary password can
+		// own a message (in a chat that is not theirs) without ever accepting the invitation in the web
+		// app. That person has used the account, so revoking must not delete the row.
+		const invited = await post('/user-management/users', { email: 'used@example.com', name: 'Used Already' });
+		const invitedId = invited.json().user.id;
+		await db.insert(s.chat).values({ id: 'chat-admin', userId: ADMIN_ID, projectId: PROJECT_ID }).execute();
+		await db
+			.insert(s.chatMessage)
+			.values({ id: 'msg-admin', chatId: 'chat-admin', senderUserId: invitedId, role: 'user' })
+			.execute();
+
+		expect((await del(`/user-management/users/${invitedId}`)).statusCode).toBe(204);
+		expect(await db.select().from(s.user).where(eq(s.user.id, invitedId)).execute()).toHaveLength(1);
+	});
+
 	it('deletes the account only when purge says so in words', async () => {
 		// An accepted member survives an ordinary revocation, purge spelled out as false included.
 		expect((await del(`/user-management/users/${ACCEPTED_ID}?purge=false`)).statusCode).toBe(204);
