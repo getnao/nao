@@ -3,7 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
-import { settleInterruptedToolParts } from '../src/utils/ai';
+import {
+	MALFORMED_TOOL_INPUT_ERROR_TEXT,
+	recoverMalformedToolInputs,
+	settleInterruptedToolParts,
+} from '../src/utils/ai';
 import { buildUsernameAllowlist, formatErrorMessageForUI, replaceEnvVars, truncateMiddle } from '../src/utils/utils';
 
 describe('buildUsernameAllowlist', () => {
@@ -214,5 +218,70 @@ describe('settleInterruptedToolParts', () => {
 		const original = message('assistant', [textPart('hi'), toolPart('output-available')]);
 		const result = settleInterruptedToolParts([original]);
 		expect(result[0]).toBe(original);
+	});
+});
+
+describe('recoverMalformedToolInputs', () => {
+	const truncatedRawInput = '{"id":"sales","action":"create","title":"Sales","code":"# Sales\\n<chart query_id=\\"q1';
+
+	const malformedStoryPart = (overrides: Record<string, unknown> = {}): UIMessagePart =>
+		({
+			type: 'tool-story',
+			toolCallId: 'c1',
+			state: 'output-error',
+			input: undefined,
+			rawInput: truncatedRawInput,
+			errorText: `Invalid input for tool story: JSON parsing failed: Text: ${truncatedRawInput}.`,
+			...overrides,
+		}) as unknown as UIMessagePart;
+
+	const message = (parts: UIMessagePart[], role: UIMessage['role'] = 'assistant'): UIMessage =>
+		({ id: 'm1', role, parts }) as UIMessage;
+
+	const asTool = (part: UIMessagePart) =>
+		part as unknown as { state: string; input: unknown; rawInput?: unknown; errorText?: string };
+
+	it('recovers the object hidden in the truncated raw input and explains the failure to the model', async () => {
+		const [result] = await recoverMalformedToolInputs([message([malformedStoryPart()])]);
+		const tool = asTool(result.parts[0]);
+		expect(tool.state).toBe('output-error');
+		expect(tool.input).toEqual({
+			id: 'sales',
+			action: 'create',
+			title: 'Sales',
+			code: '# Sales\n<chart query_id="q1',
+		});
+		expect(tool.errorText).toBe(MALFORMED_TOOL_INPUT_ERROR_TEXT);
+		expect(tool.rawInput).toBe(truncatedRawInput);
+	});
+
+	it('recovers a raw string persisted as the input itself', async () => {
+		const [result] = await recoverMalformedToolInputs([
+			message([malformedStoryPart({ input: '{"id":"sales","act', rawInput: undefined })]),
+		]);
+		expect(asTool(result.parts[0]).input).toEqual({ id: 'sales' });
+	});
+
+	it('falls back to an empty object when nothing can be recovered', async () => {
+		const [result] = await recoverMalformedToolInputs([
+			message([malformedStoryPart({ input: null, rawInput: '' })]),
+		]);
+		expect(asTool(result.parts[0]).input).toEqual({});
+	});
+
+	it('leaves failed tool calls whose input is an object untouched', async () => {
+		const original = message([
+			malformedStoryPart({ input: { id: 'sales' }, errorText: 'Story "sales" already exists.' }),
+		]);
+		const [result] = await recoverMalformedToolInputs([original]);
+		expect(result).toBe(original);
+	});
+
+	it('leaves successful tool calls and user messages untouched', async () => {
+		const successful = message([malformedStoryPart({ state: 'output-available', output: { success: true } })]);
+		const user = message([malformedStoryPart()], 'user');
+		const result = await recoverMalformedToolInputs([successful, user]);
+		expect(result[0]).toBe(successful);
+		expect(result[1]).toBe(user);
 	});
 });
