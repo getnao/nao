@@ -10,6 +10,7 @@ import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { ChatAccessError } from '@/components/chat-access-error';
+import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
@@ -270,6 +271,10 @@ function ChatPage() {
 							<>
 								<HighlightBubble onAsk={handleSelectionAsk} disabled={isRunning} />
 								<ChatMessages />
+								<ChatArtifactsMenu
+									chatId={chatId}
+									className='absolute right-4 top-12 z-20 animate-fade-in max-md:top-16'
+								/>
 							</>
 						)}
 						<StoryBlockEditPanel chatId={chatId} />
