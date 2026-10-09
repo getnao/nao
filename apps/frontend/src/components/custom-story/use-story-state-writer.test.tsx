@@ -46,4 +46,27 @@ describe('useStoryStateWriter', () => {
 		expect(saveStoryState).toHaveBeenCalledWith(DATA_SOURCE, { key: 'score', value: 9, shared: true });
 		expect(saveStoryState).toHaveBeenCalledWith(DATA_SOURCE, { key: 'score', value: 1, shared: false });
 	});
+
+	it('saves pending changes right away when the story unmounts', () => {
+		const { result, unmount } = renderHook(() => useStoryStateWriter(DATA_SOURCE, vi.fn()));
+
+		act(() => result.current({ key: 'tab', value: 'orders', shared: false }));
+		unmount();
+
+		expect(saveStoryState).toHaveBeenCalledWith(DATA_SOURCE, { key: 'tab', value: 'orders', shared: false });
+	});
+
+	it('reports a save that fails', async () => {
+		saveStoryState.mockRejectedValueOnce(new Error('Forbidden'));
+		const reportError = vi.fn();
+		const { result } = renderHook(() => useStoryStateWriter(DATA_SOURCE, reportError));
+
+		act(() => {
+			result.current({ key: 'tab', value: 'orders', shared: false });
+			vi.runAllTimers();
+		});
+		await act(() => Promise.resolve());
+
+		expect(reportError).toHaveBeenCalledWith('The story state "tab" could not be saved: Forbidden');
+	});
 });
