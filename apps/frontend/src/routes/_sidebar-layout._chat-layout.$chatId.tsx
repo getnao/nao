@@ -273,7 +273,7 @@ function ChatPage() {
 								<ChatMessages />
 								<ChatArtifactsMenu
 									chatId={chatId}
-									className='absolute right-4 bottom-[calc(var(--chat-input-height,0px)+1rem)] z-20 animate-fade-in-up'
+									className='absolute right-4 top-12 z-20 animate-fade-in max-md:top-16'
 								/>
 							</>
 						)}
