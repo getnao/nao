@@ -1,11 +1,14 @@
-import { createContext, useContext, useLayoutEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/shim/with-selector';
 import type { UIMessage } from '@nao/backend/chat';
 
-import type { AgentHelpers } from '@/hooks/use-agent';
+import type { AgentHelpers, SendMessageArgs } from '@/hooks/use-agent';
+import { useManagedWelcomeGrant } from '@/components/managed-welcome-grant-dialog';
 import { useAgent, useSyncMessages } from '@/hooks/use-agent';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useStreamEndSound } from '@/hooks/use-stream-end-sound';
+import { chatInputRestoreStore } from '@/stores/chat-input-restore';
 
 export const AgentContext = createContext<AgentHelpers | null>(null);
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -42,14 +45,60 @@ export interface Props {
 
 export const AgentProvider = ({ children, disableNavigation }: Props) => {
 	const agent = useAgent({ disableNavigation });
+	const navigate = useNavigate();
+	const { confirmBeforeSend } = useManagedWelcomeGrant();
 	const [messagesStore] = useState(() => createAgentMessagesStore(agent.messages));
+	const confirmAgentSend = useCallback(
+		() => confirmBeforeSend(agent.selectedModel?.provider),
+		[confirmBeforeSend, agent.selectedModel?.provider],
+	);
+	const switchProject = useCallback(
+		async (decision: Awaited<ReturnType<typeof confirmAgentSend>>) => {
+			if (decision === 'switch-project') {
+				await navigate({ to: '/' });
+			}
+		},
+		[navigate],
+	);
+	const queueOrSendMessage = useCallback<AgentHelpers['queueOrSendMessage']>(
+		async (args) => {
+			const decision = await confirmAgentSend();
+			if (decision === 'send') {
+				return agent.queueOrSendMessage(args);
+			}
+			restoreChatInput(args);
+			await switchProject(decision);
+		},
+		[agent, confirmAgentSend, switchProject],
+	);
+	const editMessage = useCallback<AgentHelpers['editMessage']>(
+		async (args) => {
+			const decision = await confirmAgentSend();
+			if (decision === 'send') {
+				return agent.editMessage(args);
+			}
+			restoreChatInput(args);
+			await switchProject(decision);
+		},
+		[agent, confirmAgentSend, switchProject],
+	);
+	const resendMessage = useCallback<AgentHelpers['resendMessage']>(
+		async (args) => {
+			const decision = await confirmAgentSend();
+			if (decision === 'send') {
+				return agent.resendMessage(args);
+			}
+			await switchProject(decision);
+		},
+		[agent, confirmAgentSend, switchProject],
+	);
 	const value = useMemo<AgentHelpers>(
 		() => ({
 			chatId: agent.chatId,
 			setMessages: agent.setMessages,
-			queueOrSendMessage: agent.queueOrSendMessage,
-			editMessage: agent.editMessage,
-			resendMessage: agent.resendMessage,
+			queueOrSendMessage,
+			editMessage,
+			resendMessage,
 			switchMessageVersion: agent.switchMessageVersion,
 			submitQueuedMessageNow: agent.submitQueuedMessageNow,
 			status: agent.status,
@@ -67,9 +116,9 @@ export const AgentProvider = ({ children, disableNavigation }: Props) => {
 		[
 			agent.chatId,
 			agent.setMessages,
-			agent.queueOrSendMessage,
-			agent.editMessage,
-			agent.resendMessage,
+			queueOrSendMessage,
+			editMessage,
+			resendMessage,
 			agent.switchMessageVersion,
 			agent.submitQueuedMessageNow,
 			agent.status,
@@ -188,3 +237,12 @@ function createAgentMessagesStore(initialMessages: UIMessage[]): AgentMessagesSt
 
 const noop = () => {};
 const noopPromise = async () => {};
+
+function restoreChatInput(args: SendMessageArgs) {
+	chatInputRestoreStore.set({
+		text: args.text,
+		images: args.images?.map((image) => ({ url: image.data, mediaType: image.mediaType })) ?? [],
+		documents: args.documents ?? [],
+		citation: args.citation,
+	});
+}

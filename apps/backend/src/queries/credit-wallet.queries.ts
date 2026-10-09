@@ -5,6 +5,16 @@ import { db } from '../db/db';
 
 export type CreditCursor = { createdAt: Date; id: string };
 
+export async function getWelcomeGrantClaim(userId: string): Promise<{ orgId: string | null } | null> {
+	const [claim] = await db
+		.select({ orgId: s.creditWallet.orgId })
+		.from(s.creditLedger)
+		.innerJoin(s.creditWallet, eq(s.creditLedger.walletId, s.creditWallet.id))
+		.where(eq(s.creditLedger.idempotencyKey, `welcome-user:v1:${userId}`))
+		.limit(1);
+	return claim ?? null;
+}
+
 export async function getCreditSummary(orgId: string): Promise<{
 	balanceMicroUsd: number;
 	lifetimeGrantedMicroUsd: number;

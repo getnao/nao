@@ -32,6 +32,13 @@ export class ManagedCreditsExhaustedError extends HandlerError {
 	}
 }
 
+export class WelcomeGrantConfirmationRequiredError extends HandlerError {
+	constructor() {
+		super('FORBIDDEN', 'Confirm the organization for your welcome credit before using nao-managed AI.');
+		this.name = 'WelcomeGrantConfirmationRequiredError';
+	}
+}
+
 const httpStatusByHandlerErrorCode: Record<HandlerErrorCode, number> = {
 	BAD_REQUEST: 400,
 	UNAUTHORIZED: 401,

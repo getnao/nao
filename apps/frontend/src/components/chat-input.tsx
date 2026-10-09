@@ -152,8 +152,8 @@ function ChatInputBase({
 		enabled: !!selectedModel?.provider && selectedModel.provider !== 'nao',
 		refetchOnWindowFocus: false,
 	});
-	const managedBalance = useQuery({
-		...trpc.account.getCreditSummary.queryOptions(),
+	const managedCredit = useQuery({
+		...trpc.account.getManagedCreditStatus.queryOptions(),
 		enabled: selectedModel?.provider === 'nao',
 		refetchOnWindowFocus: false,
 	});
@@ -162,8 +162,9 @@ function ChatInputBase({
 		budgetStatus.data?.level === 'exceeded' ||
 		!!parseManagedCreditsError(error) ||
 		(selectedModel?.provider === 'nao' &&
-			managedBalance.data?.balanceMicroUsd !== undefined &&
-			managedBalance.data.balanceMicroUsd <= 0);
+			managedCredit.data?.welcomeGrantStatus !== 'unclaimed' &&
+			managedCredit.data?.balanceMicroUsd !== undefined &&
+			managedCredit.data.balanceMicroUsd <= 0);
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -658,16 +659,20 @@ function BudgetBanner() {
 		enabled: !!selectedModel?.provider && !isManaged,
 		refetchOnWindowFocus: false,
 	});
-	const managedBalance = useQuery({
-		...trpc.account.getCreditSummary.queryOptions(),
+	const managedCredit = useQuery({
+		...trpc.account.getManagedCreditStatus.queryOptions(),
 		enabled: isManaged,
 		refetchOnWindowFocus: false,
 	});
 
 	const managedError = parseManagedCreditsError(error);
-	const balanceMicroUsd = managedBalance.data?.balanceMicroUsd;
+	const balanceMicroUsd = managedCredit.data?.balanceMicroUsd;
 	const managedExhausted =
-		isManaged && (managedError !== null || (balanceMicroUsd !== undefined && balanceMicroUsd <= 0));
+		isManaged &&
+		(managedError !== null ||
+			(managedCredit.data?.welcomeGrantStatus !== 'unclaimed' &&
+				balanceMicroUsd !== undefined &&
+				balanceMicroUsd <= 0));
 	const budgetError = parseBudgetError(error);
 	const budgetLevel = budgetError ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
 	const budgetMessage = budgetError ?? (budgetLevel !== 'ok' ? budgetStatus.data?.message : null);

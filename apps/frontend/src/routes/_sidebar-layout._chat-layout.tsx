@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
+import { ManagedWelcomeGrantProvider } from '@/components/managed-welcome-grant-dialog';
 import { AgentProvider } from '@/contexts/agent.provider';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
@@ -11,9 +12,11 @@ function RouteComponent() {
 	return (
 		<SetChatInputCallbackProvider>
 			<StoryBeforeAgentSendProvider>
-				<AgentProvider>
-					<Outlet />
-				</AgentProvider>
+				<ManagedWelcomeGrantProvider>
+					<AgentProvider>
+						<Outlet />
+					</AgentProvider>
+				</ManagedWelcomeGrantProvider>
 			</StoryBeforeAgentSendProvider>
 		</SetChatInputCallbackProvider>
 	);

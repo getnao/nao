@@ -14,9 +14,9 @@ import { withAiUsageMetering } from '../src/agents/managed-ai';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { listAiUsage } from '../src/queries/ai-usage.queries';
-import { getCreditSummary, listCreditLedger } from '../src/queries/credit-wallet.queries';
+import { getCreditSummary, getWelcomeGrantClaim, listCreditLedger } from '../src/queries/credit-wallet.queries';
 import { ensureWelcomeGrant, recordUsage, WELCOME_GRANT_MICRO_USD } from '../src/services/credit-wallet.service';
-import { ManagedCreditsExhaustedError } from '../src/utils/error';
+import { ManagedCreditsExhaustedError, WelcomeGrantConfirmationRequiredError } from '../src/utils/error';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -41,9 +41,13 @@ const MANAGED_USER_ID = 'managed-user';
 const BYOK_USER_ID = 'byok-user';
 const EXHAUSTED_USER_ID = 'exhausted-user';
 const SECOND_USER_ID = 'second-user';
+const UNCLAIMED_USER_ID = 'unclaimed-user';
+const RACE_USER_ID = 'race-user';
 const ORG_ID = 'managed-org';
 const POOL_ORG_ID = 'pool-org';
 const EXHAUSTED_ORG_ID = 'exhausted-org';
+const RACE_ORG_A_ID = 'race-org-a';
+const RACE_ORG_B_ID = 'race-org-b';
 const PROJECT_ID = 'managed-project';
 const CHAT_ID = 'managed-chat';
 const MESSAGE_ID = 'managed-message';
@@ -60,11 +64,15 @@ describe('AI usage and organization credits', () => {
 			{ id: BYOK_USER_ID, name: 'BYOK User', email: 'byok@example.com' },
 			{ id: EXHAUSTED_USER_ID, name: 'Exhausted User', email: 'exhausted@example.com' },
 			{ id: SECOND_USER_ID, name: 'Second User', email: 'second@example.com' },
+			{ id: UNCLAIMED_USER_ID, name: 'Unclaimed User', email: 'unclaimed@example.com' },
+			{ id: RACE_USER_ID, name: 'Race User', email: 'race@example.com' },
 		]);
 		await db.insert(s.organization).values([
 			{ id: ORG_ID, name: 'Managed Org', slug: ORG_ID },
 			{ id: POOL_ORG_ID, name: 'Pool Org', slug: POOL_ORG_ID },
 			{ id: EXHAUSTED_ORG_ID, name: 'Exhausted Org', slug: EXHAUSTED_ORG_ID },
+			{ id: RACE_ORG_A_ID, name: 'Race Org A', slug: RACE_ORG_A_ID },
+			{ id: RACE_ORG_B_ID, name: 'Race Org B', slug: RACE_ORG_B_ID },
 		]);
 		await db.insert(s.project).values({
 			id: PROJECT_ID,
@@ -91,6 +99,21 @@ describe('AI usage and organization credits', () => {
 
 	afterAll(() => {
 		db.$client.close();
+	});
+
+	it('requires confirmation before an unclaimed user can call a managed model', async () => {
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withAiUsageMetering(createModel(providerCall), 'nao', 'gpt-5.6-luna', {
+			userId: UNCLAIMED_USER_ID,
+			orgId: ORG_ID,
+			category: 'chat',
+		});
+
+		await expect(model.doGenerate({} as LanguageModelV3CallOptions)).rejects.toBeInstanceOf(
+			WelcomeGrantConfirmationRequiredError,
+		);
+		expect(providerCall).not.toHaveBeenCalled();
+		expect(await getWelcomeGrantClaim(UNCLAIMED_USER_ID)).toBeNull();
 	});
 
 	it('creates the welcome gift exactly once', async () => {
@@ -120,6 +143,35 @@ describe('AI usage and organization credits', () => {
 		expect((await getCreditSummary(POOL_ORG_ID)).balanceMicroUsd).toBe(2 * WELCOME_GRANT_MICRO_USD);
 		expect(secondOrgForSecondUser.balanceMicroUsd).toBe(WELCOME_GRANT_MICRO_USD);
 		expect((await listCreditLedger(ORG_ID, { limit: 100 })).groups).toHaveLength(1);
+	});
+
+	it('keeps one winning organization when two claims race', async () => {
+		await Promise.all([
+			ensureWelcomeGrant(RACE_ORG_A_ID, RACE_USER_ID),
+			ensureWelcomeGrant(RACE_ORG_B_ID, RACE_USER_ID),
+		]);
+
+		const claim = await getWelcomeGrantClaim(RACE_USER_ID);
+		expect([RACE_ORG_A_ID, RACE_ORG_B_ID]).toContain(claim?.orgId);
+		const total =
+			(await getCreditSummary(RACE_ORG_A_ID)).balanceMicroUsd +
+			(await getCreditSummary(RACE_ORG_B_ID)).balanceMicroUsd;
+		expect(total).toBe(WELCOME_GRANT_MICRO_USD);
+	});
+
+	it('allows members whose grant was claimed elsewhere to use a funded shared wallet', async () => {
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withAiUsageMetering(createModel(providerCall), 'nao', 'gpt-5.6-luna', {
+			userId: SECOND_USER_ID,
+			orgId: ORG_ID,
+			projectId: PROJECT_ID,
+			category: 'chat',
+		});
+
+		await model.doGenerate({} as LanguageModelV3CallOptions);
+
+		expect(providerCall).toHaveBeenCalledOnce();
+		expect(await getWelcomeGrantClaim(SECOND_USER_ID)).toEqual({ orgId: POOL_ORG_ID });
 	});
 
 	it('rejects managed usage without a billed organization before calling the provider', async () => {
@@ -277,7 +329,7 @@ describe('AI usage and organization credits', () => {
 		const otherOrgUsage = await listAiUsage({ orgId: POOL_ORG_ID }, { limit: 100 });
 
 		const orgUserIds = new Set(orgUsage.runs.flatMap((run) => run.events.map((event) => event.userId)));
-		expect(orgUserIds).toEqual(new Set([MANAGED_USER_ID, BYOK_USER_ID]));
+		expect(orgUserIds).toEqual(new Set([MANAGED_USER_ID, BYOK_USER_ID, SECOND_USER_ID]));
 		expect(byokUsage.runs).toHaveLength(1);
 		expect(byokUsage.runs[0]?.events[0]?.userId).toBe(BYOK_USER_ID);
 		expect(otherOrgUsage.runs).toHaveLength(0);

@@ -10,7 +10,8 @@ import { getProjectAvailableModels, resolveProviderModel } from '../src/utils/ll
 const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
 	getProjectLlmConfigs: vi.fn(),
-	ensureWelcomeGrant: vi.fn(),
+	getWelcomeGrantClaim: vi.fn(),
+	getCreditSummary: vi.fn(),
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
@@ -22,8 +23,9 @@ vi.mock('../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigByProvider: vi.fn(),
 }));
 
-vi.mock('../src/services/credit-wallet.service', () => ({
-	ensureWelcomeGrant: mocks.ensureWelcomeGrant,
+vi.mock('../src/queries/credit-wallet.queries', () => ({
+	getWelcomeGrantClaim: mocks.getWelcomeGrantClaim,
+	getCreditSummary: mocks.getCreditSummary,
 }));
 
 vi.mock('../src/utils/logger', () => ({
@@ -47,7 +49,8 @@ describe('getProjectAvailableModels', () => {
 		__reloadEnvForTesting();
 		vi.clearAllMocks();
 		mocks.getProjectLlmConfigs.mockResolvedValue([]);
-		mocks.ensureWelcomeGrant.mockResolvedValue({ balanceMicroUsd: 5_000_000 });
+		mocks.getWelcomeGrantClaim.mockResolvedValue(null);
+		mocks.getCreditSummary.mockResolvedValue({ balanceMicroUsd: 0 });
 	});
 
 	afterEach(() => {
@@ -68,7 +71,8 @@ describe('getProjectAvailableModels', () => {
 			{ provider: 'nao', modelId: 'gpt-5.6-terra' },
 			{ provider: 'nao', modelId: 'gpt-5.6-sol' },
 		]);
-		expect(mocks.ensureWelcomeGrant).toHaveBeenCalledWith('org-1', 'user-1');
+		expect(mocks.getWelcomeGrantClaim).toHaveBeenCalledWith('user-1');
+		expect(mocks.getCreditSummary).toHaveBeenCalledWith('org-1');
 		await expect(
 			resolveProviderModel('project-1', 'nao', 'gpt-5.6-luna', true, {
 				userId: 'user-1',
@@ -101,6 +105,17 @@ describe('getProjectAvailableModels', () => {
 		).resolves.toBeNull();
 	});
 
+	it('hides managed models when the grant was claimed elsewhere and the project wallet is exhausted', async () => {
+		process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
+		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: 'org-1', path: null, envVars: {} });
+		mocks.getWelcomeGrantClaim.mockResolvedValue({ orgId: 'org-2' });
+		mocks.getCreditSummary.mockResolvedValue({ balanceMicroUsd: 0 });
+
+		const models = await getProjectAvailableModels('project-1', 'user-1');
+
+		expect(models.some(({ provider }) => provider === 'nao')).toBe(false);
+	});
+
 	it('never exposes the managed provider in self-hosted mode', async () => {
 		process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
 		process.env.NAO_MODE = 'self-hosted';
@@ -115,7 +130,7 @@ describe('getProjectAvailableModels', () => {
 				category: 'chat',
 			}),
 		).resolves.toBeNull();
-		expect(mocks.ensureWelcomeGrant).not.toHaveBeenCalled();
+		expect(mocks.getWelcomeGrantClaim).not.toHaveBeenCalled();
 	});
 
 	it('lists models from every named openai-compatible endpoint in nao_config.yaml', async () => {

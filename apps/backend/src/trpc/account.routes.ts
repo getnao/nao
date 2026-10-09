@@ -3,6 +3,7 @@ import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
 import { isManagedAiEnabled } from '../agents/managed-ai';
+import type { DBProject } from '../db/abstractSchema';
 import { isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as aiUsageQueries from '../queries/ai-usage.queries';
@@ -14,7 +15,7 @@ import * as creditWalletService from '../services/credit-wallet.service';
 import { emailService } from '../services/email';
 import { buildResetPasswordEmail } from '../utils/email-builders';
 import { regexPassword } from '../utils/utils';
-import { adminProtectedProcedure, protectedProcedure } from './trpc';
+import { adminProtectedProcedure, canSendProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const paginationInput = z
 	.object({
@@ -23,16 +24,32 @@ const paginationInput = z
 	})
 	.default({ limit: 25 });
 
-/** Credits belong to the selected organization; the welcome grant is claimed lazily on first read. */
 const walletProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
-	if (membership && isManagedAiEnabled()) {
-		await creditWalletService.ensureWelcomeGrant(membership.orgId, ctx.user.id);
-	}
 	return next({ ctx: { membership } });
 });
 
 export const accountRoutes = {
+	getManagedCreditStatus: projectProtectedProcedure.query(({ ctx }) =>
+		getManagedCreditStatus(ctx.project, ctx.user.id),
+	),
+	confirmWelcomeGrant: canSendProcedure.mutation(async ({ ctx }) => {
+		if (!isManagedAiEnabled()) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'nao-managed AI is not enabled.' });
+		}
+		if (!ctx.project.orgId) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'The selected project has no organization.' });
+		}
+		await creditWalletService.ensureWelcomeGrant(ctx.project.orgId, ctx.user.id);
+		const status = await getManagedCreditStatus(ctx.project, ctx.user.id);
+		if (status.welcomeGrantStatus !== 'claimed_here') {
+			throw new TRPCError({
+				code: 'CONFLICT',
+				message: 'Your welcome credit was already assigned to another organization.',
+			});
+		}
+		return status;
+	}),
 	getCreditSummary: walletProcedure.query(async ({ ctx }) => {
 		const summary = ctx.membership
 			? await creditWalletQueries.getCreditSummary(ctx.membership.orgId)
@@ -129,3 +146,29 @@ export const accountRoutes = {
 			await accountQueries.updateAccountPassword(account.id, hashedPassword, ctx.user.id, false);
 		}),
 };
+
+async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>, userId: string) {
+	const claim = await creditWalletQueries.getWelcomeGrantClaim(userId);
+	if (!project.orgId) {
+		return {
+			enabled: isManagedAiEnabled(),
+			organization: null,
+			welcomeGrantStatus: claim ? ('claimed_elsewhere' as const) : ('unclaimed' as const),
+			balanceMicroUsd: 0,
+		};
+	}
+	const [organization, summary] = await Promise.all([
+		orgQueries.getOrganizationById(project.orgId),
+		creditWalletQueries.getCreditSummary(project.orgId),
+	]);
+	return {
+		enabled: isManagedAiEnabled(),
+		organization: organization ? { id: organization.id, name: organization.name } : null,
+		welcomeGrantStatus: !claim
+			? ('unclaimed' as const)
+			: claim.orgId === project.orgId
+				? ('claimed_here' as const)
+				: ('claimed_elsewhere' as const),
+		balanceMicroUsd: summary.balanceMicroUsd,
+	};
+}

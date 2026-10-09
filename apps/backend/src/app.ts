@@ -72,7 +72,12 @@ import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { validateCloudBillingConfiguration } from './services/stripe.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
-import { BudgetExceededError, HandlerError, ManagedCreditsExhaustedError } from './utils/error';
+import {
+	BudgetExceededError,
+	HandlerError,
+	ManagedCreditsExhaustedError,
+	WelcomeGrantConfirmationRequiredError,
+} from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
@@ -126,6 +131,9 @@ app.setErrorHandler((error, request, reply) => {
 	}
 	if (error instanceof ManagedCreditsExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+	}
+	if (error instanceof WelcomeGrantConfirmationRequiredError) {
+		return reply.status(error.code).send({ error: error.message, code: 'WELCOME_GRANT_CONFIRMATION_REQUIRED' });
 	}
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });

@@ -214,6 +214,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
 				if (selectedModelRef.current?.provider === 'nao') {
+					queryClient.invalidateQueries({ queryKey: trpc.account.getManagedCreditStatus.queryKey() });
 					queryClient.invalidateQueries({ queryKey: trpc.account.getCreditSummary.queryKey() });
 					queryClient.invalidateQueries({ queryKey: trpc.account.listCreditLedger.queryKey() });
 					queryClient.invalidateQueries({ queryKey: trpc.account.listAiUsage.queryKey() });

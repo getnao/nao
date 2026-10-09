@@ -8,11 +8,12 @@ import type { LlmProvider } from '@nao/shared/types';
 import { type LanguageModelMiddleware, wrapLanguageModel } from 'ai';
 
 import { env } from '../env';
+import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as creditWalletService from '../services/credit-wallet.service';
 import type { AiUsageCategory, AiUsageStatus } from '../types/ai-usage';
 import type { TokenUsage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
-import { ManagedCreditsExhaustedError } from '../utils/error';
+import { ManagedCreditsExhaustedError, WelcomeGrantConfirmationRequiredError } from '../utils/error';
 import { logger } from '../utils/logger';
 import { getProviderMeta } from './providers';
 
@@ -205,8 +206,14 @@ async function prepareCall(context: AiUsageContext, isManaged: boolean, rates: M
 	if (!rates) {
 		throw new Error('Managed model has no configured token pricing.');
 	}
-	const wallet = await creditWalletService.ensureWelcomeGrant(context.orgId, context.userId);
-	if (wallet.balanceMicroUsd <= 0) {
+	const [claim, summary] = await Promise.all([
+		creditWalletQueries.getWelcomeGrantClaim(context.userId),
+		creditWalletQueries.getCreditSummary(context.orgId),
+	]);
+	if (!claim) {
+		throw new WelcomeGrantConfirmationRequiredError();
+	}
+	if (summary.balanceMicroUsd <= 0) {
 		throw new ManagedCreditsExhaustedError();
 	}
 }

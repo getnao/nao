@@ -10,9 +10,9 @@ import {
 	type ProviderModelResult,
 } from '../agents/providers';
 import { env } from '../env';
+import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
-import * as creditWalletService from '../services/credit-wallet.service';
 import type { CustomModelMetadata, ProviderSettings } from '../types/llm';
 import { type ConfigLlm, type ConfigLlmProvider, findConfigLlmProvider, readProjectConfigLlm } from './nao-config-llm';
 
@@ -428,8 +428,13 @@ async function getProjectModelSources(projectId: string, userId?: string): Promi
 	);
 	if (enabledSources.length === 0 && userId && isManagedAiEnabled()) {
 		const project = await projectQueries.getProjectById(projectId);
-		const wallet = project?.orgId ? await creditWalletService.ensureWelcomeGrant(project.orgId, userId) : null;
-		if (wallet && wallet.balanceMicroUsd > 0) {
+		const [claim, summary] = project?.orgId
+			? await Promise.all([
+					creditWalletQueries.getWelcomeGrantClaim(userId),
+					creditWalletQueries.getCreditSummary(project.orgId),
+				])
+			: [null, null];
+		if (summary && (!claim || summary.balanceMicroUsd > 0)) {
 			enabledSources.push({
 				provider: 'nao',
 				enabledModels: getKnownModelIds('nao'),
