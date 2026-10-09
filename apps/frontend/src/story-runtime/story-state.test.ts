@@ -8,20 +8,31 @@ describe('story state', () => {
 
 	beforeEach(() => {
 		persist.mockReset();
-		initStoryState({}, persist);
+		initStoryState({ shared: {}, own: {} }, persist);
 	});
 
 	it('reads an inherited object property name as an absent key', () => {
-		expect(readStoryState('constructor')).toBeUndefined();
+		expect(readStoryState('constructor', false)).toBeUndefined();
+	});
+
+	it('keeps personal and shared values apart under the same key', () => {
+		writeStoryState('score', 1, false);
+		writeStoryState('score', 9, true);
+
+		expect(readStoryState('score', false)).toBe(1);
+		expect(readStoryState('score', true)).toBe(9);
+		expect(persist).toHaveBeenLastCalledWith({ key: 'score', value: 9, shared: true });
 	});
 
 	it('rejects a key the host would refuse to save', () => {
-		expect(() => writeStoryState('bad key', 1)).toThrow('not a valid state key');
+		expect(() => writeStoryState('bad key', 1, false)).toThrow('not a valid state key');
 		expect(persist).not.toHaveBeenCalled();
 	});
 
 	it('rejects a value too large to save', () => {
-		expect(() => writeStoryState('notes', 'x'.repeat(MAX_STORY_STATE_VALUE_BYTES))).toThrow('may not exceed');
-		expect(readStoryState('notes')).toBeUndefined();
+		expect(() => writeStoryState('notes', 'x'.repeat(MAX_STORY_STATE_VALUE_BYTES), false)).toThrow(
+			'may not exceed',
+		);
+		expect(readStoryState('notes', false)).toBeUndefined();
 	});
 });

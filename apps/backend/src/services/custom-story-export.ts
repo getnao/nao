@@ -6,7 +6,7 @@ import { formatDownloadFilename } from '../utils/story-download';
 import { renderStoryPdf } from '../utils/story-snapshot';
 import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
 import { getCustomStoryNarratives, getCustomStoryVersion } from './custom-story';
-import { getSharedCustomStoryState } from './custom-story-state';
+import { getUnattendedCustomStoryState } from './custom-story-state';
 
 export async function renderCustomStoryPdf(
 	chatId: string,
@@ -16,7 +16,7 @@ export async function renderCustomStoryPdf(
 	const [version, narratives, state, runtime] = await Promise.all([
 		getCustomStoryVersion(chatId, storySlug),
 		getCustomStoryNarratives(chatId, storySlug),
-		getSharedCustomStoryState(chatId, storySlug),
+		getUnattendedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
 	]);
 	if (!version.app) {

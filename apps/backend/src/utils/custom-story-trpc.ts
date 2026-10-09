@@ -22,6 +22,7 @@ export const storySnapshotHtml = z
 export const storyStateChange = z.object({
 	key: z.string(),
 	value: z.unknown(),
+	shared: z.boolean(),
 });
 
 export function toCustomStoryTrpcError(error: unknown): unknown {

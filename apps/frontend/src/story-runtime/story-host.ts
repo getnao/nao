@@ -23,9 +23,10 @@ import type {
 	StoryFrameMessage,
 	StoryHostMessage,
 	StoryHtmlApi,
+	StoryHtmlStateApi,
 	StoryNarratives,
 	StoryQueryResult,
-	StoryStateValues,
+	StoryStateSnapshot,
 	StoryTableExportFormat,
 } from '@nao/shared/story-app';
 
@@ -34,7 +35,7 @@ interface BootOptions {
 	source: string;
 	theme: StoryTheme;
 	exportData?: StoryExportData;
-	state?: StoryStateValues;
+	state?: StoryStateSnapshot;
 	channel?: string;
 }
 
@@ -116,10 +117,8 @@ function exposeHtmlApi(): void {
 			}),
 		isExport: isStoryExport,
 		isPrint: isPrintMode,
-		state: {
-			get: readStoryState,
-			set: writeStoryState,
-		},
+		state: htmlStateApi(false),
+		sharedState: htmlStateApi(true),
 	};
 	Object.defineProperty(globalThis, STORY_HTML_API_GLOBAL, { value: Object.freeze(api), enumerable: true });
 }
@@ -338,12 +337,21 @@ function awaitReply<T>(
 	});
 }
 
-function bootStoryState(state: StoryStateValues | undefined): void {
+function htmlStateApi(shared: boolean): StoryHtmlStateApi {
+	return {
+		get: (key) => readStoryState(key, shared),
+		set: (key, value) => writeStoryState(key, value, shared),
+	};
+}
+
+function bootStoryState(state: StoryStateSnapshot | undefined): void {
 	if (exportData) {
 		initStoryState(exportData.state, null);
 		return;
 	}
-	initStoryState(state, ({ key, value }) => send({ type: 'nao-story:set-state', key, value: toJsonSafe(value) }));
+	initStoryState(state, ({ key, value, shared }) =>
+		send({ type: 'nao-story:set-state', key, value: toJsonSafe(value), shared }),
+	);
 }
 
 function send(message: StoryFrameMessage): void {

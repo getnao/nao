@@ -46,10 +46,13 @@ export interface StoryHtmlApi {
 	onTheme(listener: (theme: StoryTheme) => void): () => void;
 	isExport(): boolean;
 	isPrint(): boolean;
-	state: {
-		get(key: string): unknown;
-		set(key: string, value: unknown): void;
-	};
+	state: StoryHtmlStateApi;
+	sharedState: StoryHtmlStateApi;
+}
+
+export interface StoryHtmlStateApi {
+	get(key: string): unknown;
+	set(key: string, value: unknown): void;
 }
 
 export const MAX_STORY_BUNDLE_BYTES = 2 * 1024 * 1024;
@@ -97,10 +100,10 @@ export type StoryNarratives = Record<string, string>;
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
 	narratives: StoryNarratives;
-	state?: StoryStateValues;
+	state?: StoryStateSnapshot;
 }
 
-/** Stored as `project` rows when the owner saves them, as `user` rows when any other viewer does. */
+/** `user` rows are each viewer's own state; `project` rows are the state every viewer reads and writes together. */
 export const STORY_STATE_SCOPES = ['user', 'project'] as const;
 
 export type StoryStateScope = (typeof STORY_STATE_SCOPES)[number];
@@ -111,19 +114,19 @@ export type StoryStateValues = Record<string, unknown>;
 export interface StoryStateSnapshot {
 	shared: StoryStateValues;
 	own: StoryStateValues;
-	isOwner: boolean;
 }
 
 export interface StoryStateChange {
 	key: string;
 	value: unknown;
+	shared: boolean;
 }
 
 export const STORY_STATE_KEY_PATTERN = /^[A-Za-z0-9][\w.:-]{0,99}$/;
 export const MAX_STORY_STATE_VALUE_BYTES = 32 * 1024;
 export const MAX_STORY_STATE_KEYS = 50;
 
-export const EMPTY_STORY_STATE_SNAPSHOT: StoryStateSnapshot = { shared: {}, own: {}, isOwner: false };
+export const EMPTY_STORY_STATE_SNAPSHOT: StoryStateSnapshot = { shared: {}, own: {} };
 
 /** File under `STORY_RUNTIME_PATH` holding every runtime module in one classic script, for downloaded stories. */
 export const STORY_STANDALONE_RUNTIME_FILE = 'standalone.js';

@@ -18,7 +18,7 @@ export function RememberStateHeader({ onRemember }: { onRemember: () => void }) 
 export function rememberStatePrompt(title: string, storySlug: string): string {
 	return (
 		`Make the custom story "${title}" (id "${storySlug}") remember its state between visits: switch the ` +
-		'useState calls holding what a viewer would otherwise redo on every visit to useStoryState, keep transient ' +
-		'UI in useState, then publish.'
+		'useState calls holding what a viewer would otherwise redo on every visit to useStoryState, or to ' +
+		'useSharedStoryState where everyone should see the same value, keep transient UI in useState, then publish.'
 	);
 }

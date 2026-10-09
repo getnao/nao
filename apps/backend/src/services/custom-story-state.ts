@@ -8,36 +8,32 @@ import {
 } from '@nao/shared/story-app';
 
 import type { DBStory, DBStoryAppState } from '../db/abstractSchema';
-import * as chatQueries from '../queries/chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyAppStateQueries from '../queries/story-app-state.queries';
 import { CustomStoryNotFoundError } from './custom-story';
 
 export class InvalidStoryStateError extends Error {}
 
-/** The owner's saved state is the story's shared view; every other viewer gets their own view on top of it. */
 export async function getCustomStoryState(
 	chatId: string,
 	storySlug: string,
 	viewerId: string,
 ): Promise<StoryStateSnapshot> {
 	const story = await requireCustomStory(chatId, storySlug);
-	const ownerId = await chatQueries.getChatOwnerId(chatId);
-	const isOwner = ownerId === viewerId;
 	const [shared, own] = await Promise.all([
 		storyAppStateQueries.listProjectStoryAppState(story.id),
-		isOwner ? [] : storyAppStateQueries.listUserStoryAppState(story.id, viewerId),
+		storyAppStateQueries.listUserStoryAppState(story.id, viewerId),
 	]);
-	return { shared: toValues(shared), own: toValues(own), isOwner };
+	return { shared: toValues(shared), own: toValues(own) };
 }
 
-/** With no viewer, e.g. in a delivered PDF, a story renders with the shared view its owner saved. */
-export async function getSharedCustomStoryState(chatId: string, storySlug: string): Promise<StoryStateValues> {
+/** With no viewer, e.g. in a delivered PDF, a story renders with its shared state only. */
+export async function getUnattendedCustomStoryState(chatId: string, storySlug: string): Promise<StoryStateSnapshot> {
 	const story = await requireCustomStory(chatId, storySlug);
-	return toValues(await storyAppStateQueries.listProjectStoryAppState(story.id));
+	return { shared: toValues(await storyAppStateQueries.listProjectStoryAppState(story.id)), own: {} };
 }
 
-/** The owner's changes update the shared view; any other viewer's change only updates their own view. */
+/** A shared change is seen by every viewer of the story; any other change only by the viewer who made it. */
 export async function setCustomStoryState(
 	chatId: string,
 	storySlug: string,
@@ -47,11 +43,10 @@ export async function setCustomStoryState(
 	const story = await requireCustomStory(chatId, storySlug);
 	assertValidKey(change.key);
 
-	const isOwner = (await chatQueries.getChatOwnerId(chatId)) === viewerId;
-	const stateKey = {
+	const stateKey: storyAppStateQueries.StoryAppStateKey = {
 		storyId: story.id,
-		scope: isOwner ? ('project' as const) : ('user' as const),
-		userId: isOwner ? null : viewerId,
+		scope: change.shared ? 'project' : 'user',
+		userId: change.shared ? null : viewerId,
 		key: change.key,
 	};
 	if (change.value === null || change.value === undefined) {
@@ -98,6 +93,7 @@ async function assertRoomForKey(stateKey: storyAppStateQueries.StoryAppStateKey)
 	}
 	const used = await storyAppStateQueries.countStoryAppStateKeys(stateKey.storyId, stateKey.scope, stateKey.userId);
 	if (used >= MAX_STORY_STATE_KEYS) {
-		throw new InvalidStoryStateError(`A story keeps at most ${MAX_STORY_STATE_KEYS} ${stateKey.scope} state keys.`);
+		const kind = stateKey.scope === 'project' ? 'shared' : 'personal';
+		throw new InvalidStoryStateError(`A story keeps at most ${MAX_STORY_STATE_KEYS} ${kind} state keys.`);
 	}
 }

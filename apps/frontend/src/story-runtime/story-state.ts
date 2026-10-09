@@ -1,37 +1,43 @@
-import { MAX_STORY_STATE_VALUE_BYTES, STORY_STATE_KEY_PATTERN } from '@nao/shared/story-app';
-import type { StoryStateChange, StoryStateValues } from '@nao/shared/story-app';
+import {
+	EMPTY_STORY_STATE_SNAPSHOT,
+	MAX_STORY_STATE_VALUE_BYTES,
+	STORY_STATE_KEY_PATTERN,
+} from '@nao/shared/story-app';
+import type { StoryStateChange, StoryStateSnapshot } from '@nao/shared/story-app';
 
 type PersistChange = (change: StoryStateChange) => void;
 
 const listeners = new Set<() => void>();
-let values: StoryStateValues = {};
+let snapshot: StoryStateSnapshot = EMPTY_STORY_STATE_SNAPSHOT;
 let persist: PersistChange | null = null;
 
-export function initStoryState(initial: StoryStateValues | undefined, persistChange: PersistChange | null): void {
-	values = initial ?? {};
+export function initStoryState(initial: StoryStateSnapshot | undefined, persistChange: PersistChange | null): void {
+	snapshot = initial ?? EMPTY_STORY_STATE_SNAPSHOT;
 	persist = persistChange;
 	notify();
 }
 
-export function readStoryState(key: string): unknown {
+export function readStoryState(key: string, shared: boolean): unknown {
+	const values = snapshot[bucketOf(shared)];
 	return Object.hasOwn(values, key) ? values[key] : undefined;
 }
 
-export function writeStoryState(key: string, value: unknown): void {
+export function writeStoryState(key: string, value: unknown, shared: boolean): void {
 	const removed = value === undefined || value === null;
 	assertValidKey(key);
 	if (!removed) {
 		assertValueSize(key, value);
 	}
-	const next = { ...values };
+	const bucket = bucketOf(shared);
+	const next = { ...snapshot[bucket] };
 	if (removed) {
 		delete next[key];
 	} else {
 		next[key] = value;
 	}
-	values = next;
+	snapshot = { ...snapshot, [bucket]: next };
 	notify();
-	persist?.({ key, value: removed ? null : value });
+	persist?.({ key, value: removed ? null : value, shared });
 }
 
 export function subscribeToStoryState(listener: () => void): () => void {
@@ -61,6 +67,10 @@ function assertValueSize(key: string, value: unknown): void {
 			`State "${key}" is ${bytes} bytes; a value may not exceed ${MAX_STORY_STATE_VALUE_BYTES} bytes.`,
 		);
 	}
+}
+
+function bucketOf(shared: boolean): keyof StoryStateSnapshot {
+	return shared ? 'shared' : 'own';
 }
 
 function notify(): void {

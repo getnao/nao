@@ -11,7 +11,6 @@ import type { CustomStoryDataSource } from '@/components/custom-story/story-data
 import type { StoryDownloadFile } from '@/components/story-download';
 import { useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { narrativesOptions, queryDataOptions, stateOptions } from '@/components/custom-story/story-data-options';
-import { viewerStateOf } from '@/components/custom-story/use-story-state-recorder';
 import { isForbiddenError, isNotFoundError } from '@/lib/trpc-error';
 
 type RenderExport = (format: DownloadFormat, html: string) => Promise<StoryDownloadFile>;
@@ -83,10 +82,7 @@ async function fetchExportData(
 			),
 		),
 		queryClient.fetchQuery(narrativesOptions(dataSource)).catch(() => ({})),
-		queryClient
-			.fetchQuery(stateOptions(dataSource))
-			.then(viewerStateOf)
-			.catch(() => undefined),
+		queryClient.fetchQuery(stateOptions(dataSource)).catch(() => undefined),
 	]);
 	return {
 		queries: Object.fromEntries(results.filter((entry) => entry !== null)),

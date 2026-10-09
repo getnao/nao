@@ -2,7 +2,7 @@ import { STORY_HOST_MODULE, STORY_RUNTIME_MODULES } from '@nao/shared/story-app'
 import { composeStoryDocument, escapeScript, storyStylesheets } from '@nao/shared/story-document';
 import { storyMapTileCspSources } from '@nao/shared/story-map-tiles';
 import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
-import type { StoryApp, StoryStateValues } from '@nao/shared/story-app';
+import type { StoryApp, StoryStateSnapshot } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 export interface StoryRuntimeLocation {
@@ -14,7 +14,7 @@ export interface StoryFrameDocumentInput {
 	app: StoryApp;
 	styles: string[];
 	theme: StoryTheme;
-	state: StoryStateValues;
+	state: StoryStateSnapshot;
 	runtime: StoryRuntimeLocation;
 	channel: string;
 }

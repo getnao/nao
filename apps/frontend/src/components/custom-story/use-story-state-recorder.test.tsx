@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useStoryStateRecorder, viewerStateOf } from './use-story-state-recorder';
+import { useStoryStateRecorder } from './use-story-state-recorder';
 import type { StoryStateSnapshot } from '@nao/shared/story-app';
 import type { ReactNode } from 'react';
 
@@ -23,8 +23,7 @@ vi.mock('./use-story-state-writer', () => ({
 }));
 
 const DATA_SOURCE = { kind: 'share', storyId: 'story-1' } as const;
-const MEMBER: StoryStateSnapshot = { shared: { tab: 'revenue', zoom: 1 }, own: { zoom: 3 }, isOwner: false };
-const OWNER: StoryStateSnapshot = { shared: { tab: 'revenue' }, own: {}, isOwner: true };
+const SNAPSHOT: StoryStateSnapshot = { shared: { round: 2 }, own: { zoom: 3 } };
 
 function setup(snapshot: StoryStateSnapshot) {
 	const queryClient = new QueryClient();
@@ -42,35 +41,34 @@ function setup(snapshot: StoryStateSnapshot) {
 describe('useStoryStateRecorder', () => {
 	beforeEach(() => saveLater.mockReset());
 
-	it("saves the owner's change into the view everyone starts from", () => {
-		const { record, cached } = setup(OWNER);
+	it("saves a personal change into the viewer's own state only", () => {
+		const { record, cached } = setup(SNAPSHOT);
 
-		act(() => record({ key: 'tab', value: 'orders' }));
+		act(() => record({ key: 'tab', value: 'orders', shared: false }));
 
-		expect(saveLater).toHaveBeenCalledWith({ key: 'tab', value: 'orders' });
-		expect(cached()?.shared).toEqual({ tab: 'orders' });
+		expect(saveLater).toHaveBeenCalledWith({ key: 'tab', value: 'orders', shared: false });
+		expect(cached()).toEqual({ shared: { round: 2 }, own: { zoom: 3, tab: 'orders' } });
 	});
 
-	it("saves a member's change into their own view only", () => {
-		const { record, cached } = setup(MEMBER);
+	it('saves a shared change into the state every viewer sees', () => {
+		const { record, cached } = setup(SNAPSHOT);
 
-		act(() => record({ key: 'tab', value: 'orders' }));
+		act(() => record({ key: 'round', value: 3, shared: true }));
 
-		expect(cached()?.own).toEqual({ zoom: 3, tab: 'orders' });
-		expect(cached()?.shared).toEqual(MEMBER.shared);
+		expect(cached()).toEqual({ shared: { round: 3 }, own: { zoom: 3 } });
 	});
 
-	it("brings back the owner's value when a member removes theirs", () => {
-		const { record, cached } = setup(MEMBER);
+	it('removes a key on null', () => {
+		const { record, cached } = setup(SNAPSHOT);
 
-		act(() => record({ key: 'zoom', value: null }));
+		act(() => record({ key: 'zoom', value: null, shared: false }));
 
-		expect(viewerStateOf(cached())).toEqual({ tab: 'revenue', zoom: 1 });
+		expect(cached()?.own).toEqual({});
 	});
 
 	it('reports a failed save and stops trusting the cached value', () => {
-		const { record, isStale, reportError } = setup(OWNER);
-		act(() => record({ key: 'tab', value: 'orders' }));
+		const { record, isStale, reportError } = setup(SNAPSHOT);
+		act(() => record({ key: 'tab', value: 'orders', shared: false }));
 
 		act(() => writerErrorRef.current('The story state "tab" could not be saved.'));
 

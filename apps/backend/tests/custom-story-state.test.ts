@@ -8,7 +8,7 @@ import { db } from '../src/db/db';
 import { CustomStoryNotFoundError } from '../src/services/custom-story';
 import {
 	getCustomStoryState,
-	getSharedCustomStoryState,
+	getUnattendedCustomStoryState,
 	InvalidStoryStateError,
 	setCustomStoryState,
 } from '../src/services/custom-story-state';
@@ -43,7 +43,11 @@ const OWNER = 'owner';
 const VIEWER = 'viewer';
 
 function set(viewerId: string, key: string, value: unknown) {
-	return setCustomStoryState(CHAT, SLUG, viewerId, { key, value });
+	return setCustomStoryState(CHAT, SLUG, viewerId, { key, value, shared: false });
+}
+
+function setShared(viewerId: string, key: string, value: unknown) {
+	return setCustomStoryState(CHAT, SLUG, viewerId, { key, value, shared: true });
 }
 
 describe('custom story state', () => {
@@ -64,36 +68,29 @@ describe('custom story state', () => {
 		await db.delete(s.storyAppState);
 	});
 
-	it("saves the owner's changes as the shared view every viewer starts from", async () => {
-		await set(OWNER, 'churn', 40);
-
-		expect(await getCustomStoryState(CHAT, SLUG, OWNER)).toEqual({
-			shared: { churn: 40 },
-			own: {},
-			isOwner: true,
-		});
-		expect(await getCustomStoryState(CHAT, SLUG, VIEWER)).toEqual({
-			shared: { churn: 40 },
-			own: {},
-			isOwner: false,
-		});
-	});
-
-	it("keeps another viewer's changes in their own view, never in the shared one", async () => {
+	it("keeps each viewer's personal state to themselves, owner included", async () => {
 		await set(OWNER, 'churn', 40);
 		await set(VIEWER, 'churn', 70);
 
-		expect((await getCustomStoryState(CHAT, SLUG, VIEWER)).own).toEqual({ churn: 70 });
-		expect((await getCustomStoryState(CHAT, SLUG, OWNER)).shared).toEqual({ churn: 40 });
+		expect(await getCustomStoryState(CHAT, SLUG, OWNER)).toEqual({ shared: {}, own: { churn: 40 } });
+		expect(await getCustomStoryState(CHAT, SLUG, VIEWER)).toEqual({ shared: {}, own: { churn: 70 } });
+	});
+
+	it('lets every viewer read and write the shared state', async () => {
+		await setShared(OWNER, 'score', 1);
+		await setShared(VIEWER, 'score', 2);
+
+		expect((await getCustomStoryState(CHAT, SLUG, OWNER)).shared).toEqual({ score: 2 });
+		expect((await getCustomStoryState(CHAT, SLUG, VIEWER)).shared).toEqual({ score: 2 });
 	});
 
 	it('overwrites a key and removes it on null', async () => {
 		await set(OWNER, 'slide', 2);
 		await set(OWNER, 'slide', 5);
-		expect((await getCustomStoryState(CHAT, SLUG, OWNER)).shared).toEqual({ slide: 5 });
+		expect((await getCustomStoryState(CHAT, SLUG, OWNER)).own).toEqual({ slide: 5 });
 
 		await set(OWNER, 'slide', null);
-		expect((await getCustomStoryState(CHAT, SLUG, OWNER)).shared).toEqual({});
+		expect((await getCustomStoryState(CHAT, SLUG, OWNER)).own).toEqual({});
 		expect(await db.select().from(s.storyAppState)).toHaveLength(0);
 	});
 
@@ -102,7 +99,7 @@ describe('custom story state', () => {
 		await expect(set(OWNER, 'big', 'x'.repeat(40 * 1024))).rejects.toBeInstanceOf(InvalidStoryStateError);
 	});
 
-	it('caps the number of keys per view but still lets existing ones change', async () => {
+	it('caps the number of keys per viewer but still lets existing ones change', async () => {
 		for (let index = 0; index < MAX_STORY_STATE_KEYS; index++) {
 			await set(OWNER, `key-${index}`, index);
 		}
@@ -112,17 +109,17 @@ describe('custom story state', () => {
 		await expect(set(VIEWER, 'one-more', 1)).resolves.toBeUndefined();
 	});
 
-	it("renders unattended exports with the shared view only, never someone's own", async () => {
-		await set(OWNER, 'round', 3);
-		await set(VIEWER, 'churn', 70);
+	it("renders unattended exports with the shared state only, never someone's own", async () => {
+		await setShared(OWNER, 'round', 3);
+		await set(OWNER, 'churn', 70);
 
-		expect(await getSharedCustomStoryState(CHAT, SLUG)).toEqual({ round: 3 });
+		expect(await getUnattendedCustomStoryState(CHAT, SLUG)).toEqual({ shared: { round: 3 }, own: {} });
 	});
 
 	it('only applies to custom stories', async () => {
 		await expect(getCustomStoryState(CHAT, 'report', OWNER)).rejects.toBeInstanceOf(CustomStoryNotFoundError);
-		await expect(setCustomStoryState(CHAT, 'report', OWNER, { key: 'a', value: 1 })).rejects.toBeInstanceOf(
-			CustomStoryNotFoundError,
-		);
+		await expect(
+			setCustomStoryState(CHAT, 'report', OWNER, { key: 'a', value: 1, shared: false }),
+		).rejects.toBeInstanceOf(CustomStoryNotFoundError);
 	});
 });

@@ -28,4 +28,4 @@ export { Slide, Slides } from './story-kit/slides';
 export type { BlockData, BlockDataSource, Row } from './story-kit/use-block-data';
 export { useBlockData } from './story-kit/use-block-data';
 export type { StoryStateSetter } from './story-kit/use-story-state';
-export { useStoryState } from './story-kit/use-story-state';
+export { useSharedStoryState, useStoryState } from './story-kit/use-story-state';

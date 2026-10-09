@@ -12,13 +12,13 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { narrativesOptions, queryDataOptions, querySqlOptions, stateOptions } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
 import { RememberStateHeader } from './remember-state-header';
-import { useStoryStateRecorder, viewerStateOf } from './use-story-state-recorder';
+import { useStoryStateRecorder } from './use-story-state-recorder';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
 	StoryFrameMessage,
 	StoryHostMessage,
-	StoryStateValues,
+	StoryStateSnapshot,
 	StoryTableFormatEditRequest,
 } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -225,7 +225,7 @@ export function CustomStoryFrame({
 					void answerQuerySql(message.requestId, message.queryId);
 					break;
 				case 'nao-story:set-state':
-					recordStateChange({ key: message.key, value: message.value });
+					recordStateChange({ key: message.key, value: message.value, shared: message.shared === true });
 					break;
 				case 'nao-story:keydown':
 					replayKeydown(document, message);
@@ -336,15 +336,14 @@ function useStoryFrameDocument(
 	const queryClient = useQueryClient();
 	const reportError = useEffectEvent((error: unknown) => onError?.({ message: describeError(error) }));
 	const readTheme = useEffectEvent(() => theme);
-	const loadState = useEffectEvent(async (): Promise<StoryStateValues> => {
+	const loadState = useEffectEvent(async (): Promise<StoryStateSnapshot> => {
 		if (!usesState) {
-			return {};
+			return EMPTY_STORY_STATE_SNAPSHOT;
 		}
 		const options = stateOptions(dataSource);
-		const snapshot = await queryClient
+		return queryClient
 			.fetchQuery(options)
 			.catch(() => queryClient.getQueryData(options.queryKey) ?? EMPTY_STORY_STATE_SNAPSHOT);
-		return viewerStateOf(snapshot);
 	});
 	useEffect(() => {
 		let cancelled = false;
