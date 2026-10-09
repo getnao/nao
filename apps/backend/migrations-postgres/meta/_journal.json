@@ -540,6 +540,13 @@
       "when": 1791358973879,
       "tag": "0076_member_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1791358974879,
+      "tag": "0077_story_app_state",
+      "breakpoints": true
     }
   ]
 }

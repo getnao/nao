@@ -15,7 +15,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import { STORY_APP_KINDS } from '@nao/shared/story-app';
+import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type {
 	AnalyticsEventMetadata,
@@ -1185,6 +1185,37 @@ export const storyDataCache = pgTable('story_data_cache', {
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
+
+export const storyAppState = pgTable(
+	'story_app_state',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		scope: text('scope', { enum: STORY_STATE_SCOPES }).notNull(),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		key: text('key').notNull(),
+		value: jsonb('value').$type<unknown>().notNull(),
+		updatedBy: text('updated_by').references(() => user.id, { onDelete: 'set null' }),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('story_app_state_storyId_idx').on(t.storyId),
+		uniqueIndex('story_app_state_project_key_unique')
+			.on(t.storyId, t.key)
+			.where(sql`scope = 'project'`),
+		uniqueIndex('story_app_state_user_key_unique')
+			.on(t.storyId, t.userId, t.key)
+			.where(sql`scope = 'user'`),
+		check('story_app_state_user_scope', sql`(scope = 'user') = (user_id IS NOT NULL)`),
+	],
+);
 
 export const ACTIVITY_TYPES = [
 	'context.pulled',

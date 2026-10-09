@@ -15,7 +15,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import { STORY_APP_KINDS } from '@nao/shared/story-app';
+import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type {
 	AnalyticsEventMetadata,
@@ -1275,6 +1275,37 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),
 });
+
+export const storyAppState = sqliteTable(
+	'story_app_state',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		scope: text('scope', { enum: STORY_STATE_SCOPES }).notNull(),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		key: text('key').notNull(),
+		value: text('value', { mode: 'json' }).$type<unknown>().notNull(),
+		updatedBy: text('updated_by').references(() => user.id, { onDelete: 'set null' }),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('story_app_state_storyId_idx').on(t.storyId),
+		uniqueIndex('story_app_state_project_key_unique')
+			.on(t.storyId, t.key)
+			.where(sql`scope = 'project'`),
+		uniqueIndex('story_app_state_user_key_unique')
+			.on(t.storyId, t.userId, t.key)
+			.where(sql`scope = 'user'`),
+		check('story_app_state_user_scope', sql`(scope = 'user') = (user_id IS NOT NULL)`),
+	],
+);
 
 export const ACTIVITY_TYPES = [
 	'context.pulled',

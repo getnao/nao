@@ -2,7 +2,7 @@ import { STORY_HOST_MODULE, STORY_RUNTIME_MODULES } from '@nao/shared/story-app'
 import { composeStoryDocument, escapeScript, storyStylesheets } from '@nao/shared/story-document';
 import { storyMapTileCspSources } from '@nao/shared/story-map-tiles';
 import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
-import type { StoryApp } from '@nao/shared/story-app';
+import type { StoryApp, StoryStateSnapshot } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 export interface StoryRuntimeLocation {
@@ -14,6 +14,7 @@ export interface StoryFrameDocumentInput {
 	app: StoryApp;
 	styles: string[];
 	theme: StoryTheme;
+	state: StoryStateSnapshot;
 	runtime: StoryRuntimeLocation;
 	channel: string;
 }
@@ -26,6 +27,7 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 		kind: input.app.kind,
 		source: input.app.bundle,
 		theme: input.theme,
+		state: input.state,
 		channel: input.channel,
 	};
 	const bootScript = `\nimport { bootStory } from ${JSON.stringify(STORY_HOST_MODULE)};\nbootStory(${escapeScript(
