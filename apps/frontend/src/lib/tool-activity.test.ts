@@ -71,6 +71,12 @@ describe('getLatestToolActivityLabel', () => {
 		expect(getLatestToolActivityLabel(parts)).toBe('Exploring slow.sql');
 	});
 
+	it('falls back to the tool name for tools without a dedicated label', () => {
+		expect(getLatestToolActivityLabel([toolPart('execute_python', { code: 'print(1)' })])).toBe(
+			'Running execute python',
+		);
+	});
+
 	it('returns null when no tool has run or the latest input is not yet known', () => {
 		expect(getLatestToolActivityLabel([toolPart('read', undefined, 'input-streaming')])).toBeNull();
 		expect(getLatestToolActivityLabel([reasoning('streaming')])).toBeNull();

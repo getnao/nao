@@ -9,8 +9,7 @@ import { useChatView } from '@/contexts/chat-view';
 import { isReasoningPart, isQueryToolPart } from '@/lib/ai';
 import { getLatestToolActivityLabel } from '@/lib/tool-activity';
 import { useThrottledValue } from '@/hooks/use-throttled-value';
-
-const MIN_TITLE_DISPLAY_MS = 1000;
+import { MIN_TITLE_DISPLAY_MS } from '@/hooks/use-tool-group-summary-title';
 
 interface Props {
 	parts: GroupablePart[];
@@ -79,7 +78,7 @@ const useQueryGroupTitle = (opts: {
 		return `${fullTitle} (${errorCount} ${pluralize('error', errorCount)})`;
 	}, [parts, queryParts, isLoading, isExpanded]);
 
-	return useThrottledValue(title, MIN_TITLE_DISPLAY_MS);
+	return useThrottledValue(title, MIN_TITLE_DISPLAY_MS, isLoading);
 };
 
 const isFailedQueryItem = (part: GroupablePart): boolean => {

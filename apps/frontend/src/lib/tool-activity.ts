@@ -29,7 +29,9 @@ const isRunning = (part: UIToolPart): boolean => {
 const describeToolActivity = (part: UIToolPart): string | null => {
 	const input = (part.input ?? {}) as ToolInput;
 
-	switch (getToolName(part)) {
+	const toolName = getToolName(part);
+
+	switch (toolName) {
 		case 'read':
 			return describeRead(input);
 		case 'write':
@@ -49,7 +51,7 @@ const describeToolActivity = (part: UIToolPart): string | null => {
 		case 'mcp_connect':
 			return withAsset('Connecting to', asString(input.server));
 		default:
-			return null;
+			return `Running ${humanizeToolName(toolName)}`;
 	}
 };
 
@@ -86,6 +88,10 @@ const describeMcpCall = (input: ToolInput): string | null => {
 		return null;
 	}
 	return `Using ${tool} from ${server}`;
+};
+
+const humanizeToolName = (toolName: string): string => {
+	return toolName.replaceAll('_', ' ');
 };
 
 const withAsset = (verb: string, asset: string | undefined): string | null => {

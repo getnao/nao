@@ -7,7 +7,7 @@ import { getLatestToolActivityLabel } from '@/lib/tool-activity';
 import { useThrottledValue } from '@/hooks/use-throttled-value';
 
 /** Each title stays on screen at least this long, so fast successive tool calls remain readable. */
-const MIN_TITLE_DISPLAY_MS = 1000;
+export const MIN_TITLE_DISPLAY_MS = 1000;
 
 /**
  * Creates a summary title for the tool group based on the tool calls (e.g. "Explored X files, X folders (X errors)").
@@ -30,7 +30,7 @@ export const useToolGroupSummaryTitle = (opts: {
 		return `${fullTitle} (${errorCount} ${pluralize('error', errorCount)})`;
 	}, [isLoading, isExpanded, parts]);
 
-	return useThrottledValue(title, MIN_TITLE_DISPLAY_MS);
+	return useThrottledValue(title, MIN_TITLE_DISPLAY_MS, isLoading);
 };
 
 const createAggregateTitle = (parts: GroupablePart[], isLoading: boolean): string => {
