@@ -149,6 +149,165 @@ describe('areGroupedMessagePartsEqual', () => {
 	});
 });
 
+const createStoryPart = (
+	toolCallId: string,
+	overrides: { input?: Record<string, unknown>; output?: Record<string, unknown>; state?: string } = {},
+): UIMessagePart =>
+	({
+		type: 'tool-story',
+		toolCallId,
+		state: overrides.state ?? 'output-available',
+		input: 'input' in overrides ? overrides.input : { action: 'create', id: 'revenue' },
+		output: 'output' in overrides ? overrides.output : { success: true, id: 'revenue', version: 1 },
+	}) as unknown as UIMessagePart;
+
+const createQueryPart = (toolCallId: string): UIMessagePart =>
+	({
+		type: 'tool-execute_sql',
+		toolCallId,
+		state: 'output-available',
+		input: { name: toolCallId, sql_query: 'select 1' },
+		output: { row_count: 1 },
+	}) as unknown as UIMessagePart;
+
+describe('story actions', () => {
+	it('keeps the card on the latest action and turns earlier ones on the same story into status lines', () => {
+		const created = createStoryPart('call-1');
+		const updated = createStoryPart('call-2', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 2 },
+		});
+		const text = { type: 'text', text: 'Done.', state: 'done' } as UIMessagePart;
+
+		expect(groupToolCalls([created, text, updated])).toEqual([
+			{ type: 'story-status', part: created },
+			text,
+			updated,
+		]);
+	});
+
+	it('keeps one card per story', () => {
+		const revenue = createStoryPart('call-1');
+		const churn = createStoryPart('call-2', {
+			input: { action: 'create', id: 'churn' },
+			output: { success: true, id: 'churn', version: 1 },
+		});
+
+		expect(groupToolCalls([revenue, churn])).toEqual([revenue, churn]);
+	});
+
+	it('demotes a failed attempt once a later action on the story exists', () => {
+		const failed = createStoryPart('call-1', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: false, id: 'revenue', error: 'Search string not found' },
+		});
+		const retried = createStoryPart('call-2', { input: { action: 'replace', id: 'revenue' } });
+
+		expect(groupToolCalls([failed, retried])).toEqual([{ type: 'story-status', part: failed }, retried]);
+	});
+
+	it('follows the story id from a streaming input before any output exists', () => {
+		const created = createStoryPart('call-1');
+		const streaming = createStoryPart('call-2', {
+			state: 'input-streaming',
+			input: { action: 'update', id: 'revenue' },
+			output: undefined,
+		});
+
+		expect(groupToolCalls([created, streaming])).toEqual([{ type: 'story-status', part: created }, streaming]);
+	});
+
+	it('leaves a story action whose id is not known yet as a card', () => {
+		const created = createStoryPart('call-1');
+		const unknown = createStoryPart('call-2', { state: 'input-streaming', input: {}, output: undefined });
+
+		expect(groupToolCalls([created, unknown])).toEqual([created, unknown]);
+	});
+
+	it('groups a superseded story action with queries that immediately follow it', () => {
+		const created = createStoryPart('call-1');
+		const firstQuery = createQueryPart('query-1');
+		const secondQuery = createQueryPart('query-2');
+		const updated = createStoryPart('call-2', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 2 },
+		});
+
+		expect(groupToolCalls([created, firstQuery, secondQuery, updated])).toEqual([
+			{ type: 'story-query-group', parts: [{ type: 'story-status', part: created }, firstQuery, secondQuery] },
+			updated,
+		]);
+	});
+
+	it('groups a superseded story action with queries that immediately precede it', () => {
+		const firstQuery = createQueryPart('query-1');
+		const secondQuery = createQueryPart('query-2');
+		const created = createStoryPart('call-1');
+		const updated = createStoryPart('call-2', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 2 },
+		});
+
+		expect(groupToolCalls([firstQuery, secondQuery, created, updated])).toEqual([
+			{ type: 'story-query-group', parts: [firstQuery, secondQuery, { type: 'story-status', part: created }] },
+			updated,
+		]);
+	});
+
+	it('groups multiple superseded story actions and their adjacent queries into one foldable', () => {
+		const created = createStoryPart('call-1');
+		const firstQuery = createQueryPart('query-1');
+		const refined = createStoryPart('call-2', {
+			input: { action: 'replace', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 2 },
+		});
+		const secondQuery = createQueryPart('query-2');
+		const updated = createStoryPart('call-3', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 3 },
+		});
+
+		expect(groupToolCalls([created, firstQuery, refined, secondQuery, updated])).toEqual([
+			{
+				type: 'story-query-group',
+				parts: [
+					{ type: 'story-status', part: created },
+					firstQuery,
+					{ type: 'story-status', part: refined },
+					secondQuery,
+				],
+			},
+			updated,
+		]);
+	});
+
+	it('compares status lines by their underlying tool call', () => {
+		const created = createStoryPart('call-1');
+		const asStatus = { type: 'story-status', part: created } as GroupedMessagePart;
+		const changed = {
+			type: 'story-status',
+			part: { ...created, state: 'output-error' },
+		} as GroupedMessagePart;
+
+		expect(areGroupedMessagePartsEqual(asStatus, { ...asStatus } as GroupedMessagePart)).toBe(true);
+		expect(areGroupedMessagePartsEqual(asStatus, changed)).toBe(false);
+		expect(areGroupedMessagePartsEqual(asStatus, created as GroupedMessagePart)).toBe(false);
+	});
+});
+
+describe('query runs', () => {
+	it('keeps queries in one group when several notes sit between them', () => {
+		const firstQuery = createQueryPart('query-1');
+		const firstNote = { type: 'reasoning', text: 'Checking totals', state: 'done' } as UIMessagePart;
+		const secondNote = { type: 'reasoning', text: 'Now by region', state: 'done' } as UIMessagePart;
+		const secondQuery = createQueryPart('query-2');
+
+		expect(groupToolCalls([firstQuery, firstNote, secondNote, secondQuery])).toEqual([
+			{ type: 'query-group', parts: [firstQuery, firstNote, secondNote, secondQuery] },
+		]);
+	});
+});
+
 describe('progress updates', () => {
 	it('collapses a progress update into the tool group like any reasoning', () => {
 		const readPart = createToolPart({ type: 'tool-read', toolName: 'read' }) as UIMessagePart;
