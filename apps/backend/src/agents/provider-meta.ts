@@ -270,6 +270,14 @@ const BEDROCK_SAMPLING: ModelCapabilities = {
 	serviceTierOptions: BEDROCK_TIERS,
 };
 
+/** Bedrock GPT-6 reasoning models do not support sampling or service-tier parameters. */
+const BEDROCK_OPENAI_REASONING: ModelCapabilities = {
+	thinking: 'none',
+	sampling: false,
+	topK: false,
+	maxOutputTokens: true,
+};
+
 /** Ollama local models: sampling + max output tokens (thinking is a model-creation setting, deferred). */
 const OLLAMA_SAMPLING: ModelCapabilities = { thinking: 'none', sampling: true, topK: true, maxOutputTokens: true };
 
@@ -712,6 +720,68 @@ export const PROVIDER_META: ProviderMetaMap = {
 		extractorModelId: 'anthropic.claude-sonnet-4-6',
 		summaryModelId: 'anthropic.claude-sonnet-4-6',
 		models: [
+			// AWS model cards: https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html
+			// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html
+			// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-sol.html
+			// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-luna.html
+			// Standard pricing below is for <=272K input tokens. The single-rate estimator cannot
+			// represent the >272K rates or other Bedrock service tiers.
+			{
+				id: 'global.openai.gpt-6-astra',
+				name: 'GPT 6 Astra (Bedrock Global)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
+			{
+				id: 'global.openai.gpt-6.1-sol',
+				name: 'GPT 6.1 Sol (Bedrock Global)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.1, inputCacheWrite: 2.5, output: 10 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
+			{
+				id: 'global.openai.gpt-6-sol',
+				name: 'GPT 6 Sol (Bedrock Global)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
+			{
+				id: 'global.openai.gpt-6-luna',
+				name: 'GPT 6 Luna (Bedrock Global)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 0.1, inputCacheRead: 0.01, inputCacheWrite: 0.125, output: 0.5 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
+			{
+				id: 'us.openai.gpt-6-astra',
+				name: 'GPT 6 Astra (Bedrock US)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 11, inputCacheRead: 1.1, inputCacheWrite: 13.75, output: 55 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
+			{
+				id: 'us.openai.gpt-6.1-sol',
+				name: 'GPT 6.1 Sol (Bedrock US)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2.2, inputCacheRead: 0.11, inputCacheWrite: 2.75, output: 11 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
+			{
+				id: 'us.openai.gpt-6-sol',
+				name: 'GPT 6 Sol (Bedrock US)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2.2, inputCacheRead: 0.22, inputCacheWrite: 2.75, output: 11 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
+			{
+				id: 'us.openai.gpt-6-luna',
+				name: 'GPT 6 Luna (Bedrock US)',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 0.11, inputCacheRead: 0.011, inputCacheWrite: 0.1375, output: 0.55 },
+				capabilities: BEDROCK_OPENAI_REASONING,
+			},
 			{
 				id: 'global.anthropic.claude-opus-5-5',
 				name: 'Claude Opus 5.5 (Bedrock Global)',

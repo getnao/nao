@@ -697,6 +697,10 @@ function resolveBedrockModelId(modelId: string, region: string): string {
 	const firstSegment = modelId.split('.')[0];
 	if (BEDROCK_REGION_PREFIXES.has(firstSegment)) {
 		const rest = modelId.slice(firstSegment.length + 1);
+		// OpenAI profile geography is explicit; equivalent EU/AP profiles may not exist.
+		if (rest.startsWith('openai.')) {
+			return modelId;
+		}
 		return firstSegment === prefix ? modelId : `${prefix}.${rest}`;
 	}
 	if (BEDROCK_CROSS_REGION_PROVIDERS.has(firstSegment)) {

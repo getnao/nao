@@ -1,6 +1,7 @@
 import type { ModelMessage } from 'ai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createProviderModel } from '../src/agents/providers';
 import { CompactionService } from '../src/services/compaction';
 import type { ITokenCounter } from '../src/services/token-counter';
 import type { AgentTools, UIMessage } from '../src/types/chat';
@@ -59,6 +60,56 @@ describe('compactionService.compactConversationIfNeeded', () => {
 		});
 		tokenCounter.estimateMessages.mockImplementation((msgs: ModelMessage[]) => msgs.length * 6_000);
 		tokenCounter.estimateTools.mockResolvedValue(0);
+	});
+
+	it.each([
+		'global.openai.gpt-6-astra',
+		'global.openai.gpt-6.1-sol',
+		'global.openai.gpt-6-sol',
+		'global.openai.gpt-6-luna',
+		'us.openai.gpt-6-astra',
+		'us.openai.gpt-6.1-sol',
+		'us.openai.gpt-6-sol',
+		'us.openai.gpt-6-luna',
+	])('uses the catalog window to compact %s only above 787,500 total tokens', async (modelId) => {
+		const { contextWindow } = createProviderModel('bedrock', { apiKey: 'test-key' }, modelId);
+		// Include tool definitions and reserved output in the real service's threshold calculation.
+		tokenCounter.estimateTools.mockResolvedValue(1_000);
+		const maxOutputTokens = 1_000;
+
+		for (const messageTokens of [200_000, 785_500, 785_501]) {
+			vi.clearAllMocks();
+			tokenCounter.estimateMessages.mockReturnValue(messageTokens);
+			const messages: ModelMessage[] = [
+				{ role: 'system', content: 'System prompt' },
+				{ role: 'user', content: 'First question' },
+				{ role: 'assistant', content: 'First answer' },
+				{ role: 'user', content: 'Current turn' },
+			];
+			const result = await compactionService.compactConversationIfNeeded({
+				chat: { id: 'chat-gpt6', projectId: 'project-1', userId: 'user-1' },
+				provider: 'bedrock',
+				modelId,
+				messages,
+				tools: {},
+				maxOutputTokens,
+				contextWindow,
+				onCompactionStarted,
+				onCompactionFinished,
+			});
+
+			if (messageTokens === 785_501) {
+				expect(result).toMatchObject({ summary: 'Conversation summary' });
+				expect(onCompactionStarted).toHaveBeenCalledOnce();
+				expect(onCompactionFinished).toHaveBeenCalledOnce();
+				expect(mocks.compactMock).toHaveBeenCalledOnce();
+			} else {
+				expect(result).toBeUndefined();
+				expect(onCompactionStarted).not.toHaveBeenCalled();
+				expect(onCompactionFinished).not.toHaveBeenCalled();
+				expect(mocks.compactMock).not.toHaveBeenCalled();
+			}
+		}
 	});
 
 	it('returns undefined when token usage is below threshold', async () => {
