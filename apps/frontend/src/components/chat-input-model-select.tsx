@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Settings, TriangleAlert } from 'lucide-react';
 import { providerLabel, providerName } from '@nao/shared/types';
-import type { LlmProvider } from '@nao/shared/types';
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -12,6 +12,9 @@ import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
+/** Follows the default chat model set by the admin instead of pinning a model. */
+const NAO_DEFAULT_VALUE = 'nao-default';
+const NAO_DEFAULT_LABEL = 'nao default';
 
 export function ChatInputModelSelect() {
 	const navigate = useNavigate();
@@ -19,30 +22,32 @@ export function ChatInputModelSelect() {
 	const {
 		availableModels,
 		defaultModel,
-		isDefaultModelPending,
 		selectedModel,
+		usesDefaultModel,
 		setSelectedModel,
 		isPending,
 		canCycleModels,
 	} = useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
 
-	// Reset to the project default (or the first model) if the current selection is no longer available
+	// Fall back to the nao default when the pinned model is no longer available
 	useEffect(() => {
-		if (isDefaultModelPending || !availableModels || availableModels.length === 0) {
+		if (usesDefaultModel || !availableModels || availableModels.length === 0) {
 			return;
 		}
-
 		if (!availableModels.some((model) => isSameModel(model, selectedModel))) {
-			const fallback = availableModels.find((model) => isSameModel(model, defaultModel)) ?? availableModels[0];
-			setSelectedModel(fallback);
+			setSelectedModel(null);
 		}
-	}, [isDefaultModelPending, availableModels, defaultModel, selectedModel, setSelectedModel]);
+	}, [usesDefaultModel, availableModels, selectedModel, setSelectedModel]);
 
 	const handleModelValueChange = useCallback(
 		(value: string) => {
 			if (value === MANAGE_MODELS_VALUE) {
 				navigate({ to: '/settings/project/models' });
+				return;
+			}
+			if (value === NAO_DEFAULT_VALUE) {
+				setSelectedModel(null);
 				return;
 			}
 			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
@@ -56,7 +61,12 @@ export function ChatInputModelSelect() {
 	const selectedAvailableModel = selectedModel
 		? availableModels?.find((model) => isSameModel(model, selectedModel))
 		: undefined;
-	const selectedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId ?? 'Select model';
+	const defaultAvailableModel = defaultModel
+		? availableModels?.find((model) => isSameModel(model, defaultModel))
+		: undefined;
+	const resolvedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId;
+	const selectedModelName = usesDefaultModel ? NAO_DEFAULT_LABEL : (resolvedModelName ?? 'Select model');
+	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? modelValue(selectedModel) : undefined;
 
 	if (isPending) {
 		return null;
@@ -84,7 +94,7 @@ export function ChatInputModelSelect() {
 						className='size-4'
 					/>
 				)}
-				<span>{selectedModelName}</span>
+				<span>{resolvedModelName ?? 'Select model'}</span>
 				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
 			</>
 		);
@@ -106,11 +116,7 @@ export function ChatInputModelSelect() {
 	}
 
 	return (
-		<Select
-			value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
-			onValueChange={handleModelValueChange}
-			onOpenChange={onSelectOpenChange}
-		>
+		<Select value={selectValue} onValueChange={handleModelValueChange} onOpenChange={onSelectOpenChange}>
 			<Tooltip open={isTooltipOpen} onOpenChange={onTooltipOpenChange}>
 				<TooltipTrigger asChild>
 					<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm'>
@@ -124,7 +130,11 @@ export function ChatInputModelSelect() {
 									/>
 								)}
 								<span className='leading-none'>{selectedModelName}</span>
-								{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+								{usesDefaultModel
+									? resolvedModelName && (
+											<span className='text-muted-foreground'>{resolvedModelName}</span>
+										)
+									: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
 							</div>
 						</SelectValue>
 					</SelectTrigger>
@@ -133,8 +143,23 @@ export function ChatInputModelSelect() {
 			</Tooltip>
 
 			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
+				<SelectItem value={NAO_DEFAULT_VALUE}>
+					{defaultModel && (
+						<LlmProviderIcon
+							provider={defaultModel.provider}
+							baseUrl={defaultAvailableModel?.baseUrl}
+							className='size-4 opacity-100'
+						/>
+					)}
+					{NAO_DEFAULT_LABEL}
+					{defaultAvailableModel && (
+						<span className='text-muted-foreground'>{defaultAvailableModel.name}</span>
+					)}
+				</SelectItem>
+				<SelectSeparator />
+
 				{availableModels.map((model) => (
-					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
+					<SelectItem key={`${model.provider}-${model.modelId}`} value={modelValue(model)}>
 						<LlmProviderIcon
 							provider={model.provider}
 							baseUrl={model.baseUrl}
@@ -181,6 +206,10 @@ function useSelectTriggerTooltip() {
 	}, []);
 
 	return { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange };
+}
+
+function modelValue(model: LlmSelectedModel): string {
+	return `${model.provider}:${model.modelId}`;
 }
 
 function NamedProviderHint({ provider }: { provider: LlmProvider }) {
