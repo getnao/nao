@@ -1,4 +1,4 @@
-import type { UIMessage } from '@nao/backend/chat';
+import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 
 export interface StorySummary {
 	id: string;
@@ -13,6 +13,11 @@ export interface StoryDraft {
 }
 
 const storiesByMessages = new WeakMap<UIMessage[], StorySummary[]>();
+
+/** The slug a story tool call acts on, from its output when available and from the (possibly partial) input otherwise. */
+export function getStoryToolPartSlug(part: UIToolPart<'story'>): string | undefined {
+	return part.output?.id ?? part.input?.id;
+}
 
 const isStoryIdMatch = (expectedId: string, candidateId: string) => {
 	return expectedId === candidateId;
@@ -74,7 +79,7 @@ export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDra
 
 			const input = part.input;
 			const output = part.output;
-			const id = output?.id ?? input?.id;
+			const id = getStoryToolPartSlug(part);
 			if (!id) {
 				continue;
 			}

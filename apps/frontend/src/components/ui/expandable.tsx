@@ -19,6 +19,7 @@ interface ExpandableProps {
 	trailingContent?: ReactNode;
 	variant?: ExpandableVariant;
 	className?: string;
+	triggerClassName?: string;
 }
 
 export const Expandable = ({
@@ -34,6 +35,7 @@ export const Expandable = ({
 	trailingContent,
 	variant = 'inline',
 	className,
+	triggerClassName,
 }: ExpandableProps) => {
 	const canExpand = !disabled;
 	const isBordered = variant === 'bordered';
@@ -87,6 +89,7 @@ export const Expandable = ({
 									'select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
 									'min-w-0 flex-1',
 									canExpand ? 'cursor-pointer' : '',
+									triggerClassName,
 								)}
 							>
 								<div className='size-3 flex items-center justify-center shrink-0 self-center'>
@@ -114,6 +117,7 @@ export const Expandable = ({
 						className={cn(
 							'select-none flex items-center gap-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-colors duration-150 py-0 hover:no-underline [&>svg:last-child]:hidden opacity-100',
 							canExpand ? 'cursor-pointer' : '',
+							triggerClassName,
 						)}
 					>
 						<div className='size-3 flex items-center justify-center shrink-0'>{icon}</div>

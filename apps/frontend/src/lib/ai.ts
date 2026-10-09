@@ -10,8 +10,17 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { ImageUploadData } from '@nao/shared/attachments';
 import type { ToolCallDensity } from '@nao/shared/types';
-import type { GroupablePart, ToolGroupPart, QueryGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
+import type {
+	GroupablePart,
+	ToolGroupPart,
+	QueryGroupPart,
+	StoryStatusPart,
+	StoryQueryGroupPart,
+	GroupedMessagePart,
+	MessageGroup,
+} from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
+import { getStoryToolPartSlug } from '@/lib/story.utils';
 
 /** The ID used for new chats not yet persisted to the db. */
 export const NEW_CHAT_ID = 'new-chat';
@@ -107,7 +116,11 @@ export const isReasoningPart = (part: GroupedMessagePart): part is ReasoningUIPa
 const QUERY_TOOL_NAMES: string[] = ['execute_sql', 'execute_semantic_query'];
 
 export const isQueryToolPart = (part: GroupedMessagePart): part is UIToolPart => {
-	return !isGroupPart(part) && isToolUIPart(part) && QUERY_TOOL_NAMES.includes(getToolName(part));
+	return isMessagePart(part) && isToolUIPart(part) && QUERY_TOOL_NAMES.includes(getToolName(part));
+};
+
+const isStoryToolPart = (part: GroupedMessagePart): part is UIToolPart<'story'> => {
+	return part.type === 'tool-story';
 };
 
 /** Claude returns the note it writes before a tool call as a reasoning part; the backend tags it so it counts as readable content. */
@@ -123,18 +136,45 @@ export const isQueryGroupPart = (part: GroupedMessagePart): part is QueryGroupPa
 	return part.type === 'query-group';
 };
 
-const isGroupPart = (part: GroupedMessagePart): part is ToolGroupPart | QueryGroupPart => {
-	return isToolGroupPart(part) || isQueryGroupPart(part);
+export const isStoryStatusPart = (part: GroupedMessagePart): part is StoryStatusPart => {
+	return part.type === 'story-status';
+};
+
+export const isStoryQueryGroupPart = (part: GroupedMessagePart): part is StoryQueryGroupPart => {
+	return part.type === 'story-query-group';
+};
+
+const isGroupPart = (part: GroupedMessagePart): part is ToolGroupPart | QueryGroupPart | StoryQueryGroupPart => {
+	return isToolGroupPart(part) || isQueryGroupPart(part) || isStoryQueryGroupPart(part);
+};
+
+/** A part the message carries as-is, rather than one derived while grouping. */
+const isMessagePart = (part: GroupedMessagePart): part is UIMessagePart => {
+	return !isGroupPart(part) && !isStoryStatusPart(part);
 };
 
 export const areGroupedMessagePartsEqual = (left: GroupedMessagePart, right: GroupedMessagePart): boolean => {
+	if (isStoryQueryGroupPart(left) || isStoryQueryGroupPart(right)) {
+		return (
+			isStoryQueryGroupPart(left) &&
+			isStoryQueryGroupPart(right) &&
+			areGroupedMessagePartArraysEqual(left.parts, right.parts)
+		);
+	}
+
 	if (isGroupPart(left) || isGroupPart(right)) {
 		return (
 			isGroupPart(left) &&
 			isGroupPart(right) &&
 			left.type === right.type &&
+			'parts' in left &&
+			'parts' in right &&
 			areGroupedMessagePartArraysEqual(left.parts, right.parts)
 		);
+	}
+
+	if (isStoryStatusPart(left) || isStoryStatusPart(right)) {
+		return isStoryStatusPart(left) && isStoryStatusPart(right) && areToolPartsEqual(left.part, right.part);
 	}
 
 	if (isToolUIPart(left) || isToolUIPart(right)) {
@@ -198,7 +238,29 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 	}
 
 	flushGroup();
-	return groupConsecutiveQueries(result);
+	return groupAdjacentStoryQueries(collapseSupersededStoryActions(groupConsecutiveQueries(result)));
+};
+
+/** Several actions on one story read as one artifact: only the latest keeps its card, earlier ones become status lines. */
+const collapseSupersededStoryActions = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
+	const latestIndexBySlug = new Map<string, number>();
+	for (const [index, part] of parts.entries()) {
+		const slug = isStoryToolPart(part) ? getStoryToolPartSlug(part) : undefined;
+		if (slug) {
+			latestIndexBySlug.set(slug, index);
+		}
+	}
+
+	return parts.map((part, index) => {
+		if (!isStoryToolPart(part)) {
+			return part;
+		}
+		const slug = getStoryToolPartSlug(part);
+		if (!slug || latestIndexBySlug.get(slug) === index) {
+			return part;
+		}
+		return { type: 'story-status', part };
+	});
 };
 
 /** Several queries in a row read as one step rather than a stack of cards. */
@@ -224,6 +286,73 @@ const groupConsecutiveQueries = (parts: GroupedMessagePart[]): GroupedMessagePar
 	}
 
 	return result;
+};
+
+const groupAdjacentStoryQueries = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
+	const result: GroupedMessagePart[] = [];
+	let index = 0;
+
+	while (index < parts.length) {
+		const part = parts[index];
+		if (isStoryActivityPart(part)) {
+			const { run, end, hasStoryStatus, queryCount } = collectStoryActivityRun(parts, index);
+			if (hasStoryStatus && queryCount > 0) {
+				result.push({ type: 'story-query-group', parts: run });
+			} else {
+				result.push(...parts.slice(index, end));
+			}
+			index = end;
+			continue;
+		}
+
+		result.push(part);
+		index++;
+	}
+
+	return result;
+};
+
+const collectStoryActivityRun = (
+	parts: GroupedMessagePart[],
+	start: number,
+): { run: (GroupablePart | StoryStatusPart)[]; end: number; hasStoryStatus: boolean; queryCount: number } => {
+	const run: (GroupablePart | StoryStatusPart)[] = [];
+	let hasStoryStatus = false;
+	let queryCount = 0;
+	let end = start;
+
+	for (let index = start; index < parts.length; index++) {
+		const part = parts[index];
+		if (!isStoryActivityPart(part)) {
+			break;
+		}
+
+		if (isStoryStatusPart(part)) {
+			run.push(part);
+			hasStoryStatus = true;
+		} else {
+			const queryParts = getQueryCollectionParts(part);
+			run.push(...queryParts);
+			queryCount += queryParts.filter(isQueryToolPart).length;
+		}
+		end = index + 1;
+	}
+
+	return { run, end, hasStoryStatus, queryCount };
+};
+
+const isStoryActivityPart = (
+	part: GroupedMessagePart | undefined,
+): part is StoryStatusPart | QueryGroupPart | UIToolPart => {
+	return !!part && (isStoryStatusPart(part) || isQueryCollectionPart(part));
+};
+
+const isQueryCollectionPart = (part: GroupedMessagePart | undefined): part is QueryGroupPart | UIToolPart => {
+	return !!part && (isQueryGroupPart(part) || isQueryToolPart(part));
+};
+
+const getQueryCollectionParts = (part: QueryGroupPart | UIToolPart): GroupablePart[] => {
+	return isQueryGroupPart(part) ? part.parts : [part];
 };
 
 const collectQueryRun = (parts: GroupedMessagePart[], start: number): { run: GroupablePart[]; end: number } => {
