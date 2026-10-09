@@ -88,6 +88,7 @@ export function useLlmProviders() {
 			}),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getKnownTranscribeModels.queryOptions().queryKey }),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultChatModel.queryOptions().queryKey }),
 			queryClient.invalidateQueries({ queryKey: trpc.budget.getUnpricedModels.queryOptions().queryKey }),
 			queryClient.invalidateQueries({ queryKey: trpc.budget.getProvidersCostSupport.queryOptions().queryKey }),
 		]);

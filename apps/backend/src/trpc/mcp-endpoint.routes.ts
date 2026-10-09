@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
+import { llmSelectedModelSchema } from '../types/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, router } from './trpc';
 
 export const mcpEndpointRoutes = router({
@@ -15,6 +16,7 @@ export const mcpEndpointRoutes = router({
 				enabled: z.boolean().optional(),
 				subAgentModeEnabled: z.boolean().optional(),
 				contextLayerModeEnabled: z.boolean().optional(),
+				subAgentModel: llmSelectedModelSchema.nullable().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {

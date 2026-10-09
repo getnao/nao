@@ -407,9 +407,19 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Models',
 		search: { tab: 'models' },
 		title: 'Default models',
-		description: 'Choose which models nao uses for background tasks that run without an explicit model selection.',
+		description:
+			'Choose the model new chats start on, the model each messaging integration and the MCP ask_nao tool answer with, and the models behind background tasks.',
 		keywords: [
 			'default model',
+			'chat model',
+			'new chats',
+			'slack model',
+			'teams model',
+			'telegram model',
+			'whatsapp model',
+			'mattermost model',
+			'mcp model',
+			'ask_nao',
 			'background',
 			'live story',
 			'title generation',
@@ -731,6 +741,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description:
 			"Exposes ask_nao and get_nao_answer — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
 		keywords: ['ask_nao', 'get_nao_answer', 'agent', 'analytics', 'delegate', 'sub-agent'],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
+		section: 'nao MCP',
+		title: 'Sub-agent model',
+		description: 'Choose the model ask_nao answers with, or let it follow the default chat model.',
+		keywords: ['ask_nao', 'mcp model', 'sub-agent model', 'default chat model', 'llm'],
+		adminOnly: true,
 	},
 	{
 		page: '/settings/project/integrations',

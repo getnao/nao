@@ -1,5 +1,5 @@
 import { Chat as Agent, useChat } from '@ai-sdk/react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { DefaultChatTransport } from 'ai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -55,7 +55,10 @@ export interface AgentHelpers {
 	cancelAgent: () => Promise<void>;
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
+	/** The model the next message will run on: the user's pick, or the admin default when none is pinned. */
 	selectedModel: LlmSelectedModel | null;
+	usesDefaultModel: boolean;
+	/** Pass `null` to follow the admin default. */
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
 	adminMode: boolean;
@@ -93,14 +96,18 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const chatId = useChatId();
 	const chat = useChatQuery({ chatId });
 
-	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
+	// A null pick means "nao default": no model is sent and the server resolves the admin default.
+	const [pinnedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
+	const defaultChatModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
+	const usesDefaultModel = pinnedModel === null;
+	const selectedModel = pinnedModel ?? defaultChatModel.data ?? null;
 	const setChat = useSetChat();
 	const queryClient = useQueryClient();
 
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
-	selectedModelRef.current = selectedModel;
+	selectedModelRef.current = pinnedModel;
 	const mentionsRef = useRef<MentionOption[]>([]);
 	const [adminMode, setAdminModeState] = useState(false);
 	const adminModeRef = useRef(false);
@@ -510,6 +517,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		error,
 		clearError,
 		selectedModel,
+		usesDefaultModel,
 		setSelectedModel,
 		setMentions,
 		adminMode,

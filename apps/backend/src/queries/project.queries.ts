@@ -2,10 +2,10 @@ import {
 	ALL_DATABASE_CONTEXT_ACCESS,
 	ALL_DOCS_CONTEXT_ACCESS,
 	ALL_FILES_CONTEXT_ACCESS,
-	type BackgroundModelSettings,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_NAME,
+	type DefaultModelSettings,
 	type MapSettings,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
@@ -361,15 +361,15 @@ export const updateDisplaySettings = async (projectId: string, settings: Display
 	return next;
 };
 
-export const getDefaultModelSettings = async (projectId: string): Promise<BackgroundModelSettings | null> => {
+export const getDefaultModelSettings = async (projectId: string): Promise<DefaultModelSettings | null> => {
 	const project = await getProjectById(projectId);
 	return project?.defaultModels ?? null;
 };
 
 export const updateDefaultModelSettings = async (
 	projectId: string,
-	settings: BackgroundModelSettings,
-): Promise<BackgroundModelSettings> => {
+	settings: DefaultModelSettings,
+): Promise<DefaultModelSettings> => {
 	await db.update(s.project).set({ defaultModels: settings }).where(eq(s.project.id, projectId)).execute();
 	return settings;
 };

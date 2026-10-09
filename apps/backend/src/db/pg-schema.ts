@@ -1,6 +1,6 @@
 import {
-	type BackgroundModelSettings,
 	DEFAULT_USER_GROUP_CONFIG,
+	type DefaultModelSettings,
 	type MapSettings,
 	type McpChartEmbedStoredConfig,
 	type McpMapEmbedStoredConfig,
@@ -267,7 +267,7 @@ export const project = pgTable(
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
-		defaultModels: jsonb('default_models').$type<BackgroundModelSettings>(),
+		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
