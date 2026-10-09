@@ -1,4 +1,4 @@
-import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from 'ai';
+import { AISDKError, APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from 'ai';
 
 /**
  * Turns an error thrown by the live-story refresh into a message that is safe to
@@ -31,6 +31,10 @@ export function humanizeStoryRefreshError(err: unknown): string {
 		return withDetail('The model provider failed every retry attempt.', raw);
 	}
 
+	if (AISDKError.isInstance(err)) {
+		return withDetail('The model provider reported an error.', raw);
+	}
+
 	return raw;
 }
 
@@ -43,7 +47,7 @@ function extractRawMessage(err: unknown): string {
 
 function withDetail(explanation: string, raw: string): string {
 	const trimmed = raw.trim();
-	if (!trimmed || trimmed === explanation) {
+	if (!trimmed) {
 		return explanation;
 	}
 	return `${explanation} (${trimmed})`;

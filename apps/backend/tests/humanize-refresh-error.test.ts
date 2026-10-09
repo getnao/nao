@@ -1,4 +1,4 @@
-import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from 'ai';
+import { AISDKError, APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from 'ai';
 import { describe, expect, it } from 'vitest';
 
 import { humanizeStoryRefreshError } from '../src/utils/humanize-refresh-error';
@@ -83,12 +83,15 @@ describe('humanizeStoryRefreshError', () => {
 		expect(humanizeStoryRefreshError({ broken: true })).toBe('[object Object]');
 	});
 
-	it('does not double up when the raw message equals the explanation', () => {
-		class StubNoObject extends Error {}
-		Object.defineProperty(StubNoObject.prototype, 'name', { value: 'NoObjectGeneratedError' });
-		const err = new StubNoObject(
-			'The model returned a response that could not be parsed into the expected format. This usually resolves on retry; if it keeps happening, the model may be returning malformed output.',
-		);
-		expect(humanizeStoryRefreshError(err)).toBe(err.message);
+	it('falls back to the generic AISDKError explanation for unmapped SDK errors', () => {
+		const err = new AISDKError({
+			name: 'AI_LoadAPIKeyError',
+			message: 'OPENAI_API_KEY is not set',
+		});
+
+		const message = humanizeStoryRefreshError(err);
+
+		expect(message).toContain('The model provider reported an error.');
+		expect(message).toContain('OPENAI_API_KEY is not set');
 	});
 });
