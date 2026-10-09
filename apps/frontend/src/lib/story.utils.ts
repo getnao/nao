@@ -59,6 +59,7 @@ export function findStoryIds(messages: UIMessage[]): string[] {
 /**
  * Finds the latest tool-story state for a specific story ID.
  * Prefers currently-streaming tool input, then falls back to latest code-bearing input/output.
+ * A failed call never produced a version, so its input is not a draft to show.
  */
 export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDraft | null {
 	let prefixMatchedDraft: StoryDraft | null = null;
@@ -68,7 +69,7 @@ export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDra
 
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p];
-			if (part.type !== 'tool-story') {
+			if (part.type !== 'tool-story' || part.state === 'output-error') {
 				continue;
 			}
 

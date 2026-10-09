@@ -53,7 +53,7 @@ import {
 	convertToTokenUsage,
 	findLastUserMessage,
 	getLastUserMessageText,
-	settleInterruptedToolParts,
+	settleToolParts,
 } from '../utils/ai';
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { HandlerError } from '../utils/error';
@@ -604,7 +604,7 @@ class AgentManager {
 				try {
 					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
 					const tokenUsage = await this._getTotalUsage(result);
-					const [settledMessage] = settleInterruptedToolParts([e.responseMessage]);
+					const [settledMessage] = await settleToolParts([e.responseMessage]);
 					await chatQueries.upsertMessage({
 						...settledMessage,
 						chatId: this.chat.id,
@@ -633,7 +633,7 @@ class AgentManager {
 		timezone?: string,
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
-		const settledUiMessages = settleInterruptedToolParts(uiMessages);
+		const settledUiMessages = await settleToolParts(uiMessages);
 		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(settledUiMessages);
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessagesWithoutStaleQueries);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
