@@ -21,9 +21,7 @@ const mocks = vi.hoisted(() => ({
 	invoicePromotionCodes: [] as string[],
 	invoiceTotal: 100_000,
 	resubscribe: vi.fn(),
-	selectedBillingCurrency: 'usd' as 'usd' | 'eur',
 	selectedBillingInterval: 'monthly' as 'monthly' | 'yearly',
-	setSelectedBillingCurrency: vi.fn(),
 	setSelectedBillingInterval: vi.fn(),
 	status: 'trialing' as BillingData['status'],
 	trialAvailable: false,
@@ -51,7 +49,6 @@ beforeEach(() => {
 	mocks.invoiceKind = 'subscription';
 	mocks.invoicePromotionCodes = [];
 	mocks.invoiceTotal = 100_000;
-	mocks.selectedBillingCurrency = 'usd';
 	mocks.selectedBillingInterval = 'monthly';
 	mocks.status = 'trialing';
 	mocks.trialAvailable = false;
@@ -200,19 +197,6 @@ it('defaults to monthly and shows the Stripe-derived yearly discount before Chec
 	expect(mocks.setSelectedBillingInterval).toHaveBeenCalledWith('yearly');
 });
 
-it('switches the Checkout currency from the plan price', () => {
-	mocks.trialAvailable = true;
-	mocks.trialEndsAt = null;
-	mocks.trialStartedAt = null;
-
-	render(<OrganizationBillingSettings search={{}} />);
-
-	const currency = screen.getByRole('button', { name: 'Switch billing currency to EUR' });
-	expect(currency.textContent).toBe('USD');
-	fireEvent.click(currency);
-	expect(mocks.setSelectedBillingCurrency).toHaveBeenCalledWith('eur');
-});
-
 it('does not claim savings when the yearly Price has no discount', () => {
 	mocks.trialAvailable = true;
 	mocks.trialEndsAt = null;
@@ -318,9 +302,7 @@ function billingState(): BillingState {
 		plan,
 		portalFeedback: null,
 		resubscribe: mocks.resubscribe,
-		selectedBillingCurrency: mocks.selectedBillingCurrency,
 		selectedBillingInterval: mocks.selectedBillingInterval,
-		setSelectedBillingCurrency: mocks.setSelectedBillingCurrency,
 		setSelectedBillingInterval: mocks.setSelectedBillingInterval,
 		resume: vi.fn(),
 		retryCheckoutConfirmation: vi.fn(),

@@ -8,12 +8,18 @@ import type { ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
 	getStatus: vi.fn(),
+	getStatusInput: vi.fn(),
 }));
 
 vi.mock('@/main', () => {
 	const query = (name: string, queryFn: () => Promise<unknown>) => ({
 		queryKey: () => [['billing', name]],
-		queryOptions: () => ({ queryKey: [['billing', name]], queryFn }),
+		queryOptions: (input?: unknown) => {
+			if (name === 'getStatus') {
+				mocks.getStatusInput(input);
+			}
+			return { queryKey: [['billing', name], input], queryFn };
+		},
 	});
 	const mutation = () => ({ mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) });
 	return {
@@ -38,6 +44,7 @@ describe('useOrganizationBilling', () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
+		vi.restoreAllMocks();
 	});
 
 	it('stops checkout polling once Stripe confirms the subscription', async () => {
@@ -96,6 +103,20 @@ describe('useOrganizationBilling', () => {
 			result.current.setSelectedBillingInterval('yearly');
 		});
 		expect(result.current.plan).toEqual(yearlyPlan);
+	});
+
+	it('loads plans in the currency inferred from the browser locale', async () => {
+		vi.spyOn(navigator, 'language', 'get').mockReturnValue('fr-FR');
+		mocks.getStatus.mockResolvedValue({
+			hasStripeSubscription: false,
+			status: null,
+			canManageBilling: true,
+		});
+
+		const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
+
+		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
+		expect(mocks.getStatusInput).toHaveBeenCalledWith({ currency: 'eur' });
 	});
 });
 

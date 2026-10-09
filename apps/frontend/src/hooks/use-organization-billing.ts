@@ -1,19 +1,19 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { CloudBillingCurrency, CloudBillingInterval } from '@nao/shared/billing';
+import type { CloudBillingInterval } from '@nao/shared/billing';
 
 import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
 import { useOrganizationBillingSync } from '@/hooks/use-organization-billing-sync';
+import { getBillingCurrencyForLocale } from '@/lib/billing-currency';
 import { getBillingStatusView } from '@/lib/billing-display';
 import { trpc } from '@/main';
 
 export type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
 export type BillingInterval = CloudBillingInterval;
-export type BillingCurrency = CloudBillingCurrency;
 
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const [selectedBillingInterval, setSelectedBillingInterval] = useState<BillingInterval>('monthly');
-	const [selectedBillingCurrency, setSelectedBillingCurrency] = useState<BillingCurrency>('usd');
+	const selectedBillingCurrency = getBillingCurrencyForLocale(navigator.language);
 	const billingSync = useOrganizationBillingSync(search, selectedBillingCurrency);
 	const { billing, invoices } = billingSync;
 	const canLoadUpcomingInvoice =
@@ -88,8 +88,6 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isEndingAtPeriodEnd,
 		selectedBillingInterval,
 		setSelectedBillingInterval,
-		selectedBillingCurrency,
-		setSelectedBillingCurrency,
 		isCheckoutPolling: billingSync.isCheckoutPolling,
 		isCheckoutConfirmationDelayed: billingSync.isCheckoutConfirmationDelayed,
 		checkoutFeedback: billingSync.checkoutFeedback,

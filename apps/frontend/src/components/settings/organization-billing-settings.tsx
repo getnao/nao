@@ -186,11 +186,8 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 				<BillingIntervalSelector billingState={billingState} />
 				<div>
 					<div className='mb-1 text-sm font-medium text-foreground'>{plan.name}</div>
-					<div className='flex items-center gap-2'>
-						<div className='text-2xl font-semibold text-foreground'>
-							{formatBillingPrice(plan.amount, plan.currency)}
-						</div>
-						<BillingCurrencyToggle billingState={billingState} />
+					<div className='text-2xl font-semibold text-foreground'>
+						{formatBillingPrice(plan.amount, plan.currency)}
 					</div>
 					<div className='text-sm text-muted-foreground'>
 						per {formatBillingInterval(plan.interval, plan.intervalCount)}, before discounts
@@ -249,27 +246,6 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 				</div>
 			</div>
 		</SettingsCard>
-	);
-}
-
-function BillingCurrencyToggle({ billingState }: { billingState: BillingState }) {
-	const disabled =
-		billingState.isCheckoutPolling || billingState.isTrialCheckoutPending || billingState.isResubscribePending;
-	const nextCurrency = billingState.selectedBillingCurrency === 'usd' ? 'eur' : 'usd';
-
-	return (
-		<Button
-			type='button'
-			variant='secondary'
-			size='sm'
-			aria-label={`Switch billing currency to ${nextCurrency.toUpperCase()}`}
-			onClick={() => {
-				billingState.setSelectedBillingCurrency(nextCurrency);
-			}}
-			disabled={disabled}
-		>
-			{billingState.selectedBillingCurrency.toUpperCase()}
-		</Button>
 	);
 }
 
@@ -487,11 +463,8 @@ function BillingManagementCard({ billingState }: { billingState: BillingState })
 								{getBillingManagementDescription(status, billing.data.hasDefaultPaymentMethod === true)}
 							</p>
 							{billing.data.resubscribeAvailable && (
-								<div className='flex w-full flex-col gap-2'>
+								<div className='w-full'>
 									<BillingIntervalSelector billingState={billingState} />
-									<div className='flex justify-end'>
-										<BillingCurrencyToggle billingState={billingState} />
-									</div>
 								</div>
 							)}
 							<div className='flex flex-wrap gap-2'>
