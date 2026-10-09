@@ -77,7 +77,7 @@ const getStoryActionPhase = (
 	error: string | undefined,
 ): StoryActionPhase => {
 	if (isToolSettled(toolPart)) {
-		return error ? 'failed' : 'done';
+		return error || toolPart.state === 'output-denied' ? 'failed' : 'done';
 	}
 	return isMessageSettled ? 'interrupted' : 'pending';
 };

@@ -273,18 +273,30 @@ const collectQueryRun = (parts: GroupedMessagePart[], start: number): { run: Gro
 
 	for (let index = start; index < parts.length; index++) {
 		const part = parts[index];
+		const reasoningParts = getReasoningParts(part);
 		if (isQueryToolPart(part)) {
 			run.push(...pendingReasoning, part);
 			pendingReasoning = [];
 			end = index + 1;
-		} else if (isReasoningPart(part)) {
-			pendingReasoning.push(part);
+		} else if (reasoningParts) {
+			pendingReasoning.push(...reasoningParts);
 		} else {
 			break;
 		}
 	}
 
 	return { run, end };
+};
+
+/** Several notes in a row arrive already wrapped in a tool group, which should not break a run of queries. */
+const getReasoningParts = (part: GroupedMessagePart): ReasoningUIPart[] | null => {
+	if (isReasoningPart(part)) {
+		return [part];
+	}
+	if (isToolGroupPart(part) && part.parts.every(isReasoningPart)) {
+		return part.parts.filter(isReasoningPart);
+	}
+	return null;
 };
 
 /** Several actions on one story read as one artifact: only the latest keeps its card, earlier ones become status lines. */

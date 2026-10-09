@@ -62,6 +62,15 @@ describe('getLatestToolActivityLabel', () => {
 		);
 	});
 
+	it('prefers the newest call still running when parallel calls settle out of order', () => {
+		const parts = [
+			toolPart('read', { file_path: 'slow.sql' }, 'input-available'),
+			toolPart('read', { file_path: 'fast.sql' }, 'output-available'),
+		];
+
+		expect(getLatestToolActivityLabel(parts)).toBe('Exploring slow.sql');
+	});
+
 	it('returns null when no tool has run or the latest input is not yet known', () => {
 		expect(getLatestToolActivityLabel([toolPart('read', undefined, 'input-streaming')])).toBeNull();
 		expect(getLatestToolActivityLabel([reasoning('streaming')])).toBeNull();

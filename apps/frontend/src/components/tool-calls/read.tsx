@@ -4,7 +4,7 @@ import { McpTitle } from './mcp-title';
 import type { ToolCallComponentProps } from '.';
 import type { McpTarget } from '@/lib/mcp';
 import { getMcpTarget } from '@/lib/mcp';
-import { getReadContextLabel } from '@/lib/file-path';
+import { getFileName, getReadContextLabel } from '@/lib/file-path';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { markdownPlugins } from '@/lib/markdown';
 
@@ -12,7 +12,7 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 	const { isSettled } = useToolCallContext();
 
 	const filePath = input?.file_path;
-	const fileName = filePath?.split('/').pop() ?? filePath;
+	const fileName = getFileName(filePath);
 	const mcpTarget = getMcpTarget(filePath);
 	const contextLabel = getReadContextLabel(filePath);
 	const titleContext = contextLabel ? (

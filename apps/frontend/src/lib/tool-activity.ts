@@ -1,6 +1,6 @@
 import type { UIToolPart } from '@nao/backend/chat';
 import type { GroupablePart } from '@/types/ai';
-import { getToolName, isReasoningPart } from '@/lib/ai';
+import { getToolName, isReasoningPart, isToolSettled } from '@/lib/ai';
 import { getFileName, getReadContextLabel } from '@/lib/file-path';
 import { getMcpTarget } from '@/lib/mcp';
 
@@ -12,14 +12,18 @@ export const getLatestToolActivityLabel = (parts: GroupablePart[]): string | nul
 	return latestPart ? describeToolActivity(latestPart) : null;
 };
 
+/** Parallel calls can settle out of order, so the newest call still running wins over the newest call overall. */
 const findLatestToolPart = (parts: GroupablePart[]): UIToolPart | undefined => {
-	for (let index = parts.length - 1; index >= 0; index--) {
-		const part = parts[index];
-		if (!isReasoningPart(part)) {
-			return part;
-		}
-	}
-	return undefined;
+	const toolParts = parts.filter(isToolPart).reverse();
+	return toolParts.find(isRunning) ?? toolParts[0];
+};
+
+const isToolPart = (part: GroupablePart): part is UIToolPart => {
+	return !isReasoningPart(part);
+};
+
+const isRunning = (part: UIToolPart): boolean => {
+	return !isToolSettled(part);
 };
 
 const describeToolActivity = (part: UIToolPart): string | null => {

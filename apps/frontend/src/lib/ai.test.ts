@@ -295,6 +295,19 @@ describe('story actions', () => {
 	});
 });
 
+describe('query runs', () => {
+	it('keeps queries in one group when several notes sit between them', () => {
+		const firstQuery = createQueryPart('query-1');
+		const firstNote = { type: 'reasoning', text: 'Checking totals', state: 'done' } as UIMessagePart;
+		const secondNote = { type: 'reasoning', text: 'Now by region', state: 'done' } as UIMessagePart;
+		const secondQuery = createQueryPart('query-2');
+
+		expect(groupToolCalls([firstQuery, firstNote, secondNote, secondQuery])).toEqual([
+			{ type: 'query-group', parts: [firstQuery, firstNote, secondNote, secondQuery] },
+		]);
+	});
+});
+
 describe('progress updates', () => {
 	it('collapses a progress update into the tool group like any reasoning', () => {
 		const readPart = createToolPart({ type: 'tool-read', toolName: 'read' }) as UIMessagePart;
