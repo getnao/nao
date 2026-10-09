@@ -1024,14 +1024,24 @@ export const projectRoutes = {
 				chatModel: null,
 				builtInDefaults: { chat: null, categories: {} },
 			};
-			return { ...empty, integrations: [] as IntegrationModel[], mcpEndpointEnabled: false };
+			return {
+				...empty,
+				integrations: [] as IntegrationModel[],
+				mcpEndpointEnabled: false,
+				mcpSubAgentModel: null as LlmSelectedModel | null,
+			};
 		}
 		const [overview, integrations, mcpEndpoint] = await Promise.all([
 			getDefaultModelsOverview(ctx.project.id),
 			listIntegrationModels(ctx.project.id),
 			mcpEndpointQueries.getMcpEndpointSettings(ctx.project.id),
 		]);
-		return { ...overview, integrations, mcpEndpointEnabled: mcpEndpoint.enabled };
+		return {
+			...overview,
+			integrations,
+			mcpEndpointEnabled: mcpEndpoint.enabled && mcpEndpoint.subAgentModeEnabled,
+			mcpSubAgentModel: mcpEndpoint.subAgentModel ?? null,
+		};
 	}),
 
 	/** The model new chats start on, for the chat model picker. */

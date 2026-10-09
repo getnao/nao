@@ -747,6 +747,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Integrations & MCP',
 		search: { tab: 'nao-mcp' },
 		section: 'nao MCP',
+		title: 'Sub-agent model',
+		description: 'Choose the model ask_nao answers with, or let it follow the default chat model.',
+		keywords: ['ask_nao', 'mcp model', 'sub-agent model', 'default chat model', 'llm'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
+		section: 'nao MCP',
 		title: 'Context-layer mode',
 		description:
 			'Exposes ls_nao_context, grep_nao_context, read_nao_context, execute_sql, create_story, update_story — the client MCP drives the workflow step by step.',

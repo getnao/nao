@@ -273,7 +273,15 @@ export async function resolveDefaultModelSelection(
 	if (!configured) {
 		return null;
 	}
-	return substituteUnavailableModel(await getProjectAvailableModels(projectId), configured);
+	return resolvePinnedModel(projectId, configured);
+}
+
+/** A pinned model, substituted with an available one when it has been disabled or removed. */
+export async function resolvePinnedModel(
+	projectId: string,
+	pinned: LlmSelectedModel,
+): Promise<LlmSelectedModel | null> {
+	return substituteUnavailableModel(await getProjectAvailableModels(projectId), pinned);
 }
 
 /**
