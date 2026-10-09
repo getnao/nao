@@ -14,7 +14,7 @@ import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 const MANAGE_MODELS_VALUE = 'manage-models';
 /** Follows the default chat model set by the admin instead of pinning a model. */
 const NAO_DEFAULT_VALUE = 'nao-default';
-const NAO_DEFAULT_LABEL = 'nao default';
+const NAO_DEFAULT_LABEL = 'Auto';
 
 export function ChatInputModelSelect() {
 	const navigate = useNavigate();
