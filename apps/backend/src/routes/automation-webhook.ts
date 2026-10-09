@@ -4,6 +4,7 @@ import { startAutomationRun } from '../handlers/automation.handler';
 import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
+import { apiKeyRejection } from '../types/api-key';
 import { logger } from '../utils/logger';
 
 /**
@@ -23,10 +24,12 @@ export const automationWebhookRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Missing or invalid Authorization header' });
 		}
 
-		const org = await validateApiKey(authHeader.slice(7));
-		if (!org) {
-			return reply.status(401).send({ error: 'Invalid API key' });
+		const check = await validateApiKey(authHeader.slice(7));
+		if (check.status !== 'ok') {
+			const rejection = apiKeyRejection(check.status, 'deploy');
+			return reply.status(rejection.statusCode).send({ error: rejection.error });
 		}
+		const org = check.org;
 
 		const { automationId } = request.params as { automationId: string };
 		const automation = await automationQueries.getAutomationById(automationId);
