@@ -27,7 +27,7 @@ export function ChatInputModelSelect() {
 	} = useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
 
-	// Start on the project default once both load, or reset to it if the current selection is no longer available
+	// Reset to the project default (or the first model) if the current selection is no longer available
 	useEffect(() => {
 		if (isDefaultModelPending || !availableModels || availableModels.length === 0) {
 			return;

@@ -1,5 +1,5 @@
 import { Chat as Agent, useChat } from '@ai-sdk/react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { DefaultChatTransport } from 'ai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -94,8 +94,17 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const chat = useChatQuery({ chatId });
 
 	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
+	const defaultChatModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
 	const setChat = useSetChat();
 	const queryClient = useQueryClient();
+
+	// A new chat starts on the project default; a model picked afterwards is kept for that conversation only.
+	useEffect(() => {
+		if (chatId || !defaultChatModel.data) {
+			return;
+		}
+		setSelectedModel(defaultChatModel.data);
+	}, [chatId, defaultChatModel.data, setSelectedModel]);
 
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
