@@ -52,6 +52,9 @@ const MAX_BLOCK_STEP = 1.22;
 const MIN_SURFACE_STEP = 1.08;
 const SUBTLE_LINE = { min: 1.12, max: 1.75 };
 const DERIVED_SERIES_COUNT = 6;
+const MIN_ACCENT_CONTRAST = 3;
+const ACCENT_LIGHTNESS_STEP = 0.05;
+const MAX_ACCENT_STEPS = 8;
 const DARK_INK = { headingColor: '#f5f5f7', bodyColor: '#c9cbd3', mutedColor: '#8a8d9c' };
 const PURE_WHITE = '#ffffff';
 const PURE_BLACK = '#000000';
@@ -183,11 +186,25 @@ function guardAccent(theme: StoryTheme, candidates: BrandCandidate[], notes: str
 			theme.accent.color = strongest.color;
 		}
 	}
+	const lifted = liftAccentForSurface(theme.accent.color, theme.surfaces.page);
+	if (lifted !== theme.accent.color) {
+		theme.accent.color = lifted;
+		notes.push('The accent was too close to the story background, so its lightness was adjusted.');
+	}
 	if (theme.accent.color === theme.block.background || contrastRatio(theme.accent.color, theme.surfaces.page) < 1.5) {
 		theme.accent.color = DEFAULT_STORY_THEME.accent.color;
 		notes.push('The accent was too close to its background to register, so the nao accent is kept.');
 	}
 	theme.accent.ink = readableInkFor(theme.accent.color);
+}
+
+function liftAccentForSurface(accent: string, page: string): string {
+	const direction = isDarkSurface(page) ? 1 : -1;
+	let lifted = accent;
+	for (let step = 0; step < MAX_ACCENT_STEPS && contrastRatio(lifted, page) < MIN_ACCENT_CONTRAST; step++) {
+		lifted = shiftLightness(lifted, direction * ACCENT_LIGHTNESS_STEP);
+	}
+	return lifted;
 }
 
 /** Borders and grid lines are structure: neutral, and a soft step off the block. */
@@ -267,7 +284,7 @@ function guardSeries(theme: StoryTheme, proposal: ThemeProposal, measured: strin
 			: [];
 	const pinned = distinctHues(measured).length;
 	const kept = distinctHues([...measured, ...proposed]).slice(0, MAX_CHART_SERIES_COLORS);
-	const candidate = kept.length >= MIN_CHART_SERIES_COLORS ? kept : fillFromAccent(kept, theme.accent.color, surface);
+	const candidate = kept.length >= DERIVED_SERIES_COUNT ? kept : fillFromAccent(kept, theme.accent.color, surface);
 	if (candidate.length > kept.length) {
 		notes.push(describeFill(kept.length));
 	}
