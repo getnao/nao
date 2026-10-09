@@ -33,6 +33,21 @@ interface NavGroup {
 
 const settingsNavGroups: NavGroup[] = [
 	{
+		label: 'Personal',
+		items: [
+			{
+				label: 'Account',
+				to: '/settings/account',
+				exact: true,
+			},
+			{
+				label: 'Credits & wallet',
+				to: '/settings/credits-wallet',
+				visible: ({ isCloud }) => isCloud,
+			},
+		],
+	},
+	{
 		label: 'Project',
 		items: [
 			{

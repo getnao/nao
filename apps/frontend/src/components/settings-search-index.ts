@@ -26,6 +26,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['name', 'email', 'sign out', 'logout', 'avatar'],
 	},
 	{
+		page: '/settings/credits-wallet',
+		pageLabel: 'Credits & wallet',
+		section: 'Wallet and chat usage',
+		title: 'Credits & wallet',
+		description: "View your organization's nao credit balance, wallet history, chat usage, tokens, and costs.",
+		keywords: ['wallet', 'gift', 'ledger', 'billing', 'tokens', 'cost', 'model usage', 'organization credits'],
+		cloudOnly: true,
+	},
+	{
 		page: '/settings/account',
 		pageLabel: 'Account',
 		section: 'General Settings',

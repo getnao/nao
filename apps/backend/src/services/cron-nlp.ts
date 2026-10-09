@@ -62,6 +62,10 @@ async function resolveModelForProject(
 	}
 
 	const modelId = pinned?.modelId ?? getProviderMeta(provider).extractorModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false, { userId, projectId });
+	const model = await resolveProviderModel(projectId, provider, modelId, false, {
+		userId,
+		projectId,
+		category: 'cron',
+	});
 	return model ? { provider, model } : null;
 }

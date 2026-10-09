@@ -102,11 +102,14 @@ class MemoryService {
 	}
 
 	private async _resolveModel(
-		context: Pick<MemoryExtractionOptions, 'userId' | 'projectId' | 'chatId'>,
+		context: Pick<MemoryExtractionOptions, 'userId' | 'projectId' | 'chatId' | 'runId'>,
 		provider: LlmProvider,
 		modelId: string,
 	): Promise<ProviderModelResult | null> {
-		const model = await resolveProviderModel(context.projectId, provider, modelId, false, context);
+		const model = await resolveProviderModel(context.projectId, provider, modelId, false, {
+			...context,
+			category: 'memory',
+		});
 		return model ? disableModelReasoning(provider, model) : null;
 	}
 

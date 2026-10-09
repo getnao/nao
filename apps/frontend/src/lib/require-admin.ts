@@ -31,6 +31,13 @@ export async function requireOrganizationAdminCloudBilling() {
 	}
 }
 
+export async function requireCloud() {
+	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+	if (config.naoMode !== 'cloud') {
+		throw redirect({ to: '/settings/account' });
+	}
+}
+
 export async function requireAdminNonCloud() {
 	await requireAdmin();
 	await requireNonCloud();

@@ -34,6 +34,7 @@ interface CompactConversationOptions {
 	chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>;
 	provider: LlmProvider;
 	modelId: string;
+	runId?: string;
 	messages: ModelMessage[];
 	tools: Record<string, Tool>;
 	maxOutputTokens: number;
@@ -143,7 +144,7 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const llm = await this._resolveCompactionLLM(opts.chat, opts.provider, opts.modelId);
+		const llm = await this._resolveCompactionLLM(opts.chat, opts.provider, opts.modelId, opts.runId);
 		if (!llm) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
@@ -174,6 +175,7 @@ export class CompactionService {
 		chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>,
 		provider: LlmProvider,
 		selectedModelId: string,
+		runId?: string,
 	) {
 		const pinned = await resolveDefaultModelSelection(chat.projectId, 'compaction', chat.userId);
 		const effectiveProvider = pinned?.provider ?? provider;
@@ -188,6 +190,8 @@ export class CompactionService {
 			userId: chat.userId,
 			projectId: chat.projectId,
 			chatId: chat.id,
+			runId,
+			category: 'compaction',
 		});
 		if (!model) {
 			return undefined;

@@ -33,8 +33,9 @@ describe('formatErrorMessageForUI', () => {
 	});
 
 	it('preserves the managed-credit code for streamed errors', () => {
-		expect(JSON.parse(formatErrorMessageForUI(new ManagedCreditsExhaustedError()))).toEqual({
-			error: 'Your $5 nao-managed AI allowance has been used. Add a project provider key to continue.',
+		const error = new ManagedCreditsExhaustedError();
+		expect(JSON.parse(formatErrorMessageForUI(error))).toEqual({
+			error: error.message,
 			code: 'MANAGED_CREDITS_EXHAUSTED',
 		});
 	});

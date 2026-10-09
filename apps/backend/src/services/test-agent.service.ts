@@ -58,7 +58,7 @@ export class TestAgentService extends AgentService {
 			projectId,
 		};
 
-		const agent = await this.create(tempChat, modelSelection);
+		const agent = await this.create(tempChat, modelSelection, { usageCategory: 'test' });
 		return agent.generate([userMessage], { costs });
 	}
 
@@ -82,7 +82,11 @@ export class TestAgentService extends AgentService {
 		await assertProjectCloudBillingAccess(projectId);
 
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection, userId);
-		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, { userId, projectId });
+		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, {
+			userId,
+			projectId,
+			category: 'test',
+		});
 
 		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 

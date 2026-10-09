@@ -422,13 +422,11 @@ async function resolveModel(projectId: string, userId?: string): Promise<Resolve
 		return null;
 	}
 	const modelId = pinned?.modelId ?? getProviderMeta(provider).summaryModelId;
-	const model = await resolveProviderModel(
+	const model = await resolveProviderModel(projectId, provider, modelId, false, {
+		userId,
 		projectId,
-		provider,
-		modelId,
-		false,
-		userId ? { userId, projectId } : undefined,
-	);
+		category: 'story',
+	});
 	return model ? { provider, model } : null;
 }
 

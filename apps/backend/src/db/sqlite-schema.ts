@@ -53,6 +53,16 @@ import {
 } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
+import {
+	AI_USAGE_CATEGORIES,
+	AI_USAGE_COST_SOURCES,
+	AI_USAGE_STATUSES,
+	type AiUsageCategory,
+	type AiUsageCostSource,
+	type AiUsageStatus,
+	CREDIT_LEDGER_ENTRY_TYPES,
+	type CreditLedgerEntryType,
+} from '../types/ai-usage';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
@@ -1379,30 +1389,103 @@ export const llmInference = sqliteTable(
 	],
 );
 
-export const managedAiUsage = sqliteTable(
-	'managed_ai_usage',
+export const creditWallet = sqliteTable(
+	'credit_wallet',
 	{
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id),
+		orgId: text('org_id').references(() => organization.id, { onDelete: 'set null' }),
+		balanceMicroUsd: integer('balance_micro_usd').notNull().default(0),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [uniqueIndex('credit_wallet_orgId_idx').on(t.orgId)],
+);
+
+export const aiUsage = sqliteTable(
+	'ai_usage',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		operationId: text('operation_id').notNull().unique(),
+		runId: text('run_id').notNull(),
+		walletId: text('wallet_id').references(() => creditWallet.id, { onDelete: 'set null' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
 		orgId: text('org_id').references(() => organization.id, { onDelete: 'set null' }),
 		projectId: text('project_id').references(() => project.id, { onDelete: 'set null' }),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
-		modelId: text('model_id').notNull(),
+		chatMessageId: text('chat_message_id'),
+		category: text('category', { enum: AI_USAGE_CATEGORIES }).$type<AiUsageCategory>().notNull(),
+		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmModelId: text('llm_model_id').notNull(),
+		isManaged: integer('is_managed', { mode: 'boolean' }).notNull().default(false),
+		status: text('status', { enum: AI_USAGE_STATUSES }).$type<AiUsageStatus>().notNull(),
+		finishReason: text('finish_reason'),
+		providerRequestId: text('provider_request_id'),
+		inputTotalTokens: integer('input_total_tokens'),
 		inputNoCacheTokens: integer('input_no_cache_tokens').notNull().default(0),
 		inputCacheReadTokens: integer('input_cache_read_tokens').notNull().default(0),
 		inputCacheWriteTokens: integer('input_cache_write_tokens').notNull().default(0),
-		outputTokens: integer('output_tokens').notNull().default(0),
-		reasoningTokens: integer('reasoning_tokens').notNull().default(0),
-		costMicroUsd: integer('cost_micro_usd').notNull(),
+		outputTotalTokens: integer('output_total_tokens').notNull().default(0),
+		outputTextTokens: integer('output_text_tokens'),
+		outputReasoningTokens: integer('output_reasoning_tokens').notNull().default(0),
+		totalTokens: integer('total_tokens'),
+		inputNoCacheRateMicroUsd: integer('input_no_cache_rate_micro_usd'),
+		inputCacheReadRateMicroUsd: integer('input_cache_read_rate_micro_usd'),
+		inputCacheWriteRateMicroUsd: integer('input_cache_write_rate_micro_usd'),
+		outputRateMicroUsd: integer('output_rate_micro_usd'),
+		inputNoCacheCostMicroUsd: integer('input_no_cache_cost_micro_usd'),
+		inputCacheReadCostMicroUsd: integer('input_cache_read_cost_micro_usd'),
+		inputCacheWriteCostMicroUsd: integer('input_cache_write_cost_micro_usd'),
+		outputCostMicroUsd: integer('output_cost_micro_usd'),
+		upstreamCostMicroUsd: integer('upstream_cost_micro_usd'),
+		customerChargeMicroUsd: integer('customer_charge_micro_usd').notNull().default(0),
+		costSource: text('cost_source', { enum: AI_USAGE_COST_SOURCES }).$type<AiUsageCostSource>().notNull(),
+		startedAt: integer('started_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		completedAt: integer('completed_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('ai_usage_orgId_createdAt_idx').on(t.orgId, t.startedAt, t.id),
+		index('ai_usage_userId_createdAt_idx').on(t.userId, t.startedAt, t.id),
+		index('ai_usage_userId_runId_idx').on(t.userId, t.runId),
+		index('ai_usage_projectId_createdAt_idx').on(t.projectId, t.startedAt, t.id),
+		index('ai_usage_chatMessageId_idx').on(t.chatMessageId),
+		index('ai_usage_status_idx').on(t.status),
+	],
+);
+
+export const creditLedger = sqliteTable(
+	'credit_ledger',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		walletId: text('wallet_id').references(() => creditWallet.id, { onDelete: 'set null' }),
+		usageId: text('usage_id')
+			.unique()
+			.references(() => aiUsage.id, { onDelete: 'set null' }),
+		entryType: text('entry_type', { enum: CREDIT_LEDGER_ENTRY_TYPES }).$type<CreditLedgerEntryType>().notNull(),
+		deltaMicroUsd: integer('delta_micro_usd').notNull(),
+		balanceAfterMicroUsd: integer('balance_after_micro_usd').notNull(),
+		idempotencyKey: text('idempotency_key').notNull().unique(),
+		externalReference: text('external_reference'),
+		metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [index('managed_ai_usage_userId_idx').on(t.userId)],
+	(t) => [index('credit_ledger_walletId_createdAt_idx').on(t.walletId, t.createdAt, t.id)],
 );
 
 export const messageImage = sqliteTable('message_image', {

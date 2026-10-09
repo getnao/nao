@@ -5,20 +5,52 @@ import { z } from 'zod/v4';
 import { isManagedAiEnabled } from '../agents/managed-ai';
 import { isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
-import * as managedAiUsageQueries from '../queries/managed-ai-usage.queries';
+import * as aiUsageQueries from '../queries/ai-usage.queries';
+import * as creditWalletQueries from '../queries/credit-wallet.queries';
+import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
+import * as creditWalletService from '../services/credit-wallet.service';
 import { emailService } from '../services/email';
 import { buildResetPasswordEmail } from '../utils/email-builders';
 import { regexPassword } from '../utils/utils';
 import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
+const paginationInput = z
+	.object({
+		cursor: z.object({ createdAt: z.date(), id: z.string() }).optional(),
+		limit: z.number().int().min(1).max(100).default(25),
+	})
+	.default({ limit: 25 });
+
+/** Credits belong to the selected organization; the welcome grant is claimed lazily on first read. */
+const walletProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+	const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
+	if (membership && isManagedAiEnabled()) {
+		await creditWalletService.ensureWelcomeGrant(membership.orgId, ctx.user.id);
+	}
+	return next({ ctx: { membership } });
+});
+
 export const accountRoutes = {
-	getManagedAiBalance: protectedProcedure.query(async ({ ctx }) => {
-		return {
-			...(await managedAiUsageQueries.getManagedAiBalance(ctx.user.id)),
-			enabled: isManagedAiEnabled(),
-		};
+	getCreditSummary: walletProcedure.query(async ({ ctx }) => {
+		const summary = ctx.membership
+			? await creditWalletQueries.getCreditSummary(ctx.membership.orgId)
+			: { balanceMicroUsd: 0, lifetimeGrantedMicroUsd: 0, lifetimeSpentMicroUsd: 0 };
+		return { ...summary, enabled: isManagedAiEnabled() };
+	}),
+	listCreditLedger: walletProcedure.input(paginationInput).query(({ ctx, input }) => {
+		if (!ctx.membership) {
+			return { groups: [], nextCursor: null };
+		}
+		return creditWalletQueries.listCreditLedger(ctx.membership.orgId, input);
+	}),
+	listAiUsage: walletProcedure.input(paginationInput).query(({ ctx, input }) => {
+		if (!ctx.membership) {
+			return { runs: [], nextCursor: null };
+		}
+		const userId = ctx.membership.role === 'admin' ? undefined : ctx.user.id;
+		return aiUsageQueries.listAiUsage({ orgId: ctx.membership.orgId, userId }, input);
 	}),
 	resetPassword: adminProtectedProcedure
 		.input(

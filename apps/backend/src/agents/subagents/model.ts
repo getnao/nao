@@ -23,6 +23,8 @@ export async function resolveSubagentModel(context: ToolContext, requestedModelI
 		userId: context.userId,
 		projectId: context.projectId,
 		chatId: context.chatId ?? undefined,
+		runId: context.usageRunId,
+		category: 'subagent',
 	});
 	if (!config) {
 		throw new Error(`The model ${selection.modelId} (${selection.provider}) could not be resolved.`);

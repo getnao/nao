@@ -19,7 +19,7 @@ import {
 	UIMessageStreamWriter,
 } from 'ai';
 
-import type { ManagedAiContext } from '../agents/managed-ai';
+import type { AiUsageContext } from '../agents/managed-ai';
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
@@ -36,6 +36,7 @@ import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
+import type { AiUsageCategory } from '../types/ai-usage';
 import {
 	AgentTools,
 	ForkMetadata,
@@ -200,6 +201,7 @@ export async function buildToolContext(opts: {
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
 	modelSelection?: LlmSelectedModel;
+	usageRunId?: string;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -207,6 +209,7 @@ export async function buildToolContext(opts: {
 		chatId: opts.chatId,
 		adminMode: opts.adminMode ?? false,
 		...(opts.modelSelection && { modelSelection: opts.modelSelection }),
+		...(opts.usageRunId && { usageRunId: opts.usageRunId }),
 	};
 }
 
@@ -315,6 +318,8 @@ export class AgentService {
 			/** Enables project-defined charts that render only in the web client. */
 			supportsCustomCharts?: boolean;
 			billingAccessVerifiedProjectId?: string;
+			/** Attributes model calls made by non-interactive agent runs. */
+			usageCategory?: AiUsageCategory;
 		} = {},
 	): Promise<AgentManager> {
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
@@ -327,11 +332,14 @@ export class AgentService {
 			chat.userId,
 		);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, {
+		const usageContext: AiUsageContext = {
 			userId: chat.userId,
 			projectId: chat.projectId,
 			chatId: chat.id,
-		});
+			runId: crypto.randomUUID(),
+			category: options.usageCategory ?? 'chat',
+		};
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, usageContext);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
@@ -344,6 +352,7 @@ export class AgentService {
 			adminMode: options.adminMode,
 			supportsCustomCharts: options.supportsCustomCharts,
 			modelSelection: resolvedLlmSelectedModel,
+			usageRunId: usageContext.runId,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
@@ -362,6 +371,7 @@ export class AgentService {
 			agentTools,
 			toolContext,
 			userGroupAccess,
+			usageContext,
 			stopWhen,
 			options.systemPrompt,
 		);
@@ -423,14 +433,14 @@ export class AgentService {
 	protected async _getModelConfig(
 		projectId: string,
 		modelSelection: LlmSelectedModel,
-		managedContext?: ManagedAiContext,
+		usageContext?: AiUsageContext,
 	): Promise<ProviderModelResult> {
 		const result = await resolveProviderModel(
 			projectId,
 			modelSelection.provider,
 			modelSelection.modelId,
 			true,
-			managedContext,
+			usageContext,
 		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
@@ -457,6 +467,7 @@ class AgentManager {
 		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
 		private readonly _userGroupAccess: AgentUserGroupAccess,
+		private readonly _usageContext: AiUsageContext,
 		stopWhen: StopCondition<AgentTools>[] = interactiveStopConditions,
 		private readonly _systemPromptOverride?: string,
 	) {
@@ -511,6 +522,7 @@ class AgentManager {
 			chat: this.chat,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
+			runId: this._usageContext.runId,
 			messages: workingMessages,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
@@ -563,6 +575,8 @@ class AgentManager {
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
+		const assistantMessageId = crypto.randomUUID();
+		this._usageContext.messageId = assistantMessageId;
 		const handleError = (err: unknown): string => {
 			error = err;
 			logger.error(`Agent stream error: ${String(err)}`, {
@@ -574,9 +588,8 @@ class AgentManager {
 		};
 
 		return createUIMessageStream<UIMessage>({
-			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
-				writer.write({ type: 'start' });
+				writer.write({ type: 'start', messageId: assistantMessageId });
 
 				if (opts.events?.newChat) {
 					writer.write({
@@ -827,6 +840,7 @@ class AgentManager {
 			messages: uiMessages,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
+			runId: this._usageContext.runId,
 		});
 	}
 
@@ -851,6 +865,8 @@ class AgentManager {
 			userId: this.chat.userId,
 			projectId: this.chat.projectId,
 			chatId: this.chat.id,
+			runId: this._usageContext.runId,
+			category: 'title',
 		});
 		if (!modelResult) {
 			return;

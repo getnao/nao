@@ -60,7 +60,11 @@ async function resolveModelForProject(
 	const modelId = modelSelection
 		? await resolveAnnotationModelId(projectId, modelSelection, defaultModelId)
 		: (pinned?.modelId ?? defaultModelId);
-	const model = await resolveProviderModel(projectId, provider, modelId, false, { userId, projectId });
+	const model = await resolveProviderModel(projectId, provider, modelId, false, {
+		userId,
+		projectId,
+		category: 'automation',
+	});
 	return model ? { provider, model } : null;
 }
 

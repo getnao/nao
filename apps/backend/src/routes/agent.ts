@@ -34,6 +34,12 @@ export const agentRoutes = async (app: App) => {
 			...body,
 			adminMode: body.adminMode && canChatWithNaoData,
 		});
+		request.raw.once('aborted', result.stop);
+		reply.raw.once('close', () => {
+			if (!reply.raw.writableEnded) {
+				result.stop();
+			}
+		});
 
 		posthog.capture(user.id, PostHogEvent.MessageSent, {
 			project_id: projectId,

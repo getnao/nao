@@ -168,6 +168,7 @@ async function clusterFeedbacks(
 	const providerModel = await resolveProviderModel(projectId, model.provider, model.modelId, true, {
 		userId,
 		projectId,
+		category: 'recommendation',
 	});
 	if (!providerModel) {
 		logger.warn(`Feedback coverage: could not resolve model ${model.provider}/${model.modelId}`, {

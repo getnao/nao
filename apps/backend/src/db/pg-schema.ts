@@ -41,6 +41,7 @@ import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
 	type AnyPgColumn,
+	bigint,
 	boolean,
 	check,
 	foreignKey,
@@ -56,6 +57,16 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
+import {
+	AI_USAGE_CATEGORIES,
+	AI_USAGE_COST_SOURCES,
+	AI_USAGE_STATUSES,
+	type AiUsageCategory,
+	type AiUsageCostSource,
+	type AiUsageStatus,
+	CREDIT_LEDGER_ENTRY_TYPES,
+	type CreditLedgerEntryType,
+} from '../types/ai-usage';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
@@ -1285,28 +1296,95 @@ export const llmInference = pgTable(
 	],
 );
 
-export const managedAiUsage = pgTable(
-	'managed_ai_usage',
+export const creditWallet = pgTable(
+	'credit_wallet',
 	{
 		id: text('id')
 			.$defaultFn(() => crypto.randomUUID())
 			.primaryKey(),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id),
+		orgId: text('org_id').references(() => organization.id, { onDelete: 'set null' }),
+		balanceMicroUsd: bigint('balance_micro_usd', { mode: 'number' }).notNull().default(0),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [uniqueIndex('credit_wallet_orgId_idx').on(t.orgId)],
+);
+
+export const aiUsage = pgTable(
+	'ai_usage',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		operationId: text('operation_id').notNull().unique(),
+		runId: text('run_id').notNull(),
+		walletId: text('wallet_id').references(() => creditWallet.id, { onDelete: 'set null' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
 		orgId: text('org_id').references(() => organization.id, { onDelete: 'set null' }),
 		projectId: text('project_id').references(() => project.id, { onDelete: 'set null' }),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
-		modelId: text('model_id').notNull(),
+		chatMessageId: text('chat_message_id'),
+		category: text('category', { enum: AI_USAGE_CATEGORIES }).$type<AiUsageCategory>().notNull(),
+		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmModelId: text('llm_model_id').notNull(),
+		isManaged: boolean('is_managed').notNull().default(false),
+		status: text('status', { enum: AI_USAGE_STATUSES }).$type<AiUsageStatus>().notNull(),
+		finishReason: text('finish_reason'),
+		providerRequestId: text('provider_request_id'),
+		inputTotalTokens: integer('input_total_tokens'),
 		inputNoCacheTokens: integer('input_no_cache_tokens').notNull().default(0),
 		inputCacheReadTokens: integer('input_cache_read_tokens').notNull().default(0),
 		inputCacheWriteTokens: integer('input_cache_write_tokens').notNull().default(0),
-		outputTokens: integer('output_tokens').notNull().default(0),
-		reasoningTokens: integer('reasoning_tokens').notNull().default(0),
-		costMicroUsd: integer('cost_micro_usd').notNull(),
+		outputTotalTokens: integer('output_total_tokens').notNull().default(0),
+		outputTextTokens: integer('output_text_tokens'),
+		outputReasoningTokens: integer('output_reasoning_tokens').notNull().default(0),
+		totalTokens: integer('total_tokens'),
+		inputNoCacheRateMicroUsd: bigint('input_no_cache_rate_micro_usd', { mode: 'number' }),
+		inputCacheReadRateMicroUsd: bigint('input_cache_read_rate_micro_usd', { mode: 'number' }),
+		inputCacheWriteRateMicroUsd: bigint('input_cache_write_rate_micro_usd', { mode: 'number' }),
+		outputRateMicroUsd: bigint('output_rate_micro_usd', { mode: 'number' }),
+		inputNoCacheCostMicroUsd: bigint('input_no_cache_cost_micro_usd', { mode: 'number' }),
+		inputCacheReadCostMicroUsd: bigint('input_cache_read_cost_micro_usd', { mode: 'number' }),
+		inputCacheWriteCostMicroUsd: bigint('input_cache_write_cost_micro_usd', { mode: 'number' }),
+		outputCostMicroUsd: bigint('output_cost_micro_usd', { mode: 'number' }),
+		upstreamCostMicroUsd: bigint('upstream_cost_micro_usd', { mode: 'number' }),
+		customerChargeMicroUsd: bigint('customer_charge_micro_usd', { mode: 'number' }).notNull().default(0),
+		costSource: text('cost_source', { enum: AI_USAGE_COST_SOURCES }).$type<AiUsageCostSource>().notNull(),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		completedAt: timestamp('completed_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('ai_usage_orgId_createdAt_idx').on(t.orgId, t.startedAt, t.id),
+		index('ai_usage_userId_createdAt_idx').on(t.userId, t.startedAt, t.id),
+		index('ai_usage_userId_runId_idx').on(t.userId, t.runId),
+		index('ai_usage_projectId_createdAt_idx').on(t.projectId, t.startedAt, t.id),
+		index('ai_usage_chatMessageId_idx').on(t.chatMessageId),
+		index('ai_usage_status_idx').on(t.status),
+	],
+);
+
+export const creditLedger = pgTable(
+	'credit_ledger',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		walletId: text('wallet_id').references(() => creditWallet.id, { onDelete: 'set null' }),
+		usageId: text('usage_id')
+			.unique()
+			.references(() => aiUsage.id, { onDelete: 'set null' }),
+		entryType: text('entry_type', { enum: CREDIT_LEDGER_ENTRY_TYPES }).$type<CreditLedgerEntryType>().notNull(),
+		deltaMicroUsd: bigint('delta_micro_usd', { mode: 'number' }).notNull(),
+		balanceAfterMicroUsd: bigint('balance_after_micro_usd', { mode: 'number' }).notNull(),
+		idempotencyKey: text('idempotency_key').notNull().unique(),
+		externalReference: text('external_reference'),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [index('managed_ai_usage_userId_idx').on(t.userId)],
+	(t) => [index('credit_ledger_walletId_createdAt_idx').on(t.walletId, t.createdAt, t.id)],
 );
 
 export const messageImage = pgTable('message_image', {

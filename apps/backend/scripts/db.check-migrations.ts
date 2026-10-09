@@ -198,6 +198,7 @@ function normalizeColumnType(columnType: string): string {
 	const stripped = columnType.replace(/^(Pg|SQLite)/, '');
 
 	const equivalentTypes: Record<string, string> = {
+		BigInt53: 'Integer',
 		Jsonb: 'Json',
 		TextJson: 'Json',
 	};

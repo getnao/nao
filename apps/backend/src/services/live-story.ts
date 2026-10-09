@@ -500,6 +500,7 @@ async function resolveLiveStoryModel(target: StoryRefreshTarget) {
 		userId: target.userId,
 		projectId: target.projectId,
 		chatId: target.chatId,
+		category: 'story',
 	});
 	return model ? { provider, model } : null;
 }

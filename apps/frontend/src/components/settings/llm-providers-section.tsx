@@ -14,7 +14,7 @@ const managedModelIds = PROVIDER_META.nao.models.map((model) => model.id);
 
 export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 	const managedAi = useQuery({
-		...trpc.account.getManagedAiBalance.queryOptions(),
+		...trpc.account.getCreditSummary.queryOptions(),
 		refetchOnWindowFocus: false,
 	});
 	const {
@@ -59,7 +59,8 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 				<ProviderCard
 					provider='nao'
 					enabledModels={managedModelIds}
-					status={`Remaining credits: $${(managedAi.data.remainingMicroUsd / 1_000_000).toFixed(2)} of $${(managedAi.data.allowanceMicroUsd / 1_000_000).toFixed(2)}.`}
+					status={`Remaining credits: $${(managedAi.data.balanceMicroUsd / 1_000_000).toFixed(2)} of $${(managedAi.data.lifetimeGrantedMicroUsd / 1_000_000).toFixed(2)}.`}
+					linkStatusToAccount
 					badges={['MANAGED']}
 					isAdmin={isAdmin}
 					isFormActive={!!editingState}

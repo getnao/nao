@@ -89,6 +89,7 @@ function dedupeByDestination(entries: SettingsSearchEntry[]): SettingsSearchEntr
 
 const settingsSuggestionPages = [
 	'/settings/account',
+	'/settings/credits-wallet',
 	'/settings/organization',
 	'/settings/project',
 	'/settings/context-explorer',
@@ -96,4 +97,4 @@ const settingsSuggestionPages = [
 	'/settings/usage',
 ];
 
-const viewerVisiblePages = ['/settings/account'];
+const viewerVisiblePages = ['/settings/account', '/settings/credits-wallet'];

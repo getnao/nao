@@ -113,6 +113,7 @@ export async function runContextRecommendations(
 		const agent = await agentService.create({ ...uiChat, id: chat.id, projectId, userId }, model, {
 			billingAccessVerifiedProjectId: options?.billingAccessVerifiedProjectId,
 			excludeFollowUps: true,
+			usageCategory: 'recommendation',
 			maxSteps: ANALYSIS_STEP_BUDGET,
 			systemPrompt: renderContextRecommendationsSystemPrompt({
 				proposeFixes,

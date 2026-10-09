@@ -24,7 +24,10 @@ export class BudgetExceededError extends HandlerError {
 
 export class ManagedCreditsExhaustedError extends HandlerError {
 	constructor() {
-		super('FORBIDDEN', 'Your $5 nao-managed AI allowance has been used. Add a project provider key to continue.');
+		super(
+			'FORBIDDEN',
+			"Your organization's nao-managed AI credits have been used. Add a project provider key to continue.",
+		);
 		this.name = 'ManagedCreditsExhaustedError';
 	}
 }

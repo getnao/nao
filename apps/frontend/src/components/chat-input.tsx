@@ -153,7 +153,7 @@ function ChatInputBase({
 		refetchOnWindowFocus: false,
 	});
 	const managedBalance = useQuery({
-		...trpc.account.getManagedAiBalance.queryOptions(),
+		...trpc.account.getCreditSummary.queryOptions(),
 		enabled: selectedModel?.provider === 'nao',
 		refetchOnWindowFocus: false,
 	});
@@ -161,7 +161,9 @@ function ChatInputBase({
 		!!parseBudgetError(error) ||
 		budgetStatus.data?.level === 'exceeded' ||
 		!!parseManagedCreditsError(error) ||
-		(selectedModel?.provider === 'nao' && managedBalance.data?.remainingMicroUsd === 0);
+		(selectedModel?.provider === 'nao' &&
+			managedBalance.data?.balanceMicroUsd !== undefined &&
+			managedBalance.data.balanceMicroUsd <= 0);
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -657,21 +659,22 @@ function BudgetBanner() {
 		refetchOnWindowFocus: false,
 	});
 	const managedBalance = useQuery({
-		...trpc.account.getManagedAiBalance.queryOptions(),
+		...trpc.account.getCreditSummary.queryOptions(),
 		enabled: isManaged,
 		refetchOnWindowFocus: false,
 	});
 
 	const managedError = parseManagedCreditsError(error);
-	const remainingMicroUsd = managedBalance.data?.remainingMicroUsd;
-	const managedExhausted = isManaged && (managedError !== null || remainingMicroUsd === 0);
+	const balanceMicroUsd = managedBalance.data?.balanceMicroUsd;
+	const managedExhausted =
+		isManaged && (managedError !== null || (balanceMicroUsd !== undefined && balanceMicroUsd <= 0));
 	const budgetError = parseBudgetError(error);
 	const budgetLevel = budgetError ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
 	const budgetMessage = budgetError ?? (budgetLevel !== 'ok' ? budgetStatus.data?.message : null);
 	const managedMessage =
 		managedError ??
 		(managedExhausted
-			? 'Your nao-managed AI allowance has been used. Existing projects, chats, and data remain available.'
+			? "Your organization's nao-managed AI credits have been used. Existing projects, chats, and data remain available."
 			: null);
 	const message = isManaged ? managedMessage : budgetMessage;
 

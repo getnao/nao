@@ -25,6 +25,7 @@ interface HandleAgentMessageResult {
 	isNewChat: boolean;
 	modelId: string;
 	stream: ReadableStream;
+	stop: () => void;
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
@@ -106,6 +107,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		isNewChat,
 		modelId: agent.getModelId(),
 		stream,
+		stop: () => agent.stop(),
 	};
 };
 

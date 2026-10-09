@@ -153,6 +153,7 @@ async function finishAutomationRun(
 				billingAccessVerifiedProjectId,
 				excludeFollowUps: true,
 				supportsCustomCharts: false,
+				usageCategory: 'automation',
 				tools: ({ agentSettings, toolContext, webTools }) =>
 					getTools(
 						agentSettings,

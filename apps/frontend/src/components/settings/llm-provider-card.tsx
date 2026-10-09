@@ -1,6 +1,7 @@
 import { Pencil, Trash2 } from 'lucide-react';
 import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
 import { providerKind, providerLabel, providerLabels, providerName } from '@nao/shared/types';
+import { Link } from '@tanstack/react-router';
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
 import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ interface ProviderCardProps {
 	envBaseUrl?: string;
 	enabledModels?: string[] | null;
 	status?: string;
+	linkStatusToAccount?: boolean;
 	/** Where this provider comes from, e.g. `ENV` or `nao_config.yaml`. */
 	badges?: string[];
 	isAdmin: boolean;
@@ -31,6 +33,7 @@ export function ProviderCard({
 	envBaseUrl,
 	enabledModels,
 	status,
+	linkStatusToAccount = false,
 	badges = [],
 	isAdmin,
 	isFormActive,
@@ -80,14 +83,20 @@ export function ProviderCard({
 						</div>
 					) : (
 						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
-							<span>
-								{status ??
-									(getProviderAuth(provider).apiKey === 'required'
-										? 'API key from environment'
-										: getProviderAuth(provider).apiKey === 'optional'
-											? 'Using credentials from environment'
-											: 'No API key required')}
-							</span>
+							{status && linkStatusToAccount ? (
+								<Link to='/settings/account' className='hover:text-foreground hover:underline'>
+									{status}
+								</Link>
+							) : (
+								<span>
+									{status ??
+										(getProviderAuth(provider).apiKey === 'required'
+											? 'API key from environment'
+											: getProviderAuth(provider).apiKey === 'optional'
+												? 'Using credentials from environment'
+												: 'No API key required')}
+								</span>
+							)}
 							{envBaseUrl && (
 								<>
 									<span className='text-border'>•</span>

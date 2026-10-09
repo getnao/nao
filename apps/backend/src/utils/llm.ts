@@ -1,7 +1,7 @@
 import { type BackgroundModelCategory, selectBackgroundModel } from '@nao/shared';
 import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
 
-import { isManagedAiEnabled, type ManagedAiContext, withManagedAiMetering } from '../agents/managed-ai';
+import { type AiUsageContext, isManagedAiEnabled, withAiUsageMetering } from '../agents/managed-ai';
 import {
 	createProviderModel,
 	getDefaultModelId,
@@ -10,9 +10,9 @@ import {
 	type ProviderModelResult,
 } from '../agents/providers';
 import { env } from '../env';
-import * as managedAiUsageQueries from '../queries/managed-ai-usage.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
+import * as creditWalletService from '../services/credit-wallet.service';
 import type { CustomModelMetadata, ProviderSettings } from '../types/llm';
 import { type ConfigLlm, type ConfigLlmProvider, findConfigLlmProvider, readProjectConfigLlm } from './nao-config-llm';
 
@@ -145,14 +145,14 @@ export async function resolveProviderModel(
 	provider: LlmProvider,
 	modelId: string,
 	applyUserSettings = true,
-	managedContext?: ManagedAiContext,
+	usageContext?: AiUsageContext,
 ): Promise<ProviderModelResult | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
 	}
 	if (provider === 'nao') {
 		const apiKey = process.env.NAO_MANAGED_OPENAI_API_KEY;
-		if (!isManagedAiEnabled() || !managedContext?.userId || !apiKey || !isKnownModel(provider, modelId)) {
+		if (!isManagedAiEnabled() || !usageContext?.userId || !apiKey || !isKnownModel(provider, modelId)) {
 			return null;
 		}
 		const byokSources = await getProjectModelSources(projectId);
@@ -162,52 +162,87 @@ export async function resolveProviderModel(
 		const model = createProviderModel(provider, { apiKey }, modelId);
 		const project = await projectQueries.getProjectById(projectId);
 		const attribution = {
-			...managedContext,
+			...usageContext,
 			projectId,
-			orgId: managedContext.orgId ?? project?.orgId ?? undefined,
+			orgId: usageContext.orgId ?? project?.orgId ?? undefined,
 		};
-		return { ...model, model: withManagedAiMetering(model.model, modelId, attribution) };
+		return meterModel(model, provider, modelId, attribution);
 	}
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
-		return createProviderModel(
+		return meterModel(
+			createProviderModel(
+				provider,
+				{
+					apiKey: config.apiKey,
+					...(config.baseUrl && { baseURL: config.baseUrl }),
+					...(config.credentials && { credentials: config.credentials }),
+				},
+				modelId,
+				applyUserSettings ? config.modelSettings?.[modelId] : undefined,
+			),
 			provider,
-			{
-				apiKey: config.apiKey,
-				...(config.baseUrl && { baseURL: config.baseUrl }),
-				...(config.credentials && { credentials: config.credentials }),
-			},
 			modelId,
-			applyUserSettings ? config.modelSettings?.[modelId] : undefined,
+			usageContext,
+			config.customModels ?? [],
 		);
 	}
 
 	const configured = findConfigLlmProvider(await getProjectConfigLlm(projectId), provider);
 	if (configured) {
-		return createProviderModel(
+		return meterModel(
+			createProviderModel(
+				provider,
+				toProviderSettings(configured),
+				modelId,
+				applyUserSettings ? configured.modelSettings[modelId] : undefined,
+			),
 			provider,
-			toProviderSettings(configured),
 			modelId,
-			applyUserSettings ? configured.modelSettings[modelId] : undefined,
+			usageContext,
+			configured.customModels,
 		);
 	}
 
 	const envApiKey = getEnvApiKey(provider);
 	if (envApiKey) {
 		const envBaseUrl = getEnvBaseUrl(provider);
-		return createProviderModel(
+		return meterModel(
+			createProviderModel(provider, { apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) }, modelId),
 			provider,
-			{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
 			modelId,
+			usageContext,
 		);
 	}
 
 	if (hasEnvApiKey(provider)) {
 		const envBaseUrl = getEnvBaseUrl(provider);
-		return createProviderModel(provider, { apiKey: '', ...(envBaseUrl && { baseURL: envBaseUrl }) }, modelId);
+		return meterModel(
+			createProviderModel(provider, { apiKey: '', ...(envBaseUrl && { baseURL: envBaseUrl }) }, modelId),
+			provider,
+			modelId,
+			usageContext,
+		);
 	}
 
 	return null;
+}
+
+function meterModel(
+	result: ProviderModelResult,
+	provider: LlmProvider,
+	modelId: string,
+	context?: AiUsageContext,
+	customModels: CustomModelMetadata[] = [],
+): ProviderModelResult {
+	if (!context) {
+		return result;
+	}
+	const declaredCosts = customModels.find((model) => model.id === modelId)?.costPerM;
+	return {
+		...result,
+		model: withAiUsageMetering(result.model, provider, modelId, context, declaredCosts),
+	};
 }
 
 /** Read the `llm` block of the project's nao_config.yaml, if the project has one on disk. */
@@ -392,8 +427,9 @@ async function getProjectModelSources(projectId: string, userId?: string): Promi
 		(source) => source.provider !== 'nao' && !isProviderDisabled(source.provider),
 	);
 	if (enabledSources.length === 0 && userId && isManagedAiEnabled()) {
-		const { remainingMicroUsd } = await managedAiUsageQueries.getManagedAiBalance(userId);
-		if (remainingMicroUsd > 0) {
+		const project = await projectQueries.getProjectById(projectId);
+		const wallet = project?.orgId ? await creditWalletService.ensureWelcomeGrant(project.orgId, userId) : null;
+		if (wallet && wallet.balanceMicroUsd > 0) {
 			enabledSources.push({
 				provider: 'nao',
 				enabledModels: getKnownModelIds('nao'),
