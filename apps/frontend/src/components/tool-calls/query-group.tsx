@@ -20,7 +20,7 @@ interface Props {
 /** A run of queries folded into one inline step while preserving each query card's own display. */
 export const QueryGroup = memo(({ parts, isSettled }: Props) => {
 	const isLoading = !isSettled;
-	const hasError = parts.some((part) => !isReasoningPart(part) && part.state === 'output-error');
+	const hasError = parts.some(isFailedQueryItem);
 	const { expandOnError } = useChatView();
 	const shouldStayOpenOnError = expandOnError && hasError;
 	const [isExpanded, setIsExpanded] = useState(isLoading || shouldStayOpenOnError);
@@ -29,9 +29,13 @@ export const QueryGroup = memo(({ parts, isSettled }: Props) => {
 		setIsExpanded(isLoading || shouldStayOpenOnError);
 	}, [isLoading, shouldStayOpenOnError]);
 
-	const queryParts = useMemo(() => parts.filter(isQueryToolPart), [parts]);
+	const queryParts = useMemo(() => {
+		return parts.filter(isQueryToolPart);
+	}, [parts]);
 	const title = useQueryGroupTitle({ parts, queryParts, isLoading, isExpanded });
-	const badge = useMemo(() => formatTotalRows(queryParts), [queryParts]);
+	const badge = useMemo(() => {
+		return formatTotalRows(queryParts);
+	}, [queryParts]);
 
 	return (
 		<Expandable
@@ -68,7 +72,7 @@ const useQueryGroupTitle = (opts: {
 		const activeLabel = isLoading && !isExpanded ? getLatestToolActivityLabel(parts) : null;
 		const count = queryParts.length;
 		const fullTitle = activeLabel ?? `${isLoading ? 'Running' : 'Ran'} ${count} ${pluralize('query', count)}`;
-		const errorCount = queryParts.filter((part) => !!part.errorText).length;
+		const errorCount = queryParts.filter(hasErrorText).length;
 		if (!errorCount) {
 			return fullTitle;
 		}
@@ -76,6 +80,14 @@ const useQueryGroupTitle = (opts: {
 	}, [parts, queryParts, isLoading, isExpanded]);
 
 	return useThrottledValue(title, MIN_TITLE_DISPLAY_MS);
+};
+
+const isFailedQueryItem = (part: GroupablePart): boolean => {
+	return !isReasoningPart(part) && part.state === 'output-error';
+};
+
+const hasErrorText = (part: UIToolPart): boolean => {
+	return !!part.errorText;
 };
 
 const formatTotalRows = (queryParts: UIToolPart[]): string | undefined => {

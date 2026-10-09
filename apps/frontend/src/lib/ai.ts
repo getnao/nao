@@ -241,28 +241,6 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 	return groupAdjacentStoryQueries(collapseSupersededStoryActions(groupConsecutiveQueries(result)));
 };
 
-/** Several actions on one story read as one artifact: only the latest keeps its card, earlier ones become status lines. */
-const collapseSupersededStoryActions = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
-	const latestIndexBySlug = new Map<string, number>();
-	for (const [index, part] of parts.entries()) {
-		const slug = isStoryToolPart(part) ? getStoryToolPartSlug(part) : undefined;
-		if (slug) {
-			latestIndexBySlug.set(slug, index);
-		}
-	}
-
-	return parts.map((part, index) => {
-		if (!isStoryToolPart(part)) {
-			return part;
-		}
-		const slug = getStoryToolPartSlug(part);
-		if (!slug || latestIndexBySlug.get(slug) === index) {
-			return part;
-		}
-		return { type: 'story-status', part };
-	});
-};
-
 /** Several queries in a row read as one step rather than a stack of cards. */
 const groupConsecutiveQueries = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
 	const result: GroupedMessagePart[] = [];
@@ -286,6 +264,49 @@ const groupConsecutiveQueries = (parts: GroupedMessagePart[]): GroupedMessagePar
 	}
 
 	return result;
+};
+
+const collectQueryRun = (parts: GroupedMessagePart[], start: number): { run: GroupablePart[]; end: number } => {
+	const run: GroupablePart[] = [];
+	let pendingReasoning: ReasoningUIPart[] = [];
+	let end = start;
+
+	for (let index = start; index < parts.length; index++) {
+		const part = parts[index];
+		if (isQueryToolPart(part)) {
+			run.push(...pendingReasoning, part);
+			pendingReasoning = [];
+			end = index + 1;
+		} else if (isReasoningPart(part)) {
+			pendingReasoning.push(part);
+		} else {
+			break;
+		}
+	}
+
+	return { run, end };
+};
+
+/** Several actions on one story read as one artifact: only the latest keeps its card, earlier ones become status lines. */
+const collapseSupersededStoryActions = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
+	const latestIndexBySlug = new Map<string, number>();
+	for (const [index, part] of parts.entries()) {
+		const slug = isStoryToolPart(part) ? getStoryToolPartSlug(part) : undefined;
+		if (slug) {
+			latestIndexBySlug.set(slug, index);
+		}
+	}
+
+	return parts.map((part, index) => {
+		if (!isStoryToolPart(part)) {
+			return part;
+		}
+		const slug = getStoryToolPartSlug(part);
+		if (!slug || latestIndexBySlug.get(slug) === index) {
+			return part;
+		}
+		return { type: 'story-status', part };
+	});
 };
 
 const groupAdjacentStoryQueries = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
@@ -353,27 +374,6 @@ const isQueryCollectionPart = (part: GroupedMessagePart | undefined): part is Qu
 
 const getQueryCollectionParts = (part: QueryGroupPart | UIToolPart): GroupablePart[] => {
 	return isQueryGroupPart(part) ? part.parts : [part];
-};
-
-const collectQueryRun = (parts: GroupedMessagePart[], start: number): { run: GroupablePart[]; end: number } => {
-	const run: GroupablePart[] = [];
-	let pendingReasoning: ReasoningUIPart[] = [];
-	let end = start;
-
-	for (let index = start; index < parts.length; index++) {
-		const part = parts[index];
-		if (isQueryToolPart(part)) {
-			run.push(...pendingReasoning, part);
-			pendingReasoning = [];
-			end = index + 1;
-		} else if (isReasoningPart(part)) {
-			pendingReasoning.push(part);
-		} else {
-			break;
-		}
-	}
-
-	return { run, end };
 };
 
 /** Some providers emit reasoning parts without any readable text (redacted or encrypted reasoning). */
