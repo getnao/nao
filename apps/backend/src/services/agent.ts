@@ -61,6 +61,7 @@ import {
 	getProjectDeclaredModels,
 	resolveAnnotationModelId,
 	resolveDefaultChatModel,
+	resolveDefaultModelSelection,
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
@@ -819,12 +820,15 @@ class AgentManager {
 	}
 
 	private async _generateTitle(userMessageText: string): Promise<void> {
-		const provider = this._modelSelection.provider;
-		const summaryModelId = await resolveAnnotationModelId(
-			this.chat.projectId,
-			this._modelSelection,
-			getProviderMeta(provider).summaryModelId,
-		);
+		const pinned = await resolveDefaultModelSelection(this.chat.projectId, 'title');
+		const provider = pinned?.provider ?? this._modelSelection.provider;
+		const summaryModelId =
+			pinned?.modelId ??
+			(await resolveAnnotationModelId(
+				this.chat.projectId,
+				this._modelSelection,
+				getProviderMeta(provider).summaryModelId,
+			));
 		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false);
 		if (!modelResult) {
 			return;
@@ -847,7 +851,7 @@ class AgentManager {
 			}),
 		});
 
-		this._trackTitleGenerationInference(modelResult.model.modelId, convertToTokenUsage(usage));
+		this._trackTitleGenerationInference(provider, modelResult.model.modelId, convertToTokenUsage(usage));
 
 		const title = sanitizeTitle(text) || titleFromPrompt(userMessageText);
 		if (!title) {
@@ -863,13 +867,13 @@ class AgentManager {
 		}
 	}
 
-	private _trackTitleGenerationInference(modelId: string, usage: TokenUsage): void {
+	private _trackTitleGenerationInference(provider: LlmProvider, modelId: string, usage: TokenUsage): void {
 		scheduleSaveLlmInferenceRecord({
 			type: 'title_generation',
 			projectId: this.chat.projectId,
 			userId: this.chat.userId,
 			chatId: this.chat.id,
-			llmProvider: this._modelSelection.provider,
+			llmProvider: provider,
 			llmModelId: modelId,
 			...usage,
 		});

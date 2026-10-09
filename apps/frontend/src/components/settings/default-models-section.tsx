@@ -39,7 +39,6 @@ interface DefaultModelsSectionProps {
 export function DefaultModelsSection({ isAdmin }: DefaultModelsSectionProps) {
 	const queryClient = useQueryClient();
 	const { data } = useQuery(trpc.project.getDefaultModels.queryOptions());
-	const defaultChatModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
 	const invalidate = () =>
 		Promise.all([
 			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey }),
@@ -56,7 +55,7 @@ export function DefaultModelsSection({ isAdmin }: DefaultModelsSectionProps) {
 	const mode: BackgroundModelMode = settings?.mode ?? 'single';
 	const disabled = !isAdmin || updateMutation.isPending || updateIntegrationMutation.isPending;
 	const hasModels = availableModels.length > 0;
-	const chatDefault = toResolvedModel(defaultChatModel.data, availableModels);
+	const chatDefault = data?.chatModel ?? null;
 
 	const save = (next: DefaultModelSettings) => updateMutation.mutate(next);
 
@@ -241,6 +240,7 @@ function IntegrationModelField({
 			label={integration.name}
 			description={`The model used to answer questions asked in ${integration.name}.`}
 			value={integrationModel.modelSelection ?? undefined}
+			unavailableWarning={`The selected model is no longer offered to users. ${integration.name} keeps requesting it, so pick another model to keep answers reliable.`}
 			defaultOption={{ label: 'Default chat model', model: chatDefault }}
 			availableModels={availableModels}
 			disabled={disabled}
@@ -322,11 +322,15 @@ interface DefaultOption {
 	hint?: string;
 }
 
+const FALLBACK_UNAVAILABLE_WARNING =
+	'The selected model is no longer available. nao automatically falls back to another available model until you pick a new one.';
+
 function ModelField({
 	icon,
 	label,
 	description,
 	value,
+	unavailableWarning = FALLBACK_UNAVAILABLE_WARNING,
 	defaultOption,
 	availableModels,
 	disabled,
@@ -336,6 +340,7 @@ function ModelField({
 	label: string;
 	description: string;
 	value: LlmSelectedModel | undefined;
+	unavailableWarning?: string;
 	defaultOption: DefaultOption;
 	availableModels: AvailableModel[];
 	disabled: boolean;
@@ -365,7 +370,7 @@ function ModelField({
 					{label}
 				</label>
 				{isUnavailable && (
-					<SimpleTooltip content='The selected model is no longer available. nao automatically falls back to another available model until you pick a new one.'>
+					<SimpleTooltip content={unavailableWarning}>
 						<AlertTriangle className='size-3.5 text-amber-500' />
 					</SimpleTooltip>
 				)}
@@ -433,16 +438,6 @@ function DefaultOptionContent({
 			</span>
 		</div>
 	);
-}
-
-function toResolvedModel(
-	model: LlmSelectedModel | null | undefined,
-	availableModels: AvailableModel[],
-): ResolvedModel | null {
-	if (!model) {
-		return null;
-	}
-	return { ...model, name: findModel(availableModels, model)?.name ?? model.modelId };
 }
 
 function findModel(availableModels: AvailableModel[], model: LlmSelectedModel): AvailableModel | undefined {

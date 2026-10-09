@@ -27,11 +27,11 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
 import {
-	type BuiltInDefaultModels,
+	type DefaultModelsOverview,
+	getDefaultModelsOverview,
 	type IntegrationModel,
 	listIntegrationModels,
 	MODEL_INTEGRATIONS,
-	resolveBuiltInDefaultModels,
 	updateIntegrationModel,
 } from '../services/default-models.service';
 import { mattermostService } from '../services/mattermost';
@@ -1018,22 +1018,20 @@ export const projectRoutes = {
 
 	getDefaultModels: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return {
+			const empty: DefaultModelsOverview = {
 				settings: null,
 				availableModels: [],
-				builtInDefaults: { chat: null, categories: {} } satisfies BuiltInDefaultModels,
-				integrations: [] as IntegrationModel[],
-				mcpEndpointEnabled: false,
+				chatModel: null,
+				builtInDefaults: { chat: null, categories: {} },
 			};
+			return { ...empty, integrations: [] as IntegrationModel[], mcpEndpointEnabled: false };
 		}
-		const [settings, availableModels, builtInDefaults, integrations, mcpEndpoint] = await Promise.all([
-			projectQueries.getDefaultModelSettings(ctx.project.id),
-			getProjectAvailableModels(ctx.project.id),
-			resolveBuiltInDefaultModels(ctx.project.id),
+		const [overview, integrations, mcpEndpoint] = await Promise.all([
+			getDefaultModelsOverview(ctx.project.id),
 			listIntegrationModels(ctx.project.id),
 			mcpEndpointQueries.getMcpEndpointSettings(ctx.project.id),
 		]);
-		return { settings, availableModels, builtInDefaults, integrations, mcpEndpointEnabled: mcpEndpoint.enabled };
+		return { ...overview, integrations, mcpEndpointEnabled: mcpEndpoint.enabled };
 	}),
 
 	/** The model new chats start on, for the chat model picker. */

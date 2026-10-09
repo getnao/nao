@@ -10,7 +10,7 @@ export function useModelSelection() {
 	const availableModelsQuery = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 	const defaultModelQuery = useQuery(trpc.project.getDefaultChatModel.queryOptions());
 	const availableModels = availableModelsQuery.data;
-	const isPending = availableModelsQuery.isPending || defaultModelQuery.isPending;
+	const isPending = availableModelsQuery.isPending;
 	const canCycleModels = (availableModels?.length ?? 0) > 1;
 
 	const cycleModel = useCallback(() => {
@@ -24,6 +24,7 @@ export function useModelSelection() {
 	return {
 		availableModels,
 		defaultModel: defaultModelQuery.data ?? null,
+		isDefaultModelPending: defaultModelQuery.isPending,
 		selectedModel,
 		setSelectedModel,
 		isPending,

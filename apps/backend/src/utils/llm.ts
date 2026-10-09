@@ -1,4 +1,4 @@
-import { type BackgroundModelCategory, selectBackgroundModel } from '@nao/shared';
+import { type BackgroundModelCategory, type DefaultModelSettings, selectBackgroundModel } from '@nao/shared';
 import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
 
 import {
@@ -286,6 +286,14 @@ export async function resolveDefaultChatModel(projectId: string): Promise<LlmSel
 		projectQueries.getDefaultModelSettings(projectId),
 		getProjectAvailableModels(projectId),
 	]);
+	return selectDefaultChatModel(settings, available);
+}
+
+/** `resolveDefaultChatModel` over settings and a catalog the caller already loaded. */
+export function selectDefaultChatModel(
+	settings: DefaultModelSettings | null,
+	available: Array<{ provider: LlmProvider; modelId: string }>,
+): LlmSelectedModel | null {
 	if (settings?.chat) {
 		return substituteUnavailableModel(available, settings.chat);
 	}
