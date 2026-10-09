@@ -10,6 +10,7 @@ import {
 } from '../services/notification.service';
 import { enqueueOnce } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { humanizeStoryRefreshError } from '../utils/humanize-refresh-error';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME } from './story-delivery.handler';
@@ -112,19 +113,20 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 			});
 		});
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		logger.error(`Story refresh failed: ${message}`, {
+		const rawMessage = err instanceof Error ? err.message : String(err);
+		const humanMessage = humanizeStoryRefreshError(err);
+		logger.error(`Story refresh failed: ${rawMessage}`, {
 			source: 'system',
 			projectId,
 			context: { storyId, activityId: activity.id },
 		});
-		await activityQueries.failActivity(activity.id, message);
+		await activityQueries.failActivity(activity.id, humanMessage);
 		await notifyStoryRefreshFailed({
 			projectId,
 			ownerId: userId,
 			storyId,
 			storyTitle: story.title,
-			errorMessage: message,
+			errorMessage: humanMessage,
 			trigger: 'schedule',
 		}).catch((notifyError) => {
 			logger.error(`Failed to notify owner of refresh failure: ${String(notifyError)}`, {
