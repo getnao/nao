@@ -55,6 +55,7 @@ describe('useStoryStateRecorder', () => {
 
 		act(() => record({ key: 'round', value: 3, shared: true }));
 
+		expect(saveLater).toHaveBeenCalledWith({ key: 'round', value: 3, shared: true });
 		expect(cached()).toEqual({ shared: { round: 3 }, own: { zoom: 3 } });
 	});
 

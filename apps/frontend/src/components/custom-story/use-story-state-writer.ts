@@ -33,27 +33,33 @@ export function useStoryStateWriter(
 	return useCallback(
 		(change: StoryStateChange) => {
 			const pending = pendingRef.current;
-			clearTimeout(pending.get(change.key)?.timer);
-			pending.set(change.key, {
+			const pendingKey = pendingKeyOf(change);
+			clearTimeout(pending.get(pendingKey)?.timer);
+			pending.set(pendingKey, {
 				change,
 				dataSource,
 				reportError,
-				timer: setTimeout(() => savePending(pending, change.key), STATE_SAVE_DELAY_MS),
+				timer: setTimeout(() => savePending(pending, pendingKey), STATE_SAVE_DELAY_MS),
 			});
 		},
 		[dataSource, reportError],
 	);
 }
 
-function savePending(pending: Map<string, PendingSave>, key: string): void {
-	const entry = pending.get(key);
+/** A personal and a shared value may use the same key, so each scope keeps its own pending save. */
+function pendingKeyOf({ key, shared }: StoryStateChange): string {
+	return `${shared ? 'shared' : 'own'}:${key}`;
+}
+
+function savePending(pending: Map<string, PendingSave>, pendingKey: string): void {
+	const entry = pending.get(pendingKey);
 	if (!entry) {
 		return;
 	}
 	clearTimeout(entry.timer);
-	pending.delete(key);
+	pending.delete(pendingKey);
 	saveStoryState(entry.dataSource, entry.change).catch((error: unknown) => {
 		const reason = error instanceof Error ? `: ${error.message}` : '.';
-		entry.reportError(`The story state "${key}" could not be saved${reason}`);
+		entry.reportError(`The story state "${entry.change.key}" could not be saved${reason}`);
 	});
 }
