@@ -16,19 +16,21 @@ const MANAGE_MODELS_VALUE = 'manage-models';
 export function ChatInputModelSelect() {
 	const navigate = useNavigate();
 	const { isAdmin } = usePermissions();
-	const { availableModels, selectedModel, setSelectedModel, isPending, canCycleModels } = useModelSelection();
+	const { availableModels, defaultModel, selectedModel, setSelectedModel, isPending, canCycleModels } =
+		useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
 
-	// Set default model when available models load, or reset if current selection is no longer available
+	// Start on the project default once models load, or reset to it if the current selection is no longer available
 	useEffect(() => {
-		if (!availableModels || availableModels.length === 0) {
+		if (isPending || !availableModels || availableModels.length === 0) {
 			return;
 		}
 
 		if (!availableModels.some((model) => isSameModel(model, selectedModel))) {
-			setSelectedModel(availableModels[0]);
+			const fallback = availableModels.find((model) => isSameModel(model, defaultModel)) ?? availableModels[0];
+			setSelectedModel(fallback);
 		}
-	}, [availableModels, selectedModel, setSelectedModel]);
+	}, [isPending, availableModels, defaultModel, selectedModel, setSelectedModel]);
 
 	const handleModelValueChange = useCallback(
 		(value: string) => {

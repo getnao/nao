@@ -58,9 +58,9 @@ import {
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { HandlerError } from '../utils/error';
 import {
-	getProjectAvailableModels,
 	getProjectDeclaredModels,
 	resolveAnnotationModelId,
+	resolveDefaultChatModel,
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
@@ -368,11 +368,9 @@ export class AgentService {
 			return modelSelection;
 		}
 
-		// Same order the model picker offers, across the database, nao_config.yaml and the environment.
-		const available = await getProjectAvailableModels(projectId);
-		const first = available.at(0);
-		if (first) {
-			return { provider: first.provider, modelId: first.modelId };
+		const defaultModel = await resolveDefaultChatModel(projectId);
+		if (defaultModel) {
+			return defaultModel;
 		}
 
 		throw new HandlerError('BAD_REQUEST', 'No model config found');

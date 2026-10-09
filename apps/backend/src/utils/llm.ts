@@ -273,15 +273,36 @@ export async function resolveDefaultModelSelection(
 	if (!configured) {
 		return null;
 	}
+	return substituteUnavailableModel(await getProjectAvailableModels(projectId), configured);
+}
 
-	const available = await getProjectAvailableModels(projectId);
+/**
+ * The model a run uses when nothing selects one explicitly: the chat default an admin pinned
+ * (substituted when it is no longer available), otherwise the first model the picker offers.
+ * Returns null when the project has no model at all.
+ */
+export async function resolveDefaultChatModel(projectId: string): Promise<LlmSelectedModel | null> {
+	const [settings, available] = await Promise.all([
+		projectQueries.getDefaultModelSettings(projectId),
+		getProjectAvailableModels(projectId),
+	]);
+	if (settings?.chat) {
+		return substituteUnavailableModel(available, settings.chat);
+	}
+	const first = available.at(0);
+	return first ? { provider: first.provider, modelId: first.modelId } : null;
+}
+
+function substituteUnavailableModel(
+	available: Array<{ provider: LlmProvider; modelId: string }>,
+	configured: LlmSelectedModel,
+): LlmSelectedModel | null {
 	if (available.length === 0) {
 		return null;
 	}
 	if (available.some((m) => m.provider === configured.provider && m.modelId === configured.modelId)) {
 		return configured;
 	}
-
 	const substitute = available.find((m) => m.provider === configured.provider) ?? available[0];
 	return { provider: substitute.provider, modelId: substitute.modelId };
 }

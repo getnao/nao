@@ -1,6 +1,6 @@
 import {
-	type BackgroundModelSettings,
 	DEFAULT_USER_GROUP_CONFIG,
+	type DefaultModelSettings,
 	type MapSettings,
 	type McpChartEmbedStoredConfig,
 	type McpMapEmbedStoredConfig,
@@ -284,7 +284,7 @@ export const project = sqliteTable(
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
-		defaultModels: text('default_models', { mode: 'json' }).$type<BackgroundModelSettings>(),
+		defaultModels: text('default_models', { mode: 'json' }).$type<DefaultModelSettings>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })

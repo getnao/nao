@@ -7,7 +7,10 @@ import { trpc } from '@/main';
 
 export function useModelSelection() {
 	const { selectedModel, setSelectedModel } = useAgentContext();
-	const { data: availableModels, isPending } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
+	const availableModelsQuery = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
+	const defaultModelQuery = useQuery(trpc.project.getDefaultChatModel.queryOptions());
+	const availableModels = availableModelsQuery.data;
+	const isPending = availableModelsQuery.isPending || defaultModelQuery.isPending;
 	const canCycleModels = (availableModels?.length ?? 0) > 1;
 
 	const cycleModel = useCallback(() => {
@@ -18,7 +21,15 @@ export function useModelSelection() {
 		setSelectedModel(availableModels[(currentIndex + 1) % availableModels.length]);
 	}, [availableModels, selectedModel, setSelectedModel]);
 
-	return { availableModels, selectedModel, setSelectedModel, isPending, canCycleModels, cycleModel };
+	return {
+		availableModels,
+		defaultModel: defaultModelQuery.data ?? null,
+		selectedModel,
+		setSelectedModel,
+		isPending,
+		canCycleModels,
+		cycleModel,
+	};
 }
 
 export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel | null): boolean {
