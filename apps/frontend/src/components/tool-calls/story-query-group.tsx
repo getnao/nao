@@ -53,7 +53,7 @@ export const StoryQueryGroup = memo(({ parts, isSettled }: Props) => {
 			<div className='flex flex-col gap-2 px-3'>
 				{parts.map((part, index) => {
 					if (isStoryStatusPart(part)) {
-						return <StoryStatus key={part.part.toolCallId} toolPart={part.part} withReplayTarget={false} />;
+						return <StoryStatus key={part.part.toolCallId} toolPart={part.part} />;
 					}
 					if (isReasoningPart(part)) {
 						return (
