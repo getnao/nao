@@ -1230,7 +1230,11 @@ export class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
-			{ supportsCustomCharts: false, tools: defaultAgentToolsExcluding(SLACK_EXCLUDED_TOOLS) },
+			{
+				billingAccessVerifiedProjectId: this.projectId,
+				supportsCustomCharts: false,
+				tools: defaultAgentToolsExcluding(SLACK_EXCLUDED_TOOLS),
+			},
 		);
 		ctx.modelId = agent.getModelId();
 		return {

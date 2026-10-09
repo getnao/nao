@@ -6,6 +6,10 @@ import superjson from 'superjson';
 import { getSession } from '../auth';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
+import {
+	assertOrganizationCloudBillingAccess,
+	assertProjectCloudBillingAccess,
+} from '../services/cloud-billing-access.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
@@ -44,6 +48,30 @@ const t = initTRPC.context<Context>().create({
 });
 
 export const router = t.router;
+
+type CloudBillingScope = {
+	projectId?: string;
+	organizationId?: string | null;
+};
+
+export function cloudBillingMiddleware<TContext, TInput = unknown>(
+	resolveScope: (ctx: TContext, rawInput: TInput) => CloudBillingScope | null | Promise<CloudBillingScope | null>,
+) {
+	return t.middleware(async ({ ctx, getRawInput, next }) => {
+		const scope = await resolveScope(ctx as TContext, (await getRawInput()) as TInput);
+		if (!scope) {
+			return next();
+		}
+		if (scope.organizationId) {
+			await assertOrganizationCloudBillingAccess(scope.organizationId);
+		} else if (scope.projectId) {
+			await assertProjectCloudBillingAccess(scope.projectId);
+		} else {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Cloud billing organization was not found' });
+		}
+		return next({ ctx: { billingAccessVerifiedProjectId: scope.projectId } });
+	});
+}
 
 // Map HandlerError to tRPC error
 const withHandlerErrors = t.middleware(async ({ next }) => {
@@ -105,6 +133,12 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ne
 	return next({ ctx: { project, userRole } });
 });
 
+const selectedProjectBillingMiddleware = cloudBillingMiddleware<{
+	project: { id: string; orgId: string | null };
+}>(({ project }) => ({ projectId: project.id, organizationId: project.orgId }));
+
+export const cloudBillingProjectProcedure = projectProtectedProcedure.use(selectedProjectBillingMiddleware);
+
 /** Grants project access to admins, users, and context admins. */
 export const nonViewerProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
 	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user' && ctx.userRole !== 'context_admin') {
@@ -114,6 +148,8 @@ export const nonViewerProtectedProcedure = projectProtectedProcedure.use(async (
 	return next({ ctx });
 });
 
+export const cloudBillingNonViewerProcedure = nonViewerProtectedProcedure.use(selectedProjectBillingMiddleware);
+
 export const canSendProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
 	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user' && ctx.userRole !== 'context_admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
@@ -121,6 +157,8 @@ export const canSendProcedure = projectProtectedProcedure.use(async ({ ctx, next
 
 	return next({ ctx });
 });
+
+export const cloudBillingCanSendProcedure = canSendProcedure.use(selectedProjectBillingMiddleware);
 
 export function resourceProjectProcedure<T extends { projectId: string }>(
 	inputField: string,
@@ -167,6 +205,8 @@ export const adminProtectedProcedure = projectProtectedProcedure.use(async ({ ct
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
 });
 
+export const cloudBillingAdminProcedure = adminProtectedProcedure.use(selectedProjectBillingMiddleware);
+
 /**
  * Grants access to admins and context admins. Context admins use nao like regular users but
  * additionally manage observability surfaces: chat replay and context recommendations.
@@ -178,6 +218,23 @@ export const contextAdminProtectedProcedure = projectProtectedProcedure.use(asyn
 
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
 });
+
+export const cloudBillingContextAdminProcedure = contextAdminProtectedProcedure.use(selectedProjectBillingMiddleware);
+
+const organizationProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+	const membership = await resolveOrganizationMembership(
+		ctx.user.id,
+		ctx.selectedProjectId,
+		ctx.selectedOrganizationId,
+	);
+	return next({ ctx: { organization: membership.organization, orgRole: membership.role } });
+});
+
+export const cloudBillingOrganizationProcedure = organizationProtectedProcedure.use(
+	cloudBillingMiddleware<{ organization: { id: string } }>(({ organization }) => ({
+		organizationId: organization.id,
+	})),
+);
 
 /** Organization roles mapped from identity provider groups are re-applied on every sign-in. */
 export async function assertOrganizationRolesAreEditable(): Promise<void> {

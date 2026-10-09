@@ -5,10 +5,6 @@ import { z } from 'zod/v4';
 
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
-import {
-	assertOrganizationCloudBillingAccess,
-	assertProjectCloudBillingAccess,
-} from '../services/cloud-billing-access.service';
 import * as githubService from '../services/github';
 import {
 	createNewProject,
@@ -18,10 +14,10 @@ import {
 	replaceExistingProject,
 } from '../utils/project-import.utils';
 import {
-	adminProtectedProcedure,
+	cloudBillingAdminProcedure,
+	cloudBillingOrganizationProcedure,
 	contextAdminProtectedProcedure,
 	protectedProcedure,
-	resolveOrganizationMembership,
 } from './trpc';
 
 export const githubRoutes = {
@@ -65,7 +61,7 @@ export const githubRoutes = {
 			}
 		}),
 
-	createProjectFromRepo: protectedProcedure
+	createProjectFromRepo: cloudBillingOrganizationProcedure
 		.input(
 			z.object({
 				repoFullName: z.string(),
@@ -79,13 +75,6 @@ export const githubRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
 			}
 
-			const membership = await resolveOrganizationMembership(
-				ctx.user.id,
-				ctx.selectedProjectId,
-				ctx.selectedOrganizationId,
-			);
-			await assertOrganizationCloudBillingAccess(membership.orgId);
-
 			const cloneDir = createTempProjectDir('github-import');
 			try {
 				try {
@@ -97,7 +86,7 @@ export const githubRoutes = {
 					});
 				}
 
-				const orgId = membership.orgId;
+				const orgId = ctx.organization.id;
 				const projectName =
 					input.projectName ||
 					readProjectNameFromConfig(cloneDir) ||
@@ -140,8 +129,7 @@ export const githubRoutes = {
 		return githubService.getGitInfo(ctx.project.path);
 	}),
 
-	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		await assertProjectCloudBillingAccess(ctx.project.id);
+	unlinkProject: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 		}

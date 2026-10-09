@@ -1,7 +1,6 @@
 import type { DBScheduledJob } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
-import { hasProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { refreshStoryData } from '../services/live-story';
 import {
 	NotificationChannelDeliveryError,
@@ -26,6 +25,21 @@ export async function storyRefreshHandler(payload: StoryRefreshJobPayload, _job?
 		throw new Error('storyId is required.');
 	}
 	await runScheduledStoryRefresh(storyId);
+}
+
+export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPayload): Promise<string> {
+	if (!payload.storyId) {
+		throw new Error('storyId is required.');
+	}
+	const story = await storyQueries.getStoryById(payload.storyId);
+	if (!story) {
+		throw new Error(`Story not found: ${payload.storyId}`);
+	}
+	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+	if (!projectId) {
+		throw new Error(`Story ${payload.storyId} is missing a project; cannot schedule refresh.`);
+	}
+	return projectId;
 }
 
 /**
@@ -55,10 +69,6 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!projectId || !userId) {
 		throw new Error(`Story ${storyId} is missing project or user ownership; cannot schedule refresh.`);
 	}
-	if (!(await hasProjectCloudBillingAccess(projectId))) {
-		return;
-	}
-
 	const activity = await activityQueries.startStoryRefreshActivity({
 		projectId,
 		userId,

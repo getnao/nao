@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 
 import type { UserGroupEditorTab } from '@/components/settings/user-group-editor';
 import { UserGroupEditor } from '@/components/settings/user-group-editor';
-import { requireAdmin } from '@/lib/require-admin';
+import { requireAdmin } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/user-groups/$groupId')({
