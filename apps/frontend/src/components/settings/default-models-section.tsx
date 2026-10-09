@@ -8,7 +8,8 @@ import {
 	setSingleBackgroundModel,
 } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { AlertTriangle, ArrowUpRight } from 'lucide-react';
 import { useId } from 'react';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { BackgroundModelCategory, BackgroundModelMode, DefaultModelSettings } from '@nao/shared';
@@ -237,7 +238,16 @@ function IntegrationModelField({
 	return (
 		<ModelField
 			icon={<Icon className='size-4' />}
-			label={integration.name}
+			label={
+				<Link
+					to='/settings/project/integrations/$integrationId'
+					params={{ integrationId: integration.id }}
+					className='inline-flex items-center gap-1 hover:underline'
+				>
+					{integration.name}
+					<ArrowUpRight className='size-3.5 text-muted-foreground' />
+				</Link>
+			}
 			description={`The model used to answer questions asked in ${integration.name}.`}
 			value={integrationModel.modelSelection ?? undefined}
 			unavailableWarning={`The selected model is no longer offered to users. ${integration.name} keeps requesting it, so pick another model to keep answers reliable.`}
@@ -262,7 +272,14 @@ function McpModelRow({
 		<div className='grid gap-1.5'>
 			<div className='flex items-center gap-2'>
 				<McpIcon className='size-4' />
-				<span className='text-sm font-medium text-foreground'>nao MCP · ask_nao</span>
+				<Link
+					to='/settings/project/integrations'
+					search={{ tab: 'nao-mcp' }}
+					className='inline-flex items-center gap-1 text-sm font-medium text-foreground hover:underline'
+				>
+					nao MCP · ask_nao
+					<ArrowUpRight className='size-3.5 text-muted-foreground' />
+				</Link>
 			</div>
 			<p className='text-xs text-muted-foreground'>
 				Questions asked by external AI clients through the nao MCP endpoint run on the default chat model.
@@ -337,7 +354,7 @@ function ModelField({
 	onChange,
 }: {
 	icon?: ReactNode;
-	label: string;
+	label: ReactNode;
 	description: string;
 	value: LlmSelectedModel | undefined;
 	unavailableWarning?: string;
