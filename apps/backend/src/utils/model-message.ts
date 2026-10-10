@@ -64,6 +64,29 @@ function toSafeToolCallId(toolCallId: string): string {
 }
 
 /**
+ * Drops reasoning parts from assistant messages so a thinking-disabled summarization call does
+ * not fail with Anthropic's "`thinking` or `redacted_thinking` blocks in the latest assistant
+ * message cannot be modified" error. Compaction wraps the model with reasoning disabled, so any
+ * reasoning part replayed from the stored history would violate that rule. A thinking-only
+ * assistant turn is replaced with a short placeholder so the message stays non-empty and still
+ * carries conversational position.
+ */
+export function stripReasoningParts(messages: ModelMessage[]): ModelMessage[] {
+	return messages.map((message) => {
+		if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+			return message;
+		}
+		const parts = message.content as { type: string }[];
+		const kept = parts.filter((part) => part.type !== 'reasoning');
+		if (kept.length === parts.length && parts.length > 0) {
+			return message;
+		}
+		const content = kept.length > 0 ? kept : [{ type: 'text' as const, text: '[Reasoning omitted]' }];
+		return { ...message, content } as ModelMessage;
+	});
+}
+
+/**
  * Replaces image/file parts in model messages with text placeholders.
  * Used by compaction to avoid sending binary data to the summarization LLM.
  */
