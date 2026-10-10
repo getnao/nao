@@ -233,6 +233,48 @@ export async function listStoriesInChat(
 	}));
 }
 
+export type ChatStoryLatestVersion = Pick<DBStory, 'slug' | 'title' | 'format' | 'archivedAt'> & {
+	storyId: string;
+	version: number | null;
+	code: string | null;
+	source: DBStoryVersion['source'] | null;
+};
+
+/** Every story of a chat, archived included, with its latest version; a never-published custom draft has none. */
+export async function listLatestVersionsInChat(chatId: string): Promise<ChatStoryLatestVersion[]> {
+	const latest = db
+		.select({
+			storyId: s.storyVersion.storyId,
+			maxVersion: max(s.storyVersion.version).as('max_version'),
+		})
+		.from(s.storyVersion)
+		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
+		.where(eq(s.story.chatId, chatId))
+		.groupBy(s.storyVersion.storyId)
+		.as('latest');
+
+	return db
+		.select({
+			storyId: s.story.id,
+			slug: s.story.slug,
+			title: s.story.title,
+			format: s.story.format,
+			archivedAt: s.story.archivedAt,
+			version: s.storyVersion.version,
+			code: s.storyVersion.code,
+			source: s.storyVersion.source,
+		})
+		.from(s.story)
+		.leftJoin(latest, eq(latest.storyId, s.story.id))
+		.leftJoin(
+			s.storyVersion,
+			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latest.maxVersion)),
+		)
+		.where(eq(s.story.chatId, chatId))
+		.orderBy(asc(s.story.createdAt))
+		.execute();
+}
+
 export async function createStoryVersion(
 	data: {
 		chatId: string;

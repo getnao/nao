@@ -1,10 +1,13 @@
 import type { story } from '@nao/shared/tools';
 
 import { Block, List, ListItem, Span } from '../../lib/markdown';
+import { CHAT_ARTIFACTS_TAG } from '../ai/chat-artifacts-prompt';
 
 export type StoryModelOutput = story.Output & {
+	/** Set on persisted outputs: the conversation artifacts carry the story's current content. */
 	_stale?: boolean;
-	_editedByUser?: boolean;
+	/** Set with `_stale` when the story has since been archived and left the conversation artifacts. */
+	_archived?: boolean;
 };
 
 export function StoryOutput({ output }: { output: StoryModelOutput }) {
@@ -31,8 +34,10 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 	if (output._stale) {
 		return (
 			<Block>
-				Story "{output.title}" ({output.id}) — older invocation, see the latest version in a more recent tool
-				result.
+				Story "{output.title}" ({output.id}) — v{output.version} at the time.{' '}
+				{output._archived
+					? 'It has since been archived and is no longer part of this conversation.'
+					: `Its current content is in the <${CHAT_ARTIFACTS_TAG}> block of the latest user message.`}
 			</Block>
 		);
 	}
@@ -46,12 +51,6 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 	return (
 		<Block>
 			Story "{output.title}" (v{output.version}) — {output.id}
-			{output._editedByUser && (
-				<Block>
-					Note: This story was modified by the user since your last update. The content below reflects the
-					current version. Base any further changes on this content.
-				</Block>
-			)}
 			{templateWarnings.length > 0 && (
 				<Block>
 					<Span>
