@@ -21,6 +21,7 @@ import {
 	AuthorDateLabel,
 	CertifiedBadge,
 	GRID_CARD_CLASS,
+	GRID_HOVER_ACTION_GRADIENT_CLASS,
 	GRID_THUMBNAIL_CLASS,
 	GridCardFooter,
 	LINES_CARD_CLASS,
@@ -173,6 +174,7 @@ export function StoryCard({
 							<StoryThumbnail summary={item.summary} />
 						)}
 					</div>
+					<div className={GRID_HOVER_ACTION_GRADIENT_CLASS} />
 
 					{!selectionActive && (
 						<Link

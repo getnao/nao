@@ -19,6 +19,7 @@ const SPARKLINE_PATH = 'M2 20L9 15L16 17L23 9L30 12L37 5L44 7';
 const POINTER_PATH = 'M4 3l6.5 17 2.4-7.1L20 10.5z';
 
 const BLOCKS_SHIFT_ON_SCREEN = 'translate(-8.2px, 1.7px)';
+const FLAT_THUMBNAIL_FRAME = 'overflow-hidden bg-white dark:bg-background';
 
 const CLICKS = [
 	{ x: 112.9, y: 24.2, atSeconds: 0.6 },
@@ -108,33 +109,51 @@ function ScreenshotSheet({
 	onLoad: () => void;
 	onError: () => void;
 }) {
-	const sheetSize = isToolPart
-		? 'w-[196px] h-auto max-w-none aspect-[8/5]'
-		: 'w-[130%] h-auto max-w-none aspect-[8/5]';
+	if (isToolPart) {
+		return (
+			<div
+				className={cn(
+					'pointer-events-none absolute inset-0 transition-opacity duration-300',
+					isVisible ? 'opacity-100' : 'opacity-0',
+				)}
+			>
+				<div className='absolute top-0 -left-[9px] h-[88px] w-[210px] origin-top-left scale-[0.73]'>
+					<div
+						className={cn(
+							'absolute top-[27%] left-[15%] h-auto w-[196px] max-w-none origin-top-left aspect-[8/5] bg-secondary dark:bg-secondary/90',
+							SHEET_VISUAL,
+						)}
+						style={{ transform: SHEET_TRANSFORM }}
+					/>
+					<img
+						src={src}
+						alt=''
+						loading='lazy'
+						decoding='async'
+						fetchPriority='low'
+						onLoad={onLoad}
+						onError={onError}
+						className={cn(
+							'absolute top-[26%] left-[16%] h-auto w-[196px] max-w-none origin-top-left aspect-[8/5] object-cover object-top-left bg-white dark:bg-background',
+							SHEET_VISUAL,
+							'border-t border-r border-border/40 dark:border-white/10',
+						)}
+						style={{ transform: SHEET_TRANSFORM }}
+					/>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div
 			className={cn(
 				'pointer-events-none absolute inset-0 transition-opacity duration-300',
 				isVisible ? 'opacity-100' : 'opacity-0',
-				!isToolPart && 'overflow-hidden',
+				'overflow-hidden',
 			)}
 		>
-			<div
-				className={cn(
-					isToolPart
-						? 'absolute top-0 -left-[9px] h-[88px] w-[210px] origin-top-left scale-[0.73]'
-						: 'absolute inset-0',
-				)}
-			>
-				<div
-					className={cn(
-						'absolute top-[27%] left-[15%] origin-top-left bg-secondary dark:bg-secondary/90',
-						sheetSize,
-						SHEET_VISUAL,
-					)}
-					style={{ transform: SHEET_TRANSFORM }}
-				/>
+			<div className={cn('absolute inset-0', FLAT_THUMBNAIL_FRAME)}>
 				<img
 					src={src}
 					alt=''
@@ -143,13 +162,7 @@ function ScreenshotSheet({
 					fetchPriority='low'
 					onLoad={onLoad}
 					onError={onError}
-					className={cn(
-						'absolute top-[26%] left-[16%] origin-top-left object-cover object-top-left bg-white dark:bg-background',
-						sheetSize,
-						SHEET_VISUAL,
-						isToolPart && 'border-t border-r border-border/40 dark:border-white/10',
-					)}
-					style={{ transform: SHEET_TRANSFORM }}
+					className='size-full max-w-none object-cover object-top-left bg-white dark:bg-background'
 				/>
 			</div>
 		</div>
@@ -157,19 +170,28 @@ function ScreenshotSheet({
 }
 
 function AppIllustration({ isToolPart }: { isToolPart: boolean }) {
+	if (isToolPart) {
+		return (
+			<div className='custom-story-thumbnail pointer-events-none absolute inset-0'>
+				<div className='absolute top-0 -left-[9px] h-[88px] w-[210px] origin-top-left scale-[0.73]'>
+					<AppSheet isToolPart={isToolPart} />
+					<div className='absolute inset-0' style={{ transform: BLOCKS_SHIFT_ON_SCREEN }}>
+						<BarTooltip />
+						{CLICKS.map((click) => (
+							<ClickRipple key={click.atSeconds} {...click} />
+						))}
+						<Pointer />
+					</div>
+				</div>
+			</div>
+		);
+	}
+
 	return (
-		<div className='custom-story-thumbnail pointer-events-none absolute inset-0'>
-			<div
-				className={cn(
-					'absolute top-0 left-0 h-[88px] w-[210px]',
-					isToolPart && '-left-[9px] origin-top-left scale-[0.73]',
-				)}
-			>
+		<div className='custom-story-thumbnail pointer-events-none absolute inset-0 overflow-hidden'>
+			<div className={cn('absolute inset-0', FLAT_THUMBNAIL_FRAME)}>
 				<AppSheet isToolPart={isToolPart} />
-				<div
-					className='absolute inset-0'
-					style={isToolPart ? { transform: BLOCKS_SHIFT_ON_SCREEN } : undefined}
-				>
+				<div className='absolute inset-0'>
 					<BarTooltip />
 					{CLICKS.map((click) => (
 						<ClickRipple key={click.atSeconds} {...click} />
@@ -184,26 +206,41 @@ function AppIllustration({ isToolPart }: { isToolPart: boolean }) {
 function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 	const sheetSize = isToolPart ? 'h-[150px] w-[196px]' : 'h-[400px] w-[480px]';
 
+	if (isToolPart) {
+		return (
+			<>
+				<div
+					className={cn(
+						'absolute top-[27%] left-[15%] origin-top-left bg-secondary dark:bg-secondary/90',
+						sheetSize,
+						SHEET_VISUAL,
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				/>
+				<div
+					className={cn(
+						'absolute top-[26%] left-[16%] origin-top-left overflow-hidden',
+						sheetSize,
+						SHEET_SURFACE,
+						SHEET_VISUAL,
+						'border-t border-r',
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				>
+					<BlockEditPanel isToolPart={isToolPart} />
+					<StoryTitle isToolPart={isToolPart} />
+					<StoryTabs isToolPart={isToolPart} />
+					<TextBlock isToolPart={isToolPart} />
+					<ChartBlock isToolPart={isToolPart} />
+					<InsightsBlock isToolPart={isToolPart} />
+				</div>
+			</>
+		);
+	}
+
 	return (
-		<>
-			<div
-				className={cn(
-					'absolute top-[27%] left-[15%] origin-top-left bg-secondary dark:bg-secondary/90',
-					sheetSize,
-					SHEET_VISUAL,
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			/>
-			<div
-				className={cn(
-					'absolute top-[26%] left-[16%] origin-top-left overflow-hidden',
-					sheetSize,
-					SHEET_SURFACE,
-					SHEET_VISUAL,
-					isToolPart && 'border-t border-r',
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			>
+		<div className={cn('absolute inset-0 overflow-hidden', SHEET_SURFACE)}>
+			<div className='absolute inset-0 overflow-hidden'>
 				<BlockEditPanel isToolPart={isToolPart} />
 				<StoryTitle isToolPart={isToolPart} />
 				<StoryTabs isToolPart={isToolPart} />
@@ -211,7 +248,7 @@ function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 				<ChartBlock isToolPart={isToolPart} />
 				<InsightsBlock isToolPart={isToolPart} />
 			</div>
-		</>
+		</div>
 	);
 }
 

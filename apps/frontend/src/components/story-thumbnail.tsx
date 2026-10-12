@@ -58,12 +58,30 @@ export function StoryThumbnail({
 }) {
 	const segments = summary.segments.slice(0, 6);
 
+	if (!isToolPart) {
+		return (
+			<FlatStorySheet className={className}>
+				{segments.map((seg, i) => (
+					<SegmentSilhouette key={i} segment={seg} />
+				))}
+			</FlatStorySheet>
+		);
+	}
+
 	return (
 		<PaperSheet className={className} isToolPart={isToolPart}>
 			{segments.map((seg, i) => (
 				<SegmentSilhouette key={i} segment={seg} />
 			))}
 		</PaperSheet>
+	);
+}
+
+function FlatStorySheet({ children, className }: { children: ReactNode; className?: string }) {
+	return (
+		<div className={cn('absolute inset-0 overflow-hidden', className)}>
+			<div className='flex w-full flex-col gap-[9px] p-[14px]'>{children}</div>
+		</div>
 	);
 }
 
