@@ -73,6 +73,7 @@ import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
+import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { listChartPlugins } from './chart-plugin';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService } from './compaction';
@@ -634,7 +635,11 @@ class AgentManager {
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
 		const settledUiMessages = settleInterruptedToolParts(uiMessages);
-		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(settledUiMessages);
+		const uiMessagesWithPortableWebTools = replaceForeignWebToolParts(
+			settledUiMessages,
+			this._modelSelection.provider,
+		);
+		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(uiMessagesWithPortableWebTools);
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessagesWithoutStaleQueries);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);

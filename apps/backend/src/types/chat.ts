@@ -75,6 +75,8 @@ export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITool
 	isForked?: boolean;
 	citation?: CitationData;
 	stopReason?: StopReason;
+	/** Provider that generated an assistant message. */
+	llmProvider?: LlmProvider;
 	/** Epoch milliseconds the message was created at. */
 	createdAt?: number;
 	/** Edit/resend version history for a user message turn. */

@@ -273,6 +273,7 @@ const aggregateChatMessagParts = (
 					isForked: row.chat_message.isForked ?? undefined,
 					citation: row.chat_message.citation ?? undefined,
 					stopReason: row.chat_message.stopReason ?? undefined,
+					llmProvider: row.chat_message.llmProvider ?? undefined,
 					createdAt: row.chat_message.createdAt?.getTime(),
 				};
 			}
