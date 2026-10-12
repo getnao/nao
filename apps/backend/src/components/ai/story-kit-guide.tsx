@@ -43,6 +43,17 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>{'<Slide>'}</Bold> per slide (16:9): it provides the navigation and prints one slide per PDF page.
 			Both take <Bold>eyebrow</Bold> and <Bold>title</Bold> props; a Slide is already padded.
 		</ListItem>,
+		<ListItem key='canvas'>
+			Only when the user asks for a fixed size or fixed proportions (given dimensions, a poster, a wall display),
+			wrap the story in <Bold>{'<Canvas width={1440} height={900}>'}</Bold> (the default size) and lay it out for
+			that size only: it is scaled as a whole to fit the window. Inside a Canvas or a Slide, media queries and
+			vw/vh measure the frame, not the window.
+		</ListItem>,
+		<ListItem key='responsive'>
+			Any other story opens in a side panel from about 600px wide up to full screen: never give it a fixed page
+			width. An app that must not scroll as a page (a kanban, a list with a detail panel) fills the window with{' '}
+			<Bold>height: 100vh</Bold> and scrolls inside its own panels.
+		</ListItem>,
 		<ListItem key='tabs'>
 			For tabs, put the tab buttons in a <Bold>{'<nav>'}</Bold> (or give them <Bold>role="tab"</Bold>): PDF
 			downloads open each tab in turn and print them one after the other.
