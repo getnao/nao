@@ -26,15 +26,27 @@ const SQL_MIN_HEIGHT = 100;
 const SEPARATOR_HEIGHT = 12;
 const SQL_CONTENT_PADDING = 8;
 
-export const SidePanelContent = ({
-	input,
-	output,
-	editable = false,
-}: {
+interface SqlEditorProps {
 	input: executeSql.Input;
 	output: executeSql.Output;
 	editable?: boolean;
-}) => {
+}
+
+export const SidePanelContent = ({ input, output, editable = false }: SqlEditorProps) => {
+	return (
+		<div className='flex h-full min-h-0 flex-col bg-background'>
+			<SidePanelHeader title={input.name ?? input.sql_query} label={output.id} />
+			<SqlQueryEditor input={input} output={output} editable={editable} />
+		</div>
+	);
+};
+
+interface SqlQueryEditorProps extends SqlEditorProps {
+	onOutputChange?: (output: executeSql.Output) => void;
+}
+
+/** SQL editor with run / save & run actions and the result table underneath. */
+export function SqlQueryEditor({ input, output, editable = false, onOutputChange }: SqlQueryEditorProps) {
 	const queryClient = useQueryClient();
 	const monaco = useMonaco();
 	const editorTheme = useEditorTheme();
@@ -53,6 +65,8 @@ export const SidePanelContent = ({
 	const groupElementRef = useRef<HTMLDivElement>(null);
 	const sqlQueryRef = useRef(sqlQuery);
 	sqlQueryRef.current = sqlQuery;
+	const onOutputChangeRef = useRef(onOutputChange);
+	onOutputChangeRef.current = onOutputChange;
 
 	useEffect(() => {
 		if (!monaco) {
@@ -82,7 +96,7 @@ export const SidePanelContent = ({
 		setError(null);
 	}, [queryId]); // eslint-disable-line react-hooks/exhaustive-deps -- reset only when switching queries
 
-	const canEdit = Boolean(editable && queryId && agent && !agent.isReadonly);
+	const canEdit = Boolean(editable && queryId && !agent?.isReadonly);
 	const isDirty = sqlQuery !== savedSql;
 	const validationIssues = useMemo(() => (canEdit ? validateSqlFilterTemplate(sqlQuery) : []), [canEdit, sqlQuery]);
 
@@ -121,6 +135,7 @@ export const SidePanelContent = ({
 			onSuccess: (result) => {
 				setPreviewOutput(result);
 				setError(null);
+				onOutputChangeRef.current?.(result);
 			},
 			onError: (err) => setError(getMutationErrorMessage(err)),
 		});
@@ -137,6 +152,7 @@ export const SidePanelContent = ({
 				setSqlQuery(result.input.sql_query);
 				setSavedSql(result.input.sql_query);
 				setError(null);
+				onOutputChangeRef.current?.(result.output);
 
 				const applyUpdate = (messages: UIMessage[]) =>
 					applyExecuteSqlResultToMessages(messages, result.output.id, result.input, result.output);
@@ -227,9 +243,7 @@ export const SidePanelContent = ({
 	);
 
 	return (
-		<div ref={rootRef} className='flex h-full min-h-0 flex-col bg-background'>
-			<SidePanelHeader title={input.name ?? input.sql_query} label={queryId} />
-
+		<div ref={rootRef} className='flex min-h-0 flex-1 flex-col bg-background'>
 			{canEdit && (
 				<div className='flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2'>
 					<div className='text-xs text-muted-foreground'>
@@ -327,7 +341,7 @@ export const SidePanelContent = ({
 			</ResizablePanelGroup>
 		</div>
 	);
-};
+}
 
 function SqlValidationBanner({ queryId, issues }: { queryId: string | undefined; issues: string[] }) {
 	const fixMessage = [

@@ -90,7 +90,7 @@ export async function getStoryQuerySql(
 	storySlug: string,
 	queryId: string,
 	selections: StoryFilterSelections = {},
-): Promise<{ sqlQuery: string; renderedSql: string }> {
+): Promise<{ sqlQuery: string; renderedSql: string; dialect?: string }> {
 	const { code, sqlQueries } = await loadStoryCodeAndQueries(chatId, storySlug);
 	const query = sqlQueries[queryId];
 	if (!query) {
@@ -100,6 +100,7 @@ export async function getStoryQuerySql(
 	return {
 		sqlQuery: query.sqlQuery,
 		renderedSql: renderStorySql(query.sqlQuery, selections, filterTypesFromCode(code)),
+		dialect: query.dialect,
 	};
 }
 

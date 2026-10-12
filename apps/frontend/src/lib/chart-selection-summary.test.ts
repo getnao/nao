@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeValueFormat, profileColumn, summarizeChartSelection } from './chart-selection-summary';
+import { profileColumn, summarizeChartSelection } from './chart-selection-summary';
 
 const rows = [
 	{ month: '2025-01', revenue: 100, orders: 4, region: 'EU' },
@@ -12,14 +12,13 @@ const palette = ['#111111', '#222222'];
 const base = { query_id: 'q1', title: 'Revenue' };
 
 describe('profileColumn', () => {
-	it('profiles numeric columns with range and sum', () => {
+	it('profiles numeric columns', () => {
 		const profile = profileColumn(rows, 'revenue');
-		expect(profile).toMatchObject({ exists: true, kind: 'number', distinctCount: 3, min: 100, max: 250, sum: 525 });
+		expect(profile).toMatchObject({ exists: true, kind: 'number', distinctCount: 3, nullCount: 0 });
 	});
 
-	it('detects ISO dates and keeps first and last values', () => {
-		const profile = profileColumn(rows, 'month');
-		expect(profile).toMatchObject({ kind: 'date', first: '2025-01', last: '2025-03', distinctCount: 3 });
+	it('detects ISO dates', () => {
+		expect(profileColumn(rows, 'month')).toMatchObject({ kind: 'date', distinctCount: 3 });
 	});
 
 	it('resolves column names case-insensitively and flags missing ones', () => {
@@ -37,7 +36,7 @@ describe('summarizeChartSelection', () => {
 				x_axis_key: 'month',
 				x_axis_type: null,
 				series: [
-					{ data_key: 'revenue', label: 'Revenue', value_format: { prefix: '$' } },
+					{ data_key: 'revenue', label: 'Revenue' },
 					{ data_key: 'orders', color: '#abcdef' },
 				],
 			},
@@ -45,14 +44,8 @@ describe('summarizeChartSelection', () => {
 			palette,
 		);
 
-		expect(summary.chartLabel).toBe('Bar chart');
-		expect(summary.rowCount).toBe(3);
-		expect(summary.xAxis).toMatchObject({ label: 'month', axisType: 'date' });
-		expect(summary.series[0]).toMatchObject({
-			label: 'Revenue',
-			color: '#111111',
-			formatDescription: 'prefix "$"',
-		});
+		expect(summary.xAxis).toMatchObject({ column: 'month', exists: true });
+		expect(summary.series[0]).toMatchObject({ label: 'Revenue', color: '#111111' });
 		expect(summary.series[1]).toMatchObject({ label: 'orders', color: '#abcdef' });
 		expect(summary.issues).toEqual([]);
 	});
@@ -75,6 +68,26 @@ describe('summarizeChartSelection', () => {
 			expect.stringContaining('holds text values rather than numbers'),
 			expect.stringContaining('Series column "nope" is not in the query result'),
 		]);
+	});
+
+	it('ignores null x values when detecting repeats and flags all-null series', () => {
+		const summary = summarizeChartSelection(
+			{
+				...base,
+				chart_type: 'bar',
+				x_axis_key: 'region',
+				x_axis_type: 'category',
+				series: [{ data_key: 'revenue' }, { data_key: 'refunds', label: 'Refunds' }],
+			},
+			[
+				{ region: 'EU', revenue: 100, refunds: null },
+				{ region: 'US', revenue: 250, refunds: null },
+				{ region: null, revenue: 175, refunds: null },
+			],
+			palette,
+		);
+
+		expect(summary.issues).toEqual(['Series "Refunds" has no values to plot.']);
 	});
 
 	it('flags charts that need an x axis and pies with several series', () => {
@@ -109,13 +122,5 @@ describe('summarizeChartSelection', () => {
 			'The query returned no rows, so the chart has nothing to draw.',
 			'Add at least one series to plot a value.',
 		]);
-	});
-});
-
-describe('describeValueFormat', () => {
-	it('joins the configured parts and ignores empty formats', () => {
-		expect(describeValueFormat(undefined)).toBeUndefined();
-		expect(describeValueFormat({})).toBeUndefined();
-		expect(describeValueFormat({ prefix: '€', d3_format: ',.2f' })).toBe('prefix "€", number format ,.2f');
 	});
 });

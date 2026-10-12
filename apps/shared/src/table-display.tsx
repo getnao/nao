@@ -33,6 +33,7 @@ export interface TableDisplayProps {
 	maxRowsBeforePagination?: number;
 	compactFooter?: boolean;
 	cellBackground?: (column: string, value: unknown) => string | undefined;
+	headerBackground?: (column: string) => string | undefined;
 	humanizeColumnLabels?: boolean;
 	dateFormat?: DateFormatSettings | null;
 	renderPagination: (pagination: TablePaginationProps & { compact: boolean }) => ReactNode;
@@ -54,6 +55,7 @@ export const TableDisplay = memo(function TableDisplay({
 	maxRowsBeforePagination = 100,
 	compactFooter = false,
 	cellBackground,
+	headerBackground,
 	humanizeColumnLabels = false,
 	dateFormat,
 	renderPagination,
@@ -119,9 +121,11 @@ export const TableDisplay = memo(function TableDisplay({
 							{resolvedColumns.map((column) => {
 								const alignRight = numericColumns.has(column);
 								const sortDirection = activeSort?.column === column ? activeSort.direction : null;
+								const background = headerBackground?.(column);
 								return (
 									<th
 										key={column}
+										style={background ? { backgroundColor: background } : undefined}
 										aria-sort={
 											sortDirection
 												? sortDirection === 'asc'

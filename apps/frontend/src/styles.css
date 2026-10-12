@@ -1000,3 +1000,47 @@ code.dollar:before {
 [data-story-table-striped='true'] .story-table tbody tr:nth-child(even) {
 	background: color-mix(in srgb, var(--story-table-header-bg) 50%, var(--story-table-bg));
 }
+
+/* Chart editor source table: a flat header on the page background so highlighted columns read as one band. */
+.chart-editor-table .nao-table-display__scroll {
+	border-top: 0;
+}
+
+.chart-editor-table thead {
+	background: var(--background);
+	border-bottom: 0;
+}
+
+.chart-editor-table th {
+	color: var(--muted-foreground);
+	box-shadow: inset 0 -1px 0 0 var(--border);
+}
+
+.chart-editor-table td {
+	box-shadow: none;
+}
+
+.chart-editor-table th[aria-sort='ascending'],
+.chart-editor-table th[aria-sort='descending'] {
+	color: var(--foreground);
+}
+
+.chart-editor-table .nao-table-display__index {
+	background: var(--background);
+}
+
+.chart-editor-table td.nao-table-display__index span {
+	color: var(--muted-foreground);
+	font-weight: 400;
+}
+
+.chart-editor-table .nao-table-display__sort {
+	opacity: 0;
+	transition: opacity 150ms;
+}
+
+.chart-editor-table th:hover .nao-table-display__sort,
+.chart-editor-table th[aria-sort='ascending'] .nao-table-display__sort,
+.chart-editor-table th[aria-sort='descending'] .nao-table-display__sort {
+	opacity: 1;
+}

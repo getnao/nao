@@ -639,7 +639,7 @@ export async function upsertStoryDataCacheByStoryId(
 export async function getSqlQueriesFromCode(
 	chatId: string,
 	code: string,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
+): Promise<Record<string, executeSqlQueries.StoredSqlQuery>> {
 	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return {};

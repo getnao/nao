@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ChartEditorPreview } from './chart-editor-preview';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { summarizeChartSelection } from '@/lib/chart-selection-summary';
 
 vi.mock('@/hooks/use-date-format', () => ({
 	useDateFormat: () => ({ preset: 'european' }),
@@ -17,10 +19,21 @@ vi.mock('@/main', () => ({
 	trpc: {},
 }));
 
+vi.stubGlobal(
+	'ResizeObserver',
+	class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	},
+);
+
 const rows = [
 	{ month: '2025-01', revenue: 100, orders: 4 },
 	{ month: '2025-02', revenue: 250, orders: 7 },
 ];
+
+const columns = ['month', 'revenue', 'orders'];
 
 const draft = {
 	query_id: 'q1',
@@ -31,56 +44,43 @@ const draft = {
 	series: [{ data_key: 'revenue', label: 'Revenue' }],
 };
 
+function renderPreview(previewDraft: Parameters<typeof summarizeChartSelection>[0] = draft) {
+	return render(
+		<TooltipProvider>
+			<ChartEditorPreview
+				draft={previewDraft}
+				data={rows}
+				columns={columns}
+				summary={summarizeChartSelection(previewDraft, rows, ['#123456'])}
+			/>
+		</TooltipProvider>,
+	);
+}
+
 describe('ChartEditorPreview', () => {
 	afterEach(cleanup);
 
-	it('renders the live chart and explains the selection', () => {
-		render(
-			<ChartEditorPreview
-				draft={draft}
-				data={rows}
-				availableColumns={['month', 'revenue', 'orders']}
-				palette={['#123456']}
-			/>,
-		);
+	it('renders the live chart by default', () => {
+		renderPreview();
 
-		expect(screen.getByText('What this chart shows')).toBeDefined();
-		expect(screen.getByText('KPI card · 2 rows')).toBeDefined();
+		expect(screen.getByRole('button', { name: 'Chart' }).getAttribute('aria-pressed')).toBe('true');
 		expect(screen.getAllByText('Revenue').length).toBeGreaterThan(0);
-		expect(screen.getByText('revenue')).toBeDefined();
-		expect(screen.getByText('month')).toBeDefined();
-		expect(screen.getByText('number · 100 – 250 · sum 350')).toBeDefined();
-		expect(screen.queryByRole('tab', { name: /query/i })).toBeNull();
+		expect(screen.queryByText('2025-02')).toBeNull();
 	});
 
-	it('switches to the data table and the query view', () => {
-		render(
-			<ChartEditorPreview
-				draft={draft}
-				data={rows}
-				availableColumns={['month', 'revenue', 'orders']}
-				palette={['#123456']}
-				queryView={<pre>select 1</pre>}
-			/>,
-		);
+	it('switches to the table and to the split view', () => {
+		renderPreview();
 
-		fireEvent.click(screen.getByRole('tab', { name: /data/i }));
+		fireEvent.click(screen.getByRole('button', { name: 'Table' }));
 		expect(screen.getByText('2025-02')).toBeDefined();
-		expect(screen.getByText(/Columns used by the chart are tinted/)).toBeDefined();
 
-		fireEvent.click(screen.getByRole('tab', { name: /query/i }));
-		expect(screen.getByText('select 1')).toBeDefined();
+		fireEvent.click(screen.getByRole('button', { name: 'Chart and table' }));
+		expect(screen.getByText('2025-02')).toBeDefined();
+		expect(screen.getAllByText('Revenue').length).toBeGreaterThan(0);
 	});
 
 	it('shows issues when the selection cannot be drawn', () => {
-		render(
-			<ChartEditorPreview
-				draft={{ ...draft, chart_type: 'line', series: [] }}
-				data={rows}
-				availableColumns={['month', 'revenue', 'orders']}
-				palette={['#123456']}
-			/>,
-		);
+		renderPreview({ ...draft, chart_type: 'line', series: [] });
 
 		expect(screen.getByText('Add at least one series to plot a value.')).toBeDefined();
 		expect(screen.getByText('Add a series to preview the chart.')).toBeDefined();
