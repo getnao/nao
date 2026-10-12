@@ -10,7 +10,7 @@ Email **christophe@getnao.io** with:
 - steps to reproduce, or a proof of concept
 - the affected version (`nao-core` version, Docker image tag or commit)
 
-We acknowledge reports within 3 business days and keep you informed as we work on a fix. Please give us a reasonable time to ship a fix before disclosing the issue publicly.
++We acknowledge reports within 3 business days and keep you informed as we work on a fix. Please give us 90 days from acknowledgment to ship a fix before disclosing the issue publicly.
 
 ## Scope
 
