@@ -251,7 +251,7 @@ describe('recoverMalformedToolInputs', () => {
 			title: 'Sales',
 			code: '# Sales\n<chart query_id="q1',
 		});
-		expect(tool.errorText).toBe(MALFORMED_TOOL_INPUT_ERROR_TEXT);
+		expect(tool.errorText).toMatch(/cut off[\s\S]*tool did not run[\s\S]*make it again/i);
 		expect(tool.rawInput).toBe(truncatedRawInput);
 	});
 
@@ -259,7 +259,32 @@ describe('recoverMalformedToolInputs', () => {
 		const [result] = await recoverMalformedToolInputs([
 			message([malformedStoryPart({ input: '{"id":"sales","act', rawInput: undefined })]),
 		]);
-		expect(asTool(result.parts[0]).input).toEqual({ id: 'sales' });
+		const tool = asTool(result.parts[0]);
+		expect(tool.input).toEqual({ id: 'sales' });
+		expect(tool.errorText).toBe(MALFORMED_TOOL_INPUT_ERROR_TEXT);
+	});
+
+	it('keeps the validation error of complete arguments that failed the schema', async () => {
+		const validationError = 'Invalid input for tool story: Type validation failed: "action" is required.';
+		const result = await recoverMalformedToolInputs([
+			message([malformedStoryPart({ rawInput: { id: 'sales' }, errorText: validationError })]),
+			message([malformedStoryPart({ rawInput: '{"id":"sales"}', errorText: validationError })]),
+		]);
+		for (const recovered of result) {
+			const tool = asTool(recovered.parts[0]);
+			expect(tool.input).toEqual({ id: 'sales' });
+			expect(tool.errorText).toBe(validationError);
+		}
+	});
+
+	it('replaces a non-object input with an empty object without claiming it was cut off', async () => {
+		const validationError = 'Invalid input for tool story: expected object, received array.';
+		const [result] = await recoverMalformedToolInputs([
+			message([malformedStoryPart({ input: ['sales'], errorText: validationError })]),
+		]);
+		const tool = asTool(result.parts[0]);
+		expect(tool.input).toEqual({});
+		expect(tool.errorText).toBe(validationError);
 	});
 
 	it('falls back to an empty object when nothing can be recovered', async () => {

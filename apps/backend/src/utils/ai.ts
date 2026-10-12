@@ -155,10 +155,11 @@ function isToolPartSettled(part: Extract<UIMessagePart, { state: string }>): boo
 }
 
 /**
- * A tool call cut off mid-arguments (max output tokens, a dropped stream) fails as `output-error`
- * with no `input` and the raw, unbalanced JSON text in `rawInput`. `convertToModelMessages` would
- * send that text back as the tool-call input on the next turn, which providers reject. The call is
- * given the object recoverable from the partial text and an error the model can act on instead.
+ * A tool call whose arguments failed to parse is `output-error` with no object `input`: the raw
+ * text or value lives in `rawInput`. `convertToModelMessages` would send it back as the tool-call
+ * input on the next turn, and providers reject anything but an object. The call is given the object
+ * recoverable from it; when the text was cut off mid-arguments (max output tokens, a dropped
+ * stream), the error is replaced with one the model can act on.
  */
 export async function recoverMalformedToolInputs(messages: UIMessage[]): Promise<UIMessage[]> {
 	return Promise.all(messages.map(recoverMessageToolInputs));
@@ -171,33 +172,32 @@ async function recoverMessageToolInputs(message: UIMessage): Promise<UIMessage> 
 	let changed = false;
 	const newParts = await Promise.all(
 		message.parts.map(async (part) => {
-			if (!isToolUIPart(part) || !hasMalformedInput(part)) {
+			if (!isToolUIPart(part) || !hasMissingInput(part)) {
 				return part;
 			}
 			changed = true;
-			return {
-				...part,
-				input: await recoverToolInput(part),
-				errorText: MALFORMED_TOOL_INPUT_ERROR_TEXT,
-			} as UIMessagePart;
+			return recoverToolPart(part);
 		}),
 	);
 	return changed ? { ...message, parts: newParts } : message;
 }
 
-function hasMalformedInput(part: UIToolPart): boolean {
+function hasMissingInput(part: UIToolPart): boolean {
 	return part.state === 'output-error' && !isPlainObject(part.input);
 }
 
-async function recoverToolInput(part: UIToolPart): Promise<Record<string, unknown>> {
-	const candidates = [part.input, 'rawInput' in part ? part.rawInput : undefined];
-	for (const candidate of candidates) {
-		const value = typeof candidate === 'string' ? (await parsePartialJson(candidate)).value : candidate;
-		if (isPlainObject(value)) {
-			return value;
-		}
+async function recoverToolPart(part: UIToolPart): Promise<UIMessagePart> {
+	const rawInput = part.input ?? ('rawInput' in part ? part.rawInput : undefined);
+	if (typeof rawInput !== 'string') {
+		return { ...part, input: isPlainObject(rawInput) ? rawInput : {} } as UIMessagePart;
 	}
-	return {};
+	const { value, state } = await parsePartialJson(rawInput);
+	const isCutOff = state === 'repaired-parse' || state === 'failed-parse';
+	return {
+		...part,
+		input: isPlainObject(value) ? value : {},
+		...(isCutOff && { errorText: MALFORMED_TOOL_INPUT_ERROR_TEXT }),
+	} as UIMessagePart;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
