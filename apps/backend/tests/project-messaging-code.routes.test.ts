@@ -59,12 +59,14 @@ describe('project.regenerateMessagingProviderCode', () => {
 		mocks.isUserConfinedToOrganization.mockResolvedValue(true);
 
 		await expect(createCaller().regenerateMessagingProviderCode({ userId: 'member-id' })).resolves.toBe('new-code');
+		expect(mocks.regenerateMessagingProviderCode).toHaveBeenCalledWith('member-id');
 	});
 
 	it('lets an admin reset their own code whatever else they belong to', async () => {
 		mocks.isUserConfinedToOrganization.mockResolvedValue(false);
 
 		await expect(createCaller().regenerateMessagingProviderCode({ userId: CALLER_ID })).resolves.toBe('new-code');
+		expect(mocks.regenerateMessagingProviderCode).toHaveBeenCalledWith(CALLER_ID);
 	});
 });
 

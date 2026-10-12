@@ -52,7 +52,7 @@ export const listChatsReferencingImage = async (
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.where(eq(s.messagePart.imageId, imageId))
+		.where(and(eq(s.messagePart.imageId, imageId), isNull(s.chat.deletedAt)))
 		.execute();
 };
 

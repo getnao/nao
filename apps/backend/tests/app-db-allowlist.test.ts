@@ -107,6 +107,15 @@ describe('validateAppDbQuery postgres syntax', () => {
 		["SELECT set_config('role', 'none', true) FROM v_project", 'set_config'],
 		[`SELECT "query_to_xml"('select 1', true, true, '') FROM v_project`, 'query_to_xml'],
 		["SELECT pg_catalog.lower('A') FROM v_project", 'lower'],
+		[
+			"WITH query_to_xml AS (SELECT 1) SELECT query_to_xml('select * from public.user', true, true, '') FROM v_project",
+			'query_to_xml',
+		],
+		[
+			"WITH query_to_xml(a) AS (SELECT 1) SELECT query_to_xml('select 1', true, true, '') FROM v_project",
+			'query_to_xml',
+		],
+		['SELECT pg_sleep/* outer /* inner */ tail */(1) FROM v_project', 'pg_sleep'],
 	])('rejects a function call outside the allowlist: %s', async (sql, functionName) => {
 		const res = await validateAppDbQuery(sql, Dialect.Postgres);
 		expect(res.ok).toBe(false);
@@ -125,6 +134,9 @@ describe('validateAppDbQuery postgres syntax', () => {
 		["SELECT 'query_to_xml(' AS label, COUNT(*) FROM v_messages"],
 		['SELECT CAST(AVG(created_at) AS numeric(12, 2)) FROM v_messages'],
 		['SELECT g.n FROM v_project, generate_series(1, 3) AS g(n)'],
+		['WITH t(a, b) AS (SELECT chat_id, role FROM v_messages) SELECT a FROM t'],
+		['SELECT chat_id FROM v_messages ORDER BY random() LIMIT 10'],
+		["SELECT format('%s-%s', chat_id, role) FROM v_messages"],
 		["SELECT date_trunc('day', to_timestamp(created_at)) AS day, COUNT(*) FROM v_messages GROUP BY 1"],
 		['SELECT chat_id, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at) FROM v_messages'],
 		[

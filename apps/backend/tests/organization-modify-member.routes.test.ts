@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	getUserName: vi.fn(),
 	updateUser: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
+	putOrganizationMember: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -21,7 +22,7 @@ vi.mock('../src/queries/user.queries', () => ({
 	isUserConfinedToOrganization: mocks.isUserConfinedToOrganization,
 }));
 vi.mock('../src/services/email', () => ({}));
-vi.mock('../src/services/membership.service', () => ({}));
+vi.mock('../src/services/membership.service', () => ({ putOrganizationMember: mocks.putOrganizationMember }));
 vi.mock('../src/services/team-member', () => ({}));
 vi.mock('../src/utils/email-builders', () => ({}));
 
@@ -41,10 +42,11 @@ describe('organization.modifyMember', () => {
 		mocks.isUserConfinedToOrganization.mockResolvedValue(false);
 
 		await expect(
-			createCaller().organization.modifyMember({ userId: 'victim-1', name: 'Pwned' }),
+			createCaller().organization.modifyMember({ userId: 'victim-1', name: 'Pwned', newRole: 'admin' }),
 		).rejects.toMatchObject({ code: 'FORBIDDEN' });
 		expect(mocks.isUserConfinedToOrganization).toHaveBeenCalledWith('victim-1', 'org-1');
 		expect(mocks.updateUser).not.toHaveBeenCalled();
+		expect(mocks.putOrganizationMember).not.toHaveBeenCalled();
 	});
 
 	it('renames a member who belongs only to this organization', async () => {

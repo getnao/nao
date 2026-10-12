@@ -105,10 +105,11 @@ describe('user.modify', () => {
 		mockRoles({ [CALLER_ID]: 'admin', 'member-id': 'user' });
 		mocks.isUserConfinedToOrganization.mockResolvedValue(false);
 
-		await expect(createCaller().modify({ userId: 'member-id', name: 'Pwned' })).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-		});
+		await expect(
+			createCaller().modify({ userId: 'member-id', name: 'Pwned', newRole: 'viewer' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
 		expect(mocks.updateUser).not.toHaveBeenCalled();
+		expect(mocks.updateProjectMemberRole).not.toHaveBeenCalled();
 	});
 
 	it('lets an admin rename themselves whatever else they belong to', async () => {

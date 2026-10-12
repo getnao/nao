@@ -64,6 +64,10 @@ export const userRoutes = {
 				}
 			}
 			const previousName = await userQueries.getUserName(input.userId);
+			const shouldRename = !!input.name && input.name !== previousName;
+			if (shouldRename) {
+				await assertCanRenameUser(ctx.user.id, input.userId, ctx.project.orgId);
+			}
 
 			if (input.newRole && input.newRole !== previousRole) {
 				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
@@ -77,9 +81,8 @@ export const userRoutes = {
 					await cleanupContextWorktree(ctx.project.id, ctx.project.path, input.userId);
 				}
 			}
-			if (input.name && input.name !== previousName) {
-				await assertCanRenameUser(ctx.user.id, input.userId, ctx.project.orgId);
-				await userQueries.updateUser(input.userId, input.name);
+			if (shouldRename) {
+				await userQueries.updateUser(input.userId, input.name!);
 			}
 		}),
 

@@ -137,16 +137,18 @@ export const organizationRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'User is not a member of this organization.' });
 			}
 
+			const previousName = input.name ? await userQueries.getUserName(input.userId) : undefined;
+			const shouldRename = !!input.name && input.name !== previousName;
+			if (shouldRename) {
+				await assertCanRenameUser(ctx.user.id, input.userId, ctx.org.id);
+			}
+
 			if (input.newRole && input.newRole !== currentRole) {
 				await putOrganizationMember(ctx.org.id, input.userId, input.newRole);
 			}
 
-			if (input.name) {
-				const previousName = await userQueries.getUserName(input.userId);
-				if (input.name !== previousName) {
-					await assertCanRenameUser(ctx.user.id, input.userId, ctx.org.id);
-					await userQueries.updateUser(input.userId, input.name);
-				}
+			if (shouldRename) {
+				await userQueries.updateUser(input.userId, input.name!);
 			}
 		}),
 

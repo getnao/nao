@@ -52,7 +52,7 @@ export async function validateReadOnlyAllowlistedSql(
 	}
 
 	if (allowedFunctions) {
-		const disallowedFunctions = findDisallowedFunctions(sql, new Set(allowedFunctions), parsed.declaredCteNames);
+		const disallowedFunctions = findDisallowedFunctions(sql, new Set(allowedFunctions));
 		if (!disallowedFunctions) {
 			return {
 				ok: false,
@@ -73,7 +73,6 @@ export async function validateReadOnlyAllowlistedSql(
 interface ParsedQuery {
 	statementCount: number;
 	referencedTables: string[];
-	declaredCteNames: Set<string>;
 }
 
 interface TableReference {
@@ -97,22 +96,16 @@ function parseQuery(sql: string, parserDialect: 'postgresql' | 'sqlite'): Parsed
 	const referencedTables = listTableReferences(parser, sql, options)
 		.filter((reference) => reference.schema !== null || !cteNames.has(reference.table))
 		.map(formatTableReference);
-	return { statementCount: statements.length, referencedTables, declaredCteNames: collectCteNames(statements) };
-}
-
-function collectCteNames(statements: AST[]): Set<string> {
-	const names = statements.flatMap((statement) => {
-		const withClause = (statement as { with?: unknown }).with;
-		return Array.isArray(withClause) ? withClause.map((cte: CteNode) => getCteName(cte)) : [];
-	});
-	return new Set(names.filter((name): name is string => !!name));
+	return { statementCount: statements.length, referencedTables };
 }
 
 /**
  * Function calls are the one way a SELECT reaches beyond the tables it names: `query_to_xml`,
  * `table_to_xml` or `ts_stat` run SQL text with the connection's privileges. Only known functions pass.
+ * Postgres resolves `name(` as a function even when a CTE has that name, so only the syntactic
+ * positions where `name(` is not a call (alias and CTE column lists) are exempt.
  */
-function findDisallowedFunctions(sql: string, allowedFunctions: ReadonlySet<string>, cteNames: Set<string>) {
+function findDisallowedFunctions(sql: string, allowedFunctions: ReadonlySet<string>) {
 	const calls = listSqlFunctionCalls(sql);
 	if (!calls) {
 		return null;
@@ -121,7 +114,7 @@ function findDisallowedFunctions(sql: string, allowedFunctions: ReadonlySet<stri
 		if (call.isQualified) {
 			return true;
 		}
-		if (call.isAfterAs || cteNames.has(call.name)) {
+		if (call.isAfterAs || call.isCteDeclaration) {
 			return false;
 		}
 		const name = call.isQuoted ? call.name : call.name.toLowerCase();
