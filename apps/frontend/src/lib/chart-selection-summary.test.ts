@@ -90,6 +90,19 @@ describe('summarizeChartSelection', () => {
 		expect(summary.issues).toEqual(['Series "Refunds" has no values to plot.']);
 	});
 
+	it('flags an x axis column with no values', () => {
+		const summary = summarizeChartSelection(
+			{ ...base, chart_type: 'bar', x_axis_key: 'region', series: [{ data_key: 'revenue' }] },
+			[
+				{ region: null, revenue: 100 },
+				{ region: null, revenue: 250 },
+			],
+			palette,
+		);
+
+		expect(summary.issues).toEqual(['X axis column "region" has no values.']);
+	});
+
 	it('flags charts that need an x axis and pies with several series', () => {
 		const missingAxis = summarizeChartSelection(
 			{ ...base, chart_type: 'line', x_axis_key: '', x_axis_type: null, series: [{ data_key: 'revenue' }] },

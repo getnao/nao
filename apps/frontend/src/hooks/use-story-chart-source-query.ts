@@ -25,7 +25,7 @@ export function useStoryChartSourceQuery({
 	data,
 	enabled,
 }: UseStoryChartSourceQueryOptions): SourceQuery | null {
-	const { sourceQuery: chatSourceQuery } = useSourceQuery(enabled ? queryId : undefined);
+	const { sourceQuery: chatSourceQuery } = useSourceQuery(queryId);
 	const storyQuery = useQuery({
 		...trpc.story.getQuerySql.queryOptions({
 			chatId: story?.chatId ?? '',
@@ -35,6 +35,7 @@ export function useStoryChartSourceQuery({
 		enabled: enabled && !chatSourceQuery && Boolean(story),
 	});
 	const storySqlQuery = storyQuery.data?.sqlQuery;
+	const storyDatabaseId = storyQuery.data?.databaseId;
 	const storyDialect = storyQuery.data?.dialect;
 
 	return useMemo(() => {
@@ -45,7 +46,7 @@ export function useStoryChartSourceQuery({
 			return null;
 		}
 		return {
-			input: { sql_query: storySqlQuery },
+			input: { sql_query: storySqlQuery, database_id: storyDatabaseId },
 			output: {
 				id: queryId as executeSql.Output['id'],
 				columns,
@@ -54,5 +55,5 @@ export function useStoryChartSourceQuery({
 				dialect: storyDialect,
 			},
 		};
-	}, [chatSourceQuery, storySqlQuery, storyDialect, queryId, columns, data]);
+	}, [chatSourceQuery, storySqlQuery, storyDatabaseId, storyDialect, queryId, columns, data]);
 }

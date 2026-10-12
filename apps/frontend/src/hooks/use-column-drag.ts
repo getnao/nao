@@ -25,15 +25,20 @@ export function useDraggedColumnKind(): ColumnValueKind | null {
 	const [kind, setKind] = useState<ColumnValueKind | null>(null);
 
 	useEffect(() => {
+		let pendingFrame = 0;
 		const handleDragStart = (event: globalThis.DragEvent) => {
 			const draggedKind = readDraggedKind(event.dataTransfer?.types);
-			requestAnimationFrame(() => setKind(draggedKind));
+			pendingFrame = requestAnimationFrame(() => setKind(draggedKind));
 		};
-		const handleDragEnd = () => setKind(null);
+		const handleDragEnd = () => {
+			cancelAnimationFrame(pendingFrame);
+			setKind(null);
+		};
 		document.addEventListener('dragstart', handleDragStart);
 		document.addEventListener('dragend', handleDragEnd);
 		document.addEventListener('drop', handleDragEnd);
 		return () => {
+			cancelAnimationFrame(pendingFrame);
 			document.removeEventListener('dragstart', handleDragStart);
 			document.removeEventListener('dragend', handleDragEnd);
 			document.removeEventListener('drop', handleDragEnd);

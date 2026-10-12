@@ -442,6 +442,9 @@ export function ChartConfigEditForm({
 
 	const addSeries = (column?: string) => {
 		const used = new Set(draft.series.map((s) => s.data_key));
+		if (column && (column === draft.x_axis_key || used.has(column))) {
+			return;
+		}
 		const selectableColumns = getSelectableColumns(availableColumns);
 		const nextColumn =
 			column ?? selectableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? selectableColumns[0];

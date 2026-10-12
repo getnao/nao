@@ -48,7 +48,7 @@ interface ChartTypePickerProps {
 export function ChartTypePicker({ value, onValueChange, className }: ChartTypePickerProps) {
 	return (
 		<div
-			role='radiogroup'
+			role='group'
 			aria-label='Chart type'
 			className={cn('grid grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] gap-1.5', className)}
 		>
@@ -58,8 +58,7 @@ export function ChartTypePicker({ value, onValueChange, className }: ChartTypePi
 					<SimpleTooltip key={option} content={label}>
 						<button
 							type='button'
-							role='radio'
-							aria-checked={isSelected}
+							aria-pressed={isSelected}
 							aria-label={label}
 							onClick={() => onValueChange(option)}
 							className={cn(

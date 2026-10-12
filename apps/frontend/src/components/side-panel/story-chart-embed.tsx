@@ -131,7 +131,6 @@ export function StoryChartEmbedShell({
 	const [editorView, setEditorView] = useState<ChartEditorView>('chart');
 	const [showQuery, setShowQuery] = useState(false);
 	const canEdit = Boolean(edit && chart.rawTag);
-	const canViewQuery = canEdit || Boolean(querySqlSource);
 	const sourceQuery = useStoryChartSourceQuery({
 		queryId: chart.queryId,
 		story: edit?.story,
@@ -139,6 +138,8 @@ export function StoryChartEmbedShell({
 		data: data ?? EMPTY_ROWS,
 		enabled: canEdit && isEditOpen,
 	});
+	const canOpenQueryEditor = canEdit && (sourceQuery !== null || Boolean(edit?.story));
+	const canViewQuery = canOpenQueryEditor || Boolean(querySqlSource);
 
 	const config = useMemo(
 		() => ({
@@ -190,8 +191,8 @@ export function StoryChartEmbedShell({
 		<Button
 			variant='ghost-muted'
 			size='icon-xs'
-			onClick={() => (canEdit ? openEditor('query') : setShowQuery((current) => !current))}
-			title={canEdit ? 'Edit SQL query' : showQuery ? 'Hide SQL query' : 'View SQL query'}
+			onClick={() => (canOpenQueryEditor ? openEditor('query') : setShowQuery((current) => !current))}
+			title={canOpenQueryEditor ? 'Edit SQL query' : showQuery ? 'Hide SQL query' : 'View SQL query'}
 			className={cn('shrink-0 hover:bg-accent hover:rounded-full', showQuery && 'bg-accent rounded-full')}
 		>
 			<Code className='size-3.5' />

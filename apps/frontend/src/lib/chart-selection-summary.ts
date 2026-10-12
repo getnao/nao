@@ -89,6 +89,8 @@ function collectIssues(
 	}
 	if (xAxis && !xAxis.exists && rowCount > 0) {
 		issues.push(`Column "${xAxis.column}" is not in the query result.`);
+	} else if (xAxis?.exists && xAxis.kind === 'empty' && rowCount > 0) {
+		issues.push(`X axis column "${xAxis.column}" has no values.`);
 	}
 	const xAxisValueCount = xAxis ? rowCount - xAxis.nullCount : 0;
 	if (xAxis?.exists && xAxis.distinctCount < xAxisValueCount && !isPieChart(config.chart_type)) {

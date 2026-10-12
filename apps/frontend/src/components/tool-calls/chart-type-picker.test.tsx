@@ -11,18 +11,18 @@ describe('ChartTypePicker', () => {
 		cleanup();
 	});
 
-	it('renders one radio per chart type with the current one checked', () => {
+	it('renders one button per chart type with the current one pressed', () => {
 		renderPicker('line');
 
-		expect(screen.getAllByRole('radio')).toHaveLength(CHART_TYPE_OPTIONS.length);
-		expect(screen.getByRole('radio', { name: 'Line' }).getAttribute('aria-checked')).toBe('true');
-		expect(screen.getByRole('radio', { name: 'Bar' }).getAttribute('aria-checked')).toBe('false');
+		expect(screen.getAllByRole('button')).toHaveLength(CHART_TYPE_OPTIONS.length);
+		expect(screen.getByRole('button', { name: 'Line' }).getAttribute('aria-pressed')).toBe('true');
+		expect(screen.getByRole('button', { name: 'Bar' }).getAttribute('aria-pressed')).toBe('false');
 	});
 
 	it('reports the picked chart type', () => {
 		const onValueChange = renderPicker('bar');
 
-		fireEvent.click(screen.getByRole('radio', { name: 'Donut' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Donut' }));
 
 		expect(onValueChange).toHaveBeenCalledWith('donut');
 	});

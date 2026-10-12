@@ -1040,6 +1040,7 @@ code.dollar:before {
 }
 
 .chart-editor-table th:hover .nao-table-display__sort,
+.chart-editor-table th:focus-within .nao-table-display__sort,
 .chart-editor-table th[aria-sort='ascending'] .nao-table-display__sort,
 .chart-editor-table th[aria-sort='descending'] .nao-table-display__sort {
 	opacity: 1;
