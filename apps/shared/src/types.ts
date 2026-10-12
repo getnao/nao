@@ -245,9 +245,9 @@ export type LlmSelectedModel = {
 
 export type SummarySegment =
 	| { type: 'text'; content: string }
-	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }
+	| { type: 'chart'; chartType: string; title: string; kpiCount?: number; colors?: string[] }
 	| { type: 'table'; title: string }
-	| { type: 'map'; mapType: string; title: string }
+	| { type: 'map'; mapType: string; title: string; color?: string }
 	| { type: 'grid'; cols: number; widths: number[] | null; children: SummarySegment[] };
 
 export type StorySummary = {

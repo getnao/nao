@@ -1,4 +1,4 @@
-import { parseChartAttributes, resolveGridWidths, storyBlockRegex } from '@nao/shared/story-segments';
+import { parseChartAttributes, parseChartBlock, resolveGridWidths, storyBlockRegex } from '@nao/shared/story-segments';
 import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
@@ -40,12 +40,17 @@ function extractSegments(code: string): SummarySegment[] {
 			segments.push({ type: 'grid', cols, widths, children });
 		} else if (match[3] !== undefined) {
 			const attrs = parseChartAttributes(match[3]);
+			const chart = parseChartBlock(match[3]);
 			if (attrs.chart_type) {
+				const colors = chart?.series.map((series, i) => series.color || defaultColor(i));
 				segments.push({
 					type: 'chart',
 					chartType: attrs.chart_type,
 					title: attrs.title || '',
-					...(attrs.chart_type === 'kpi_card' ? { kpiCount: countSeries(attrs.series) } : {}),
+					...(attrs.chart_type === 'kpi_card'
+						? { kpiCount: Math.max(chart?.series.length ?? countSeries(attrs.series), 1) }
+						: {}),
+					...(colors && colors.length > 0 ? { colors } : {}),
 				});
 			}
 		} else if (match[4] !== undefined) {
@@ -60,6 +65,7 @@ function extractSegments(code: string): SummarySegment[] {
 				type: 'map',
 				mapType: attrs.map_type || 'points',
 				title: attrs.title || '',
+				...(attrs.color ? { color: attrs.color } : {}),
 			});
 		}
 
@@ -76,6 +82,10 @@ function extractSegments(code: string): SummarySegment[] {
 	return segments;
 }
 
+function defaultColor(index: number): string {
+	return `var(--chart-${(index % 11) + 1})`;
+}
+
 function countSeries(series: string | undefined): number {
 	if (!series) {
 		return 1;
@@ -86,7 +96,7 @@ function countSeries(series: string | undefined): number {
 			return parsed.length;
 		}
 	} catch {
-		// ignore malformed series
+		return 1;
 	}
 	return 1;
 }

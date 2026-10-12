@@ -22,6 +22,7 @@ More details
 				type: 'chart',
 				chartType: 'bar',
 				title: 'Revenue',
+				colors: ['var(--chart-1)'],
 			},
 			{ type: 'text', content: 'Details' },
 			{ type: 'text', content: 'More details' },
@@ -55,7 +56,13 @@ Body text
 		});
 
 		expect(extractStorySummary(chart).segments).toEqual([
-			{ type: 'chart', chartType: 'kpi_card', title: 'Top "hero" products', kpiCount: 2 },
+			{
+				type: 'chart',
+				chartType: 'kpi_card',
+				title: 'Top "hero" products',
+				kpiCount: 2,
+				colors: ['var(--chart-1)', 'var(--chart-2)'],
+			},
 		]);
 	});
 

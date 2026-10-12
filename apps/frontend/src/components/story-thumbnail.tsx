@@ -1,7 +1,9 @@
-import { useId } from 'react';
+import { buildChart } from '@nao/shared';
 import { getGridTemplateColumns } from '@nao/shared/story-segments';
 import type { ReactNode } from 'react';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
+import type { ChartType } from '@nao/shared/chart-types';
+import { ChartContainer } from '@/components/ui/chart';
 import { cn } from '@/lib/utils';
 
 export const SHEET_VISUAL = `rounded-sm
@@ -175,13 +177,14 @@ function SegmentSilhouette({ segment, variant }: { segment: SummarySegment; vari
 					chartType={segment.chartType}
 					title={segment.title}
 					kpiCount={segment.kpiCount}
+					colors={segment.colors}
 					variant={variant}
 				/>
 			);
 		case 'table':
 			return <MiniTable title={segment.title} variant={variant} />;
 		case 'map':
-			return <MiniMap title={segment.title} variant={variant} />;
+			return <MiniMap title={segment.title} color={segment.color} variant={variant} />;
 		case 'grid':
 			return (
 				<GridSilhouette
@@ -365,21 +368,19 @@ function InlineMarkdown({ text }: { text: string }) {
 	);
 }
 
-const CHART_COLOR = 'text-primary';
 const KPI_COLOR = 'bg-primary/50';
+const DEFAULT_CHART_COLORS = Array.from({ length: 11 }, (_, i) => `var(--chart-${i + 1})`);
 
-const BAR_HEIGHTS = [0.61, 0.65, 0.3, 0.53, 0.3, 0.26, 0.53, 0.53, 0.65, 0.23, 0.61, 0.68, 0.81, 0.9, 0.81, 0.9];
-
-const LINE_CHART_PATH =
-	'M0.224902 75.5254L5.15102 79.2027L9.39896 79.877L17.7549 90.5551L22.1227 81.2849L23.881 72.4827L31.5661 77.3836L46.3255 79.7334L52.2967 75.2915L52.7928 69.5649L61.2699 71.915L69.5264 72.0967L70.5474 61.4031L74.2326 52.8176L77.6591 42.8168L86.5828 43.549L93.0734 41.2612L100.435 43.5633L106.496 37.6563L119.029 43.8047L119.238 32.9285L123.346 29.4689L124.819 17.2725L130.453 10.8518L137.174 7.9143L141.425 0.372686L147.885 -6.77523';
-
-function KpiSilhouette({ count }: { count: number }) {
+function KpiSilhouette({ count, colors }: { count: number; colors: string[] }) {
 	const cards = Math.min(Math.max(count, 1), 4);
 	return (
 		<div className='flex gap-[9%]'>
 			{Array.from({ length: cards }).map((_, i) => (
 				<div key={i} className='flex w-[18%] flex-col gap-[5px]'>
-					<div className={cn('h-[3px] w-full rounded-[2px]', KPI_COLOR)} />
+					<div
+						className={cn('h-[3px] w-full rounded-[2px]', colors.length === 0 && KPI_COLOR)}
+						style={{ backgroundColor: colorAt(colors, i) }}
+					/>
 				</div>
 			))}
 		</div>
@@ -390,27 +391,21 @@ function MiniChart({
 	chartType,
 	title,
 	kpiCount,
+	colors = [],
 	variant,
 }: {
 	chartType: string;
 	title: string;
 	kpiCount?: number;
+	colors?: string[];
 	variant: ThumbnailVariant;
 }) {
-	const lineGradientId = useId();
-	const pieGradientId = useId();
-	const barGradientId = useId();
-
 	return (
 		<PreviewBlock title={title} variant={variant}>
 			{chartType === 'kpi_card' ? (
-				<KpiSilhouette count={kpiCount ?? 1} />
-			) : chartType === 'pie' ? (
-				<PieChartSilhouette gradientId={pieGradientId} variant={variant} />
-			) : chartType === 'line' || chartType === 'area' ? (
-				<LineChartSilhouette chartType={chartType} gradientId={lineGradientId} variant={variant} />
+				<KpiSilhouette count={kpiCount ?? 1} colors={colors} />
 			) : (
-				<BarChartSilhouette gradientId={barGradientId} variant={variant} />
+				<RechartsThumbnail chartType={chartType} colors={colors} variant={variant} />
 			)}
 		</PreviewBlock>
 	);
@@ -434,110 +429,87 @@ function PreviewBlock({ title, children, variant }: { title: string; children: R
 	);
 }
 
-function PieChartSilhouette({ gradientId, variant }: { gradientId: string; variant: ThumbnailVariant }) {
-	return (
-		<svg
-			viewBox='-11 -8.67 55 43.34'
-			width='100%'
-			height='100%'
-			fill='none'
-			className={cn('block', variant === 'flat' ? 'h-[130px]' : 'max-h-[36px]', CHART_COLOR)}
-		>
-			<defs>
-				<linearGradient id={gradientId} x1='29' y1='1' x2='1' y2='21' gradientUnits='userSpaceOnUse'>
-					<stop stopColor='currentColor' stopOpacity={0.95} />
-					<stop offset='1' stopColor='currentColor' stopOpacity={0.06} />
-				</linearGradient>
-			</defs>
-			<path
-				d='M28.7935 12.3195C30.6166 19.1233 26.3878 24.8382 19.3483 25.084C12.3087 25.3299 5.12408 20.0135 3.30099 13.2097C1.4779 6.40583 5.7067 0.690937 12.7463 0.44511C19.7858 0.199282 26.9705 5.51561 28.7935 12.3195ZM8.89851 13.0142C9.92099 16.8302 13.9505 19.8118 17.8986 19.6739C21.8468 19.5361 24.2185 16.3309 23.196 12.5149C22.1735 8.69899 18.1441 5.71732 14.1959 5.85519C10.2478 5.99307 7.87603 9.19827 8.89851 13.0142Z'
-				fill='var(--foreground)'
-				opacity={0.08}
-			/>
-			<path
-				d='M25.5154 23.0408C23.7057 24.3875 21.3814 25.1014 18.8364 25.092C16.2913 25.0826 13.6398 24.3504 11.2173 22.9881C8.79465 21.6257 6.70973 19.6944 5.22614 17.4382C3.74256 15.1821 2.92693 12.7025 2.88241 10.3131C2.83789 7.92364 3.56647 5.73162 4.97603 4.01424C6.38558 2.29685 8.4128 1.13123 10.8013 0.664777C13.1898 0.198322 15.8324 0.451982 18.3948 1.39368C20.9572 2.33538 23.3244 3.92282 25.197 5.95526L21.1789 8.94557C20.1287 7.80567 18.801 6.91535 17.3639 6.3872C15.9268 5.85905 14.4447 5.71678 13.1051 5.9784C11.7655 6.24001 10.6285 6.89375 9.83796 7.85694C9.04741 8.82014 8.63878 10.0495 8.66375 11.3897C8.68872 12.7298 9.14616 14.1204 9.97823 15.3858C10.8103 16.6511 11.9796 17.7344 13.3383 18.4984C14.6971 19.2625 16.1841 19.6731 17.6115 19.6784C19.0389 19.6837 20.3425 19.2833 21.3575 18.528L25.5154 23.0408Z'
-				fill={`url(#${gradientId})`}
-			/>
-		</svg>
-	);
+function colorAt(colors: string[], index: number): string {
+	return colors[index % colors.length] ?? DEFAULT_CHART_COLORS[index % DEFAULT_CHART_COLORS.length];
 }
 
-function LineChartSilhouette({
+function RechartsThumbnail({
 	chartType,
-	gradientId,
+	colors,
 	variant,
 }: {
 	chartType: string;
-	gradientId: string;
+	colors: string[];
 	variant: ThumbnailVariant;
 }) {
+	const { data, series, xAxisKey } = thumbnailChartData(chartType, colors);
+	const config = Object.fromEntries(
+		series.map((item, i) => [item.data_key, { label: item.label, color: colorAt(colors, i) }]),
+	);
+	const chart = buildChart({
+		data,
+		chartType: chartType as ChartType,
+		xAxisKey,
+		xAxisType: 'category',
+		series,
+		colorFor: (_key, i) => colorAt(colors, i),
+		showGrid: false,
+		renderTitle: false,
+		hideAxes: true,
+		showDataLabels: false,
+		animate: false,
+		margin: { top: 0, right: 0, bottom: 0, left: 0 },
+		backgroundColor: 'var(--background)',
+	});
+
 	return (
-		<svg
-			viewBox='0 0 149 91'
-			width='100%'
-			height='100%'
-			className={cn('block', variant === 'flat' ? 'h-[160px]' : 'max-h-[40px]', CHART_COLOR)}
+		<ChartContainer
+			config={config}
+			className='pointer-events-none'
+			contentClassName={cn('aspect-auto', variant === 'flat' ? 'h-[150px]' : 'h-[40px]')}
 		>
-			<defs>
-				<linearGradient
-					id={gradientId}
-					x1='-5.02652'
-					y1='72.4382'
-					x2='154.447'
-					y2='57.6661'
-					gradientUnits='userSpaceOnUse'
-				>
-					<stop stopColor='currentColor' stopOpacity={0.06} />
-					<stop offset='1' stopColor='currentColor' stopOpacity={0.95} />
-				</linearGradient>
-			</defs>
-			{chartType === 'area' && (
-				<path d={`${LINE_CHART_PATH}L147.885 91L0.224902 91Z`} fill='currentColor' opacity={0.1} />
-			)}
-			<path
-				d={LINE_CHART_PATH}
-				fill='none'
-				stroke={`url(#${gradientId})`}
-				strokeWidth='1.8'
-				strokeLinejoin='round'
-				strokeLinecap='round'
-			/>
-		</svg>
+			{chart}
+		</ChartContainer>
 	);
 }
 
-function BarChartSilhouette({ gradientId, variant }: { gradientId: string; variant: ThumbnailVariant }) {
-	const barW = 1.8;
-	const gap = 2.2;
-	return (
-		<svg
-			viewBox='0 0 60 36'
-			width='100%'
-			height='100%'
-			className={cn('block', variant === 'flat' ? 'h-[150px]' : 'max-h-[40px]', CHART_COLOR)}
-		>
-			<defs>
-				<linearGradient id={gradientId} x1='56' y1='2' x2='4' y2='34' gradientUnits='userSpaceOnUse'>
-					<stop stopColor='currentColor' stopOpacity={0.95} />
-					<stop offset='1' stopColor='currentColor' stopOpacity={0.06} />
-				</linearGradient>
-			</defs>
-			{BAR_HEIGHTS.map((h, i) => {
-				const height = h * 28;
-				return (
-					<rect
-						key={i}
-						x={2 + i * (barW + gap)}
-						y={34 - height}
-						width={barW}
-						height={height}
-						rx={0.9}
-						fill={`url(#${gradientId})`}
-					/>
-				);
-			})}
-		</svg>
-	);
+function thumbnailChartData(chartType: string, colors: string[]) {
+	if (chartType === 'pie' || chartType === 'donut') {
+		return {
+			xAxisKey: 'x',
+			series: [{ data_key: 's0', label: 'Value', color: colorAt(colors, 0) }],
+			data: [
+				{ x: 'A', s0: 42 },
+				{ x: 'B', s0: 28 },
+				{ x: 'C', s0: 18 },
+				{ x: 'D', s0: 12 },
+			],
+		};
+	}
+
+	const seriesCount = chartType === 'mixed' || chartType.includes('stacked') ? Math.max(colors.length, 2) : 1;
+	const series = Array.from({ length: Math.min(seriesCount, 3) }, (_, i) => ({
+		data_key: `s${i}`,
+		label: `Series ${i + 1}`,
+		color: colorAt(colors, i),
+		...(chartType === 'mixed' && i % 2 === 1 ? { series_type: 'line' as const } : {}),
+	}));
+	const values = [
+		[18, 32, 24, 46, 38, 55],
+		[12, 18, 28, 24, 34, 30],
+		[8, 14, 11, 19, 16, 22],
+	];
+
+	return {
+		xAxisKey: 'x',
+		series,
+		data: values[0].map((_, rowIndex) => ({
+			x: `P${rowIndex + 1}`,
+			...Object.fromEntries(
+				series.map((item, seriesIndex) => [item.data_key, values[seriesIndex % values.length][rowIndex]]),
+			),
+		})),
+	};
 }
 
 function MiniTable({ title, variant }: { title: string; variant: ThumbnailVariant }) {
@@ -553,7 +525,7 @@ function TableSilhouette({ variant }: { variant: ThumbnailVariant }) {
 
 	return (
 		<div className='overflow-hidden rounded-[4px] ring-1 ring-foreground/8'>
-			<div className={cn(variant === 'flat' ? 'h-6' : 'h-[5px]', 'bg-current opacity-50', CHART_COLOR)} />
+			<div className={cn(variant === 'flat' ? 'h-6' : 'h-[5px]', 'bg-current opacity-50 text-primary')} />
 			{rows.map((i) => (
 				<div key={i} className={cn('flex gap-px', i % 2 === 1 && 'bg-foreground/[0.025]')}>
 					<div className={cn('flex-1 bg-foreground/8', variant === 'flat' ? 'h-5' : 'h-[4px]')} />
@@ -567,22 +539,23 @@ function TableSilhouette({ variant }: { variant: ThumbnailVariant }) {
 	);
 }
 
-function MiniMap({ title, variant }: { title: string; variant: ThumbnailVariant }) {
+function MiniMap({ title, color, variant }: { title: string; color?: string; variant: ThumbnailVariant }) {
 	return (
 		<PreviewBlock title={title} variant={variant}>
-			<MapSilhouette variant={variant} />
+			<MapSilhouette color={color} variant={variant} />
 		</PreviewBlock>
 	);
 }
 
-function MapSilhouette({ variant }: { variant: ThumbnailVariant }) {
+function MapSilhouette({ color = 'var(--chart-1)', variant }: { color?: string; variant: ThumbnailVariant }) {
 	return (
 		<div className='overflow-hidden rounded-[4px]'>
 			<svg
 				viewBox='0 0 60 36'
 				width='100%'
 				height='100%'
-				className={cn('block', variant === 'flat' ? 'h-[150px]' : 'max-h-[40px]', CHART_COLOR)}
+				className={cn('block', variant === 'flat' ? 'h-[150px]' : 'max-h-[40px]')}
+				style={{ color }}
 			>
 				<rect x='0' y='0' width='60' height='36' rx='4px' fill='currentColor' opacity={0.06} />
 				<path
