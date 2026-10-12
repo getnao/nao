@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+import type { Chat } from '@/queries/use-chat-query';
 import { taskTitle } from '@/components/tool-calls/task';
 import { UserMessageBubble } from '@/components/chat-messages/user-message';
 import { SubagentReport } from '@/components/subagent/subagent-report';
@@ -18,7 +19,7 @@ export type SubagentPart = UIToolPart<'task'>;
 
 /** A subagent run shown as its own conversation: the prompt it received, its work and its report. */
 export function SubagentConversation({ chatId, toolCallId }: { chatId: string; toolCallId: string }) {
-	const chat = useChatQuery({ chatId });
+	const { data: chatTitle } = useChatQuery({ chatId, select: selectChatTitle });
 	const { isLoadingMessages, isRunning } = useAgentContext();
 	const part = useAgentMessagesSelector((messages) => findSubagentPart(messages, toolCallId));
 	const title = taskTitle(part?.input);
@@ -26,7 +27,7 @@ export function SubagentConversation({ chatId, toolCallId }: { chatId: string; t
 
 	return (
 		<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden bg-background'>
-			<Header chatId={chatId} chatTitle={chat.data?.title} title={title} />
+			<Header chatId={chatId} chatTitle={chatTitle} title={title} />
 			{isLoadingMessages ? (
 				<div className='flex flex-1 items-center justify-center'>
 					<Spinner />
@@ -38,6 +39,10 @@ export function SubagentConversation({ chatId, toolCallId }: { chatId: string; t
 			)}
 		</div>
 	);
+}
+
+function selectChatTitle(chat: Chat): string {
+	return chat.title;
 }
 
 function Header({ chatId, chatTitle, title }: { chatId: string; chatTitle: string | undefined; title: string }) {

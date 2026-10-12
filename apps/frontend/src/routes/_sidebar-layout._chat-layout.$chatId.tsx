@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
+import type { Chat } from '@/queries/use-chat-query';
 import { NEW_CHAT_ID } from '@/lib/ai';
 import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
 import { StoryOpenButton } from '@/components/story-open-button';
@@ -68,7 +69,7 @@ function ChatPage() {
 	const { role, canViewChatReplay } = usePermissions();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const showAutomationLinks = role !== undefined && role !== 'viewer' && config.data?.betaAutomationsEnabled === true;
-	const chat = useChatQuery({ chatId });
+	const chat = useChatQuery({ chatId, select: selectChatHeader });
 	const title = chat.data?.title;
 
 	const isForbidden = chat.isError && isForbiddenError(chat.error);
@@ -305,6 +306,15 @@ function ChatPage() {
 			/>
 		</SidePanelProvider>
 	);
+}
+
+function selectChatHeader(chat: Chat) {
+	return {
+		title: chat.title,
+		projectId: chat.projectId,
+		forkMetadata: chat.forkMetadata,
+		automationRun: chat.automationRun,
+	};
 }
 
 function findLatestStorySlug(messages: UIMessage[]): string | undefined {

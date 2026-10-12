@@ -30,6 +30,10 @@ export function isLast<T>(item: T, array: T[]): boolean {
 	return item === array.at(-1);
 }
 
+export function areArraysShallowEqual<T>(previous: readonly T[], next: readonly T[]): boolean {
+	return previous.length === next.length && previous.every((item, index) => item === next[index]);
+}
+
 export function toLocalDateString(d: Date): string {
 	const y = d.getFullYear();
 	const m = String(d.getMonth() + 1).padStart(2, '0');

@@ -8,6 +8,7 @@ import { Expandable } from '@/components/ui/expandable';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { useIsInToolGroup } from '@/contexts/tool-group';
 import { ToolCallActionsProvider } from '@/contexts/tool-call-actions';
+import { useMemoObject } from '@/hooks/useMemoObject';
 import { ExportDataMenu } from '@/components/export-data-menu';
 
 interface ExportAction {
@@ -57,6 +58,7 @@ export const ToolCallWrapper = ({
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [isHovering, setIsHovering] = useState(false);
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
+	const toolCallActions = useMemoObject({ setMenuOpen: setIsMenuOpen });
 	const canExpand = Boolean(children || toolPart.errorText || toolPart.output);
 	const hasInitialized = useRef(false);
 
@@ -135,7 +137,7 @@ export const ToolCallWrapper = ({
 	const contentToShow = toolPart.errorText && !overrideError ? errorContent : children;
 
 	return (
-		<ToolCallActionsProvider value={{ setMenuOpen: setIsMenuOpen }}>
+		<ToolCallActionsProvider value={toolCallActions}>
 			<div
 				onMouseEnter={() => setIsHovering(true)}
 				onMouseLeave={() => setIsHovering(false)}

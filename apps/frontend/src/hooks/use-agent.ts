@@ -530,15 +530,15 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 	const chatId = useChatId();
 	const chat = useChatQuery({ chatId });
 	const setChat = useSetChat();
+	const agentMessagesRef = useRef(agent.messages);
+	agentMessagesRef.current = agent.messages;
 
 	useEffect(() => {
-		if (chat.data?.messages && !agent.isRunning) {
+		if (chat.data?.messages && !agent.isRunning && chat.data.messages !== agentMessagesRef.current) {
 			agent.setMessages(chat.data.messages);
 		}
 	}, [chat.data?.messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	const agentMessagesRef = useRef(agent.messages);
-	agentMessagesRef.current = agent.messages;
 	const chatDataRef = useRef(chat.data);
 	chatDataRef.current = chat.data;
 

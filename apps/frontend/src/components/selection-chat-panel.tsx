@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import type React from 'react';
 
 import type { SelectionAnchor } from '@/contexts/text-selection';
+import type { Chat } from '@/queries/use-chat-query';
 import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
 import { AgentProvider } from '@/contexts/agent.provider';
 import { useChatQuery } from '@/queries/use-chat-query';
@@ -339,9 +340,7 @@ export function PanelHeader({
 	onClose: () => void;
 }) {
 	const navigate = useNavigate();
-	const chat = useChatQuery({ chatId: anchor.chatId });
-	const forkMetadata = chat.data?.forkMetadata;
-	const selectionText = forkMetadata?.selectionText ?? '';
+	const { data: selectionText = '' } = useChatQuery({ chatId: anchor.chatId, select: selectForkSelectionText });
 
 	return (
 		<div className='flex flex-col w-full'>
@@ -374,4 +373,8 @@ export function PanelHeader({
 			<SelectionExcerptCard anchor={anchor} text={selectionText} />
 		</div>
 	);
+}
+
+function selectForkSelectionText(chat: Chat): string {
+	return chat.forkMetadata?.selectionText ?? '';
 }
