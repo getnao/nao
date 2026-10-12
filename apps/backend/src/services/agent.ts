@@ -8,6 +8,7 @@ import {
 	createUIMessageStream,
 	FinishReason,
 	generateText,
+	hasToolCall,
 	InferUIMessageChunk,
 	isToolUIPart,
 	ModelMessage,
@@ -20,7 +21,6 @@ import {
 } from 'ai';
 
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
-import { interactiveStopConditions } from '../agents/stop-conditions';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
@@ -345,7 +345,7 @@ export class AgentService {
 		const agentTools = resolvedTools;
 		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
 			? [stepCountIs(options.maxSteps ?? 20)]
-			: interactiveStopConditions;
+			: [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')];
 		const agent = new AgentManager(
 			chat,
 			modelConfig,
@@ -437,7 +437,7 @@ class AgentManager {
 		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
 		private readonly _userGroupAccess: AgentUserGroupAccess,
-		stopWhen: StopCondition<AgentTools>[] = interactiveStopConditions,
+		stopWhen: StopCondition<AgentTools>[] = [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 		private readonly _systemPromptOverride?: string,
 	) {
 		this._finished = new Promise((resolve) => {
