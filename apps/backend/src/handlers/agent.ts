@@ -76,8 +76,9 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 					tools: adminAgentTools,
 					systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
 					adminMode: true,
+					isBudgetChecked: true,
 				}
-			: {}),
+			: { isBudgetChecked: true }),
 	});
 
 	const isForkedFirstMessage =

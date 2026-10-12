@@ -53,6 +53,9 @@ export {
 	PROVIDER_META,
 } from './provider-meta';
 
+/** Assumed for models missing from the catalogue, such as custom models behind an OpenAI-compatible endpoint. */
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+
 export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
 export const CACHE_5M = { type: 'ephemeral' } as const;
 
@@ -299,7 +302,7 @@ export function createProviderModel(
 	const providerConfig = LLM_PROVIDERS[kind];
 	const defaultOptions = resolveDefaultOptions(provider, modelId, providerConfig.defaultOptions ?? {});
 	const modelConfig = getProviderModelConfig(kind, modelId);
-	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
+	const contextWindow = getContextWindow(provider, modelId);
 
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
 
@@ -314,6 +317,11 @@ export function createProviderModel(
 		contextWindow,
 		callSettings,
 	};
+}
+
+export function getContextWindow(provider: LlmProvider, modelId: string): number {
+	const models = LLM_PROVIDERS[providerKind(provider)].models;
+	return models.find((m) => m.id === modelId)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 }
 
 function resolveDefaultOptions(provider: LlmProvider, modelId: string, defaultOptions: object): object {

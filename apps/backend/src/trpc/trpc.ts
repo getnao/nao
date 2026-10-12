@@ -6,6 +6,7 @@ import superjson from 'superjson';
 import { getSession } from '../auth';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as userQueries from '../queries/user.queries';
 import {
 	assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess,
@@ -244,6 +245,30 @@ export async function assertOrganizationRolesAreEditable(): Promise<void> {
 			message: 'Organization roles are managed by your identity provider and cannot be changed here.',
 		});
 	}
+}
+
+/**
+ * Account-wide user data (name, messaging linking code, SSO token) is shared by every organization the
+ * user belongs to, so an admin may only act on it when the user belongs to nothing outside the admin's
+ * organization. Everyone can act on their own account.
+ */
+export async function assertCanManageUserAccount(
+	actorUserId: string,
+	targetUserId: string,
+	orgId: string | null,
+	action: string,
+) {
+	if (actorUserId === targetUserId || (await userQueries.isUserConfinedToOrganization(targetUserId, orgId))) {
+		return;
+	}
+	throw new TRPCError({
+		code: 'FORBIDDEN',
+		message: `This user also belongs to another organization, so only they can ${action}.`,
+	});
+}
+
+export async function assertCanRenameUser(actorUserId: string, targetUserId: string, orgId: string | null) {
+	await assertCanManageUserAccount(actorUserId, targetUserId, orgId, 'change their name');
 }
 
 export function ownedResourceProcedure(

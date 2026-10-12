@@ -16,6 +16,7 @@ import {
 	Radar,
 	RadarChart,
 	Rectangle,
+	ReferenceLine,
 	Scatter,
 	ScatterChart,
 	XAxis,
@@ -38,7 +39,13 @@ import {
 	shouldReserveStackTotalFootroom,
 	sumStackValue,
 } from './chart-data-labels';
-import { collectAxisValues, collectStackedAxisValues, resolveBarYAxisDomain, resolveYAxisDomain } from './chart-domain';
+import {
+	collectAxisValues,
+	collectStackedAxisValues,
+	computeNiceDomain,
+	resolveBarYAxisDomain,
+	resolveYAxisDomain,
+} from './chart-domain';
 import { CHART_FONT_STACK } from './chart-fonts';
 import { type ChartStyle, DEFAULT_CHART_STYLE } from './chart-style';
 import {
@@ -115,6 +122,7 @@ const HORIZONTAL_BAR_MAX_SIZE = 28;
 const HORIZONTAL_BAR_CATEGORY_GAP = '20%';
 const HORIZONTAL_BAR_RADIUS = 999;
 const HORIZONTAL_BAR_TRACK_COLOR = 'var(--muted, #e5e7eb)';
+const HORIZONTAL_BAR_BASELINE_COLOR = 'var(--muted-foreground, #6b7280)';
 const HORIZONTAL_BAR_ORIGINAL_VALUE_KEY = '__naoHorizontalBarValue';
 const HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING = 4;
 const HORIZONTAL_BAR_LABEL_VERTICAL_ROOM = Math.ceil(CHART_LABEL_FONT_SIZE / 2) + 2;
@@ -652,12 +660,20 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 	const renderedSeries = getRenderedSeries(series, series.length > 1);
 	const hasMultipleSeries = renderedSeries.length > 1;
 	const seriesKeys = renderedSeries.map((item) => item.data_key);
+	const isDiverging = !isPercent && hasNegativeSeriesValue(data, seriesKeys);
+	const normalizeValue = isDiverging ? toSignedHorizontalBarValue : clampHorizontalBarValue;
 	const clampedRowTotals = data.map((row) =>
 		seriesKeys.reduce((total, key) => total + clampHorizontalBarValue(row[key]), 0),
 	);
 	const signedRowTotals = data.map((row) => sumStackValue(row, renderedSeries) ?? 0);
 	const maximum = clampedRowTotals.reduce((current, value) => Math.max(current, value), 0) || 1;
-	const visibleValueAxisDomainProps = isPercent ? { domain: [0, 1] as [number, number] } : {};
+	const showValueAxis = hasMultipleSeries || isDiverging;
+	const visibleValueAxisDomainProps = resolveHorizontalBarValueAxisDomainProps(
+		data,
+		seriesKeys,
+		isPercent,
+		isDiverging,
+	);
 	const valueFormat = getChartLevelValueFormat(series);
 	const valueFormatter = (value: number) =>
 		isPercent ? formatPercentAxisTick(value) : formatChartValue(value, valueFormat);
@@ -683,7 +699,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 			[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]: labelValues[rowIndex],
 		};
 		for (const key of seriesKeys) {
-			normalizedRow[key] = clampHorizontalBarValue(row[key]);
+			normalizedRow[key] = normalizeValue(row[key]);
 		}
 		return normalizedRow;
 	});
@@ -695,9 +711,10 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 			accessibilityLayer
 			margin={margin}
 			{...(isPercent ? { stackOffset: 'expand' as const } : {})}
+			{...(isDiverging && hasMultipleSeries ? { stackOffset: 'sign' as const } : {})}
 			{...(hasMultipleSeries ? { barCategoryGap: HORIZONTAL_BAR_CATEGORY_GAP } : {})}
 		>
-			{hasMultipleSeries ? (
+			{showValueAxis ? (
 				<XAxis
 					type='number'
 					{...visibleValueAxisDomainProps}
@@ -723,6 +740,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 				width={categoryAxisWidth}
 				tickFormatter={tickFormatter}
 			/>
+			{isDiverging && <ReferenceLine x={0} stroke={HORIZONTAL_BAR_BASELINE_COLOR} strokeWidth={1} />}
 			{children}
 			{hasMultipleSeries ? (
 				renderedSeries.map((item, index) => (
@@ -731,7 +749,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 						dataKey={item.data_key}
 						fill={colorFor(item.data_key, index)}
 						stackId='stack'
-						background={index === 0 ? renderHorizontalBarBackground : undefined}
+						background={index === 0 && !isDiverging ? renderHorizontalBarBackground : undefined}
 						shape={renderHorizontalStackedBarShape(seriesKeys, item.data_key, separatorColor)}
 						maxBarSize={HORIZONTAL_BAR_MAX_SIZE}
 						isAnimationActive={Boolean(props.animate)}
@@ -748,7 +766,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 						HORIZONTAL_BAR_RADIUS,
 						HORIZONTAL_BAR_RADIUS,
 					]}
-					background={renderHorizontalBarBackground}
+					background={isDiverging ? undefined : renderHorizontalBarBackground}
 					barSize={HORIZONTAL_BAR_SIZE}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
@@ -761,6 +779,32 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 
 function clampHorizontalBarValue(value: unknown): number {
 	return Math.max(0, toFiniteNumber(value) ?? 0);
+}
+
+function toSignedHorizontalBarValue(value: unknown): number {
+	return toFiniteNumber(value) ?? 0;
+}
+
+function hasNegativeSeriesValue(data: Record<string, unknown>[], seriesKeys: string[]): boolean {
+	return data.some((row) => seriesKeys.some((key) => toSignedHorizontalBarValue(row[key]) < 0));
+}
+
+function resolveHorizontalBarValueAxisDomainProps(
+	data: Record<string, unknown>[],
+	seriesKeys: string[],
+	isPercent: boolean,
+	isDiverging: boolean,
+): { domain?: [number, number] } {
+	if (isPercent) {
+		return { domain: [0, 1] };
+	}
+	if (!isDiverging) {
+		return {};
+	}
+	const stackValues = collectStackedAxisValues(data, seriesKeys);
+	const lowest = Math.min(0, ...stackValues);
+	const highest = Math.max(0, ...stackValues);
+	return { domain: computeNiceDomain(lowest, highest) };
 }
 
 function computeHorizontalBarCategoryAxisWidth(
@@ -994,8 +1038,21 @@ export function isTopmostStackSegment(row: Record<string, unknown>, seriesKeys: 
 	return topKey === currentKey;
 }
 
-function isFirstNonZeroStackSegment(row: Record<string, unknown>, seriesKeys: string[], currentKey: string): boolean {
-	return seriesKeys.find((key) => typeof row[key] === 'number' && row[key] !== 0) === currentKey;
+/**
+ * Keys of the segments drawn at the far left and far right of a horizontal stacked bar.
+ * Positive segments stack rightwards from zero and negative ones leftwards, so each side's
+ * outer edge is the last segment of that sign; a side with no segments of its sign ends at
+ * zero with the first segment of the opposite sign.
+ */
+export function horizontalStackEdgeKeys(
+	row: Record<string, unknown>,
+	seriesKeys: string[],
+): { leftKey: string | null; rightKey: string | null } {
+	const positiveKeys = seriesKeys.filter((key) => typeof row[key] === 'number' && (row[key] as number) > 0);
+	const negativeKeys = seriesKeys.filter((key) => typeof row[key] === 'number' && (row[key] as number) < 0);
+	const leftKey = negativeKeys.at(-1) ?? positiveKeys[0] ?? null;
+	const rightKey = positiveKeys.at(-1) ?? negativeKeys[0] ?? null;
+	return { leftKey, rightKey };
 }
 
 type RectangleProps = React.ComponentProps<typeof Rectangle>;
@@ -1003,9 +1060,9 @@ type RectangleProps = React.ComponentProps<typeof Rectangle>;
 function renderHorizontalStackedBarShape(seriesKeys: string[], currentKey: string, separatorColor: string) {
 	return function HorizontalStackedBarSegment(shapeProps: unknown) {
 		const rectProps = shapeProps as RectangleProps & { payload?: Record<string, unknown> };
-		const row = rectProps.payload ?? {};
-		const roundLeft = isFirstNonZeroStackSegment(row, seriesKeys, currentKey);
-		const roundRight = isTopmostStackSegment(row, seriesKeys, currentKey);
+		const { leftKey, rightKey } = horizontalStackEdgeKeys(rectProps.payload ?? {}, seriesKeys);
+		const roundLeft = leftKey === currentKey;
+		const roundRight = rightKey === currentKey;
 		return (
 			<Rectangle
 				{...rectProps}

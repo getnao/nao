@@ -321,15 +321,15 @@ function MultiSelectFilter<T extends string>({
 								value={option.label}
 								onSelect={() => toggleValue(option.value)}
 							>
-								<span className='flex size-4 items-center justify-center'>
-									{draft.includes(option.value) && <CheckIcon className='size-4' />}
-								</span>
 								<span className='flex-1 truncate'>{option.label}</span>
 								{typeof option.count === 'number' && (
 									<Badge variant='secondary' className='h-4 px-1 text-xs'>
 										{option.count}
 									</Badge>
 								)}
+								<span className='flex size-4 shrink-0 items-center justify-center'>
+									{draft.includes(option.value) && <CheckIcon className='size-4' />}
+								</span>
 							</CommandItem>
 						))}
 					</CommandList>

@@ -3,7 +3,7 @@ import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { memo, useCallback, useMemo, useRef } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
-import type { QueryDataMap } from '@/components/story-embeds';
+import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import {
 	StoryChartEmbed as LiveChartEmbed,
 	StoryMapEmbed as LiveMapEmbed,
@@ -58,8 +58,11 @@ export const StoryPreview = memo(function StoryPreview({
 		enabled: filtersEnabled,
 	});
 
-	const noCacheQuery = useMemo(
-		() => (isNoCacheMode ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
+	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
+		() =>
+			isNoCacheMode
+				? { queryOptions: (queryId) => trpc.story.getLiveQueryData.queryOptions({ chatId, queryId }) }
+				: undefined,
 		[isNoCacheMode, chatId],
 	);
 

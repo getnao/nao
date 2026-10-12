@@ -6,6 +6,7 @@ import type { UsageChartData } from '@/components/settings/usage-chart-card';
 import type { displayChart } from '@nao/shared/tools';
 import type { UsageRecord } from '@nao/backend/usage';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
+import { ChatsReplaySearchBar } from '@/components/settings/chats-replay-search-bar';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
 import {
@@ -118,7 +119,7 @@ function UsageOverview({
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
 }) {
-	const { provider, users, feedback, tools, sources, splitByUser, tokenView } = usageSearch;
+	const { provider, users, feedback, tools, sources, search, splitByUser, tokenView } = usageSearch;
 	const { canViewUsage } = usePermissions();
 	const periodState = useUsagePeriodSettings({ canViewUsage, usageSearch, onUpdateSearch });
 	const { period, granularity } = periodState;
@@ -289,15 +290,22 @@ function UsageOverview({
 				<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
 					<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
 						<h2 className='text-sm font-semibold'>Chats replay</h2>
-						<ReplayFilters
-							chatFacets={chatFacets.data?.facets}
-							selectedFeedbackStates={feedback}
-							onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
-							selectedToolStates={tools}
-							onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
-						/>
+						<div className='flex flex-wrap items-center gap-2'>
+							<ChatsReplaySearchBar
+								value={search}
+								onChange={(value) => onUpdateSearch({ search: value })}
+							/>
+							<ReplayFilters
+								chatFacets={chatFacets.data?.facets}
+								selectedFeedbackStates={feedback}
+								onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
+								selectedToolStates={tools}
+								onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
+							/>
+						</div>
 					</div>
 					<ChatsReplayPage
+						search={search}
 						selectedUserNames={users}
 						selectedFeedbackStates={feedback}
 						selectedToolStates={tools}

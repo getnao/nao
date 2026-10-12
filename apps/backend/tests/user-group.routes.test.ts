@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	env: {} as Record<string, string | undefined>,
 	resolveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
+	setGroupBudget: vi.fn(),
 	setUserGroupMembership: vi.fn(),
 	updateUserGroup: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
@@ -55,8 +56,14 @@ vi.mock('../src/queries/user-group.queries', () => ({
 }));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
-	LICENSE_FEATURES: { rowLevelSecurity: 'row-level-security', sso: 'sso', userGroups: 'user-groups' },
+	LICENSE_FEATURES: {
+		rowLevelSecurity: 'row-level-security',
+		sso: 'sso',
+		userBudget: 'user-budget',
+		userGroups: 'user-groups',
+	},
 }));
+vi.mock('../src/services/member-budget.service', () => ({ setGroupBudget: mocks.setGroupBudget }));
 vi.mock('../src/services/sso-user-group-mapping.service', () => ({
 	listEffectiveOidcUserGroupMappings: mocks.listEffectiveOidcUserGroupMappings,
 	listEffectiveEntraUserGroupMappings: mocks.listEffectiveEntraUserGroupMappings,
@@ -1134,6 +1141,42 @@ describe('user group routes', () => {
 		});
 		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+});
+
+describe('user group budget', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		mocks.hasFeature.mockResolvedValue(true);
+		mocks.createUserGroup.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
+		mocks.updateUserGroup.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
+	});
+
+	it('saves the budget of a new group with the group itself', async () => {
+		await createCaller().create({ name: 'Analysts', budgetLimitUsd: 300 });
+
+		expect(mocks.setGroupBudget).toHaveBeenCalledWith('project-id', 'group-id', 300);
+	});
+
+	it('leaves the group budget untouched when no limit is sent', async () => {
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+		});
+
+		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
+	});
+
+	it('rejects a group budget without the license before creating the group', async () => {
+		mocks.hasFeature.mockImplementation(async (feature) => feature !== 'user-budget');
+
+		await expect(createCaller().create({ name: 'Analysts', budgetLimitUsd: 300 })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
 	});
 });
 

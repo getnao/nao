@@ -2,6 +2,7 @@ import { BACKGROUND_MODEL_CATEGORIES, type CustomBoundarySet } from '@nao/shared
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
 import {
 	type LlmProvider,
+	type LlmSelectedModel,
 	MAX_PYTHON_EXECUTION_DURATION_SECS,
 	MIN_PYTHON_EXECUTION_DURATION_SECS,
 	SEMANTIC_LAYER_MODES,
@@ -14,6 +15,7 @@ import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
+import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
@@ -24,6 +26,14 @@ import * as telegramConfigQueries from '../queries/project-telegram-config.queri
 import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
+import {
+	type DefaultModelsOverview,
+	getDefaultModelsOverview,
+	type IntegrationModel,
+	listIntegrationModels,
+	MODEL_INTEGRATIONS,
+	updateIntegrationModel,
+} from '../services/default-models.service';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -33,7 +43,7 @@ import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
 import { AgentSettings } from '../types/agent-settings';
-import type { ContextUsage } from '../types/chat';
+import type { ContextUsage, MessageModel } from '../types/chat';
 import {
 	configLlmProviderSchema,
 	customModelMetadataSchema,
@@ -50,6 +60,8 @@ import {
 	getEnvProviders,
 	getProjectAvailableModels,
 	getProjectConfigLlm,
+	getProjectModelNameResolver,
+	resolveDefaultChatModel,
 } from '../utils/llm';
 import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
@@ -57,6 +69,7 @@ import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
+	assertCanManageUserAccount,
 	contextAdminProtectedProcedure,
 	projectProtectedProcedure,
 	protectedProcedure,
@@ -78,11 +91,21 @@ const backgroundModelCategoriesSchema = z.object(
 	) as Record<(typeof BACKGROUND_MODEL_CATEGORIES)[number], z.ZodOptional<typeof backgroundModelSelectionSchema>>,
 );
 
-const backgroundModelSettingsSchema = z.object({
+const defaultModelSettingsSchema = z.object({
 	mode: z.enum(['single', 'perCategory']),
+	chat: backgroundModelSelectionSchema.optional(),
 	single: backgroundModelSelectionSchema.optional(),
 	categories: backgroundModelCategoriesSchema.optional(),
 });
+
+const integrationModelInputSchema = z.object({
+	modelProvider: llmProviderSchema.optional(),
+	modelId: z.string().optional(),
+});
+
+function toIntegrationModelSelection(input: z.infer<typeof integrationModelInputSchema>): LlmSelectedModel | null {
+	return input.modelProvider && input.modelId ? { provider: input.modelProvider, modelId: input.modelId } : null;
+}
 
 const httpUrlSchema = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
 	message: 'Enter a valid HTTP or HTTPS URL',
@@ -384,21 +407,10 @@ export const projectRoutes = {
 		}),
 
 	updateSlackModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await slackConfigQueries.updateProjectSlackModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
-			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'slack', toIntegrationModelSelection(input)),
+		),
 
 	updateSlackReplyMode: adminProtectedProcedure
 		.input(z.object({ replyMode: z.enum(['thread', 'mention']) }))
@@ -496,19 +508,10 @@ export const projectRoutes = {
 		}),
 
 	updateTeamsModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await teamsConfigQueries.updateProjectTeamsModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'teams', toIntegrationModelSelection(input)),
+		),
 
 	deleteTeamsConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await teamsConfigQueries.deleteProjectTeamsConfig(ctx.project.id);
@@ -566,19 +569,10 @@ export const projectRoutes = {
 		}),
 
 	updateTelegramModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await telegramConfigQueries.updateProjectTelegramModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'telegram', toIntegrationModelSelection(input)),
+		),
 
 	deleteTelegramConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await telegramConfigQueries.deleteProjectTelegramConfig(ctx.project.id);
@@ -670,21 +664,10 @@ export const projectRoutes = {
 		}),
 
 	updateMattermostModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await mattermostConfigQueries.updateProjectMattermostModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-			const refreshedConfig = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
-			await mattermostService.syncProject(refreshedConfig, ctx.project.id);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'mattermost', toIntegrationModelSelection(input)),
+		),
 
 	deleteMattermostConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await mattermostConfigQueries.deleteProjectMattermostConfig(ctx.project.id);
@@ -700,6 +683,12 @@ export const projectRoutes = {
 			if (!isMember) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
 			}
+			await assertCanManageUserAccount(
+				ctx.user.id,
+				input.userId,
+				ctx.project.orgId,
+				'regenerate their messaging code',
+			);
 			return await userQueries.regenerateMessagingProviderCode(input.userId);
 		}),
 
@@ -782,19 +771,10 @@ export const projectRoutes = {
 		}),
 
 	updateWhatsappModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await whatsappConfigQueries.updateProjectWhatsappModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'whatsapp', toIntegrationModelSelection(input)),
+		),
 
 	deleteWhatsappConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await whatsappConfigQueries.deleteProjectWhatsappConfig(ctx.project.id);
@@ -1045,18 +1025,52 @@ export const projectRoutes = {
 
 	getDefaultModels: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { settings: null, availableModels: [] };
+			const empty: DefaultModelsOverview = {
+				settings: null,
+				availableModels: [],
+				chatModel: null,
+				builtInDefaults: { chat: null, categories: {} },
+			};
+			return {
+				...empty,
+				integrations: [] as IntegrationModel[],
+				mcpEndpointEnabled: false,
+				mcpSubAgentModel: null as LlmSelectedModel | null,
+			};
 		}
-		const [settings, availableModels] = await Promise.all([
-			projectQueries.getDefaultModelSettings(ctx.project.id),
-			getProjectAvailableModels(ctx.project.id),
+		const [overview, integrations, mcpEndpoint] = await Promise.all([
+			getDefaultModelsOverview(ctx.project.id),
+			listIntegrationModels(ctx.project.id),
+			mcpEndpointQueries.getMcpEndpointSettings(ctx.project.id),
 		]);
-		return { settings, availableModels };
+		return {
+			...overview,
+			integrations,
+			mcpEndpointEnabled: mcpEndpoint.enabled && mcpEndpoint.subAgentModeEnabled,
+			mcpSubAgentModel: mcpEndpoint.subAgentModel ?? null,
+		};
+	}),
+
+	/** The model new chats start on, for the chat model picker. */
+	getDefaultChatModel: projectProtectedProcedure.query(({ ctx }) => {
+		if (!ctx.project) {
+			return null;
+		}
+		return resolveDefaultChatModel(ctx.project.id);
 	}),
 
 	updateDefaultModels: adminProtectedProcedure
-		.input(backgroundModelSettingsSchema)
+		.input(defaultModelSettingsSchema)
 		.mutation(({ ctx, input }) => projectQueries.updateDefaultModelSettings(ctx.project.id, input)),
+
+	updateIntegrationModel: adminProtectedProcedure
+		.input(
+			z.object({
+				integration: z.enum(MODEL_INTEGRATIONS),
+				modelSelection: backgroundModelSelectionSchema.nullable(),
+			}),
+		)
+		.mutation(({ ctx, input }) => updateIntegrationModel(ctx.project.id, input.integration, input.modelSelection)),
 
 	getProjectChats: contextAdminProtectedProcedure
 		.input(
@@ -1123,12 +1137,22 @@ export const projectRoutes = {
 				};
 			}
 
+			const [assistantModels, resolveModelName] = await Promise.all([
+				chatQueries.getAssistantMessageModels(input.chatId),
+				getProjectModelNameResolver(ctx.project.id),
+			]);
+			const messageModels: Record<string, MessageModel> = {};
+			for (const { messageId, provider, modelId } of assistantModels) {
+				messageModels[messageId] = { provider, modelId, name: resolveModelName(provider, modelId) };
+			}
+
 			return {
 				...chat,
 				ownerId: ownerId ?? null,
 				ownerName,
 				chatOwnerId: ownerId ?? null,
 				feedbackRecommendations,
+				messageModels,
 			};
 		}),
 

@@ -7,6 +7,7 @@ import type { CreatedEmail, EmailAttachment } from '../types/email';
 import type { NotificationRecipient } from '../types/notification';
 import { buildNotificationEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
+import { getAppName } from './branding.service';
 import { emailService } from './email';
 import { buildUnsubscribeUrl, resolveUnsubscribeScope } from './notification-unsubscribe';
 import { slackService } from './slack';
@@ -21,7 +22,7 @@ export interface DeliverableNotification {
 	projectId: string;
 	emailAttachments?: EmailAttachment[];
 	emailBodyHtml?: string;
-	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
+	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => Promise<CreatedEmail>;
 }
 
 export interface DeliveryChannelOptions {
@@ -68,14 +69,14 @@ const emailChannel: NotificationChannelHandler = {
 		if (notification.emailOverride) {
 			await emailService.sendEmail(
 				recipient.email,
-				notification.emailOverride(recipient, unsubscribeUrl),
+				await notification.emailOverride(recipient, unsubscribeUrl),
 				sendOptions,
 			);
 			return;
 		}
 		await emailService.sendEmail(
 			recipient.email,
-			buildNotificationEmail(
+			await buildNotificationEmail(
 				recipient,
 				notification.title,
 				notification.body,
@@ -111,7 +112,7 @@ const slackChannel: NotificationChannelHandler = {
 			lines.push(notification.body);
 		}
 		const text = lines.join('\n');
-		const button = url ? { url, label: 'Open in nao' } : undefined;
+		const button = url ? { url, label: `Open in ${await getAppName()}` } : undefined;
 		const unsubscribeUrl = scope ? buildUnsubscribeUrl(recipient.id, scope) : undefined;
 
 		const files = (notification.emailAttachments ?? [])

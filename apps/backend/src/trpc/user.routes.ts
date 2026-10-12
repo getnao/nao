@@ -13,7 +13,13 @@ import { addProjectMemberWithUserGroups } from '../services/project-user-group-m
 import { addTeamMember } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
 import { buildUserAddedEmail } from '../utils/email-builders';
-import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	assertCanRenameUser,
+	projectProtectedProcedure,
+	protectedProcedure,
+	publicProcedure,
+} from './trpc';
 
 export const userRoutes = {
 	hasUsers: publicProcedure.query(async () => {
@@ -21,15 +27,17 @@ export const userRoutes = {
 	}),
 
 	get: projectProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
-		if (ctx.userRole !== 'admin' && input.userId !== ctx.user.id) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
+		if (input.userId !== ctx.user.id) {
+			if (ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
+			}
+			const targetRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
+			if (!targetRole) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found in this project' });
+			}
 		}
 
-		const user = await userQueries.getUser({ id: input.userId });
-		if (!user) {
-			return null;
-		}
-		return user;
+		return userQueries.getUserProfile(input.userId);
 	}),
 
 	modify: adminProtectedProcedure
@@ -42,6 +50,9 @@ export const userRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			const previousRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
+			if (!previousRole) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found in this project' });
+			}
 
 			if (previousRole === 'admin' && input.newRole && input.newRole !== 'admin') {
 				const moreThanOneAdmin = await projectQueries.checkProjectHasMoreThanOneAdmin(ctx.project.id);
@@ -53,6 +64,10 @@ export const userRoutes = {
 				}
 			}
 			const previousName = await userQueries.getUserName(input.userId);
+			const shouldRename = !!input.name && input.name !== previousName;
+			if (shouldRename) {
+				await assertCanRenameUser(ctx.user.id, input.userId, ctx.project.orgId);
+			}
 
 			if (input.newRole && input.newRole !== previousRole) {
 				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
@@ -66,8 +81,8 @@ export const userRoutes = {
 					await cleanupContextWorktree(ctx.project.id, ctx.project.path, input.userId);
 				}
 			}
-			if (input.name && input.name !== previousName) {
-				await userQueries.updateUser(input.userId, input.name);
+			if (shouldRename) {
+				await userQueries.updateUser(input.userId, input.name!);
 			}
 		}),
 

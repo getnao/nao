@@ -98,5 +98,5 @@ function UserGroupUserDetailPage() {
 }
 
 function isUserGroupUserDetailTab(value: unknown): value is UserGroupUserDetailTab {
-	return value === 'features' || value === 'context' || value === 'security';
+	return value === 'features' || value === 'context' || value === 'security' || value === 'budget';
 }

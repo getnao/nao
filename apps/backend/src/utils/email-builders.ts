@@ -9,31 +9,34 @@ import { SharedItemEmail } from '../components/email/shared-item-email';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { env } from '../env';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
-import { emailLogoAttachment } from './email-logo';
+import { type EmailBranding, resolveEmailBranding } from './email-branding';
 
-export function buildSharedItemEmail(
+export async function buildSharedItemEmail(
 	user: { name: string },
 	sharerName: string,
 	itemLabel: string,
 	itemTitle: string,
 	itemUrl: string,
 	unsubscribeUrl?: string,
-): CreatedEmail {
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
 	return createEmail(
-		`${sharerName} shared "${itemTitle}" with you on nao`,
-		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl, unsubscribeUrl }),
+		`${sharerName} shared "${itemTitle}" with you on ${branding.appName}`,
+		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl, unsubscribeUrl, branding }),
+		branding,
 	);
 }
 
-export function buildUserAddedEmail(
+export async function buildUserAddedEmail(
 	user: { name: string; email: string },
 	teamName: string,
 	teamLabel: 'project' | 'organization',
 	temporaryPassword?: string,
 	invitedBy?: string,
-): CreatedEmail {
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
 	return createEmail(
-		`You've been added to ${teamName} on nao`,
+		`You've been added to ${teamName} on ${branding.appName}`,
 		UserAddedToProject({
 			userName: user.name,
 			teamName,
@@ -42,26 +45,35 @@ export function buildUserAddedEmail(
 			to: user.email,
 			temporaryPassword,
 			invitedBy,
+			branding,
 		}),
+		branding,
 	);
 }
 
-export function buildForgotPasswordEmail(user: { name: string }, resetUrl: string): CreatedEmail {
-	return createEmail('Reset your password on nao', ForgotPassword({ userName: user.name, resetUrl }));
+export async function buildForgotPasswordEmail(user: { name: string }, resetUrl: string): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	return createEmail(
+		`Reset your password on ${branding.appName}`,
+		ForgotPassword({ userName: user.name, resetUrl, branding }),
+		branding,
+	);
 }
 
-export function buildResetPasswordEmail(
+export async function buildResetPasswordEmail(
 	user: { name: string },
 	projectName: string,
 	temporaryPassword: string,
-): CreatedEmail {
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
 	return createEmail(
-		`Your password on the project ${projectName} has been reset on nao`,
-		ResetPassword({ userName: user.name, temporaryPassword, loginUrl: env.BETTER_AUTH_URL, projectName }),
+		`Your password on the project ${projectName} has been reset on ${branding.appName}`,
+		ResetPassword({ userName: user.name, temporaryPassword, loginUrl: env.BETTER_AUTH_URL, projectName, branding }),
+		branding,
 	);
 }
 
-export function buildNotificationEmail(
+export async function buildNotificationEmail(
 	user: { name: string },
 	title: string,
 	body?: string,
@@ -70,15 +82,17 @@ export function buildNotificationEmail(
 	attachments?: EmailAttachment[],
 	unsubscribeUrl?: string,
 	bodyHtml?: string,
-): CreatedEmail {
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
 	return createEmail(
-		`${title} — nao`,
-		NotificationEmail({ userName: user.name, title, body, bodyHtml, linkUrl, ctaLabel, unsubscribeUrl }),
+		`${title} — ${branding.appName}`,
+		NotificationEmail({ userName: user.name, title, body, bodyHtml, linkUrl, ctaLabel, unsubscribeUrl, branding }),
+		branding,
 		attachments ?? [],
 	);
 }
 
-export function buildBudgetLimitReachedEmail(
+export async function buildBudgetLimitReachedEmail(
 	user: { name: string },
 	providerLabel: string,
 	limitUsd: number,
@@ -86,9 +100,10 @@ export function buildBudgetLimitReachedEmail(
 	period: string,
 	resetLabel: string,
 	unsubscribeUrl?: string,
-): CreatedEmail {
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
 	return createEmail(
-		`Budget limit reached for ${providerLabel} on nao`,
+		`Budget limit reached for ${providerLabel} on ${branding.appName}`,
 		BudgetLimitReached({
 			userName: user.name,
 			providerLabel,
@@ -97,12 +112,19 @@ export function buildBudgetLimitReachedEmail(
 			period,
 			resetLabel,
 			unsubscribeUrl,
+			branding,
 		}),
+		branding,
 	);
 }
 
-function createEmail(subject: string, element: ReactElement, extraAttachments: EmailAttachment[] = []): CreatedEmail {
+function createEmail(
+	subject: string,
+	element: ReactElement,
+	branding: EmailBranding,
+	extraAttachments: EmailAttachment[] = [],
+): CreatedEmail {
 	const html = `<!DOCTYPE html>${renderToString(element)}`;
-	const attachments = [...(emailLogoAttachment ? [emailLogoAttachment] : []), ...extraAttachments];
+	const attachments = [...(branding.logo ? [branding.logo] : []), ...extraAttachments];
 	return attachments.length > 0 ? { subject, html, attachments } : { subject, html };
 }

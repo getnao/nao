@@ -118,10 +118,10 @@ export function UsagePeriodFilter({
 								className='flex h-8 cursor-pointer items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground'
 								onClick={() => void selectPeriod({ mode: option.value })}
 							>
-								<span className='flex size-4 items-center justify-center'>
+								<span className='flex-1 truncate'>{option.label}</span>
+								<span className='flex size-4 shrink-0 items-center justify-center'>
 									{value.mode === option.value && <CheckIcon className='size-4' />}
 								</span>
-								{option.label}
 							</button>
 						))}
 						{savedPeriods.length > 0 && <div className='my-1 border-t' />}
@@ -138,12 +138,12 @@ export function UsagePeriodFilter({
 											void selectPeriod({ mode: 'saved', savedPeriodId: savedPeriod.id })
 										}
 									>
+										<span className='flex-1 truncate'>{formatSavedPeriod(savedPeriod)}</span>
 										<span className='flex size-4 shrink-0 items-center justify-center'>
 											{value.mode === 'saved' && value.savedPeriodId === savedPeriod.id && (
 												<CheckIcon className='size-4' />
 											)}
 										</span>
-										<span className='truncate'>{formatSavedPeriod(savedPeriod)}</span>
 									</button>
 									<button
 										type='button'

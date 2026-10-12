@@ -13,7 +13,15 @@ type SidePanelProps = {
 	children: React.ReactNode;
 	isAnimating: boolean;
 	chatPanelMinWidth?: number;
+	variant?: SidePanelVariant;
 	className?: string;
+};
+
+type SidePanelVariant = 'floating' | 'docked';
+
+const PANEL_VARIANT_CLASS_NAMES: Record<SidePanelVariant, string> = {
+	floating: 'bg-panel shadow-lg border rounded-l-3xl',
+	docked: 'border-l',
 };
 
 export const SidePanel = memo(function SidePanel({
@@ -23,6 +31,7 @@ export const SidePanel = memo(function SidePanel({
 	children,
 	isAnimating,
 	chatPanelMinWidth,
+	variant = 'floating',
 	className,
 }: SidePanelProps) {
 	const isMobile = useIsMobile();
@@ -58,7 +67,7 @@ export const SidePanel = memo(function SidePanel({
 					<ResizableHandle aria-orientation='vertical' className='absolute' />
 				</div>
 
-				<div className='h-full overflow-hidden bg-panel shadow-lg border rounded-l-3xl w-full'>
+				<div className={cn('h-full overflow-hidden w-full', PANEL_VARIANT_CLASS_NAMES[variant])}>
 					<div className='bg-background overflow-hidden h-full'>{children}</div>
 				</div>
 			</div>

@@ -306,7 +306,7 @@ function ToolbarOption({
 			checked={selected}
 			onSelect={(event) => event.preventDefault()}
 			onCheckedChange={() => onSelect()}
-			className='justify-between gap-4 pr-2'
+			className='justify-between gap-4'
 		>
 			<span>{children}</span>
 			{count !== undefined && <span className='text-muted-foreground'>{count}</span>}

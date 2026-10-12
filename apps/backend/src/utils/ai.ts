@@ -1,14 +1,19 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { isToolUIPart, LanguageModelUsage, ModelMessage } from 'ai';
+import { isToolUIPart, LanguageModelUsage, ModelMessage, parsePartialJson } from 'ai';
 
 import { getProviderMeta } from '../agents/providers';
 import { type ITokenCounter, tokenCounter } from '../services/token-counter';
-import { CompactionPart, TokenCost, TokenUsage, UIMessage, UIMessagePart } from '../types/chat';
+import { CompactionPart, TokenCost, TokenUsage, UIMessage, UIMessagePart, UIToolPart } from '../types/chat';
 import type { CustomModelMetadata, ModelCosts } from '../types/llm';
 
 const SETTLED_TOOL_STATES = new Set<string>(['output-available', 'output-error', 'output-denied']);
 
 const INTERRUPTED_TOOL_ERROR_TEXT = 'The tool call was interrupted by the user before it could complete.';
+
+export const MALFORMED_TOOL_INPUT_ERROR_TEXT =
+	'The arguments of this tool call were cut off before they formed valid JSON, so the tool did not run. ' +
+	'The input shown is what could be recovered from the partial arguments. ' +
+	'If the call is still needed, make it again with complete arguments, splitting the work into smaller calls if they were too long.';
 
 export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	inputTotalTokens: usage.inputTokens,
@@ -116,6 +121,11 @@ export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): 
 		.trim();
 };
 
+/** Leaves every tool part in a settled state the next model request can be built from. */
+export function settleToolParts(messages: UIMessage[]): Promise<UIMessage[]> {
+	return recoverMalformedToolInputs(settleInterruptedToolParts(messages));
+}
+
 export function settleInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
 	return messages.map((message) => {
 		if (message.role !== 'assistant') {
@@ -142,6 +152,56 @@ export function settleInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
 function isToolPartSettled(part: Extract<UIMessagePart, { state: string }>): boolean {
 	const isPreliminary = 'preliminary' in part && part.preliminary === true;
 	return SETTLED_TOOL_STATES.has(part.state) && !isPreliminary;
+}
+
+/**
+ * A tool call whose arguments failed to parse is `output-error` with no object `input`: the raw
+ * text or value lives in `rawInput`. `convertToModelMessages` would send it back as the tool-call
+ * input on the next turn, and providers reject anything but an object. The call is given the object
+ * recoverable from it; when the text was cut off mid-arguments (max output tokens, a dropped
+ * stream), the error is replaced with one the model can act on.
+ */
+export async function recoverMalformedToolInputs(messages: UIMessage[]): Promise<UIMessage[]> {
+	return Promise.all(messages.map(recoverMessageToolInputs));
+}
+
+async function recoverMessageToolInputs(message: UIMessage): Promise<UIMessage> {
+	if (message.role !== 'assistant') {
+		return message;
+	}
+	let changed = false;
+	const newParts = await Promise.all(
+		message.parts.map(async (part) => {
+			if (!isToolUIPart(part) || !hasMissingInput(part)) {
+				return part;
+			}
+			changed = true;
+			return recoverToolPart(part);
+		}),
+	);
+	return changed ? { ...message, parts: newParts } : message;
+}
+
+function hasMissingInput(part: UIToolPart): boolean {
+	return part.state === 'output-error' && !isPlainObject(part.input);
+}
+
+async function recoverToolPart(part: UIToolPart): Promise<UIMessagePart> {
+	const rawInput = part.input ?? ('rawInput' in part ? part.rawInput : undefined);
+	if (typeof rawInput !== 'string') {
+		return { ...part, input: isPlainObject(rawInput) ? rawInput : {} } as UIMessagePart;
+	}
+	const { value, state } = await parsePartialJson(rawInput);
+	const isCutOff = state === 'repaired-parse' || state === 'failed-parse';
+	return {
+		...part,
+		input: isPlainObject(value) ? value : {},
+		...(isCutOff && { errorText: MALFORMED_TOOL_INPUT_ERROR_TEXT }),
+	} as UIMessagePart;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function findFirstNonSystemMessageIndex(messages: ModelMessage[]): number {

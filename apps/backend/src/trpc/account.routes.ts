@@ -48,7 +48,10 @@ export const accountRoutes = {
 			const user = await userQueries.getUser({ id: input.userId });
 
 			if (user) {
-				await emailService.sendEmail(user.email, buildResetPasswordEmail(user, userProject?.name, password));
+				await emailService.sendEmail(
+					user.email,
+					await buildResetPasswordEmail(user, userProject?.name, password),
+				);
 			}
 
 			return { password };

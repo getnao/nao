@@ -138,6 +138,40 @@ describe('compactionService.compactConversationIfNeeded', () => {
 		);
 		expect(messages[2]).toEqual({ role: 'user', content: 'Current turn' });
 	});
+
+	it('sanitizes tool call ids for the compaction provider, not the chat provider', async () => {
+		tokenCounter.estimateMessages.mockReturnValue(80_000);
+		mocks.resolveDefaultModelSelectionMock.mockResolvedValue({
+			provider: 'anthropic',
+			modelId: 'claude-haiku-4-5',
+		});
+		const geminiToolCallId = 'call_9f2c4e7a1b3d__thought__EsIHCr8HAWkUfRNYSIYIhfhBJbAiEyioV+a1b2/c3d4==';
+
+		const messages: ModelMessage[] = [
+			{ role: 'system', content: 'System prompt' },
+			{ role: 'user', content: 'First question' },
+			{
+				role: 'assistant',
+				content: [{ type: 'tool-call', toolCallId: geminiToolCallId, toolName: 'execute_sql', input: {} }],
+			},
+			{ role: 'user', content: 'Current turn' },
+		];
+
+		await compactionService.compactConversationIfNeeded({
+			chat: { id: 'chat-3', projectId: 'project-3', userId: 'user-3' },
+			provider: 'openaiCompatible/litellm',
+			modelId: 'gemini-3.1-pro-preview',
+			messages,
+			tools: {} as AgentTools,
+			maxOutputTokens: 50,
+			contextWindow: 60_000,
+			onCompactionStarted,
+			onCompactionFinished,
+		});
+
+		const [summarizedMessages] = mocks.compactMock.mock.calls[0];
+		expect(summarizedMessages[1].content[0].toolCallId).toBe('call_9f2c4e7a1b3d');
+	});
 });
 
 describe('compactionService.useLastCompaction', () => {

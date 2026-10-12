@@ -33,6 +33,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
+import { setGroupBudget } from '../services/member-budget.service';
 import {
 	listEffectiveEntraUserGroupMappings,
 	listEffectiveOidcUserGroupMappings,
@@ -43,6 +44,8 @@ import {
 	getEffectiveUserGroupAccessForUserDetail,
 } from '../services/user-group-feature-access.service';
 import { validateWarehouseRowPredicate } from '../services/warehouse-sql.service';
+import { budgetLimitUsdSchema } from '../types/member-budget';
+import { assertMemberBudgetLicensed } from '../utils/member-budget';
 import { parseEntraGroupNaoGroupMapping, parseOidcGroupNaoGroupMapping } from '../utils/sso-group-mapping';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
@@ -283,9 +286,11 @@ export const userGroupRoutes = {
 				filesAccess: fileTreeAccessSchema.default(EMPTY_FILES_CONTEXT_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
+				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertGroupBudgetEditable(input.budgetLimitUsd);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
@@ -301,7 +306,7 @@ export const userGroupRoutes = {
 			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups))
 				? userGroupQueries.createUserGroup
 				: userGroupQueries.createUserGroupWithinLimit.bind(null, FREE_CUSTOM_USER_GROUP_LIMIT);
-			return handleQuery(() => {
+			const group = await handleQuery(() => {
 				const values = [
 					ctx.project.id,
 					input.name,
@@ -315,6 +320,8 @@ export const userGroupRoutes = {
 				] as const;
 				return createUserGroup(...values);
 			});
+			await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
+			return group;
 		}),
 
 	update: adminProtectedProcedure
@@ -329,10 +336,12 @@ export const userGroupRoutes = {
 				filesAccess: fileTreeAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
+				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			await assertGroupBudgetEditable(input.budgetLimitUsd);
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
@@ -349,7 +358,7 @@ export const userGroupRoutes = {
 				rowPolicies = validation.rowPolicies;
 				rowPoliciesRegistry = validation.registry;
 			}
-			return handleQuery(() =>
+			const group = await handleQuery(() =>
 				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
 					name: input.name,
 					featureGrants: unique(input.featureGrants),
@@ -363,6 +372,8 @@ export const userGroupRoutes = {
 					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
 				}),
 			);
+			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
+			return group;
 		}),
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
@@ -385,6 +396,22 @@ export const userGroupRoutes = {
 			);
 		}),
 };
+
+async function assertGroupBudgetEditable(budgetLimitUsd: number | null | undefined): Promise<void> {
+	if (budgetLimitUsd !== undefined) {
+		await assertMemberBudgetLicensed();
+	}
+}
+
+async function saveGroupBudget(
+	projectId: string,
+	groupId: string,
+	budgetLimitUsd: number | null | undefined,
+): Promise<void> {
+	if (budgetLimitUsd !== undefined) {
+		await setGroupBudget(projectId, groupId, budgetLimitUsd);
+	}
+}
 
 async function assertRowSecurityLicensed(): Promise<void> {
 	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity))) {

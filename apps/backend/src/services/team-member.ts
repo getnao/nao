@@ -18,7 +18,7 @@ interface AddMemberOptions {
 	name?: string;
 	checkExisting: (userId: string) => Promise<boolean>;
 	addMember: (userId: string) => Promise<void>;
-	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => CreatedEmail;
+	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => Promise<CreatedEmail>;
 }
 
 export async function addTeamMember({
@@ -47,7 +47,7 @@ export async function addTeamMember({
 		);
 
 		await addMember(newUser.id);
-		await emailService.sendEmail(newUser.email, buildEmail(newUser, password));
+		await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
 
 		return {
 			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: env.DEFAULT_USER_ROLE },
@@ -61,7 +61,7 @@ export async function addTeamMember({
 	}
 
 	await addMember(user.id);
-	await emailService.sendEmail(user.email, buildEmail(user));
+	await emailService.sendEmail(user.email, await buildEmail(user));
 
 	return {
 		newUser: { id: user.id, name: user.name, email: user.email, role: env.DEFAULT_USER_ROLE },
@@ -72,7 +72,7 @@ interface EnsureMessagingProviderUserOptions {
 	email: string;
 	name: string;
 	projectId: string;
-	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => CreatedEmail;
+	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => Promise<CreatedEmail>;
 }
 
 /**
@@ -101,7 +101,7 @@ export async function ensureMessagingProviderUser({
 
 	const alreadyHadAccess = !!existingUser && !!projectMember;
 	if (!alreadyHadAccess) {
-		await emailService.sendEmail(user.email, buildEmail(user, temporaryPassword));
+		await emailService.sendEmail(user.email, await buildEmail(user, temporaryPassword));
 	}
 
 	return user;
