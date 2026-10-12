@@ -107,7 +107,12 @@ export const gitlabRoutes = {
 							cause: { conflictingProjectName: projectName },
 						});
 					}
-					return replaceExistingProject({ sourceDir: cloneDir, project: existing, projectName });
+					return replaceExistingProject({
+						sourceDir: cloneDir,
+						project: existing,
+						projectName,
+						userId: ctx.user.id,
+					});
 				}
 
 				return createNewProject({ sourceDir: cloneDir, projectName, orgId });

@@ -90,6 +90,8 @@ async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryRe
 		// query_only pragma). CREATE is disallowed under READ ONLY, hence the split.
 		return await client.begin(async (tx) => {
 			await tx`SET TRANSACTION READ ONLY`;
+			// The validator's function-call lexer reads plain strings with standard (non-backslash) escaping.
+			await tx`SET LOCAL standard_conforming_strings = on`;
 			const rows = (await tx.unsafe(sql)) as unknown as Record<string, unknown>[];
 			return { columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows: [...rows] };
 		});

@@ -116,6 +116,7 @@ export const githubRoutes = {
 						sourceDir: cloneDir,
 						project: existing,
 						projectName,
+						userId: ctx.user.id,
 					});
 				}
 

@@ -14,7 +14,12 @@ import { ORG_ROLES } from '../types/organization';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
-import { assertOrganizationRolesAreEditable, protectedProcedure, resolveOrganizationMembership } from './trpc';
+import {
+	assertCanRenameUser,
+	assertOrganizationRolesAreEditable,
+	protectedProcedure,
+	resolveOrganizationMembership,
+} from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(
@@ -139,6 +144,7 @@ export const organizationRoutes = {
 			if (input.name) {
 				const previousName = await userQueries.getUserName(input.userId);
 				if (input.name !== previousName) {
+					await assertCanRenameUser(ctx.user.id, input.userId, ctx.org.id);
 					await userQueries.updateUser(input.userId, input.name);
 				}
 			}

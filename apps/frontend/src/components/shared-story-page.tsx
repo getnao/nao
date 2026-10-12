@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
-import type { QueryDataMap } from '@/components/story-embeds';
+import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
 import { SharedCustomStoryPage } from '@/components/custom-story/custom-story-page';
 import { ForkBubble } from '@/components/highlight-bubble';
@@ -173,7 +173,6 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 									<SharedStoryContent
 										code={editor.code}
 										queryData={queryData}
-										chatId={story.chatId!}
 										storyId={storyId}
 										cacheSchedule={story.cacheSchedule}
 										isDataPending={isQueryDataPending}
@@ -272,7 +271,6 @@ function SharedStoryViewerHeader({
 function SharedStoryContent({
 	code,
 	queryData,
-	chatId,
 	storyId,
 	cacheSchedule,
 	isDataPending,
@@ -280,7 +278,6 @@ function SharedStoryContent({
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
-	chatId: string;
 	storyId: string;
 	cacheSchedule?: string | null;
 	isDataPending: boolean;
@@ -290,9 +287,12 @@ function SharedStoryContent({
 	const useLiveUnfiltered = isViewingLatest && isNoCacheMode;
 	const filterApi = useMemo(() => ({ kind: 'shared' as const, storyId }), [storyId]);
 
-	const noCacheQuery = useMemo(
-		() => (useLiveUnfiltered ? { queryOptions: trpc.storyShare.getLiveQueryData.queryOptions, chatId } : undefined),
-		[useLiveUnfiltered, chatId],
+	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
+		() =>
+			useLiveUnfiltered
+				? { queryOptions: (queryId) => trpc.storyShare.getLiveQueryData.queryOptions({ storyId, queryId }) }
+				: undefined,
+		[useLiveUnfiltered, storyId],
 	);
 
 	const renderChart = useCallback(

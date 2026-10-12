@@ -5,6 +5,7 @@ let mockSsoEnabled = true;
 const mockGetGoogleConfig = vi.fn();
 const mockGetUserRoleInProject = vi.fn();
 const mockInspectSsoToken = vi.fn();
+const mockIsUserConfinedToOrganization = vi.fn();
 
 vi.mock('../src/env', () => ({
 	get env() {
@@ -26,6 +27,10 @@ vi.mock('../src/queries/organization.queries', () => ({
 
 vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: mockGetUserRoleInProject,
+}));
+
+vi.mock('../src/queries/user.queries', () => ({
+	isUserConfinedToOrganization: mockIsUserConfinedToOrganization,
 }));
 
 vi.mock('../src/services/email', () => ({
@@ -195,6 +200,24 @@ describe('authConfigRoutes.oidc.inspectToken', () => {
 		mockGetUserRoleInProject.mockReset();
 		mockInspectSsoToken.mockReset();
 		mockInspectSsoToken.mockResolvedValue({ problem: null });
+		mockIsUserConfinedToOrganization.mockReset();
+		mockIsUserConfinedToOrganization.mockResolvedValue(true);
+	});
+
+	it('rejects inspection of a member who also belongs to another organization', async () => {
+		mockGetUserRoleInProject.mockResolvedValue('user');
+		mockIsUserConfinedToOrganization.mockResolvedValue(false);
+
+		await expect(callInspectToken('pulled-in-user')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mockIsUserConfinedToOrganization).toHaveBeenCalledWith('pulled-in-user', 'org-id');
+		expect(mockInspectSsoToken).not.toHaveBeenCalled();
+	});
+
+	it('lets a user inspect their own token whatever else they belong to', async () => {
+		mockIsUserConfinedToOrganization.mockResolvedValue(false);
+
+		await expect(callInspectToken('current-user')).resolves.toEqual({ problem: null });
+		expect(mockInspectSsoToken).toHaveBeenCalledWith('current-user');
 	});
 
 	it('rejects inspection for a user outside the project', async () => {
@@ -271,7 +294,7 @@ async function callInspectToken(userId: string) {
 	// @ts-expect-error accessing internal tRPC structure for testing
 	const resolver = procedure._def.query ?? procedure._def.resolver;
 	return resolver({
-		ctx: { project: { id: 'project-id' }, user: { id: 'current-user' } },
+		ctx: { project: { id: 'project-id', orgId: 'org-id' }, user: { id: 'current-user' } },
 		input: { userId },
 	});
 }

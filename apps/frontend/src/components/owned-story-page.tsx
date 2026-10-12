@@ -4,7 +4,7 @@ import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
-import type { QueryDataMap } from '@/components/story-embeds';
+import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
@@ -272,8 +272,11 @@ function PreviewContent({
 		[chatId, filtersEnabled, storySlug],
 	);
 
-	const noCacheQuery = useMemo(
-		() => (useLiveUnfiltered ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
+	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
+		() =>
+			useLiveUnfiltered
+				? { queryOptions: (queryId) => trpc.story.getLiveQueryData.queryOptions({ chatId, queryId }) }
+				: undefined,
 		[useLiveUnfiltered, chatId],
 	);
 

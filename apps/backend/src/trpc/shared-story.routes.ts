@@ -1,9 +1,9 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as activityQueries from '../queries/activity.queries';
-import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -44,7 +44,6 @@ import {
 	resourceProjectProcedure,
 } from './trpc';
 
-const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
 const shareProcedure = resourceProjectProcedure('storyId', sharedStoryQueries.getSharedStoryByStoryId, 'Shared story');
 const shareAccessProcedure = resourceProjectProcedure(
 	'storyId',
@@ -322,10 +321,17 @@ export const sharedStoryRoutes = {
 			return { queryData };
 		}),
 
-	getLiveQueryData: chatProcedure
-		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
-			return executeLiveQuery(input.chatId, input.queryId);
+	getLiveQueryData: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), queryId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+			}
+			if (!extractQueryIds(shared.code).has(input.queryId)) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Query not found in this story.' });
+			}
+			return executeLiveQuery(shared.chatId, input.queryId);
 		}),
 
 	getFilterOptions: shareAccessProcedure
@@ -434,6 +440,10 @@ export const sharedStoryRoutes = {
 			}
 			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
 			if (storyProjectId !== ctx.project.id) {
+				return notShared;
+			}
+			const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
 				return notShared;
 			}
 			const access = await sharedStoryQueries.getStoryShareAccess(story.id, ctx.project.id);

@@ -69,6 +69,7 @@ import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
+	assertCanManageUserAccount,
 	contextAdminProtectedProcedure,
 	projectProtectedProcedure,
 	protectedProcedure,
@@ -682,6 +683,12 @@ export const projectRoutes = {
 			if (!isMember) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
 			}
+			await assertCanManageUserAccount(
+				ctx.user.id,
+				input.userId,
+				ctx.project.orgId,
+				'regenerate their messaging code',
+			);
 			return await userQueries.regenerateMessagingProviderCode(input.userId);
 		}),
 
