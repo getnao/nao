@@ -1,43 +1,20 @@
-import { STORY_PRINT_FLAG, STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
-import { isStoryMapTileHost, storyMapTileCspSources } from '@nao/shared/story-map-tiles';
-import { FONT_STYLESHEET_HOSTS } from '@nao/shared/story-theme';
+import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
 import type { DownloadFormat } from '@nao/shared/types';
-import type { HTTPRequest, Page, PDFOptions } from 'puppeteer-core';
+import type { Page, PDFOptions } from 'puppeteer-core';
 
 import { getBrowser } from './headless-browser';
 import { formatDownloadFilename } from './story-download';
+import { delay, isolateStoryPage, STORY_DOCUMENT_URL, waitForStoryReady } from './story-headless-page';
 import { expandStoryViews } from './story-print-views';
 
 export const MAX_STORY_SNAPSHOT_BYTES = 24 * 1024 * 1024;
 
-const DOCUMENT_URL = 'https://story-export.nao.invalid/';
 const LAYOUT_WIDTH_PX = 1100;
 const A4_SHORT_SIDE_PX = 794;
 const A4_LONG_SIDE_PX = 1123;
 const PAGE_MARGIN_PX = 36;
-const READY_TIMEOUT_MS = 20_000;
 const RENDER_SETTLE_MS = 1_800;
 const VIEW_SETTLE_MS = 1_600;
-const ALLOWED_REQUEST_HOSTS = new Set<string>(FONT_STYLESHEET_HOSTS);
-const FONT_HOST_SOURCES = FONT_STYLESHEET_HOSTS.map((host) => `https://${host}`).join(' ');
-const TILE_HOST_SOURCES = storyMapTileCspSources().join(' ');
-
-/**
- * The exported page runs the story's own code (agent-written, so untrusted): the policy comes from a response header
- * the page cannot drop, and every request but the document, theme fonts and map tiles is aborted.
- */
-const EXPORT_CONTENT_SECURITY_POLICY = [
-	`default-src 'none'`,
-	`script-src 'unsafe-inline' blob:`,
-	`style-src 'unsafe-inline' ${FONT_HOST_SOURCES}`,
-	`font-src data: ${FONT_HOST_SOURCES}`,
-	`img-src data: blob: ${TILE_HOST_SOURCES}`,
-	`connect-src 'none'`,
-	`frame-src 'none'`,
-	`worker-src 'none'`,
-	`base-uri 'none'`,
-	`form-action 'none'`,
-].join('; ');
 
 /** Custom stories download as a self-contained page; the PDF is that page printed once the story has rendered. */
 export async function buildStorySnapshotDownload(
@@ -57,14 +34,10 @@ export async function renderStoryPdf(html: string): Promise<Buffer> {
 	const browser = await getBrowser();
 	const page = await browser.newPage();
 	try {
-		await isolatePage(page, html);
+		await isolateStoryPage(page, html, { print: true });
 		await page.setViewport({ width: LAYOUT_WIDTH_PX, height: 900, deviceScaleFactor: 2 });
-		await page.goto(DOCUMENT_URL, { waitUntil: 'load', timeout: 30_000 }).catch(() => {});
-		await page
-			.waitForFunction(() => document.documentElement.dataset.naoStoryReady === 'true', {
-				timeout: READY_TIMEOUT_MS,
-			})
-			.catch(() => {});
+		await page.goto(STORY_DOCUMENT_URL, { waitUntil: 'load', timeout: 30_000 }).catch(() => {});
+		await waitForStoryReady(page);
 		const pdf = await page.pdf(await layOutForPrint(page));
 		return Buffer.from(pdf);
 	} finally {
@@ -89,29 +62,6 @@ async function layOutForPrint(page: Page): Promise<PDFOptions> {
 		slidePageHeightPx: printableLayoutHeight(true),
 	}).catch(() => 'single' as const);
 	return a4PdfOptions(layout === 'slides');
-}
-
-async function isolatePage(page: Page, html: string): Promise<void> {
-	await page.emulateMediaType('screen');
-	await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-	await page.evaluateOnNewDocument((flag) => {
-		Object.assign(globalThis, { [flag]: true });
-	}, STORY_PRINT_FLAG);
-	await page.setRequestInterception(true);
-	page.on('request', (request) => void answerRequest(request, html));
-}
-
-async function answerRequest(request: HTTPRequest, html: string): Promise<void> {
-	if (request.url() === DOCUMENT_URL) {
-		await request.respond({
-			status: 200,
-			contentType: 'text/html; charset=utf-8',
-			headers: { 'Content-Security-Policy': EXPORT_CONTENT_SECURITY_POLICY },
-			body: html,
-		});
-		return;
-	}
-	await (isAllowedRequest(request) ? request.continue() : request.abort());
 }
 
 /** Stories lay out at a desktop width, then scale down to fit A4: the print matches what charts measured on screen. */
@@ -147,24 +97,4 @@ function deckPdfOptions(): PDFOptions {
 		printBackground: true,
 		margin: { top: '0', bottom: '0', left: '0', right: '0' },
 	};
-}
-
-function isAllowedRequest(request: HTTPRequest): boolean {
-	const url = request.url();
-	if (url.startsWith('data:') || url.startsWith('blob:')) {
-		return true;
-	}
-	try {
-		const parsed = new URL(url);
-		if (parsed.protocol !== 'https:') {
-			return false;
-		}
-		return ALLOWED_REQUEST_HOSTS.has(parsed.hostname) || isStoryMapTileHost(parsed.hostname);
-	} catch {
-		return false;
-	}
-}
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }

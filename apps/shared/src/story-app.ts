@@ -140,6 +140,9 @@ export const STORY_PRINT_FLAG = '__naoStoryPrint';
 /** Set on `<html>` while a printed story lays out a deck: the PDF renderer then prints one slide per page. */
 export const STORY_PRINT_SLIDES_ATTRIBUTE = 'data-nao-print-slides';
 
+/** Marks the story's own stylesheets, which the kit rebases on a fixed frame (Slides, Canvas). */
+export const STORY_STYLE_ATTRIBUTE = 'data-nao-story-style';
+
 export const STORY_SLIDE_SIZE = { width: 1280, height: 720 } as const;
 
 export const STORY_KIT_NARRATIVE_COMPONENT = 'Narrative';

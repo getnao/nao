@@ -242,9 +242,17 @@ export async function restoreDraftFromVersion(storyId: string, storyVersionId: s
 	);
 }
 
-export async function getVersionBundle(storyVersionId: string): Promise<DBStoryBundle | null> {
+export type StoryBundleRow = Omit<DBStoryBundle, 'thumbnail' | 'thumbnailTheme'>;
+
+export interface VersionThumbnail {
+	thumbnail: string;
+	theme: string | null;
+}
+
+export async function getVersionBundle(storyVersionId: string): Promise<StoryBundleRow | null> {
+	const { thumbnail: _thumbnail, thumbnailTheme: _thumbnailTheme, ...columns } = getTableColumns(s.storyBundle);
 	const [row] = await db
-		.select()
+		.select(columns)
 		.from(s.storyBundle)
 		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
 		.execute();
@@ -265,11 +273,35 @@ export async function setVersionBundle(
 	await executor
 		.insert(s.storyBundle)
 		.values({ storyVersionId, ...row })
-		.onConflictDoUpdate({ target: s.storyBundle.storyVersionId, set: { ...row, builtAt: new Date() } })
+		.onConflictDoUpdate({
+			target: s.storyBundle.storyVersionId,
+			set: { ...row, thumbnail: null, thumbnailTheme: null, builtAt: new Date() },
+		})
 		.execute();
 }
 
-export function storyAppOfBundle(bundle: DBStoryBundle | null): StoryApp | null {
+export async function getVersionThumbnail(storyVersionId: string): Promise<VersionThumbnail | null> {
+	const [row] = await db
+		.select({ thumbnail: s.storyBundle.thumbnail, theme: s.storyBundle.thumbnailTheme })
+		.from(s.storyBundle)
+		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
+		.execute();
+	return row?.thumbnail == null ? null : { thumbnail: row.thumbnail, theme: row.theme };
+}
+
+export async function setVersionThumbnail(
+	storyVersionId: string,
+	thumbnail: string,
+	theme: string | null,
+): Promise<void> {
+	await db
+		.update(s.storyBundle)
+		.set({ thumbnail, thumbnailTheme: theme })
+		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
+		.execute();
+}
+
+export function storyAppOfBundle(bundle: StoryBundleRow | null): StoryApp | null {
 	if (!bundle || bundle.bundle === null) {
 		return null;
 	}

@@ -1,7 +1,11 @@
 import { ChartColumn, ChartLine, ChartPie, Pencil } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { SHEET_SURFACE, SHEET_TRANSFORM, SHEET_VISUAL } from '@/components/story-thumbnail';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 const ANIMATED = 'app-preview-animated';
 
@@ -14,7 +18,6 @@ const LINE_CHART_PATH =
 const SPARKLINE_PATH = 'M2 20L9 15L16 17L23 9L30 12L37 5L44 7';
 const POINTER_PATH = 'M4 3l6.5 17 2.4-7.1L20 10.5z';
 
-/** Screen-space projection of the 12px block shift through SHEET_TRANSFORM, so overlays keep tracking the blocks. */
 const BLOCKS_SHIFT_ON_SCREEN = 'translate(-8.2px, 1.7px)';
 
 const CLICKS = [
@@ -26,7 +29,134 @@ const CLICKS = [
 	{ x: 159.3, y: 16.3, atSeconds: 9.3 },
 ];
 
-export function CustomStoryThumbnail({ isToolPart = false }: { isToolPart?: boolean }) {
+const SCREENSHOT_RETRY_DELAYS_MS = [3_000, 8_000, 20_000, 45_000];
+
+export function CustomStoryThumbnail({
+	storyId,
+	version,
+	isToolPart = false,
+}: {
+	storyId?: string;
+	version?: number;
+	isToolPart?: boolean;
+}) {
+	const mode = useIsDarkMode() ? 'dark' : 'light';
+	const { data: activeTheme } = useQuery({
+		...trpc.storyTheme.getActive.queryOptions(),
+		enabled: storyId !== undefined,
+	});
+	if (storyId === undefined || activeTheme === undefined) {
+		return <AppIllustration isToolPart={isToolPart} />;
+	}
+	const src = thumbnailUrl(storyId, version, activeTheme.thumbnailFingerprint, mode);
+	return <StoryScreenshot key={src} src={src} isToolPart={isToolPart} />;
+}
+
+function StoryScreenshot({ src, isToolPart }: { src: string; isToolPart: boolean }) {
+	const [status, setStatus] = useState<'loading' | 'loaded' | 'missing'>('loading');
+	const [attempt, setAttempt] = useState(0);
+
+	useEffect(() => {
+		if (status !== 'missing' || attempt >= SCREENSHOT_RETRY_DELAYS_MS.length) {
+			return;
+		}
+		const timeout = setTimeout(() => {
+			setAttempt(attempt + 1);
+			setStatus('loading');
+		}, SCREENSHOT_RETRY_DELAYS_MS[attempt]);
+		return () => clearTimeout(timeout);
+	}, [status, attempt]);
+
+	return (
+		<>
+			{status !== 'loaded' && <AppIllustration isToolPart={isToolPart} />}
+			{status !== 'missing' && (
+				<ScreenshotSheet
+					key={attempt}
+					src={src}
+					isToolPart={isToolPart}
+					isVisible={status === 'loaded'}
+					onLoad={() => setStatus('loaded')}
+					onError={() => setStatus('missing')}
+				/>
+			)}
+		</>
+	);
+}
+
+/** The version and theme in the URL let the browser keep an image until either of them changes. */
+function thumbnailUrl(storyId: string, version: number | undefined, theme: string, mode: 'light' | 'dark'): string {
+	const params = new URLSearchParams();
+	if (version !== undefined) {
+		params.set('version', String(version));
+	}
+	params.set('theme', theme);
+	params.set('mode', mode);
+	return `/api/stories/${encodeURIComponent(storyId)}/thumbnail?${params}`;
+}
+
+function ScreenshotSheet({
+	src,
+	isToolPart,
+	isVisible,
+	onLoad,
+	onError,
+}: {
+	src: string;
+	isToolPart: boolean;
+	isVisible: boolean;
+	onLoad: () => void;
+	onError: () => void;
+}) {
+	const sheetSize = isToolPart
+		? 'w-[196px] h-auto max-w-none aspect-[8/5]'
+		: 'w-[130%] h-auto max-w-none aspect-[8/5]';
+
+	return (
+		<div
+			className={cn(
+				'pointer-events-none absolute inset-0 transition-opacity duration-300',
+				isVisible ? 'opacity-100' : 'opacity-0',
+				!isToolPart && 'overflow-hidden',
+			)}
+		>
+			<div
+				className={cn(
+					isToolPart
+						? 'absolute top-0 -left-[9px] h-[88px] w-[210px] origin-top-left scale-[0.73]'
+						: 'absolute inset-0',
+				)}
+			>
+				<div
+					className={cn(
+						'absolute top-[27%] left-[15%] origin-top-left bg-secondary dark:bg-secondary/90',
+						sheetSize,
+						SHEET_VISUAL,
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				/>
+				<img
+					src={src}
+					alt=''
+					loading='lazy'
+					decoding='async'
+					fetchPriority='low'
+					onLoad={onLoad}
+					onError={onError}
+					className={cn(
+						'absolute top-[26%] left-[16%] origin-top-left object-cover object-top-left bg-white dark:bg-background',
+						sheetSize,
+						SHEET_VISUAL,
+						isToolPart && 'border-t border-r border-border/40 dark:border-white/10',
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				/>
+			</div>
+		</div>
+	);
+}
+
+function AppIllustration({ isToolPart }: { isToolPart: boolean }) {
 	return (
 		<div className='custom-story-thumbnail pointer-events-none absolute inset-0'>
 			<div

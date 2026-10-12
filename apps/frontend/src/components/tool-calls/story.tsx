@@ -138,7 +138,11 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		>
 			<div className='items-end relative h-16 w-30 shrink-0'>
 				{isCustomStory ? (
-					<CustomStoryThumbnail isToolPart={true} />
+					<CustomStoryThumbnail
+						storyId={latestStory?.storyId}
+						version={latestStory?.version}
+						isToolPart={true}
+					/>
 				) : (
 					<StoryThumbnail
 						summary={summary}

@@ -45,6 +45,7 @@ export type StoryItem = {
 	storySlug?: string;
 	summary: StorySummary;
 	format: StoryFormat;
+	version: number;
 	isLive: boolean;
 	isCertified: boolean;
 	certifiedByName: string | null;
@@ -142,6 +143,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			format: story.format,
+			version: story.version,
 			isLive: story.isLive,
 			isCertified: story.certifiedAt !== null,
 			certifiedByName: story.certifiedByName,
@@ -168,6 +170,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			format: story.format,
+			version: story.version,
 			isLive: story.isLive,
 			isCertified: story.certifiedAt !== null,
 			certifiedByName: story.certifiedByName,
@@ -195,6 +198,7 @@ export function buildStoryItems({
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
 				format: story.format,
+				version: story.version,
 				isLive: story.isLive,
 				isCertified: story.certifiedAt !== null,
 				certifiedByName: story.certifiedByName,

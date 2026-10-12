@@ -168,7 +168,7 @@ export function StoryCard({
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
 						{item.format === 'custom' ? (
-							<CustomStoryThumbnail />
+							<CustomStoryThumbnail storyId={item.storyId} version={item.version} />
 						) : (
 							<StoryThumbnail summary={item.summary} />
 						)}

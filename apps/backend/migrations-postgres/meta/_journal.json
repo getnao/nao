@@ -575,6 +575,13 @@
       "when": 1792426293707,
       "tag": "0081_story_delivery_recipient_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792482052113,
+      "tag": "0082_add_story_bundle_thumbnail",
+      "breakpoints": true
     }
   ]
 }
