@@ -17,9 +17,8 @@ import { cn } from '@/lib/utils';
 export type QueryDataMap = Record<string, { data: Record<string, unknown>[]; columns: string[] }>;
 type EmbedData = QueryDataMap[string];
 
-interface LiveQueryConfig {
-	queryOptions: (input: { chatId: string; queryId: string }) => object;
-	chatId: string;
+export interface LiveQueryConfig {
+	queryOptions: (queryId: string) => object;
 }
 
 function EmbedPlaceholder({ children }: { children: React.ReactNode }) {
@@ -59,7 +58,7 @@ function useLiveQueryData(queryId: string, liveQuery?: LiveQueryConfig) {
 		queryKey: ['noop', queryId],
 		queryFn: () => null,
 		enabled: false,
-		...(liveQuery ? liveQuery.queryOptions({ chatId: liveQuery.chatId, queryId }) : {}),
+		...(liveQuery ? liveQuery.queryOptions(queryId) : {}),
 		...(liveQuery ? { staleTime: 0, enabled: true } : {}),
 	});
 }

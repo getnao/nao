@@ -43,6 +43,16 @@ describe('validateUsageSearch', () => {
 		expect(validateUsageSearchWithStoredFilters({}).splitByUser).toBe(true);
 	});
 
+	it('parses the chats search term without persisting it', () => {
+		expect(validateUsageSearch({ search: '  revenue  ' }).search).toBe('revenue');
+		expect(validateUsageSearch({ search: '   ' }).search).toBeUndefined();
+		expect(validateUsageSearch({ search: 42 }).search).toBeUndefined();
+
+		saveUsageFilters({ ...DEFAULT_USAGE_SEARCH, search: 'revenue' });
+
+		expect(validateUsageSearchWithStoredFilters({}).search).toBeUndefined();
+	});
+
 	it('ignores removed custom period parameters', () => {
 		expect(
 			validateUsageSearch({ periodMode: 'custom', periodValue: 30, periodUnit: 'day' }).periodMode,

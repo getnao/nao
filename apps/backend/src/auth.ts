@@ -233,7 +233,7 @@ async function createAuthInstance(baseURL: string) {
 			enabled: env.ENABLE_USER_LOGIN === true,
 			disableSignUp: disableEmailSignUp,
 			sendResetPassword: async ({ user, url }) => {
-				emailService.sendEmail(user.email, buildForgotPasswordEmail(user, url));
+				await emailService.sendEmail(user.email, await buildForgotPasswordEmail(user, url));
 			},
 		},
 		socialProviders,

@@ -56,4 +56,24 @@ describe('ChatsReplayPage', () => {
 			}),
 		);
 	});
+
+	it('sends the search term to the chats query', async () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		render(
+			<QueryClientProvider client={queryClient}>
+				<ChatsReplayPage
+					search='revenue'
+					selectedUserNames={undefined}
+					selectedFeedbackStates={undefined}
+					selectedToolStates={undefined}
+					selectedSources={undefined}
+					onOpenChat={vi.fn()}
+				/>
+			</QueryClientProvider>,
+		);
+
+		await waitFor(() =>
+			expect(mocks.queryOptions).toHaveBeenCalledWith(expect.objectContaining({ page: 0, search: 'revenue' })),
+		);
+	});
 });

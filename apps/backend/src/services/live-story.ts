@@ -49,13 +49,18 @@ export type StoryQueryData = Record<string, { data: unknown[]; columns: string[]
 export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
+	options: StoryRefreshOptions = {},
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
-	const queryData = await executeStoryQueries(chatId, { [queryId]: query }, { renderSql: stripSqlFilterBlocks });
+	const queryData = await executeStoryQueries(
+		chatId,
+		{ [queryId]: query },
+		{ renderSql: stripSqlFilterBlocks, billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId },
+	);
 	return queryData[queryId]!;
 }
 
@@ -338,10 +343,14 @@ async function loadUpstreamQueries(chatId: string, sqlQueries: StorySqlQueries):
 interface RawSqlExecutionOptions {
 	executionContext: StoryExecutionContext;
 	databaseId?: string;
+	billingAccessVerifiedProjectId?: string;
 }
 
 export async function executeRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
-	await assertProjectCloudBillingAccess(options.executionContext.toolContext.projectId);
+	const projectId = options.executionContext.toolContext.projectId;
+	if (options.billingAccessVerifiedProjectId !== projectId) {
+		await assertProjectCloudBillingAccess(projectId);
+	}
 	return executeBillingValidatedRawSql(sqlQuery, options);
 }
 

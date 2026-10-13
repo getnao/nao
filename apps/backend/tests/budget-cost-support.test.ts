@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getProvidersCostSupport } from '../src/utils/budget';
+import { getProvidersCostSupport, getUnpricedModels } from '../src/utils/budget';
 
 const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
@@ -68,6 +68,21 @@ describe('getProvidersCostSupport', () => {
 		expect(support.anthropic).toBe(true);
 	});
 
+	it('does not support a priced provider whose only active model has no cost', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([
+			{
+				provider: 'openrouter',
+				enabledModels: ['acme/new-model'],
+				customModels: [{ id: 'acme/new-model' }],
+				baseUrl: null,
+			},
+		]);
+
+		const support = await getProvidersCostSupport('project-1');
+
+		expect(support.openrouter).toBe(false);
+	});
+
 	it('does not support an openai-compatible endpoint without declared costs', async () => {
 		mocks.getProjectLlmConfigs.mockResolvedValue([
 			{
@@ -122,5 +137,40 @@ describe('getProvidersCostSupport', () => {
 
 		expect(support['openaiCompatible/prod']).toBe(true);
 		expect(support['openaiCompatible/staging']).toBe(false);
+	});
+});
+
+describe('getUnpricedModels', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getProjectById.mockResolvedValue({ path: '/nonexistent', envVars: {} });
+	});
+
+	it('flags an active model missing from the price table of an otherwise priced provider', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([
+			{
+				provider: 'anthropic',
+				enabledModels: ['claude-sonnet-4-6', 'claude-internal-preview'],
+				customModels: [],
+				baseUrl: null,
+			},
+		]);
+
+		await expect(getUnpricedModels('project-1')).resolves.toEqual([
+			expect.objectContaining({ provider: 'anthropic', modelId: 'claude-internal-preview' }),
+		]);
+	});
+
+	it('stops flagging a model once its token cost is declared', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([
+			{
+				provider: 'anthropic',
+				enabledModels: ['claude-internal-preview'],
+				customModels: [{ id: 'claude-internal-preview', costPerM: { inputNoCache: 3, output: 15 } }],
+				baseUrl: null,
+			},
+		]);
+
+		await expect(getUnpricedModels('project-1')).resolves.toEqual([]);
 	});
 });

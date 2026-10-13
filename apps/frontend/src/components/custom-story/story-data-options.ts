@@ -1,5 +1,5 @@
-import type { CustomStoryViewerAccess } from '@nao/shared/story-app';
-import { trpc } from '@/main';
+import type { CustomStoryViewerAccess, StoryStateChange } from '@nao/shared/story-app';
+import { trpc, trpcClient } from '@/main';
 import { chatActivityStore } from '@/stores/chat-activity';
 
 /** Where a custom story's `useQueryData` calls are answered from: the owner's chat, a share link, or a read-only viewer. */
@@ -78,4 +78,30 @@ export function narrativesOptions(dataSource: CustomStoryDataSource) {
 	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryNarratives.queryOptions({ chatId, storySlug });
+}
+
+export function stateOptions(dataSource: CustomStoryDataSource) {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpc.customStoryViewer.getState.queryOptions({ access, storySlug });
+	}
+	if (dataSource.kind === 'share') {
+		return trpc.storyShare.getCustomStoryState.queryOptions({ storyId: dataSource.storyId });
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpc.story.getCustomStoryState.queryOptions({ chatId, storySlug });
+}
+
+export async function saveStoryState(dataSource: CustomStoryDataSource, change: StoryStateChange): Promise<void> {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		await trpcClient.customStoryViewer.setState.mutate({ access, storySlug, change });
+		return;
+	}
+	if (dataSource.kind === 'share') {
+		await trpcClient.storyShare.setCustomStoryState.mutate({ storyId: dataSource.storyId, change });
+		return;
+	}
+	const { chatId, storySlug } = dataSource;
+	await trpcClient.story.setCustomStoryState.mutate({ chatId, storySlug, change });
 }

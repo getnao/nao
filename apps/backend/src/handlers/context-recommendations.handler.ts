@@ -1,7 +1,6 @@
 import { env } from '../env';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
-import { hasProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { runContextRecommendations } from '../services/context-recommendations.service';
 import { ensureRecurring, JobHandler } from '../services/scheduler.service';
 import {
@@ -21,9 +20,6 @@ export const contextRecommendationsHandler: JobHandler<ContextRecommendationsJob
 	if (typeof payload.projectId !== 'string') {
 		throw new Error('Context recommendations job is missing a projectId payload.');
 	}
-	if (!(await hasProjectCloudBillingAccess(payload.projectId))) {
-		return;
-	}
 	const latestRun = await crQueries.getLatestRun(payload.projectId);
 	if (latestRun?.status === 'running') {
 		logger.warn(
@@ -34,6 +30,13 @@ export const contextRecommendationsHandler: JobHandler<ContextRecommendationsJob
 	}
 	await runContextRecommendations(payload.projectId, { billingAccessVerifiedProjectId: payload.projectId });
 };
+
+export function resolveContextRecommendationsProjectId(payload: ContextRecommendationsJobPayload): string {
+	if (typeof payload.projectId !== 'string') {
+		throw new Error('Context recommendations job is missing a projectId payload.');
+	}
+	return payload.projectId;
+}
 
 /**
  * Register (or update) the recurring analysis job for the given frequency. Pass

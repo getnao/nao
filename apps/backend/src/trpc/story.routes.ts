@@ -23,6 +23,7 @@ import {
 	getCustomStoryQuerySql,
 	getCustomStoryVersion,
 } from '../services/custom-story';
+import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -48,7 +49,12 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { storySnapshotHtml, toCustomStoryQueryTrpcError, toCustomStoryTrpcError } from '../utils/custom-story-trpc';
+import {
+	storySnapshotHtml,
+	storyStateChange,
+	toCustomStoryQueryTrpcError,
+	toCustomStoryTrpcError,
+} from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -59,6 +65,8 @@ import { extractStorySummary } from '../utils/story-summary';
 import {
 	adminProtectedProcedure,
 	canSendProcedure,
+	cloudBillingMiddleware,
+	cloudBillingProjectProcedure,
 	ownedResourceProcedure,
 	projectProtectedProcedure,
 	protectedProcedure,
@@ -76,8 +84,11 @@ const chatStoryProcedure = chatOwnerProcedure.use(async ({ ctx, getRawInput, nex
 	if (!(await projectQueries.getUserRoleInProject(projectId, ctx.user.id))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
-	return next();
+	return next({ ctx: { projectId } });
 });
+const cloudBillingChatStoryProcedure = chatStoryProcedure.use(
+	cloudBillingMiddleware<{ projectId: string }>(({ projectId }) => ({ projectId })),
+);
 const storyOwnerProjectProcedure = storyOwnerProcedure.use(async ({ ctx, getRawInput, next }) => {
 	const input = (await getRawInput()) as { storyId: string };
 	const projectId = await storyQueries.getStoryProjectId(input.storyId);
@@ -387,6 +398,26 @@ export const storyRoutes = {
 		.query(async ({ input }) => {
 			try {
 				return await getCustomStoryNarratives(input.chatId, input.storySlug, { deferRefresh: true });
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryState: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input, ctx }) => {
+			try {
+				return await getCustomStoryState(input.chatId, input.storySlug, ctx.user.id);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	setCustomStoryState: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), change: storyStateChange }))
+		.mutation(async ({ input, ctx }) => {
+			try {
+				await setCustomStoryState(input.chatId, input.storySlug, ctx.user.id, input.change);
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}
@@ -744,7 +775,7 @@ export const storyRoutes = {
 			}
 		}),
 
-	refreshData: chatStoryProcedure
+	refreshData: cloudBillingChatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.mutation(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
@@ -764,7 +795,9 @@ export const storyRoutes = {
 			});
 			try {
 				return await withKeyedLock(`story:${story.id}`, async () => {
-					const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
+					const { queryData } = await refreshStoryData(input.chatId, input.storySlug, {
+						billingAccessVerifiedProjectId: ctx.projectId,
+					});
 					const queriesRefreshed = Object.keys(queryData).length;
 					await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 					await notifyStoryRefreshed({
@@ -817,20 +850,24 @@ export const storyRoutes = {
 			}
 		}),
 
-	getLiveQueryData: chatStoryProcedure
+	getLiveQueryData: cloudBillingChatStoryProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
-			return executeLiveQuery(input.chatId, input.queryId);
+		.query(async ({ input, ctx }) => {
+			return executeLiveQuery(input.chatId, input.queryId, {
+				billingAccessVerifiedProjectId: ctx.projectId,
+			});
 		}),
 
-	getFilterOptions: chatStoryProcedure
+	getFilterOptions: cloudBillingChatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), filterId: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId);
+			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId, {
+				billingAccessVerifiedProjectId: ctx.projectId,
+			});
 		}),
 
-	getFilteredQueryData: chatStoryProcedure
+	getFilteredQueryData: cloudBillingChatStoryProcedure
 		.input(
 			z.object({
 				chatId: z.string(),
@@ -838,9 +875,11 @@ export const storyRoutes = {
 				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
 			}),
 		)
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections);
+			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections, {
+				billingAccessVerifiedProjectId: ctx.projectId,
+			});
 		}),
 
 	getQuerySql: chatStoryProcedure
@@ -856,7 +895,7 @@ export const storyRoutes = {
 			return getStoryQuerySql(input.chatId, input.storySlug, input.queryId, input.selections);
 		}),
 
-	parseCronFromText: projectProtectedProcedure
+	parseCronFromText: cloudBillingProjectProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ input, ctx }) => {
 			const cron = await naturalLanguageToCron(ctx.project.id, input.text);

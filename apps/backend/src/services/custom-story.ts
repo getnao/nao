@@ -10,6 +10,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyThemeQueries from '../queries/story-theme.queries';
 import { isViewableStoryFile } from '../utils/story-file-path';
+import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import type { RefreshResult } from './live-story';
 import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
@@ -30,6 +31,8 @@ export interface CustomStoryVersionView {
 	lastRefreshFailure: { errorMessage: string; failedAt: Date } | null;
 	/** The live story was never cached or its last refresh failed: its viewer refreshes it in the background. */
 	needsRefresh: boolean;
+	usesState: boolean;
+	hasLocalState: boolean;
 }
 
 interface CustomStoryDataOptions {
@@ -110,6 +113,8 @@ export async function getCustomStoryVersion(
 			queryIds.length > 0 &&
 			!isCacheFresh(story, cache) &&
 			(cache === null || lastRefreshFailure !== null),
+		usesState: storyUsesState(files),
+		hasLocalState: storyHasLocalState(files),
 	};
 }
 

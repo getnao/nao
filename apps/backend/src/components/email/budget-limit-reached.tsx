@@ -1,3 +1,4 @@
+import type { EmailBranding } from '../../utils/email-branding';
 import { EmailLayout } from './email-layout';
 import { EmailParagraph } from './email-text';
 import { emailColors } from './email-theme';
@@ -10,6 +11,7 @@ interface BudgetLimitReachedProps {
 	period: string;
 	resetLabel: string;
 	unsubscribeUrl?: string;
+	branding: EmailBranding;
 }
 
 export function BudgetLimitReached({
@@ -20,14 +22,15 @@ export function BudgetLimitReached({
 	period,
 	resetLabel,
 	unsubscribeUrl,
+	branding,
 }: BudgetLimitReachedProps) {
 	return (
-		<EmailLayout title={`Budget limit reached for ${providerLabel} on nao`}>
+		<EmailLayout title={`Budget limit reached for ${providerLabel} on ${branding.appName}`} branding={branding}>
 			<EmailParagraph>Hi {userName},</EmailParagraph>
 
 			<EmailParagraph>
-				The <strong>{providerLabel}</strong> budget limit for your nao project has been reached. Chat requests
-				using this provider are blocked until the budget resets {resetLabel}.
+				The <strong>{providerLabel}</strong> budget limit for your {branding.appName} project has been reached.
+				Chat requests using this provider are blocked until the budget resets {resetLabel}.
 			</EmailParagraph>
 
 			<EmailParagraph>

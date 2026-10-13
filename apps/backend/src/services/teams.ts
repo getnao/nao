@@ -35,6 +35,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 
@@ -127,10 +128,7 @@ class TeamsService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread?.id || '');
-			if (completion) {
-				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
-			}
+			await this._updateCompletionCardVote(event.thread?.id || '', 'up');
 		});
 
 		this._bot.onAction('feedback_negative', async (event) => {
@@ -139,11 +137,17 @@ class TeamsService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
-			const completion = this._lastCompletionCard.get(event.thread?.id || '');
-			if (completion) {
-				await completion.card.edit(createCompletionCard(completion.chatUrl, 'down'));
-			}
+			await this._updateCompletionCardVote(event.thread?.id || '', 'down');
 		});
+	}
+
+	private async _updateCompletionCardVote(threadId: string, vote: 'up' | 'down'): Promise<void> {
+		const completion = this._lastCompletionCard.get(threadId);
+		if (!completion) {
+			return;
+		}
+		const appName = await getAppName();
+		await completion.card.edit(createCompletionCard(completion.chatUrl, { vote, appName }));
 	}
 
 	private async _handleWorkFlow(thread: Thread, userMessage: Message, config: TeamsConfig): Promise<void> {
@@ -278,7 +282,8 @@ class TeamsService {
 		await stopCard.delete();
 		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
 		const chatUrl = new URL(ctx.chatId, ctx.config.redirectUrl).toString();
-		const card = await ctx.thread.post(createCompletionCard(chatUrl));
+		const appName = await getAppName();
+		const card = await ctx.thread.post(createCompletionCard(chatUrl, { appName }));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
 
 		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
@@ -467,8 +472,9 @@ class TeamsService {
 		}
 		try {
 			const chatUrl = new URL(ctx.chatId, ctx.config.redirectUrl).toString();
+			const appName = await getAppName();
 			ctx.textBlockIndex = -1;
-			ctx.blocks.push(...createMapLinkCard(part.input.title, chatUrl));
+			ctx.blocks.push(...createMapLinkCard(part.input.title, chatUrl, appName));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
 			logger.error(`Map link card failed: ${String(error)}`, {

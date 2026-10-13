@@ -9,6 +9,7 @@ export interface AppDbQueryResult {
 	rows: Record<string, unknown>[];
 }
 
+const APP_DB_STATEMENT_TIMEOUT_MS = 30_000;
 const DATE_OID = 1082;
 const TIMESTAMP_OID = 1114;
 
@@ -90,6 +91,10 @@ async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryRe
 		// query_only pragma). CREATE is disallowed under READ ONLY, hence the split.
 		return await client.begin(async (tx) => {
 			await tx`SET TRANSACTION READ ONLY`;
+			// The validator's function-call lexer reads plain strings with standard (non-backslash) escaping.
+			await tx`SET LOCAL standard_conforming_strings = on`;
+			// Caps runaway queries (huge cross joins, generate_series) so one tool call cannot pin the database.
+			await tx.unsafe(`SET LOCAL statement_timeout = ${APP_DB_STATEMENT_TIMEOUT_MS}`);
 			const rows = (await tx.unsafe(sql)) as unknown as Record<string, unknown>[];
 			return { columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows: [...rows] };
 		});

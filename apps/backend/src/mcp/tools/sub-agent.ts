@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { STORY_FORMATS } from '@nao/shared/types';
+import { type LlmSelectedModel, STORY_FORMATS } from '@nao/shared/types';
 import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
@@ -7,10 +7,10 @@ import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
-import { assertProjectCloudBillingAccess } from '../../services/cloud-billing-access.service';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
+import { resolvePinnedModel } from '../../utils/llm';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
 import { chatUrl, storyUrl } from '../urls';
@@ -155,14 +155,14 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 		},
 		errorMessage: () => 'Nao agent failed to process the request.',
 		handler: async ({ question, chatId }) => {
-			await assertProjectCloudBillingAccess(ctx.projectId);
 			await mcpService.initializeMcpState(ctx.projectId);
 			await skillService.initializeSkills(ctx.projectId);
 
 			const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 			const naoChatUrl = chatUrl(chat.id);
 
-			const agent = await agentService.create(chat, undefined, {
+			const agent = await agentService.create(chat, await resolveSubAgentModel(ctx), {
+				billingAccessVerifiedProjectId: ctx.projectId,
 				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
 			askNaoRuns.start(chat.id);
@@ -203,6 +203,15 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			return resolveAnswerPayload(chatId, ctx);
 		},
 	});
+}
+
+/** The model pinned for `ask_nao` in the MCP settings; undefined lets the agent use the project's chat default. */
+async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel | undefined> {
+	const pinned = ctx.settings.subAgentModel;
+	if (!pinned) {
+		return undefined;
+	}
+	return (await resolvePinnedModel(ctx.projectId, pinned)) ?? undefined;
 }
 
 /**

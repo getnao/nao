@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
+import type { LlmSelectedModel } from '@nao/shared/types';
+import { findModel, ModelSelectField } from '@/components/settings/model-select-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -50,6 +52,7 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 			},
 			onSettled: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.mcpEndpoint.getSettings.queryOptions().queryKey });
+				queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey });
 			},
 		}),
 	);
@@ -89,6 +92,13 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
+				{(settings?.subAgentModeEnabled ?? true) && (
+					<SubAgentModelField
+						value={settings?.subAgentModel ?? null}
+						disabled={!isAdmin || !enabled || pending}
+						onChange={(subAgentModel) => updateMutation.mutate({ subAgentModel })}
+					/>
+				)}
 				<SettingsToggleRow
 					id='mcp-context-layer-mode'
 					label='Context-layer mode'
@@ -113,6 +123,45 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				/>
 			)}
 		</>
+	);
+}
+
+function SubAgentModelField({
+	value,
+	disabled,
+	onChange,
+}: {
+	value: LlmSelectedModel | null;
+	disabled: boolean;
+	onChange: (selection: LlmSelectedModel | null) => void;
+}) {
+	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
+	const defaultChatModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
+	const models = availableModels.data ?? [];
+	const chatDefault = defaultChatModel.data
+		? {
+				...defaultChatModel.data,
+				name: findModel(models, defaultChatModel.data)?.name ?? defaultChatModel.data.modelId,
+			}
+		: null;
+
+	if (models.length === 0) {
+		return null;
+	}
+
+	return (
+		<ModelSelectField
+			label='Sub-agent model'
+			description={renderInline(
+				'The model `ask_nao` answers with. Leave it on the default chat model to follow the project-wide choice from Agent › Models.',
+			)}
+			value={value}
+			unavailableWarning='The selected model is no longer offered to users. ask_nao falls back to another available model until you pick a new one.'
+			defaultOption={{ label: 'Default chat model', model: chatDefault }}
+			availableModels={models}
+			disabled={disabled}
+			onChange={onChange}
+		/>
 	);
 }
 

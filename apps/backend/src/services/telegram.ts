@@ -29,6 +29,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { posthog, PostHogEvent } from './posthog';
 
@@ -108,10 +109,7 @@ class TelegramService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread?.id || '');
-			if (completion) {
-				await completion.card.edit(createTelegramCompletionCard(completion.chatUrl, 'up'));
-			}
+			await this._updateCompletionCardVote(event.thread?.id || '', 'up');
 		});
 
 		this._bot.onAction('feedback_negative', async (event) => {
@@ -120,11 +118,17 @@ class TelegramService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
-			const completion = this._lastCompletionCard.get(event.thread?.id || '');
-			if (completion) {
-				await completion.card.edit(createTelegramCompletionCard(completion.chatUrl, 'down'));
-			}
+			await this._updateCompletionCardVote(event.thread?.id || '', 'down');
 		});
+	}
+
+	private async _updateCompletionCardVote(threadId: string, vote: 'up' | 'down'): Promise<void> {
+		const completion = this._lastCompletionCard.get(threadId);
+		if (!completion) {
+			return;
+		}
+		const appName = await getAppName();
+		await completion.card.edit(createTelegramCompletionCard(completion.chatUrl, { vote, appName }));
 	}
 
 	private async _handleWorkFlow(thread: Thread, userMessage: Message): Promise<void> {
@@ -270,7 +274,8 @@ class TelegramService {
 		await stopCard.delete();
 		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		const card = await ctx.thread.post(createTelegramCompletionCard(chatUrl));
+		const appName = await getAppName();
+		const card = await ctx.thread.post(createTelegramCompletionCard(chatUrl, { appName }));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
 
 		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
@@ -290,7 +295,7 @@ class TelegramService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
-			{ supportsCustomCharts: false },
+			{ billingAccessVerifiedProjectId: this._projectId, supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'telegram', timezone: ctx.timezone });
@@ -475,8 +480,9 @@ class TelegramService {
 		}
 		try {
 			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+			const appName = await getAppName();
 			ctx.textBlockIndex = -1;
-			ctx.blocks.push(...createTelegramMapLinkCard(part.input.title, chatUrl));
+			ctx.blocks.push(...createTelegramMapLinkCard(part.input.title, chatUrl, appName));
 			if (ctx.convMessage) {
 				await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
 			}

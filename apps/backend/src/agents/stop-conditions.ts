@@ -1,4 +1,4 @@
-import { hasToolCall, stepCountIs, type StepResult, type StopCondition } from 'ai';
+import { hasToolCall, stepCountIs, type StopCondition } from 'ai';
 
 import type { AgentTools } from '../types/chat';
 
@@ -9,26 +9,8 @@ import type { AgentTools } from '../types/chat';
  */
 export const INTERACTIVE_MAX_STEPS = 40;
 
-/**
- * Number of consecutive steps made only of invalid tool calls after which the turn ends.
- */
+/** Number of consecutive steps made only of invalid tool calls after which the turn ends. */
 export const MAX_CONSECUTIVE_INVALID_STEPS = 3;
-
-/**
- * Ends the turn once `suggest_follow_ups` is called alongside visible text. Some models call it
- * before writing their answer; letting the loop run on hides the stray call from them (it is
- * pruned from the next step's context) so they write the answer and call it again. A second
- * textless call ends the turn anyway so the loop cannot spin.
- */
-export const hasFollowUpsWithText: StopCondition<AgentTools> = ({ steps }) => {
-	const lastStep = steps.at(-1);
-	if (!lastStep || !callsFollowUps(lastStep)) {
-		return false;
-	}
-	const hasVisibleText = lastStep.text.trim().length > 0;
-	const alreadyRetried = steps.slice(0, -1).some(callsFollowUps);
-	return hasVisibleText || alreadyRetried;
-};
 
 /**
  * Ends the turn when the model keeps emitting invalid tool calls (for instance tool calls with
@@ -46,13 +28,10 @@ export const hasRepeatedInvalidToolCalls: StopCondition<AgentTools> = ({ steps }
 	);
 };
 
+/** Stop conditions of an interactive turn (chat, MCP sub-agent, messaging integrations). */
 export const interactiveStopConditions: StopCondition<AgentTools>[] = [
-	hasFollowUpsWithText,
+	hasToolCall('suggest_follow_ups'),
 	hasToolCall('clarification'),
 	hasRepeatedInvalidToolCalls,
 	stepCountIs(INTERACTIVE_MAX_STEPS),
 ];
-
-const callsFollowUps = (step: StepResult<AgentTools>): boolean => {
-	return step.toolCalls.some((toolCall) => toolCall?.toolName === 'suggest_follow_ups');
-};

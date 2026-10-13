@@ -196,7 +196,7 @@ describe('buildChart horizontal bars', () => {
 		expect(axisTickTexts.every((tickText) => Number.isFinite(Number(tickText)))).toBe(true);
 	});
 
-	it('clamps mixed-sign series for the domain while preserving the signed total label', () => {
+	it('stacks mixed-sign series by sign around a zero baseline and labels the signed total', () => {
 		const chart = buildChart({
 			data: [{ category: 'First', direct: 100, partner: -100 }],
 			chartType: 'horizontal_bar',
@@ -204,28 +204,66 @@ describe('buildChart horizontal bars', () => {
 			xAxisType: 'category',
 			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
 		});
-		const xAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'XAxis');
+		const children = flattenChildren(chart.props.children);
+		const bars = children.filter((child) => getDisplayName(child) === 'Bar');
+		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
+		const referenceLine = children.find((child) => getDisplayName(child) === 'ReferenceLine');
 		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
 
-		expect(xAxis?.props.domain).toBeUndefined();
-		expect(chart.props.data[0]).toMatchObject({ direct: 100, partner: 0 });
+		expect(chart.props.stackOffset).toBe('sign');
+		expect(xAxis?.props.domain).toEqual([-100, 100]);
+		expect(xAxis?.props.hide).not.toBe(true);
+		expect(referenceLine?.props).toMatchObject({ x: 0 });
+		expect(chart.props.data[0]).toMatchObject({ direct: 100, partner: -100 });
+		expect(bars.every((bar) => bar.props.background === undefined)).toBe(true);
 		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['0']);
+
+		const positiveSegment = bars[0].props.shape?.({ payload: { direct: 100, partner: -100 } });
+		const negativeSegment = bars[1].props.shape?.({ payload: { direct: 100, partner: -100 } });
+		expect(positiveSegment!.props.radius).toEqual([0, 999, 999, 0]);
+		expect(negativeSegment!.props.radius).toEqual([999, 0, 0, 999]);
 	});
 
-	it('renders a negative single-series value at the origin with its signed label', () => {
+	it('renders a negative single-series value as a bar extending left of zero', () => {
 		const chart = buildChart({
-			data: [{ category: 'First', value: -30 }],
+			data: [
+				{ category: 'Loss', value: -30 },
+				{ category: 'Gain', value: 50 },
+			],
 			chartType: 'horizontal_bar',
 			xAxisKey: 'category',
 			xAxisType: 'category',
 			series: [{ data_key: 'value' }],
 		});
-		const xAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'XAxis');
+		const children = flattenChildren(chart.props.children);
+		const bar = children.find((child) => getDisplayName(child) === 'Bar');
+		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
+		const referenceLine = children.find((child) => getDisplayName(child) === 'ReferenceLine');
 		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
 
-		expect(xAxis?.props.domain).toEqual([0, 1]);
-		expect(chart.props.data[0].value).toBe(0);
-		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['-30']);
+		expect(chart.props.stackOffset).toBeUndefined();
+		expect(xAxis?.props.hide).not.toBe(true);
+		expect(xAxis?.props.domain).toEqual([-40, 60]);
+		expect(referenceLine?.props).toMatchObject({ x: 0 });
+		expect(bar?.props.background).toBeUndefined();
+		expect(chart.props.data.map((row: { value: number }) => row.value)).toEqual([-30, 50]);
+		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['-30', '50']);
+		expect(html).not.toContain('fill="var(--muted, #e5e7eb)"');
+	});
+
+	it('keeps the progress track and hidden axis when no value is negative', () => {
+		const chart = buildChart({
+			data: [{ category: 'First', value: 30 }],
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+		});
+		const children = flattenChildren(chart.props.children);
+		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
+
+		expect(children.some((child) => getDisplayName(child) === 'ReferenceLine')).toBe(false);
+		expect(xAxis?.props).toMatchObject({ hide: true, domain: [0, 30] });
 	});
 
 	it('normalizes stacked horizontal bars to a percentage axis', () => {

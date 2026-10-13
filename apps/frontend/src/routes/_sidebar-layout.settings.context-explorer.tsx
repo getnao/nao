@@ -30,7 +30,7 @@ import {
 	validateContextExplorerSearch,
 } from '@/lib/context-explorer-search';
 import { createLocalStorage } from '@/lib/local-storage';
-import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
 const contentSearchStorage = createLocalStorage<boolean>('nao-file-explorer-content-search', true);

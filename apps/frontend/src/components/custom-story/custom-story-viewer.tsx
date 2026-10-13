@@ -6,6 +6,7 @@ import type { CustomStoryViewMode } from '@/components/custom-story/custom-story
 import { ActionErrorBanner, CustomStoryBody } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
 import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
+import { rememberStatePrompt } from '@/components/custom-story/remember-state-header';
 import { useCustomStory } from '@/components/custom-story/use-custom-story';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
@@ -17,6 +18,7 @@ import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-sett
 import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
 import { StoryHeader } from '@/components/side-panel/story-header';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
@@ -57,6 +59,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
 	const chatInput = useSetChatInputCallback();
+	const agent = useOptionalAgentContext();
 
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
@@ -94,6 +97,12 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 		},
 		[chatId, chatInput, storySlug],
 	);
+
+	const handleRememberState = useCallback(() => {
+		if (content && agent) {
+			void agent.queueOrSendMessage({ text: rememberStatePrompt(content.title, storySlug) });
+		}
+	}, [agent, content, storySlug]);
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -166,6 +175,9 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 						onEditBlock={handleEditBlock}
 						onEditTableFormat={handleEditTableFormat}
 						onAskBlock={handleAskBlock}
+						onRememberState={
+							canEditBlocks && customStoryCreationEnabled && agent ? handleRememberState : undefined
+						}
 					/>
 				}
 				files={

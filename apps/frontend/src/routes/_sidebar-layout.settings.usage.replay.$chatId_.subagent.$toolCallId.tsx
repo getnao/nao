@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { SubagentReplayPanel } from '@/components/settings/subagent-replay-panel';
 import { validateUsageSearch } from '@/components/settings/usage-route-search';
 import { useReplayOrigin } from '@/hooks/use-replay-origin';
-import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId')({
 	beforeLoad: requireContextAdminOrAdmin,

@@ -53,14 +53,15 @@ import {
 	convertToTokenUsage,
 	findLastUserMessage,
 	getLastUserMessageText,
-	settleInterruptedToolParts,
+	settleToolParts,
 } from '../utils/ai';
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { HandlerError } from '../utils/error';
 import {
-	getProjectAvailableModels,
 	getProjectDeclaredModels,
 	resolveAnnotationModelId,
+	resolveDefaultChatModel,
+	resolveDefaultModelSelection,
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
@@ -72,6 +73,7 @@ import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
+import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { listChartPlugins } from './chart-plugin';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService } from './compaction';
@@ -310,6 +312,8 @@ export class AgentService {
 			/** Enables project-defined charts that render only in the web client. */
 			supportsCustomCharts?: boolean;
 			billingAccessVerifiedProjectId?: string;
+			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
+			isBudgetChecked?: boolean;
 		} = {},
 	): Promise<AgentManager> {
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
@@ -317,7 +321,9 @@ export class AgentService {
 		}
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
-		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
+		if (!options.isBudgetChecked) {
+			await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
+		}
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
@@ -364,11 +370,9 @@ export class AgentService {
 			return modelSelection;
 		}
 
-		// Same order the model picker offers, across the database, nao_config.yaml and the environment.
-		const available = await getProjectAvailableModels(projectId);
-		const first = available.at(0);
-		if (first) {
-			return { provider: first.provider, modelId: first.modelId };
+		const defaultModel = await resolveDefaultChatModel(projectId);
+		if (defaultModel) {
+			return defaultModel;
 		}
 
 		throw new HandlerError('BAD_REQUEST', 'No model config found');
@@ -601,7 +605,7 @@ class AgentManager {
 				try {
 					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
 					const tokenUsage = await this._getTotalUsage(result);
-					const [settledMessage] = settleInterruptedToolParts([e.responseMessage]);
+					const [settledMessage] = await settleToolParts([e.responseMessage]);
 					await chatQueries.upsertMessage({
 						...settledMessage,
 						chatId: this.chat.id,
@@ -630,8 +634,12 @@ class AgentManager {
 		timezone?: string,
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
-		const settledUiMessages = settleInterruptedToolParts(uiMessages);
-		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(settledUiMessages);
+		const settledUiMessages = await settleToolParts(uiMessages);
+		const uiMessagesWithPortableWebTools = replaceForeignWebToolParts(
+			settledUiMessages,
+			this._modelSelection.provider,
+		);
+		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(uiMessagesWithPortableWebTools);
 		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessagesWithoutStaleQueries);
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
@@ -650,7 +658,7 @@ class AgentManager {
 			tools: this._agentTools,
 		});
 
-		return sanitizeToolCallIds(modelMessages);
+		return sanitizeToolCallIds(modelMessages, this._modelSelection.provider);
 	}
 
 	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
@@ -817,12 +825,15 @@ class AgentManager {
 	}
 
 	private async _generateTitle(userMessageText: string): Promise<void> {
-		const provider = this._modelSelection.provider;
-		const summaryModelId = await resolveAnnotationModelId(
-			this.chat.projectId,
-			this._modelSelection,
-			getProviderMeta(provider).summaryModelId,
-		);
+		const pinned = await resolveDefaultModelSelection(this.chat.projectId, 'title');
+		const provider = pinned?.provider ?? this._modelSelection.provider;
+		const summaryModelId =
+			pinned?.modelId ??
+			(await resolveAnnotationModelId(
+				this.chat.projectId,
+				this._modelSelection,
+				getProviderMeta(provider).summaryModelId,
+			));
 		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false);
 		if (!modelResult) {
 			return;
@@ -845,7 +856,7 @@ class AgentManager {
 			}),
 		});
 
-		this._trackTitleGenerationInference(modelResult.model.modelId, convertToTokenUsage(usage));
+		this._trackTitleGenerationInference(provider, modelResult.model.modelId, convertToTokenUsage(usage));
 
 		const title = sanitizeTitle(text) || titleFromPrompt(userMessageText);
 		if (!title) {
@@ -861,13 +872,13 @@ class AgentManager {
 		}
 	}
 
-	private _trackTitleGenerationInference(modelId: string, usage: TokenUsage): void {
+	private _trackTitleGenerationInference(provider: LlmProvider, modelId: string, usage: TokenUsage): void {
 		scheduleSaveLlmInferenceRecord({
 			type: 'title_generation',
 			projectId: this.chat.projectId,
 			userId: this.chat.userId,
 			chatId: this.chat.id,
-			llmProvider: this._modelSelection.provider,
+			llmProvider: provider,
 			llmModelId: modelId,
 			...usage,
 		});
