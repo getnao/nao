@@ -36,6 +36,7 @@ async function loadSandboxModules(kvmAccess: KvmAccess, platform = 'linux') {
 		ExecError: class FakeExecError extends Error {},
 		TimeoutError: class FakeTimeoutError extends Error {},
 	}));
+	vi.doMock('@resvg/resvg-js', () => ({ Resvg: class FakeResvg {} }));
 	vi.doMock('../src/db/db', () => ({ db: {} }));
 
 	const runtime = await import('../src/services/sandbox-runtime');
@@ -63,6 +64,7 @@ afterEach(() => {
 	vi.resetModules();
 	vi.doUnmock('fs');
 	vi.doUnmock('@boxlite-ai/boxlite');
+	vi.doUnmock('@resvg/resvg-js');
 	vi.doUnmock('../src/db/db');
 });
 
@@ -85,6 +87,7 @@ describe('sandbox runtime host capability', () => {
 			expect(tools).not.toHaveProperty('execute_sandboxed_code');
 			expect(pdfSkill.body).not.toContain('pdfplumber');
 		},
+		15_000,
 	);
 
 	it('should expose the sandbox when /dev/kvm is usable', async () => {

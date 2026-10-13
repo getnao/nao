@@ -162,7 +162,7 @@ export function SystemPrompt({
 							anomalies, causes, breakdowns, or analysis across multiple metrics, customers, or time
 							periods—call <Bold>suggest_follow_ups</Bold> exactly once. A complete answer is not a reason
 							to omit it: suggestions should extend the analysis, not complete the answer. Skip it only
-							for simple one-fact lookups, acknowledgements, and clarification requests. The turn must
+							for simple one-fact answers, acknowledgements, and clarification requests. The turn must
 							also contain a complete visible answer; the answer and tool call may occur in either order.
 							Call it only after all data gathering is complete, as the sole and final tool call, never in
 							parallel with another tool. The interface presents the suggestions separately, so do not

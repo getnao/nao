@@ -453,7 +453,8 @@ describe('SystemPrompt follow-up suggestions rules', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 
 		expect(markdown).toContain('**suggest_follow_ups**');
-		expect(markdown).toContain('once, as the very last tool of your turn');
+		expect(markdown).toContain('For every analytical response based on business data');
+		expect(markdown).toContain('as the sole and final tool call');
 		expect(markdown).not.toContain('points the user to the suggestions shown below your message');
 		expect(markdown).not.toContain('Pick one of the suggestions below');
 	});
