@@ -988,6 +988,10 @@ code.dollar:before {
 	overflow: hidden;
 }
 
+[data-story-themed='true'] .story-block.story-map-block {
+	overflow: visible;
+}
+
 /* Tables ride on the background / panel / border tokens, re-pointed to the table slots inside the frame. */
 [data-story-themed='true'] .story-table {
 	--background: var(--story-table-bg);
@@ -996,6 +1000,7 @@ code.dollar:before {
 }
 
 [data-story-themed='true'] .story-table [data-slot='data-table-card'] {
+	background: var(--background);
 	border-width: var(--story-table-border-width, 1px);
 	border-radius: var(--story-block-radius, var(--radius));
 }

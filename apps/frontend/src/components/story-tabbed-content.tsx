@@ -9,7 +9,7 @@ import type { StoryFilterApi } from '@/hooks/use-story-filters';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryTabsBar } from '@/components/side-panel/story-tabs-bar';
-import { StoryBlock, StoryTableFrame } from '@/components/story-block';
+import { StoryBlock, StoryMapFrame, StoryTableFrame } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
@@ -111,14 +111,14 @@ export function StoryTabbedContent({
 								</StoryTableFrame>
 							)}
 							renderMap={(map, key) => (
-								<StoryBlock>
+								<StoryMapFrame>
 									{renderMap(map, {
 										queryData: storyFilters.queryData,
 										hasActiveFilters: storyFilters.hasActiveFilters,
 										isRefreshing: storyFilters.isFiltering,
 										key,
 									})}
-								</StoryBlock>
+								</StoryMapFrame>
 							)}
 						/>
 					</div>

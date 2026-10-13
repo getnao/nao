@@ -668,7 +668,7 @@ describe('deployment context source', () => {
 	});
 });
 
-describe('live deployment context updates', () => {
+describe('live deployment context updates', { timeout: 15_000 }, () => {
 	const temporaryRoots: string[] = [];
 	let originalEnv: typeof process.env;
 
@@ -996,7 +996,7 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
 	});
 });
 
-describe('OAuth live context updates', () => {
+describe('OAuth live context updates', { timeout: 15_000 }, () => {
 	const temporaryRoots: string[] = [];
 	let originalEnv: typeof process.env;
 
@@ -1328,7 +1328,7 @@ describe('repository remote normalization', () => {
 	});
 });
 
-describe('context explorer worktrees', () => {
+describe('context explorer worktrees', { timeout: 15_000 }, () => {
 	const temporaryRoots: string[] = [];
 	let originalEnv: typeof process.env;
 

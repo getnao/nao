@@ -15,7 +15,7 @@ import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ReactNode } from 'react';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
-import { StoryBlock, StoryTableFrame } from '@/components/story-block';
+import { StoryBlock, StoryMapFrame, StoryTableFrame } from '@/components/story-block';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 import { markdownPlugins } from '@/lib/markdown';
@@ -68,9 +68,9 @@ function renderColumnContent(
 		case 'map':
 			return (
 				<EditorStoryMapEditProvider onReplaceTag={onReplaceTag}>
-					<StoryBlock>
+					<StoryMapFrame>
 						<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
-					</StoryBlock>
+					</StoryMapFrame>
 				</EditorStoryMapEditProvider>
 			);
 		case 'grid':

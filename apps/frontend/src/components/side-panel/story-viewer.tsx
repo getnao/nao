@@ -187,6 +187,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isViewingLatest,
 		isStoryInterrupted,
 		isReadonlyMode,
+		readonlyAccess: isReadonlyMode ? readonlyViewerAccess(chatId, shareSource, isReplay) : null,
 	});
 	const storyTheme = useStoryThemeForCurrentMode(theme);
 	const { queryData: versionQueryData, isPending: isVersionQueryDataPending } = useStoryVersionQueryData({

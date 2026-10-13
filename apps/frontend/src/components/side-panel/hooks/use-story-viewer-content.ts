@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { CustomStoryViewerAccess } from '@nao/shared/story-app';
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryDraft } from '@/lib/story.utils';
 import { useThrottledValue } from '@/hooks/use-throttled-value';
@@ -17,6 +18,7 @@ interface UseStoryViewerContentParams {
 	isViewingLatest: boolean;
 	isStoryInterrupted: boolean;
 	isReadonlyMode?: boolean;
+	readonlyAccess?: CustomStoryViewerAccess | null;
 }
 
 export const useStoryViewerContent = ({
@@ -29,6 +31,7 @@ export const useStoryViewerContent = ({
 	isViewingLatest,
 	isStoryInterrupted,
 	isReadonlyMode,
+	readonlyAccess,
 }: UseStoryViewerContentParams) => {
 	const [isBridgingDraft, setIsBridgingDraft] = useState(false);
 	const isStoryStreaming = Boolean(draftStory?.isStreaming);
@@ -106,7 +109,14 @@ export const useStoryViewerContent = ({
 	const cachedAt = latestStoryQuery.data?.cachedAt as string | null | undefined;
 	const lastRefreshFailure = latestStoryQuery.data?.lastRefreshFailure;
 	const needsRefresh = !isReadonlyMode && (latestStoryQuery.data?.needsRefresh ?? false);
-	const theme = latestStoryQuery.data?.theme ?? null;
+	const readonlyThemeQuery = useQuery({
+		...trpc.customStoryViewer.getTheme.queryOptions({
+			access: readonlyAccess ?? { kind: 'replay', chatId },
+			storySlug: resolvedStorySlug,
+		}),
+		enabled: Boolean(isReadonlyMode && readonlyAccess),
+	});
+	const theme = (isReadonlyMode ? readonlyThemeQuery.data : latestStoryQuery.data?.theme) ?? null;
 
 	return {
 		storyTitle,

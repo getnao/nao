@@ -12,7 +12,7 @@ import {
 } from '@/components/story-embeds';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
-import { StoryBlock, StoryTableFrame } from '@/components/story-block';
+import { StoryBlock, StoryMapFrame, StoryTableFrame } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
@@ -137,7 +137,7 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderMap = useCallback(
 		(map: ParsedMapBlock) => (
-			<StoryBlock>
+			<StoryMapFrame>
 				<LiveMapEmbed
 					map={map}
 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
@@ -147,7 +147,7 @@ export const StoryPreview = memo(function StoryPreview({
 					isStreaming={isStreaming}
 					isDataPending={isDataPending}
 				/>
-			</StoryBlock>
+			</StoryMapFrame>
 		),
 		[
 			effectiveQueryData,

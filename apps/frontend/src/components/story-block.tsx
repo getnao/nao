@@ -11,6 +11,10 @@ export function StoryBlock({ children, className }: StoryContainerProps) {
 	return <div className={cn('story-block', className)}>{children}</div>;
 }
 
+export function StoryMapFrame({ children, className }: StoryContainerProps) {
+	return <StoryBlock className={cn('story-map-block', className)}>{children}</StoryBlock>;
+}
+
 export function StoryTableFrame({ children, className }: StoryContainerProps) {
 	return <div className={cn('story-table', className)}>{children}</div>;
 }

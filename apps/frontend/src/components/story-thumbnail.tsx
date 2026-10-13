@@ -106,7 +106,7 @@ function FlatStorySheet({
 				theme={theme ?? null}
 				className='relative overflow-hidden bg-background text-foreground'
 			>
-				<div className='absolute top-0 left-0 flex w-[480px] origin-top-left scale-[0.42] flex-col gap-4 bg-background px-6 py-2'>
+				<div className='absolute top-0 left-0 flex w-[calc(100%/0.42)] origin-top-left scale-[0.42] flex-col gap-4 bg-background px-6 py-2'>
 					{children}
 				</div>
 			</StoryThemeProvider>

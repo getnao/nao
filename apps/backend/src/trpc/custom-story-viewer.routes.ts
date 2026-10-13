@@ -8,6 +8,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import {
+	getActiveThemeForProject,
 	getCustomStoryFile,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
@@ -50,6 +51,8 @@ export const customStoryViewerRoutes = {
 		const story = await storyQueries.getStoryByChatAndSlug(ctx.viewer.chatId, input.storySlug);
 		return { format: story?.format ?? null };
 	}),
+
+	getTheme: viewerProcedure.query(({ ctx }) => getActiveThemeForProject(ctx.viewer.projectId)),
 
 	getVersion: viewerProcedure.input(z.object({ versionNumber })).query(async ({ ctx, input }) => {
 		try {

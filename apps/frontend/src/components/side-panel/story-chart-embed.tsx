@@ -1,6 +1,6 @@
 import { resolveDataKey } from '@nao/shared';
 import { Code, Pencil } from 'lucide-react';
-import { memo, useContext, useMemo, useRef, useState } from 'react';
+import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { ChartType } from '@nao/shared/chart-types';
@@ -14,6 +14,7 @@ import { ChartConfigEditDialog, resolveChartPaletteHexes } from '@/components/to
 import { Button } from '@/components/ui/button';
 import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { useStoryQuerySql } from '@/contexts/story-query-sql';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { useStoryChartSourceQuery } from '@/hooks/use-story-chart-source-query';
@@ -128,6 +129,7 @@ export function StoryChartEmbedShell({
 	const edit = useStoryChartEdit();
 	const querySqlSource = useStoryQuerySql();
 	const paletteScopeRef = useRef<HTMLDivElement>(null);
+	const isDarkMode = useIsDarkMode();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [editorView, setEditorView] = useState<ChartEditorView>('chart');
 	const [showQuery, setShowQuery] = useState(false);
@@ -179,6 +181,12 @@ export function StoryChartEmbedShell({
 		setPalette(resolveChartPaletteHexes(paletteScopeRef.current));
 		setIsEditOpen(true);
 	};
+
+	useEffect(() => {
+		if (isEditOpen) {
+			setPalette(resolveChartPaletteHexes(paletteScopeRef.current));
+		}
+	}, [isEditOpen, isDarkMode]);
 	const editButton = canEdit ? (
 		<Button
 			variant='ghost-muted'
