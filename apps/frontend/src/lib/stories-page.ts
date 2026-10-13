@@ -45,7 +45,7 @@ export type StoryItem = {
 	chatId?: string;
 	storySlug?: string;
 	summary: StorySummary;
-	queryData: QueryDataMap | null;
+	kpiPreviewData: QueryDataMap | null;
 	format: StoryFormat;
 	version: number;
 	isLive: boolean;
@@ -144,7 +144,7 @@ export function buildStoryItems({
 			chatId,
 			storySlug: story.storySlug,
 			summary: story.summary,
-			queryData: (story.queryData as QueryDataMap | null) ?? null,
+			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -172,7 +172,7 @@ export function buildStoryItems({
 			kind: 'own-standalone',
 			storySlug: story.storySlug,
 			summary: story.summary,
-			queryData: (story.queryData as QueryDataMap | null) ?? null,
+			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -201,7 +201,7 @@ export function buildStoryItems({
 				author: story.authorName,
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
-				queryData: (story.queryData as QueryDataMap | null) ?? null,
+				kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
 				format: story.format,
 				version: story.version,
 				isLive: story.isLive,

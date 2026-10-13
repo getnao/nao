@@ -63,7 +63,7 @@ import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
-import { backfillMissingQueryData, backfillStoryListQueryData } from '../utils/story-query-data';
+import { backfillMissingQueryData, withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -146,13 +146,13 @@ export const storyRoutes = {
 			const stories = await storyQueries.listUserChatStories(ctx.user.id, { projectId: input?.projectId });
 			const visibleStories = await filterStoriesByProjectAccess(stories, ctx.user.id, input?.projectId);
 			const sharingByStoryId = await storyQueries.getStorySharingInfo(visibleStories.map((s) => s.id));
-			const hydratedStories = await Promise.all(visibleStories.map(backfillStoryListQueryData));
-			return hydratedStories.map(({ code, ...rest }) => ({
+			const items = visibleStories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
 				summary: extractStorySummary(code),
 				sharing: sharingByStoryId.get(rest.id) ?? null,
 			}));
+			return withKpiPreviewData(items, (story) => story.id);
 		}),
 
 	listArchived: protectedProcedure
@@ -164,33 +164,33 @@ export const storyRoutes = {
 			});
 			const visibleStories = await filterStoriesByProjectAccess(stories, ctx.user.id, input?.projectId);
 			const sharingByStoryId = await storyQueries.getStorySharingInfo(visibleStories.map((s) => s.id));
-			const hydratedStories = await Promise.all(visibleStories.map(backfillStoryListQueryData));
-			return hydratedStories.map(({ code, ...rest }) => ({
+			const items = visibleStories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
 				summary: extractStorySummary(code),
 				sharing: sharingByStoryId.get(rest.id) ?? null,
 			}));
+			return withKpiPreviewData(items, (story) => story.id);
 		}),
 
 	listStandalone: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id);
-		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
-		return hydratedStories.map(({ code, ...rest }) => ({
+		const items = stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
 			summary: extractStorySummary(code),
 		}));
+		return withKpiPreviewData(items, (story) => story.id);
 	}),
 
 	listStandaloneArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id, { archived: true });
-		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
-		return hydratedStories.map(({ code, ...rest }) => ({
+		const items = stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
 			summary: extractStorySummary(code),
 		}));
+		return withKpiPreviewData(items, (story) => story.id);
 	}),
 
 	resolve: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
@@ -1003,8 +1003,7 @@ export const storyRoutes = {
 
 	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
-		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
-		return hydratedStories.map((story) => ({
+		const items = stories.map((story) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
@@ -1015,6 +1014,7 @@ export const storyRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
+		return withKpiPreviewData(items, (story) => story.storyId);
 	}),
 
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {

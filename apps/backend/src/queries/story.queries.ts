@@ -30,7 +30,6 @@ export type UserStoryRow = Pick<
 	version: number;
 	versionCreatedAt: DBStoryVersion['createdAt'];
 	certifiedByName: string | null;
-	queryData?: DBStoryDataCache['queryData'] | null;
 };
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
@@ -136,12 +135,10 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			code: s.storyVersion.code,
 			version: s.storyVersion.version,
 			versionCreatedAt: s.storyVersion.createdAt,
-			queryData: s.storyDataCache.queryData,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
-		.leftJoin(s.storyDataCache, eq(s.storyDataCache.storyId, s.story.id))
 		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
 		.innerJoin(
 			s.storyVersion,
@@ -594,6 +591,20 @@ export function getStoryDataCacheByStoryId(storyId: string): Promise<DBStoryData
 	return getStoryDataCache(eq(s.story.id, storyId));
 }
 
+export async function getStoryQueryDataByStoryIds(
+	storyIds: string[],
+): Promise<Map<string, DBStoryDataCache['queryData']>> {
+	if (storyIds.length === 0) {
+		return new Map();
+	}
+	const rows = await db
+		.select({ storyId: s.storyDataCache.storyId, queryData: s.storyDataCache.queryData })
+		.from(s.storyDataCache)
+		.where(inArray(s.storyDataCache.storyId, storyIds))
+		.execute();
+	return new Map(rows.map((row) => [row.storyId, row.queryData]));
+}
+
 export async function upsertStoryDataCache(
 	chatId: string,
 	slug: string,
@@ -705,12 +716,10 @@ async function queryStoriesWithLatestVersion(
 			code: s.storyVersion.code,
 			version: s.storyVersion.version,
 			versionCreatedAt: s.storyVersion.createdAt,
-			queryData: s.storyDataCache.queryData,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
-		.leftJoin(s.storyDataCache, eq(s.storyDataCache.storyId, s.story.id))
 		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
 		.innerJoin(
 			s.storyVersion,

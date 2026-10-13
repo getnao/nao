@@ -41,7 +41,7 @@ import {
 } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
-import { backfillStoryListQueryData } from '../utils/story-query-data';
+import { withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -77,8 +77,7 @@ export const sharedStoryRoutes = {
 		const projects = await projectQueries.listUserProjects(ctx.user.id);
 		const projectIds = projects.map((p) => p.id);
 		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, input.projectId);
-		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
-		return hydratedStories.map(({ id: _shareId, ...story }) => ({
+		const items = stories.map(({ id: _shareId, ...story }) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
@@ -89,6 +88,7 @@ export const sharedStoryRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
+		return withKpiPreviewData(items, (story) => story.storyId);
 	}),
 
 	create: canSendProcedure

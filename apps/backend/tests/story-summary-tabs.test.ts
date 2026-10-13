@@ -1,4 +1,4 @@
-import { buildStoryChartBlock, buildStoryMapBlock, buildStoryTableBlock } from '@nao/shared';
+import { buildStoryChartBlock, buildStoryFilterBlock, buildStoryMapBlock, buildStoryTableBlock } from '@nao/shared';
 import { describe, expect, it } from 'vitest';
 
 import { extractStorySummary } from '../src/utils/story-summary';
@@ -124,6 +124,18 @@ Body text
 				],
 			},
 		]);
+	});
+
+	it('drops filters and grids without previewable children', () => {
+		const filter = buildStoryFilterBlock({ id: 'region', column: 'region', type: 'select' });
+
+		const summary = extractStorySummary(`${filter}
+<grid widths="1,1">
+<div style="grid-column: span 1">${filter}</div>
+</grid>
+Closing note`);
+
+		expect(summary.segments).toEqual([{ type: 'text', content: 'Closing note' }]);
 	});
 
 	it('falls back to the original code when no complete tabs are parsed', () => {

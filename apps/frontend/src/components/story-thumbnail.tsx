@@ -16,7 +16,7 @@ export const SHEET_VISUAL = `rounded-[2px]
 
 export const SHEET_TRANSFORM = 'perspective(400px) rotateX(30deg) rotateY(20deg) rotateZ(-20deg)';
 
-export const SHEET_SURFACE = 'bg-gradient-to-b from-card to-panel';
+export const SHEET_SURFACE = 'bg-gradient-to-b from-background to-background/90';
 
 export function PaperSheet({
 	children,
@@ -45,7 +45,6 @@ export function PaperSheet({
 						'absolute left-[16%] w-[130%] h-[200%] origin-top-left',
 						isToolPart ? 'top-[22%]' : 'top-[26%]',
 						SHEET_SURFACE,
-						'bg-gradient-to-b from-background to-background/90',
 						'rounded-[2px]',
 						isToolPart ? 'border-t border-r' : 'pr-5',
 					)}
@@ -141,7 +140,6 @@ export function FolderThumbnail({ theme }: { theme?: StoryTheme | null } = {}) {
 					className={cn(
 						'pr-5 absolute top-[23%] left-[13%] w-[140%] h-[200%] origin-top-left',
 						SHEET_SURFACE,
-						'bg-gradient-to-b from-background to-background/90',
 						SHEET_VISUAL,
 					)}
 					style={{ transform: SHEET_TRANSFORM }}
@@ -397,7 +395,6 @@ const DEFAULT_CHART_COLORS = Array.from({ length: 11 }, (_, i) => `var(--chart-$
 type KpiPreviewValue = {
 	label: string;
 	value: string;
-	color: string;
 };
 
 type KpiPreviewSeries = NonNullable<Extract<SummarySegment, { type: 'chart' }>['series']>;
@@ -497,7 +494,7 @@ function MiniChart({
 	series?: KpiPreviewSeries;
 	queryData?: QueryDataMap | null;
 }) {
-	const kpiValues = chartType === 'kpi_card' ? getKpiPreviewValues({ queryData, queryId, series, colors }) : null;
+	const kpiValues = chartType === 'kpi_card' ? getKpiPreviewValues({ queryData, queryId, series }) : null;
 
 	return (
 		<PreviewBlock title={chartType === 'kpi_card' ? '' : title} variant={variant}>
@@ -514,12 +511,10 @@ function getKpiPreviewValues({
 	queryData,
 	queryId,
 	series,
-	colors,
 }: {
 	queryData?: QueryDataMap | null;
 	queryId?: string;
 	series?: KpiPreviewSeries;
-	colors: string[];
 }): KpiPreviewValue[] | null {
 	if (!queryData || !queryId || !series || series.length === 0) {
 		return null;
@@ -528,19 +523,14 @@ function getKpiPreviewValues({
 	if (!latestRow) {
 		return null;
 	}
-	const values = series.flatMap((item, i) => {
+	const values = series.flatMap((item) => {
+		const label = item.label ?? item.dataKey;
 		const rawValue = latestRow[item.dataKey];
 		if (typeof rawValue === 'number') {
-			return [
-				{
-					label: item.label ?? item.dataKey,
-					value: formatChartValue(rawValue, item.valueFormat, { compact: true }),
-					color: colorAt(colors, i),
-				},
-			];
+			return [{ label, value: formatChartValue(rawValue, item.valueFormat, { compact: true }) }];
 		}
 		if (typeof rawValue === 'string' && rawValue.trim() !== '') {
-			return [{ label: item.label ?? item.dataKey, value: rawValue, color: colorAt(colors, i) }];
+			return [{ label, value: rawValue }];
 		}
 		return [];
 	});

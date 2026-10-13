@@ -1,6 +1,5 @@
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
 	Archive,
@@ -22,7 +21,6 @@ import type { FolderItem } from '@/lib/stories-page';
 import { isSystemFolder } from '@/lib/stories-page';
 import { GRID_CARD_CLASS, GridCardFooter, LINES_CARD_CLASS } from '@/components/item-card';
 import { FolderThumbnail } from '@/components/story-thumbnail';
-import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -31,11 +29,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 export type FolderDisplayMode = StoryPanelDisplayMode | 'grid-large';
 
@@ -66,8 +64,7 @@ export function FolderCard({
 }) {
 	const { isViewer, isAdmin } = usePermissions();
 	const { data: session } = useSession();
-	const { data: activeTheme } = useQuery(trpc.storyTheme.getActive.queryOptions());
-	const storyTheme = useStoryThemeForCurrentMode(activeTheme?.theme);
+	const storyTheme = useActiveStoryTheme();
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
 	const draggableId = `drag-folder-${displayMode}-${folder.id}`;
