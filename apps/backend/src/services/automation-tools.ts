@@ -1,5 +1,6 @@
 import type { DateFormatSettings } from '@nao/shared/date';
 import { extractQueryIds } from '@nao/shared/story-segments';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import { z } from 'zod/v4';
 
@@ -14,6 +15,7 @@ import type { ToolContext } from '../types/tools';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse, type QueryDataMap } from '../utils/story-download';
 import { createTool } from '../utils/tools';
+import { getActiveThemeForProject } from './custom-story';
 import { emailService } from './email';
 import {
 	createGithubAutomationTools,
@@ -288,7 +290,11 @@ async function buildGeneratedArtifactAttachments(
 	const dateFormat = displaySettings.dateFormat ?? null;
 	const chartAttachments = await buildChartImageAttachments(context, dateFormat);
 	const mapAttachments = await buildMapImageAttachments(projectId, context);
-	const storyAttachments = await buildStoryPdfAttachments(context, dateFormat);
+	const storyAttachments = await buildStoryPdfAttachments(
+		context,
+		dateFormat,
+		await getActiveThemeForProject(projectId),
+	);
 	return [...chartAttachments, ...mapAttachments, ...storyAttachments];
 }
 
@@ -356,6 +362,7 @@ async function buildChartImageAttachments(
 async function buildStoryPdfAttachments(
 	context: ToolContext,
 	dateFormat: DateFormatSettings | null,
+	theme: StoryThemePair | null,
 ): Promise<GeneratedArtifactAttachment[]> {
 	const stories = uniqueStories(context.generatedArtifacts.stories);
 
@@ -367,7 +374,7 @@ async function buildStoryPdfAttachments(
 			}
 
 			const queryData = await getStoryQueryData(context, latest.code);
-			const pdf = await buildDownloadResponse('pdf', latest.title, latest.code, queryData, dateFormat);
+			const pdf = await buildDownloadResponse('pdf', latest.title, latest.code, queryData, dateFormat, theme);
 			return {
 				kind: 'story',
 				title: latest.title,

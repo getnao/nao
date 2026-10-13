@@ -10,6 +10,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import {
+	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
@@ -618,9 +619,21 @@ export const sharedStoryRoutes = {
 				},
 			});
 
-			const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
+			const [displaySettings, theme] = shared.projectId
+				? await Promise.all([
+						projectQueries.getDisplaySettings(shared.projectId),
+						getActiveThemeForProject(shared.projectId),
+					])
+				: [null, null];
 
-			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				version.title,
+				code,
+				queryData,
+				displaySettings?.dateFormat,
+				theme,
+			);
 		}),
 };
 

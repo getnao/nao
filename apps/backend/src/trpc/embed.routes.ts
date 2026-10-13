@@ -138,6 +138,13 @@ export const embedRoutes = router({
 				chatId: story.chatId,
 				metadata: { type: 'download', format: input.format, title: story.title },
 			});
-			return buildDownloadResponse(input.format, story.title, story.code, story.queryData, story.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				story.title,
+				story.code,
+				story.queryData,
+				story.dateFormat,
+				story.theme,
+			);
 		}),
 });

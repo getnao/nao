@@ -17,6 +17,7 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
+	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
 	getCustomStoryNarratives,
@@ -1080,7 +1081,12 @@ export const storyRoutes = {
 			const storyData = story.chatId
 				? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
 				: null;
-			const displaySettings = story.projectId ? await projectQueries.getDisplaySettings(story.projectId) : null;
+			const [displaySettings, theme] = story.projectId
+				? await Promise.all([
+						projectQueries.getDisplaySettings(story.projectId),
+						getActiveThemeForProject(story.projectId),
+					])
+				: [null, null];
 			const queryData =
 				storyData?.allowsPersistedFallback && story.chatId
 					? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
@@ -1093,6 +1099,7 @@ export const storyRoutes = {
 				storyData?.code ?? story.code,
 				queryData,
 				displaySettings?.dateFormat,
+				theme,
 			);
 		}),
 
@@ -1146,9 +1153,18 @@ export const storyRoutes = {
 				});
 			}
 
-			const displaySettings = projectId ? await projectQueries.getDisplaySettings(projectId) : null;
+			const [displaySettings, theme] = projectId
+				? await Promise.all([projectQueries.getDisplaySettings(projectId), getActiveThemeForProject(projectId)])
+				: [null, null];
 
-			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				version.title,
+				code,
+				queryData,
+				displaySettings?.dateFormat,
+				theme,
+			);
 		}),
 };
 

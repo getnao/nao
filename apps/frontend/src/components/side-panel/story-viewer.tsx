@@ -444,7 +444,10 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						)
 					) : viewMode === 'edit' ? (
 						<StoryEmbedDataProvider value={versionQueryData}>
-							<StoryThemeProvider theme={storyTheme} className='bg-background text-foreground'>
+							<StoryThemeProvider
+								theme={storyTheme}
+								className='h-auto min-h-full bg-background text-foreground'
+							>
 								{isEditTabbedStory ? (
 									<StoryTabbedEditor
 										code={editCode}

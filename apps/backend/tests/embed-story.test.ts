@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getDisplaySettings: vi.fn(),
 	getStoryQueryData: vi.fn(),
 	backfillMissingQueryDataForSandbox: vi.fn(),
+	getActiveThemeForProject: vi.fn(),
 }));
 
 vi.mock('../src/utils/embed-token', () => ({
@@ -25,6 +26,9 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/services/live-story', () => ({
 	getStoryQueryData: mocks.getStoryQueryData,
+}));
+vi.mock('../src/services/custom-story', () => ({
+	getActiveThemeForProject: mocks.getActiveThemeForProject,
 }));
 vi.mock('../src/utils/story-query-data', () => ({
 	backfillMissingQueryDataForSandbox: mocks.backfillMissingQueryDataForSandbox,
