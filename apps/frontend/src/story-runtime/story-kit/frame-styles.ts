@@ -4,7 +4,8 @@ import { useLayoutEffect } from 'react';
 const REBASED_ATTRIBUTE = 'data-nao-frame-rebased';
 const MEDIA_RULE = /@media\s*([^{]+)\{/g;
 const MEDIA_TYPE_PREFIX = /^\s*(only\s+)?(screen|all)\s+and\s+/i;
-const FRAME_FEATURE = /^\(\s*(((min|max)-)?(width|height|aspect-ratio)\b|orientation\b|(width|height)\s*[<>=])/i;
+const FRAME_FEATURE =
+	/^\(\s*(((min|max)-)?(width|height|aspect-ratio)\b|orientation\b|(width|height)\s*[<>=]|[^()<>=]+[<>]=?\s*(width|height)\b)/i;
 const CONDITION_PART = /\([^()]*\)|\s+(and|or)\s+|\s*not\s+/gi;
 const CONTAINER_UNITS: Record<string, string> = {
 	vw: 'cqw',
@@ -17,6 +18,7 @@ const CONTAINER_UNITS: Record<string, string> = {
 const VIEWPORT_UNIT_NAMES = Object.keys(CONTAINER_UNITS)
 	.sort((left, right) => right.length - left.length)
 	.join('|');
+const STRING_COMMENT_OR_URL = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|url\(\s*[^)]*\))/gi;
 const VIEWPORT_UNIT = new RegExp(`(?<![\\w.]|\\w-)(\\d*\\.?\\d+)[sld]?(${VIEWPORT_UNIT_NAMES})\\b`, 'gi');
 
 /**
@@ -41,6 +43,13 @@ export function rebaseStoryStylesOnFrame(): void {
 
 export function rebaseCssOnFrame(css: string): string {
 	return css
+		.split(STRING_COMMENT_OR_URL)
+		.map((part, index) => (index % 2 === 0 ? rebaseCssCode(part) : part))
+		.join('');
+}
+
+function rebaseCssCode(code: string): string {
+	return code
 		.replace(MEDIA_RULE, (rule, condition: string) => {
 			const frameCondition = condition.replace(MEDIA_TYPE_PREFIX, '').trim();
 			return isFrameCondition(frameCondition) ? `@container ${STORY_FRAME_CONTAINER} ${frameCondition} {` : rule;

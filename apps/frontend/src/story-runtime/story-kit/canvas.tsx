@@ -1,4 +1,7 @@
 import { joinClassNames } from '@nao/shared/class-names';
+import { STORY_PRINT_CANVAS_ATTRIBUTE } from '@nao/shared/story-app';
+import { useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { isPrintMode } from '../story-host';
 import { useFrameRelativeStoryStyles } from './frame-styles';
 import { fitScale, useStageSize } from './stage-fit';
@@ -20,13 +23,27 @@ export interface CanvasProps {
  */
 export function Canvas({ children, width, height, className }: CanvasProps) {
 	useFrameRelativeStoryStyles();
-	const { stageRef, stage } = useStageSize<HTMLDivElement>();
-	const print = isPrintMode();
 	const canvas = canvasSize(width, height);
-	const scale = print ? fitToWidth(stage, canvas) : fitScale(stage, canvas);
+	if (isPrintMode()) {
+		return (
+			<PrintedCanvas canvas={canvas} className={className}>
+				{children}
+			</PrintedCanvas>
+		);
+	}
+	return (
+		<ScreenCanvas canvas={canvas} className={className}>
+			{children}
+		</ScreenCanvas>
+	);
+}
+
+function ScreenCanvas({ canvas, className, children }: { canvas: Size; className?: string; children: ReactNode }) {
+	const { stageRef, stage } = useStageSize<HTMLDivElement>();
+	const scale = fitScale(stage, canvas);
 
 	return (
-		<div ref={stageRef} className={joinClassNames('nao-canvas', print && 'nao-canvas--print')}>
+		<div ref={stageRef} className='nao-canvas'>
 			<div
 				className='nao-canvas__viewport'
 				style={
@@ -45,6 +62,22 @@ export function Canvas({ children, width, height, className }: CanvasProps) {
 	);
 }
 
+function PrintedCanvas({ canvas, className, children }: { canvas: Size; className?: string; children: ReactNode }) {
+	useLayoutEffect(() => {
+		document.documentElement.setAttribute(STORY_PRINT_CANVAS_ATTRIBUTE, `${canvas.width}x${canvas.height}`);
+		return () => document.documentElement.removeAttribute(STORY_PRINT_CANVAS_ATTRIBUTE);
+	}, [canvas.width, canvas.height]);
+
+	return createPortal(
+		<div className='nao-canvas nao-canvas--print'>
+			<div className={joinClassNames('nao-canvas__surface', className)} style={canvas}>
+				{children}
+			</div>
+		</div>,
+		document.body,
+	);
+}
+
 /** A size the agent wrote that cannot be laid out (zero, negative, not a number) falls back to the default. */
 function canvasSize(width: number | undefined, height: number | undefined): Size {
 	return {
@@ -55,9 +88,4 @@ function canvasSize(width: number | undefined, height: number | undefined): Size
 
 function isLayoutLength(length: number | undefined): length is number {
 	return typeof length === 'number' && Number.isFinite(length) && length > 0;
-}
-
-/** A printed page has no fixed height: the canvas only shrinks to the page width. */
-function fitToWidth(stage: Size, canvas: Size): number {
-	return stage.width > 0 ? Math.min(stage.width / canvas.width, 1) : 1;
 }

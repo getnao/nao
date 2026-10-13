@@ -137,7 +137,6 @@ function ThumbnailFallback({
 }
 
 /** The version and theme in the URL let the browser keep an image until either of them changes. */
-/** Thumbnails render serially in the background, so a missing one is polled with a capped backoff until it lands. */
 function retryDelayAfter(attempt: number): number {
 	return SCREENSHOT_RETRY_DELAYS_MS[Math.min(attempt, SCREENSHOT_RETRY_DELAYS_MS.length - 1)];
 }

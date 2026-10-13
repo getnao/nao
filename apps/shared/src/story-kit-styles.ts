@@ -1,4 +1,9 @@
-import { STORY_FRAME_CONTAINER, STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from './story-app';
+import {
+	STORY_FRAME_CONTAINER,
+	STORY_PRINT_CANVAS_ATTRIBUTE,
+	STORY_PRINT_SLIDES_ATTRIBUTE,
+	STORY_SLIDE_SIZE,
+} from './story-app';
 
 /** Loaded by the frame document before the story's own CSS, so `app.css` overrides it and hand-rolled */
 export const KIT_STYLES = `
@@ -65,7 +70,9 @@ html:has(.nao-slides--fullscreen) body{background:transparent}
 .nao-canvas{display:flex;align-items:flex-start;justify-content:center;height:100vh;overflow:hidden;box-sizing:border-box}
 .nao-canvas__viewport{position:relative;flex:none;overflow:hidden;box-sizing:content-box}
 .nao-canvas__surface{container:${STORY_FRAME_CONTAINER} / size;position:relative;overflow:hidden;box-sizing:border-box;background:var(--background);transform:scale(var(--nao-canvas-scale));transform-origin:top left}
-.nao-canvas--print{display:block;height:auto}
+.nao-canvas--print{display:block;height:auto;overflow:visible}
+.nao-canvas--print .nao-canvas__surface{transform:none;break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+html[${STORY_PRINT_CANVAS_ATTRIBUTE}] #root{display:none}
 .nao-slides--print{display:block;height:auto;padding:0;background:none}
 .nao-slides--print .nao-slide{break-after:page;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .nao-slides--print .nao-slide:last-child{break-after:auto}

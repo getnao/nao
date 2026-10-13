@@ -668,6 +668,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 	);
 	const signedRowTotals = data.map((row) => sumStackValue(row, renderedSeries) ?? 0);
 	const maximum = clampedRowTotals.reduce((current, value) => Math.max(current, value), 0) || 1;
+	const hiddenValueAxisDomain: [number, number] = isPercent ? [0, 1] : [0, maximum];
 	const showValueAxis = hasMultipleSeries || isDiverging;
 	const visibleValueAxisDomainProps = resolveHorizontalBarValueAxisDomainProps(
 		data,
@@ -716,7 +717,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 			{...(hasMultipleSeries ? { barCategoryGap: HORIZONTAL_BAR_CATEGORY_GAP } : {})}
 		>
 			{props.hideAxes ? (
-				<XAxis type='number' hide domain={[0, maximum]} />
+				<XAxis type='number' hide domain={hiddenValueAxisDomain} />
 			) : showValueAxis ? (
 				<XAxis
 					type='number'
@@ -730,7 +731,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 					}
 				/>
 			) : (
-				<XAxis type='number' hide domain={[0, maximum]} />
+				<XAxis type='number' hide domain={hiddenValueAxisDomain} />
 			)}
 			{props.hideAxes ? (
 				<YAxis type='category' dataKey={xAxisKey} hide />

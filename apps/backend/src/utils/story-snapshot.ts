@@ -1,4 +1,4 @@
-import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+import { STORY_PRINT_CANVAS_ATTRIBUTE, STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
 import type { DownloadFormat } from '@nao/shared/types';
 import type { Page, PDFOptions } from 'puppeteer-core';
 
@@ -45,17 +45,14 @@ export async function renderStoryPdf(html: string): Promise<Buffer> {
 	}
 }
 
-/** A kit deck prints one slide per 16:9 page; any other story is walked through its own tabs or slides first. */
+/** Decks and canvases print on pages of their own size; other stories are walked through their tabs or slides. */
 async function layOutForPrint(page: Page): Promise<PDFOptions> {
 	await delay(RENDER_SETTLE_MS);
-	const isKitDeck = await page.evaluate(
-		(attribute) => document.documentElement.hasAttribute(attribute),
-		STORY_PRINT_SLIDES_ATTRIBUTE,
-	);
-	if (isKitDeck) {
-		await page.setViewport({ ...STORY_SLIDE_SIZE, deviceScaleFactor: 2 });
+	const fixedPage = await readFixedPageSize(page);
+	if (fixedPage) {
+		await page.setViewport({ ...fixedPage, deviceScaleFactor: 2 });
 		await delay(RENDER_SETTLE_MS);
-		return deckPdfOptions();
+		return fixedPagePdfOptions(fixedPage);
 	}
 	const layout = await expandStoryViews(page, {
 		settleMs: VIEW_SETTLE_MS,
@@ -90,10 +87,34 @@ function printableLayoutHeight(landscape: boolean): number {
 	return (paperHeight - 2 * PAGE_MARGIN_PX) / printScale(landscape);
 }
 
-function deckPdfOptions(): PDFOptions {
+async function readFixedPageSize(page: Page): Promise<{ width: number; height: number } | null> {
+	const { isDeck, canvas } = await page.evaluate(
+		(slidesAttribute, canvasAttribute) => ({
+			isDeck: document.documentElement.hasAttribute(slidesAttribute),
+			canvas: document.documentElement.getAttribute(canvasAttribute),
+		}),
+		STORY_PRINT_SLIDES_ATTRIBUTE,
+		STORY_PRINT_CANVAS_ATTRIBUTE,
+	);
+	if (isDeck) {
+		return STORY_SLIDE_SIZE;
+	}
+	return canvas ? parseCanvasSize(canvas) : null;
+}
+
+function parseCanvasSize(value: string): { width: number; height: number } | null {
+	const match = /^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$/.exec(value);
+	if (!match) {
+		return null;
+	}
+	const size = { width: Math.round(Number(match[1])), height: Math.round(Number(match[2])) };
+	return size.width > 0 && size.height > 0 ? size : null;
+}
+
+function fixedPagePdfOptions(size: { width: number; height: number }): PDFOptions {
 	return {
-		width: `${STORY_SLIDE_SIZE.width}px`,
-		height: `${STORY_SLIDE_SIZE.height}px`,
+		width: `${size.width}px`,
+		height: `${size.height}px`,
 		printBackground: true,
 		margin: { top: '0', bottom: '0', left: '0', right: '0' },
 	};
