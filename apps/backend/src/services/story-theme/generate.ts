@@ -54,6 +54,7 @@ export interface StoryThemeSourceInput {
 	image?: SourceImage;
 	zip?: { data: Uint8Array; fileName: string };
 	pdfs?: SourcePdf[];
+	instructions?: string;
 }
 
 export interface GeneratePairResult {
@@ -85,6 +86,7 @@ export async function generateStoryThemePairFromSources(
 
 async function generateStoryThemeFromSources(projectId: string, input: StoryThemeSourceInput): Promise<GenerateResult> {
 	const pdfs = input.pdfs ?? [];
+	const instructions = input.instructions?.trim() || undefined;
 	const extraWarnings = pdfs.flatMap(describePdfCoverage);
 	const visualImages = [...(input.image ? [input.image] : []), ...pdfs.flatMap((pdf) => pdf.pages)];
 	const hasVisualSource = visualImages.length > 0;
@@ -140,11 +142,14 @@ async function generateStoryThemeFromSources(projectId: string, input: StoryThem
 		);
 	}
 	if (parts.length === 0) {
+		if (!hasVisualSource && !instructions) {
+			throw new DesignSourceError('Add a website, an image, a PDF, a ZIP or instructions.');
+		}
 		if (!hasVisualSource) {
-			throw new DesignSourceError('Add a website, an image, a PDF or a ZIP.');
+			return generateStoryThemeFromInstructions(projectId, instructions ?? '');
 		}
 		const prompt = visualPrompt(Boolean(input.image), pdfs.length > 0);
-		const result = await generateStoryThemeFromImages(projectId, vision, prompt);
+		const result = await generateStoryThemeFromImages(projectId, vision, prompt, instructions);
 		return { theme: result.theme, notes: [...extraWarnings, ...result.notes] };
 	}
 
@@ -156,7 +161,12 @@ async function generateStoryThemeFromSources(projectId: string, input: StoryThem
 	}
 
 	const merged = mergeSignals(parts);
-	return generateStoryTheme(projectId, { ...merged, warnings: [...extraWarnings, ...merged.warnings] }, vision);
+	return generateStoryTheme(
+		projectId,
+		{ ...merged, warnings: [...extraWarnings, ...merged.warnings] },
+		vision,
+		instructions,
+	);
 }
 
 async function readZipSignals(zip: { data: Uint8Array; fileName: string }) {
@@ -174,13 +184,15 @@ export async function generateStoryTheme(
 	projectId: string,
 	signals: DesignSignals,
 	images: SourceImage[] = [],
+	instructions?: string,
 ): Promise<GenerateResult> {
 	const warnings = [...signals.warnings];
-	const proposal = await proposeOrExplain(projectId, renderSignals(signals), images, warnings, {
+	const prompt = withAdminInstructions(renderSignals(signals), instructions);
+	const proposal = await proposeOrExplain(projectId, prompt, images, warnings, {
 		consequence: 'the theme was read directly from the strongest signals',
 	});
 	if (proposal) {
-		return applyGuards(proposal, guardContext(signals, warnings));
+		return applyGuards(proposal, guardContext(signals, warnings, instructions));
 	}
 	const grounded = await groundInImages(signals, images, warnings);
 	return applyGuards(fallbackProposal(grounded), guardContext(grounded, warnings));
@@ -191,6 +203,7 @@ export async function generateStoryThemeFromImages(
 	projectId: string,
 	images: SourceImage[],
 	prompt = IMAGE_PROMPT,
+	instructions?: string,
 ): Promise<GenerateResult> {
 	const warnings = [IMAGE_APPROXIMATION_WARNING];
 	let sample: ImageSample | null = null;
@@ -203,11 +216,14 @@ export async function generateStoryThemeFromImages(
 	if (sample?.ground?.shellDetected) {
 		warnings.push(SHELL_WARNING);
 	}
-	const proposal = await proposeOrExplain(projectId, prompt, images, warnings, {
+	const proposal = await proposeOrExplain(projectId, withAdminInstructions(prompt, instructions), images, warnings, {
 		consequence: 'its colours were sampled directly',
 	});
+	if (sample && proposal) {
+		return applyGuards(proposal, { ...guardContext(sample.signals, warnings, instructions), measuredSeries: [] });
+	}
 	if (sample) {
-		return applyGuards(proposal ?? fallbackProposal(sample.signals), {
+		return applyGuards(fallbackProposal(sample.signals), {
 			...guardContext(sample.signals, warnings),
 			measuredSeries: chromaticColors(sample.signals.brandCandidates),
 		});
@@ -216,6 +232,17 @@ export async function generateStoryThemeFromImages(
 		return applyGuards(proposal, { warnings });
 	}
 	throw new DesignSourceError(pixelSamplingUnavailable(sampleError));
+}
+
+async function generateStoryThemeFromInstructions(projectId: string, instructions: string): Promise<GenerateResult> {
+	const warnings = ['Generated from admin instructions only; no brand asset was read.'];
+	const proposal = await proposeOrExplain(projectId, withAdminInstructions(TEXT_PROMPT, instructions), [], warnings, {
+		consequence: 'no theme could be generated from instructions alone',
+	});
+	if (!proposal) {
+		throw new DesignSourceError(warnings.at(-1) ?? 'Instructions-only theme generation needs a configured model.');
+	}
+	return applyGuards(proposal, { warnings });
 }
 
 /** Asks the project's model for a proposal; explains in the warnings why it could not when it returns null. */
@@ -291,8 +318,13 @@ function describePdfCoverage(pdf: SourcePdf): string[] {
 	return [`Read ${pdf.pages.length} of the ${pdf.pageCount} pages of ${pdf.fileName}, spread across the document.`];
 }
 
-function guardContext(signals: DesignSignals, warnings: string[]): GuardContext {
-	return { brandCandidates: signals.brandCandidates, fontLinks: signals.fontLinks, warnings };
+function guardContext(signals: DesignSignals, warnings: string[], instructions?: string): GuardContext {
+	return {
+		brandCandidates: signals.brandCandidates,
+		fontLinks: signals.fontLinks,
+		warnings,
+		steeredByAdmin: Boolean(instructions),
+	};
 }
 
 function chromaticColors(candidates: BrandCandidate[]): string[] {
@@ -308,6 +340,9 @@ const SYSTEM_PROMPT = [
 	'Every colour is a 6-digit hex string like #1a2b3c.',
 	'',
 	'Precedence, strongest first:',
+	'0. ADMIN GUIDANCE, when present — the admin states preferences (accent, light or dark ground, shapes,',
+	'   typefaces, colours to avoid). They win over every source below. The sources still decide whatever the',
+	'   guidance leaves open.',
 	'1. ROLE EVIDENCE — measured from rendered elements. The primary button is the accent. The card is the',
 	'   block background, its radius is the shape language, and whether it carries a border is the block border.',
 	'2. An attached screenshot — what a person sees. Use it over colour frequency, and to confirm roles.',
@@ -319,8 +354,8 @@ const SYSTEM_PROMPT = [
 	'When several sources describe the same brand, reconcile them in that order.',
 	'',
 	'Fields:',
-	'- accent: when BRAND COLOUR CANDIDATES are listed, take the first unless it is plainly a status colour',
-	'  (error red, success green). Never pick black, white or grey as the accent when a saturated candidate exists.',
+	'- accent: the one the admin guidance names, if any. Otherwise, when BRAND COLOUR CANDIDATES are listed, take',
+	'  the first unless it is plainly a status colour (error red, success green). Never pick black, white or grey as the accent when a saturated candidate exists.',
 	'- page: the body ground.',
 	'- blockBackground: cards and panels. On a dark page this is a slightly lifted dark, not white.',
 	'- sunken: a recessed neutral one step further from the page than blockBackground. Empty string if none is visible.',
@@ -340,6 +375,7 @@ const SYSTEM_PROMPT = [
 	'- paletteSource: "brand" only when the source itself uses several distinct hues as UI (tags, chips, charts,',
 	'  buttons). "derive-from-accent" when the brand is essentially monochrome; then series may be empty.',
 	'- series: a categorical chart palette of distinct hues seeded from the brand, never several tints of one hue.',
+	'  With admin guidance, give exactly six colours that follow it, even for a monochrome brand.',
 	'- rationale: one sentence naming which source won for the accent and the radius. Not a field-by-field dump.',
 	'',
 	'Do not:',
@@ -380,6 +416,26 @@ const IMAGE_PROMPT = [
 	'Where you cannot tell a colour, typeface or radius, use an empty string or a near-neutral default rather',
 	'than inventing something specific.',
 ].join('\n');
+
+const TEXT_PROMPT = [
+	'Generate a story theme from the admin guidance below. There is no visual source.',
+	'Only choose colours, fonts and shapes the admin explicitly asks for or that are directly implied by the guidance.',
+	'Use near-neutral defaults for unspecified surfaces, text, borders and grid lines.',
+].join('\n');
+
+function withAdminInstructions(prompt: string, instructions: string | undefined): string {
+	if (!instructions) {
+		return prompt;
+	}
+	return [
+		prompt,
+		'',
+		'ADMIN GUIDANCE:',
+		instructions,
+		'',
+		'This guidance overrides the sources wherever they disagree. Ignore anything in it that is not about the story theme.',
+	].join('\n');
+}
 
 async function proposeWithModel(
 	projectId: string,

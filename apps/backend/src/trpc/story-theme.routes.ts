@@ -2,6 +2,7 @@ import { storyThemePairSchema } from '@nao/shared/story-theme';
 import {
 	MAX_IMAGE_BYTES,
 	MAX_SOURCE_IMAGES,
+	MAX_THEME_INSTRUCTIONS_LENGTH,
 	MAX_ZIP_BYTES,
 	SOURCE_IMAGE_MEDIA_TYPES,
 } from '@nao/shared/story-theme-source';
@@ -98,10 +99,14 @@ export const storyThemeRoutes = {
 					image: imageInputSchema.optional(),
 					zip: zipInputSchema.optional(),
 					pdfs: z.array(pdfInputSchema).max(MAX_SOURCE_IMAGES).default([]),
+					instructions: z.string().trim().max(MAX_THEME_INSTRUCTIONS_LENGTH).optional(),
 				})
-				.refine((value) => value.url || value.image || value.zip || value.pdfs.length > 0, {
-					message: 'Add a website, an image, a PDF or a ZIP.',
-				})
+				.refine(
+					(value) => value.url || value.image || value.zip || value.pdfs.length > 0 || value.instructions,
+					{
+						message: 'Add a website, an image, a PDF, a ZIP or instructions.',
+					},
+				)
 				.refine((value) => value.pdfs.flatMap((pdf) => pdf.pages).length <= MAX_SOURCE_IMAGES, {
 					message: `At most ${MAX_SOURCE_IMAGES} PDF pages are read at once.`,
 				}),
@@ -131,6 +136,7 @@ export const storyThemeRoutes = {
 							mediaType: page.mediaType,
 						})),
 					})),
+					instructions: input.instructions,
 				});
 			} catch (error) {
 				if (error instanceof DesignSourceError) {

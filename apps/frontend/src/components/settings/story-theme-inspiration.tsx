@@ -1,10 +1,11 @@
 import { useMutation } from '@tanstack/react-query';
-import { FileText, FolderArchive, Globe, Image as ImageIcon, Loader2, Sparkles, X } from 'lucide-react';
+import { FileText, FolderArchive, Globe, Image as ImageIcon, Loader2, PenLine, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
 	MAX_IMAGE_BYTES,
 	MAX_PDF_BYTES,
 	MAX_SOURCE_IMAGES,
+	MAX_THEME_INSTRUCTIONS_LENGTH,
 	MAX_ZIP_BYTES,
 	SOURCE_IMAGE_MEDIA_TYPES,
 } from '@nao/shared/story-theme-source';
@@ -18,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Favicon } from '@/components/ui/favicon';
 import { NakedInput } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { Textarea } from '@/components/ui/textarea';
 import { cn, formatBytes } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -38,6 +40,7 @@ const MAX_SOURCE_FILE_NAME_LENGTH = 200;
 const SOURCE_NAMES: Record<FileSourceKind, string> = { image: 'Image', pdf: 'PDF', zip: 'ZIP' };
 const WELL_CLASS =
 	'flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm';
+const TEXT_WELL_CLASS = cn(WELL_CLASS, 'border-solid transition-colors focus-within:border-foreground/30');
 
 export interface InspirationOutcome {
 	label: string;
@@ -58,13 +61,14 @@ export function StoryThemeInspiration({
 	const [image, setImage] = useState<PickedFile | null>(null);
 	const [zip, setZip] = useState<PickedFile | null>(null);
 	const [pdf, setPdf] = useState<PickedFile | null>(null);
+	const [instructions, setInstructions] = useState('');
 	const [error, setError] = useState<string | null>(null);
 	const [running, setRunning] = useState(false);
 
 	const onError = (mutationError: { message: string }) => setError(mutationError.message);
 	const generateTheme = useMutation({ ...trpc.storyTheme.generate.mutationOptions(), onError });
 	const sourceLocked = disabled || running;
-	const hasSource = Boolean(url.trim() || image || zip || pdf);
+	const hasSource = Boolean(url.trim() || image || zip || pdf || instructions.trim());
 	const canGenerate = hasSource && !sourceLocked;
 
 	const generate = () => {
@@ -72,8 +76,9 @@ export function StoryThemeInspiration({
 			return;
 		}
 		const trimmed = url.trim();
+		const trimmedInstructions = instructions.trim();
 		const normalized = trimmed ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`) : undefined;
-		if (!normalized && !image && !zip && !pdf) {
+		if (!normalized && !image && !zip && !pdf && !trimmedInstructions) {
 			return;
 		}
 		setRunning(true);
@@ -87,10 +92,11 @@ export function StoryThemeInspiration({
 							: undefined,
 						zip: zip ? { data: zip.data, fileName: toSourceFileName(zip.name, 'brand.zip') } : undefined,
 						pdfs,
+						instructions: trimmedInstructions || undefined,
 					},
 					{
 						onSuccess: (result) => {
-							onGenerated(sourceLabel(normalized, image, pdf, zip), result);
+							onGenerated(sourceLabel(normalized, image, pdf, zip, trimmedInstructions), result);
 							setError(null);
 						},
 						onSettled: () => {
@@ -110,10 +116,11 @@ export function StoryThemeInspiration({
 	return (
 		<SettingsCard
 			title='Start from a brand'
-			description='Read colours, fonts and shapes from a website, an image, a PDF (brand guidelines, a deck) or a ZIP of brand assets — or several together. The result defines the settings below.'
+			description='Describe the theme you want, then optionally add a website, image, PDF or ZIP so nao can ground it in brand assets.'
 			className={cn('gap-0', outcome && 'overflow-hidden pb-0')}
 		>
 			<div className='flex flex-col gap-2'>
+				<InstructionSource value={instructions} onChange={setInstructions} disabled={sourceLocked} />
 				<UrlSource url={url} onUrlChange={setUrl} disabled={sourceLocked} onSubmit={generate} />
 				<FileSource kind='image' file={image} onFile={setImage} disabled={sourceLocked} setError={setError} />
 				<FileSource kind='pdf' file={pdf} onFile={setPdf} disabled={sourceLocked} setError={setError} />
@@ -121,13 +128,13 @@ export function StoryThemeInspiration({
 				{error && <p className='text-xs text-destructive'>{error}</p>}
 				<div className='flex flex-wrap items-center justify-between gap-3'>
 					<p className='min-w-0 flex-1 text-xs text-muted-foreground'>
-						Paste a URL or screenshot. Use a screenshot for Figma or pages behind a login.
+						Assets are optional but help with exact colours, typography and shape language.
 					</p>
 					<GenerateButton
 						pending={running}
 						disabled={!hasSource || disabled}
 						onClick={generate}
-						label={pendingLabel(url, image, pdf, zip)}
+						label={pendingLabel(url, image, pdf, zip, instructions)}
 					/>
 				</div>
 			</div>
@@ -192,12 +199,12 @@ function UrlSource({
 	}, [disabled, onUrlChange]);
 
 	return (
-		<div className={cn(WELL_CLASS, disabled && 'pointer-events-none opacity-50')}>
+		<div className={cn(TEXT_WELL_CLASS, disabled && 'pointer-events-none opacity-50')}>
 			<div
 				className='flex min-w-0 flex-1 cursor-text items-center gap-3'
 				onClick={() => inputRef.current?.focus()}
 			>
-				<span className='flex size-10 shrink-0 items-center justify-center overflow-hidden rounded bg-background'>
+				<span className='flex size-10 shrink-0 items-center justify-center overflow-hidden rounded bg-transparent'>
 					{preview ? (
 						<Favicon
 							url={preview.href}
@@ -377,6 +384,54 @@ function FileSource({
 	);
 }
 
+function InstructionSource({
+	value,
+	onChange,
+	disabled,
+}: {
+	value: string;
+	onChange: (value: string) => void;
+	disabled: boolean;
+}) {
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	return (
+		<div className={cn(TEXT_WELL_CLASS, 'items-start', disabled && 'pointer-events-none opacity-50')}>
+			<div
+				className='flex min-w-0 flex-1 cursor-text items-start gap-3'
+				onClick={() => textareaRef.current?.focus()}
+			>
+				<span className='mt-1 flex size-10 shrink-0 items-center justify-center'>
+					<PenLine className='size-4 text-muted-foreground' />
+				</span>
+				<div className='min-w-0 flex-1 py-1'>
+					<Textarea
+						ref={textareaRef}
+						value={value}
+						onChange={(event) => onChange(event.target.value)}
+						placeholder='Dark and premium, navy with an amber accent, square cards, no purple.'
+						disabled={disabled}
+						maxLength={MAX_THEME_INSTRUCTIONS_LENGTH}
+						aria-label='Theme instructions'
+						className='resize-none rounded-none border-0 bg-transparent p-0 text-sm shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent md:text-sm'
+					/>
+					<p className='truncate text-xs text-muted-foreground/70'>
+						Instructions · take priority over the sources below
+					</p>
+				</div>
+			</div>
+			{value ? (
+				<ClearButton
+					className='mt-1'
+					disabled={disabled}
+					onClick={() => onChange('')}
+					label='Clear instructions'
+				/>
+			) : null}
+		</div>
+	);
+}
+
 const DEFAULT_FILE_NAMES: Record<FileSourceKind, string> = {
 	image: 'pasted-image.png',
 	pdf: 'brand.pdf',
@@ -444,13 +499,23 @@ function acceptedFormatsHint(kind: FileSourceKind): string {
 	return `PDF, CSS, HTML, SVG, JSON, YAML, images · up to ${formatBytes(MAX_ZIP_BYTES)}`;
 }
 
-function ClearButton({ disabled, onClick, label }: { disabled: boolean; onClick: () => void; label: string }) {
+function ClearButton({
+	disabled,
+	onClick,
+	label,
+	className,
+}: {
+	disabled: boolean;
+	onClick: () => void;
+	label: string;
+	className?: string;
+}) {
 	return (
 		<Button
 			type='button'
 			variant='ghost'
 			size='icon-xs'
-			className='shrink-0'
+			className={cn('shrink-0', className)}
 			disabled={disabled}
 			onClick={onClick}
 			aria-label={label}
@@ -491,12 +556,14 @@ function sourceLabel(
 	image: PickedFile | null,
 	pdf: PickedFile | null,
 	zip: PickedFile | null,
+	instructions: string,
 ): string {
 	const parts = [
 		url ? displaySourceLabel(url) : null,
 		image?.name ?? null,
 		pdf?.name ?? null,
 		zip?.name ?? null,
+		instructions ? 'instructions' : null,
 	].filter((part): part is string => Boolean(part));
 	if (parts.length <= 1) {
 		return parts[0] ?? '';
@@ -507,8 +574,14 @@ function sourceLabel(
 	return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
-function pendingLabel(url: string, image: PickedFile | null, pdf: PickedFile | null, zip: PickedFile | null): string {
-	const count = [url.trim(), image, pdf, zip].filter(Boolean).length;
+function pendingLabel(
+	url: string,
+	image: PickedFile | null,
+	pdf: PickedFile | null,
+	zip: PickedFile | null,
+	instructions: string,
+): string {
+	const count = [url.trim(), image, pdf, zip, instructions.trim()].filter(Boolean).length;
 	if (count > 1) {
 		return 'Reading your sources…';
 	}
@@ -521,7 +594,13 @@ function pendingLabel(url: string, image: PickedFile | null, pdf: PickedFile | n
 	if (pdf) {
 		return 'Reading the PDF…';
 	}
-	return 'Reading the ZIP…';
+	if (zip) {
+		return 'Reading the ZIP…';
+	}
+	if (instructions.trim()) {
+		return 'Applying instructions…';
+	}
+	return 'Generating theme…';
 }
 
 function displaySourceLabel(label: string): string {

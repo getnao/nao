@@ -44,6 +44,7 @@ export interface GuardContext {
 	measuredSeries?: string[];
 	fontLinks?: string[];
 	warnings?: string[];
+	steeredByAdmin?: boolean;
 }
 
 const INK_MAX_CHROMA = 0.025;
@@ -98,10 +99,10 @@ export function applyGuards(proposal: ThemeProposal, context: GuardContext = {})
 
 	guardSurfaces(theme, pageIsDark, notes);
 	guardText(theme, pageIsDark, notes);
-	guardAccent(theme, context.brandCandidates ?? [], notes);
+	guardAccent(theme, context.steeredByAdmin ? [] : (context.brandCandidates ?? []), notes);
 	guardLines(theme, pageIsDark, notes);
 	guardFonts(theme, proposal, context.fontLinks ?? [], notes);
-	guardSeries(theme, proposal, context.measuredSeries ?? [], notes);
+	guardSeries(theme, proposal, context, notes);
 	deriveTable(theme);
 
 	return { theme: storyThemeSchema.parse(theme), notes };
@@ -271,17 +272,32 @@ function unquoteFamily(raw: string): string {
 		.trim();
 }
 
+function guardSeries(theme: StoryTheme, proposal: ThemeProposal, context: GuardContext, notes: string[]) {
+	const requested = context.steeredByAdmin ? readColors(proposal.series) : [];
+	if (requested.length >= MIN_CHART_SERIES_COLORS) {
+		keepRequestedSeries(theme, requested, notes);
+		return;
+	}
+	completeSeries(theme, proposal, context.measuredSeries ?? [], notes);
+}
+
+function keepRequestedSeries(theme: StoryTheme, requested: string[], notes: string[]) {
+	const surface = theme.block.background;
+	const series = requested.slice(0, MAX_CHART_SERIES_COLORS);
+	const report = validateSeries(series, surface);
+	const repaired = report.ok ? series : snapSeries(series, surface, series.length);
+	notes.push(...describeRepairs(report.issues, series, repaired));
+	theme.charts.series = repaired;
+}
+
 /**
  * Measured colours are exact and lead. The model's proposal fills in behind
  * them, and the accent-derived fan only tops up when fewer than three hues
  * are left.
  */
-function guardSeries(theme: StoryTheme, proposal: ThemeProposal, measured: string[], notes: string[]) {
+function completeSeries(theme: StoryTheme, proposal: ThemeProposal, measured: string[], notes: string[]) {
 	const surface = theme.block.background;
-	const proposed =
-		proposal.paletteSource === 'brand'
-			? proposal.series.map(normalizeColor).filter((hex): hex is string => hex !== null)
-			: [];
+	const proposed = proposal.paletteSource === 'brand' ? readColors(proposal.series) : [];
 	const pinned = distinctHues(measured).length;
 	const kept = distinctHues([...measured, ...proposed]).slice(0, MAX_CHART_SERIES_COLORS);
 	const candidate = kept.length >= DERIVED_SERIES_COUNT ? kept : fillFromAccent(kept, theme.accent.color, surface);
@@ -298,6 +314,10 @@ function guardSeries(theme: StoryTheme, proposal: ThemeProposal, measured: strin
 function fillFromAccent(kept: string[], accent: string, surface: string): string[] {
 	const derived = deriveSeriesFromAccent(accent, DERIVED_SERIES_COUNT, surface);
 	return distinctHues([...kept, ...derived]).slice(0, DERIVED_SERIES_COUNT);
+}
+
+function readColors(raw: string[]): string[] {
+	return [...new Set(raw.map(normalizeColor).filter((hex): hex is string => hex !== null))];
 }
 
 function describeFill(keptCount: number): string {
