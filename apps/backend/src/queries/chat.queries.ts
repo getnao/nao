@@ -372,7 +372,11 @@ export const deleteLastEmptyTurn = async (
 	});
 };
 
-/** Provider and model id recorded on the chat's last assistant message, if any. */
+/**
+ * Provider and model id recorded on the chat's latest active assistant message, as
+ * `provider/model-id`. Undefined when that message carries no model metadata: an older
+ * message's model is never reported in its place.
+ */
 export const getLastAssistantModel = async (chatId: string): Promise<string | undefined> => {
 	const [result] = await db
 		.select({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
@@ -382,14 +386,12 @@ export const getLastAssistantModel = async (chatId: string): Promise<string | un
 				eq(s.chatMessage.chatId, chatId),
 				eq(s.chatMessage.role, 'assistant'),
 				isNull(s.chatMessage.supersededAt),
-				isNotNull(s.chatMessage.llmProvider),
-				isNotNull(s.chatMessage.llmModelId),
 			),
 		)
 		.orderBy(desc(s.chatMessage.createdAt))
 		.limit(1)
 		.execute();
-	return result ? `${result.provider}/${result.modelId}` : undefined;
+	return result?.provider && result.modelId ? `${result.provider}/${result.modelId}` : undefined;
 };
 
 export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {
