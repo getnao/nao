@@ -145,6 +145,9 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 						storyId={latestStory?.storyId}
 						version={latestStory?.version}
 						isToolPart={true}
+						summary={summary}
+						theme={storyTheme}
+						queryData={latestStory?.queryData as QueryDataMap | null | undefined}
 					/>
 				) : (
 					<StoryThumbnail

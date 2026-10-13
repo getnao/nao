@@ -2,8 +2,10 @@ import { ChartColumn, ChartLine, ChartPie, Pencil } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import type { StorySummary } from '@nao/shared/types';
 import type { StoryTheme } from '@nao/shared/story-theme';
-import { SHEET_SURFACE, SHEET_TRANSFORM, SHEET_VISUAL } from '@/components/story-thumbnail';
+import type { QueryDataMap } from '@/components/story-embeds';
+import { SHEET_TRANSFORM, SHEET_VISUAL, StoryThumbnail } from '@/components/story-thumbnail';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { useIsDarkMode } from '@/contexts/theme.provider';
 import { cn } from '@/lib/utils';
@@ -38,25 +40,44 @@ export function CustomStoryThumbnail({
 	storyId,
 	version,
 	isToolPart = false,
+	summary,
+	queryData,
+	theme: fallbackTheme,
 }: {
 	storyId?: string;
 	version?: number;
 	isToolPart?: boolean;
+	summary?: StorySummary;
+	queryData?: QueryDataMap | null;
+	theme?: StoryTheme | null;
 }) {
 	const mode = useIsDarkMode() ? 'dark' : 'light';
 	const { data: activeTheme } = useQuery({
 		...trpc.storyTheme.getActive.queryOptions(),
 		enabled: storyId !== undefined,
 	});
+	const theme = activeTheme?.theme?.[mode] ?? fallbackTheme ?? null;
+	const fallback = (
+		<ThumbnailFallback summary={summary} queryData={queryData} isToolPart={isToolPart} theme={theme} />
+	);
 	if (storyId === undefined || activeTheme === undefined) {
-		return <AppIllustration isToolPart={isToolPart} theme={null} />;
+		return fallback;
 	}
-	const theme = activeTheme.theme?.[mode] ?? null;
 	const src = thumbnailUrl(storyId, version, activeTheme.thumbnailFingerprint, mode);
-	return <StoryScreenshot key={src} src={src} isToolPart={isToolPart} theme={theme} />;
+	return <StoryScreenshot key={src} src={src} isToolPart={isToolPart} theme={theme} fallback={fallback} />;
 }
 
-function StoryScreenshot({ src, isToolPart, theme }: { src: string; isToolPart: boolean; theme: StoryTheme | null }) {
+function StoryScreenshot({
+	src,
+	isToolPart,
+	theme,
+	fallback,
+}: {
+	src: string;
+	isToolPart: boolean;
+	theme: StoryTheme | null;
+	fallback: ReactNode;
+}) {
 	const [status, setStatus] = useState<'loading' | 'loaded' | 'missing'>('loading');
 	const [attempt, setAttempt] = useState(0);
 
@@ -73,7 +94,7 @@ function StoryScreenshot({ src, isToolPart, theme }: { src: string; isToolPart: 
 
 	return (
 		<>
-			{status !== 'loaded' && <AppIllustration isToolPart={isToolPart} theme={theme} />}
+			{status !== 'loaded' && fallback}
 			{status !== 'missing' && (
 				<ScreenshotSheet
 					key={attempt}
@@ -87,6 +108,32 @@ function StoryScreenshot({ src, isToolPart, theme }: { src: string; isToolPart: 
 			)}
 		</>
 	);
+}
+
+function ThumbnailFallback({
+	summary,
+	queryData,
+	isToolPart,
+	theme,
+}: {
+	summary?: StorySummary;
+	queryData?: QueryDataMap | null;
+	isToolPart: boolean;
+	theme: StoryTheme | null;
+}) {
+	if (summary && summary.segments.length > 0) {
+		return (
+			<StoryThumbnail
+				summary={summary}
+				queryData={queryData}
+				isToolPart={isToolPart}
+				theme={theme}
+				className={isToolPart ? 'rounded-lg overflow-visible right-6' : undefined}
+			/>
+		);
+	}
+
+	return <AppIllustration isToolPart={isToolPart} theme={theme} />;
 }
 
 /** The version and theme in the URL let the browser keep an image until either of them changes. */
@@ -233,7 +280,7 @@ function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 					className={cn(
 						'absolute top-[26%] left-[16%] origin-top-left overflow-hidden',
 						sheetSize,
-						SHEET_SURFACE,
+						'bg-background',
 						SHEET_VISUAL,
 						'border-t border-r',
 					)}
@@ -251,7 +298,7 @@ function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 	}
 
 	return (
-		<div className={cn('absolute inset-0 overflow-hidden', SHEET_SURFACE)}>
+		<div className='absolute inset-0 overflow-hidden bg-background'>
 			<div className='absolute inset-0 overflow-hidden'>
 				<BlockEditPanel isToolPart={isToolPart} />
 				<StoryTitle isToolPart={isToolPart} />
@@ -269,7 +316,7 @@ function BlockEditPanel({ isToolPart }: { isToolPart: boolean }) {
 	return (
 		<div
 			className={cn(
-				'absolute top-0 left-0 h-full border-r border-foreground/6 bg-foreground/6',
+				'absolute top-0 left-0 h-full border-r border-foreground/6 bg-card',
 				isToolPart ? 'w-[52px]' : 'w-16',
 			)}
 		>
