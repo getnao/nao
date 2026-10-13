@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { STORY_THEME_MODES } from '@nao/shared/story-theme';
 import { z } from 'zod/v4';
 
@@ -12,8 +14,6 @@ const paramsSchema = z.object({
 });
 
 const querySchema = z.object({
-	version: z.coerce.number().int().optional(),
-	theme: z.string().optional(),
 	mode: z.enum(STORY_THEME_MODES).default('light'),
 });
 
@@ -25,7 +25,7 @@ export const storyThumbnailRoutes = async (app: App) => {
 		{ schema: { params: paramsSchema, querystring: querySchema } },
 		async (request, reply) => {
 			const { storyId } = request.params;
-			const { version, theme, mode } = request.query;
+			const { mode } = request.query;
 			const story = await storyQueries.getStoryById(storyId);
 			if (
 				!story ||
@@ -43,11 +43,8 @@ export const storyThumbnailRoutes = async (app: App) => {
 					.send({ error: 'Thumbnail not rendered yet' });
 			}
 
-			const etag = `"${thumbnail.versionId}.${thumbnail.theme}.${mode}"`;
-			const isVersioned = thumbnail.isCurrent && version === thumbnail.versionNumber && theme === thumbnail.theme;
-			reply
-				.header('Cache-Control', isVersioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
-				.header('ETag', etag);
+			const etag = thumbnailEtag(thumbnail.image);
+			reply.header('Cache-Control', 'private, no-cache').header('ETag', etag);
 			if (request.headers['if-none-match'] === etag) {
 				return reply.status(304).send();
 			}
@@ -55,3 +52,7 @@ export const storyThumbnailRoutes = async (app: App) => {
 		},
 	);
 };
+
+function thumbnailEtag(image: Buffer): string {
+	return `"${createHash('sha256').update(image).digest('base64url')}"`;
+}

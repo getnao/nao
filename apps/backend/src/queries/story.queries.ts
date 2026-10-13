@@ -591,6 +591,15 @@ export function getStoryDataCacheByStoryId(storyId: string): Promise<DBStoryData
 	return getStoryDataCache(eq(s.story.id, storyId));
 }
 
+export async function getStoryDataCachedAt(storyId: string): Promise<Date | null> {
+	const [row] = await db
+		.select({ cachedAt: s.storyDataCache.cachedAt })
+		.from(s.storyDataCache)
+		.where(eq(s.storyDataCache.storyId, storyId))
+		.execute();
+	return row?.cachedAt ?? null;
+}
+
 export async function getStoryQueryDataByStoryIds(
 	storyIds: string[],
 ): Promise<Map<string, DBStoryDataCache['queryData']>> {

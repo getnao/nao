@@ -1,5 +1,5 @@
 import type { StoryQueryResult } from '@nao/shared/story-app';
-import { STORY_THEME_MODES, type StoryThemeMode } from '@nao/shared/story-theme';
+import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@nao/shared/story-theme';
 
 import type { DBStory } from '../db/abstractSchema';
 import * as storyQueries from '../queries/story.queries';
@@ -19,6 +19,7 @@ const THUMBNAIL_VIEWPORT = { width: 1280, height: 800 };
 const THUMBNAIL_WIDTH = 640;
 const THUMBNAIL_QUALITY = 80;
 const RETRY_AFTER_MS = 2 * 60 * 1000;
+const MISSING_DATA_RETRY_AFTER_MS = 15 * 1000;
 const MAX_BROKEN_RENDERS = 3;
 /** Stored in place of a mode's image when the version has no app or that mode kept rendering broken: never retried. */
 const UNRENDERABLE = '';
@@ -26,16 +27,27 @@ const UNRENDERABLE = '';
 /** Base64 WebP per theme mode; a mode not rendered yet is absent. */
 type ModeThumbnails = Partial<Record<StoryThemeMode, string>>;
 
+/** The latest failure of a story's thumbnail, so a superseded version's entry is replaced rather than kept. */
+interface RenderFailure {
+	versionId: string;
+	renderKey: string | null;
+	brokenRenders: number;
+	failedAt: number;
+	retryAfterMs: number;
+}
+
 const queuedVersionIds = new Set<string>();
-const failuresByVersionId = new Map<string, { brokenRenders: number; failedAt: number }>();
+const failuresByStoryId = new Map<string, RenderFailure>();
 let renderQueue: Promise<void> = Promise.resolve();
 
 class MissingStoryDataError extends Error {}
 
+class UnbuiltVersionError extends Error {}
+
 class BrokenRenderError extends Error {
 	constructor(
 		readonly modes: StoryThemeMode[],
-		readonly theme: string,
+		readonly renderKey: string,
 	) {
 		super(`Broken render in ${modes.join(', ')} mode.`);
 	}
@@ -43,8 +55,8 @@ class BrokenRenderError extends Error {
 
 export interface CustomStoryThumbnail {
 	versionId: string;
-	versionNumber: number;
-	theme: string;
+	/** What the image was rendered from: the theme, and for a live story the data refresh. */
+	renderKey: string;
 	isCurrent: boolean;
 	image: Buffer;
 }
@@ -60,19 +72,18 @@ export async function getCustomStoryThumbnail(
 	}
 	const stored = await storyFileQueries.getVersionThumbnail(version.id);
 	const images = parseThumbnails(stored?.thumbnail);
-	const currentTheme = storyThemeFingerprint(await getActiveThemeForStory(story.id));
-	const isCurrent = stored?.theme === currentTheme && STORY_THEME_MODES.every((each) => images[each] !== undefined);
+	const currentKey = await thumbnailRenderKey(story, await getActiveThemeForStory(story.id));
+	const isCurrent = stored?.renderKey === currentKey && STORY_THEME_MODES.every((each) => images[each] !== undefined);
 	if (!isCurrent) {
 		queueCustomStoryThumbnail(story.id, version.id);
 	}
 	const image = images[mode];
-	if (!stored?.theme || !image) {
+	if (!stored?.renderKey || !image) {
 		return null;
 	}
 	return {
 		versionId: version.id,
-		versionNumber: version.version,
-		theme: stored.theme,
+		renderKey: stored.renderKey,
 		isCurrent,
 		image: Buffer.from(image, 'base64'),
 	};
@@ -80,7 +91,7 @@ export async function getCustomStoryThumbnail(
 
 /** Renders thumbnails in the background one at a time so they do not compete with viewers. */
 export function queueCustomStoryThumbnail(storyId: string, versionId: string): void {
-	if (queuedVersionIds.has(versionId) || isCoolingDown(versionId)) {
+	if (queuedVersionIds.has(versionId) || isCoolingDown(storyId, versionId)) {
 		return;
 	}
 	queuedVersionIds.add(versionId);
@@ -92,9 +103,11 @@ export function queueCustomStoryThumbnail(storyId: string, versionId: string): v
 async function renderAndRecord(storyId: string, versionId: string): Promise<void> {
 	try {
 		await renderThumbnails(storyId, versionId);
-		failuresByVersionId.delete(versionId);
+		if (failuresByStoryId.get(storyId)?.versionId === versionId) {
+			failuresByStoryId.delete(storyId);
+		}
 	} catch (error) {
-		await recordFailure(versionId, error).catch((recordError) => logFailure(versionId, recordError));
+		await recordFailure(storyId, versionId, error).catch((recordError) => logFailure(versionId, recordError));
 	}
 }
 
@@ -108,9 +121,13 @@ async function renderThumbnails(storyId: string, versionId: string): Promise<voi
 	if (version.version.id !== versionId) {
 		return;
 	}
-	const theme = storyThemeFingerprint(version.theme);
+	const story = await storyQueries.getStoryById(storyId);
+	const renderKey = await thumbnailRenderKey({ id: storyId, isLive: story?.isLive ?? false }, version.theme);
 	if (!version.app) {
-		await saveThumbnails(versionId, { light: UNRENDERABLE, dark: UNRENDERABLE }, theme);
+		const saved = await saveThumbnails(versionId, { light: UNRENDERABLE, dark: UNRENDERABLE }, renderKey);
+		if (!saved) {
+			throw new UnbuiltVersionError('The version has no bundle to render.');
+		}
 		return;
 	}
 	const queryData = await getStoredCustomStoryQueryDataByStoryId(storyId, version.queryIds);
@@ -118,7 +135,7 @@ async function renderThumbnails(storyId: string, versionId: string): Promise<voi
 		throw new MissingStoryDataError('Some queries have no saved result yet.');
 	}
 
-	const images = await loadThumbnailsForTheme(versionId, theme);
+	const images = await loadThumbnailsForKey(versionId, renderKey);
 	const brokenModes: StoryThemeMode[] = [];
 	for (const mode of STORY_THEME_MODES.filter((each) => images[each] === undefined)) {
 		const image = await renderModeThumbnail(storyId, version, queryData, mode);
@@ -129,10 +146,10 @@ async function renderThumbnails(storyId: string, versionId: string): Promise<voi
 		}
 	}
 	if (Object.keys(images).length > 0) {
-		await saveThumbnails(versionId, images, theme);
+		await saveThumbnails(versionId, images, renderKey);
 	}
 	if (brokenModes.length > 0) {
-		throw new BrokenRenderError(brokenModes, theme);
+		throw new BrokenRenderError(brokenModes, renderKey);
 	}
 }
 
@@ -150,36 +167,63 @@ async function renderModeThumbnail(
 	return (await toThumbnailImage(image)).toString('base64');
 }
 
-async function recordFailure(versionId: string, error: unknown): Promise<void> {
-	const brokenRenders =
-		(failuresByVersionId.get(versionId)?.brokenRenders ?? 0) + (error instanceof BrokenRenderError ? 1 : 0);
+/** Broken renders count per version and render key, so a theme edit or a data refresh gets a fresh retry budget. */
+async function recordFailure(storyId: string, versionId: string, error: unknown): Promise<void> {
+	const previous = failuresByStoryId.get(storyId);
+	const renderKey = error instanceof BrokenRenderError ? error.renderKey : null;
+	const isSameRender = previous?.versionId === versionId && previous.renderKey === renderKey;
+	const brokenRenders = (isSameRender ? previous.brokenRenders : 0) + (error instanceof BrokenRenderError ? 1 : 0);
 	if (error instanceof BrokenRenderError && brokenRenders >= MAX_BROKEN_RENDERS) {
-		failuresByVersionId.delete(versionId);
+		failuresByStoryId.delete(storyId);
 		await giveUpOnModes(versionId, error);
 		return;
 	}
-	failuresByVersionId.set(versionId, { brokenRenders, failedAt: Date.now() });
-	if (!(error instanceof MissingStoryDataError)) {
+	failuresByStoryId.set(storyId, {
+		versionId,
+		renderKey,
+		brokenRenders,
+		failedAt: Date.now(),
+		retryAfterMs: retryDelayFor(error),
+	});
+	if (!(error instanceof MissingStoryDataError) && !(error instanceof UnbuiltVersionError)) {
 		logFailure(versionId, error);
 	}
 }
 
+/** Saved results can land any time, so a story waiting on them is retried soon; an unbuilt version never is. */
+function retryDelayFor(error: unknown): number {
+	if (error instanceof UnbuiltVersionError) {
+		return Number.POSITIVE_INFINITY;
+	}
+	return error instanceof MissingStoryDataError ? MISSING_DATA_RETRY_AFTER_MS : RETRY_AFTER_MS;
+}
+
 async function giveUpOnModes(versionId: string, error: BrokenRenderError): Promise<void> {
-	const images = await loadThumbnailsForTheme(versionId, error.theme);
+	const images = await loadThumbnailsForKey(versionId, error.renderKey);
 	for (const mode of error.modes) {
 		images[mode] = UNRENDERABLE;
 	}
-	await saveThumbnails(versionId, images, error.theme);
+	await saveThumbnails(versionId, images, error.renderKey);
 }
 
-/** The saved images when they were rendered with `theme`; none when the theme changed since. */
-async function loadThumbnailsForTheme(versionId: string, theme: string): Promise<ModeThumbnails> {
+/** The saved images when they were rendered for `renderKey`; none when the theme or the data changed since. */
+async function loadThumbnailsForKey(versionId: string, renderKey: string): Promise<ModeThumbnails> {
 	const stored = await storyFileQueries.getVersionThumbnail(versionId);
-	return stored?.theme === theme ? parseThumbnails(stored.thumbnail) : {};
+	return stored?.renderKey === renderKey ? parseThumbnails(stored.thumbnail) : {};
 }
 
-async function saveThumbnails(versionId: string, images: ModeThumbnails, theme: string): Promise<void> {
-	await storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), theme);
+async function saveThumbnails(versionId: string, images: ModeThumbnails, renderKey: string): Promise<boolean> {
+	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), renderKey);
+}
+
+/** A live story's data is refreshed in place, without a new version, so its refresh time is part of the key. */
+async function thumbnailRenderKey(
+	story: Pick<DBStory, 'id' | 'isLive'>,
+	theme: StoryThemePair | null,
+): Promise<string> {
+	const themeFingerprint = storyThemeFingerprint(theme);
+	const dataCachedAt = story.isLive ? await storyQueries.getStoryDataCachedAt(story.id) : null;
+	return dataCachedAt ? `${themeFingerprint}.${dataCachedAt.getTime()}` : themeFingerprint;
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {
@@ -199,7 +243,7 @@ async function toThumbnailImage(screenshot: Buffer): Promise<Buffer> {
 	return sharp(screenshot).resize({ width: THUMBNAIL_WIDTH }).webp({ quality: THUMBNAIL_QUALITY }).toBuffer();
 }
 
-function isCoolingDown(versionId: string): boolean {
-	const failure = failuresByVersionId.get(versionId);
-	return failure !== undefined && Date.now() - failure.failedAt < RETRY_AFTER_MS;
+function isCoolingDown(storyId: string, versionId: string): boolean {
+	const failure = failuresByStoryId.get(storyId);
+	return failure?.versionId === versionId && Date.now() - failure.failedAt < failure.retryAfterMs;
 }

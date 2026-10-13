@@ -246,7 +246,7 @@ export type StoryBundleRow = Omit<DBStoryBundle, 'thumbnail' | 'thumbnailTheme'>
 
 export interface VersionThumbnail {
 	thumbnail: string;
-	theme: string | null;
+	renderKey: string | null;
 }
 
 export async function getVersionBundle(storyVersionId: string): Promise<StoryBundleRow | null> {
@@ -282,23 +282,25 @@ export async function setVersionBundle(
 
 export async function getVersionThumbnail(storyVersionId: string): Promise<VersionThumbnail | null> {
 	const [row] = await db
-		.select({ thumbnail: s.storyBundle.thumbnail, theme: s.storyBundle.thumbnailTheme })
+		.select({ thumbnail: s.storyBundle.thumbnail, renderKey: s.storyBundle.thumbnailTheme })
 		.from(s.storyBundle)
 		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
 		.execute();
-	return row?.thumbnail == null ? null : { thumbnail: row.thumbnail, theme: row.theme };
+	return row?.thumbnail == null ? null : { thumbnail: row.thumbnail, renderKey: row.renderKey };
 }
 
+/** Returns false when the version has no bundle row to hold the thumbnail. */
 export async function setVersionThumbnail(
 	storyVersionId: string,
 	thumbnail: string,
-	theme: string | null,
-): Promise<void> {
-	await db
+	renderKey: string | null,
+): Promise<boolean> {
+	const updated = await db
 		.update(s.storyBundle)
-		.set({ thumbnail, thumbnailTheme: theme })
+		.set({ thumbnail, thumbnailTheme: renderKey })
 		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
-		.execute();
+		.returning({ storyVersionId: s.storyBundle.storyVersionId });
+	return updated.length > 0;
 }
 
 export function storyAppOfBundle(bundle: StoryBundleRow | null): StoryApp | null {

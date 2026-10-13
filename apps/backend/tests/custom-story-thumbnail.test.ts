@@ -1,6 +1,7 @@
 import '../src/env';
 
 import { DEFAULT_DARK_STORY_THEME, DEFAULT_STORY_THEME, type StoryThemePair } from '@nao/shared/story-theme';
+import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -85,6 +86,7 @@ vi.mock('../src/services/custom-story', async (importOriginal) => ({
 
 const STORY_ID = 'story-1';
 const STANDALONE_STORY_ID = 'story-standalone';
+const LIVE_STORY_ID = 'story-live';
 
 describe('custom story thumbnails', () => {
 	beforeAll(async () => {
@@ -102,6 +104,15 @@ describe('custom story thumbnails', () => {
 			title: 'Standalone',
 			format: 'custom',
 		});
+		await db.insert(s.story).values({
+			id: LIVE_STORY_ID,
+			chatId: 'chat-1',
+			slug: 'live',
+			title: 'Live',
+			format: 'custom',
+			isLive: true,
+		});
+		await db.insert(s.storyDataCache).values({ storyId: LIVE_STORY_ID, queryData: {}, cachedAt: new Date() });
 	});
 
 	beforeEach(async () => {
@@ -131,7 +142,7 @@ describe('custom story thumbnails', () => {
 		expect(documents.modes).toEqual(['light', 'dark']);
 	});
 
-	it('renders a version as soon as it is published, before anyone asks for it', async () => {
+	it('renders a queued version before anyone asks for it', async () => {
 		queueCustomStoryThumbnail(STORY_ID, versionIds.current);
 
 		await vi.waitUntil(() => storyFileQueries.getVersionThumbnail(versionIds.current));
@@ -241,8 +252,31 @@ describe('custom story thumbnails', () => {
 			return thumbnail?.isCurrent ? thumbnail : undefined;
 		});
 
-		expect(stale).toMatchObject({ isCurrent: false, theme: before.theme });
-		expect(after.theme).not.toBe(before.theme);
+		expect(stale).toMatchObject({ isCurrent: false, renderKey: before.renderKey });
+		expect(after.renderKey).not.toBe(before.renderKey);
+		expect(screenshots.calls).toBe(4);
+	});
+
+	it('renders a live story again once its data is refreshed', async () => {
+		versionIds.current = await publishVersion(LIVE_STORY_ID);
+		const story = await storyQueries.getStoryById(LIVE_STORY_ID);
+		const before = await vi.waitUntil(async () => {
+			const thumbnail = await getCustomStoryThumbnail(story!);
+			return thumbnail?.isCurrent ? thumbnail : undefined;
+		});
+
+		await db
+			.update(s.storyDataCache)
+			.set({ cachedAt: new Date(Date.now() + 60_000) })
+			.where(eq(s.storyDataCache.storyId, LIVE_STORY_ID));
+		const stale = await getCustomStoryThumbnail(story!);
+		const after = await vi.waitUntil(async () => {
+			const thumbnail = await getCustomStoryThumbnail(story!);
+			return thumbnail?.isCurrent ? thumbnail : undefined;
+		});
+
+		expect(stale?.isCurrent).toBe(false);
+		expect(after.renderKey).not.toBe(before.renderKey);
 		expect(screenshots.calls).toBe(4);
 	});
 

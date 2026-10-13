@@ -82,13 +82,13 @@ function StoryScreenshot({
 	const [attempt, setAttempt] = useState(0);
 
 	useEffect(() => {
-		if (status !== 'missing' || attempt >= SCREENSHOT_RETRY_DELAYS_MS.length) {
+		if (status !== 'missing') {
 			return;
 		}
 		const timeout = setTimeout(() => {
 			setAttempt(attempt + 1);
 			setStatus('loading');
-		}, SCREENSHOT_RETRY_DELAYS_MS[attempt]);
+		}, retryDelayAfter(attempt));
 		return () => clearTimeout(timeout);
 	}, [status, attempt]);
 
@@ -137,6 +137,11 @@ function ThumbnailFallback({
 }
 
 /** The version and theme in the URL let the browser keep an image until either of them changes. */
+/** Thumbnails render serially in the background, so a missing one is polled with a capped backoff until it lands. */
+function retryDelayAfter(attempt: number): number {
+	return SCREENSHOT_RETRY_DELAYS_MS[Math.min(attempt, SCREENSHOT_RETRY_DELAYS_MS.length - 1)];
+}
+
 function thumbnailUrl(storyId: string, version: number | undefined, theme: string, mode: 'light' | 'dark'): string {
 	const params = new URLSearchParams();
 	if (version !== undefined) {
