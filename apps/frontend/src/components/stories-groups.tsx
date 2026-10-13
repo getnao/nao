@@ -1,6 +1,6 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useRouterState } from '@tanstack/react-router';
 import {
 	ArchiveIcon,
@@ -32,6 +32,7 @@ import {
 import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { CustomStoryThumbnail } from '@/components/custom-story-thumbnail';
 import { StoryThumbnail } from '@/components/story-thumbnail';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import StoryIcon from '@/components/ui/story-icon';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
@@ -101,6 +102,8 @@ export function StoryCard({
 	const { isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
+	const { data: activeTheme } = useQuery(trpc.storyTheme.getActive.queryOptions());
+	const storyTheme = useStoryThemeForCurrentMode(activeTheme?.theme);
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
@@ -171,7 +174,7 @@ export function StoryCard({
 						{item.format === 'custom' ? (
 							<CustomStoryThumbnail storyId={item.storyId} version={item.version} />
 						) : (
-							<StoryThumbnail summary={item.summary} />
+							<StoryThumbnail summary={item.summary} theme={storyTheme} queryData={item.queryData} />
 						)}
 					</div>
 					<div className={GRID_HOVER_ACTION_GRADIENT_CLASS} />

@@ -65,6 +65,25 @@ export async function backfillMissingQueryData(
 	return Object.keys(merged).length > 0 ? merged : null;
 }
 
+export async function backfillStoryListQueryData<
+	T extends { code: string; chatId?: string | null; isLive?: boolean; queryData?: unknown },
+>(story: T): Promise<T & { queryData: StoryQueryDataMap | null }> {
+	const cachedQueryData = (story.queryData as StoryQueryDataMap | null | undefined) ?? null;
+	if (!story.chatId) {
+		return { ...story, queryData: cachedQueryData };
+	}
+	if (story.isLive === false) {
+		return {
+			...story,
+			queryData: (await getQueryDataFromCode(story.chatId, story.code).catch(() => null)) ?? cachedQueryData,
+		};
+	}
+	return {
+		...story,
+		queryData: await backfillMissingQueryData(story.code, cachedQueryData, { chatId: story.chatId }),
+	};
+}
+
 async function fetchFromChat(chatId: string, code: string, ids: string[]): Promise<StoryQueryDataMap> {
 	const fromChat = await getQueryDataFromCode(chatId, code).catch(() => null);
 

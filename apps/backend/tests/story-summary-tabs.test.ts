@@ -61,6 +61,11 @@ Body text
 				chartType: 'kpi_card',
 				title: 'Top "hero" products',
 				kpiCount: 2,
+				queryId: 'q',
+				series: [
+					{ dataKey: 'ltv', label: "Customer's LTV" },
+					{ dataKey: 'orders', label: 'Orders' },
+				],
 				colors: ['var(--chart-1)', 'var(--chart-2)'],
 			},
 		]);
@@ -79,6 +84,45 @@ Body text
 		expect(extractStorySummary(`${table}\n\n${map}`).segments).toEqual([
 			{ type: 'table', title: 'Orders "late"' },
 			{ type: 'map', mapType: 'points', title: "Stores' reach" },
+		]);
+	});
+
+	it('keeps wrapped grid columns as grid children', () => {
+		const map = buildStoryMapBlock({
+			query_id: 'q',
+			map_type: 'points',
+			latitude_key: 'lat',
+			longitude_key: 'lng',
+			title: 'Map',
+		});
+		const chart = buildStoryChartBlock({
+			query_id: 'q',
+			chart_type: 'bar',
+			x_axis_key: 'status',
+			series: [{ data_key: 'count', label: 'Count' }],
+			title: 'Status',
+		});
+
+		const summary = extractStorySummary(`<grid widths="1,1">
+<div style="grid-column: span 1">${map}</div>
+<div style="grid-column: span 1">${chart}</div>
+</grid>`);
+
+		expect(summary.segments).toEqual([
+			{
+				type: 'grid',
+				cols: 2,
+				widths: [1, 1],
+				children: [
+					{ type: 'map', mapType: 'points', title: 'Map' },
+					{
+						type: 'chart',
+						chartType: 'bar',
+						title: 'Status',
+						colors: ['var(--chart-1)'],
+					},
+				],
+			},
 		]);
 	});
 

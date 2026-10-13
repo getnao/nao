@@ -1,5 +1,6 @@
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
 	Archive,
@@ -21,6 +22,7 @@ import type { FolderItem } from '@/lib/stories-page';
 import { isSystemFolder } from '@/lib/stories-page';
 import { GRID_CARD_CLASS, GridCardFooter, LINES_CARD_CLASS } from '@/components/item-card';
 import { FolderThumbnail } from '@/components/story-thumbnail';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -33,6 +35,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 export type FolderDisplayMode = StoryPanelDisplayMode | 'grid-large';
 
@@ -63,6 +66,8 @@ export function FolderCard({
 }) {
 	const { isViewer, isAdmin } = usePermissions();
 	const { data: session } = useSession();
+	const { data: activeTheme } = useQuery(trpc.storyTheme.getActive.queryOptions());
+	const storyTheme = useStoryThemeForCurrentMode(activeTheme?.theme);
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
 	const draggableId = `drag-folder-${displayMode}-${folder.id}`;
@@ -206,7 +211,7 @@ export function FolderCard({
 				onClick={selectionActive && canSelect ? handleToggleSelect : undefined}
 			>
 				<div className='absolute top-1 left-1 right-1 bottom-14 overflow-hidden rounded-md bg-sidebar dark:bg-background'>
-					<FolderThumbnail />
+					<FolderThumbnail theme={storyTheme} />
 				</div>
 
 				<Link
@@ -247,7 +252,7 @@ export function FolderCard({
 						</div>
 						{!isViewer && !selectionActive && (
 							<div
-								className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-5 group-has-data-[state=open]:translate-x-5'
+								className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-10 group-has-data-[state=open]:translate-x-10'
 								onPointerDown={(e) => e.stopPropagation()}
 							>
 								<FolderKebab

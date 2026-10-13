@@ -106,6 +106,7 @@ export const useStoryViewerContent = ({
 	const cachedAt = latestStoryQuery.data?.cachedAt as string | null | undefined;
 	const lastRefreshFailure = latestStoryQuery.data?.lastRefreshFailure;
 	const needsRefresh = !isReadonlyMode && (latestStoryQuery.data?.needsRefresh ?? false);
+	const theme = latestStoryQuery.data?.theme ?? null;
 
 	return {
 		storyTitle,
@@ -114,6 +115,7 @@ export const useStoryViewerContent = ({
 		cachedAt,
 		lastRefreshFailure,
 		needsRefresh,
+		theme,
 		isLoading: latestStoryQuery.isLoading,
 	};
 };

@@ -3,6 +3,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { StoryFormat, StorySharingInfo, StorySummary, SummarySegment } from '@nao/shared/types';
+import type { QueryDataMap } from '@/components/story-embeds';
 
 type RouterOutputs = inferRouterOutputs<TrpcRouter>;
 
@@ -44,6 +45,7 @@ export type StoryItem = {
 	chatId?: string;
 	storySlug?: string;
 	summary: StorySummary;
+	queryData: QueryDataMap | null;
 	format: StoryFormat;
 	version: number;
 	isLive: boolean;
@@ -142,6 +144,7 @@ export function buildStoryItems({
 			chatId,
 			storySlug: story.storySlug,
 			summary: story.summary,
+			queryData: (story.queryData as QueryDataMap | null) ?? null,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -169,6 +172,7 @@ export function buildStoryItems({
 			kind: 'own-standalone',
 			storySlug: story.storySlug,
 			summary: story.summary,
+			queryData: (story.queryData as QueryDataMap | null) ?? null,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -197,6 +201,7 @@ export function buildStoryItems({
 				author: story.authorName,
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
+				queryData: (story.queryData as QueryDataMap | null) ?? null,
 				format: story.format,
 				version: story.version,
 				isLive: story.isLive,

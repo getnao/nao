@@ -15,6 +15,7 @@ import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ReactNode } from 'react';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
+import { StoryBlock, StoryTableFrame } from '@/components/story-block';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 import { markdownPlugins } from '@/lib/markdown';
@@ -44,26 +45,32 @@ function renderColumnContent(
 		case 'chart':
 			return (
 				<EditorStoryChartEditProvider onReplaceTag={onReplaceTag}>
-					<StoryChartEmbed
-						chart={segment.chart}
-						dragHandle={dragHandle}
-						dragHandlePlacement={dragHandlePlacement}
-						isSelected={isSelected}
-					/>
+					<StoryBlock>
+						<StoryChartEmbed
+							chart={segment.chart}
+							dragHandle={dragHandle}
+							dragHandlePlacement={dragHandlePlacement}
+							isSelected={isSelected}
+						/>
+					</StoryBlock>
 				</EditorStoryChartEditProvider>
 			);
 		case 'table':
 			return (
-				<StoryTableEmbed
-					table={segment.table}
-					dragHandle={dragHandle}
-					dragHandlePlacement={dragHandlePlacement}
-				/>
+				<StoryTableFrame>
+					<StoryTableEmbed
+						table={segment.table}
+						dragHandle={dragHandle}
+						dragHandlePlacement={dragHandlePlacement}
+					/>
+				</StoryTableFrame>
 			);
 		case 'map':
 			return (
 				<EditorStoryMapEditProvider onReplaceTag={onReplaceTag}>
-					<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
+					<StoryBlock>
+						<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
+					</StoryBlock>
 				</EditorStoryMapEditProvider>
 			);
 		case 'grid':

@@ -10,6 +10,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import {
+	getActiveThemeForStory,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
 	getSharedCustomStoryQueryData,
@@ -40,6 +41,7 @@ import {
 } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
+import { backfillStoryListQueryData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -75,7 +77,8 @@ export const sharedStoryRoutes = {
 		const projects = await projectQueries.listUserProjects(ctx.user.id);
 		const projectIds = projects.map((p) => p.id);
 		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, input.projectId);
-		return stories.map(({ id: _shareId, ...story }) => ({
+		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
+		return hydratedStories.map(({ id: _shareId, ...story }) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
@@ -186,7 +189,10 @@ export const sharedStoryRoutes = {
 		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
 		const canFork = await getStoryForkAccess(shared, ctx.user.id, ctx.userRole);
 
-		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
+		const [lastRefreshFailure, theme] = await Promise.all([
+			activityQueries.getLatestStoryRefreshFailure(shared.storyId),
+			getActiveThemeForStory(shared.storyId),
+		]);
 		const { queryData, cachedAt, code, needsRefresh } =
 			shared.format === 'custom'
 				? { queryData: null, cachedAt: null, code: shared.code, needsRefresh: false }
@@ -218,6 +224,7 @@ export const sharedStoryRoutes = {
 			cachedAt,
 			lastRefreshFailure,
 			needsRefresh: needsRefresh ?? false,
+			theme,
 			userRole: ctx.userRole,
 			canRefresh,
 			canFork,

@@ -1,4 +1,5 @@
 import type { DocumentExtension } from './attachments';
+import type { ValueFormat } from './tools/display-chart';
 
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
@@ -245,7 +246,19 @@ export type LlmSelectedModel = {
 
 export type SummarySegment =
 	| { type: 'text'; content: string }
-	| { type: 'chart'; chartType: string; title: string; kpiCount?: number; colors?: string[] }
+	| {
+			type: 'chart';
+			chartType: string;
+			title: string;
+			kpiCount?: number;
+			colors?: string[];
+			queryId?: string;
+			series?: {
+				dataKey: string;
+				label?: string;
+				valueFormat?: ValueFormat;
+			}[];
+	  }
 	| { type: 'table'; title: string }
 	| { type: 'map'; mapType: string; title: string; color?: string }
 	| { type: 'grid'; cols: number; widths: number[] | null; children: SummarySegment[] };

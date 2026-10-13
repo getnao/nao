@@ -45,6 +45,7 @@ import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
 import { Spinner } from '@/components/ui/spinner';
 import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
+import { StoryThemeProvider, useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { trpc } from '@/main';
 
 interface StoryViewerProps {
@@ -174,6 +175,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		cachedAt,
 		lastRefreshFailure,
 		needsRefresh,
+		theme,
 		isLoading: isContentLoading,
 	} = useStoryViewerContent({
 		storySlug,
@@ -186,6 +188,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isStoryInterrupted,
 		isReadonlyMode,
 	});
+	const storyTheme = useStoryThemeForCurrentMode(theme);
 	const { queryData: versionQueryData, isPending: isVersionQueryDataPending } = useStoryVersionQueryData({
 		chatId,
 		storySlug: resolvedStorySlug,
@@ -436,28 +439,31 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								isStreaming={isStoryStreaming}
 								isDataPending={isVersionQueryDataPending}
 								isViewingLatest={isViewingLatest}
+								theme={storyTheme}
 							/>
 						)
 					) : viewMode === 'edit' ? (
 						<StoryEmbedDataProvider value={versionQueryData}>
-							{isEditTabbedStory ? (
-								<StoryTabbedEditor
-									code={editCode}
-									editorRef={tiptapEditorRef}
-									onSave={handleSave}
-									onChange={storyBuffer.handleCodeChange}
-									getCodeRef={tabbedEditCodeRef}
-									barContentClassName='px-6'
-									contentClassName='p-6'
-								/>
-							) : (
-								<StoryEditor
-									code={editCode}
-									editorRef={tiptapEditorRef}
-									onSave={handleSave}
-									onChange={storyBuffer.handleCodeChange}
-								/>
-							)}
+							<StoryThemeProvider theme={storyTheme} className='bg-background text-foreground'>
+								{isEditTabbedStory ? (
+									<StoryTabbedEditor
+										code={editCode}
+										editorRef={tiptapEditorRef}
+										onSave={handleSave}
+										onChange={storyBuffer.handleCodeChange}
+										getCodeRef={tabbedEditCodeRef}
+										barContentClassName='px-6'
+										contentClassName='p-6'
+									/>
+								) : (
+									<StoryEditor
+										code={editCode}
+										editorRef={tiptapEditorRef}
+										onSave={handleSave}
+										onChange={storyBuffer.handleCodeChange}
+									/>
+								)}
+							</StoryThemeProvider>
 						</StoryEmbedDataProvider>
 					) : (
 						<StoryCodeView

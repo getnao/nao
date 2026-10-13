@@ -17,6 +17,7 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
+	getActiveThemeForStory,
 	getCustomStoryFile,
 	getCustomStoryNarratives,
 	getCustomStoryQueryData,
@@ -62,7 +63,7 @@ import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
-import { backfillMissingQueryData } from '../utils/story-query-data';
+import { backfillMissingQueryData, backfillStoryListQueryData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -145,7 +146,8 @@ export const storyRoutes = {
 			const stories = await storyQueries.listUserChatStories(ctx.user.id, { projectId: input?.projectId });
 			const visibleStories = await filterStoriesByProjectAccess(stories, ctx.user.id, input?.projectId);
 			const sharingByStoryId = await storyQueries.getStorySharingInfo(visibleStories.map((s) => s.id));
-			return visibleStories.map(({ code, ...rest }) => ({
+			const hydratedStories = await Promise.all(visibleStories.map(backfillStoryListQueryData));
+			return hydratedStories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
 				summary: extractStorySummary(code),
@@ -162,7 +164,8 @@ export const storyRoutes = {
 			});
 			const visibleStories = await filterStoriesByProjectAccess(stories, ctx.user.id, input?.projectId);
 			const sharingByStoryId = await storyQueries.getStorySharingInfo(visibleStories.map((s) => s.id));
-			return visibleStories.map(({ code, ...rest }) => ({
+			const hydratedStories = await Promise.all(visibleStories.map(backfillStoryListQueryData));
+			return hydratedStories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
 				summary: extractStorySummary(code),
@@ -172,7 +175,8 @@ export const storyRoutes = {
 
 	listStandalone: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id);
-		return stories.map(({ code, ...rest }) => ({
+		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
+		return hydratedStories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
 			summary: extractStorySummary(code),
@@ -181,7 +185,8 @@ export const storyRoutes = {
 
 	listStandaloneArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id, { archived: true });
-		return stories.map(({ code, ...rest }) => ({
+		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
+		return hydratedStories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
 			summary: extractStorySummary(code),
@@ -223,9 +228,10 @@ export const storyRoutes = {
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		const [cache, lastRefreshFailure] = await Promise.all([
+		const [cache, lastRefreshFailure, theme] = await Promise.all([
 			storyQueries.getStoryDataCacheByStoryId(input.storyId),
 			activityQueries.getLatestStoryRefreshFailure(input.storyId),
+			getActiveThemeForStory(input.storyId),
 		]);
 
 		if (story.projectId) {
@@ -255,6 +261,7 @@ export const storyRoutes = {
 			queryData,
 			cachedAt: storyData ? storyData.cachedAt : (cache?.cachedAt ?? null),
 			lastRefreshFailure,
+			theme,
 		};
 	}),
 
@@ -265,7 +272,10 @@ export const storyRoutes = {
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
+			const [lastRefreshFailure, theme] = await Promise.all([
+				activityQueries.getLatestStoryRefreshFailure(version.storyId),
+				getActiveThemeForStory(version.storyId),
+			]);
 			const { queryData, cachedAt, code, needsRefresh } = await getStoryQueryData(
 				input.chatId,
 				input.storySlug,
@@ -288,7 +298,15 @@ export const storyRoutes = {
 				});
 			}
 
-			return { ...version, code, queryData, cachedAt, lastRefreshFailure, needsRefresh: needsRefresh ?? false };
+			return {
+				...version,
+				code,
+				queryData,
+				cachedAt,
+				lastRefreshFailure,
+				needsRefresh: needsRefresh ?? false,
+				theme,
+			};
 		}),
 
 	listVersions: chatStoryProcedure
@@ -985,7 +1003,8 @@ export const storyRoutes = {
 
 	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
-		return stories.map((story) => ({
+		const hydratedStories = await Promise.all(stories.map(backfillStoryListQueryData));
+		return hydratedStories.map((story) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),

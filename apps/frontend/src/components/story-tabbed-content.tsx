@@ -2,11 +2,14 @@ import { useMemo, useState } from 'react';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { StoryTheme } from '@nao/shared/story-theme';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryFilterApi } from '@/hooks/use-story-filters';
 import { StoryFilterBar } from '@/components/story-filter-bar';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryTabsBar } from '@/components/side-panel/story-tabs-bar';
+import { StoryBlock, StoryTableFrame } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
@@ -26,6 +29,7 @@ interface StoryTabbedContentProps {
 	contentClassName?: string;
 	baselineQueryData?: QueryDataMap | null;
 	filterApi?: StoryFilterApi | null;
+	theme?: StoryTheme | null;
 }
 
 export function StoryTabbedContent({
@@ -36,6 +40,7 @@ export function StoryTabbedContent({
 	contentClassName = 'max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-4',
 	baselineQueryData,
 	filterApi,
+	theme,
 }: StoryTabbedContentProps) {
 	const tabs = useMemo(() => parseStoryTabs(code), [code]);
 	const [activeIndex, setActiveIndex] = useState(0);
@@ -62,7 +67,10 @@ export function StoryTabbedContent({
 
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
-			<div className='flex flex-1 min-h-0 flex-col'>
+			<StoryThemeProvider
+				theme={theme ?? null}
+				className='flex flex-1 min-h-0 flex-col bg-background text-foreground'
+			>
 				{isTabbed && tabs && (
 					<StoryTabsBar
 						tabs={tabs.map((tab) => ({ title: tab.title }))}
@@ -82,34 +90,40 @@ export function StoryTabbedContent({
 						/>
 						<SegmentList
 							segments={segments}
-							renderChart={(chart, key) =>
-								renderChart(chart, {
-									queryData: storyFilters.queryData,
-									hasActiveFilters: storyFilters.hasActiveFilters,
-									isRefreshing: storyFilters.isFiltering,
-									key,
-								})
-							}
-							renderTable={(table, key) =>
-								renderTable(table, {
-									queryData: storyFilters.queryData,
-									hasActiveFilters: storyFilters.hasActiveFilters,
-									isRefreshing: storyFilters.isFiltering,
-									key,
-								})
-							}
-							renderMap={(map, key) =>
-								renderMap(map, {
-									queryData: storyFilters.queryData,
-									hasActiveFilters: storyFilters.hasActiveFilters,
-									isRefreshing: storyFilters.isFiltering,
-									key,
-								})
-							}
+							renderChart={(chart, key) => (
+								<StoryBlock>
+									{renderChart(chart, {
+										queryData: storyFilters.queryData,
+										hasActiveFilters: storyFilters.hasActiveFilters,
+										isRefreshing: storyFilters.isFiltering,
+										key,
+									})}
+								</StoryBlock>
+							)}
+							renderTable={(table, key) => (
+								<StoryTableFrame>
+									{renderTable(table, {
+										queryData: storyFilters.queryData,
+										hasActiveFilters: storyFilters.hasActiveFilters,
+										isRefreshing: storyFilters.isFiltering,
+										key,
+									})}
+								</StoryTableFrame>
+							)}
+							renderMap={(map, key) => (
+								<StoryBlock>
+									{renderMap(map, {
+										queryData: storyFilters.queryData,
+										hasActiveFilters: storyFilters.hasActiveFilters,
+										isRefreshing: storyFilters.isFiltering,
+										key,
+									})}
+								</StoryBlock>
+							)}
 						/>
 					</div>
 				</div>
-			</div>
+			</StoryThemeProvider>
 		</StoryQuerySqlProvider>
 	);
 }

@@ -1,50 +1,59 @@
-import { buildChart } from '@nao/shared';
+import { buildChart, formatChartValue } from '@nao/shared';
 import { getGridTemplateColumns } from '@nao/shared/story-segments';
 import type { ReactNode } from 'react';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 import type { ChartType } from '@nao/shared/chart-types';
+import type { StoryTheme } from '@nao/shared/story-theme';
+import type { QueryDataMap } from '@/components/story-embeds';
 import { ChartContainer } from '@/components/ui/chart';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { cn } from '@/lib/utils';
 
-export const SHEET_VISUAL = `rounded-sm
+export const SHEET_VISUAL = `rounded-[2px]
 	 shadow-[-20px_26px_52px_-18px_rgba(17,17,40,0.13),-8px_8px_18px_-10px_rgba(17,17,40,0.06)]
 	 dark:shadow-[-14px_18px_34px_-22px_rgba(255,255,255,0.02),-6px_6px_14px_-12px_rgba(255,255,255,0.012)]
 `;
 
 export const SHEET_TRANSFORM = 'perspective(400px) rotateX(30deg) rotateY(20deg) rotateZ(-20deg)';
 
-export const SHEET_SURFACE =
-	'bg-gradient-to-b from-card to-panel dark:from-[oklch(0.20_0.008_270)] dark:to-[oklch(0.17_0.006_270)] dark:to-[40%]';
+export const SHEET_SURFACE = 'bg-gradient-to-b from-card to-panel';
 
 export function PaperSheet({
 	children,
 	className,
 	isToolPart = false,
+	theme,
 }: {
 	children: ReactNode;
 	className?: string;
 	isToolPart?: boolean;
+	theme?: StoryTheme | null;
 }) {
 	return (
-		<div className={cn('absolute inset-0 overflow-hidden', className)}>
-			<div
-				className={cn(
-					'absolute top-[27%] left-[15%] w-[130%] h-[200%] origin-top-left bg-secondary dark:bg-secondary/90',
-					SHEET_VISUAL,
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			/>
-			<div
-				className={cn(
-					'absolute top-[26%] left-[16%] w-[130%] h-[200%] origin-top-left',
-					SHEET_SURFACE,
-					SHEET_VISUAL,
-					isToolPart ? 'border-t border-r' : 'pr-5',
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			>
-				<div className='flex flex-col gap-[7px] p-[7%] w-[85%]'>{children}</div>
-			</div>
+		<div className={cn('absolute inset-0', className)}>
+			<StoryThemeProvider theme={theme ?? null} className='relative'>
+				<div
+					className={cn(
+						'absolute left-[15%] w-[130%] h-[200%] origin-top-left bg-secondary',
+						isToolPart ? 'top-[23%]' : 'top-[27%]',
+						SHEET_VISUAL,
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				/>
+				<div
+					className={cn(
+						'absolute left-[16%] w-[130%] h-[200%] origin-top-left',
+						isToolPart ? 'top-[22%]' : 'top-[26%]',
+						SHEET_SURFACE,
+						'bg-gradient-to-b from-background to-background/90',
+						'rounded-[2px]',
+						isToolPart ? 'border-t border-r' : 'pr-5',
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				>
+					<div className='flex flex-col gap-[7px] p-[7%]'>{children}</div>
+				</div>
+			</StoryThemeProvider>
 		</div>
 	);
 }
@@ -53,121 +62,132 @@ export function StoryThumbnail({
 	summary,
 	className,
 	isToolPart = false,
+	theme,
+	queryData,
 }: {
 	summary: StorySummary;
 	className?: string;
 	isToolPart?: boolean;
+	theme?: StoryTheme | null;
+	queryData?: QueryDataMap | null;
 }) {
 	const segments = summary.segments.slice(0, 6);
 
 	if (!isToolPart) {
 		return (
-			<FlatStorySheet className={className}>
+			<FlatStorySheet className={className} theme={theme}>
 				{segments.map((seg, i) => (
-					<SegmentSilhouette key={i} segment={seg} variant='flat' />
+					<SegmentSilhouette key={i} segment={seg} variant='flat' queryData={queryData} />
 				))}
 			</FlatStorySheet>
 		);
 	}
 
 	return (
-		<PaperSheet className={className} isToolPart={isToolPart}>
+		<PaperSheet className={className} isToolPart={isToolPart} theme={theme}>
 			{segments.map((seg, i) => (
-				<SegmentSilhouette key={i} segment={seg} variant='mini' />
+				<SegmentSilhouette key={i} segment={seg} variant='mini' queryData={queryData} />
 			))}
 		</PaperSheet>
 	);
 }
 
-function FlatStorySheet({ children, className }: { children: ReactNode; className?: string }) {
+function FlatStorySheet({
+	children,
+	className,
+	theme,
+}: {
+	children: ReactNode;
+	className?: string;
+	theme?: StoryTheme | null;
+}) {
 	return (
 		<div className={cn('absolute inset-0 overflow-hidden bg-background', className)}>
-			<div className='absolute top-0 left-0 flex w-[480px] origin-top-left scale-[0.42] flex-col gap-4 bg-background px-6 py-2'>
-				{children}
-			</div>
+			<StoryThemeProvider
+				theme={theme ?? null}
+				className='relative overflow-hidden bg-background text-foreground'
+			>
+				<div className='absolute top-0 left-0 flex w-[480px] origin-top-left scale-[0.42] flex-col gap-4 bg-background px-6 py-2'>
+					{children}
+				</div>
+			</StoryThemeProvider>
 		</div>
 	);
 }
 
-const FOLDER_DOC_SEGMENTS: SummarySegment[] = [
-	{ type: 'text', content: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
-	{ type: 'chart', chartType: 'bar', title: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', kpiCount: 1 },
-];
-
-export function FolderThumbnail() {
+export function FolderThumbnail({ theme }: { theme?: StoryTheme | null } = {}) {
 	return (
 		<div className='pointer-events-none absolute inset-0 overflow-hidden'>
-			<div
-				className={cn(
-					'absolute top-[41%] left-[11%] w-[130%] h-[200%] origin-top-left bg-secondary dark:bg-sidebar',
-					SHEET_VISUAL,
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			>
-				<div className='absolute -top-[5%] left-[5%] h-[9%] w-[32%] rounded-t-[3px] bg-secondary dark:bg-sidebar' />
-			</div>
-
-			<div
-				className={cn(
-					'pr-5 absolute top-[24%] left-[12%] w-[140%] h-[200%] origin-top-left bg-secondary dark:bg-secondary/90',
-					SHEET_VISUAL,
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			></div>
-
-			<div
-				className={cn(
-					'pr-5 absolute top-[23%] left-[13%] w-[140%] h-[200%] origin-top-left bg-gradient-to-b from-card to-panel dark:from-[oklch(0.21_0.008_270)] dark:to-[oklch(0.17_0.006_270)] dark:to-[40%]',
-					SHEET_VISUAL,
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			>
-				<div className='flex flex-col gap-[7px] pl-2 w-[85%]'>
-					<div className='pt-5'>
-						<SegmentSilhouette segment={FOLDER_DOC_SEGMENTS[0]} variant='mini' />
-					</div>
-					<div className='absolute w-[85%] left-12 pt-2'>
-						<SegmentSilhouette segment={FOLDER_DOC_SEGMENTS[1]} variant='mini' />
-					</div>
+			<StoryThemeProvider theme={theme ?? null} className='relative overflow-hidden text-foreground'>
+				<div
+					className={cn(
+						'absolute top-[41%] left-[11%] w-[130%] h-[200%] origin-top-left bg-secondary',
+						SHEET_VISUAL,
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				>
+					<div className='absolute -top-[5%] left-[5%] h-[9%] w-[32%] rounded-t-[3px] bg-secondary' />
 				</div>
-			</div>
 
-			<div
-				className={cn(
-					'absolute top-[40%] left-[12%] w-[50%] h-[200%] origin-top-left bg-sidebar dark:bg-background rounded-sm rounded-b-none',
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			>
 				<div
-					className='pointer-events-none absolute inset-0 rounded-sm rounded-b-none border-t-2 border-r-2 border-primary'
-					style={{
-						maskImage: 'linear-gradient(to top right, transparent, black)',
-						WebkitMaskImage: 'linear-gradient(to top right, transparent, black)',
-					}}
+					className={cn(
+						'pr-5 absolute top-[24%] left-[12%] w-[140%] h-[200%] origin-top-left bg-secondary',
+						SHEET_VISUAL,
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
 				/>
-			</div>
 
-			<div
-				className={cn(
-					'absolute top-[35%] left-[52.5%] w-[70%] h-[200%] origin-top-left bg-sidebar dark:bg-background rounded-sm rounded-tl-none',
-				)}
-				style={{ transform: `${SHEET_TRANSFORM} rotateY(-1.5deg)` }}
-			>
 				<div
-					className='pointer-events-none absolute inset-0 rounded-sm rounded-tl-none border-t-2 border-primary'
-					style={{
-						maskImage: 'linear-gradient(to left, transparent, black)',
-						WebkitMaskImage: 'linear-gradient(to left, transparent, black)',
-					}}
+					className={cn(
+						'pr-5 absolute top-[23%] left-[13%] w-[140%] h-[200%] origin-top-left',
+						SHEET_SURFACE,
+						'bg-gradient-to-b from-background to-background/90',
+						SHEET_VISUAL,
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
 				/>
-			</div>
+
+				<div
+					className='absolute top-[40%] left-[12%] w-[50%] h-[200%] origin-top-left rounded-[2px] rounded-b-none bg-sidebar dark:bg-background'
+					style={{ transform: SHEET_TRANSFORM }}
+				>
+					<div
+						className='pointer-events-none absolute inset-0 rounded-[2px] rounded-b-none border-t-2 border-r-2 border-primary'
+						style={{
+							maskImage: 'linear-gradient(to top right, transparent 20%, black 78%)',
+							WebkitMaskImage: 'linear-gradient(to top right, transparent 20%, black 78%)',
+						}}
+					/>
+				</div>
+
+				<div
+					className='absolute top-[35%] left-[52.5%] w-[70%] h-[200%] origin-top-left rounded-[2px] rounded-tl-none bg-sidebar dark:bg-background'
+					style={{ transform: `${SHEET_TRANSFORM} rotateY(-1.5deg)` }}
+				>
+					<div
+						className='pointer-events-none absolute inset-0 rounded-[2px] rounded-tl-none border-t-2 border-primary'
+						style={{
+							maskImage: 'linear-gradient(to left, transparent 8%, black 70%)',
+							WebkitMaskImage: 'linear-gradient(to left, transparent 8%, black 70%)',
+						}}
+					/>
+				</div>
+			</StoryThemeProvider>
 		</div>
 	);
 }
 
 type ThumbnailVariant = 'flat' | 'mini';
 
-function SegmentSilhouette({ segment, variant }: { segment: SummarySegment; variant: ThumbnailVariant }) {
+function SegmentSilhouette({
+	segment,
+	variant,
+	queryData,
+}: {
+	segment: SummarySegment;
+	variant: ThumbnailVariant;
+	queryData?: QueryDataMap | null;
+}) {
 	switch (segment.type) {
 		case 'text':
 			return <TextBlock content={segment.content} variant={variant} />;
@@ -179,6 +199,9 @@ function SegmentSilhouette({ segment, variant }: { segment: SummarySegment; vari
 					kpiCount={segment.kpiCount}
 					colors={segment.colors}
 					variant={variant}
+					queryId={segment.queryId}
+					series={segment.series}
+					queryData={queryData}
 				/>
 			);
 		case 'table':
@@ -192,6 +215,7 @@ function SegmentSilhouette({ segment, variant }: { segment: SummarySegment; vari
 					widths={segment.widths}
 					children={segment.children}
 					variant={variant}
+					queryData={queryData}
 				/>
 			);
 	}
@@ -244,13 +268,13 @@ function renderMarkdownLine(line: string, variant: ThumbnailVariant, key: number
 			<span
 				key={key}
 				className={cn(
-					'truncate font-semibold leading-tight text-foreground/75',
-					variant === 'flat' && level === 1 && 'mb-1 text-lg',
-					variant === 'flat' && level === 2 && 'mb-1 text-base',
-					variant === 'flat' && level === 3 && 'text-sm',
-					variant === 'mini' && level === 1 && 'text-[8px] mb-px',
-					variant === 'mini' && level === 2 && 'text-[7px] mb-px',
-					variant === 'mini' && level === 3 && 'text-[6.5px]',
+					'truncate font-semibold leading-tight text-foreground/85',
+					variant === 'flat' && level === 1 && 'mb-1 text-[15px]',
+					variant === 'flat' && level === 2 && 'mb-1 text-[13px]',
+					variant === 'flat' && level === 3 && 'text-[12px]',
+					variant === 'mini' && level === 1 && 'text-[5.75px] mb-px',
+					variant === 'mini' && level === 2 && 'text-[5.25px] mb-px',
+					variant === 'mini' && level === 3 && 'text-[4.75px]',
 				)}
 			>
 				{headingMatch[2]}
@@ -259,20 +283,22 @@ function renderMarkdownLine(line: string, variant: ThumbnailVariant, key: number
 	}
 
 	if (/^-{3,}$/.test(line)) {
-		return <div key={key} className={cn('bg-border', variant === 'flat' ? 'my-2 h-px' : 'my-px h-[1px]')} />;
+		return (
+			<div
+				key={key}
+				className={cn(variant === 'flat' ? 'my-2 h-px bg-foreground/25' : 'my-[0.5px] h-px bg-foreground/12')}
+			/>
+		);
 	}
 
 	const bulletMatch = line.match(/^[-*]\s+(.+)/);
 	if (bulletMatch) {
 		return (
-			<span
-				key={key}
-				className={cn('flex min-w-0 items-start gap-1.5 text-muted-foreground/75', textSize(variant))}
-			>
+			<span key={key} className={cn('flex min-w-0 items-start gap-1.5 text-foreground/65', textSize(variant))}>
 				<span
 					className={cn(
 						'shrink-0 rounded-full bg-foreground/45',
-						variant === 'flat' ? 'mt-[7px] size-[3px]' : 'mt-[3px] size-[1.5px]',
+						variant === 'flat' ? 'mt-[6px] size-[2.5px]' : 'mt-[2.5px] size-[1.25px]',
 					)}
 				/>
 				<span className='min-w-0 truncate'>
@@ -283,14 +309,14 @@ function renderMarkdownLine(line: string, variant: ThumbnailVariant, key: number
 	}
 
 	return (
-		<span key={key} className={cn('truncate text-muted-foreground/75', textSize(variant))}>
+		<span key={key} className={cn('truncate text-foreground/65', textSize(variant))}>
 			<InlineMarkdown text={line} />
 		</span>
 	);
 }
 
 function textSize(variant: ThumbnailVariant): string {
-	return variant === 'flat' ? 'text-[13px] leading-[18px]' : 'text-[6px] leading-[1.35]';
+	return variant === 'flat' ? 'text-[11.5px] leading-[15px]' : 'text-[4.75px] leading-[1.2]';
 }
 
 function MarkdownTablePreview({ lines, variant }: { lines: string[]; variant: ThumbnailVariant }) {
@@ -309,7 +335,7 @@ function MarkdownTablePreview({ lines, variant }: { lines: string[]; variant: Th
 				{header.slice(0, 3).map((cell, i) => (
 					<span
 						key={i}
-						className={cn('flex-1 truncate px-1 font-medium text-foreground/55', textSize(variant))}
+						className={cn('flex-1 truncate px-1 font-medium text-foreground/75', textSize(variant))}
 					>
 						<InlineMarkdown text={cell} />
 					</span>
@@ -318,10 +344,7 @@ function MarkdownTablePreview({ lines, variant }: { lines: string[]; variant: Th
 			{visibleBody.map((row, i) => (
 				<div key={i} className={cn('flex', i % 2 === 1 && 'bg-foreground/[0.025]')}>
 					{row.slice(0, 3).map((cell, j) => (
-						<span
-							key={j}
-							className={cn('flex-1 truncate px-1 text-muted-foreground/70', textSize(variant))}
-						>
+						<span key={j} className={cn('flex-1 truncate px-1 text-foreground/60', textSize(variant))}>
 							<InlineMarkdown text={cell} />
 						</span>
 					))}
@@ -357,7 +380,7 @@ function InlineMarkdown({ text }: { text: string }) {
 		<>
 			{parts.map((part, i) =>
 				part.startsWith('**') && part.endsWith('**') ? (
-					<strong key={i} className='font-medium text-foreground/60'>
+					<strong key={i} className='font-medium text-foreground/80'>
 						{part.slice(2, -2)}
 					</strong>
 				) : (
@@ -371,8 +394,76 @@ function InlineMarkdown({ text }: { text: string }) {
 const KPI_COLOR = 'bg-primary/50';
 const DEFAULT_CHART_COLORS = Array.from({ length: 11 }, (_, i) => `var(--chart-${i + 1})`);
 
-function KpiSilhouette({ count, colors }: { count: number; colors: string[] }) {
+type KpiPreviewValue = {
+	label: string;
+	value: string;
+	color: string;
+};
+
+type KpiPreviewSeries = NonNullable<Extract<SummarySegment, { type: 'chart' }>['series']>;
+
+function KpiSilhouette({
+	count,
+	colors,
+	values,
+	variant,
+}: {
+	count: number;
+	colors: string[];
+	values: KpiPreviewValue[] | null;
+	variant: ThumbnailVariant;
+}) {
+	if (values && values.length > 0) {
+		const visibleValues = values.slice(0, Math.min(Math.max(count, 1), 4));
+		if (variant === 'flat') {
+			return (
+				<div className='flex w-full flex-wrap justify-start'>
+					{visibleValues.map((item, i) => (
+						<div key={`${item.label}-${i}`} className='w-[104px] min-w-0'>
+							<div className='flex items-center'>
+								<div className='truncate text-[8px] leading-[9px] tracking-wide text-foreground/70'>
+									{item.label}
+								</div>
+							</div>
+							<div className='truncate text-[12px] leading-[13px] font-semibold tabular-nums text-foreground'>
+								{item.value}
+							</div>
+						</div>
+					))}
+				</div>
+			);
+		}
+
+		return (
+			<div className={cn('grid', visibleValues.length > 1 ? 'grid-cols-2' : 'grid-cols-1', 'gap-[2px]')}>
+				{visibleValues.map((item, i) => (
+					<div key={`${item.label}-${i}`} className='min-w-0'>
+						<div className='truncate text-[3.75px] leading-[1.1] text-foreground/55'>{item.label}</div>
+						<div className='truncate text-[5px] leading-[1.05] font-semibold tabular-nums text-foreground'>
+							{item.value}
+						</div>
+					</div>
+				))}
+			</div>
+		);
+	}
+
 	const cards = Math.min(Math.max(count, 1), 4);
+	if (variant === 'flat') {
+		return (
+			<div className='flex w-full flex-wrap justify-start'>
+				{Array.from({ length: cards }).map((_, i) => (
+					<div key={i} className='flex w-[104px] min-w-0 flex-col gap-2'>
+						<div
+							className={cn('h-1 w-[72px] rounded-full', colors.length === 0 && KPI_COLOR)}
+							style={{ backgroundColor: colorAt(colors, i) }}
+						/>
+					</div>
+				))}
+			</div>
+		);
+	}
+
 	return (
 		<div className='flex gap-[9%]'>
 			{Array.from({ length: cards }).map((_, i) => (
@@ -393,17 +484,25 @@ function MiniChart({
 	kpiCount,
 	colors = [],
 	variant,
+	queryId,
+	series,
+	queryData,
 }: {
 	chartType: string;
 	title: string;
 	kpiCount?: number;
 	colors?: string[];
 	variant: ThumbnailVariant;
+	queryId?: string;
+	series?: KpiPreviewSeries;
+	queryData?: QueryDataMap | null;
 }) {
+	const kpiValues = chartType === 'kpi_card' ? getKpiPreviewValues({ queryData, queryId, series, colors }) : null;
+
 	return (
-		<PreviewBlock title={title} variant={variant}>
+		<PreviewBlock title={chartType === 'kpi_card' ? '' : title} variant={variant}>
 			{chartType === 'kpi_card' ? (
-				<KpiSilhouette count={kpiCount ?? 1} colors={colors} />
+				<KpiSilhouette count={kpiCount ?? 1} colors={colors} values={kpiValues} variant={variant} />
 			) : (
 				<RechartsThumbnail chartType={chartType} colors={colors} variant={variant} />
 			)}
@@ -411,14 +510,58 @@ function MiniChart({
 	);
 }
 
+function getKpiPreviewValues({
+	queryData,
+	queryId,
+	series,
+	colors,
+}: {
+	queryData?: QueryDataMap | null;
+	queryId?: string;
+	series?: KpiPreviewSeries;
+	colors: string[];
+}): KpiPreviewValue[] | null {
+	if (!queryData || !queryId || !series || series.length === 0) {
+		return null;
+	}
+	const latestRow = queryData[queryId]?.data.at(-1);
+	if (!latestRow) {
+		return null;
+	}
+	const values = series.flatMap((item, i) => {
+		const rawValue = latestRow[item.dataKey];
+		if (typeof rawValue === 'number') {
+			return [
+				{
+					label: item.label ?? item.dataKey,
+					value: formatChartValue(rawValue, item.valueFormat, { compact: true }),
+					color: colorAt(colors, i),
+				},
+			];
+		}
+		if (typeof rawValue === 'string' && rawValue.trim() !== '') {
+			return [{ label: item.label ?? item.dataKey, value: rawValue, color: colorAt(colors, i) }];
+		}
+		return [];
+	});
+	return values.length > 0 ? values : null;
+}
+
 function PreviewBlock({ title, children, variant }: { title: string; children: ReactNode; variant: ThumbnailVariant }) {
 	return (
-		<div className='min-h-0 overflow-hidden bg-background'>
+		<div
+			className={cn('min-h-0 overflow-hidden border-solid bg-card', variant === 'flat' ? 'p-3' : 'p-[3px]')}
+			style={{
+				borderColor: 'var(--border)',
+				borderRadius: thumbnailBlockRadius(variant),
+				borderWidth: 'var(--story-block-border-width, 0px)',
+			}}
+		>
 			{title && (
 				<span
 					className={cn(
-						'block truncate font-medium text-foreground/55',
-						variant === 'flat' ? 'mb-3 text-sm' : 'mb-1 text-[6.5px]',
+						'block truncate font-medium text-foreground/70',
+						variant === 'flat' ? 'mb-2 text-[12px]' : 'mb-0.5 text-[5px]',
 					)}
 				>
 					{title}
@@ -427,6 +570,11 @@ function PreviewBlock({ title, children, variant }: { title: string; children: R
 			{children}
 		</div>
 	);
+}
+
+function thumbnailBlockRadius(variant: ThumbnailVariant): string {
+	const scale = variant === 'flat' ? 0.5 : 0.25;
+	return `calc(var(--story-block-radius, var(--radius)) * ${scale})`;
 }
 
 function colorAt(colors: string[], index: number): string {
@@ -554,7 +702,7 @@ function MapSilhouette({ color = 'var(--chart-1)', variant }: { color?: string; 
 				viewBox='0 0 60 36'
 				width='100%'
 				height='100%'
-				className={cn('block', variant === 'flat' ? 'h-[150px]' : 'max-h-[40px]')}
+				className={cn('block', variant === 'flat' ? 'h-[150px]' : 'h-[26px]')}
 				style={{ color }}
 			>
 				<rect x='0' y='0' width='60' height='36' rx='4px' fill='currentColor' opacity={0.06} />
@@ -609,11 +757,13 @@ function GridSilhouette({
 	widths,
 	children,
 	variant,
+	queryData,
 }: {
 	cols: number;
 	widths: number[] | null;
 	children: SummarySegment[];
 	variant: ThumbnailVariant;
+	queryData?: QueryDataMap | null;
 }) {
 	const gridCols = Math.min(cols, 3);
 	const gridTemplateColumns = widths !== null ? getGridTemplateColumns(widths) : `repeat(${gridCols}, 1fr)`;
@@ -622,7 +772,7 @@ function GridSilhouette({
 	return (
 		<div className={cn('grid', variant === 'flat' ? 'gap-4' : 'gap-[5px]')} style={{ gridTemplateColumns }}>
 			{visibleChildren.map((child, i) => (
-				<SegmentSilhouette key={i} segment={child} variant={variant} />
+				<SegmentSilhouette key={i} segment={child} variant={variant} queryData={queryData} />
 			))}
 		</div>
 	);

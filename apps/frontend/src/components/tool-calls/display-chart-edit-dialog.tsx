@@ -1357,8 +1357,10 @@ function normalizeHexColor(color: string | undefined, fallback: string): string 
 	return HEX_RE.test(fallback) ? fallback : DEFAULT_COLORS[0];
 }
 
-function resolveChartPaletteHexes(): string[] {
-	return DEFAULT_COLORS.map((fallback, index) => resolveCssVariableColorHex(`--chart-${index + 1}`, fallback));
+export function resolveChartPaletteHexes(element?: HTMLElement | null): string[] {
+	return DEFAULT_COLORS.map((fallback, index) =>
+		resolveCssVariableColorHex(`--chart-${index + 1}`, fallback, element),
+	);
 }
 
 function applyChartConfigToMessages(
