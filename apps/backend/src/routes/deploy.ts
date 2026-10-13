@@ -42,6 +42,13 @@ export const deployRoutes = async (app: App) => {
 			fs.mkdirSync(extractDir, { recursive: true });
 			execFileSync('tar', ['xzf', tarPath, '-C', extractDir], { timeout: 30_000 });
 
+			const unsupportedEntry = findUnsupportedEntry(extractDir);
+			if (unsupportedEntry) {
+				return reply.status(400).send({
+					error: `Archive entry "${unsupportedEntry}" is not a regular file or directory. Symlinks and special files are not allowed.`,
+				});
+			}
+
 			const configPath = path.join(extractDir, 'nao_config.yaml');
 			if (!fs.existsSync(configPath)) {
 				return reply.status(400).send({ error: 'nao_config.yaml not found in uploaded archive' });
@@ -93,6 +100,21 @@ export const deployRoutes = async (app: App) => {
 	});
 };
 
+function findUnsupportedEntry(root: string, relativeDir = ''): string | null {
+	for (const entry of fs.readdirSync(path.join(root, relativeDir), { withFileTypes: true })) {
+		const relativePath = path.join(relativeDir, entry.name);
+		if (entry.isDirectory()) {
+			const nested = findUnsupportedEntry(root, relativePath);
+			if (nested) {
+				return nested;
+			}
+		} else if (!entry.isFile()) {
+			return relativePath;
+		}
+	}
+	return null;
+}
+
 function copyDirectoryContents(src: string, dest: string): void {
 	for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
 		const srcPath = path.join(src, entry.name);
@@ -100,8 +122,10 @@ function copyDirectoryContents(src: string, dest: string): void {
 		if (entry.isDirectory()) {
 			fs.mkdirSync(destPath, { recursive: true });
 			copyDirectoryContents(srcPath, destPath);
-		} else {
+		} else if (entry.isFile()) {
 			fs.copyFileSync(srcPath, destPath);
+		} else {
+			throw new Error(`Refusing to copy non-regular file: ${srcPath}`);
 		}
 	}
 }
