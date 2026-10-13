@@ -338,5 +338,9 @@ export async function getActiveThemeForStory(storyId: string): Promise<StoryThem
 		return null;
 	}
 	const projectId = await storyQueries.getStoryProjectId(storyId);
-	return projectId ? storyThemeQueries.getActiveStoryTheme(projectId) : null;
+	return projectId ? getActiveThemeForProject(projectId) : null;
+}
+
+export async function getActiveThemeForProject(projectId: string): Promise<StoryThemePair | null> {
+	return env.BETA_CUSTOM_STORIES_ENABLED ? storyThemeQueries.getActiveStoryTheme(projectId) : null;
 }

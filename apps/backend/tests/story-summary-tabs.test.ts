@@ -127,7 +127,7 @@ Body text
 	});
 
 	it('drops filters and grids without previewable children', () => {
-		const filter = buildStoryFilterBlock({ id: 'region', column: 'region', type: 'select' });
+		const filter = buildStoryFilterBlock({ id: 'region', column: 'region', type: 'select', options: ['EU', 'US'] });
 
 		const summary = extractStorySummary(`${filter}
 <grid widths="1,1">
@@ -136,6 +136,24 @@ Body text
 Closing note`);
 
 		expect(summary.segments).toEqual([{ type: 'text', content: 'Closing note' }]);
+	});
+
+	it('skips malformed series entries instead of failing the summary', () => {
+		const summary = extractStorySummary(
+			`<chart query_id="q" chart_type="kpi_card" series='[null, {"data_key":"revenue"}]' title="Revenue" />`,
+		);
+
+		expect(summary.segments).toEqual([
+			{
+				type: 'chart',
+				chartType: 'kpi_card',
+				title: 'Revenue',
+				kpiCount: 1,
+				queryId: 'q',
+				series: [{ dataKey: 'revenue' }],
+				colors: ['var(--chart-1)'],
+			},
+		]);
 	});
 
 	it('falls back to the original code when no complete tabs are parsed', () => {

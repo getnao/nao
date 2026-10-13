@@ -3,7 +3,7 @@ import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
-import { getActiveThemeForStory } from '../services/custom-story';
+import { getActiveThemeForProject } from '../services/custom-story';
 import { getStoryQueryData } from '../services/live-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
@@ -49,7 +49,7 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 	const [storyData, displaySettings, theme] = await Promise.all([
 		loadEmbedStoryData(version, projectId, ownerId),
 		projectQueries.getDisplaySettings(projectId),
-		getActiveThemeForStory(version.storyId),
+		getActiveThemeForProject(projectId),
 	]);
 
 	return {

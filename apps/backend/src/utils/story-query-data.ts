@@ -1,7 +1,7 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
-import { getLatestSqlQueryDataByIds } from '../queries/execute-sql.queries';
+import { getLatestSqlQueryDataByChats } from '../queries/execute-sql.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -81,33 +81,37 @@ export async function withKpiPreviewData<T extends KpiPreviewSource>(
 		stories.map((story) => [storyIdOf(story), collectKpiQueryIds(story.summary.segments)]),
 	);
 	const previewedStoryIds = [...queryIdsByStory].filter(([, ids]) => ids.size > 0).map(([storyId]) => storyId);
-	const cachedByStoryId =
-		previewedStoryIds.length > 0 ? await storyQueries.getStoryQueryDataByStoryIds(previewedStoryIds) : new Map();
-	return Promise.all(
-		stories.map(async (story) => {
-			const storyId = storyIdOf(story);
-			const queryIds = queryIdsByStory.get(storyId) ?? new Set<string>();
-			const cached = cachedByStoryId.get(storyId) ?? {};
-			return { ...story, kpiPreviewData: await loadKpiPreviewData(story, queryIds, cached) };
-		}),
-	);
+	const cachedByStoryId = await storyQueries.getStoryQueryDataByStoryIds(previewedStoryIds);
+	const plans = stories.map((story) => {
+		const queryIds = queryIdsByStory.get(storyIdOf(story)) ?? new Set<string>();
+		const fromCache = pickQueryData(cachedByStoryId.get(storyIdOf(story)) ?? {}, queryIds);
+		return { story, fromCache, idsFromChat: idsToReadFromChat(story, queryIds, fromCache) };
+	});
+	const chatResults = await getLatestSqlQueryDataByChats(groupIdsByChat(plans)).catch(() => new Map());
+	return plans.map(({ story, fromCache, idsFromChat }) => {
+		const fromChat = story.chatId ? pickQueryData(chatResults.get(story.chatId) ?? {}, idsFromChat) : {};
+		return { ...story, kpiPreviewData: latestRowOnly({ ...fromCache, ...fromChat }) };
+	});
 }
 
-async function loadKpiPreviewData(
-	story: KpiPreviewSource,
-	queryIds: Set<string>,
-	cached: StoryQueryDataMap,
-): Promise<StoryQueryDataMap | null> {
-	if (queryIds.size === 0) {
-		return null;
+function idsToReadFromChat(story: KpiPreviewSource, queryIds: Set<string>, fromCache: StoryQueryDataMap): Set<string> {
+	if (!story.chatId) {
+		return new Set();
 	}
-	const fromCache = pickQueryData(cached, queryIds);
-	const idsToReadFromChat = story.isLive === false ? queryIds : new Set([...queryIds].filter((id) => !fromCache[id]));
-	const fromChat =
-		story.chatId && idsToReadFromChat.size > 0
-			? await getLatestSqlQueryDataByIds(story.chatId, idsToReadFromChat).catch(() => ({}))
-			: {};
-	return latestRowOnly({ ...fromCache, ...fromChat });
+	return story.isLive === false ? queryIds : new Set([...queryIds].filter((id) => !fromCache[id]));
+}
+
+function groupIdsByChat(plans: { story: KpiPreviewSource; idsFromChat: Set<string> }[]): Map<string, Set<string>> {
+	const idsByChat = new Map<string, Set<string>>();
+	for (const { story, idsFromChat } of plans) {
+		if (!story.chatId || idsFromChat.size === 0) {
+			continue;
+		}
+		const chatIds = idsByChat.get(story.chatId) ?? new Set<string>();
+		idsFromChat.forEach((id) => chatIds.add(id));
+		idsByChat.set(story.chatId, chatIds);
+	}
+	return idsByChat;
 }
 
 function collectKpiQueryIds(segments: SummarySegment[]): Set<string> {
