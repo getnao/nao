@@ -471,7 +471,7 @@ class ProjectMattermostBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._config.projectId },
 			this._config.modelSelection,
-			{ supportsCustomCharts: false },
+			{ billingAccessVerifiedProjectId: this._config.projectId, supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, { provider: 'mattermost', timezone: ctx.timezone });

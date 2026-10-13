@@ -1,41 +1,21 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import type { CloudBillingInterval } from '@nao/shared/billing';
 
-import { getBillingStatusView, isHistoricalBillingStatus } from '@/lib/billing-display';
+import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
+import { useOrganizationBillingSync } from '@/hooks/use-organization-billing-sync';
+import { getBillingCurrencyForLocale } from '@/lib/billing-currency';
+import { getBillingStatusView } from '@/lib/billing-display';
 import { trpc } from '@/main';
 
-const STATUS_CONFIRMATION_TIMEOUT_MS = 15_000;
-
-export type OrganizationBillingSearch = {
-	checkout?: 'success' | 'subscribed' | 'canceled';
-	portal?: 'returned';
-};
+export type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
+export type BillingInterval = CloudBillingInterval;
 
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
-	const queryClient = useQueryClient();
-	const initialStatusSyncRequested = useRef(false);
-	const [isResumeConfirming, setIsResumeConfirming] = useState(false);
-	const [isCheckoutPolling, setIsCheckoutPolling] = useState(
-		search.checkout === 'success' || search.checkout === 'subscribed',
-	);
-	const [isBillingRefreshPolling, setIsBillingRefreshPolling] = useState(search.portal === 'returned');
-	const billing = useQuery({
-		...trpc.billing.getStatus.queryOptions(),
-		refetchOnWindowFocus: false,
-		refetchInterval: (query) =>
-			(isCheckoutPolling &&
-				(!query.state.data?.hasStripeSubscription ||
-					(search.checkout === 'subscribed' && isHistoricalBillingStatus(query.state.data?.status)))) ||
-			(query.state.data?.status === 'paused' && isResumeConfirming) ||
-			isBillingRefreshPolling
-				? 2_000
-				: false,
-	});
-	const invoices = useQuery({
-		...trpc.billing.getInvoices.queryOptions(),
-		enabled: billing.data?.canManageBilling === true && billing.data.invoiceHistoryAvailable,
-		refetchOnWindowFocus: false,
-	});
+	const [selectedBillingInterval, setSelectedBillingInterval] = useState<BillingInterval>('monthly');
+	const selectedBillingCurrency = getBillingCurrencyForLocale(navigator.language);
+	const billingSync = useOrganizationBillingSync(search, selectedBillingCurrency);
+	const { billing, invoices } = billingSync;
 	const canLoadUpcomingInvoice =
 		billing.data?.canManageBilling === true &&
 		billing.data.hasStripeSubscription &&
@@ -77,35 +57,17 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const resumeSubscription = useMutation(
 		trpc.billing.resumeSubscription.mutationOptions({
 			onSuccess: () => {
-				setIsResumeConfirming(true);
+				billingSync.setIsResumeConfirming(true);
 				void billing.refetch();
 			},
 		}),
 	);
-	const syncStripeBilling = useMutation(
-		trpc.billing.syncStripeBilling.mutationOptions({
-			onSuccess: async () => {
-				await Promise.all([
-					billing.refetch(),
-					invoices.refetch(),
-					queryClient.invalidateQueries({ queryKey: trpc.billing.getUpcomingInvoice.queryKey() }),
-					queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
-				]);
-				setIsBillingRefreshPolling(false);
-			},
-		}),
-	);
 
-	const plan = billing.data?.plan ?? billing.data?.availablePlan;
-	const hasStripeSubscription = billing.data?.hasStripeSubscription === true;
-	const status = billing.data?.status ?? null;
-	const isHistoricalSubscription = isHistoricalBillingStatus(status);
-	const isCheckoutConfirmed =
-		search.checkout === 'subscribed'
-			? hasStripeSubscription && !isHistoricalSubscription
-			: search.checkout === 'success'
-				? hasStripeSubscription
-				: false;
+	const selectedPlan = billing.data?.availablePlans?.[selectedBillingInterval];
+	const plan = billing.data?.hasStripeSubscription
+		? (billing.data.plan ?? selectedPlan)
+		: (selectedPlan ?? billing.data?.plan);
+	const { hasStripeSubscription, isHistoricalSubscription, status } = billingSync;
 	const statusView = getBillingStatusView(
 		status,
 		billing.data?.cancellationScheduled ?? false,
@@ -113,65 +75,6 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	);
 	const isEndingAtPeriodEnd =
 		billing.data?.cancellationScheduled === true && (status === 'active' || status === 'trialing');
-	const canSyncStripeBilling =
-		billing.data?.canManageBilling === true && billing.data.paymentMethodManagementAvailable;
-	const shouldAutoSyncStripeBilling =
-		canSyncStripeBilling &&
-		(search.portal === 'returned' || search.checkout === 'success' || search.checkout === 'subscribed');
-	const syncBillingWithStripe = syncStripeBilling.mutate;
-
-	useEffect(() => {
-		if (!isCheckoutPolling) {
-			return;
-		}
-		if (isCheckoutConfirmed) {
-			setIsCheckoutPolling(false);
-			return;
-		}
-		const timeout = window.setTimeout(() => setIsCheckoutPolling(false), STATUS_CONFIRMATION_TIMEOUT_MS);
-		return () => window.clearTimeout(timeout);
-	}, [isCheckoutConfirmed, isCheckoutPolling]);
-
-	useEffect(() => {
-		if (status) {
-			void queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() });
-		}
-	}, [queryClient, status]);
-
-	useEffect(() => {
-		if (!isResumeConfirming) {
-			return;
-		}
-		const timeout = window.setTimeout(() => setIsResumeConfirming(false), STATUS_CONFIRMATION_TIMEOUT_MS);
-		return () => window.clearTimeout(timeout);
-	}, [isResumeConfirming]);
-
-	useEffect(() => {
-		if (!shouldAutoSyncStripeBilling || initialStatusSyncRequested.current) {
-			return;
-		}
-		initialStatusSyncRequested.current = true;
-		syncBillingWithStripe();
-	}, [shouldAutoSyncStripeBilling, syncBillingWithStripe]);
-
-	useEffect(() => {
-		if (!isBillingRefreshPolling) {
-			return;
-		}
-		const timeout = window.setTimeout(() => setIsBillingRefreshPolling(false), 60_000);
-		return () => window.clearTimeout(timeout);
-	}, [isBillingRefreshPolling]);
-
-	const checkoutFeedback = getCheckoutFeedback(search.checkout, isCheckoutConfirmed, isCheckoutPolling);
-	const portalFeedback =
-		search.portal === 'returned'
-			? syncStripeBilling.isError
-				? 'Unable to refresh billing details from Stripe.'
-				: syncStripeBilling.isPending || isBillingRefreshPolling
-					? 'Refreshing billing changes from Stripe…'
-					: 'Billing details refreshed from Stripe.'
-			: null;
-
 	return {
 		billing,
 		invoices,
@@ -183,59 +86,40 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		hasStripeSubscription,
 		isHistoricalSubscription,
 		isEndingAtPeriodEnd,
-		isCheckoutPolling,
-		isCheckoutConfirmationDelayed:
-			(search.checkout === 'success' || search.checkout === 'subscribed') &&
-			!isCheckoutConfirmed &&
-			!isCheckoutPolling,
-		checkoutFeedback,
-		portalFeedback,
+		selectedBillingInterval,
+		setSelectedBillingInterval,
+		isCheckoutPolling: billingSync.isCheckoutPolling,
+		isCheckoutConfirmationDelayed: billingSync.isCheckoutConfirmationDelayed,
+		checkoutFeedback: billingSync.checkoutFeedback,
+		portalFeedback: billingSync.portalFeedback,
 		trialCheckoutError: trialCheckout.isError ? trialCheckout.error.message : null,
 		managementError:
 			resumeSubscription.error?.message ??
 			resubscribe.error?.message ??
 			paymentMethodPortal.error?.message ??
 			portal.error?.message ??
-			syncStripeBilling.error?.message ??
+			billingSync.syncError ??
 			null,
 		isTrialCheckoutPending: trialCheckout.isPending,
 		isPortalPending: portal.isPending,
 		isPaymentMethodPortalPending: paymentMethodPortal.isPending,
 		isResubscribePending: resubscribe.isPending,
 		isResumePending: resumeSubscription.isPending,
-		isBillingSyncPending: syncStripeBilling.isPending,
-		openTrialCheckout: () => trialCheckout.mutate(),
+		isBillingSyncPending: billingSync.isBillingSyncPending,
+		openTrialCheckout: () =>
+			trialCheckout.mutate({
+				billingInterval: selectedBillingInterval,
+				currency: selectedBillingCurrency,
+			}),
 		openPortal: () => portal.mutate({ requestId: crypto.randomUUID() }),
 		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: crypto.randomUUID() }),
-		resubscribe: () => resubscribe.mutate(),
+		resubscribe: () =>
+			resubscribe.mutate({
+				billingInterval: selectedBillingInterval,
+				currency: selectedBillingCurrency,
+			}),
 		resume: () => resumeSubscription.mutate({ requestId: crypto.randomUUID() }),
-		syncBilling: () => {
-			setIsBillingRefreshPolling(true);
-			syncStripeBilling.mutate();
-		},
-		retryCheckoutConfirmation: () => {
-			setIsCheckoutPolling(true);
-			syncStripeBilling.mutate();
-			void billing.refetch();
-		},
+		syncBilling: billingSync.syncBilling,
+		retryCheckoutConfirmation: billingSync.retryCheckoutConfirmation,
 	};
-}
-
-function getCheckoutFeedback(
-	checkout: OrganizationBillingSearch['checkout'],
-	isConfirmed: boolean,
-	isPolling: boolean,
-): string | null {
-	if (checkout === 'canceled') {
-		return 'Checkout was canceled. Your billing status was not changed.';
-	}
-	if (checkout !== 'success' && checkout !== 'subscribed') {
-		return null;
-	}
-	if (isConfirmed) {
-		return null;
-	}
-	return isPolling
-		? 'Confirming your subscription with Stripe…'
-		: 'Stripe confirmation is taking longer than expected.';
 }

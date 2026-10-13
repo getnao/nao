@@ -11,9 +11,9 @@ import {
 	getStripeInvoice,
 	getStripePaymentMethod,
 } from '../services/stripe.service';
-import { CLOUD_MONTHLY_PLAN, STRIPE_WEBHOOK_PROCESS_JOB_NAME } from '../types/billing';
+import { isCloudBillingPlanKey } from '../types/billing';
 
-export { STRIPE_WEBHOOK_PROCESS_JOB_NAME };
+export const STRIPE_WEBHOOK_PROCESS_JOB_NAME = 'stripe.webhook.process';
 
 const SUBSCRIPTION_EVENTS = new Set([
 	'customer.subscription.created',
@@ -75,7 +75,7 @@ export const stripeWebhookProcessHandler: JobHandler<{ eventId?: unknown }> = as
 async function processStripeEvent(event: Stripe.Event): Promise<void> {
 	if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
 		const eventSession = event.data.object as Stripe.Checkout.Session;
-		if (eventSession.mode !== 'subscription' || eventSession.metadata?.nao_plan_key !== CLOUD_MONTHLY_PLAN.key) {
+		if (eventSession.mode !== 'subscription' || !isCloudBillingPlanKey(eventSession.metadata?.nao_plan_key)) {
 			return;
 		}
 		await processCheckoutSession(eventSession.id);
@@ -120,7 +120,7 @@ async function processStoredStripeEvent(event: { type: string; stripeObjectId: s
 
 	if (checkoutEvent) {
 		const session = await getStripeCheckoutSession(objectId);
-		if (session.mode !== 'subscription' || session.metadata?.nao_plan_key !== CLOUD_MONTHLY_PLAN.key) {
+		if (session.mode !== 'subscription' || !isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
 			return;
 		}
 		await processCheckoutSession(objectId);
@@ -149,7 +149,7 @@ async function processStoredStripeEvent(event: { type: string; stripeObjectId: s
 
 async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<void> {
 	const { session, subscription } = await getCloudCheckoutSubscription(stripeCheckoutSessionId);
-	if (session.mode !== 'subscription' || session.metadata?.nao_plan_key !== CLOUD_MONTHLY_PLAN.key) {
+	if (session.mode !== 'subscription' || !isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
 		return;
 	}
 	const organizationId = session.metadata.nao_org_id ?? session.client_reference_id;

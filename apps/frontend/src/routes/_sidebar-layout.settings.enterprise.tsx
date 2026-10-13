@@ -26,7 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { useLicenseFeatures } from '@/hooks/use-license';
-import { requireNonViewerNonCloud } from '@/lib/require-admin';
+import { requireNonViewerNonCloud } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 

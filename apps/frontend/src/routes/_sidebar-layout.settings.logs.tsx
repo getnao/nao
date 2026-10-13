@@ -15,7 +15,7 @@ import { LogsDateRangeFilter } from '@/components/settings/logs-date-range-filte
 import { cn } from '@/lib/utils';
 import { trpc, trpcClient } from '@/main';
 
-import { requireAdminNonCloud } from '@/lib/require-admin';
+import { requireAdminNonCloud } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/logs')({
 	beforeLoad: requireAdminNonCloud,

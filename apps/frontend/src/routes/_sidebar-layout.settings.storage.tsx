@@ -8,7 +8,7 @@ import { ErrorMessage } from '@/components/ui/error-message';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useStorageConfig, useStorageHealth, useStorageUploadLimits, useStorageUsage } from '@/hooks/use-storage';
-import { requireNonViewerNonCloud } from '@/lib/require-admin';
+import { requireNonViewerNonCloud } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/storage')({
 	beforeLoad: requireNonViewerNonCloud,

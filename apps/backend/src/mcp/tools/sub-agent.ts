@@ -7,7 +7,6 @@ import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
-import { assertProjectCloudBillingAccess } from '../../services/cloud-billing-access.service';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
@@ -173,7 +172,6 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 		errorMessage: (error) =>
 			error instanceof RequestedModelError ? error.message : 'Nao agent failed to process the request.',
 		handler: async ({ question, chatId, model }) => {
-			await assertProjectCloudBillingAccess(ctx.projectId);
 			// Resolved before the chat is created so an unknown model leaves no empty chat behind.
 			const modelSelection = await agentService.resolveModelSelection(
 				ctx.projectId,
@@ -189,6 +187,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			const naoChatUrl = chatUrl(chat.id);
 
 			const agent = await agentService.create(chat, modelSelection, {
+				billingAccessVerifiedProjectId: ctx.projectId,
 				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
 			askNaoRuns.start(chat.id, modelLabel);

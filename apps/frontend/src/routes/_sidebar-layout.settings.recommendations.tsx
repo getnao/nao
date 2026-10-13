@@ -59,7 +59,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useRecommendationsViewState } from '@/hooks/use-recommendations-view-state';
 import { useContentCenteredStyle } from '@/hooks/use-sidebar-content-offset';
 import { useSidePanel } from '@/hooks/use-side-panel';
-import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 

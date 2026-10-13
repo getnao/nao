@@ -15,6 +15,10 @@ import { createStoryExecutionContext, executeRawSql, executeStoryQueries } from 
 
 const FILTER_OPTIONS_LIMIT = 100;
 
+interface StoryFilterExecutionOptions {
+	billingAccessVerifiedProjectId?: string;
+}
+
 export function assertStoryFiltersEnabled() {
 	if (!env.BETA_STORY_FILTERS_ENABLED) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Story filters are disabled on this instance.' });
@@ -25,6 +29,7 @@ export async function getStoryFilterOptions(
 	chatId: string,
 	storySlug: string,
 	filterId: string,
+	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<{ options: string[] }> {
 	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
 	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
@@ -49,6 +54,7 @@ export async function getStoryFilterOptions(
 	const result = await executeRawSql(sql, {
 		executionContext,
 		databaseId: filter.databaseId ?? databaseId,
+		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 	});
 	const options = result.data
 		.map((row) => {
@@ -67,6 +73,7 @@ export async function getFilteredStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	selections: StoryFilterSelections,
+	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
 	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
 	const types = filterTypesFromCode(code);
@@ -74,6 +81,7 @@ export async function getFilteredStoryQueryData(
 	return executeStoryQueries(chatId, sqlQueries, {
 		executionContext,
 		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, types),
+		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 	});
 }
 
