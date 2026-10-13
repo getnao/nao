@@ -81,7 +81,8 @@ export async function withKpiPreviewData<T extends KpiPreviewSource>(
 		stories.map((story) => [storyIdOf(story), collectKpiQueryIds(story.summary.segments)]),
 	);
 	const previewedStoryIds = [...queryIdsByStory].filter(([, ids]) => ids.size > 0).map(([storyId]) => storyId);
-	const cachedByStoryId = await storyQueries.getStoryQueryDataByStoryIds(previewedStoryIds);
+	const cachedByStoryId =
+		previewedStoryIds.length > 0 ? await storyQueries.getStoryQueryDataByStoryIds(previewedStoryIds) : new Map();
 	return Promise.all(
 		stories.map(async (story) => {
 			const storyId = storyIdOf(story);
