@@ -1,8 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
+import { executeSemanticQuery, executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
+import type { SemanticLayerMode } from '@nao/shared/types';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
+import executeSemanticQueryTool from '../../agents/tools/execute-semantic-query';
 import executeSqlTool from '../../agents/tools/execute-sql';
 import grepTool from '../../agents/tools/grep';
 import listTool from '../../agents/tools/list';
@@ -11,6 +13,7 @@ import * as chatQueries from '../../queries/chat.queries';
 import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
+import { isSemanticQueryToolEnabled } from '../../services/semantic-layer.service';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
@@ -45,6 +48,15 @@ const EXECUTE_SQL_BASE_DESCRIPTION =
 	'BEFORE RUNNING: if you have not yet read RULES.md in this session, call ' +
 	'`read_nao_context` on `RULES.md` (or `grep_nao_context`) first to learn the schema, ' +
 	'naming conventions, and business rules. Skip this step only if `ask_nao` already ran the query.';
+
+const EXECUTE_SEMANTIC_QUERY_DESCRIPTION =
+	'Query the governed metrics of the semantic layer. nao compiles the metrics, dimensions and filters ' +
+	'to SQL with the official definitions and runs it on the database the layer is configured for.\n\n' +
+	'USE WHEN: the question maps to metrics in the semantic layer. Prefer it over `execute_sql` for any ' +
+	'number that has to match a governed metric.\n' +
+	'BEFORE RUNNING: find metric names with `ls_nao_context` on `semantics/metrics` and dimension names ' +
+	'in `semantics/dimensions.md`.\n\n' +
+	'The result works like an `execute_sql` result: pass its `query_id` to `display_chart` or embed it in a story.';
 
 const GREP_DESCRIPTION =
 	'Search a regex across the nao project context files.\n\n' +
@@ -82,24 +94,33 @@ const UPDATE_STORY_DESCRIPTION =
 	'stays valid.';
 
 type ExecuteSqlMcpInput = executeSql.Input & { chat_id?: string };
+type ExecuteSemanticQueryMcpInput = executeSemanticQuery.Input & { chat_id?: string };
 
-const EXECUTE_SQL_BASE_INPUT_SCHEMA = executeSql.InputSchema.extend({
-	chat_id: zodV3
-		.string()
-		.optional()
-		.describe(
-			'Chat UUID to associate this query with (e.g. `chatId` from `ask_nao`). ' +
-				"Sets the 'Open in nao' button on any chart later rendered from this `query_id`.",
-		),
-});
+const CHAT_ID_INPUT_SCHEMA = zodV3
+	.string()
+	.optional()
+	.describe(
+		'Chat UUID to associate this query with (e.g. `chatId` from `ask_nao`). ' +
+			"Sets the 'Open in nao' button on any chart later rendered from this `query_id`.",
+	);
+
+const QUERY_ID_OUTPUT_SCHEMA = zodV3
+	.string()
+	.describe('Reusable query ID — pass to `display_chart` as `query_id`, or embed as `<table query_id="..." />`.');
+
+const EXECUTE_SQL_BASE_INPUT_SCHEMA = executeSql.InputSchema.extend({ chat_id: CHAT_ID_INPUT_SCHEMA });
 
 export function registerContextLayerTools(
 	server: McpServer,
 	ctx: McpContext,
 	configuredDatabases: ConfiguredDatabase[],
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): void {
 	registerFileTools(server, ctx);
 	registerExecuteSql(server, ctx, configuredDatabases);
+	if (isSemanticQueryToolEnabled(semanticLayerMode)) {
+		registerExecuteSemanticQuery(server, ctx);
+	}
 	registerContextStoryTools(server, ctx);
 }
 
@@ -140,30 +161,47 @@ function registerExecuteSql(server: McpServer, ctx: McpContext, configuredDataba
 		title: 'Execute SQL',
 		description: buildExecuteSqlDescription(warehouseDatabaseIds),
 		inputSchema: buildExecuteSqlInputSchema(warehouseDatabaseIds),
-		outputSchema: executeSql.OutputSchema.extend({
-			query_id: zodV3
-				.string()
-				.describe(
-					'Reusable query ID — pass to `display_chart` as `query_id`, or embed as `<table query_id="..." />`.',
-				),
-		}).shape,
+		outputSchema: executeSql.OutputSchema.extend({ query_id: QUERY_ID_OUTPUT_SCHEMA }).shape,
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
-		formatResult: async ({ input, output, callLogId }) => {
-			const queryId = output.id;
-			const validatedSourceChat = await resolveChartChatId(input.chat_id, ctx);
-
-			await upsertMcpQueryData(queryId, callLogId, ctx.projectId, output.columns, output.data, {
-				sourceChatId: validatedSourceChat ?? null,
-			});
-
-			const mcpOutput = { ...output, query_id: queryId };
-			return {
-				content: [{ type: 'text' as const, text: JSON.stringify(mcpOutput) }],
-				structuredContent: mcpOutput,
-			};
-		},
+		formatResult: (result) => formatQueryResult(ctx, result),
 	});
+}
+
+function registerExecuteSemanticQuery(server: McpServer, ctx: McpContext): void {
+	registerAgentToolAsMcp<executeSemanticQuery.Input, executeSemanticQuery.Output, ExecuteSemanticQueryMcpInput>(
+		server,
+		ctx,
+		{
+			name: 'execute_semantic_query',
+			agentTool: executeSemanticQueryTool,
+			title: 'Execute Semantic Query',
+			description: EXECUTE_SEMANTIC_QUERY_DESCRIPTION,
+			inputSchema: executeSemanticQuery.InputSchema.extend({ chat_id: CHAT_ID_INPUT_SCHEMA }),
+			outputSchema: executeSemanticQuery.OutputSchema.extend({ query_id: QUERY_ID_OUTPUT_SCHEMA }).shape,
+			mapInput: ({ chat_id: _chatId, ...input }) => input,
+			resolveChatId: (input) => input.chat_id ?? null,
+			formatResult: (result) => formatQueryResult(ctx, result),
+		},
+	);
+}
+
+async function formatQueryResult<TOutput extends executeSql.Output>(
+	ctx: McpContext,
+	{ input, output, callLogId }: { input: { chat_id?: string }; output: TOutput; callLogId: string },
+): Promise<ToolResult> {
+	const queryId = output.id;
+	const validatedSourceChat = await resolveChartChatId(input.chat_id, ctx);
+
+	await upsertMcpQueryData(queryId, callLogId, ctx.projectId, output.columns, output.data, {
+		sourceChatId: validatedSourceChat ?? null,
+	});
+
+	const mcpOutput = { ...output, query_id: queryId };
+	return {
+		content: [{ type: 'text' as const, text: JSON.stringify(mcpOutput) }],
+		structuredContent: mcpOutput,
+	};
 }
 
 function getWarehouseDatabaseIds(configuredDatabases: ConfiguredDatabase[]): string[] {
