@@ -26,12 +26,13 @@ interface PageContent {
 export async function renderStoryScreenshot(
 	html: string,
 	viewport: { width: number; height: number },
+	fontStylesheets: string[],
 ): Promise<StoryScreenshot> {
 	const browser = await getBrowser();
 	const page = await browser.newPage();
 	const pageErrors = collectPageErrors(page);
 	try {
-		await isolateStoryPage(page, html, { print: false });
+		await isolateStoryPage(page, html, { print: false, fontStylesheets });
 		await page.evaluateOnNewDocument(listenToStoryErrors, STORY_ERRORS_GLOBAL);
 		await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
 		await page.goto(STORY_DOCUMENT_URL, { waitUntil: 'load', timeout: 30_000 }).catch(() => {});
@@ -83,7 +84,10 @@ function listenToStoryErrors(errorsGlobal: string): void {
 	});
 }
 
-/** Runs inside the page, serialized by puppeteer: it must stay self-contained, without named inner functions. */
+/**
+ * Runs inside the page, serialized by puppeteer: it must stay self-contained, without named inner functions.
+ * Only what shows in the captured first screen counts.
+ */
 function inspectContent({
 	errorsGlobal,
 	blockErrorSelector,
@@ -94,8 +98,21 @@ function inspectContent({
 	const blockErrors = Array.from(document.querySelectorAll<HTMLElement>(blockErrorSelector)).map((state) =>
 		(state.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 200),
 	);
-	const hasText = (document.body.innerText ?? '').trim().length > 0;
-	const hasGraphics = document.body.querySelector('canvas, svg, img, video') !== null;
+	const hasGraphics = Array.from(document.body.querySelectorAll('canvas, svg, img, video')).some((element) => {
+		const rect = element.getBoundingClientRect();
+		return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.left < innerWidth;
+	});
+	const texts = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+	let hasText = false;
+	while (!hasText && texts.nextNode()) {
+		const range = document.createRange();
+		range.selectNodeContents(texts.currentNode);
+		hasText =
+			Boolean(texts.currentNode.textContent?.trim()) &&
+			Array.from(range.getClientRects()).some(
+				(rect) => rect.width > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.left < innerWidth,
+			);
+	}
 	return {
 		blank: !hasText && !hasGraphics,
 		blockErrors: [...new Set(blockErrors)],

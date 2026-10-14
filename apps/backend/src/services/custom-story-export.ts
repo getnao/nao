@@ -3,6 +3,7 @@ import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { DEFAULT_STORY_THEME_PAIR, type StoryThemeMode } from '@nao/shared/story-theme';
 
 import { formatDownloadFilename } from '../utils/story-download';
+import { themeFontStylesheets } from '../utils/story-headless-page';
 import { renderStoryPdf } from '../utils/story-snapshot';
 import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
 import {
@@ -11,7 +12,7 @@ import {
 	getCustomStoryVersion,
 	getStoredCustomStoryNarrativesByStoryId,
 } from './custom-story';
-import { getUnattendedCustomStoryState } from './custom-story-state';
+import { getUnattendedCustomStoryState, getUnattendedCustomStoryStateByStoryId } from './custom-story-state';
 
 export async function renderCustomStoryPdf(
 	chatId: string,
@@ -25,21 +26,23 @@ export async function renderCustomStoryPdf(
 		loadStandaloneStoryRuntime(),
 	]);
 	const html = buildCustomStoryDocumentHtml(version, queryData, narratives, runtime, 'light', state);
-	return { filename: formatDownloadFilename(version.title, 'pdf'), buffer: await renderStoryPdf(html) };
+	const buffer = await renderStoryPdf(html, themeFontStylesheets(version.theme));
+	return { filename: formatDownloadFilename(version.title, 'pdf'), buffer };
 }
 
-/** A version as a self-contained page in the given theme mode, from the story's saved narratives. */
+/** A version as a self-contained page in the given theme mode, from the story's saved narratives and shared state. */
 export async function buildCustomStoryDocumentByStoryId(
 	storyId: string,
 	version: CustomStoryVersionView,
 	queryData: Record<string, StoryQueryResult>,
 	mode: StoryThemeMode,
 ): Promise<string> {
-	const [narratives, runtime] = await Promise.all([
+	const [narratives, runtime, state] = await Promise.all([
 		getStoredCustomStoryNarrativesByStoryId(storyId),
 		loadStandaloneStoryRuntime(),
+		getUnattendedCustomStoryStateByStoryId(storyId),
 	]);
-	return buildCustomStoryDocumentHtml(version, queryData, narratives, runtime, mode);
+	return buildCustomStoryDocumentHtml(version, queryData, narratives, runtime, mode, state);
 }
 
 function buildCustomStoryDocumentHtml(

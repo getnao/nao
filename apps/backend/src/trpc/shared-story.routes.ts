@@ -42,6 +42,7 @@ import {
 } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
+import { themeFontStylesheets } from '../utils/story-headless-page';
 import { withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
@@ -341,7 +342,8 @@ export const sharedStoryRoutes = {
 				},
 			});
 
-			return buildStorySnapshotDownload(input.format, shared.title, input.html);
+			const fontStylesheets = themeFontStylesheets(await getActiveThemeForStory(shared.storyId));
+			return buildStorySnapshotDownload(input.format, shared.title, input.html, fontStylesheets);
 		}),
 
 	getVersionQueryData: shareAccessProcedure

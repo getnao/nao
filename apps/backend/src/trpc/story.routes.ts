@@ -63,6 +63,7 @@ import {
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
+import { themeFontStylesheets } from '../utils/story-headless-page';
 import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
 import { backfillMissingQueryData, withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
@@ -481,7 +482,8 @@ export const storyRoutes = {
 				});
 			}
 
-			return buildStorySnapshotDownload(input.format, version.title, input.html);
+			const fontStylesheets = themeFontStylesheets(await getActiveThemeForStory(version.storyId));
+			return buildStorySnapshotDownload(input.format, version.title, input.html, fontStylesheets);
 		}),
 
 	editCustomStoryBlock: chatOwnerProcedure

@@ -21,8 +21,9 @@ export async function buildStorySnapshotDownload(
 	format: DownloadFormat,
 	title: string,
 	html: string,
+	fontStylesheets: string[],
 ): Promise<{ data: string; filename: string; mimeType: string }> {
-	const buffer = format === 'pdf' ? await renderStoryPdf(html) : Buffer.from(html);
+	const buffer = format === 'pdf' ? await renderStoryPdf(html, fontStylesheets) : Buffer.from(html);
 	return {
 		data: buffer.toString('base64'),
 		filename: formatDownloadFilename(title, format),
@@ -30,11 +31,11 @@ export async function buildStorySnapshotDownload(
 	};
 }
 
-export async function renderStoryPdf(html: string): Promise<Buffer> {
+export async function renderStoryPdf(html: string, fontStylesheets: string[]): Promise<Buffer> {
 	const browser = await getBrowser();
 	const page = await browser.newPage();
 	try {
-		await isolateStoryPage(page, html, { print: true });
+		await isolateStoryPage(page, html, { print: true, fontStylesheets });
 		await page.setViewport({ width: LAYOUT_WIDTH_PX, height: 900, deviceScaleFactor: 2 });
 		await page.goto(STORY_DOCUMENT_URL, { waitUntil: 'load', timeout: 30_000 }).catch(() => {});
 		await waitForStoryReady(page);

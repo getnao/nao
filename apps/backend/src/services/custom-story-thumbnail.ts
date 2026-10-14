@@ -5,6 +5,7 @@ import type { DBStory } from '../db/abstractSchema';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import { logger } from '../utils/logger';
+import { themeFontStylesheets } from '../utils/story-headless-page';
 import { isBrokenRender, renderStoryScreenshot } from '../utils/story-screenshot';
 import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
 import {
@@ -160,7 +161,11 @@ async function renderModeThumbnail(
 	mode: StoryThemeMode,
 ): Promise<string | null> {
 	const html = await buildCustomStoryDocumentByStoryId(storyId, version, queryData, mode);
-	const { image, ...render } = await renderStoryScreenshot(html, THUMBNAIL_VIEWPORT);
+	const { image, ...render } = await renderStoryScreenshot(
+		html,
+		THUMBNAIL_VIEWPORT,
+		themeFontStylesheets(version.theme),
+	);
 	if (isBrokenRender(render)) {
 		return null;
 	}
