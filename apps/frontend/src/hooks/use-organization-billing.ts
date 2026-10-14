@@ -4,7 +4,7 @@ import type { CloudBillingInterval } from '@nao/shared/billing';
 
 import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
 import { useOrganizationBillingSync } from '@/hooks/use-organization-billing-sync';
-import { getBillingCurrencyForLocale } from '@/lib/billing-currency';
+import { getBrowserBillingCurrency } from '@/lib/billing-currency';
 import { getBillingStatusView } from '@/lib/billing-display';
 import { trpc } from '@/main';
 
@@ -13,7 +13,7 @@ export type BillingInterval = CloudBillingInterval;
 
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const [selectedBillingInterval, setSelectedBillingInterval] = useState<BillingInterval>('monthly');
-	const selectedBillingCurrency = getBillingCurrencyForLocale(navigator.language);
+	const selectedBillingCurrency = getBrowserBillingCurrency();
 	const billingSync = useOrganizationBillingSync(search, selectedBillingCurrency);
 	const { billing, invoices } = billingSync;
 	const canLoadUpcomingInvoice =
