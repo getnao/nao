@@ -57,6 +57,7 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "qwen": "openai",
     "minimax": "openai",
     "moonshot": "openai",
+    "meta": "openai",
     "openaiCompatible": "openai",
     # MotherDuck is DuckDB-compatible and uses the duckdb extra/backend.
     "motherduck": "duckdb",

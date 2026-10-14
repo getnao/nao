@@ -1,7 +1,7 @@
 import { type LlmProvider, providerKind } from '@nao/shared/types';
 import { describe, expect, it } from 'vitest';
 
-import { createProviderModel, fitThinkingBudget } from '../src/agents/providers';
+import { createProviderModel, disableModelReasoning, fitThinkingBudget } from '../src/agents/providers';
 import type { ModelInferenceSettings, ProviderSettings } from '../src/types/llm';
 
 const SETTINGS: ProviderSettings = { apiKey: 'test-key' };
@@ -443,6 +443,33 @@ describe('Qwen, MiniMax and Moonshot (OpenAI-compatible endpoints)', () => {
 
 		expect(options).not.toHaveProperty('reasoningEffort');
 		expect(callSettings).toEqual({ temperature: 0.4 });
+	});
+
+	it('sends the Muse effort as-is, including max', () => {
+		const max = resolve('meta', 'muse-wonder-1.0', { reasoningEffort: 'max' });
+		const minimal = resolve('meta', 'muse-spark-1.3', { reasoningEffort: 'minimal' });
+
+		expect(max.options.reasoningEffort).toBe('max');
+		expect(minimal.options.reasoningEffort).toBe('minimal');
+	});
+
+	it('raises a Top P of 0 to the lowest value Muse accepts', () => {
+		const { callSettings } = resolve('meta', 'muse-spark-1.3', { topP: 0 });
+
+		expect(callSettings).toEqual({ topP: 0.05 });
+	});
+
+	it('snaps max down on custom Muse models, which may not accept it', () => {
+		const { options } = resolve('meta', 'muse-spark-1.3-contributor', { reasoningEffort: 'max' });
+
+		expect(options.reasoningEffort).toBe('high');
+	});
+
+	it('lowers Muse reasoning to minimal instead of disabling it, as Muse rejects none', () => {
+		const result = createProviderModel('meta', SETTINGS, 'muse-spark-1.3', { reasoningEffort: 'high' });
+		const options = disableModelReasoning('meta', result).providerOptions.meta as Record<string, unknown>;
+
+		expect(options.reasoningEffort).toBe('minimal');
 	});
 
 	it('sends the Qwen thinking budget under the field names the API expects', () => {

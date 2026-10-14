@@ -15,6 +15,7 @@ import QwenIcon from '@/components/icons/qwen.svg';
 import MinimaxIcon from '@/components/icons/minimax.svg';
 import MoonshotIcon from '@/components/icons/moonshot.svg';
 import NaoIcon from '@/components/icons/nao-logo-greyscale.svg';
+import MetaIcon from '@/components/icons/meta.svg';
 
 import { Favicon } from '@/components/ui/favicon';
 import { cn } from '@/lib/utils';
@@ -57,6 +58,8 @@ export function LlmProviderIcon({ provider, baseUrl, className: customClassName 
 			return <MinimaxIcon className={className} />;
 		case 'moonshot':
 			return <MoonshotIcon className={className} />;
+		case 'meta':
+			return <MetaIcon className={className} />;
 		case 'openaiCompatible':
 			return (
 				<Favicon

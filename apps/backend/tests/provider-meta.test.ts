@@ -98,6 +98,10 @@ describe('getModelCapabilities', () => {
 		expect(getModelCapabilities('qwen', 'qwen-custom')).toMatchObject({ thinking: 'budget', topK: false });
 		expect(getModelCapabilities('minimax', 'MiniMax-Custom')).toMatchObject({ thinking: 'none', sampling: true });
 		expect(getModelCapabilities('moonshot', 'kimi-custom')).toMatchObject({ thinking: 'adaptive', sampling: true });
+		expect(getModelCapabilities('meta', 'muse-spark-1.2')).toMatchObject({
+			thinking: 'adaptive',
+			effortOptions: ['off', 'minimal', 'low', 'medium', 'high'],
+		});
 		expect(getModelCapabilities('openaiCompatible', 'my-model')).toMatchObject({
 			thinking: 'adaptive',
 			sampling: true,
@@ -389,5 +393,13 @@ describe('getModelParameterSpec', () => {
 		expect(controlByKey(mistral, 'temperature')).toMatchObject({ max: 1.5, placeholder: '0 – 1.5' });
 		expect(controlByKey(bedrockDeepseek, 'temperature')).toMatchObject({ max: 1 });
 		expect(controlByKey(gemini, 'temperature')).toMatchObject({ max: 2 });
+	});
+
+	it('keeps Top P above zero for Muse, which rejects 0', () => {
+		const muse = getModelParameterSpec('meta', 'muse-spark-1.3');
+		const gemini = getModelParameterSpec('google', 'gemini-3.1-pro-preview');
+
+		expect(controlByKey(muse, 'topP')).toMatchObject({ min: 0.05, placeholder: '0.05 – 1' });
+		expect(controlByKey(gemini, 'topP')).toMatchObject({ min: 0, placeholder: '0 – 1' });
 	});
 });
