@@ -358,6 +358,7 @@ jobs:
                           -e "STRIPE_WEBHOOK_SECRET=${{ secrets.NAOCLOUD_STRIPE_WEBHOOK_SECRET }}" \
                           -e "STRIPE_CLOUD_PRODUCT_ID=${{ secrets.NAOCLOUD_STRIPE_CLOUD_PRODUCT_ID }}" \
                           -e "STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=${{ secrets.NAOCLOUD_STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY }}" \
+                          -e "STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY=${{ secrets.NAOCLOUD_STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY }}" \
                           -e "GOOGLE_CLIENT_ID=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_ID }}" \
                           -e "GOOGLE_CLIENT_SECRET=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_SECRET }}" \
                           "$IMAGE"
