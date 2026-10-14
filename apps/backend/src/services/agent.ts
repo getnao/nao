@@ -452,7 +452,7 @@ export class AgentService {
 
 export const MAX_OUTPUT_TOKENS = 16_000;
 
-class AgentManager {
+export class AgentManager {
 	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
 	private readonly _finished: Promise<void>;
 	private _resolveFinished: (() => void) | undefined;
@@ -1003,6 +1003,10 @@ class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
+	}
+
+	get isStopped(): boolean {
+		return this._abortController.signal.aborted;
 	}
 
 	waitUntilFinished(): Promise<void> {
