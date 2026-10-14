@@ -4,16 +4,22 @@ interface McpOAuthMessage {
 	type: 'nao-mcp-oauth';
 	status: 'connected' | 'error';
 	server: string;
+	message?: string;
+}
+
+export interface McpConnectResult {
+	connected: boolean;
+	error?: string;
 }
 
 const isOAuthMessage = (data: unknown): data is McpOAuthMessage =>
 	!!data && typeof data === 'object' && (data as McpOAuthMessage).type === 'nao-mcp-oauth';
 
 /**
- * Opens the per-user MCP OAuth flow in a popup and resolves to whether the user connected.
- * The popup posts a message back to this window on completion, then closes itself.
+ * Opens the per-user MCP OAuth flow in a popup and resolves once the user connected, the flow
+ * failed, or the popup was closed. The popup posts a message back to this window on completion.
  */
-export function openMcpConnectPopup(server: string): Promise<boolean> {
+export function openMcpConnectPopup(server: string): Promise<McpConnectResult> {
 	const params = new URLSearchParams({ server, returnTo: window.location.pathname });
 	const projectId = getActiveProjectId();
 	if (projectId) {
@@ -22,10 +28,10 @@ export function openMcpConnectPopup(server: string): Promise<boolean> {
 
 	const popup = window.open(`/api/mcp-oauth/connect?${params.toString()}`, 'nao-mcp-oauth', 'width=520,height=720');
 	if (!popup) {
-		return Promise.resolve(false);
+		return Promise.resolve({ connected: false, error: 'The browser blocked the connection popup.' });
 	}
 
-	return new Promise<boolean>((resolve) => {
+	return new Promise<McpConnectResult>((resolve) => {
 		let settled = false;
 
 		const cleanup = () => {
@@ -33,7 +39,7 @@ export function openMcpConnectPopup(server: string): Promise<boolean> {
 			window.clearInterval(timer);
 		};
 
-		const finish = (result: boolean) => {
+		const finish = (result: McpConnectResult) => {
 			if (settled) {
 				return;
 			}
@@ -46,14 +52,19 @@ export function openMcpConnectPopup(server: string): Promise<boolean> {
 			if (event.source !== popup || event.origin !== window.location.origin || !isOAuthMessage(event.data)) {
 				return;
 			}
-			if (event.data.server === server) {
-				finish(event.data.status === 'connected');
+			if (event.data.server !== server) {
+				return;
+			}
+			if (event.data.status === 'connected') {
+				finish({ connected: true });
+			} else {
+				finish({ connected: false, error: event.data.message ?? 'Connection failed.' });
 			}
 		};
 
 		const timer = window.setInterval(() => {
 			if (popup.closed) {
-				finish(false);
+				finish({ connected: false });
 			}
 		}, 500);
 

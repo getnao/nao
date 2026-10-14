@@ -1,10 +1,20 @@
 import { z } from 'zod/v4';
 
+/**
+ * Pre-registered OAuth client for providers that reject Dynamic Client Registration.
+ * When set, nao sends this client in the authorization-code + PKCE flow instead of registering itself.
+ */
+export interface McpOAuthClientConfig {
+	clientId: string;
+	clientSecret?: string;
+}
+
 export interface McpServerConfig {
 	type?: 'http';
 	transport?: 'streamable-http' | 'sse' | 'http' | 'stdio';
 	url?: URL;
 	headers?: Record<string, string>;
+	oauth?: McpOAuthClientConfig;
 
 	// For stdio transport
 	command?: string;
@@ -62,6 +72,12 @@ export const mcpJsonSchema = z.object({
 				.optional()
 				.transform((val) => (val ? new URL(val) : undefined)),
 			headers: z.record(z.string(), z.string()).optional(),
+			oauth: z
+				.object({
+					clientId: z.string().min(1),
+					clientSecret: z.string().min(1).optional(),
+				})
+				.optional(),
 			command: z.string().optional(),
 			args: z.array(z.string()).optional(),
 			env: z.record(z.string(), z.string()).optional(),

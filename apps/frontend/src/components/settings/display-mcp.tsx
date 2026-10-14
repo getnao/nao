@@ -146,13 +146,17 @@ const groupToolsByCategory = (tools: McpToolSummary[]): { category: ToolCategory
 
 function McpOAuthConnect({ server, onConnected }: { server: McpServerStatus; onConnected: () => void }) {
 	const [connecting, setConnecting] = useState(false);
+	const [error, setError] = useState<string>();
 
 	const handleConnect = async () => {
 		setConnecting(true);
-		const ok = await openMcpConnectPopup(server.name);
+		setError(undefined);
+		const result = await openMcpConnectPopup(server.name);
 		setConnecting(false);
-		if (ok) {
+		if (result.connected) {
 			onConnected();
+		} else {
+			setError(result.error);
 		}
 	};
 
@@ -161,9 +165,16 @@ function McpOAuthConnect({ server, onConnected }: { server: McpServerStatus; onC
 	}
 
 	return (
-		<Button variant='secondary' size='sm' onClick={handleConnect} disabled={connecting} isLoading={connecting}>
-			Connect
-		</Button>
+		<div className='flex flex-col gap-1'>
+			<Button variant='secondary' size='sm' onClick={handleConnect} disabled={connecting} isLoading={connecting}>
+				Connect
+			</Button>
+			{error && (
+				<span className='max-w-xs whitespace-normal break-words text-xs text-red-500' title={error}>
+					{error}
+				</span>
+			)}
+		</div>
 	);
 }
 

@@ -120,6 +120,7 @@ function renderSuggestion({
 			<SuggestionCard
 				icon={<Plug className='size-4 text-primary' />}
 				message={`Connect your account to "${mcpAuth.server}" to continue`}
+				description={mcpAuth.error}
 			>
 				<Button
 					variant='ghost'
@@ -256,6 +257,7 @@ interface McpAuthSuggestion {
 	isVisible: boolean;
 	server: string | null;
 	connecting: boolean;
+	error?: string;
 	connect: () => void;
 	dismiss: () => void;
 }
@@ -270,28 +272,34 @@ function useMcpAuthSuggestion(): McpAuthSuggestion {
 	const chatId = useChatId();
 
 	const [connecting, setConnecting] = useState(false);
+	const [failure, setFailure] = useState<{ server: string; error?: string }>();
 	const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set());
 
 	useEffect(() => {
 		setResolved(new Set());
+		setFailure(undefined);
 	}, [chatId]);
 
 	const server = useMemo(() => findPendingAuthServer(messages), [messages]);
 	const pendingServer = server && !resolved.has(server) ? server : null;
+	const error = failure?.server === pendingServer ? failure.error : undefined;
 
 	const connect = useCallback(async () => {
 		if (!pendingServer) {
 			return;
 		}
 		setConnecting(true);
-		const connected = await openMcpConnectPopup(pendingServer);
+		setFailure(undefined);
+		const result = await openMcpConnectPopup(pendingServer);
 		setConnecting(false);
-		if (connected) {
-			setResolved((prev) => new Set(prev).add(pendingServer));
-			const payload = lastUserMessagePayload(messages);
-			if (payload) {
-				void queueOrSendMessage(payload);
-			}
+		if (!result.connected) {
+			setFailure({ server: pendingServer, error: result.error });
+			return;
+		}
+		setResolved((prev) => new Set(prev).add(pendingServer));
+		const payload = lastUserMessagePayload(messages);
+		if (payload) {
+			void queueOrSendMessage(payload);
 		}
 	}, [pendingServer, messages, queueOrSendMessage]);
 
@@ -301,7 +309,7 @@ function useMcpAuthSuggestion(): McpAuthSuggestion {
 		}
 	}, [pendingServer]);
 
-	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, connect, dismiss };
+	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, error, connect, dismiss };
 }
 
 /** Returns the server from the most recent MCP tool call that reported it needs the user to connect. */
