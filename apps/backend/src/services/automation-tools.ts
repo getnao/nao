@@ -49,8 +49,6 @@ type AutomationToolInput = {
 	currentRunId?: string;
 };
 
-const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export function createAutomationTools(input: AutomationToolInput): Record<string, unknown> {
 	return {
 		...createHistoryTools(input.automationId, input.currentRunId),
@@ -158,7 +156,7 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 				}
 				const resolvedRecipients = [...new Set([...recipients, ...config.recipients])];
 				const invalidRecipients = resolvedRecipients.filter(
-					(recipient) => !EMAIL_ADDRESS_PATTERN.test(recipient),
+					(recipient) => !z.string().email().safeParse(recipient).success,
 				);
 				if (invalidRecipients.length > 0) {
 					throw new Error(`Invalid email recipient(s): ${invalidRecipients.join(', ')}`);
