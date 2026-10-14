@@ -365,7 +365,7 @@ function resolveInferenceOptions(
 			callSettings.temperature = clampNumber(settings.temperature, 0, temperatureMax);
 		}
 		if (settings.topP !== undefined) {
-			callSettings.topP = clampNumber(settings.topP, 0, 1);
+			callSettings.topP = clampNumber(settings.topP, capabilities?.topPMin ?? 0, 1);
 		}
 		if (settings.topK !== undefined && capabilities?.topK !== false) {
 			callSettings.topK = settings.topK;

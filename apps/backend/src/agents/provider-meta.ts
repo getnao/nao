@@ -326,6 +326,8 @@ const META_ADAPTIVE: ModelCapabilities = {
 	topK: false,
 	maxOutputTokens: true,
 	effortOptions: META_EFFORTS,
+	// The Model API rejects `top_p: 0` with a 400; the floor matches the control's step.
+	topPMin: 0.05,
 };
 const META_CUSTOM: ModelCapabilities = {
 	...META_ADAPTIVE,
@@ -1155,6 +1157,7 @@ export function getModelParameterSpec(provider: LlmProvider, modelId: string): P
 		// temperature and drops all sampling params while thinking is active.
 		const isClaude = isAnthropicApiModel(provider, modelId);
 		const temperatureMax = caps.temperatureMax ?? DEFAULT_TEMPERATURE_MAX;
+		const topPMin = caps.topPMin ?? 0;
 		controls.push(
 			{
 				key: 'temperature',
@@ -1170,9 +1173,9 @@ export function getModelParameterSpec(provider: LlmProvider, modelId: string): P
 				key: 'topP',
 				kind: 'number',
 				label: 'Top P',
-				placeholder: '0 – 1',
+				placeholder: `${topPMin} – 1`,
 				step: 0.05,
-				min: 0,
+				min: topPMin,
 				max: 1,
 				...(isClaude && { group: 'sampling' as const, exclusiveWith: 'temperature' as const }),
 			},

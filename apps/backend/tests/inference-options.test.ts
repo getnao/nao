@@ -453,6 +453,12 @@ describe('Qwen, MiniMax and Moonshot (OpenAI-compatible endpoints)', () => {
 		expect(minimal.options.reasoningEffort).toBe('minimal');
 	});
 
+	it('raises a Top P of 0 to the lowest value Muse accepts', () => {
+		const { callSettings } = resolve('meta', 'muse-spark-1.3', { topP: 0 });
+
+		expect(callSettings).toEqual({ topP: 0.05 });
+	});
+
 	it('snaps max down on custom Muse models, which may not accept it', () => {
 		const { options } = resolve('meta', 'muse-spark-1.3-contributor', { reasoningEffort: 'max' });
 

@@ -142,6 +142,8 @@ export type ModelCapabilities = {
 	/** Effort vocabulary of this model, when it differs from its provider's default translation. */
 	effortMap?: Record<ActiveEffort, string>;
 	temperatureMax?: number;
+	/** Lowest Top P the API accepts, for models that reject 0. */
+	topPMin?: number;
 	extraParams?: ExtraParamKey[];
 	serviceTierOptions?: ServiceTier[];
 	/** Provider physical max output tokens; budget-thinking Claude clamps budgets under this since the SDK sends max_tokens = maxOutputTokens + budgetTokens. */
