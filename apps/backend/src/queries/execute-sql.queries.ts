@@ -159,6 +159,19 @@ export async function getExecuteSqlPartByQueryIdInChat(
 	};
 }
 
+/** The stored output of one query part, as is: it is only read for its rows, so it is not parsed. */
+export async function getQueryToolOutputInChat(chatId: string, toolCallId: string): Promise<executeSql.Output | null> {
+	const [row] = await db
+		.select({ toolOutput: s.messagePart.toolOutput })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.toolCallId, toolCallId), isQueryToolPart()))
+		.limit(1)
+		.execute();
+
+	return (row?.toolOutput as executeSql.Output | null | undefined) ?? null;
+}
+
 export async function updateExecuteSqlPart(
 	toolCallId: string,
 	toolInput: executeSql.Input,

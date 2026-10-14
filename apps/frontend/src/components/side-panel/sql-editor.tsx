@@ -12,6 +12,7 @@ import type { editor } from 'monaco-editor';
 
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
+import { useQueryRowsSource, useServerPaginatedRows } from '@/hooks/use-query-rows';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { TableDisplay } from '@/components/tool-calls/display-table';
@@ -25,14 +26,17 @@ const RESULTS_MIN_HEIGHT = 240;
 const SQL_MIN_HEIGHT = 100;
 const SEPARATOR_HEIGHT = 12;
 const SQL_CONTENT_PADDING = 8;
+const RESULTS_PAGE_SIZE = 100;
 
 export const SidePanelContent = ({
 	input,
 	output,
+	toolCallId,
 	editable = false,
 }: {
 	input: executeSql.Input;
 	output: executeSql.Output;
+	toolCallId?: string;
 	editable?: boolean;
 }) => {
 	const queryClient = useQueryClient();
@@ -47,6 +51,12 @@ export const SidePanelContent = ({
 	const [savedSql, setSavedSql] = useState(input.sql_query);
 	const [previewOutput, setPreviewOutput] = useState<executeSql.Output>(output);
 	const [error, setError] = useState<string | null>(null);
+	const rowsSource = useQueryRowsSource(toolCallId, previewOutput);
+	const resultRows = useServerPaginatedRows(
+		rowsSource,
+		previewOutput.data as Record<string, unknown>[],
+		RESULTS_PAGE_SIZE,
+	);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 	const sqlPanelRef = usePanelRef();
@@ -316,12 +326,13 @@ export const SidePanelContent = ({
 
 				<ResizablePanel id='results' defaultSize={RESULTS_MIN_HEIGHT} minSize={RESULTS_MIN_HEIGHT}>
 					<TableDisplay
-						data={previewOutput.data as Record<string, unknown>[]}
+						data={resultRows.rows}
+						serverPagination={resultRows.serverPagination}
 						columns={previewOutput.columns}
 						className='h-full'
 						tableContainerClassName='flex-1 rounded-none border-0'
-						emptyLabel='No rows returned'
-						maxRowsBeforePagination={100}
+						emptyLabel={resultRows.isLoadingRows ? 'Loading rows...' : 'No rows returned'}
+						maxRowsBeforePagination={RESULTS_PAGE_SIZE}
 					/>
 				</ResizablePanel>
 			</ResizablePanelGroup>

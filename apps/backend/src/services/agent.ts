@@ -517,6 +517,10 @@ export class AgentManager {
 		return this._toolContext.generatedArtifacts;
 	}
 
+	getQueryResult(queryId: string): QueryResult | undefined {
+		return this._toolContext.queryResults.get(queryId);
+	}
+
 	get queryResultsSummary(): {
 		id: string;
 		columns: string[];

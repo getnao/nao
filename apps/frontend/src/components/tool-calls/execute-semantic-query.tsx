@@ -12,6 +12,7 @@ import type { ColumnConditionalFormats } from '@nao/shared/conditional-formattin
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useLoadAllQueryRows, useQueryRowsSource } from '@/hooks/use-query-rows';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
 import { semanticQueryAsSql } from '@/lib/execute-sql-messages';
@@ -30,13 +31,17 @@ export const ExecuteSemanticQueryToolCall = ({
 	const agent = useOptionalAgentContext();
 	const chatId = agent?.chatId;
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+	const rowsSource = useQueryRowsSource(toolCallId, output);
+	const loadAllRows = useLoadAllQueryRows(rowsSource);
 
 	const openViewer = () => {
 		if (state === 'input-streaming' || !output) {
 			return;
 		}
 		const asSql = semanticQueryAsSql(input, output);
-		openSidePanel(<SidePanelContent input={asSql.input!} output={output} editable={false} />);
+		openSidePanel(
+			<SidePanelContent input={asSql.input!} output={output} toolCallId={toolCallId} editable={false} />,
+		);
 	};
 
 	const handleExport = (format: DataExportFormat) => {
@@ -100,6 +105,7 @@ export const ExecuteSemanticQueryToolCall = ({
 							columns: output.columns,
 							data: output.data as Record<string, unknown>[],
 							filename: input?.name || 'semantic-query',
+							loadAllRows,
 							onExport: handleExport,
 						},
 					},
@@ -134,7 +140,7 @@ export const ExecuteSemanticQueryToolCall = ({
 				<SqlQueryDisplay query={output.compiled_sql} />
 			) : output ? (
 				<>
-					<SqlResultDisplay output={output} conditionalFormats={conditionalFormats} />
+					<SqlResultDisplay output={output} rowsSource={rowsSource} conditionalFormats={conditionalFormats} />
 					<TableFormatEditDialog
 						open={isFormatOpen}
 						onOpenChange={setIsFormatOpen}

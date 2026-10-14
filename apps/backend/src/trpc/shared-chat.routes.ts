@@ -12,6 +12,7 @@ import { getStoryQueryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import { type UIChat } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import { buildDownloadResponse } from '../utils/story-download';
 import { canSendProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
 
@@ -113,7 +114,7 @@ export const sharedChatRoutes = {
 				});
 			}
 
-			return { share: ctx.resource, chat, userRole: ctx.userRole };
+			return { share: ctx.resource, chat: withQueryResultPreviewsInChat(chat), userRole: ctx.userRole };
 		},
 	),
 

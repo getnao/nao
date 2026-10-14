@@ -39,7 +39,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 	const storyIds = useStoryIds();
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 	const isPersistingRef = useRef(false);
-	const { sourceData } = useSourceQuery(config?.query_id);
+	const { sourceData, isLoadingRows } = useSourceQuery(config?.query_id);
 
 	const { mutateAsync: updateChart, isPending: isUpdatingChart } = useMutation(
 		trpc.chart.updateConfig.mutationOptions({
@@ -177,7 +177,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 		);
 	}
 
-	if (!config) {
+	if (!config || isLoadingRows) {
 		return <div className='my-2 text-foreground/50 text-sm'>Loading table...</div>;
 	}
 
