@@ -1,4 +1,4 @@
-import { createUIMessageStreamResponse } from 'ai';
+import { JsonToSseTransformStream, UI_MESSAGE_STREAM_HEADERS } from 'ai';
 
 import type { App } from '../app';
 import { handleAgentRoute } from '../handlers/agent';
@@ -8,8 +8,11 @@ import * as projectQueries from '../queries/project.queries';
 import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { AgentRequestSchema } from '../types/chat';
+import { trackAgentStreamDisconnect } from '../utils/agent-stream-disconnect';
+import { withSseKeepAlive } from '../utils/sse-keep-alive';
 
 const DEBUG_CHUNKS = false;
+const KEEP_ALIVE_INTERVAL_MS = 10_000;
 
 export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -59,13 +62,23 @@ export const agentRoutes = async (app: App) => {
 			);
 		}
 
-		return createUIMessageStreamResponse({
-			stream,
+		const sseStream = trackAgentStreamDisconnect(stream, {
+			request,
+			reply,
+			agent: result.agent,
+			userId: user.id,
+			projectId,
+			chatId: result.chatId,
+			modelId: result.modelId,
+		}).pipeThrough(new JsonToSseTransformStream());
+
+		return new Response(withSseKeepAlive(sseStream, KEEP_ALIVE_INTERVAL_MS).pipeThrough(new TextEncoderStream()), {
 			headers: {
+				...UI_MESSAGE_STREAM_HEADERS,
 				// Disable nginx buffering for streaming responses
 				// This is critical for proper stream termination behind reverse proxies
-				'X-Accel-Buffering': 'no',
-				'Cache-Control': 'no-cache, no-transform',
+				'x-accel-buffering': 'no',
+				'cache-control': 'no-cache, no-transform',
 			},
 		});
 	});
