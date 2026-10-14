@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatInputSuggestions } from './chat-input-suggestions';
+
+let triggerResizeObservers: () => void;
 
 const mocks = vi.hoisted(() => ({
 	messages: [] as unknown[],
@@ -69,16 +71,24 @@ beforeEach(() => {
 	mocks.inactivityDelays = [];
 	mocks.storyId = null;
 	mocks.messages = [{ id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'Result' }] }];
+	const observerCallbacks = new Map<ResizeObserver, ResizeObserverCallback>();
 	globalThis.ResizeObserver = class {
-		constructor(private readonly callback: ResizeObserverCallback) {}
+		constructor(callback: ResizeObserverCallback) {
+			observerCallbacks.set(this, callback);
+		}
 		observe() {
-			this.callback([], this);
+			observerCallbacks.get(this)?.([], this);
 		}
 		unobserve() {}
-		disconnect() {}
+		disconnect() {
+			observerCallbacks.delete(this);
+		}
 		takeRecords() {
 			return [];
 		}
+	};
+	triggerResizeObservers = () => {
+		observerCallbacks.forEach((callback, observer) => callback([], observer));
 	};
 });
 
@@ -151,12 +161,13 @@ describe('ChatInputSuggestions', () => {
 		const scrollHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(21);
 		vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(20);
 
-		const { unmount } = render(<ChatInputSuggestions storyCreationEnabled={false} />);
-		expect(screen.queryByText('Read more')).toBeNull();
-		unmount();
-
-		scrollHeight.mockReturnValue(40);
 		render(<ChatInputSuggestions storyCreationEnabled={false} />);
+		expect(screen.queryByText('Read more')).toBeNull();
+
+		act(() => {
+			scrollHeight.mockReturnValue(40);
+			triggerResizeObservers();
+		});
 
 		fireEvent.click(screen.getByText('Read more'));
 		expect(screen.getByText('Show less')).toBeTruthy();
