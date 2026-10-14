@@ -46,6 +46,16 @@ describe('withSseKeepAlive', () => {
 		expect(await reader.read()).toEqual({ done: true, value: undefined });
 	});
 
+	it('does not queue keep-alives while the consumer is not reading', async () => {
+		const { source, output } = createStreams();
+
+		await vi.advanceTimersByTimeAsync(INTERVAL_MS * 5);
+		source.enqueue('data: chunk\n\n');
+		source.close();
+
+		expect(await readAll(output)).toEqual([SSE_KEEP_ALIVE_COMMENT, 'data: chunk\n\n']);
+	});
+
 	it('stops the timer once the stream ends', async () => {
 		const { source, output } = createStreams();
 

@@ -3,7 +3,8 @@ export const SSE_KEEP_ALIVE_COMMENT = ': keep-alive\n\n';
 /**
  * Writes an SSE comment whenever the stream stays silent for the interval, so proxies with an idle
  * timeout (e.g. AWS ALB, 60s by default) keep the connection open while the agent thinks or runs a
- * long tool. SSE clients ignore comments.
+ * long tool. SSE clients ignore comments. Nothing is queued while the consumer still has unread
+ * output, so a slow client never accumulates keep-alives.
  */
 export function withSseKeepAlive(stream: ReadableStream<string>, intervalMs: number): ReadableStream<string> {
 	const reader = stream.getReader();
@@ -12,7 +13,9 @@ export function withSseKeepAlive(stream: ReadableStream<string>, intervalMs: num
 	const scheduleKeepAlive = (controller: ReadableStreamDefaultController<string>) => {
 		clearTimeout(timer);
 		timer = setTimeout(() => {
-			controller.enqueue(SSE_KEEP_ALIVE_COMMENT);
+			if ((controller.desiredSize ?? 0) > 0) {
+				controller.enqueue(SSE_KEEP_ALIVE_COMMENT);
+			}
 			scheduleKeepAlive(controller);
 		}, intervalMs);
 	};
