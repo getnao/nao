@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatInputSuggestions } from './chat-input-suggestions';
+
+let triggerResizeObservers: () => void;
 
 const mocks = vi.hoisted(() => ({
 	messages: [] as unknown[],
 	queueOrSendMessage: vi.fn(),
 	submitFeedback: vi.fn(),
 	inactivityDelays: [] as number[],
+	storyId: null as string | null,
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
@@ -42,7 +45,7 @@ vi.mock('@/components/side-panel/live-story-settings-dialog', () => ({
 }));
 vi.mock('@/components/side-panel/hooks/use-story-viewer-live-settings', () => ({
 	useStoryViewerLiveSettings: () => ({
-		storyId: null,
+		storyId: mocks.storyId,
 		isLive: false,
 		isLiveTextDynamic: true,
 		cacheSchedule: null,
@@ -66,15 +69,33 @@ vi.mock('@/main', () => ({
 beforeEach(() => {
 	localStorage.clear();
 	mocks.inactivityDelays = [];
+	mocks.storyId = null;
 	mocks.messages = [{ id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'Result' }] }];
+	const observerCallbacks = new Map<ResizeObserver, ResizeObserverCallback>();
 	globalThis.ResizeObserver = class {
-		observe() {}
+		constructor(callback: ResizeObserverCallback) {
+			observerCallbacks.set(this, callback);
+		}
+		observe() {
+			observerCallbacks.get(this)?.([], this);
+		}
 		unobserve() {}
-		disconnect() {}
+		disconnect() {
+			observerCallbacks.delete(this);
+		}
+		takeRecords() {
+			return [];
+		}
+	};
+	triggerResizeObservers = () => {
+		observerCallbacks.forEach((callback, observer) => callback([], observer));
 	};
 });
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+});
 
 describe('ChatInputSuggestions', () => {
 	it('shows the Story suggestion when Story creation is allowed', () => {
@@ -109,6 +130,47 @@ describe('ChatInputSuggestions', () => {
 
 		expect(screen.getByText('Connect your account to "salesforce" to continue')).toBeTruthy();
 		expect(screen.queryByText('Would you want to create a story?')).toBeNull();
+	});
+
+	it('makes a collapsed suggestion inert', () => {
+		const { container, rerender } = render(<ChatInputSuggestions storyCreationEnabled />);
+		const panel = container.firstElementChild;
+
+		expect(panel?.hasAttribute('inert')).toBe(false);
+
+		rerender(<ChatInputSuggestions storyCreationEnabled isHidden />);
+
+		expect(panel?.hasAttribute('inert')).toBe(true);
+	});
+
+	it('only expands a live Story description when it is truncated', () => {
+		mocks.storyId = 'story-1';
+		mocks.messages = [
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				parts: [
+					{
+						type: 'tool-story',
+						input: { action: 'create' },
+						output: { success: true, version: 1, id: 'story-1' },
+					},
+				],
+			},
+		];
+		const scrollHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(21);
+		vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(20);
+
+		render(<ChatInputSuggestions storyCreationEnabled={false} />);
+		expect(screen.queryByText('Read more')).toBeNull();
+
+		act(() => {
+			scrollHeight.mockReturnValue(40);
+			triggerResizeObservers();
+		});
+
+		fireEvent.click(screen.getByText('Read more'));
+		expect(screen.getByText('Show less')).toBeTruthy();
 	});
 
 	describe('conversation feedback dismissal', () => {
