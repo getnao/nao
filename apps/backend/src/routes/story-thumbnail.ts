@@ -45,7 +45,7 @@ export const storyThumbnailRoutes = async (app: App) => {
 
 			const etag = thumbnailEtag(thumbnail.image);
 			reply.header('Cache-Control', 'private, no-cache').header('ETag', etag);
-			if (request.headers['if-none-match'] === etag) {
+			if (matchesEtag(request.headers['if-none-match'], etag)) {
 				return reply.status(304).send();
 			}
 			return reply.header('Content-Type', 'image/webp').send(thumbnail.image);
@@ -55,4 +55,14 @@ export const storyThumbnailRoutes = async (app: App) => {
 
 function thumbnailEtag(image: Buffer): string {
 	return `"${createHash('sha256').update(image).digest('base64url')}"`;
+}
+
+function matchesEtag(ifNoneMatch: string | undefined, etag: string): boolean {
+	if (!ifNoneMatch) {
+		return false;
+	}
+	return ifNoneMatch
+		.split(',')
+		.map((tag) => tag.trim().replace(/^W\//, ''))
+		.some((tag) => tag === '*' || tag === etag);
 }

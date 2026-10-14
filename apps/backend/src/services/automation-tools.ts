@@ -1,6 +1,5 @@
 import type { DateFormatSettings } from '@nao/shared/date';
 import { extractQueryIds } from '@nao/shared/story-segments';
-import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import { z } from 'zod/v4';
 
@@ -290,11 +289,7 @@ async function buildGeneratedArtifactAttachments(
 	const dateFormat = displaySettings.dateFormat ?? null;
 	const chartAttachments = await buildChartImageAttachments(context, dateFormat);
 	const mapAttachments = await buildMapImageAttachments(projectId, context);
-	const storyAttachments = await buildStoryPdfAttachments(
-		context,
-		dateFormat,
-		await getActiveThemeForProject(projectId),
-	);
+	const storyAttachments = await buildStoryPdfAttachments(projectId, context, dateFormat);
 	return [...chartAttachments, ...mapAttachments, ...storyAttachments];
 }
 
@@ -360,11 +355,15 @@ async function buildChartImageAttachments(
 }
 
 async function buildStoryPdfAttachments(
+	projectId: string,
 	context: ToolContext,
 	dateFormat: DateFormatSettings | null,
-	theme: StoryThemePair | null,
 ): Promise<GeneratedArtifactAttachment[]> {
 	const stories = uniqueStories(context.generatedArtifacts.stories);
+	if (stories.length === 0) {
+		return [];
+	}
+	const theme = await getActiveThemeForProject(projectId);
 
 	return Promise.all(
 		stories.map(async (story) => {

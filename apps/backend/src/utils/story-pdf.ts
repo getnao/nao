@@ -7,6 +7,7 @@ import { generateStoryHtml } from './story-html';
 
 const A4_PRINTABLE_WIDTH_PX = 714;
 const A4_PRINTABLE_HEIGHT_PX = 1043;
+const FONT_LOAD_TIMEOUT_MS = 5000;
 
 export async function generateStoryPdf(
 	story: StoryInput,
@@ -33,7 +34,9 @@ export async function generateStoryPdf(
 			.setContent(html, { waitUntil: hasMaps || loadsFonts ? 'load' : 'domcontentloaded', timeout: 30000 })
 			.catch(() => {});
 		if (loadsFonts) {
-			await page.evaluate(() => document.fonts.ready).catch(() => {});
+			await page
+				.waitForFunction(() => document.fonts.status === 'loaded', { timeout: FONT_LOAD_TIMEOUT_MS })
+				.catch(() => {});
 		}
 		if (hasMaps) {
 			await page.waitForFunction('window.__naoMapsReady === true', { timeout: 15000 }).catch(() => {});

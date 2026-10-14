@@ -35,6 +35,7 @@ const CLICKS = [
 ];
 
 const SCREENSHOT_RETRY_DELAYS_MS = [3_000, 8_000, 20_000, 45_000];
+const MAX_SCREENSHOT_ATTEMPTS = 12;
 
 export function CustomStoryThumbnail({
 	storyId,
@@ -82,7 +83,7 @@ function StoryScreenshot({
 	const [attempt, setAttempt] = useState(0);
 
 	useEffect(() => {
-		if (status !== 'missing') {
+		if (status !== 'missing' || attempt >= MAX_SCREENSHOT_ATTEMPTS) {
 			return;
 		}
 		const timeout = setTimeout(() => {

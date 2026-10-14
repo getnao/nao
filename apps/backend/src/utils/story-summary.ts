@@ -64,16 +64,29 @@ function summarySegmentsFromSegment(segment: Segment): SummarySegment[] {
 					...(segment.map.color ? { color: segment.map.color } : {}),
 				},
 			];
-		case 'grid': {
-			const children = segment.children.flatMap(summarySegmentsFromSegment);
-			if (children.length === 0) {
-				return [];
-			}
-			return [{ type: 'grid', cols: segment.cols, widths: segment.widths, children }];
-		}
+		case 'grid':
+			return summarizeGrid(segment);
 		case 'filter':
 			return [];
 	}
+}
+
+function summarizeGrid(grid: Extract<Segment, { type: 'grid' }>): SummarySegment[] {
+	const columns = grid.children.flatMap((child, index) =>
+		summarySegmentsFromSegment(child).map((summary) => ({ summary, width: grid.widths?.[index] })),
+	);
+	if (columns.length === 0) {
+		return [];
+	}
+	const widths = grid.widths ? columns.map((column) => column.width ?? 1) : null;
+	return [
+		{
+			type: 'grid',
+			cols: Math.min(grid.cols, columns.length),
+			widths,
+			children: columns.map((column) => column.summary),
+		},
+	];
 }
 
 function defaultColor(index: number): string {

@@ -483,7 +483,7 @@ function markdownEmailStyles(palette: StoryExportPalette): Record<string, string
 		blockquote: `border-left:3px solid ${palette.strongBorder};padding-left:16px;margin:12px 0;color:${palette.muted}`,
 		pre: `background:${palette.sunken};padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;${monospace}`,
 		code: `background:${palette.sunken};padding:2px 6px;border-radius:4px;font-size:12px;${monospace}`,
-		table: `width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;border:1px solid ${palette.tableBorder};background:${palette.tableBackground}`,
+		table: `width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;border:${palette.tableBorderWidth}px solid ${palette.tableBorder};background:${palette.tableBackground}`,
 		th: `padding:8px 12px;text-align:left;font-weight:500;color:${palette.tableHeaderText};border-bottom:1px solid ${palette.tableBorder};background:${palette.tableHeaderBackground}`,
 		td: `padding:4px 12px;font-size:11px;line-height:20px;border-bottom:1px solid ${palette.tableDivider}`,
 		a: `color:${palette.link}`,
@@ -817,7 +817,7 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 				style={{
 					overflow: 'auto',
 					borderRadius: 8,
-					border: `1px solid ${palette.tableBorder}`,
+					border: `${palette.tableBorderWidth}px solid ${palette.tableBorder}`,
 					background: palette.tableBackground,
 				}}
 			>
@@ -1546,7 +1546,7 @@ code{background:${palette.sunken};padding:2px 6px;border-radius:4px;font-size:12
 pre{background:${palette.sunken};padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
 blockquote{border-left:3px solid ${palette.strongBorder};padding-left:16px;margin:12px 0;color:${palette.muted}}
 a{color:${palette.link}}
-.nao-md table{width:100%;border-collapse:separate;border-spacing:0;margin:8px 0;font-size:12px;border:1px solid ${palette.tableBorder};border-radius:8px;overflow:hidden;background:${palette.tableBackground}}
+.nao-md table{width:100%;border-collapse:separate;border-spacing:0;margin:8px 0;font-size:12px;border:${palette.tableBorderWidth}px solid ${palette.tableBorder};border-radius:8px;overflow:hidden;background:${palette.tableBackground}}
 .nao-md thead{background:${palette.tableHeaderBackground}}
 .nao-md th{padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap;color:${palette.tableHeaderText};border-bottom:1px solid ${palette.tableBorder}}
 .nao-md td{padding:4px 12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace;font-size:11px;line-height:20px;white-space:nowrap;border-bottom:1px solid ${palette.tableDivider}}
@@ -1571,12 +1571,12 @@ img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 .maplibregl-popup.map-tooltip{pointer-events:none}
 .maplibregl-popup.map-tooltip .maplibregl-popup-content{padding:0;background:transparent;box-shadow:none;border-radius:0}
 .maplibregl-popup.map-tooltip .maplibregl-popup-tip{display:none}
-.nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-.nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:#111827}
+.nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:${palette.popover};border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:${palette.heading}}
 .nao-map-pop-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
 .nao-map-pop-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;line-height:1.25}
-.nao-map-pop-name{color:rgba(0,0,0,0.5)}
-.nao-map-pop-val{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
+.nao-map-pop-name{color:${palette.muted}}
+.nao-map-pop-val{color:${palette.heading};font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
 .nao-tooltip{position:absolute;pointer-events:none;background:${palette.popover};border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;opacity:0;transition:opacity .15s;min-width:128px;display:grid;gap:6px}
 .nao-tooltip.visible{opacity:1}
 .nao-tooltip-label{font-weight:500;color:${palette.heading};text-align:left}

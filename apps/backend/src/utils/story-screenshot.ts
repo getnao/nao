@@ -6,6 +6,7 @@ import { delay, isolateStoryPage, STORY_DOCUMENT_URL, waitForStoryReady } from '
 const RENDER_SETTLE_MS = 1_800;
 const MAX_REPORTED_ERRORS = 5;
 const BLOCK_ERROR_SELECTOR = '.nao-block__state--error';
+const STORY_FRAME_SELECTOR = '#root, .nao-canvas, .nao-canvas__viewport, .nao-canvas__surface, .nao-slide';
 const STORY_ERRORS_GLOBAL = '__naoStoryErrors';
 
 export interface StoryScreenshot {
@@ -41,6 +42,7 @@ export async function renderStoryScreenshot(
 		const content = await page.evaluate(inspectContent, {
 			errorsGlobal: STORY_ERRORS_GLOBAL,
 			blockErrorSelector: BLOCK_ERROR_SELECTOR,
+			frameSelector: STORY_FRAME_SELECTOR,
 		});
 		return {
 			ready,
@@ -86,18 +88,25 @@ function listenToStoryErrors(errorsGlobal: string): void {
 
 /**
  * Runs inside the page, serialized by puppeteer: it must stay self-contained, without named inner functions.
- * Only what shows in the captured first screen counts.
+ * Only what shows in the captured first screen counts; the story's frames and full-screen grounds are not content.
  */
 function inspectContent({
 	errorsGlobal,
 	blockErrorSelector,
+	frameSelector,
 }: {
 	errorsGlobal: string;
 	blockErrorSelector: string;
+	frameSelector: string;
 }): PageContent {
-	const blockErrors = Array.from(document.querySelectorAll<HTMLElement>(blockErrorSelector)).map((state) =>
-		(state.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 200),
-	);
+	const blockErrors = Array.from(document.querySelectorAll<HTMLElement>(blockErrorSelector))
+		.filter((state) => {
+			const rect = state.getBoundingClientRect();
+			return (
+				rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.left < innerWidth
+			);
+		})
+		.map((state) => (state.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 200));
 	const hasGraphics = Array.from(document.body.querySelectorAll('canvas, svg, img, video')).some((element) => {
 		const rect = element.getBoundingClientRect();
 		return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.left < innerWidth;
@@ -113,8 +122,25 @@ function inspectContent({
 				(rect) => rect.width > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.left < innerWidth,
 			);
 	}
+	const hasPaintedShapes = Array.from(document.body.querySelectorAll(`body *:not(${frameSelector})`)).some(
+		(element) => {
+			const rect = element.getBoundingClientRect();
+			const isOnScreen =
+				rect.width > 0 &&
+				rect.height > 0 &&
+				rect.bottom > 0 &&
+				rect.top < innerHeight &&
+				rect.left < innerWidth;
+			const coversScreen = rect.width >= innerWidth && rect.height >= innerHeight;
+			const style = getComputedStyle(element);
+			const isPainted =
+				style.backgroundImage !== 'none' ||
+				(style.backgroundColor !== 'transparent' && style.backgroundColor !== 'rgba(0, 0, 0, 0)');
+			return isOnScreen && !coversScreen && isPainted;
+		},
+	);
 	return {
-		blank: !hasText && !hasGraphics,
+		blank: !hasText && !hasGraphics && !hasPaintedShapes,
 		blockErrors: [...new Set(blockErrors)],
 		storyErrors: ((globalThis as Record<string, unknown>)[errorsGlobal] as string[] | undefined) ?? [],
 	};

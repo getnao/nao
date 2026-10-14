@@ -15,6 +15,7 @@ export interface StoryExportPalette {
 	link: string;
 	tableBackground: string;
 	tableBorder: string;
+	tableBorderWidth: number;
 	tableHeaderBackground: string;
 	tableHeaderText: string;
 	tableDivider: string;
@@ -42,6 +43,7 @@ export const DEFAULT_EXPORT_PALETTE: StoryExportPalette = {
 	link: '#4F46E5',
 	tableBackground: 'rgba(255,255,255,0.5)',
 	tableBorder: '#e5e7eb',
+	tableBorderWidth: 1,
 	tableHeaderBackground: '#fafafa',
 	tableHeaderText: 'rgba(0,0,0,0.5)',
 	tableDivider: 'rgba(0,0,0,0.05)',
@@ -73,6 +75,7 @@ function paletteFromTheme(theme: StoryTheme): StoryExportPalette {
 		link: theme.accent.color,
 		tableBackground: theme.table.background,
 		tableBorder: theme.table.borderColor,
+		tableBorderWidth: theme.table.borderWidth,
 		tableHeaderBackground: theme.table.headerBackground,
 		tableHeaderText: theme.table.headerText,
 		tableDivider: theme.table.borderColor,

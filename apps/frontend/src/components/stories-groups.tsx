@@ -188,7 +188,7 @@ export function StoryCard({
 						<Link
 							{...item.link}
 							onClick={handleLinkClick}
-							className='absolute inset-0 flex flex-col justify-end p-2.5'
+							className='absolute inset-0 z-[2] flex flex-col justify-end p-2.5'
 						>
 							{certifiedBadge}
 							<div className='flex items-end gap-1.5'>

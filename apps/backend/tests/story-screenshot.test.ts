@@ -72,6 +72,28 @@ describe.skipIf(!isChromeAvailable)('rendering a story screenshot', () => {
 		expect(screenshot.blank).toBe(true);
 	});
 
+	it('keeps a story drawn only with CSS shapes', async () => {
+		const screenshot = await renderStoryScreenshot(
+			readyPage('<div style="width: 200px; height: 120px; background: #c2410c"></div>'),
+			VIEWPORT,
+			[],
+		);
+
+		expect(screenshot.blank).toBe(false);
+	});
+
+	it('ignores block errors outside the captured first screen', async () => {
+		const screenshot = await renderStoryScreenshot(
+			readyPage(
+				`<p>content</p><div class="nao-block__state--error" style="margin-top: ${VIEWPORT.height * 2}px">Hidden error</div>`,
+			),
+			VIEWPORT,
+			[],
+		);
+
+		expect(screenshot.blockErrors).toEqual([]);
+	});
+
 	it('is broken when the app never finishes mounting', { timeout: 60_000 }, async () => {
 		const screenshot = await renderStoryScreenshot('<html><body><p>loading</p></body></html>', VIEWPORT, []);
 

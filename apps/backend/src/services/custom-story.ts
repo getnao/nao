@@ -204,7 +204,8 @@ export async function getStoredCustomStoryQueryDataByStoryId(
 	queryIds: string[],
 ): Promise<Record<string, StoryQueryResult>> {
 	const story = await getCustomStoryById(storyId);
-	const cached = story.isLive ? ((await storyQueries.getStoryDataCacheByStoryId(story.id))?.queryData ?? {}) : {};
+	const usesCache = story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
+	const cached = usesCache ? ((await storyQueries.getStoryDataCacheByStoryId(story.id))?.queryData ?? {}) : {};
 	const uncachedIds = new Set(queryIds.filter((queryId) => !cached[queryId]));
 	const fromChat =
 		story.chatId && uncachedIds.size > 0

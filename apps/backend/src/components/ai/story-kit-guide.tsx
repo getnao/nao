@@ -46,8 +46,9 @@ export function storyKitGuideItems(): ReactElement[] {
 		<ListItem key='canvas'>
 			Only when the user asks for a fixed size or fixed proportions (given dimensions, a poster, a wall display),
 			wrap the story in <Bold>{'<Canvas width={1440} height={900}>'}</Bold> (the default size) and lay it out for
-			that size only: it is scaled as a whole to fit the window. Inside a Canvas or a Slide, media queries and
-			vw/vh measure the frame, not the window.
+			that size only: it is scaled as a whole to fit the window. Inside a Canvas or a Slide, width and height
+			media queries and vw/vh in the story's CSS files measure the frame, not the window; inline styles do not, so
+			size them in px or %.
 		</ListItem>,
 		<ListItem key='responsive'>
 			Any other story opens in a side panel from about 600px wide up to full screen: never give it a fixed page

@@ -1,8 +1,10 @@
 import type { StoryQueryResult } from '@nao/shared/story-app';
 import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@nao/shared/story-theme';
+import { createHash } from 'crypto';
 
-import type { DBStory } from '../db/abstractSchema';
+import type { DBStory, DBStoryAppState } from '../db/abstractSchema';
 import * as storyQueries from '../queries/story.queries';
+import * as storyAppStateQueries from '../queries/story-app-state.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import { logger } from '../utils/logger';
 import { themeFontStylesheets } from '../utils/story-headless-page';
@@ -221,14 +223,29 @@ async function saveThumbnails(versionId: string, images: ModeThumbnails, renderK
 	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), renderKey);
 }
 
-/** A live story's data is refreshed in place, without a new version, so its refresh time is part of the key. */
+/** Live data and shared state change in place, without a new version, so they are part of the key. */
 async function thumbnailRenderKey(
 	story: Pick<DBStory, 'id' | 'isLive'>,
 	theme: StoryThemePair | null,
 ): Promise<string> {
-	const themeFingerprint = storyThemeFingerprint(theme);
-	const dataCachedAt = story.isLive ? await storyQueries.getStoryDataCachedAt(story.id) : null;
-	return dataCachedAt ? `${themeFingerprint}.${dataCachedAt.getTime()}` : themeFingerprint;
+	const [dataCachedAt, sharedState] = await Promise.all([
+		story.isLive ? storyQueries.getStoryDataCachedAt(story.id) : null,
+		storyAppStateQueries.listProjectStoryAppState(story.id),
+	]);
+	return [
+		storyThemeFingerprint(theme),
+		dataCachedAt?.getTime(),
+		sharedState.length > 0 ? sharedStateFingerprint(sharedState) : undefined,
+	]
+		.filter((part) => part !== undefined)
+		.join('.');
+}
+
+function sharedStateFingerprint(state: DBStoryAppState[]): string {
+	const entries = state
+		.map((entry) => [entry.key, entry.value])
+		.sort(([left], [right]) => String(left).localeCompare(String(right)));
+	return createHash('sha256').update(JSON.stringify(entries)).digest('hex').slice(0, 12);
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {

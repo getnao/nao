@@ -13,6 +13,7 @@ const LAYOUT_WIDTH_PX = 1100;
 const A4_SHORT_SIDE_PX = 794;
 const A4_LONG_SIDE_PX = 1123;
 const PAGE_MARGIN_PX = 36;
+const MAX_PAGE_LENGTH_PX = 10_000;
 const RENDER_SETTLE_MS = 1_800;
 const VIEW_SETTLE_MS = 1_600;
 
@@ -109,7 +110,11 @@ function parseCanvasSize(value: string): { width: number; height: number } | nul
 		return null;
 	}
 	const size = { width: Math.round(Number(match[1])), height: Math.round(Number(match[2])) };
-	return size.width > 0 && size.height > 0 ? size : null;
+	return isPageLength(size.width) && isPageLength(size.height) ? size : null;
+}
+
+function isPageLength(length: number): boolean {
+	return Number.isFinite(length) && length > 0 && length <= MAX_PAGE_LENGTH_PX;
 }
 
 function fixedPagePdfOptions(size: { width: number; height: number }): PDFOptions {
