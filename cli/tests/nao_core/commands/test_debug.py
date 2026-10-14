@@ -333,6 +333,18 @@ class TestLLMConnection:
             assert "1 models available" in message
             mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://api.moonshot.ai/v1")
 
+    def test_meta_connection_uses_the_default_endpoint(self):
+        config = ProviderConfig(provider=LLMProvider.META, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [SimpleNamespace(id="muse-spark-1.3")]
+            mock_openai_class.return_value = mock_client
+
+            success, _ = check_llm_connection(config)
+
+            assert success is True
+            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://api.meta.ai/v1")
+
     def test_qwen_connection_uses_the_default_endpoint(self):
         config = ProviderConfig(provider=LLMProvider.QWEN, api_key="sk-test-api-key")
         with patch("openai.OpenAI") as mock_openai_class:

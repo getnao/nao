@@ -36,7 +36,7 @@ def test_non_ollama_requires_api_key():
         ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key=None)
 
 
-@pytest.mark.parametrize("provider", [LLMProvider.QWEN, LLMProvider.MINIMAX, LLMProvider.MOONSHOT])
+@pytest.mark.parametrize("provider", [LLMProvider.QWEN, LLMProvider.MINIMAX, LLMProvider.MOONSHOT, LLMProvider.META])
 def test_openai_compatible_providers_are_fully_declared(provider: LLMProvider):
     """Every provider needs auth, a default endpoint and an annotation model to be usable."""
     auth = PROVIDER_AUTH[provider]

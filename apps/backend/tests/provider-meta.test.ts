@@ -98,6 +98,10 @@ describe('getModelCapabilities', () => {
 		expect(getModelCapabilities('qwen', 'qwen-custom')).toMatchObject({ thinking: 'budget', topK: false });
 		expect(getModelCapabilities('minimax', 'MiniMax-Custom')).toMatchObject({ thinking: 'none', sampling: true });
 		expect(getModelCapabilities('moonshot', 'kimi-custom')).toMatchObject({ thinking: 'adaptive', sampling: true });
+		expect(getModelCapabilities('meta', 'muse-spark-1.2')).toMatchObject({
+			thinking: 'adaptive',
+			effortOptions: ['off', 'minimal', 'low', 'medium', 'high'],
+		});
 		expect(getModelCapabilities('openaiCompatible', 'my-model')).toMatchObject({
 			thinking: 'adaptive',
 			sampling: true,

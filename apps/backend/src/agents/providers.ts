@@ -195,6 +195,10 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		...PROVIDER_META.moonshot,
 		create: (settings, modelId) => createCompatibleModel('moonshot', settings, modelId),
 	},
+	meta: {
+		...PROVIDER_META.meta,
+		create: (settings, modelId) => createCompatibleModel('meta', settings, modelId),
+	},
 	requesty: {
 		...PROVIDER_META.requesty,
 		create: (settings, modelId) => createCompatibleModel('requesty', settings, modelId),
@@ -274,6 +278,10 @@ export function disableModelReasoning(provider: LlmProvider, modelResult: Provid
 		case 'requesty':
 		case 'openaiCompatible':
 			options.reasoningEffort = 'none';
+			break;
+		case 'meta':
+			// Muse models always reason and reject `none` with a 400.
+			options.reasoningEffort = 'minimal';
 			break;
 		case 'openrouter':
 			options.reasoning = { enabled: false };
@@ -494,7 +502,8 @@ function resolveThinking(
 		case 'vertex':
 			return resolveGeminiThinking(capabilities, effort, settings);
 		case 'moonshot':
-			// Kimi's own effort vocabulary, so the clamped value goes out as-is.
+		case 'meta':
+			// Kimi and Muse speak nao's effort vocabulary, so the clamped value goes out as-is.
 			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: e }));
 		case 'qwen':
 			return resolveQwenThinking(capabilities, settings);
