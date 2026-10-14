@@ -1,15 +1,21 @@
 import type Stripe from 'stripe';
 
 import * as billingQueries from '../queries/billing.queries';
+import { getCreditPurchaseByPaymentIntent } from '../queries/credit-wallet.queries';
 import { reconcileCloudBillingCustomer } from '../services/billing-reconciliation.service';
+import { issueCreditPurchase, setCreditPurchaseMovement } from '../services/credit-wallet.service';
 import type { JobHandler } from '../services/scheduler.service';
 import {
 	findCloudSubscription,
 	getCloudCheckoutSubscription,
+	getCreditTopUpPurchase,
+	getStripeCharge,
 	getStripeCheckoutSession,
+	getStripeDispute,
 	getStripeEvent,
 	getStripeInvoice,
 	getStripePaymentMethod,
+	isCreditTopUpCheckoutSession,
 } from '../services/stripe.service';
 import { isCloudBillingPlanKey } from '../types/billing';
 
@@ -75,10 +81,19 @@ export const stripeWebhookProcessHandler: JobHandler<{ eventId?: unknown }> = as
 async function processStripeEvent(event: Stripe.Event): Promise<void> {
 	if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
 		const eventSession = event.data.object as Stripe.Checkout.Session;
-		if (eventSession.mode !== 'subscription' || !isCloudBillingPlanKey(eventSession.metadata?.nao_plan_key)) {
-			return;
+		if (isCreditTopUpCheckoutSession(eventSession)) {
+			await processCreditTopUpSession(eventSession.id);
+		} else if (eventSession.mode === 'subscription' && isCloudBillingPlanKey(eventSession.metadata?.nao_plan_key)) {
+			await processCheckoutSession(eventSession.id);
 		}
-		await processCheckoutSession(eventSession.id);
+		return;
+	}
+	if (event.type === 'charge.refunded') {
+		await processRefundedCharge((event.data.object as Stripe.Charge).id);
+		return;
+	}
+	if (event.type === 'charge.dispute.created' || event.type === 'charge.dispute.closed') {
+		await processDispute((event.data.object as Stripe.Dispute).id);
 		return;
 	}
 
@@ -107,6 +122,9 @@ async function processStoredStripeEvent(event: { type: string; stripeObjectId: s
 		event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded';
 	if (
 		!checkoutEvent &&
+		event.type !== 'charge.refunded' &&
+		event.type !== 'charge.dispute.created' &&
+		event.type !== 'charge.dispute.closed' &&
 		!SUBSCRIPTION_EVENTS.has(event.type) &&
 		!INVOICE_EVENTS.has(event.type) &&
 		!PAYMENT_METHOD_EVENTS.has(event.type)
@@ -120,10 +138,19 @@ async function processStoredStripeEvent(event: { type: string; stripeObjectId: s
 
 	if (checkoutEvent) {
 		const session = await getStripeCheckoutSession(objectId);
-		if (session.mode !== 'subscription' || !isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
-			return;
+		if (isCreditTopUpCheckoutSession(session)) {
+			await processCreditTopUpSession(objectId);
+		} else if (session.mode === 'subscription' && isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
+			await processCheckoutSession(objectId);
 		}
-		await processCheckoutSession(objectId);
+		return;
+	}
+	if (event.type === 'charge.refunded') {
+		await processRefundedCharge(objectId);
+		return;
+	}
+	if (event.type === 'charge.dispute.created' || event.type === 'charge.dispute.closed') {
+		await processDispute(objectId);
 		return;
 	}
 	if (SUBSCRIPTION_EVENTS.has(event.type)) {
@@ -162,6 +189,80 @@ async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<
 	await reconcileCloudBillingCustomer({
 		stripeCustomerId: stripeId(session.customer),
 		organizationIdHint: organizationId,
+	});
+}
+
+async function processCreditTopUpSession(stripeCheckoutSessionId: string): Promise<void> {
+	const purchase = await getCreditTopUpPurchase(stripeCheckoutSessionId);
+	const billing = await billingQueries.getOrganizationBilling(purchase.organizationId);
+	if (!billing || billing.stripeCustomerId !== purchase.stripeCustomerId) {
+		throw new Error(`Stripe Checkout Session "${purchase.checkoutSessionId}" has an unexpected Customer`);
+	}
+	await issueCreditPurchase({
+		checkoutSessionId: purchase.checkoutSessionId,
+		paymentIntentId: purchase.paymentIntentId,
+		invoiceId: purchase.invoiceId,
+		orgId: purchase.organizationId,
+		initiatingUserId: purchase.initiatingUserId,
+		creditAmountCents: purchase.creditAmountCents,
+		platformFeeCents: purchase.platformFeeCents,
+		walletAmountMicroUsd: purchase.walletAmountMicroUsd,
+		taxAmountCents: purchase.taxAmountCents,
+		totalAmountCents: purchase.totalAmountCents,
+	});
+}
+
+async function processRefundedCharge(stripeChargeId: string): Promise<void> {
+	const charge = await getStripeCharge(stripeChargeId);
+	const paymentIntentId = optionalStripeId(charge.payment_intent);
+	if (!paymentIntentId || charge.amount <= 0 || charge.amount_refunded <= 0) {
+		return;
+	}
+	const purchase = await getCreditPurchaseByPaymentIntent(paymentIntentId);
+	if (!purchase) {
+		return;
+	}
+	const targetRefundMicroUsd = Math.min(
+		purchase.entry.deltaMicroUsd,
+		Math.floor((purchase.entry.deltaMicroUsd * charge.amount_refunded) / charge.amount),
+	);
+	await setCreditPurchaseMovement({
+		paymentIntentId,
+		movementGroupId: `refund:${charge.id}`,
+		targetDeltaMicroUsd: -targetRefundMicroUsd,
+		idempotencyKey: `refund:stripe:${charge.id}:${charge.amount_refunded}`,
+		externalReference: charge.id,
+		entryType: 'refund',
+		metadata: {
+			refundedAmountCents: charge.amount_refunded,
+			paidAmountCents: charge.amount,
+		},
+	});
+}
+
+async function processDispute(stripeDisputeId: string): Promise<void> {
+	const dispute = await getStripeDispute(stripeDisputeId);
+	const charge = typeof dispute.charge === 'string' ? await getStripeCharge(dispute.charge) : dispute.charge;
+	const paymentIntentId = optionalStripeId(charge.payment_intent);
+	if (!paymentIntentId) {
+		return;
+	}
+	const purchase = await getCreditPurchaseByPaymentIntent(paymentIntentId);
+	if (!purchase) {
+		return;
+	}
+	const won = dispute.status === 'won';
+	await setCreditPurchaseMovement({
+		paymentIntentId,
+		movementGroupId: `dispute:${dispute.id}`,
+		targetDeltaMicroUsd: won ? 0 : -purchase.entry.deltaMicroUsd,
+		idempotencyKey: `dispute:stripe:${dispute.id}:${dispute.status}`,
+		externalReference: dispute.id,
+		entryType: 'adjustment',
+		metadata: {
+			adjustmentType: won ? 'dispute_won' : 'dispute_opened',
+			disputeStatus: dispute.status,
+		},
 	});
 }
 
@@ -249,4 +350,8 @@ function stripeId(value: string | { id: string } | null): string {
 		throw new Error('Stripe object reference is missing');
 	}
 	return typeof value === 'string' ? value : value.id;
+}
+
+function optionalStripeId(value: string | { id: string } | null): string | null {
+	return value ? (typeof value === 'string' ? value : value.id) : null;
 }

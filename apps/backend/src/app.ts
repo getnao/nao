@@ -28,6 +28,10 @@ import {
 	runInvitationCleanup,
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
+import {
+	MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+	managedCreditLifecycleHandler,
+} from './handlers/managed-credit-lifecycle.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import {
@@ -455,10 +459,16 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		// Process accepted webhooks in the background so Stripe receives an immediate response.
 		registerJob(STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler);
 		registerJob(BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler);
+		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
 		await ensureRecurring({
 			name: BILLING_LIFECYCLE_JOB_NAME,
 			cron: '0 * * * *',
 			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
+		});
+		await ensureRecurring({
+			name: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+			cron: '15 * * * *',
+			uniqueKey: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
 		});
 	}
 

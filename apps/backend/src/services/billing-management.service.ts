@@ -10,12 +10,14 @@ import {
 } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { reconcileCloudBillingCustomer } from './billing-reconciliation.service';
+import { assertOrganizationCloudBillingAccess } from './cloud-billing-access.service';
 import {
 	createCloudCheckoutSession,
 	createCloudCustomer,
 	createCloudPaymentMethodSession,
 	createCloudPortalSession,
 	createCloudResubscribeSession,
+	createCreditTopUpCheckoutSession,
 	getCloudUpcomingInvoice,
 	listCloudInvoices,
 	resumeCloudSubscription,
@@ -58,6 +60,21 @@ export async function createCloudTrialCheckoutForAdmin(input: AdminBillingChecko
 		organizationId: organization.id,
 		stripeCustomerId,
 		trialDays: CLOUD_BILLING_PLANS[input.billingInterval].trialDays,
+	});
+}
+
+export async function createCreditTopUpCheckoutForAdmin(
+	input: AdminBillingRequestInput & { creditAmountCents: number },
+): Promise<string> {
+	const organization = await loadCloudBillingOrganization(input.organizationId);
+	await assertOrganizationCloudBillingAccess(organization.id);
+	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
+	return createCreditTopUpCheckoutSession({
+		creditAmountCents: input.creditAmountCents,
+		organizationId: organization.id,
+		stripeCustomerId,
+		initiatingUserId: input.userId,
+		requestId: input.requestId,
 	});
 }
 

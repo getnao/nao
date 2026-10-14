@@ -149,7 +149,10 @@ function UsagePage() {
 				)}
 				{activeTab === 'wallet' && (
 					<div className='flex-1 overflow-auto p-4 md:p-8'>
-						<CreditsWalletContent canViewReplay={canViewChatReplay} />
+						<CreditsWalletContent
+							canViewReplay={canViewChatReplay}
+							creditCheckout={usageSearch.creditCheckout}
+						/>
 					</div>
 				)}
 			</TabPanel>

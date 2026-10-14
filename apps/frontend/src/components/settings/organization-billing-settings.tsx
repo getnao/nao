@@ -398,7 +398,9 @@ function InvoicesCard({ billingState }: { billingState: BillingState }) {
 											? 'Trial'
 											: invoice.invoiceKind === 'no_charge'
 												? 'No charge'
-												: 'Subscription'}
+												: invoice.invoiceKind === 'credit_top_up'
+													? 'Nao credits'
+													: 'Subscription'}
 									</Badge>
 									{invoice.invoiceKind === 'subscription' &&
 										invoice.promotionCodes.map((code) => (

@@ -3,11 +3,13 @@ import { z } from 'zod/v4';
 
 import { isCloudBillingEnabled } from '../env';
 import { getOrganizationBilling } from '../queries/billing.queries';
+import { getCreditPurchaseByCheckoutSession } from '../queries/credit-wallet.queries';
 import {
 	createCloudPaymentMethodPortalForAdmin,
 	createCloudPortalForAdmin,
 	createCloudResubscribeForAdmin,
 	createCloudTrialCheckoutForAdmin,
+	createCreditTopUpCheckoutForAdmin,
 	getCloudBillingOrganizationForAdmin,
 	getCloudUpcomingInvoiceForAdmin,
 	listCloudInvoicesForAdmin,
@@ -22,7 +24,13 @@ import {
 	getCloudBillingPlans,
 	getCloudSubscriptionCurrency,
 } from '../services/stripe.service';
-import { CLOUD_BILLING_CURRENCIES, isTerminalBillingStatus, isTrialAvailable } from '../types/billing';
+import {
+	CLOUD_BILLING_CURRENCIES,
+	CREDIT_TOP_UP_MAX_CENTS,
+	CREDIT_TOP_UP_MIN_CENTS,
+	isTerminalBillingStatus,
+	isTrialAvailable,
+} from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
 import { publicProcedure, resolveOrganizationMembership } from './trpc';
@@ -81,6 +89,10 @@ const billingStatusInput = z.object({ currency: currencyInput }).optional();
 const checkoutInput = z.object({
 	billingInterval: z.enum(['monthly', 'yearly']),
 	currency: currencyInput.default('usd'),
+});
+const creditTopUpInput = z.object({
+	creditAmountCents: z.number().int().min(CREDIT_TOP_UP_MIN_CENTS).max(CREDIT_TOP_UP_MAX_CENTS),
+	requestId: z.uuid(),
 });
 
 export const billingRoutes = {
@@ -154,6 +166,28 @@ export const billingRoutes = {
 			throwBillingFailure('trial activation', 'Unable to start the free trial', error);
 		}
 	}),
+
+	createCreditTopUpCheckoutSession: cloudBillingAdminProcedure
+		.input(creditTopUpInput)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				const url = await createCreditTopUpCheckoutForAdmin({
+					...input,
+					userId: ctx.user.id,
+					organizationId: ctx.organization.id,
+				});
+				return { url };
+			} catch (error) {
+				throwBillingFailure('credit top-up Checkout', 'Unable to start credit Checkout', error);
+			}
+		}),
+
+	getCreditTopUpStatus: cloudBillingAdminProcedure
+		.input(z.object({ checkoutSessionId: z.string().min(1) }))
+		.query(async ({ ctx, input }) => {
+			const purchase = await getCreditPurchaseByCheckoutSession(input.checkoutSessionId);
+			return { credited: purchase?.orgId === ctx.organization.id };
+		}),
 
 	getInvoices: cloudBillingAdminProcedure.query(async ({ ctx }) => {
 		try {

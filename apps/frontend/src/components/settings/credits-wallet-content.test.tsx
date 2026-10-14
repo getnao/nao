@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CreditsWalletContent } from './credits-wallet-content';
@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
 	getSummary: vi.fn(),
 	listLedger: vi.fn(),
 	listUsage: vi.fn(),
+	createCheckout: vi.fn(),
+	getCheckoutStatus: vi.fn(),
 }));
 
 vi.mock('@/main', () => ({
@@ -18,13 +20,36 @@ vi.mock('@/main', () => ({
 		account: {
 			getCreditSummary: {
 				queryOptions: () => ({ queryKey: ['credit-summary'], queryFn: mocks.getSummary }),
+				queryKey: () => ['credit-summary'],
 			},
+			getManagedCreditStatus: { queryKey: () => ['managed-credit-status'] },
 			listCreditLedger: {
 				queryOptions: () => ({ queryKey: ['credit-ledger'], queryFn: mocks.listLedger }),
+				queryKey: () => ['credit-ledger'],
 			},
 			listManagedAiUsage: {
 				queryOptions: () => ({ queryKey: ['managed-ai-usage'], queryFn: mocks.listUsage }),
+				queryKey: () => ['managed-ai-usage'],
 			},
+		},
+		billing: {
+			createCreditTopUpCheckoutSession: {
+				mutationOptions: (options: object) => ({
+					mutationFn: mocks.createCheckout,
+					...options,
+				}),
+			},
+			getCreditTopUpStatus: {
+				queryOptions: () => ({
+					queryKey: ['credit-top-up-status'],
+					queryFn: mocks.getCheckoutStatus,
+				}),
+			},
+			getInvoices: { queryKey: () => ['invoices'] },
+		},
+		project: {
+			listAvailableTranscribeModels: { queryKey: () => ['available-models'] },
+			getDefaultChatModel: { queryKey: () => ['default-chat-model'] },
 		},
 	},
 }));
@@ -193,6 +218,27 @@ describe('CreditsWalletContent', () => {
 
 		await screen.findByText('Available');
 		expect(screen.queryByRole('button', { name: 'Older' })).toBeNull();
+	});
+
+	it('shows the platform fee and starts Checkout with the selected USD credits', async () => {
+		mocks.getSummary.mockResolvedValue({
+			balanceMicroUsd: 0,
+			lifetimeCreditedMicroUsd: 0,
+			lifetimeDebitedMicroUsd: 0,
+			enabled: true,
+		});
+		mocks.listLedger.mockResolvedValue({ groups: [], nextCursor: null });
+		mocks.listUsage.mockResolvedValue({ runs: [], nextCursor: null });
+		mocks.createCheckout.mockReturnValue(new Promise(() => undefined));
+
+		renderCreditsWalletContent(true);
+
+		expect(await screen.findByText('nao platform fee (5%)')).toBeTruthy();
+		expect(screen.getByText('$1.00')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Continue to Stripe' }));
+
+		await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalled());
+		expect(mocks.createCheckout.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ creditAmountCents: 2_000 }));
 	});
 });
 

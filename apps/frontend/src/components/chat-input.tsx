@@ -43,6 +43,7 @@ import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
 import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
+import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
@@ -695,16 +696,16 @@ function BudgetBanner() {
 						<>
 							{' '}
 							<Link
-								to='/settings/project/agent'
-								search={{ tab: 'models' }}
+								to='/settings/usage'
+								search={{ ...DEFAULT_USAGE_SEARCH, tab: 'wallet' }}
 								className='font-medium text-primary underline underline-offset-2 hover:text-primary/80'
 							>
-								Add a provider key
+								Add nao credits
 							</Link>{' '}
-							to continue.
+							to continue, or add your own provider key.
 						</>
 					) : (
-						' Ask a project admin to add a provider key to continue.'
+						' Ask an organization admin to add credits or a provider key to continue.'
 					))}
 			</p>
 		</div>

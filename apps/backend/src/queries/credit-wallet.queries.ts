@@ -7,6 +7,30 @@ import * as userQueries from './user.queries';
 
 export type CreditLedgerCursor = { createdAt: Date; id: string };
 
+export async function getCreditPurchaseByCheckoutSession(
+	checkoutSessionId: string,
+): Promise<{ orgId: string | null; entry: typeof s.creditLedger.$inferSelect } | null> {
+	const [purchase] = await db
+		.select({ orgId: s.creditWallet.orgId, entry: s.creditLedger })
+		.from(s.creditLedger)
+		.innerJoin(s.creditWallet, eq(s.creditLedger.walletId, s.creditWallet.id))
+		.where(eq(s.creditLedger.idempotencyKey, `purchase:stripe:${checkoutSessionId}`))
+		.limit(1);
+	return purchase ?? null;
+}
+
+export async function getCreditPurchaseByPaymentIntent(
+	paymentIntentId: string,
+): Promise<{ orgId: string | null; entry: typeof s.creditLedger.$inferSelect } | null> {
+	const [purchase] = await db
+		.select({ orgId: s.creditWallet.orgId, entry: s.creditLedger })
+		.from(s.creditLedger)
+		.innerJoin(s.creditWallet, eq(s.creditLedger.walletId, s.creditWallet.id))
+		.where(and(eq(s.creditLedger.entryType, 'purchase'), eq(s.creditLedger.externalReference, paymentIntentId)))
+		.limit(1);
+	return purchase ?? null;
+}
+
 export async function getCreditGrant(
 	grantType: CreditGrantType,
 	subjectId: string,

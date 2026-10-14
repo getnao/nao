@@ -13,6 +13,7 @@ const stripeMocks = vi.hoisted(() => ({
 	listSubscriptions: vi.fn(),
 	retrieveCheckoutSession: vi.fn(),
 	retrievePrice: vi.fn(),
+	retrieveProduct: vi.fn(),
 	resumeSubscription: vi.fn(),
 	retrieveCustomer: vi.fn(),
 	retrieveSubscription: vi.fn(),
@@ -46,6 +47,9 @@ vi.mock('stripe', () => ({
 			list: stripeMocks.listPrices,
 			retrieve: stripeMocks.retrievePrice,
 		};
+		products = {
+			retrieve: stripeMocks.retrieveProduct,
+		};
 		subscriptions = {
 			list: stripeMocks.listSubscriptions,
 			resume: stripeMocks.resumeSubscription,
@@ -66,11 +70,13 @@ import {
 	createCloudPaymentMethodSession,
 	createCloudPortalSession,
 	createCloudResubscribeSession,
+	createCreditTopUpCheckoutSession,
 	findCloudSubscription,
 	getCloudBillingPlans,
 	getCloudPrice,
 	getCloudSubscriptionCurrency,
 	getCloudUpcomingInvoice,
+	getCreditTopUpPurchase,
 	getStripeClient,
 	listCloudInvoices,
 	listCloudSubscriptions,
@@ -88,6 +94,8 @@ beforeEach(() => {
 	process.env.STRIPE_CLOUD_PRODUCT_ID = 'prod_cloud';
 	process.env.STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY = 'nao_cloud_monthly_v2';
 	process.env.STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY = 'yearly_sub';
+	process.env.STRIPE_CREDIT_PRODUCT_ID = 'prod_credits';
+	process.env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID = 'prod_platform_fee';
 	process.env.STRIPE_SECRET_KEY = 'sk_test_example';
 	process.env.STRIPE_WEBHOOK_SECRET = 'whsec_example';
 	__reloadEnvForTesting();
@@ -108,6 +116,7 @@ beforeEach(() => {
 		status: 'active',
 		status_details: { active: {} },
 	});
+	stripeMocks.retrieveProduct.mockImplementation((id: string) => ({ id, active: true }));
 });
 
 afterEach(() => {
@@ -296,6 +305,109 @@ describe('validateCloudBillingConfiguration', () => {
 });
 
 describe('cloud Checkout', () => {
+	it('creates an idempotent USD credit Checkout with a separate 5% platform fee', async () => {
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/credits',
+		});
+
+		await expect(
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId: 'request-id',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/credits');
+
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: 'payment',
+				currency: 'usd',
+				customer: 'cus_cloud',
+				allow_promotion_codes: false,
+				line_items: [
+					{
+						price_data: {
+							currency: 'usd',
+							product: 'prod_credits',
+							unit_amount: 2_000,
+						},
+						quantity: 1,
+					},
+					{
+						price_data: {
+							currency: 'usd',
+							product: 'prod_platform_fee',
+							unit_amount: 100,
+						},
+						quantity: 1,
+					},
+				],
+				success_url: 'https://cloud.getnao.io/settings/usage?tab=wallet&creditCheckout={CHECKOUT_SESSION_ID}',
+				cancel_url: 'https://cloud.getnao.io/settings/usage?tab=wallet&creditCheckout=canceled',
+			}),
+			{ idempotencyKey: 'credit-top-up-v1:org-id:request-id' },
+		);
+	});
+
+	it('accepts a paid top-up only after canonical amounts and Products are verified', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue({
+			id: 'cs_top_up',
+			mode: 'payment',
+			payment_status: 'paid',
+			currency: 'usd',
+			customer: 'cus_cloud',
+			client_reference_id: 'org-id',
+			payment_intent: 'pi_top_up',
+			invoice: 'in_top_up',
+			metadata: {
+				nao_checkout_kind: 'credit_top_up',
+				nao_org_id: 'org-id',
+				nao_initiating_user_id: 'user-id',
+				nao_credit_amount_cents: '2000',
+				nao_wallet_amount_micro_usd: '20000000',
+				nao_platform_fee_cents: '100',
+			},
+			amount_subtotal: 2_100,
+			amount_total: 2_300,
+			total_details: { amount_discount: 0, amount_tax: 200 },
+			line_items: {
+				data: [
+					{
+						quantity: 1,
+						currency: 'usd',
+						amount_subtotal: 2_000,
+						price: { product: 'prod_credits' },
+					},
+					{
+						quantity: 1,
+						currency: 'usd',
+						amount_subtotal: 100,
+						price: { product: 'prod_platform_fee' },
+					},
+				],
+			},
+		});
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual({
+			checkoutSessionId: 'cs_top_up',
+			paymentIntentId: 'pi_top_up',
+			invoiceId: 'in_top_up',
+			organizationId: 'org-id',
+			initiatingUserId: 'user-id',
+			stripeCustomerId: 'cus_cloud',
+			creditAmountCents: 2_000,
+			platformFeeCents: 100,
+			walletAmountMicroUsd: 20_000_000,
+			taxAmountCents: 200,
+			totalAmountCents: 2_300,
+		});
+		expect(stripeMocks.retrieveCheckoutSession).toHaveBeenCalledWith('cs_top_up', {
+			expand: ['line_items.data.price.product', 'payment_intent', 'invoice'],
+		});
+	});
+
 	it('requires a saved card and tax details before starting a new trial', async () => {
 		stripeMocks.createCheckoutSession.mockResolvedValue({
 			url: 'https://checkout.stripe.com/trial',

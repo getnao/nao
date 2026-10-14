@@ -8,6 +8,14 @@ const mocks = vi.hoisted(() => ({
 	getInboxEvent: vi.fn(),
 	getInvoice: vi.fn(),
 	getPaymentMethod: vi.fn(),
+	getCreditTopUpPurchase: vi.fn(),
+	getCreditPurchase: vi.fn(),
+	getCharge: vi.fn(),
+	getDispute: vi.fn(),
+	getOrganizationBilling: vi.fn(),
+	isCreditTopUp: vi.fn(),
+	issueCreditPurchase: vi.fn(),
+	setCreditPurchaseMovement: vi.fn(),
 	listMappedOrganizations: vi.fn(),
 	markFailed: vi.fn(),
 	markProcessed: vi.fn(),
@@ -15,10 +23,20 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
+	getOrganizationBilling: mocks.getOrganizationBilling,
 	getStripeWebhookEvent: mocks.getInboxEvent,
 	listOrganizationBillingsWithStripeCustomers: mocks.listMappedOrganizations,
 	markStripeWebhookEventFailed: mocks.markFailed,
 	markStripeWebhookEventProcessed: mocks.markProcessed,
+}));
+
+vi.mock('../src/queries/credit-wallet.queries', () => ({
+	getCreditPurchaseByPaymentIntent: mocks.getCreditPurchase,
+}));
+
+vi.mock('../src/services/credit-wallet.service', () => ({
+	issueCreditPurchase: mocks.issueCreditPurchase,
+	setCreditPurchaseMovement: mocks.setCreditPurchaseMovement,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
@@ -27,11 +45,15 @@ vi.mock('../src/services/billing-reconciliation.service', () => ({
 
 vi.mock('../src/services/stripe.service', () => ({
 	findCloudSubscription: mocks.findSubscription,
+	getCreditTopUpPurchase: mocks.getCreditTopUpPurchase,
 	getCloudCheckoutSubscription: mocks.getCheckoutSubscription,
+	getStripeCharge: mocks.getCharge,
 	getStripeCheckoutSession: mocks.getCheckoutSession,
+	getStripeDispute: mocks.getDispute,
 	getStripeEvent: mocks.getEvent,
 	getStripeInvoice: mocks.getInvoice,
 	getStripePaymentMethod: mocks.getPaymentMethod,
+	isCreditTopUpCheckoutSession: mocks.isCreditTopUp,
 }));
 
 import { stripeWebhookProcessHandler } from '../src/handlers/stripe-webhook.handler';
@@ -46,9 +68,76 @@ describe('stripeWebhookProcessHandler', () => {
 			processedAt: null,
 		});
 		mocks.listMappedOrganizations.mockResolvedValue([]);
+		mocks.isCreditTopUp.mockReturnValue(false);
 		mocks.reconcileCustomer.mockResolvedValue({
 			applied: true,
 			ignored: false,
+		});
+	});
+
+	it.each(CHECKOUT_EVENT_TYPES)('fulfills one validated credit purchase after %s', async (eventType) => {
+		mocks.isCreditTopUp.mockReturnValue(true);
+		mocks.getEvent.mockResolvedValue({
+			type: eventType,
+			data: { object: { id: 'cs_top_up', mode: 'payment' } },
+		});
+		mocks.getCreditTopUpPurchase.mockResolvedValue({
+			checkoutSessionId: 'cs_top_up',
+			paymentIntentId: 'pi_top_up',
+			invoiceId: 'in_top_up',
+			organizationId: 'org-id',
+			initiatingUserId: 'user-id',
+			stripeCustomerId: 'cus_cloud',
+			creditAmountCents: 2_000,
+			platformFeeCents: 100,
+			walletAmountMicroUsd: 20_000_000,
+			taxAmountCents: 200,
+			totalAmountCents: 2_300,
+		});
+		mocks.getOrganizationBilling.mockResolvedValue({ stripeCustomerId: 'cus_cloud' });
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.issueCreditPurchase).toHaveBeenCalledWith({
+			checkoutSessionId: 'cs_top_up',
+			paymentIntentId: 'pi_top_up',
+			invoiceId: 'in_top_up',
+			orgId: 'org-id',
+			initiatingUserId: 'user-id',
+			creditAmountCents: 2_000,
+			platformFeeCents: 100,
+			walletAmountMicroUsd: 20_000_000,
+			taxAmountCents: 200,
+			totalAmountCents: 2_300,
+		});
+		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
+	});
+
+	it('revokes purchased credits proportionally for a cumulative Stripe refund', async () => {
+		mocks.getEvent.mockResolvedValue({
+			type: 'charge.refunded',
+			data: { object: { id: 'ch_top_up' } },
+		});
+		mocks.getCharge.mockResolvedValue({
+			id: 'ch_top_up',
+			amount: 2_100,
+			amount_refunded: 1_050,
+			payment_intent: 'pi_top_up',
+		});
+		mocks.getCreditPurchase.mockResolvedValue({
+			entry: { deltaMicroUsd: 20_000_000 },
+		});
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.setCreditPurchaseMovement).toHaveBeenCalledWith({
+			paymentIntentId: 'pi_top_up',
+			movementGroupId: 'refund:ch_top_up',
+			targetDeltaMicroUsd: -10_000_000,
+			idempotencyKey: 'refund:stripe:ch_top_up:1050',
+			externalReference: 'ch_top_up',
+			entryType: 'refund',
+			metadata: { refundedAmountCents: 1_050, paidAmountCents: 2_100 },
 		});
 	});
 

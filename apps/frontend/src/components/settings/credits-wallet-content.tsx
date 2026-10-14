@@ -2,22 +2,35 @@ import { useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ArrowUpRight } from 'lucide-react';
+import { calculateCreditTopUp, CREDIT_TOP_UP_MAX_CENTS, CREDIT_TOP_UP_MIN_CENTS } from '@nao/shared/billing';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
 
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { useCreditTopUp } from '@/hooks/use-credit-top-up';
 import { trpc } from '@/main';
 
 type CreditLedgerCursor = { createdAt: Date; id: string };
 type ManagedAiUsageCursor = { startedAt: Date; id: string };
 
-export function CreditsWalletContent({ canViewReplay }: { canViewReplay: boolean }) {
+export function CreditsWalletContent({
+	canViewReplay,
+	creditCheckout,
+}: {
+	canViewReplay: boolean;
+	creditCheckout?: string;
+}) {
 	const summary = useQuery(trpc.account.getCreditSummary.queryOptions());
+	const topUp = useCreditTopUp(creditCheckout);
+	const [topUpAmount, setTopUpAmount] = useState('20');
 	const [ledgerCursor, setLedgerCursor] = useState<CreditLedgerCursor>();
 	const [usageCursor, setUsageCursor] = useState<ManagedAiUsageCursor>();
+	const topUpAmountCents = parseUsdCents(topUpAmount);
+	const topUpBreakdown = topUpAmountCents === null ? null : calculateCreditTopUp(topUpAmountCents);
 	const ledger = useQuery({
 		...trpc.account.listCreditLedger.queryOptions({ cursor: ledgerCursor, limit: 10 }),
 		placeholderData: keepPreviousData,
@@ -40,6 +53,69 @@ export function CreditsWalletContent({ canViewReplay }: { canViewReplay: boolean
 							<CreditMetric label='Available' value={summary.data.balanceMicroUsd} />
 							<CreditMetric label='Credited' value={summary.data.lifetimeCreditedMicroUsd} />
 							<CreditMetric label='Debited' value={summary.data.lifetimeDebitedMicroUsd} />
+						</div>
+					</SettingsCard>
+
+					<SettingsCard title='Add nao credits'>
+						<div className='max-w-sm space-y-3'>
+							<p className='text-sm text-muted-foreground'>
+								Credits are sold in US dollars and shared across the organization.
+							</p>
+							<label className='block text-sm font-medium' htmlFor='credit-top-up-amount'>
+								Credit amount
+							</label>
+							<div className='flex items-center gap-2'>
+								<span className='text-muted-foreground'>$</span>
+								<Input
+									id='credit-top-up-amount'
+									type='number'
+									min={CREDIT_TOP_UP_MIN_CENTS / 100}
+									max={CREDIT_TOP_UP_MAX_CENTS / 100}
+									step='0.01'
+									value={topUpAmount}
+									onChange={(event) => setTopUpAmount(event.target.value)}
+								/>
+								<span className='text-sm text-muted-foreground'>USD</span>
+							</div>
+							{topUpBreakdown ? (
+								<div className='space-y-1 text-sm'>
+									<div className='flex justify-between'>
+										<span>Credits added</span>
+										<span>{formatUsdCents(topUpBreakdown.creditAmountCents)}</span>
+									</div>
+									<div className='flex justify-between'>
+										<span>nao platform fee (5%)</span>
+										<span>{formatUsdCents(topUpBreakdown.platformFeeCents)}</span>
+									</div>
+									<div className='flex justify-between border-t border-border pt-1 font-medium'>
+										<span>Subtotal</span>
+										<span>{formatUsdCents(topUpBreakdown.totalAmountCents)}</span>
+									</div>
+								</div>
+							) : (
+								<p className='text-sm text-destructive'>Enter an amount from $20 to $500.</p>
+							)}
+							<p className='text-xs text-muted-foreground'>
+								Applicable tax is calculated by Stripe. Your card issuer may convert this USD payment
+								and charge conversion fees.
+							</p>
+							{topUp.feedback && <p className='text-sm'>{topUp.feedback}</p>}
+							{topUp.error && <p className='text-sm text-destructive'>{topUp.error}</p>}
+							<div className='flex gap-2'>
+								<Button
+									disabled={!topUpBreakdown || topUp.isPending}
+									onClick={() =>
+										topUpBreakdown && topUp.startCheckout(topUpBreakdown.creditAmountCents)
+									}
+								>
+									{topUp.isPending ? 'Opening Checkout…' : 'Continue to Stripe'}
+								</Button>
+								{topUp.showRetry && (
+									<Button variant='outline' onClick={topUp.retryConfirmation}>
+										Check again
+									</Button>
+								)}
+							</div>
 						</div>
 					</SettingsCard>
 
@@ -326,12 +402,43 @@ function ledgerLabel(
 			}`
 		: entryType === 'usage'
 			? `nao AI - ${group.usageUserName ?? 'Former user'}`
-			: entryType;
+			: entryType === 'purchase'
+				? 'Credit purchase'
+				: entryType === 'refund'
+					? 'Credit refund'
+					: getAdjustmentType(group) === 'dispute_opened'
+						? 'Credit purchase disputed'
+						: getAdjustmentType(group) === 'dispute_won'
+							? 'Dispute reversed'
+							: getAdjustmentType(group) === 'reservation_release'
+								? 'Expired credit reservation released'
+								: entryType;
 }
 
 function getGrantType(group: CreditLedgerGroup): string | null {
 	const grantType = group.entries.find((entry) => entry.metadata?.grantType)?.metadata?.grantType;
 	return typeof grantType === 'string' ? grantType : null;
+}
+
+function getAdjustmentType(group: CreditLedgerGroup): string | null {
+	const adjustmentType = group.entries.find((entry) => entry.metadata?.adjustmentType)?.metadata?.adjustmentType;
+	return typeof adjustmentType === 'string' ? adjustmentType : null;
+}
+
+function parseUsdCents(value: string): number | null {
+	if (!/^\d+(?:\.\d{1,2})?$/.test(value)) {
+		return null;
+	}
+	const cents = Math.round(Number(value) * 100);
+	return cents >= CREDIT_TOP_UP_MIN_CENTS && cents <= CREDIT_TOP_UP_MAX_CENTS ? cents : null;
+}
+
+function formatUsdCents(cents: number): string {
+	return new Intl.NumberFormat(undefined, {
+		style: 'currency',
+		currency: 'USD',
+		minimumFractionDigits: 2,
+	}).format(cents / 100);
 }
 
 function formatGiftUsd(microUsd: number): string {
