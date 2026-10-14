@@ -1094,3 +1094,29 @@ class TestClusteredOnlyTable:
         sql = mock_conn.raw_sql.call_args[0][0]
         assert "clustering_ordinal_position" in sql
         assert "IS NOT NULL" in sql
+
+
+class TestLocation:
+    def test_connect_forwards_location_to_ibis(self):
+        config = BigQueryConfig(name="test", project_id="my-project", location="us-central1")
+
+        with patch("ibis.bigquery.connect") as mock_connect:
+            config.connect()
+
+        assert mock_connect.call_args.kwargs["location"] == "us-central1"
+
+    def test_connect_omits_location_when_unset(self):
+        config = BigQueryConfig(name="test", project_id="my-project")
+
+        with patch("ibis.bigquery.connect") as mock_connect:
+            config.connect()
+
+        assert "location" not in mock_connect.call_args.kwargs
+
+    def test_dry_run_uses_configured_location(self):
+        config = BigQueryConfig(name="test", project_id="my-project", location="us-central1")
+        mock_conn = MagicMock()
+        mock_conn.client.query.return_value.total_bytes_processed = 42
+
+        assert config._dry_run_bytes("SELECT 1", mock_conn) == 42
+        assert mock_conn.client.query.call_args.kwargs["location"] == "us-central1"
