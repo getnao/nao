@@ -9,6 +9,15 @@ import type { TrpcRouter } from '@nao/backend/trpc';
 
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Button } from '@/components/ui/button';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { useCreditTopUp } from '@/hooks/use-credit-top-up';
@@ -17,18 +26,11 @@ import { trpc } from '@/main';
 type CreditLedgerCursor = { createdAt: Date; id: string };
 type ManagedAiUsageCursor = { startedAt: Date; id: string };
 
-export function CreditsWalletContent({
-	canViewReplay,
-	creditCheckout,
-}: {
-	canViewReplay: boolean;
-	creditCheckout?: string;
-}) {
+export function OrganizationCreditsContent({ creditCheckout }: { creditCheckout?: string }) {
 	const summary = useQuery(trpc.account.getCreditSummary.queryOptions());
 	const topUp = useCreditTopUp(creditCheckout);
 	const [topUpAmount, setTopUpAmount] = useState('20');
 	const [ledgerCursor, setLedgerCursor] = useState<CreditLedgerCursor>();
-	const [usageCursor, setUsageCursor] = useState<ManagedAiUsageCursor>();
 	const topUpAmountCents = parseUsdCents(topUpAmount);
 	const topUpBreakdown = topUpAmountCents === null ? null : calculateCreditTopUp(topUpAmountCents);
 	const ledger = useQuery({
@@ -36,86 +38,37 @@ export function CreditsWalletContent({
 		placeholderData: keepPreviousData,
 		enabled: summary.data?.enabled === true,
 	});
-	const usage = useQuery({
-		...trpc.account.listManagedAiUsage.queryOptions({ cursor: usageCursor, limit: 10 }),
-		placeholderData: keepPreviousData,
-	});
 
 	return (
 		<div className='flex flex-col gap-4'>
 			{summary.data?.enabled && (
 				<>
 					<SettingsCard title='Organization wallet'>
-						<p className='mb-3 text-sm text-muted-foreground'>
-							Shared nao credits available across every project in this organization.
-						</p>
-						<div className='grid gap-3 sm:grid-cols-3'>
-							<CreditMetric label='Available' value={summary.data.balanceMicroUsd} />
-							<CreditMetric label='Credited' value={summary.data.lifetimeCreditedMicroUsd} />
-							<CreditMetric label='Debited' value={summary.data.lifetimeDebitedMicroUsd} />
-						</div>
-					</SettingsCard>
-
-					<SettingsCard title='Add nao credits'>
-						<div className='max-w-sm space-y-3'>
+						<div className='mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
 							<p className='text-sm text-muted-foreground'>
-								Credits are sold in US dollars and shared across the organization.
+								Shared nao credits available across every project in this organization.
 							</p>
-							<label className='block text-sm font-medium' htmlFor='credit-top-up-amount'>
-								Credit amount
-							</label>
-							<div className='flex items-center gap-2'>
-								<span className='text-muted-foreground'>$</span>
-								<Input
-									id='credit-top-up-amount'
-									type='number'
-									min={CREDIT_TOP_UP_MIN_CENTS / 100}
-									max={CREDIT_TOP_UP_MAX_CENTS / 100}
-									step='0.01'
-									value={topUpAmount}
-									onChange={(event) => setTopUpAmount(event.target.value)}
-								/>
-								<span className='text-sm text-muted-foreground'>USD</span>
-							</div>
-							{topUpBreakdown ? (
-								<div className='space-y-1 text-sm'>
-									<div className='flex justify-between'>
-										<span>Credits added</span>
-										<span>{formatUsdCents(topUpBreakdown.creditAmountCents)}</span>
-									</div>
-									<div className='flex justify-between'>
-										<span>nao platform fee (5%)</span>
-										<span>{formatUsdCents(topUpBreakdown.platformFeeCents)}</span>
-									</div>
-									<div className='flex justify-between border-t border-border pt-1 font-medium'>
-										<span>Subtotal</span>
-										<span>{formatUsdCents(topUpBreakdown.totalAmountCents)}</span>
-									</div>
-								</div>
-							) : (
-								<p className='text-sm text-destructive'>Enter an amount from $20 to $500.</p>
-							)}
-							<p className='text-xs text-muted-foreground'>
-								Applicable tax is calculated by Stripe. Your card issuer may convert this USD payment
-								and charge conversion fees.
-							</p>
-							{topUp.feedback && <p className='text-sm'>{topUp.feedback}</p>}
-							{topUp.error && <p className='text-sm text-destructive'>{topUp.error}</p>}
-							<div className='flex gap-2'>
-								<Button
-									disabled={!topUpBreakdown || topUp.isPending}
-									onClick={() =>
-										topUpBreakdown && topUp.startCheckout(topUpBreakdown.creditAmountCents)
-									}
-								>
-									{topUp.isPending ? 'Opening Checkout…' : 'Continue to Stripe'}
-								</Button>
+							<CreditTopUpDialog
+								topUp={topUp}
+								topUpAmount={topUpAmount}
+								topUpBreakdown={topUpBreakdown}
+								onTopUpAmountChange={setTopUpAmount}
+							/>
+						</div>
+						{topUp.feedback && (
+							<div className='mb-3 flex items-center justify-between gap-3'>
+								<p className='text-sm'>{topUp.feedback}</p>
 								{topUp.showRetry && (
-									<Button variant='outline' onClick={topUp.retryConfirmation}>
+									<Button variant='outline' size='sm' onClick={topUp.retryConfirmation}>
 										Check again
 									</Button>
 								)}
 							</div>
+						)}
+						<div className='grid gap-3 sm:grid-cols-3'>
+							<CreditMetric label='Available' value={summary.data.balanceMicroUsd} />
+							<CreditMetric label='Credited' value={summary.data.lifetimeCreditedMicroUsd} />
+							<CreditMetric label='Debited' value={summary.data.lifetimeDebitedMicroUsd} />
 						</div>
 					</SettingsCard>
 
@@ -177,13 +130,43 @@ export function CreditsWalletContent({
 							onPrevious={() => setLedgerCursor(undefined)}
 							onNext={() => setLedgerCursor(ledger.data?.nextCursor ?? undefined)}
 						/>
+						<div className='mt-1 flex justify-end'>
+							<Link
+								to='/settings/usage'
+								search={{ ...DEFAULT_USAGE_SEARCH, tab: 'managed-ai' }}
+								className='inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground'
+							>
+								More details
+								<ArrowUpRight aria-hidden='true' className='size-3.5' />
+							</Link>
+						</div>
 					</SettingsCard>
 				</>
 			)}
+		</div>
+	);
+}
 
-			<SettingsCard title='Managed AI charges'>
+export function ManagedAiChargesContent({
+	canViewReplay,
+	organizationWide = false,
+}: {
+	canViewReplay: boolean;
+	organizationWide?: boolean;
+}) {
+	const [usageCursor, setUsageCursor] = useState<ManagedAiUsageCursor>();
+	const usage = useQuery({
+		...trpc.account.listManagedAiUsage.queryOptions({ cursor: usageCursor, limit: 10 }),
+		placeholderData: keepPreviousData,
+	});
+
+	return (
+		<div className='flex flex-col gap-4'>
+			<SettingsCard title='nao AI usage'>
 				<p className='mb-3 text-sm text-muted-foreground'>
-					Organization-wide nao-managed model calls and the credits charged for them.
+					{organizationWide
+						? 'Organization-wide model calls paid with nao credits.'
+						: 'Your model calls paid with nao credits.'}
 				</p>
 				<div className='flex flex-col gap-2'>
 					{usage.data?.runs.map((run) => (
@@ -198,6 +181,89 @@ export function CreditsWalletContent({
 				/>
 			</SettingsCard>
 		</div>
+	);
+}
+
+function CreditTopUpDialog({
+	topUp,
+	topUpAmount,
+	topUpBreakdown,
+	onTopUpAmountChange,
+}: {
+	topUp: ReturnType<typeof useCreditTopUp>;
+	topUpAmount: string;
+	topUpBreakdown: ReturnType<typeof calculateCreditTopUp> | null;
+	onTopUpAmountChange: (value: string) => void;
+}) {
+	return (
+		<Dialog>
+			<DialogTrigger asChild>
+				<Button size='sm'>Add credits</Button>
+			</DialogTrigger>
+			<DialogContent className='sm:max-w-2xl'>
+				<DialogHeader>
+					<DialogTitle>Add nao credits</DialogTitle>
+					<DialogDescription>
+						Credits are sold in US dollars and shared across every project in the organization.
+					</DialogDescription>
+				</DialogHeader>
+
+				<div className='grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]'>
+					<div className='space-y-2'>
+						<label className='block text-sm font-medium' htmlFor='credit-top-up-amount'>
+							Credit amount
+						</label>
+						<div className='flex items-center gap-2'>
+							<Input
+								id='credit-top-up-amount'
+								type='text'
+								inputMode='decimal'
+								value={topUpAmount}
+								onChange={(event) => onTopUpAmountChange(event.target.value)}
+							/>
+							<span className='text-sm text-muted-foreground'>USD</span>
+						</div>
+						<p className='text-xs text-muted-foreground'>Choose an amount from $20 to $500.</p>
+					</div>
+
+					<div className='rounded-md border border-border bg-muted/30 p-4'>
+						<p className='mb-3 text-sm font-medium'>Purchase summary</p>
+						{topUpBreakdown ? (
+							<div className='space-y-2 text-sm'>
+								<div className='flex justify-between gap-4'>
+									<span className='text-muted-foreground'>Credits added</span>
+									<span>{formatUsdCents(topUpBreakdown.creditAmountCents)}</span>
+								</div>
+								<div className='flex justify-between gap-4'>
+									<span className='text-muted-foreground'>nao platform fee (5%)</span>
+									<span>{formatUsdCents(topUpBreakdown.platformFeeCents)}</span>
+								</div>
+								<div className='flex justify-between gap-4 border-t border-border pt-2 font-medium'>
+									<span>Subtotal</span>
+									<span>{formatUsdCents(topUpBreakdown.totalAmountCents)}</span>
+								</div>
+							</div>
+						) : (
+							<p className='text-sm text-destructive'>Enter an amount from $20 to $500.</p>
+						)}
+						<p className='mt-3 text-xs text-muted-foreground'>
+							Applicable tax is calculated by Stripe. Your card issuer may convert this USD payment and
+							charge conversion fees.
+						</p>
+					</div>
+				</div>
+
+				{topUp.error && <p className='text-sm text-destructive'>{topUp.error}</p>}
+				<DialogFooter>
+					<Button
+						disabled={!topUpBreakdown || topUp.isPending}
+						onClick={() => topUpBreakdown && topUp.startCheckout(topUpBreakdown.creditAmountCents)}
+					>
+						{topUp.isPending ? 'Opening Checkout…' : 'Continue to Stripe'}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CreditsWalletContent } from './credits-wallet-content';
+import { ManagedAiChargesContent, OrganizationCreditsContent } from './credits-wallet-content';
 import type { AnchorHTMLAttributes } from 'react';
 
 const mocks = vi.hoisted(() => ({
@@ -62,7 +62,7 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 }));
 
-describe('CreditsWalletContent', () => {
+describe('credit settings content', () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -130,6 +130,34 @@ describe('CreditsWalletContent', () => {
 			],
 			nextCursor: null,
 		});
+		renderOrganizationCreditsContent();
+
+		await screen.findByText('Available');
+		expect(
+			await screen.findByText(
+				(_, element) =>
+					element?.tagName === 'TD' && element.textContent?.trim() === '$5 member join grant Managed User',
+			),
+		).toBeTruthy();
+		expect(
+			await screen.findByText(
+				(_, element) => element?.tagName === 'TD' && element.textContent?.trim() === '$20 project setup grant',
+			),
+		).toBeTruthy();
+		expect(
+			await screen.findByText(
+				(_, element) =>
+					element?.tagName === 'TD' && element.textContent?.trim() === 'nao AI - Managed User 2 calls',
+			),
+		).toBeTruthy();
+		expect(
+			screen.getByText((_, element) => element?.tagName === 'TD' && element.textContent?.trim() === '$23.00'),
+		).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'More details' })).toBeTruthy();
+		expect(screen.queryByText(/You gave your \$5 welcome credit/)).toBeNull();
+	});
+
+	it('shows nao AI usage details and replay links', async () => {
 		mocks.listUsage.mockResolvedValue({
 			runs: [
 				{
@@ -156,32 +184,11 @@ describe('CreditsWalletContent', () => {
 			nextCursor: null,
 		});
 
-		renderCreditsWalletContent(true);
+		renderManagedAiChargesContent(true);
 
-		await screen.findByText('Available');
-		expect(screen.getByRole('link', { name: 'Open chat replay' })).toBeTruthy();
-		expect(
-			await screen.findByText(
-				(_, element) =>
-					element?.tagName === 'TD' && element.textContent?.trim() === '$5 member join grant Managed User',
-			),
-		).toBeTruthy();
-		expect(
-			await screen.findByText(
-				(_, element) => element?.tagName === 'TD' && element.textContent?.trim() === '$20 project setup grant',
-			),
-		).toBeTruthy();
-		expect(
-			await screen.findByText(
-				(_, element) =>
-					element?.tagName === 'TD' && element.textContent?.trim() === 'nao AI - Managed User 2 calls',
-			),
-		).toBeTruthy();
+		expect(await screen.findByText('Your model calls paid with nao credits.')).toBeTruthy();
 		expect(await screen.findByText(/Managed User · .* · gpt-5\.6/)).toBeTruthy();
-		expect(
-			screen.getByText((_, element) => element?.tagName === 'TD' && element.textContent?.trim() === '$23.00'),
-		).toBeTruthy();
-		expect(screen.queryByText(/You gave your \$5 welcome credit/)).toBeNull();
+		expect(screen.getByRole('link', { name: 'Open chat replay' })).toBeTruthy();
 	});
 
 	it('distinguishes failed and aborted runs from mixed runs', async () => {
@@ -196,7 +203,7 @@ describe('CreditsWalletContent', () => {
 			nextCursor: null,
 		});
 
-		renderCreditsWalletContent(true);
+		renderManagedAiChargesContent(true);
 
 		expect(await screen.findByText(/^Failed/)).toBeTruthy();
 		expect(screen.getByText(/^Aborted/)).toBeTruthy();
@@ -212,9 +219,8 @@ describe('CreditsWalletContent', () => {
 			enabled: true,
 		});
 		mocks.listLedger.mockReturnValue(new Promise(() => undefined));
-		mocks.listUsage.mockReturnValue(new Promise(() => undefined));
 
-		renderCreditsWalletContent(true);
+		renderOrganizationCreditsContent();
 
 		await screen.findByText('Available');
 		expect(screen.queryByRole('button', { name: 'Older' })).toBeNull();
@@ -228,17 +234,39 @@ describe('CreditsWalletContent', () => {
 			enabled: true,
 		});
 		mocks.listLedger.mockResolvedValue({ groups: [], nextCursor: null });
-		mocks.listUsage.mockResolvedValue({ runs: [], nextCursor: null });
 		mocks.createCheckout.mockReturnValue(new Promise(() => undefined));
 
-		renderCreditsWalletContent(true);
+		renderOrganizationCreditsContent();
 
+		expect(screen.queryByText('Purchase summary')).toBeNull();
+		fireEvent.click(await screen.findByRole('button', { name: 'Add credits' }));
 		expect(await screen.findByText('nao platform fee (5%)')).toBeTruthy();
+		const amountInput = screen.getByLabelText('Credit amount') as HTMLInputElement;
+		expect(amountInput.type).toBe('text');
+		expect(amountInput.inputMode).toBe('decimal');
+		expect(screen.queryByText('$', { exact: true })).toBeNull();
 		expect(screen.getByText('$1.00')).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', { name: 'Continue to Stripe' }));
 
 		await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalled());
 		expect(mocks.createCheckout.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ creditAmountCents: 2_000 }));
+	});
+
+	it('confirms the purchase outside the closed credit dialog after returning from Stripe', async () => {
+		mocks.getSummary.mockResolvedValue({
+			balanceMicroUsd: 0,
+			lifetimeCreditedMicroUsd: 0,
+			lifetimeDebitedMicroUsd: 0,
+			enabled: true,
+		});
+		mocks.listLedger.mockResolvedValue({ groups: [], nextCursor: null });
+		mocks.getCheckoutStatus.mockReturnValue(new Promise(() => undefined));
+
+		renderOrganizationCreditsContent('cs_test');
+
+		await screen.findByRole('button', { name: 'Add credits' });
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(screen.getByText('Confirming your credit purchase with Stripe…')).toBeTruthy();
 	});
 });
 
@@ -263,11 +291,20 @@ function usageRun(id: string, statuses: ('completed' | 'failed' | 'aborted')[]) 
 	};
 }
 
-function renderCreditsWalletContent(canViewReplay: boolean) {
+function renderOrganizationCreditsContent(creditCheckout?: string) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	return render(
 		<QueryClientProvider client={queryClient}>
-			<CreditsWalletContent canViewReplay={canViewReplay} />
+			<OrganizationCreditsContent creditCheckout={creditCheckout} />
+		</QueryClientProvider>,
+	);
+}
+
+function renderManagedAiChargesContent(canViewReplay: boolean) {
+	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	return render(
+		<QueryClientProvider client={queryClient}>
+			<ManagedAiChargesContent canViewReplay={canViewReplay} />
 		</QueryClientProvider>,
 	);
 }

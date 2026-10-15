@@ -55,12 +55,15 @@ export async function requireContextAdminOrAdmin() {
 	}
 }
 
-export async function requireUsageOrWalletAccess() {
+export async function requireUsageOrManagedAiAccess() {
 	const [project, config] = await Promise.all([
 		queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions()),
 		queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions()),
 	]);
-	if (project && (project.userRole === 'admin' || project.userRole === 'context_admin')) {
+	if (
+		project &&
+		(project.userRole === 'admin' || project.userRole === 'user' || project.userRole === 'context_admin')
+	) {
 		return;
 	}
 

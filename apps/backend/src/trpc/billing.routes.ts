@@ -3,8 +3,8 @@ import { z } from 'zod/v4';
 
 import { isCloudBillingEnabled } from '../env';
 import { getOrganizationBilling } from '../queries/billing.queries';
-import { getCreditPurchaseByCheckoutSession } from '../queries/credit-wallet.queries';
 import {
+	confirmCreditTopUpForAdmin,
 	createCloudPaymentMethodPortalForAdmin,
 	createCloudPortalForAdmin,
 	createCloudResubscribeForAdmin,
@@ -185,8 +185,12 @@ export const billingRoutes = {
 	getCreditTopUpStatus: cloudBillingAdminProcedure
 		.input(z.object({ checkoutSessionId: z.string().min(1) }))
 		.query(async ({ ctx, input }) => {
-			const purchase = await getCreditPurchaseByCheckoutSession(input.checkoutSessionId);
-			return { credited: purchase?.orgId === ctx.organization.id };
+			const credited = await confirmCreditTopUpForAdmin({
+				userId: ctx.user.id,
+				organizationId: ctx.organization.id,
+				checkoutSessionId: input.checkoutSessionId,
+			});
+			return { credited };
 		}),
 
 	getInvoices: cloudBillingAdminProcedure.query(async ({ ctx }) => {

@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 
 interface UsageFiltersProps {
 	showUsageControls?: boolean;
+	showUserControls?: boolean;
 	provider: LlmProvider | 'all';
 	onProviderChange: (value: LlmProvider | 'all') => void;
 	periodSelection: UsagePeriodSelection;
@@ -43,6 +44,7 @@ interface UsageFiltersProps {
 
 export function UsageFilters({
 	showUsageControls = true,
+	showUserControls = true,
 	provider,
 	onProviderChange,
 	periodSelection,
@@ -111,14 +113,16 @@ export function UsageFilters({
 				selectedValues={selectedSources}
 				onChange={onSelectedSourcesChange}
 			/>
-			<MultiSelectFilter
-				label='Users'
-				icon={Users}
-				options={userOptions}
-				selectedValues={selectedUserNames}
-				onChange={onSelectedUserNamesChange}
-			/>
-			{showUsageControls && onSplitByUserChange && (
+			{showUserControls && (
+				<MultiSelectFilter
+					label='Users'
+					icon={Users}
+					options={userOptions}
+					selectedValues={selectedUserNames}
+					onChange={onSelectedUserNamesChange}
+				/>
+			)}
+			{showUserControls && onSplitByUserChange && (
 				<ToggleFilter
 					label='Split per user'
 					icon={Split}

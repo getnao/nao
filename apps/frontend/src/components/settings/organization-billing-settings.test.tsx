@@ -40,6 +40,10 @@ vi.mock('@/hooks/use-organization-billing', () => ({
 	useOrganizationBilling: (): BillingState => billingState(),
 }));
 
+vi.mock('@/components/settings/credits-wallet-content', () => ({
+	OrganizationCreditsContent: () => null,
+}));
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.cancellationScheduled = false;

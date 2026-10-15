@@ -2,13 +2,13 @@ import type Stripe from 'stripe';
 
 import * as billingQueries from '../queries/billing.queries';
 import { getCreditPurchaseByPaymentIntent } from '../queries/credit-wallet.queries';
+import { settleCreditTopUpCheckout } from '../services/billing-management.service';
 import { reconcileCloudBillingCustomer } from '../services/billing-reconciliation.service';
-import { issueCreditPurchase, setCreditPurchaseMovement } from '../services/credit-wallet.service';
+import { setCreditPurchaseMovement } from '../services/credit-wallet.service';
 import type { JobHandler } from '../services/scheduler.service';
 import {
 	findCloudSubscription,
 	getCloudCheckoutSubscription,
-	getCreditTopUpPurchase,
 	getStripeCharge,
 	getStripeCheckoutSession,
 	getStripeDispute,
@@ -41,6 +41,22 @@ const PAYMENT_METHOD_EVENTS = new Set([
 	'payment_method.attached',
 	'payment_method.detached',
 	'payment_method.updated',
+]);
+
+const DISPUTE_EVENTS = new Set([
+	'charge.dispute.created',
+	'charge.dispute.updated',
+	'charge.dispute.closed',
+	'charge.dispute.funds_withdrawn',
+	'charge.dispute.funds_reinstated',
+]);
+
+const DISPUTE_STATUSES_WITHOUT_WITHDRAWN_FUNDS = new Set([
+	'warning_needs_response',
+	'warning_under_review',
+	'warning_closed',
+	'won',
+	'prevented',
 ]);
 
 export const stripeWebhookProcessHandler: JobHandler<{ eventId?: unknown }> = async (payload) => {
@@ -82,7 +98,10 @@ async function processStripeEvent(event: Stripe.Event): Promise<void> {
 	if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
 		const eventSession = event.data.object as Stripe.Checkout.Session;
 		if (isCreditTopUpCheckoutSession(eventSession)) {
-			await processCreditTopUpSession(eventSession.id);
+			if (event.type === 'checkout.session.completed' && eventSession.payment_status !== 'paid') {
+				return;
+			}
+			await settleCreditTopUpCheckout(eventSession.id);
 		} else if (eventSession.mode === 'subscription' && isCloudBillingPlanKey(eventSession.metadata?.nao_plan_key)) {
 			await processCheckoutSession(eventSession.id);
 		}
@@ -92,7 +111,7 @@ async function processStripeEvent(event: Stripe.Event): Promise<void> {
 		await processRefundedCharge((event.data.object as Stripe.Charge).id);
 		return;
 	}
-	if (event.type === 'charge.dispute.created' || event.type === 'charge.dispute.closed') {
+	if (DISPUTE_EVENTS.has(event.type)) {
 		await processDispute((event.data.object as Stripe.Dispute).id);
 		return;
 	}
@@ -123,8 +142,7 @@ async function processStoredStripeEvent(event: { type: string; stripeObjectId: s
 	if (
 		!checkoutEvent &&
 		event.type !== 'charge.refunded' &&
-		event.type !== 'charge.dispute.created' &&
-		event.type !== 'charge.dispute.closed' &&
+		!DISPUTE_EVENTS.has(event.type) &&
 		!SUBSCRIPTION_EVENTS.has(event.type) &&
 		!INVOICE_EVENTS.has(event.type) &&
 		!PAYMENT_METHOD_EVENTS.has(event.type)
@@ -139,7 +157,10 @@ async function processStoredStripeEvent(event: { type: string; stripeObjectId: s
 	if (checkoutEvent) {
 		const session = await getStripeCheckoutSession(objectId);
 		if (isCreditTopUpCheckoutSession(session)) {
-			await processCreditTopUpSession(objectId);
+			if (event.type === 'checkout.session.completed' && session.payment_status !== 'paid') {
+				return;
+			}
+			await settleCreditTopUpCheckout(objectId);
 		} else if (session.mode === 'subscription' && isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
 			await processCheckoutSession(objectId);
 		}
@@ -149,7 +170,7 @@ async function processStoredStripeEvent(event: { type: string; stripeObjectId: s
 		await processRefundedCharge(objectId);
 		return;
 	}
-	if (event.type === 'charge.dispute.created' || event.type === 'charge.dispute.closed') {
+	if (DISPUTE_EVENTS.has(event.type)) {
 		await processDispute(objectId);
 		return;
 	}
@@ -192,26 +213,6 @@ async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<
 	});
 }
 
-async function processCreditTopUpSession(stripeCheckoutSessionId: string): Promise<void> {
-	const purchase = await getCreditTopUpPurchase(stripeCheckoutSessionId);
-	const billing = await billingQueries.getOrganizationBilling(purchase.organizationId);
-	if (!billing || billing.stripeCustomerId !== purchase.stripeCustomerId) {
-		throw new Error(`Stripe Checkout Session "${purchase.checkoutSessionId}" has an unexpected Customer`);
-	}
-	await issueCreditPurchase({
-		checkoutSessionId: purchase.checkoutSessionId,
-		paymentIntentId: purchase.paymentIntentId,
-		invoiceId: purchase.invoiceId,
-		orgId: purchase.organizationId,
-		initiatingUserId: purchase.initiatingUserId,
-		creditAmountCents: purchase.creditAmountCents,
-		platformFeeCents: purchase.platformFeeCents,
-		walletAmountMicroUsd: purchase.walletAmountMicroUsd,
-		taxAmountCents: purchase.taxAmountCents,
-		totalAmountCents: purchase.totalAmountCents,
-	});
-}
-
 async function processRefundedCharge(stripeChargeId: string): Promise<void> {
 	const charge = await getStripeCharge(stripeChargeId);
 	const paymentIntentId = optionalStripeId(charge.payment_intent);
@@ -251,17 +252,28 @@ async function processDispute(stripeDisputeId: string): Promise<void> {
 	if (!purchase) {
 		return;
 	}
-	const won = dispute.status === 'won';
+	const fundsWithdrawn = !DISPUTE_STATUSES_WITHOUT_WITHDRAWN_FUNDS.has(dispute.status);
+	if (fundsWithdrawn && (dispute.amount <= 0 || charge.amount <= 0)) {
+		return;
+	}
+	const disputedCreditMicroUsd = fundsWithdrawn
+		? Math.min(
+				purchase.entry.deltaMicroUsd,
+				Math.floor((purchase.entry.deltaMicroUsd * dispute.amount) / charge.amount),
+			)
+		: 0;
 	await setCreditPurchaseMovement({
 		paymentIntentId,
 		movementGroupId: `dispute:${dispute.id}`,
-		targetDeltaMicroUsd: won ? 0 : -purchase.entry.deltaMicroUsd,
+		targetDeltaMicroUsd: fundsWithdrawn ? -disputedCreditMicroUsd : 0,
 		idempotencyKey: `dispute:stripe:${dispute.id}:${dispute.status}`,
 		externalReference: dispute.id,
 		entryType: 'adjustment',
 		metadata: {
-			adjustmentType: won ? 'dispute_won' : 'dispute_opened',
+			adjustmentType: fundsWithdrawn ? 'dispute_opened' : 'dispute_won',
 			disputeStatus: dispute.status,
+			disputedAmountCents: dispute.amount,
+			paidAmountCents: charge.amount,
 		},
 	});
 }

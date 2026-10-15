@@ -344,11 +344,97 @@ describe('cloud Checkout', () => {
 						quantity: 1,
 					},
 				],
-				success_url: 'https://cloud.getnao.io/settings/usage?tab=wallet&creditCheckout={CHECKOUT_SESSION_ID}',
-				cancel_url: 'https://cloud.getnao.io/settings/usage?tab=wallet&creditCheckout=canceled',
+				success_url:
+					'https://cloud.getnao.io/settings/organization/billing?creditCheckout={CHECKOUT_SESSION_ID}',
+				cancel_url: 'https://cloud.getnao.io/settings/organization/billing?creditCheckout=canceled',
+				expires_at: expect.any(Number),
 			}),
 			{ idempotencyKey: 'credit-top-up-v1:org-id:request-id' },
 		);
+	});
+
+	it('reuses an open credit Checkout for the same purchase', async () => {
+		stripeMocks.listCheckoutSessions.mockReturnValue(
+			paginatedList([
+				{
+					id: 'cs_open',
+					mode: 'payment',
+					status: 'open',
+					url: 'https://checkout.stripe.com/open-credits',
+					metadata: {
+						nao_org_id: 'org-id',
+						nao_checkout_kind: 'credit_top_up',
+						nao_credit_amount_cents: '2000',
+						nao_wallet_amount_micro_usd: '20000000',
+						nao_platform_fee_cents: '100',
+						nao_initiating_user_id: 'user-id',
+					},
+				} as Stripe.Checkout.Session,
+			]),
+		);
+
+		await expect(
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId: 'new-request-id',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/open-credits');
+
+		expect(stripeMocks.createCheckoutSession).not.toHaveBeenCalled();
+		expect(stripeMocks.expireCheckoutSession).not.toHaveBeenCalled();
+	});
+
+	it('expires a superseded credit Checkout before creating another', async () => {
+		stripeMocks.listCheckoutSessions.mockReturnValue(
+			paginatedList([
+				{
+					id: 'cs_open',
+					mode: 'payment',
+					status: 'open',
+					url: 'https://checkout.stripe.com/open-credits',
+					metadata: {
+						nao_org_id: 'org-id',
+						nao_checkout_kind: 'credit_top_up',
+						nao_credit_amount_cents: '3000',
+					},
+				} as Stripe.Checkout.Session,
+			]),
+		);
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/new-credits',
+		});
+
+		await createCreditTopUpCheckoutSession({
+			creditAmountCents: 2_000,
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			initiatingUserId: 'user-id',
+			requestId: 'new-request-id',
+		});
+
+		expect(stripeMocks.expireCheckoutSession).toHaveBeenCalledWith('cs_open');
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledOnce();
+	});
+
+	it('honours the platform fee the customer paid even after the fee rate changes', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_050, amount_total: 2_250 }),
+		);
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual(
+			expect.objectContaining({ creditAmountCents: 2_000, platformFeeCents: 50, totalAmountCents: 2_250 }),
+		);
+	});
+
+	it('rejects a paid top-up whose line items disagree with its metadata', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_100, amount_total: 2_300 }),
+		);
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).rejects.toThrow('has invalid credit top-up amounts');
 	});
 
 	it('accepts a paid top-up only after canonical amounts and Products are verified', async () => {
@@ -1258,6 +1344,41 @@ function cloudSubscription(overrides: Partial<Stripe.Subscription> = {}): Stripe
 		trial_start: 1_799_000_000,
 		...overrides,
 	} as Stripe.Subscription;
+}
+
+function paidCreditTopUpSession(input: { platformFeeCents: number; amount_subtotal: number; amount_total: number }) {
+	return {
+		id: 'cs_top_up',
+		mode: 'payment',
+		payment_status: 'paid',
+		currency: 'usd',
+		customer: 'cus_cloud',
+		client_reference_id: 'org-id',
+		payment_intent: 'pi_top_up',
+		invoice: 'in_top_up',
+		metadata: {
+			nao_checkout_kind: 'credit_top_up',
+			nao_org_id: 'org-id',
+			nao_initiating_user_id: 'user-id',
+			nao_credit_amount_cents: '2000',
+			nao_wallet_amount_micro_usd: '20000000',
+			nao_platform_fee_cents: String(input.platformFeeCents),
+		},
+		amount_subtotal: input.amount_subtotal,
+		amount_total: input.amount_total,
+		total_details: { amount_discount: 0, amount_tax: 200 },
+		line_items: {
+			data: [
+				{ quantity: 1, currency: 'usd', amount_subtotal: 2_000, price: { product: 'prod_credits' } },
+				{
+					quantity: 1,
+					currency: 'usd',
+					amount_subtotal: input.platformFeeCents,
+					price: { product: 'prod_platform_fee' },
+				},
+			],
+		},
+	};
 }
 
 function paginatedList<T>(items: T[], nextPage?: () => AsyncIterable<T>): AsyncIterable<T> & { data: T[] } {

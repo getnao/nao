@@ -1,5 +1,6 @@
 import type { OrganizationWithBilling } from '../queries/billing.queries';
 import * as billingQueries from '../queries/billing.queries';
+import { getCreditPurchaseByCheckoutSession } from '../queries/credit-wallet.queries';
 import * as userQueries from '../queries/user.queries';
 import {
 	CLOUD_BILLING_PLANS,
@@ -9,8 +10,10 @@ import {
 	isTrialAvailable,
 } from '../types/billing';
 import { HandlerError } from '../utils/error';
+import { logger, serializeError } from '../utils/logger';
 import { reconcileCloudBillingCustomer } from './billing-reconciliation.service';
 import { assertOrganizationCloudBillingAccess } from './cloud-billing-access.service';
+import { issueCreditPurchase } from './credit-wallet.service';
 import {
 	createCloudCheckoutSession,
 	createCloudCustomer,
@@ -19,6 +22,7 @@ import {
 	createCloudResubscribeSession,
 	createCreditTopUpCheckoutSession,
 	getCloudUpcomingInvoice,
+	getCreditTopUpPurchase,
 	listCloudInvoices,
 	resumeCloudSubscription,
 } from './stripe.service';
@@ -76,6 +80,51 @@ export async function createCreditTopUpCheckoutForAdmin(
 		initiatingUserId: input.userId,
 		requestId: input.requestId,
 	});
+}
+
+export async function confirmCreditTopUpForAdmin(
+	input: AdminBillingInput & { checkoutSessionId: string },
+): Promise<boolean> {
+	const purchase = await getCreditPurchaseByCheckoutSession(input.checkoutSessionId);
+	if (purchase) {
+		return purchase.orgId === input.organizationId;
+	}
+	try {
+		return await settleCreditTopUpCheckout(input.checkoutSessionId, input.organizationId);
+	} catch (error) {
+		logger.warn('Credit top-up confirmation could not settle the Checkout Session', {
+			source: 'system',
+			context: { checkoutSessionId: input.checkoutSessionId, error: serializeError(error) },
+		});
+		return false;
+	}
+}
+
+export async function settleCreditTopUpCheckout(
+	checkoutSessionId: string,
+	expectedOrganizationId?: string,
+): Promise<boolean> {
+	const purchase = await getCreditTopUpPurchase(checkoutSessionId);
+	if (expectedOrganizationId !== undefined && purchase.organizationId !== expectedOrganizationId) {
+		return false;
+	}
+	const billing = await billingQueries.getOrganizationBilling(purchase.organizationId);
+	if (!billing || billing.stripeCustomerId !== purchase.stripeCustomerId) {
+		throw new Error(`Stripe Checkout Session "${purchase.checkoutSessionId}" has an unexpected Customer`);
+	}
+	await issueCreditPurchase({
+		checkoutSessionId: purchase.checkoutSessionId,
+		paymentIntentId: purchase.paymentIntentId,
+		invoiceId: purchase.invoiceId,
+		orgId: purchase.organizationId,
+		initiatingUserId: purchase.initiatingUserId,
+		creditAmountCents: purchase.creditAmountCents,
+		platformFeeCents: purchase.platformFeeCents,
+		walletAmountMicroUsd: purchase.walletAmountMicroUsd,
+		taxAmountCents: purchase.taxAmountCents,
+		totalAmountCents: purchase.totalAmountCents,
+	});
+	return true;
 }
 
 export async function listCloudInvoicesForAdmin(input: AdminBillingInput) {

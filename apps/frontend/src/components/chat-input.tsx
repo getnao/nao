@@ -43,7 +43,6 @@ import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
 import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
-import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
@@ -162,9 +161,7 @@ function ChatInputBase({
 		!!parseBudgetError(error) ||
 		budgetStatus.data?.level === 'exceeded' ||
 		(selectedModel?.provider === 'nao' && !!parseManagedCreditsError(error)) ||
-		(selectedModel?.provider === 'nao' &&
-			managedCredit.data?.balanceMicroUsd !== undefined &&
-			managedCredit.data.balanceMicroUsd <= 0);
+		(selectedModel?.provider === 'nao' && managedCredit.data?.hasCredits === false);
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -667,16 +664,14 @@ function BudgetBanner() {
 	});
 
 	const managedError = parseManagedCreditsError(error);
-	const balanceMicroUsd = managedCredit.data?.balanceMicroUsd;
-	const managedExhausted =
-		isManaged && (managedError !== null || (balanceMicroUsd !== undefined && balanceMicroUsd <= 0));
+	const managedExhausted = isManaged && (managedError !== null || managedCredit.data?.hasCredits === false);
 	const budgetError = parseBudgetError(error);
 	const budgetLevel = budgetError ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
 	const budgetMessage = budgetError ?? (budgetLevel !== 'ok' ? budgetStatus.data?.message : null);
 	const managedMessage =
 		managedError ??
 		(managedExhausted
-			? 'Your organization has no nao-managed AI credits available. Existing projects, chats, and data remain available.'
+			? 'Your organization has no nao AI credits available. Existing projects, chats, and data remain available.'
 			: null);
 	const message = isManaged ? managedMessage : budgetMessage;
 
@@ -696,8 +691,8 @@ function BudgetBanner() {
 						<>
 							{' '}
 							<Link
-								to='/settings/usage'
-								search={{ ...DEFAULT_USAGE_SEARCH, tab: 'wallet' }}
+								to='/settings/organization/billing'
+								search={{ checkout: undefined, portal: undefined, creditCheckout: undefined }}
 								className='font-medium text-primary underline underline-offset-2 hover:text-primary/80'
 							>
 								Add nao credits

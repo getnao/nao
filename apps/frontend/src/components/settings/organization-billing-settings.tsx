@@ -1,5 +1,6 @@
 import type { BillingInterval, OrganizationBillingSearch } from '@/hooks/use-organization-billing';
 
+import { OrganizationCreditsContent } from '@/components/settings/credits-wallet-content';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
@@ -34,6 +35,15 @@ export function OrganizationBillingSettings({ search }: { search: OrganizationBi
 				<div className='flex flex-col gap-12'>
 					<CurrentPlanCard billingState={billingState} />
 					<BillingSetupCard billingState={billingState} />
+					<section className='flex flex-col gap-4'>
+						<div>
+							<h2 className='text-base font-semibold text-foreground'>Organization credits</h2>
+							<p className='text-sm text-muted-foreground'>
+								Fund and review the shared nao AI wallet for this organization.
+							</p>
+						</div>
+						<OrganizationCreditsContent creditCheckout={search.creditCheckout} />
+					</section>
 					<PlanDetailsCard billingState={billingState} />
 					<InvoicesCard billingState={billingState} />
 					<BillingManagementCard billingState={billingState} />

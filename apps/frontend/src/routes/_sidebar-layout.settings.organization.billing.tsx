@@ -11,6 +11,10 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/bil
 				? search.checkout
 				: undefined,
 		portal: search.portal === 'returned' ? search.portal : undefined,
+		creditCheckout:
+			typeof search.creditCheckout === 'string' && search.creditCheckout.length > 0
+				? search.creditCheckout
+				: undefined,
 	}),
 	staticData: {
 		title: 'Plan & Billing',

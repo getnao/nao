@@ -28,6 +28,8 @@ const WALLET_AMOUNT_METADATA_KEY = 'nao_wallet_amount_micro_usd';
 const PLATFORM_FEE_METADATA_KEY = 'nao_platform_fee_cents';
 const INITIATING_USER_METADATA_KEY = 'nao_initiating_user_id';
 const CREDIT_TOP_UP_CHECKOUT_KIND = 'credit_top_up';
+const CREDIT_TOP_UP_CHECKOUT_TTL_SECONDS = 60 * 60;
+const MICRO_USD_PER_CENT = 10_000;
 
 type CloudRecurringPriceDetails = Stripe.Price & {
 	recurring: Stripe.Price.Recurring;
@@ -120,7 +122,15 @@ export async function createCreditTopUpCheckoutSession(input: {
 		[PLATFORM_FEE_METADATA_KEY]: String(topUp.platformFeeCents),
 		[INITIATING_USER_METADATA_KEY]: input.initiatingUserId,
 	};
-	const walletUrl = new URL('/settings/usage?tab=wallet', env.BETTER_AUTH_URL);
+	const existingSession = await reuseOrExpireOpenCreditTopUpSessions(
+		input.stripeCustomerId,
+		input.organizationId,
+		metadata,
+	);
+	if (existingSession?.url) {
+		return existingSession.url;
+	}
+	const creditsUrl = new URL('/settings/organization/billing', env.BETTER_AUTH_URL);
 	const session = await getStripeClient().checkout.sessions.create(
 		{
 			mode: 'payment',
@@ -159,8 +169,9 @@ export async function createCreditTopUpCheckoutSession(input: {
 					message: 'Your organization receives the credit amount shown. The separate nao platform fee is 5%.',
 				},
 			},
-			success_url: `${walletUrl.toString()}&creditCheckout={CHECKOUT_SESSION_ID}`,
-			cancel_url: `${walletUrl.toString()}&creditCheckout=canceled`,
+			success_url: `${creditsUrl.toString()}?creditCheckout={CHECKOUT_SESSION_ID}`,
+			cancel_url: `${creditsUrl.toString()}?creditCheckout=canceled`,
+			expires_at: Math.floor(Date.now() / 1_000) + CREDIT_TOP_UP_CHECKOUT_TTL_SECONDS,
 		},
 		{ idempotencyKey: `credit-top-up-v1:${input.organizationId}:${input.requestId}` },
 	);
@@ -485,18 +496,17 @@ export async function getCreditTopUpPurchase(stripeCheckoutSessionId: string): P
 	const creditAmountCents = metadataInteger(session, CREDIT_AMOUNT_METADATA_KEY);
 	const walletAmountMicroUsd = metadataInteger(session, WALLET_AMOUNT_METADATA_KEY);
 	const platformFeeCents = metadataInteger(session, PLATFORM_FEE_METADATA_KEY);
-	const expected = calculateCreditTopUp(creditAmountCents);
+	const subtotalAmountCents = creditAmountCents + platformFeeCents;
 	if (
-		walletAmountMicroUsd !== expected.walletAmountMicroUsd ||
-		platformFeeCents !== expected.platformFeeCents ||
-		session.amount_subtotal !== expected.totalAmountCents ||
+		walletAmountMicroUsd !== creditAmountCents * MICRO_USD_PER_CENT ||
+		session.amount_subtotal !== subtotalAmountCents ||
 		session.total_details?.amount_discount !== 0
 	) {
 		throw new Error(`Stripe Checkout Session "${session.id}" has invalid credit top-up amounts`);
 	}
-	validateCreditTopUpLineItems(session, expected.creditAmountCents, expected.platformFeeCents);
+	validateCreditTopUpLineItems(session, creditAmountCents, platformFeeCents);
 	const taxAmountCents = session.total_details?.amount_tax ?? 0;
-	if (session.amount_total !== expected.totalAmountCents + taxAmountCents) {
+	if (session.amount_total !== subtotalAmountCents + taxAmountCents) {
 		throw new Error(`Stripe Checkout Session "${session.id}" has an unexpected total`);
 	}
 	return {
@@ -720,6 +730,48 @@ export function getStripeClient(): Stripe {
 
 function billingPageUrl(): string {
 	return new URL('/settings/organization/billing', env.BETTER_AUTH_URL).toString();
+}
+
+async function reuseOrExpireOpenCreditTopUpSessions(
+	stripeCustomerId: string,
+	organizationId: string,
+	metadata: Record<string, string>,
+): Promise<Stripe.Checkout.Session | undefined> {
+	let reusableSession: Stripe.Checkout.Session | undefined;
+	for await (const session of getStripeClient().checkout.sessions.list({
+		customer: stripeCustomerId,
+		status: 'open',
+		limit: 100,
+	})) {
+		if (
+			!isCreditTopUpCheckoutSession(session) ||
+			session.metadata?.[ORGANIZATION_METADATA_KEY] !== organizationId
+		) {
+			continue;
+		}
+		const matches = Object.entries(metadata).every(([key, value]) => session.metadata?.[key] === value);
+		if (!reusableSession && matches && session.url) {
+			reusableSession = session;
+			continue;
+		}
+		await expireOpenCreditTopUpSession(session);
+	}
+	return reusableSession;
+}
+
+async function expireOpenCreditTopUpSession(session: Stripe.Checkout.Session): Promise<void> {
+	try {
+		await getStripeClient().checkout.sessions.expire(session.id);
+	} catch (error) {
+		const currentSession = await getStripeClient().checkout.sessions.retrieve(session.id);
+		if (currentSession.status === 'expired') {
+			return;
+		}
+		if (currentSession.status === 'complete') {
+			throw new Error('A credit top-up completed while another Checkout was starting');
+		}
+		throw error;
+	}
 }
 
 function checkoutTrialMessage(trialDays: number): string {
