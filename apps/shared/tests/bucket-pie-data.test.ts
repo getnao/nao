@@ -6,13 +6,11 @@ import { isPieChart } from '../src/chart-types';
 const rowsOf = (values: number[]) => values.map((value, index) => ({ category: `cat-${index}`, total: value }));
 
 describe('bucketPieData', () => {
-	it('returns rows unchanged when at or below the max slices', () => {
-		const rows = rowsOf([5, 4, 3, 2, 1]);
-		expect(bucketPieData(rows, 'category', 'total', 10)).toBe(rows);
-	});
-
-	it('returns rows unchanged at exactly the max slices', () => {
-		const rows = rowsOf(Array.from({ length: 10 }, (_, i) => 10 - i));
+	it.each([
+		{ position: 'below', rowCount: 5 },
+		{ position: 'at exactly', rowCount: 10 },
+	])('returns rows unchanged $position the max slices', ({ rowCount }) => {
+		const rows = rowsOf(Array.from({ length: rowCount }, (_, i) => rowCount - i));
 		expect(bucketPieData(rows, 'category', 'total', 10)).toBe(rows);
 	});
 

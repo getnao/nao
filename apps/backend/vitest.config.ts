@@ -8,13 +8,13 @@ import { configDefaults, defineConfig } from 'vitest/config';
  * one gets its own sequence group: groups run one after another, after the default group.
  */
 const sharedSqliteTestFiles = [
-	'tests/context-recommendation-schema.test.ts',
-	'tests/project-accessible-users.test.ts',
-	'tests/project-selection.test.ts',
-	'tests/query-app-db.test.ts',
-	'tests/readonly-app-db.test.ts',
-	'tests/sqlite.test.ts',
-	'tests/story-title-persistence.test.ts',
+	'tests/agents/query-app-db.test.ts',
+	'tests/db/context-recommendation-schema.test.ts',
+	'tests/db/readonly-app-db.test.ts',
+	'tests/db/sqlite.test.ts',
+	'tests/queries/project-accessible-users.test.ts',
+	'tests/queries/project-selection.test.ts',
+	'tests/queries/story-title-persistence.test.ts',
 ];
 
 export default defineConfig({

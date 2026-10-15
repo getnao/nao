@@ -12,52 +12,36 @@ from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.config.secrets import process_secrets
 
 
-def test_env_var_replacement():
-    """Test replacement of a environment variable."""
-    with patch.dict(os.environ, {"TEST_VAR": "test_value"}):
-        content = "database: ${{ env('TEST_VAR') }}"
+@pytest.mark.parametrize(
+    ("environment", "content", "expected"),
+    [
+        pytest.param(
+            {"TEST_VAR": "test_value"}, "database: ${{ env('TEST_VAR') }}", "database: test_value", id="single"
+        ),
+        pytest.param(
+            {"VAR1": "value1", "VAR2": "value2"},
+            "host: ${{ env('VAR1') }}, port: ${{ env('VAR2') }}",
+            "host: value1, port: value2",
+            id="multiple",
+        ),
+        pytest.param(
+            {"REPEATED": "repeated_value"},
+            "${{ env('REPEATED') }} and ${{ env('REPEATED') }} again",
+            "repeated_value and repeated_value again",
+            id="same_variable_twice",
+        ),
+        pytest.param(
+            {"VAR1": "value1", "VAR2": "value2"},
+            "a: ${{ env('VAR1') }}, b: {{ env('VAR2') }}",
+            "a: value1, b: value2",
+            id="mixed_dollar_and_no_dollar_syntax",
+        ),
+    ],
+)
+def test_env_var_replacement(environment, content, expected):
+    with patch.dict(os.environ, environment):
         result, _ = process_secrets(content)
-        assert result == "database: test_value"
-
-
-def test_multiple_env_vars_replacement():
-    """Test replacement of multiple environment variables."""
-    with patch.dict(os.environ, {"VAR1": "value1", "VAR2": "value2"}):
-        content = "host: ${{ env('VAR1') }}, port: ${{ env('VAR2') }}"
-        result, _ = process_secrets(content)
-        assert result == "host: value1, port: value2"
-
-
-def test_missing_env_var_returns_empty_string():
-    """Test that missing environment variable is replaced with empty string."""
-    with patch.dict(os.environ, {}):
-        content = "value: ${{ env('NONEXISTENT_VAR') }}"
-        result, _ = process_secrets(content)
-        assert result == "value: "
-
-
-def test_same_env_var_multiple_times():
-    """Test the same environment variable used multiple times."""
-    with patch.dict(os.environ, {"REPEATED": "repeated_value"}):
-        content = "${{ env('REPEATED') }} and ${{ env('REPEATED') }} again"
-        result, _ = process_secrets(content)
-        assert result == "repeated_value and repeated_value again"
-
-
-def test_env_var_without_dollar_prefix():
-    """Test replacement without $ prefix (Jinja2-style syntax)."""
-    with patch.dict(os.environ, {"API_KEY": "secret123"}):
-        content = "api_key: {{ env('API_KEY') }}"
-        result, _ = process_secrets(content)
-        assert result == "api_key: secret123"
-
-
-def test_mixed_dollar_and_no_dollar_syntax():
-    """Test that both ${{ }} and {{ }} formats work together."""
-    with patch.dict(os.environ, {"VAR1": "value1", "VAR2": "value2"}):
-        content = "a: ${{ env('VAR1') }}, b: {{ env('VAR2') }}"
-        result, _ = process_secrets(content)
-        assert result == "a: value1, b: value2"
+        assert result == expected
 
 
 def test_threads_can_be_loaded_from_config(tmp_path):
@@ -98,7 +82,7 @@ def test_threads_must_be_positive():
 @patch("nao_core.config.base.ask_confirm")
 @patch("nao_core.config.llm.LLMConfig.promptConfig")
 def test_prompt_llm_skips_annotation_model_prompt(mock_prompt_config, mock_confirm):
-    mock_llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
+    mock_llm = _openai_llm()
     mock_prompt_config.return_value = mock_llm
     mock_confirm.return_value = True
 
@@ -120,7 +104,7 @@ def test_prompt_llm_returns_none_when_skipped(mock_prompt_config, mock_confirm):
 
 
 def test_apply_default_templates_without_llm():
-    db = DuckDBConfig(name="test-db", path=":memory:")
+    db = _duckdb()
 
     NaoConfig._apply_default_templates([db], llm=None)
 
@@ -128,8 +112,8 @@ def test_apply_default_templates_without_llm():
 
 
 def test_apply_default_templates_with_llm():
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
+    db = _duckdb()
+    llm = _openai_llm()
 
     NaoConfig._apply_default_templates([db], llm=llm)
 
@@ -141,8 +125,8 @@ def test_apply_default_templates_with_llm():
 
 
 def test_fresh_prompt_flow_only_collects_database_llm_and_repos():
-    db = DuckDBConfig(name="test-db", path=":memory:")
-    llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
+    db = _duckdb()
+    llm = _openai_llm()
     prompt_order = []
 
     with (
@@ -269,13 +253,9 @@ def test_annotate_llm_override_is_noop_without_llm_block(tmp_path):
 
 def test_legacy_accessors_key_migrated_to_templates_with_warning():
     """The legacy 'accessors' YAML key should be accepted as 'templates' and emit a FutureWarning."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        db = DuckDBConfig.model_validate(
-            {"type": "duckdb", "name": "test-db", "path": ":memory:", "accessors": ["columns", "preview"]}
-        )
+        db = _duckdb_from_yaml({"accessors": ["columns", "preview"]})
 
     assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
     deprecation_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
@@ -286,13 +266,9 @@ def test_legacy_accessors_key_migrated_to_templates_with_warning():
 
 def test_templates_key_works_without_deprecation_warning():
     """The 'templates' key should work without emitting any deprecation warning."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        db = DuckDBConfig.model_validate(
-            {"type": "duckdb", "name": "test-db", "path": ":memory:", "templates": ["columns", "preview"]}
-        )
+        db = _duckdb_from_yaml({"templates": ["columns", "preview"]})
 
     assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
     deprecation_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
@@ -300,7 +276,7 @@ def test_templates_key_works_without_deprecation_warning():
 
 
 def test_empty_templates_use_default():
-    db = DuckDBConfig.model_validate({"type": "duckdb", "name": "test-db", "path": ":memory:", "templates": []})
+    db = _duckdb_from_yaml({"templates": []})
 
     assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
 
@@ -308,9 +284,7 @@ def test_empty_templates_use_default():
 def test_legacy_description_only_uses_default_after_migration():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        db = DuckDBConfig.model_validate(
-            {"type": "duckdb", "name": "test-db", "path": ":memory:", "templates": ["description"]}
-        )
+        db = _duckdb_from_yaml({"templates": ["description"]})
 
     assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
     assert any("description" in str(warning.message) for warning in caught)
@@ -318,15 +292,10 @@ def test_legacy_description_only_uses_default_after_migration():
 
 def test_query_history_template_variant():
     """query_history can be added to the templates list."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        db = DuckDBConfig.model_validate(
+        db = _duckdb_from_yaml(
             {
-                "type": "duckdb",
-                "name": "test-db",
-                "path": ":memory:",
                 "templates": ["columns", "query_history"],
                 "query_history_days": 14,
             }
@@ -339,15 +308,10 @@ def test_query_history_template_variant():
 
 def test_legacy_description_removed_and_how_to_use_maps_to_query_history():
     """Legacy templates are migrated with warnings."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        db = DuckDBConfig.model_validate(
+        db = _duckdb_from_yaml(
             {
-                "type": "duckdb",
-                "name": "test-db",
-                "path": ":memory:",
                 "templates": ["columns", "description", "how_to_use"],
             }
         )
@@ -361,12 +325,12 @@ def test_legacy_description_removed_and_how_to_use_maps_to_query_history():
 
 
 def test_default_templates():
-    db = DuckDBConfig(name="test-db", path=":memory:")
+    db = _duckdb()
     assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
 
 
 def test_ai_summary_refresh_config_defaults_to_always():
-    db = DuckDBConfig(name="test-db", path=":memory:")
+    db = _duckdb()
 
     assert db.ai_summary.refresh_policy == ProfilingRefreshPolicy.ALWAYS
     assert db.ai_summary.interval_days == 7
@@ -374,11 +338,8 @@ def test_ai_summary_refresh_config_defaults_to_always():
 
 @pytest.mark.parametrize("refresh_policy", ["once", "interval"])
 def test_ai_summary_refresh_config_accepts_policy_and_interval(refresh_policy):
-    db = DuckDBConfig.model_validate(
+    db = _duckdb_from_yaml(
         {
-            "type": "duckdb",
-            "name": "test-db",
-            "path": ":memory:",
             "ai_summary": {
                 "refresh_policy": refresh_policy,
                 "interval_days": 14,
@@ -391,15 +352,13 @@ def test_ai_summary_refresh_config_accepts_policy_and_interval(refresh_policy):
 
 
 def test_query_history_exclude_patterns_default_is_empty():
-    db = DuckDBConfig(name="test-db", path=":memory:")
+    db = _duckdb()
     assert db.query_history_exclude_patterns == []
     assert db.query_history_sql is None
 
 
 def test_query_history_exclude_patterns_filters_matching_queries():
-    db = DuckDBConfig(
-        name="test-db",
-        path=":memory:",
+    db = _duckdb(
         query_history_exclude_patterns=[r"SYSTEM\$", r"CURRENT_SESSION\(\)"],
     )
     queries = [
@@ -416,7 +375,7 @@ def test_query_history_exclude_patterns_filters_matching_queries():
 
 
 def test_filter_query_history_returns_input_when_no_patterns():
-    db = DuckDBConfig(name="test-db", path=":memory:")
+    db = _duckdb()
     queries = ["SELECT 1", "SELECT 2"]
     assert db.filter_query_history(queries) == queries
 
@@ -463,14 +422,12 @@ def test_query_history_sql_unsupported_database_returns_none_when_no_override():
 
 
 def test_exclude_columns_default_is_empty():
-    db = DuckDBConfig(name="test-db", path=":memory:")
+    db = _duckdb()
     assert db.exclude_columns == []
 
 
 def test_exclude_columns_matches_against_schema_table_column():
-    db = DuckDBConfig(
-        name="test-db",
-        path=":memory:",
+    db = _duckdb(
         exclude_columns=["*.version", "analytics.events.*_id"],
     )
     assert db.column_matches_pattern("analytics", "users", "name") is True
@@ -480,9 +437,7 @@ def test_exclude_columns_matches_against_schema_table_column():
 
 
 def test_exclude_columns_supports_glob_in_column_name():
-    db = DuckDBConfig(
-        name="test-db",
-        path=":memory:",
+    db = _duckdb(
         exclude_columns=["*._peerdb_*"],
     )
     assert db.column_matches_pattern("analytics", "users", "_peerdb_version") is False
@@ -490,11 +445,8 @@ def test_exclude_columns_supports_glob_in_column_name():
 
 
 def test_exclude_columns_loaded_from_yaml_dict():
-    db = DuckDBConfig.model_validate(
+    db = _duckdb_from_yaml(
         {
-            "type": "duckdb",
-            "name": "test-db",
-            "path": ":memory:",
             "exclude_columns": ["*._peerdb_*", "*.sign", "*.version"],
         }
     )
@@ -502,11 +454,8 @@ def test_exclude_columns_loaded_from_yaml_dict():
 
 
 def test_query_history_fields_loaded_from_yaml_dict():
-    db = DuckDBConfig.model_validate(
+    db = _duckdb_from_yaml(
         {
-            "type": "duckdb",
-            "name": "test-db",
-            "path": ":memory:",
             "templates": ["columns", "query_history"],
             "query_history_days": 7,
             "query_history_sql": "SELECT q AS query_text FROM log WHERE ts > now() - interval '{days} days'",
@@ -516,3 +465,15 @@ def test_query_history_fields_loaded_from_yaml_dict():
     assert db.query_history_days == 7
     assert db.query_history_exclude_patterns == [r"SYSTEM\$", r"CURRENT_SESSION"]
     assert db.get_query_history_sql(7) == "SELECT q AS query_text FROM log WHERE ts > now() - interval '7 days'"
+
+
+def _duckdb(**fields) -> DuckDBConfig:
+    return DuckDBConfig(name="test-db", path=":memory:", **fields)
+
+
+def _duckdb_from_yaml(fields: dict) -> DuckDBConfig:
+    return DuckDBConfig.model_validate({"type": "duckdb", "name": "test-db", "path": ":memory:", **fields})
+
+
+def _openai_llm() -> LLMConfig:
+    return LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])

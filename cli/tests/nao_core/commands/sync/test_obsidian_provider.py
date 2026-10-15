@@ -24,32 +24,22 @@ def test_sync_notes_preserves_directory_structure(tmp_path: Path):
     assert (tmp_path / "output" / "Inbox.md").read_text(encoding="utf-8") == "# Inbox"
 
 
-def test_sync_notes_ignores_obsidian_metadata(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("hidden_folder", "hidden_note"),
+    [(".obsidian", "workspace.md"), (".trash", "Deleted.md")],
+    ids=["obsidian_metadata", "hidden_folders"],
+)
+def test_sync_notes_ignores_hidden_folders(tmp_path: Path, hidden_folder: str, hidden_note: str):
     vault_path = tmp_path / "vault"
-    (vault_path / ".obsidian").mkdir(parents=True)
-    (vault_path / ".obsidian" / "workspace.md").write_text("# Hidden", encoding="utf-8")
-    (vault_path / "Visible.md").write_text("# Visible", encoding="utf-8")
-
-    provider = ObsidianSyncProvider()
-    config = ObsidianConfig(path=str(vault_path))
-
-    result = provider.sync([config], tmp_path / "output")
-
-    assert result.items_synced == 1
-    assert (tmp_path / "output" / "Visible.md").exists()
-    assert not (tmp_path / "output" / ".obsidian" / "workspace.md").exists()
-
-
-def test_sync_notes_ignores_hidden_folders(tmp_path: Path):
-    vault_path = tmp_path / "vault"
-    (vault_path / ".trash").mkdir(parents=True)
-    (vault_path / ".trash" / "Deleted.md").write_text("# Deleted", encoding="utf-8")
+    (vault_path / hidden_folder).mkdir(parents=True)
+    (vault_path / hidden_folder / hidden_note).write_text("# Hidden", encoding="utf-8")
     (vault_path / "Visible.md").write_text("# Visible", encoding="utf-8")
 
     result = ObsidianSyncProvider().sync([ObsidianConfig(path=str(vault_path))], tmp_path / "output")
 
     assert result.items_synced == 1
-    assert not (tmp_path / "output" / ".trash").exists()
+    assert (tmp_path / "output" / "Visible.md").exists()
+    assert not (tmp_path / "output" / hidden_folder).exists()
 
 
 def test_sync_notes_from_vault_inside_hidden_directory(tmp_path: Path):

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import nao_core.templates.engine as engine_module
 from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.templates.engine import (
     DEFAULT_TEMPLATES_DIR,
@@ -14,8 +15,17 @@ from nao_core.templates.engine import (
     get_template_engine,
 )
 
+BEDROCK_MODEL = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
-def _openai_llm(*, api_key: str, annotation_model: str) -> LLMConfig:
+
+def _engine_with_template(tmp_path: Path, source: str, llm_config: LLMConfig | None = None) -> TemplateEngine:
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "test.j2").write_text(source)
+    return TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+
+
+def _openai_llm(*, api_key: str = "sk-test", annotation_model: str = "gpt-4.1-mini") -> LLMConfig:
     return LLMConfig(
         providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key=api_key)],
         annotation_model=annotation_model,
@@ -32,8 +42,22 @@ def _bedrock_llm(*, aws_region: str) -> LLMConfig:
                 aws_region=aws_region,
             )
         ],
-        annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        annotation_model=BEDROCK_MODEL,
     )
+
+
+def _anthropic_llm(*, base_url: str | None = None, annotation_model: str = "claude-3-5-sonnet-latest") -> LLMConfig:
+    return LLMConfig(
+        providers=[ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant-test", base_url=base_url)],
+        annotation_model=annotation_model,
+    )
+
+
+def _install_fake_anthropic(monkeypatch) -> MagicMock:
+    fake_module = MagicMock()
+    fake_module.Anthropic.return_value.messages.create.return_value = MagicMock(content=[MagicMock(text="summary")])
+    monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+    return fake_module
 
 
 class TestTemplateEngine:
@@ -88,14 +112,7 @@ class TestTemplateEngine:
 
     def test_render_basic_template(self, tmp_path: Path):
         """Engine renders a simple template correctly."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-
-        # Create a simple test template
-        test_template = templates_dir / "test.j2"
-        test_template.write_text("Hello, {{ name }}!")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "Hello, {{ name }}!")
         result = engine.render("test.j2", name="World")
 
         assert result == "Hello, World!"
@@ -152,11 +169,7 @@ class TestTemplateEngine:
         assert '"amount": 100.5' in result
 
     def test_ai_summary_uses_profiling_and_non_representative_preview(self):
-        llm_config = LLMConfig(
-            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
-            annotation_model="gpt-4.1-mini",
-        )
-        engine = TemplateEngine(llm_config=llm_config)
+        engine = TemplateEngine(llm_config=_openai_llm())
         mock_db = MagicMock()
         mock_db.columns.return_value = [{"name": "id", "type": "int64", "description": None}]
         mock_db.description.return_value = "Customer records"
@@ -186,47 +199,17 @@ class TestTemplateEngine:
         mock_db.preview.assert_called_once_with(limit=10)
         mock_db.profiling.assert_not_called()
 
-    def test_ai_summary_skips_quality_claims_without_profiling(self):
-        llm_config = LLMConfig(
-            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
-            annotation_model="gpt-4.1-mini",
-        )
-        engine = TemplateEngine(llm_config=llm_config)
+    @pytest.mark.parametrize(
+        "profiling",
+        [None, {"computed_at": "2026-07-15T12:00:00+00:00", "clustering_columns": [], "columns": []}],
+        ids=["without_profiling", "with_empty_profiling_columns"],
+    )
+    def test_ai_summary_skips_quality_claims(self, profiling):
+        engine = TemplateEngine(llm_config=_openai_llm())
         mock_db = MagicMock()
         mock_db.columns.return_value = []
         mock_db.description.return_value = None
         mock_db.preview.return_value = []
-
-        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
-            result = engine.render(
-                "databases/ai_summary.md.j2",
-                table_name="customers",
-                dataset="main",
-                db=mock_db,
-                profiling=None,
-            )
-
-        instruction = mock_generate.call_args.args[1]
-        assert "Skip data-quality and distribution claims entirely" in instruction
-        assert "Profiling statistics (JSON)" not in instruction
-        assert "# customers - AI Summary" in result
-        mock_db.profiling.assert_not_called()
-
-    def test_ai_summary_skips_quality_claims_with_empty_profiling_columns(self):
-        llm_config = LLMConfig(
-            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
-            annotation_model="gpt-4.1-mini",
-        )
-        engine = TemplateEngine(llm_config=llm_config)
-        mock_db = MagicMock()
-        mock_db.columns.return_value = []
-        mock_db.description.return_value = None
-        mock_db.preview.return_value = []
-        profiling = {
-            "computed_at": "2026-07-15T12:00:00+00:00",
-            "clustering_columns": [],
-            "columns": [],
-        }
 
         with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
             result = engine.render(
@@ -282,25 +265,13 @@ class TestTemplateEngine:
 
     def test_prompt_helper_requires_llm_config(self, tmp_path: Path):
         """prompt helper should raise clear error when llm config is missing."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ prompt('hello') }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ prompt('hello') }}")
         with pytest.raises(RuntimeError, match="ai_summary generation requires an `llm` config"):
             engine.render("test.j2")
 
     def test_prompt_helper_uses_configured_model(self, tmp_path: Path):
         """prompt helper should call provider generator with configured model."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
-
-        llm_config = LLMConfig(
-            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
-            annotation_model="gpt-4.1-mini",
-        )
-        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        engine = _engine_with_template(tmp_path, "{{ prompt('hello world') }}", _openai_llm())
 
         with patch.object(engine, "_generate_openai_compatible", return_value="AI output") as mock_generate:
             rendered = engine.render("test.j2")
@@ -310,45 +281,17 @@ class TestTemplateEngine:
 
     def test_prompt_helper_supports_bedrock_without_api_key(self, tmp_path: Path):
         """prompt helper should not require api_key for bedrock provider."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ prompt('summarize this') }}")
-
-        llm_config = LLMConfig(
-            providers=[
-                ProviderConfig(
-                    provider=LLMProvider.BEDROCK,
-                    api_key=None,
-                    access_key="AKIA_TEST",
-                    secret_key="SECRET_TEST",
-                    aws_region="us-east-1",
-                )
-            ],
-            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        )
-        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        engine = _engine_with_template(tmp_path, "{{ prompt('summarize this') }}", _bedrock_llm(aws_region="us-east-1"))
 
         with patch.object(engine, "_generate_bedrock", return_value="Bedrock output") as mock_generate:
             rendered = engine.render("test.j2")
 
         assert rendered == "Bedrock output"
-        mock_generate.assert_called_once_with("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
+        mock_generate.assert_called_once_with(BEDROCK_MODEL, "summarize this")
 
     def test_generate_bedrock_uses_explicit_aws_credentials(self, tmp_path: Path, monkeypatch):
         """Bedrock client should use configured credentials and region when provided."""
-        llm_config = LLMConfig(
-            providers=[
-                ProviderConfig(
-                    provider=LLMProvider.BEDROCK,
-                    api_key=None,
-                    access_key="AKIA_TEST",
-                    secret_key="SECRET_TEST",
-                    aws_region="us-west-2",
-                )
-            ],
-            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        )
-        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        engine = TemplateEngine(project_path=tmp_path, llm_config=_bedrock_llm(aws_region="us-west-2"))
 
         fake_client = MagicMock()
         fake_client.converse.return_value = {"output": {"message": {"content": [{"text": "Bedrock summary"}]}}}
@@ -356,7 +299,7 @@ class TestTemplateEngine:
         fake_boto3.client.return_value = fake_client
         monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
 
-        rendered = engine._generate_bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
+        rendered = engine._generate_bedrock(BEDROCK_MODEL, "summarize this")
 
         assert rendered == "Bedrock summary"
         fake_boto3.client.assert_called_once_with(
@@ -366,7 +309,7 @@ class TestTemplateEngine:
             aws_secret_access_key="SECRET_TEST",
         )
         fake_client.converse.assert_called_once_with(
-            modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+            modelId=BEDROCK_MODEL,
             messages=[{"role": "user", "content": [{"text": "summarize this"}]}],
             inferenceConfig={"temperature": 0},
         )
@@ -382,83 +325,36 @@ class TestTemplateEngine:
                     secret_key=None,
                 )
             ],
-            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+            annotation_model=BEDROCK_MODEL,
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
 
         with pytest.raises(RuntimeError, match="Bedrock configuration is incomplete"):
-            engine._generate_bedrock("anthropic.claude-3-5-sonnet-20241022-v2:0", "summarize this")
+            engine._generate_bedrock(BEDROCK_MODEL, "summarize this")
 
-    def test_generate_anthropic_forwards_base_url(self, tmp_path: Path, monkeypatch):
-        """Anthropic client should receive base_url when configured."""
-        llm_config = LLMConfig(
-            providers=[
-                ProviderConfig(
-                    provider=LLMProvider.ANTHROPIC,
-                    api_key="sk-ant-test",
-                    base_url="https://custom-endpoint.example.com/anthropic/v1",
-                )
-            ],
-            annotation_model="claude-3-5-sonnet-latest",
-        )
-        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
-
-        fake_anthropic_cls = MagicMock()
-        fake_client = MagicMock()
-        fake_client.messages.create.return_value = MagicMock(content=[MagicMock(text="summary")])
-        fake_anthropic_cls.return_value = fake_client
-        fake_module = MagicMock()
-        fake_module.Anthropic = fake_anthropic_cls
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+    @pytest.mark.parametrize(
+        "base_url",
+        ["https://custom-endpoint.example.com/anthropic/v1", None],
+        ids=["forwards_base_url", "no_base_url"],
+    )
+    def test_generate_anthropic_client_base_url(self, tmp_path: Path, monkeypatch, base_url):
+        """Anthropic client should receive the configured base_url, or None to use the default."""
+        engine = TemplateEngine(project_path=tmp_path, llm_config=_anthropic_llm(base_url=base_url))
+        fake_module = _install_fake_anthropic(monkeypatch)
 
         result = engine._generate_anthropic("claude-3-5-sonnet-latest", "summarize this")
 
         assert result == "summary"
-        fake_anthropic_cls.assert_called_once_with(
-            api_key="sk-ant-test",
-            base_url="https://custom-endpoint.example.com/anthropic/v1",
-        )
-
-    def test_generate_anthropic_no_base_url(self, tmp_path: Path, monkeypatch):
-        """Anthropic client should use default base_url when not configured."""
-        llm_config = LLMConfig(
-            providers=[ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant-test")],
-            annotation_model="claude-3-5-sonnet-latest",
-        )
-        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
-
-        fake_anthropic_cls = MagicMock()
-        fake_client = MagicMock()
-        fake_client.messages.create.return_value = MagicMock(content=[MagicMock(text="summary")])
-        fake_anthropic_cls.return_value = fake_client
-        fake_module = MagicMock()
-        fake_module.Anthropic = fake_anthropic_cls
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
-
-        engine._generate_anthropic("claude-3-5-sonnet-latest", "summarize this")
-
-        fake_anthropic_cls.assert_called_once_with(
-            api_key="sk-ant-test",
-            base_url=None,
-        )
+        fake_module.Anthropic.assert_called_once_with(api_key="sk-ant-test", base_url=base_url)
 
     def test_generate_anthropic_omits_temperature(self, tmp_path: Path, monkeypatch):
         """anthropic SDK 1.x and Claude 5.x models both reject temperature, so it must not be sent."""
-        llm_config = LLMConfig(
-            providers=[ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant-test")],
-            annotation_model="claude-sonnet-5-5",
-        )
-        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
-
-        fake_client = MagicMock()
-        fake_client.messages.create.return_value = MagicMock(content=[MagicMock(text="summary")])
-        fake_module = MagicMock()
-        fake_module.Anthropic.return_value = fake_client
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+        engine = TemplateEngine(project_path=tmp_path, llm_config=_anthropic_llm(annotation_model="claude-sonnet-5-5"))
+        fake_module = _install_fake_anthropic(monkeypatch)
 
         engine._generate_anthropic("claude-sonnet-5-5", "summarize this")
 
-        fake_client.messages.create.assert_called_once_with(
+        fake_module.Anthropic.return_value.messages.create.assert_called_once_with(
             model="claude-sonnet-5-5",
             max_tokens=1024,
             messages=[{"role": "user", "content": "summarize this"}],
@@ -466,21 +362,8 @@ class TestTemplateEngine:
 
     def test_prompt_helper_anthropic_with_base_url(self, tmp_path: Path):
         """prompt helper should pass through to _generate_anthropic when provider is anthropic."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
-
-        llm_config = LLMConfig(
-            providers=[
-                ProviderConfig(
-                    provider=LLMProvider.ANTHROPIC,
-                    api_key="sk-ant-test",
-                    base_url="https://custom-endpoint.example.com/v1",
-                )
-            ],
-            annotation_model="claude-3-5-sonnet-latest",
-        )
-        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        llm_config = _anthropic_llm(base_url="https://custom-endpoint.example.com/v1")
+        engine = _engine_with_template(tmp_path, "{{ prompt('hello world') }}", llm_config)
 
         with patch.object(engine, "_generate_anthropic", return_value="AI output") as mock_gen:
             rendered = engine.render("test.j2")
@@ -494,11 +377,7 @@ class TestTemplateFilters:
 
     def test_to_json_filter_basic(self, tmp_path: Path):
         """to_json filter converts dict to JSON string."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ data | to_json }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ data | to_json }}")
         result = engine.render("test.j2", data={"key": "value", "num": 42})
 
         parsed = json.loads(result)
@@ -506,11 +385,7 @@ class TestTemplateFilters:
 
     def test_to_json_filter_preserves_non_ascii(self, tmp_path: Path):
         """to_json filter preserves non-ASCII characters (e.g. Japanese, emoji)."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ data | to_json }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ data | to_json }}")
         result = engine.render("test.j2", data={"name": "テスト", "emoji": "🎉"})
 
         assert "テスト" in result
@@ -521,11 +396,7 @@ class TestTemplateFilters:
 
     def test_to_json_filter_non_ascii_with_indent(self, tmp_path: Path):
         """to_json filter preserves non-ASCII characters even with indentation."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ data | to_json(indent=2) }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ data | to_json(indent=2) }}")
         result = engine.render("test.j2", data={"city": "東京", "country": "日本"})
 
         assert "東京" in result
@@ -534,22 +405,14 @@ class TestTemplateFilters:
 
     def test_to_json_filter_with_indent(self, tmp_path: Path):
         """to_json filter supports indent parameter."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ data | to_json(indent=2) }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ data | to_json(indent=2) }}")
         result = engine.render("test.j2", data={"a": 1})
 
         assert "{\n" in result  # Has newlines from indentation
 
     def test_to_json_filter_handles_non_serializable(self, tmp_path: Path):
         """to_json filter converts non-serializable objects to strings."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ data | to_json }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ data | to_json }}")
         # Path objects are not JSON serializable by default
         result = engine.render("test.j2", data={"path": Path("/some/path")})
 
@@ -558,22 +421,14 @@ class TestTemplateFilters:
 
     def test_truncate_middle_filter_short_text(self, tmp_path: Path):
         """truncate_middle filter leaves short text unchanged."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ text | truncate_middle(20) }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ text | truncate_middle(20) }}")
         result = engine.render("test.j2", text="hello")
 
         assert result == "hello"
 
     def test_truncate_middle_filter_long_text(self, tmp_path: Path):
         """truncate_middle filter truncates long text in the middle."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ text | truncate_middle(10) }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ text | truncate_middle(10) }}")
         result = engine.render("test.j2", text="abcdefghijklmnopqrstuvwxyz")
 
         assert len(result) <= 10
@@ -583,11 +438,7 @@ class TestTemplateFilters:
 
     def test_truncate_middle_filter_default_length(self, tmp_path: Path):
         """truncate_middle filter uses default max_length of 50."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ text | truncate_middle }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ text | truncate_middle }}")
         long_text = "a" * 100
         result = engine.render("test.j2", text=long_text)
 
@@ -595,11 +446,7 @@ class TestTemplateFilters:
 
     def test_truncate_middle_handles_non_string(self, tmp_path: Path):
         """truncate_middle filter handles non-string values."""
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "test.j2").write_text("{{ num | truncate_middle(10) }}")
-
-        engine = TemplateEngine(project_path=tmp_path)
+        engine = _engine_with_template(tmp_path, "{{ num | truncate_middle(10) }}")
         result = engine.render("test.j2", num=12345)
 
         assert result == "12345"
@@ -608,25 +455,19 @@ class TestTemplateFilters:
 class TestGetTemplateEngine:
     """Tests for the get_template_engine function."""
 
+    @pytest.fixture(autouse=True)
+    def reset_cached_engine(self, monkeypatch):
+        monkeypatch.setattr(engine_module, "_engine", None)
+        monkeypatch.setattr(engine_module, "_engine_signature", None)
+
     def test_returns_engine_instance(self):
         """get_template_engine returns a TemplateEngine instance."""
-        # Reset global state
-        import nao_core.templates.engine as engine_module
-
-        engine_module._engine = None
-        engine_module._engine_signature = None
-
         engine = get_template_engine()
 
         assert isinstance(engine, TemplateEngine)
 
     def test_caches_engine_instance(self):
         """get_template_engine returns the same instance on repeated calls."""
-        import nao_core.templates.engine as engine_module
-
-        engine_module._engine = None
-        engine_module._engine_signature = None
-
         engine1 = get_template_engine()
         engine2 = get_template_engine()
 
@@ -634,11 +475,6 @@ class TestGetTemplateEngine:
 
     def test_creates_new_engine_for_different_project_path(self, tmp_path: Path):
         """get_template_engine creates new instance when project path changes."""
-        import nao_core.templates.engine as engine_module
-
-        engine_module._engine = None
-        engine_module._engine_signature = None
-
         engine1 = get_template_engine(project_path=None)
         engine2 = get_template_engine(project_path=tmp_path)
 
@@ -647,11 +483,6 @@ class TestGetTemplateEngine:
 
     def test_creates_new_engine_when_llm_settings_change(self):
         """get_template_engine should invalidate cache when llm settings change."""
-        import nao_core.templates.engine as engine_module
-
-        engine_module._engine = None
-        engine_module._engine_signature = None
-
         llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
         llm2 = _openai_llm(api_key="k1", annotation_model="gpt-4.1")
 
@@ -662,11 +493,6 @@ class TestGetTemplateEngine:
 
     def test_creates_new_engine_for_different_llm_instance(self):
         """get_template_engine should invalidate cache for different effective llm values."""
-        import nao_core.templates.engine as engine_module
-
-        engine_module._engine = None
-        engine_module._engine_signature = None
-
         llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
         llm2 = _openai_llm(api_key="k2", annotation_model="gpt-4.1-mini")
 
@@ -677,11 +503,6 @@ class TestGetTemplateEngine:
 
     def test_reuses_engine_for_equivalent_llm_values(self):
         """get_template_engine should reuse cache for equivalent llm config values."""
-        import nao_core.templates.engine as engine_module
-
-        engine_module._engine = None
-        engine_module._engine_signature = None
-
         llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
         llm2 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
 
@@ -692,11 +513,6 @@ class TestGetTemplateEngine:
 
     def test_creates_new_engine_when_bedrock_region_changes(self):
         """get_template_engine should invalidate cache when bedrock region changes."""
-        import nao_core.templates.engine as engine_module
-
-        engine_module._engine = None
-        engine_module._engine_signature = None
-
         llm1 = _bedrock_llm(aws_region="us-east-1")
         llm2 = _bedrock_llm(aws_region="eu-west-1")
 
@@ -708,17 +524,6 @@ class TestGetTemplateEngine:
 
 class TestDefaultTemplatesDir:
     """Tests for the DEFAULT_TEMPLATES_DIR constant."""
-
-    def test_default_templates_dir_exists(self):
-        """DEFAULT_TEMPLATES_DIR points to an existing directory."""
-        assert DEFAULT_TEMPLATES_DIR.exists()
-        assert DEFAULT_TEMPLATES_DIR.is_dir()
-
-    def test_default_templates_dir_contains_databases(self):
-        """DEFAULT_TEMPLATES_DIR contains databases subdirectory."""
-        databases_dir = DEFAULT_TEMPLATES_DIR / "databases"
-        assert databases_dir.exists()
-        assert databases_dir.is_dir()
 
     def test_all_default_database_templates_present(self):
         """All expected database templates are present in defaults."""

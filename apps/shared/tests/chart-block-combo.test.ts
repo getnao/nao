@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { buildStoryChartBlock } from '../src/chart-block';
 import { parseChartBlock } from '../src/story-segments';
 import { validateStoryCode } from '../src/story-validation';
-import { ChartInputSchema } from '../src/tools/display-chart';
+import { ChartInputSchema, type SeriesConfig } from '../src/tools/display-chart';
+
+const REVENUE_BAR_ORDERS_LINE: SeriesConfig[] = [
+	{ data_key: 'revenue', series_type: 'bar', y_axis: 'left' },
+	{ data_key: 'orders', series_type: 'line', y_axis: 'right' },
+];
 
 describe('combo chart input schema', () => {
 	it('accepts a mixed-series dual-axis chart', () => {
@@ -47,10 +52,7 @@ describe('combo chart block round-trip', () => {
 			chart_type: 'mixed',
 			x_axis_key: 'month',
 			x_axis_type: 'category',
-			series: [
-				{ data_key: 'revenue', series_type: 'bar', y_axis: 'left' },
-				{ data_key: 'orders', series_type: 'line', y_axis: 'right' },
-			],
+			series: REVENUE_BAR_ORDERS_LINE,
 			y_axis_label: 'Revenue',
 			y_axis_right_min: 0,
 			y_axis_right_max: 100,
@@ -62,10 +64,7 @@ describe('combo chart block round-trip', () => {
 		expect(attrString).toBeDefined();
 
 		const parsed = parseChartBlock(attrString ?? '');
-		expect(parsed?.series).toEqual([
-			{ data_key: 'revenue', series_type: 'bar', y_axis: 'left' },
-			{ data_key: 'orders', series_type: 'line', y_axis: 'right' },
-		]);
+		expect(parsed?.series).toEqual(REVENUE_BAR_ORDERS_LINE);
 		expect(parsed?.yAxisLabel).toBe('Revenue');
 		expect(parsed?.yAxisRightMin).toBe(0);
 		expect(parsed?.yAxisRightMax).toBe(100);
@@ -80,26 +79,18 @@ describe('combo chart story validation', () => {
 			chart_type: 'mixed',
 			x_axis_key: 'month',
 			x_axis_type: 'category',
-			series: [
-				{ data_key: 'revenue', series_type: 'bar', y_axis: 'left' },
-				{ data_key: 'orders', series_type: 'line', y_axis: 'right' },
-			],
+			series: REVENUE_BAR_ORDERS_LINE,
 			title: 'Revenue vs. orders',
 		});
 		expect(validateStoryCode(block)).toEqual([]);
 	});
 
-	it('flags an invalid series_type', () => {
-		const code =
-			'<chart query_id="q1" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"revenue","series_type":"donut"}]\' title="x" />';
+	it.each([
+		{ field: 'series_type', value: 'donut' },
+		{ field: 'y_axis', value: 'middle' },
+	])('flags an invalid $field', ({ field, value }) => {
+		const code = `<chart query_id="q1" chart_type="bar" x_axis_key="month" series='[{"data_key":"revenue","${field}":"${value}"}]' title="x" />`;
 		const errors = validateStoryCode(code);
-		expect(errors.some((error) => error.message.includes('series_type'))).toBe(true);
-	});
-
-	it('flags an invalid y_axis', () => {
-		const code =
-			'<chart query_id="q1" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"revenue","y_axis":"middle"}]\' title="x" />';
-		const errors = validateStoryCode(code);
-		expect(errors.some((error) => error.message.includes('y_axis'))).toBe(true);
+		expect(errors.some((error) => error.message.includes(field))).toBe(true);
 	});
 });

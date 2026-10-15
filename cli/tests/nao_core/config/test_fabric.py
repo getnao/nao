@@ -1,4 +1,5 @@
 import struct
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -15,15 +16,22 @@ from nao_core.config.databases.fabric import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
-_BASE_SQL_CONFIG = FabricConfig(
-    name="test",
-    host="abc.datawarehouse.fabric.microsoft.com",
-    database="mydb",
-    auth_mode=FabricAuthMode.SQL_PASSWORD,
-    user="myuser",
-    password="mypassword",
-    driver="ODBC Driver 18 for SQL Server",
-)
+HOST = "abc.datawarehouse.fabric.microsoft.com"
+DRIVER = "ODBC Driver 18 for SQL Server"
+
+
+def _fabric_config(auth_mode: FabricAuthMode, **overrides: Any) -> FabricConfig:
+    fields: dict[str, Any] = {"name": "test", "host": HOST, "database": "mydb", "auth_mode": auth_mode, **overrides}
+    return FabricConfig(**fields)
+
+
+def _service_principal_config(**fields) -> FabricConfig:
+    return _fabric_config(
+        FabricAuthMode.AZURE_SERVICE_PRINCIPAL, client_id="my-client-id", client_secret="my-secret", **fields
+    )
+
+
+_BASE_SQL_CONFIG = _fabric_config(FabricAuthMode.SQL_PASSWORD, user="myuser", password="mypassword", driver=DRIVER)
 
 
 def _sql_config(**kwargs) -> FabricConfig:
@@ -44,48 +52,42 @@ def _fake_conn(schemas: list[str]):
 
 
 def test_sql_auth_valid():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.SQL_PASSWORD,
-        user="myuser",
-        password="mypassword",
-    )
+    config = _fabric_config(FabricAuthMode.SQL_PASSWORD, user="myuser", password="mypassword")
     assert config.auth_mode == FabricAuthMode.SQL_PASSWORD
     assert config.user == "myuser"
     assert config.password == "mypassword"
 
 
-def test_sql_auth_missing_user_raises():
-    with pytest.raises(ValidationError, match="user and password are required"):
-        FabricConfig(
-            name="test",
-            host="abc.datawarehouse.fabric.microsoft.com",
-            database="mydb",
-            auth_mode=FabricAuthMode.SQL_PASSWORD,
-            password="secret",
-        )
-
-
-def test_sql_auth_missing_password_raises():
-    with pytest.raises(ValidationError, match="user and password are required"):
-        FabricConfig(
-            name="test",
-            host="abc.datawarehouse.fabric.microsoft.com",
-            database="mydb",
-            auth_mode=FabricAuthMode.SQL_PASSWORD,
-            user="myuser",
-        )
+@pytest.mark.parametrize(
+    ("auth_mode", "credentials", "message"),
+    [
+        pytest.param(
+            FabricAuthMode.SQL_PASSWORD, {"password": "secret"}, "user and password are required", id="sql_missing_user"
+        ),
+        pytest.param(
+            FabricAuthMode.SQL_PASSWORD, {"user": "myuser"}, "user and password are required", id="sql_missing_password"
+        ),
+        pytest.param(
+            FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
+            {"client_secret": "my-secret"},
+            "client_id and client_secret are required",
+            id="service_principal_missing_client_id",
+        ),
+        pytest.param(
+            FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
+            {"client_id": "my-client-id"},
+            "client_id and client_secret are required",
+            id="service_principal_missing_client_secret",
+        ),
+    ],
+)
+def test_missing_credentials_raise(auth_mode, credentials, message):
+    with pytest.raises(ValidationError, match=message):
+        _fabric_config(auth_mode, **credentials)
 
 
 def test_azure_interactive_requires_no_credentials():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_INTERACTIVE,
-    )
+    config = _fabric_config(FabricAuthMode.AZURE_INTERACTIVE)
     assert config.auth_mode == FabricAuthMode.AZURE_INTERACTIVE
     assert config.user is None
     assert config.password is None
@@ -93,63 +95,21 @@ def test_azure_interactive_requires_no_credentials():
 
 
 def test_azure_cli_requires_no_credentials():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_CLI,
-    )
+    config = _fabric_config(FabricAuthMode.AZURE_CLI)
     assert config.auth_mode == FabricAuthMode.AZURE_CLI
     assert config.user is None
     assert config.client_id is None
 
 
 def test_service_principal_valid():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-        client_id="my-client-id",
-        client_secret="my-secret",
-    )
+    config = _service_principal_config()
     assert config.auth_mode == FabricAuthMode.AZURE_SERVICE_PRINCIPAL
     assert config.tenant_id is None
 
 
 def test_service_principal_with_tenant_id():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-        client_id="my-client-id",
-        client_secret="my-secret",
-        tenant_id="my-tenant",
-    )
+    config = _service_principal_config(tenant_id="my-tenant")
     assert config.tenant_id == "my-tenant"
-
-
-def test_service_principal_missing_client_id_raises():
-    with pytest.raises(ValidationError, match="client_id and client_secret are required"):
-        FabricConfig(
-            name="test",
-            host="abc.datawarehouse.fabric.microsoft.com",
-            database="mydb",
-            auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-            client_secret="my-secret",
-        )
-
-
-def test_service_principal_missing_client_secret_raises():
-    with pytest.raises(ValidationError, match="client_id and client_secret are required"):
-        FabricConfig(
-            name="test",
-            host="abc.datawarehouse.fabric.microsoft.com",
-            database="mydb",
-            auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-            client_id="my-client-id",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -177,32 +137,20 @@ def test_encode_access_token_utf16le_with_length_prefix():
 # ---------------------------------------------------------------------------
 
 
-def test_odbc_escape_plain_value_unchanged():
-    assert _odbc_escape("mypassword") == "mypassword"
-
-
-def test_odbc_escape_semicolon():
-    assert _odbc_escape("pass;word") == "{pass;word}"
-
-
-def test_odbc_escape_equals():
-    assert _odbc_escape("key=value") == "{key=value}"
-
-
-def test_odbc_escape_opening_brace():
-    assert _odbc_escape("val{ue") == "{val{ue}"
-
-
-def test_odbc_escape_closing_brace_doubled():
-    assert _odbc_escape("val}ue") == "{val}}ue}"
-
-
-def test_odbc_escape_multiple_closing_braces():
-    assert _odbc_escape("a}b}c") == "{a}}b}}c}"
-
-
-def test_odbc_escape_empty_string():
-    assert _odbc_escape("") == ""
+@pytest.mark.parametrize(
+    ("value", "escaped"),
+    [
+        pytest.param("mypassword", "mypassword", id="plain_value_unchanged"),
+        pytest.param("pass;word", "{pass;word}", id="semicolon"),
+        pytest.param("key=value", "{key=value}", id="equals"),
+        pytest.param("val{ue", "{val{ue}", id="opening_brace"),
+        pytest.param("val}ue", "{val}}ue}", id="closing_brace_doubled"),
+        pytest.param("a}b}c", "{a}}b}}c}", id="multiple_closing_braces"),
+        pytest.param("", "", id="empty_string"),
+    ],
+)
+def test_odbc_escape(value, escaped):
+    assert _odbc_escape(value) == escaped
 
 
 # ---------------------------------------------------------------------------
@@ -229,30 +177,14 @@ def test_sql_auth_odbc_string_has_no_authentication_key():
 def test_azure_interactive_odbc_string_has_no_credentials():
     # azure_interactive uses InteractiveBrowserCredential to obtain a token and injects it
     # via SQL_COPT_SS_ACCESS_TOKEN — it does not embed credentials in the ODBC string.
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_INTERACTIVE,
-        driver="ODBC Driver 18 for SQL Server",
-    )
-    odbc = config.build_odbc_string()
+    odbc = _fabric_config(FabricAuthMode.AZURE_INTERACTIVE, driver=DRIVER).build_odbc_string()
     assert "Authentication=" not in odbc
     assert "UID=" not in odbc
     assert "PWD=" not in odbc
 
 
 def test_service_principal_odbc_string_without_tenant():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-        client_id="my-client-id",
-        client_secret="my-secret",
-        driver="ODBC Driver 18 for SQL Server",
-    )
-    odbc = config.build_odbc_string()
+    odbc = _service_principal_config(driver=DRIVER).build_odbc_string()
     assert "Authentication=ActiveDirectoryServicePrincipal" in odbc
     # Without tenant_id, UID must be the bare client_id (no @ suffix).
     assert "UID=my-client-id;" in odbc
@@ -260,17 +192,7 @@ def test_service_principal_odbc_string_without_tenant():
 
 
 def test_service_principal_odbc_string_with_tenant():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-        client_id="my-client-id",
-        client_secret="my-secret",
-        tenant_id="my-tenant",
-        driver="ODBC Driver 18 for SQL Server",
-    )
-    odbc = config.build_odbc_string()
+    odbc = _service_principal_config(tenant_id="my-tenant", driver=DRIVER).build_odbc_string()
     assert "UID=my-client-id@my-tenant" in odbc
 
 
@@ -279,38 +201,26 @@ def test_custom_port_in_odbc_string():
     assert "Server=abc.datawarehouse.fabric.microsoft.com,1434" in odbc
 
 
-def test_sql_auth_password_with_semicolon_is_escaped():
-    odbc = _sql_config(password="pass;word").build_odbc_string()
-    assert "PWD={pass;word}" in odbc
-
-
-def test_sql_auth_password_with_closing_brace_is_escaped():
-    odbc = _sql_config(password="p}ss").build_odbc_string()
-    assert "PWD={p}}ss}" in odbc
-
-
-def test_sql_auth_username_with_special_chars_is_escaped():
-    odbc = _sql_config(user="user=name").build_odbc_string()
-    assert "UID={user=name}" in odbc
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        pytest.param({"password": "pass;word"}, "PWD={pass;word}", id="password_with_semicolon"),
+        pytest.param({"password": "p}ss"}, "PWD={p}}ss}", id="password_with_closing_brace"),
+        pytest.param({"user": "user=name"}, "UID={user=name}", id="username_with_special_chars"),
+        pytest.param({"database": "my;db"}, "Database={my;db}", id="database_with_special_chars"),
+    ],
+)
+def test_sql_auth_special_characters_are_escaped(overrides, fragment):
+    odbc = _sql_config(**overrides).build_odbc_string()
+    assert fragment in odbc
 
 
 def test_service_principal_secret_with_special_chars_is_escaped():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-        client_id="my-client-id",
-        client_secret="sec;ret=val",
-        driver="ODBC Driver 18 for SQL Server",
+    config = _fabric_config(
+        FabricAuthMode.AZURE_SERVICE_PRINCIPAL, client_id="my-client-id", client_secret="sec;ret=val", driver=DRIVER
     )
     odbc = config.build_odbc_string()
     assert "PWD={sec;ret=val}" in odbc
-
-
-def test_database_with_special_chars_is_escaped():
-    odbc = _sql_config(database="my;db").build_odbc_string()
-    assert "Database={my;db}" in odbc
 
 
 # ---------------------------------------------------------------------------
@@ -346,12 +256,7 @@ def test_fabric_system_schemas_constant_contains_expected_values():
 
 
 def test_get_database_name():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="my_warehouse",
-        auth_mode=FabricAuthMode.AZURE_INTERACTIVE,
-    )
+    config = _fabric_config(FabricAuthMode.AZURE_INTERACTIVE, database="my_warehouse")
     assert config.get_database_name() == "my_warehouse"
 
 
@@ -381,29 +286,18 @@ def test_exclude_pattern_filters_out():
 # ---------------------------------------------------------------------------
 
 
-def test_round_trip_sql_auth():
-    config = _sql_config()
-    assert FabricConfig.model_validate(config.model_dump()) == config
-
-
-def test_round_trip_azure_interactive():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_INTERACTIVE,
-    )
-    assert FabricConfig.model_validate(config.model_dump()) == config
-
-
-def test_round_trip_service_principal():
-    config = FabricConfig(
-        name="test",
-        host="abc.datawarehouse.fabric.microsoft.com",
-        database="mydb",
-        auth_mode=FabricAuthMode.AZURE_SERVICE_PRINCIPAL,
-        client_id="cid",
-        client_secret="cs",
-        tenant_id="tid",
-    )
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_sql_config(), id="sql_auth"),
+        pytest.param(_fabric_config(FabricAuthMode.AZURE_INTERACTIVE), id="azure_interactive"),
+        pytest.param(
+            _fabric_config(
+                FabricAuthMode.AZURE_SERVICE_PRINCIPAL, client_id="cid", client_secret="cs", tenant_id="tid"
+            ),
+            id="service_principal",
+        ),
+    ],
+)
+def test_round_trip(config):
     assert FabricConfig.model_validate(config.model_dump()) == config

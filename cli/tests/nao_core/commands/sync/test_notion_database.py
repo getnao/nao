@@ -26,6 +26,8 @@ from nao_core.commands.sync.providers.notion.database import (
     visible_columns,
 )
 
+DATABASE = {"id": "db", "data_sources": [{"id": "ds"}]}
+
 
 def text_property(value: str) -> dict:
     return {"type": "rich_text", "rich_text": [{"plain_text": value}]}
@@ -48,6 +50,19 @@ def stub_view(client: MagicMock, detail: dict, query: dict, pages: list[dict] | 
     client.views.queries.create.return_value = query
     if pages is not None:
         client.views.queries.results.side_effect = pages
+
+
+def stub_source_rows(client: MagicMock, *rows: dict) -> None:
+    client.data_sources.query.return_value = {"results": list(rows), "has_more": False}
+
+
+def stub_child_databases(client: MagicMock, *database_ids: str) -> None:
+    client.blocks.children.list.return_value = {
+        "results": [
+            {"id": database_id, "type": "child_database", "has_children": False} for database_id in database_ids
+        ],
+        "has_more": False,
+    }
 
 
 def rows_of(*pages: dict) -> DatabaseRows:
@@ -119,17 +134,14 @@ def test_collect_columns_unions_all_rows():
 
 def test_fetch_rows_applies_view_filter_and_order():
     client = MagicMock()
-    client.data_sources.query.return_value = {
-        "results": [row("row-1", "b"), row("row-2", "a"), row("row-3", "c")],
-        "has_more": False,
-    }
+    stub_source_rows(client, row("row-1", "b"), row("row-2", "a"), row("row-3", "c"))
     stub_view(
         client,
         {"type": "table", "configuration": {"properties": [{"property_name": "Name", "visible": True}]}},
         {"results": [{"id": "row-2"}, {"id": "row-1"}], "has_more": False, "id": "query-1", "total_count": 2},
     )
 
-    rows = fetch_rows(client, {"id": "db", "data_sources": [{"id": "ds"}]}, view_id="view-1")
+    rows = fetch_rows(client, DATABASE, view_id="view-1")
 
     assert [r["id"] for r in rows.rows] == ["row-2", "row-1"]
     assert rows.total == 2
@@ -138,9 +150,9 @@ def test_fetch_rows_applies_view_filter_and_order():
 
 def test_fetch_rows_exports_everything_when_no_view_is_targeted():
     client = MagicMock()
-    client.data_sources.query.return_value = {"results": [row("row-1", "a")], "has_more": False}
+    stub_source_rows(client, row("row-1", "a"))
 
-    rows = fetch_rows(client, {"id": "db", "data_sources": [{"id": "ds"}]}, view_id=None)
+    rows = fetch_rows(client, DATABASE, view_id=None)
 
     assert [r["id"] for r in rows.rows] == ["row-1"]
     client.views.retrieve.assert_not_called()
@@ -148,11 +160,11 @@ def test_fetch_rows_exports_everything_when_no_view_is_targeted():
 
 def test_fetch_rows_fails_rather_than_widening_a_failed_view():
     client = MagicMock()
-    client.data_sources.query.return_value = {"results": [row("row-1", "a")], "has_more": False}
+    stub_source_rows(client, row("row-1", "a"))
     client.views.retrieve.side_effect = RuntimeError("rate limited")
 
     with pytest.raises(ViewUnavailableError):
-        fetch_rows(client, {"id": "db", "data_sources": [{"id": "ds"}]}, view_id="view-1")
+        fetch_rows(client, DATABASE, view_id="view-1")
 
 
 def test_fetch_rows_reports_an_unknown_remainder_instead_of_scanning_everything():
@@ -166,7 +178,7 @@ def test_fetch_rows_reports_an_unknown_remainder_instead_of_scanning_everything(
         for page in range(MAX_PAGES)
     ]
 
-    rows = fetch_rows(client, {"id": "db", "data_sources": [{"id": "ds"}]}, view_id=None)
+    rows = fetch_rows(client, DATABASE, view_id=None)
 
     assert rows.total is None
     assert not rows.complete
@@ -309,7 +321,7 @@ def stub_inline_database(client: MagicMock, title: str = "Columns details") -> N
         "id": "db-1",
         "data_sources": [{"id": "ds-1"}],
     }
-    client.data_sources.query.return_value = {"results": [row("row-1", "country", "Trip country")], "has_more": False}
+    stub_source_rows(client, row("row-1", "country", "Trip country"))
     client.views.list.return_value = {"results": [{"id": "view-1"}]}
     stub_view(
         client,
@@ -328,10 +340,7 @@ def stub_inline_database(client: MagicMock, title: str = "Columns details") -> N
 
 def test_inject_child_databases_replaces_marker_with_table():
     client = MagicMock()
-    client.blocks.children.list.return_value = {
-        "results": [{"id": "db-1", "type": "child_database", "has_children": False}],
-        "has_more": False,
-    }
+    stub_child_databases(client, "db-1")
     stub_inline_database(client)
 
     markdown = inject_child_databases(client, "page", f"intro\n\n{CHILD_DATABASE_MARKER}\n\noutro")
@@ -345,10 +354,7 @@ def test_inject_child_databases_replaces_marker_with_table():
 
 def test_inject_child_databases_drops_the_indentation_around_a_nested_marker():
     client = MagicMock()
-    client.blocks.children.list.return_value = {
-        "results": [{"id": "db-1", "type": "child_database", "has_children": False}],
-        "has_more": False,
-    }
+    stub_child_databases(client, "db-1")
     stub_inline_database(client)
 
     markdown = inject_child_databases(client, "page", f"- toggle\n\t{CHILD_DATABASE_MARKER}\n")
@@ -359,13 +365,7 @@ def test_inject_child_databases_drops_the_indentation_around_a_nested_marker():
 
 def test_inject_child_databases_fails_when_markers_and_databases_disagree():
     client = MagicMock()
-    client.blocks.children.list.return_value = {
-        "results": [
-            {"id": "db-1", "type": "child_database", "has_children": False},
-            {"id": "db-2", "type": "child_database", "has_children": False},
-        ],
-        "has_more": False,
-    }
+    stub_child_databases(client, "db-1", "db-2")
 
     with pytest.raises(DatabaseExportError, match="cannot be matched"):
         inject_child_databases(client, "page", f"a\n{CHILD_DATABASE_MARKER}\n")
@@ -374,10 +374,7 @@ def test_inject_child_databases_fails_when_markers_and_databases_disagree():
 
 def test_inject_child_databases_fails_the_page_when_a_database_cannot_be_read():
     client = MagicMock()
-    client.blocks.children.list.return_value = {
-        "results": [{"id": "db-1", "type": "child_database", "has_children": False}],
-        "has_more": False,
-    }
+    stub_child_databases(client, "db-1")
     client.databases.retrieve.side_effect = RuntimeError("no access")
 
     with pytest.raises(DatabaseExportError, match="inline database db-1"):
@@ -386,17 +383,14 @@ def test_inject_child_databases_fails_the_page_when_a_database_cannot_be_read():
 
 def test_inject_child_databases_leaves_a_page_without_databases_alone():
     client = MagicMock()
-    client.blocks.children.list.return_value = {"results": [], "has_more": False}
+    stub_child_databases(client)
 
     assert inject_child_databases(client, "page", "no database here") == "no database here"
 
 
 def test_inject_child_databases_fails_when_notion2md_emitted_no_marker_for_a_database():
     client = MagicMock()
-    client.blocks.children.list.return_value = {
-        "results": [{"id": "db-1", "type": "child_database", "has_children": False}],
-        "has_more": False,
-    }
+    stub_child_databases(client, "db-1")
 
     with pytest.raises(DatabaseExportError, match="cannot be matched"):
         inject_child_databases(client, "page", "a page whose container block was dropped")
@@ -421,7 +415,7 @@ def test_fetch_rows_by_id_stops_when_pages_report_more_but_return_nothing():
     client = MagicMock()
     client.data_sources.query.return_value = {"results": [], "has_more": True, "next_cursor": "same"}
 
-    fetched = fetch_rows_by_id(client, {"id": "db", "data_sources": [{"id": "ds"}]})
+    fetched = fetch_rows_by_id(client, DATABASE)
 
     assert fetched.rows == {}
     assert not fetched.exhausted
@@ -543,14 +537,14 @@ def test_fetch_view_rows_stops_paging_at_the_render_budget():
 
 def test_fetch_rows_reports_rows_it_could_not_match():
     client = MagicMock()
-    client.data_sources.query.return_value = {"results": [row("row-1", "a")], "has_more": False}
+    stub_source_rows(client, row("row-1", "a"))
     stub_view(
         client,
         {"type": "table"},
         {"results": [{"id": "row-1"}, {"id": "row-missing"}], "has_more": False, "id": "q", "total_count": 2},
     )
 
-    rows = fetch_rows(client, {"id": "db", "data_sources": [{"id": "ds"}]}, view_id="view-1")
+    rows = fetch_rows(client, DATABASE, view_id="view-1")
 
     assert rows.unmatched == 1
     assert "could not be matched to their values" in render_table(rows)
@@ -560,7 +554,7 @@ def test_fetch_rows_does_not_query_a_data_source_for_an_empty_view():
     client = MagicMock()
     stub_view(client, {"type": "table"}, {"results": [], "has_more": False, "id": "q", "total_count": 0})
 
-    rows = fetch_rows(client, {"id": "db", "data_sources": [{"id": "ds"}]}, view_id="view-1")
+    rows = fetch_rows(client, DATABASE, view_id="view-1")
 
     assert rows.rows == []
     client.data_sources.query.assert_not_called()
@@ -579,7 +573,7 @@ def test_find_child_database_ids_does_not_walk_into_tables():
 
 def test_fetch_rows_only_scans_the_data_source_its_view_reads():
     client = MagicMock()
-    client.data_sources.query.return_value = {"results": [row("row-1", "a")], "has_more": False}
+    stub_source_rows(client, row("row-1", "a"))
     stub_view(
         client,
         {
@@ -598,7 +592,7 @@ def test_fetch_rows_only_scans_the_data_source_its_view_reads():
 
 def test_fetch_rows_fails_when_view_columns_match_no_property():
     client = MagicMock()
-    client.data_sources.query.return_value = {"results": [row("row-1", "a")], "has_more": False}
+    stub_source_rows(client, row("row-1", "a"))
     stub_view(
         client,
         {"type": "table", "configuration": {"properties": [{"property_name": "Renamed", "visible": True}]}},
@@ -606,7 +600,7 @@ def test_fetch_rows_fails_when_view_columns_match_no_property():
     )
 
     with pytest.raises(ValueError, match="match the properties"):
-        fetch_rows(client, {"id": "db", "data_sources": [{"id": "ds"}]}, view_id="view-1")
+        fetch_rows(client, DATABASE, view_id="view-1")
 
 
 def test_visible_columns_keeps_the_title_of_an_all_hidden_view():

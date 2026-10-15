@@ -38,7 +38,7 @@
 		"db:seed:cloud": "bun scripts/db.seed-cloud.ts",
 		"db:check-migrations": "bun scripts/db.check-migrations.ts",
 		"format": "prettier --write .",
-		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/tool-outputs/"
+		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/components/tool-outputs/"
 	},
 	"dependencies": {
 		"@ai-sdk/amazon-bedrock": "^4.0.191",

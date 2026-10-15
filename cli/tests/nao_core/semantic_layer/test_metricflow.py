@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -24,9 +25,12 @@ def manifest_path(tmp_path: Path) -> Path:
     return destination
 
 
-def test_lists_metrics_with_their_dimensions(manifest_path: Path) -> None:
-    layer = MetricFlowSemanticLayer.load(manifest_path, "duckdb")
+@pytest.fixture
+def layer(manifest_path: Path) -> MetricFlowSemanticLayer:
+    return MetricFlowSemanticLayer.load(manifest_path, "duckdb")
 
+
+def test_lists_metrics_with_their_dimensions(layer: MetricFlowSemanticLayer) -> None:
     metrics = {metric.name: metric for metric in layer.list_metrics()}
 
     assert set(metrics) == {"average_order_value", "orders", "revenue"}
@@ -39,9 +43,7 @@ def test_lists_metrics_with_their_dimensions(manifest_path: Path) -> None:
     assert metrics["average_order_value"].input_metrics == ["revenue", "orders"]
 
 
-def test_lists_dimensions(manifest_path: Path) -> None:
-    layer = MetricFlowSemanticLayer.load(manifest_path, "duckdb")
-
+def test_lists_dimensions(layer: MetricFlowSemanticLayer) -> None:
     dimensions = {dimension.name: dimension for dimension in layer.list_dimensions()}
 
     assert set(dimensions) == {"order__ordered_at", "order__status"}
@@ -50,9 +52,7 @@ def test_lists_dimensions(manifest_path: Path) -> None:
     assert dimensions["order__status"].description == "Order status"
 
 
-def test_compiles_grouped_and_filtered_query(manifest_path: Path) -> None:
-    layer = MetricFlowSemanticLayer.load(manifest_path, "duckdb")
-
+def test_compiles_grouped_and_filtered_query(layer: MetricFlowSemanticLayer) -> None:
     sql = layer.compile(
         SemanticQuery(
             metrics=["revenue", "orders"],
@@ -75,27 +75,20 @@ def test_compiles_grouped_and_filtered_query(manifest_path: Path) -> None:
 
 
 def test_compiles_per_dialect(manifest_path: Path) -> None:
-    duckdb_sql = MetricFlowSemanticLayer.load(manifest_path, "duckdb").compile(
-        SemanticQuery(metrics=["revenue"], group_by=["metric_time__month"])
-    )
-    bigquery_sql = MetricFlowSemanticLayer.load(manifest_path, "bigquery").compile(
-        SemanticQuery(metrics=["revenue"], group_by=["metric_time__month"])
-    )
+    monthly_revenue = SemanticQuery(metrics=["revenue"], group_by=["metric_time__month"])
+    duckdb_sql = MetricFlowSemanticLayer.load(manifest_path, "duckdb").compile(monthly_revenue)
+    bigquery_sql = MetricFlowSemanticLayer.load(manifest_path, "bigquery").compile(monthly_revenue)
 
     assert "DATE_TRUNC('month', ordered_at)" in duckdb_sql
     assert "TIMESTAMP_TRUNC(ordered_at, month)" in bigquery_sql
 
 
-def test_unknown_metric_reports_suggestions(manifest_path: Path) -> None:
-    layer = MetricFlowSemanticLayer.load(manifest_path, "duckdb")
-
+def test_unknown_metric_reports_suggestions(layer: MetricFlowSemanticLayer) -> None:
     with pytest.raises(SemanticLayerError, match="revenue"):
         layer.compile(SemanticQuery(metrics=["revenu"]))
 
 
-def test_rejects_empty_metrics_and_bad_dates(manifest_path: Path) -> None:
-    layer = MetricFlowSemanticLayer.load(manifest_path, "duckdb")
-
+def test_rejects_empty_metrics_and_bad_dates(layer: MetricFlowSemanticLayer) -> None:
     with pytest.raises(SemanticLayerError, match="at least one metric"):
         layer.compile(SemanticQuery(metrics=[]))
     with pytest.raises(SemanticLayerError, match="start_time"):
@@ -110,8 +103,6 @@ def test_reuses_engine_until_manifest_changes(manifest_path: Path) -> None:
     content = manifest_path.read_text()
     manifest_path.write_text(content.replace("Total revenue from orders", "Revenue, in euros"))
     stat = manifest_path.stat()
-    import os
-
     os.utime(manifest_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
 
     reloaded = MetricFlowSemanticLayer.load(manifest_path, "duckdb")

@@ -126,11 +126,26 @@ class TestDatabaseContext:
                 interval_days=0,  # interdit par ge=1
             )
 
-    def test_columns_filters_out_excluded_columns(self):
-        ctx, _ = self._make_context(exclude_columns=["*.name"])
+    @pytest.mark.parametrize(
+        ("pattern", "expected_columns"),
+        [
+            ("*.name", ["id"]),
+            ("*.something_else", ["id", "name"]),
+            ("my_schema.my_table.id", ["name"]),
+            ("*.*.id", ["name"]),
+        ],
+        ids=[
+            "filters_out_excluded_columns",
+            "returns_all_when_pattern_does_not_match",
+            "supports_schema_table_column_pattern",
+            "supports_wildcard_table_segment",
+        ],
+    )
+    def test_columns_exclude_pattern(self, pattern, expected_columns):
+        ctx, _ = self._make_context(exclude_columns=[pattern])
         columns = ctx.columns()
 
-        assert [c["name"] for c in columns] == ["id"]
+        assert [c["name"] for c in columns] == expected_columns
 
     def test_all_columns_returns_unfiltered_columns(self):
         ctx, _ = self._make_context(exclude_columns=["*.name"])
@@ -151,24 +166,6 @@ class TestDatabaseContext:
         mock_table.schema.return_value.items.return_value = []
 
         assert ctx.all_columns() == []
-
-    def test_columns_returns_all_when_pattern_does_not_match(self):
-        ctx, _ = self._make_context(exclude_columns=["*.something_else"])
-        columns = ctx.columns()
-
-        assert [c["name"] for c in columns] == ["id", "name"]
-
-    def test_columns_supports_schema_table_column_pattern(self):
-        ctx, _ = self._make_context(exclude_columns=["my_schema.my_table.id"])
-        columns = ctx.columns()
-
-        assert [c["name"] for c in columns] == ["name"]
-
-    def test_columns_supports_wildcard_table_segment(self):
-        ctx, _ = self._make_context(exclude_columns=["*.*.id"])
-        columns = ctx.columns()
-
-        assert [c["name"] for c in columns] == ["name"]
 
     def test_preview_filters_out_excluded_columns(self):
         ctx, mock_table = self._make_context(exclude_columns=["*._peerdb_*", "*.name"])

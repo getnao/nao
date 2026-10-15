@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -7,26 +8,120 @@ from nao_core.commands.debug import check_llm_connection, debug
 from nao_core.config.databases import BigQueryConfig, ClickHouseConfig, DuckDBConfig, PostgresConfig, TrinoConfig
 from nao_core.config.llm import LLMProvider, ModelConfig, ProviderConfig
 
+API_KEY = "sk-test-api-key"
+
+ANTHROPIC_CONFIG = """\
+project_name: test-project
+llm:
+  provider: anthropic
+  api_key: sk-test-key
+"""
+
 
 class TestLLMConnection:
     """
     Tests for check_llm_connection.
     """
 
-    def test_openai_connection_success(self):
-        config = ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test-api-key")
+    @pytest.mark.parametrize(
+        ("provider", "client_path", "expected_client_kwargs"),
+        [
+            (LLMProvider.OPENAI, "openai.OpenAI", {"api_key": API_KEY, "base_url": None}),
+            (LLMProvider.ANTHROPIC, "anthropic.Anthropic", {"api_key": API_KEY}),
+            (LLMProvider.GEMINI, "google.genai.Client", {"api_key": API_KEY}),
+            (LLMProvider.MISTRAL, "mistralai.Mistral", {"api_key": API_KEY}),
+            (LLMProvider.OPENROUTER, "openai.OpenAI", {"base_url": "https://openrouter.ai/api/v1", "api_key": API_KEY}),
+            (LLMProvider.REQUESTY, "openai.OpenAI", {"base_url": "https://router.requesty.ai/v1", "api_key": API_KEY}),
+        ],
+        ids=lambda value: value.value if isinstance(value, LLMProvider) else "",
+    )
+    def test_connection_success(self, provider, client_path, expected_client_kwargs):
+        config = ProviderConfig(provider=provider, api_key=API_KEY)
 
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
-            mock_openai_class.return_value = mock_client
+        with _patched_client(client_path, [MagicMock(), MagicMock(), MagicMock()]) as client_class:
+            success, message = check_llm_connection(config)
+
+        assert success is True
+        assert "Connected successfully" in message
+        assert "3 models available" in message
+        client_class.assert_called_once_with(**expected_client_kwargs)
+
+    @pytest.mark.parametrize(
+        ("provider", "client_path", "base_url", "expected_client_kwargs"),
+        [
+            (
+                LLMProvider.OPENAI,
+                "openai.OpenAI",
+                "https://proxy.internal/v1",
+                {"api_key": API_KEY, "base_url": "https://proxy.internal/v1"},
+            ),
+            (
+                LLMProvider.ANTHROPIC,
+                "anthropic.Anthropic",
+                "https://proxy.internal/anthropic",
+                {"api_key": API_KEY, "base_url": "https://proxy.internal/anthropic"},
+            ),
+            (
+                LLMProvider.OPENROUTER,
+                "openai.OpenAI",
+                "https://proxy.internal/v1",
+                {"base_url": "https://proxy.internal/v1", "api_key": API_KEY},
+            ),
+        ],
+        ids=lambda value: value.value if isinstance(value, LLMProvider) else "",
+    )
+    def test_connection_uses_configured_base_url(self, provider, client_path, base_url, expected_client_kwargs):
+        """A custom base_url (e.g. a LiteLLM proxy) must reach the client, not the provider default."""
+        config = ProviderConfig(provider=provider, api_key=API_KEY, base_url=base_url)
+
+        with _patched_client(client_path, [MagicMock()]) as client_class:
+            success, _ = check_llm_connection(config)
+
+        assert success is True
+        client_class.assert_called_once_with(**expected_client_kwargs)
+
+    @pytest.mark.parametrize(
+        ("provider", "client_path", "error"),
+        [
+            (LLMProvider.OPENAI, "openai.OpenAI", "Invalid API key"),
+            (LLMProvider.ANTHROPIC, "anthropic.Anthropic", "Authentication failed"),
+            (LLMProvider.GEMINI, "google.genai.Client", "Invalid API key"),
+            (LLMProvider.MISTRAL, "mistralai.Mistral", "Unauthorized"),
+            (LLMProvider.OPENROUTER, "openai.OpenAI", "Invalid API key"),
+            (LLMProvider.REQUESTY, "openai.OpenAI", "Invalid API key"),
+        ],
+        ids=lambda value: value.value if isinstance(value, LLMProvider) else "",
+    )
+    def test_exception_returns_failure(self, provider, client_path, error):
+        """API exception should return False with error message."""
+        config = ProviderConfig(provider=provider, api_key="invalid")
+
+        with patch(client_path) as client_class:
+            client_class.return_value.models.list.side_effect = Exception(error)
 
             success, message = check_llm_connection(config)
 
-            assert success is True
-            assert "Connected successfully" in message
-            assert "3 models available" in message
-            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url=None)
+        assert success is False
+        assert error in message
+
+    @pytest.mark.parametrize(
+        ("provider", "default_base_url"),
+        [
+            (LLMProvider.MOONSHOT, "https://api.moonshot.ai/v1"),
+            (LLMProvider.META, "https://api.meta.ai/v1"),
+            (LLMProvider.QWEN, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+        ],
+        ids=lambda value: value.value if isinstance(value, LLMProvider) else "",
+    )
+    def test_connection_uses_the_default_endpoint(self, provider, default_base_url):
+        config = ProviderConfig(provider=provider, api_key=API_KEY)
+
+        with _patched_client("openai.OpenAI", [SimpleNamespace(id="some-model")]) as client_class:
+            success, message = check_llm_connection(config)
+
+        assert success is True
+        assert "1 models available" in message
+        client_class.assert_called_once_with(api_key=API_KEY, base_url=default_base_url)
 
     def test_openai_warns_when_configured_models_missing(self):
         config = ProviderConfig(
@@ -35,14 +130,7 @@ class TestLLMConnection:
             models=[ModelConfig(id="gpt-4.1"), ModelConfig(id="gpt-missing")],
         )
 
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [
-                SimpleNamespace(id="gpt-4.1"),
-                SimpleNamespace(id="gpt-4o"),
-            ]
-            mock_openai_class.return_value = mock_client
-
+        with _patched_client("openai.OpenAI", [SimpleNamespace(id="gpt-4.1"), SimpleNamespace(id="gpt-4o")]):
             success, message = check_llm_connection(config)
 
             assert success is True
@@ -56,14 +144,7 @@ class TestLLMConnection:
             models=[ModelConfig(id="gpt-4.1"), ModelConfig(id="gpt-4o")],
         )
 
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [
-                SimpleNamespace(id="gpt-4.1"),
-                SimpleNamespace(id="gpt-4o"),
-            ]
-            mock_openai_class.return_value = mock_client
-
+        with _patched_client("openai.OpenAI", [SimpleNamespace(id="gpt-4.1"), SimpleNamespace(id="gpt-4o")]):
             success, message = check_llm_connection(config)
 
             assert success is True
@@ -76,11 +157,7 @@ class TestLLMConnection:
             models=[ModelConfig(id="gemini-2.0-flash")],
         )
 
-        with patch("google.genai.Client") as mock_client_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [SimpleNamespace(name="models/gemini-2.0-flash")]
-            mock_client_class.return_value = mock_client
-
+        with _patched_client("google.genai.Client", [SimpleNamespace(name="models/gemini-2.0-flash")]):
             success, message = check_llm_connection(config)
 
             assert success is True
@@ -118,246 +195,6 @@ class TestLLMConnection:
             assert (
                 "Warning: configured model(s) not in provider list: anthropic.claude-3-5-sonnet-20241022-v2:0"
                 in message
-            )
-
-    def test_openai_connection_uses_configured_base_url(self):
-        """A custom base_url (e.g. a LiteLLM proxy) must reach the client, not the provider default."""
-        config = ProviderConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test-api-key",
-            base_url="https://proxy.internal/v1",
-        )
-
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock()]
-            mock_openai_class.return_value = mock_client
-
-            success, _ = check_llm_connection(config)
-
-            assert success is True
-            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://proxy.internal/v1")
-
-    def test_openai_exception_returns_failure(self):
-        """API exception should return False with error message."""
-        config = ProviderConfig(provider=LLMProvider.OPENAI, api_key="invalid")
-
-        with patch("openai.OpenAI") as mock_class:
-            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
-
-            success, message = check_llm_connection(config)
-
-            assert success is False
-            assert "Invalid API key" in message
-
-    def test_anthropic_connection_success(self):
-        config = ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-test-api-key")
-
-        with patch("anthropic.Anthropic") as mock_anthropic_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
-            mock_anthropic_class.return_value = mock_client
-
-            success, message = check_llm_connection(config)
-
-            assert success is True
-            assert "Connected successfully" in message
-            assert "3 models available" in message
-            mock_anthropic_class.assert_called_once_with(api_key="sk-test-api-key")
-
-    def test_anthropic_connection_uses_configured_base_url(self):
-        config = ProviderConfig(
-            provider=LLMProvider.ANTHROPIC,
-            api_key="sk-test-api-key",
-            base_url="https://proxy.internal/anthropic",
-        )
-
-        with patch("anthropic.Anthropic") as mock_anthropic_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock()]
-            mock_anthropic_class.return_value = mock_client
-
-            success, _ = check_llm_connection(config)
-
-            assert success is True
-            mock_anthropic_class.assert_called_once_with(
-                api_key="sk-test-api-key", base_url="https://proxy.internal/anthropic"
-            )
-
-    def test_anthropic_exception_returns_failure(self):
-        """API exception should return False with error message."""
-        config = ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="invalid")
-
-        with patch("anthropic.Anthropic") as mock_class:
-            mock_class.return_value.models.list.side_effect = Exception("Authentication failed")
-
-            success, message = check_llm_connection(config)
-
-            assert success is False
-            assert "Authentication failed" in message
-
-    def test_gemini_connection_success(self):
-        config = ProviderConfig(provider=LLMProvider.GEMINI, api_key="test-gemini-key")
-
-        with patch("google.genai.Client") as mock_client_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
-            mock_client_class.return_value = mock_client
-
-            success, message = check_llm_connection(config)
-
-            assert success is True
-            assert "Connected successfully" in message
-            assert "3 models available" in message
-            mock_client_class.assert_called_once_with(api_key="test-gemini-key")
-
-    def test_gemini_exception_returns_failure(self):
-        """API exception should return False with error message."""
-        config = ProviderConfig(provider=LLMProvider.GEMINI, api_key="invalid")
-
-        with patch("google.genai.Client") as mock_client_class:
-            mock_client_class.return_value.models.list.side_effect = Exception("Invalid API key")
-
-            success, message = check_llm_connection(config)
-
-            assert success is False
-            assert "Invalid API key" in message
-
-    def test_mistral_connection_success(self):
-        config = ProviderConfig(provider=LLMProvider.MISTRAL, api_key="test-mistral-key")
-
-        with patch("mistralai.Mistral") as mock_mistral_class:
-            mock_client = MagicMock()
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
-            mock_mistral_class.return_value = mock_client
-
-            success, message = check_llm_connection(config)
-
-            assert success is True
-            assert "Connected successfully" in message
-            assert "3 models available" in message
-            mock_mistral_class.assert_called_once_with(api_key="test-mistral-key")
-
-    def test_mistral_exception_returns_failure(self):
-        """API exception should return False with error message."""
-        config = ProviderConfig(provider=LLMProvider.MISTRAL, api_key="invalid")
-
-        with patch("mistralai.Mistral") as mock_class:
-            mock_class.return_value.models.list.side_effect = Exception("Unauthorized")
-
-            success, message = check_llm_connection(config)
-
-            assert success is False
-            assert "Unauthorized" in message
-
-    def test_openrouter_connection_success(self):
-        config = ProviderConfig(provider=LLMProvider.OPENROUTER, api_key="sk-test-api-key")
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock(), MagicMock(), MagicMock()]
-            mock_openai_class.return_value = mock_client
-            success, message = check_llm_connection(config)
-            assert success is True
-            assert "Connected successfully" in message
-            assert "3 models available" in message
-            # Verify OpenAI was called with OpenRouter base_url
-            mock_openai_class.assert_called_once_with(
-                base_url="https://openrouter.ai/api/v1", api_key="sk-test-api-key"
-            )
-
-    def test_openrouter_connection_uses_configured_base_url(self):
-        """A configured base_url overrides the OpenRouter default endpoint."""
-        config = ProviderConfig(
-            provider=LLMProvider.OPENROUTER,
-            api_key="sk-test-api-key",
-            base_url="https://proxy.internal/v1",
-        )
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock()]
-            mock_openai_class.return_value = mock_client
-
-            success, _ = check_llm_connection(config)
-
-            assert success is True
-            mock_openai_class.assert_called_once_with(base_url="https://proxy.internal/v1", api_key="sk-test-api-key")
-
-    def test_openrouter_exception_returns_failure(self):
-        """API exception should return False with error message."""
-        config = ProviderConfig(provider=LLMProvider.OPENROUTER, api_key="invalid")
-        with patch("openai.OpenAI") as mock_class:
-            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
-
-            success, message = check_llm_connection(config)
-
-            assert success is False
-            assert "Invalid API key" in message
-
-    def test_requesty_connection_success(self):
-        config = ProviderConfig(provider=LLMProvider.REQUESTY, api_key="sk-test-api-key")
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [MagicMock(), MagicMock()]
-            mock_openai_class.return_value = mock_client
-            success, message = check_llm_connection(config)
-            assert success is True
-            assert "Connected successfully" in message
-            assert "2 models available" in message
-            # Verify OpenAI was called with the Requesty base_url
-            mock_openai_class.assert_called_once_with(
-                base_url="https://router.requesty.ai/v1", api_key="sk-test-api-key"
-            )
-
-    def test_requesty_exception_returns_failure(self):
-        """API exception should return False with error message."""
-        config = ProviderConfig(provider=LLMProvider.REQUESTY, api_key="invalid")
-        with patch("openai.OpenAI") as mock_class:
-            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
-
-            success, message = check_llm_connection(config)
-
-            assert success is False
-            assert "Invalid API key" in message
-
-    def test_moonshot_connection_uses_the_default_endpoint(self):
-        config = ProviderConfig(provider=LLMProvider.MOONSHOT, api_key="sk-test-api-key")
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [SimpleNamespace(id="kimi-k3")]
-            mock_openai_class.return_value = mock_client
-
-            success, message = check_llm_connection(config)
-
-            assert success is True
-            assert "1 models available" in message
-            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://api.moonshot.ai/v1")
-
-    def test_meta_connection_uses_the_default_endpoint(self):
-        config = ProviderConfig(provider=LLMProvider.META, api_key="sk-test-api-key")
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [SimpleNamespace(id="muse-spark-1.3")]
-            mock_openai_class.return_value = mock_client
-
-            success, _ = check_llm_connection(config)
-
-            assert success is True
-            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://api.meta.ai/v1")
-
-    def test_qwen_connection_uses_the_default_endpoint(self):
-        config = ProviderConfig(provider=LLMProvider.QWEN, api_key="sk-test-api-key")
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [SimpleNamespace(id="qwen3.7-plus")]
-            mock_openai_class.return_value = mock_client
-
-            success, _ = check_llm_connection(config)
-
-            assert success is True
-            mock_openai_class.assert_called_once_with(
-                api_key="sk-test-api-key",
-                base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
             )
 
     def test_minimax_falls_back_to_a_probe_completion_without_a_model_list(self):
@@ -417,11 +254,7 @@ class TestLLMConnection:
     def test_openai_compatible_endpoint_is_reached_without_a_key(self):
         """A self-hosted endpoint declares its own URL and often needs no authentication."""
         config = ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, base_url="http://localhost:8000/v1")
-        with patch("openai.OpenAI") as mock_openai_class:
-            mock_client = MagicMock()
-            mock_client.models.list.return_value = [SimpleNamespace(id="my-model")]
-            mock_openai_class.return_value = mock_client
-
+        with _patched_client("openai.OpenAI", [SimpleNamespace(id="my-model")]) as mock_openai_class:
             success, message = check_llm_connection(config)
 
             assert success is True
@@ -742,13 +575,8 @@ databases:
             "nao_core.config.databases.postgres.PostgresConfig.check_connection",
             return_value=(True, "Connected (5 tables found)"),
         ):
-            with patch("nao_core.commands.debug.console") as mock_console:
-                debug()
+            calls = _run_debug()
 
-        # Convert each mock call to string representation, e.g.:
-        # call("[bold green]✓[/bold green] Loaded config: [cyan]test-project[/cyan]\n")
-        # Then check if expected substrings appear in any of the calls
-        calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("test_db" in call for call in calls)
         assert any("test-project" in call for call in calls)
 
@@ -770,10 +598,8 @@ databases:
             "nao_core.config.databases.postgres.PostgresConfig.check_connection",
             return_value=(False, "Failed DB connection"),
         ) as mock_check:
-            with patch("nao_core.commands.debug.console") as mock_console:
-                debug()
+            calls = _run_debug()
 
-        calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("[bold red]✗[/bold red]" in call for call in calls)
 
         mock_check.assert_called_once()
@@ -781,29 +607,20 @@ databases:
     def test_debug_with_databases_empty(self, create_config):
         """Test debug() when no databases."""
         create_config()
-        with patch("nao_core.commands.debug.console") as mock_console:
-            debug()
+        calls = _run_debug()
 
-        calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("[dim]No databases configured[/dim]" in call for call in calls)
 
     def test_debug_with_llm(self, create_config):
         """Test debug() when LLM is configured."""
-        create_config("""\
-project_name: test-project
-llm:
-  provider: anthropic
-  api_key: sk-test-key
-""")
+        create_config(ANTHROPIC_CONFIG)
 
         with patch(
             "nao_core.commands.debug.check_llm_connection",
             return_value=(True, "Connected successfully (42 models available"),
         ) as mock_check:
-            with patch("nao_core.commands.debug.console") as mock_console:
-                debug()
+            calls = _run_debug()
 
-        calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("anthropic" in call for call in calls)
         assert any("[bold green]✓[/bold green]" in call for call in calls)
 
@@ -827,30 +644,21 @@ llm:
                 "Connected successfully (2 models available). Warning: configured model(s) not in provider list: gpt-missing",
             ),
         ) as mock_check:
-            with patch("nao_core.commands.debug.console") as mock_console:
-                debug()
+            calls = _run_debug()
 
-        calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("[bold yellow]⚠[/bold yellow]" in call for call in calls)
         assert any("gpt-missing" in call for call in calls)
         mock_check.assert_called_once()
 
     def test_debug_with_llm_error(self, create_config):
         """Test debug() when LLM is configured."""
-        create_config("""\
-project_name: test-project
-llm:
-  provider: anthropic
-  api_key: sk-test-key
-""")
+        create_config(ANTHROPIC_CONFIG)
 
         with patch(
             "nao_core.commands.debug.check_llm_connection", return_value=(False, "API key is not working")
         ) as mock_check:
-            with patch("nao_core.commands.debug.console") as mock_console:
-                debug()
+            calls = _run_debug()
 
-        calls = [str(call) for call in mock_console.print.call_args_list]
         assert any("anthropic" in call for call in calls)
         assert any("[bold red]✗[/bold red]" in call for call in calls)
 
@@ -864,12 +672,7 @@ llm:
 
         from nao_core.deps import MissingDependencyError
 
-        create_config("""\
-project_name: test-project
-llm:
-  provider: anthropic
-  api_key: sk-test-key
-""")
+        create_config(ANTHROPIC_CONFIG)
 
         missing_message = str(MissingDependencyError("anthropic", "anthropic", "for Anthropic LLM provider"))
         assert "pip install 'nao-core[anthropic]'" in missing_message
@@ -887,3 +690,17 @@ llm:
         output = buffer.getvalue()
         assert "pip install 'nao-core[anthropic]'" in output
         assert "uv pip install 'nao-core[anthropic]'" in output
+
+
+@contextmanager
+def _patched_client(client_path: str, models: list):
+    with patch(client_path) as client_class:
+        client_class.return_value.models.list.return_value = models
+        yield client_class
+
+
+def _run_debug() -> list[str]:
+    """Run `debug()` and return every console print call as a string."""
+    with patch("nao_core.commands.debug.console") as mock_console:
+        debug()
+    return [str(call) for call in mock_console.print.call_args_list]

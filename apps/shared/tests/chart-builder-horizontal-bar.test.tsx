@@ -1,26 +1,25 @@
-import React, { type ReactElement } from 'react';
-import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { buildChart } from '../src/chart-builder';
+import { buildChart, type BuildChartProps } from '../src/chart-builder';
 import { boxesOverlap, labelBox } from '../src/chart-data-labels';
+import { findChartElement, findChartElements, renderChart } from './helpers/chart-elements';
+
+const DENSE_CUSTOMERS = Array.from({ length: 60 }, (_, index) => ({
+	category: `Customer ${index + 1}`,
+	value: index + 1,
+}));
 
 describe('buildChart horizontal bars', () => {
 	it('builds one horizontal bar series with category and hidden value axes', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [
 				{ category: 'First', value: 20 },
 				{ category: 'Second', value: 50 },
 			],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
 		});
-		const children = flattenChildren(chart.props.children);
-		const bars = children.filter((child) => getDisplayName(child) === 'Bar');
-		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
-		const yAxis = children.find((child) => getDisplayName(child) === 'YAxis');
+		const bars = findChartElements(chart, 'Bar');
+		const xAxis = findChartElement(chart, 'XAxis');
+		const yAxis = findChartElement(chart, 'YAxis');
 
 		expect(chart.type.displayName).toBe('BarChart');
 		expect(chart.props.layout).toBe('vertical');
@@ -40,16 +39,10 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('adds vertical label room to caller-supplied margins', () => {
-		const props = {
-			data: [{ category: 'First', value: 50 }],
-			chartType: 'horizontal_bar' as const,
-			xAxisKey: 'category',
-			xAxisType: 'category' as const,
-			series: [{ data_key: 'value' }],
-		};
-		const chart = buildChart(props);
-		const chartWithMargin = buildChart({ ...props, margin: { top: 5, right: 5, bottom: 5 } });
-		const hiddenLabelsChart = buildChart({ ...props, showDataLabels: false });
+		const props = { data: [{ category: 'First', value: 50 }] };
+		const chart = buildHorizontalBarChart(props);
+		const chartWithMargin = buildHorizontalBarChart({ ...props, margin: { top: 5, right: 5, bottom: 5 } });
+		const hiddenLabelsChart = buildHorizontalBarChart({ ...props, showDataLabels: false });
 
 		expect(chart.props.margin.top).toBeGreaterThanOrEqual(8);
 		expect(chart.props.margin.bottom).toBeGreaterThanOrEqual(8);
@@ -61,16 +54,12 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('keeps category labels beyond the rotated-axis limit and sizes the axis to fit', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [{ category: 'Eleanor Roberts', value: 20 }],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
 			labelFormatter: (value) => value,
 			xAxisMaxLabelChars: 14,
 		});
-		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
+		const yAxis = findChartElement(chart, 'YAxis');
 
 		expect(yAxis?.props.tickFormatter?.('Eleanor Roberts')).toBe('Eleanor Roberts');
 		expect(yAxis?.props.width).toBe(117);
@@ -78,15 +67,11 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('truncates category labels longer than 24 characters', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [{ category: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', value: 20 }],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
 			labelFormatter: (value) => value,
 		});
-		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
+		const yAxis = findChartElement(chart, 'YAxis');
 		const formattedLabel = yAxis?.props.tickFormatter?.('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
 
 		expect(formattedLabel).toBe('ABCDEFGHIJKLMNOPQRSTUVW…');
@@ -94,31 +79,25 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('applies the series value format to the always-visible labels', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [{ category: 'First', value: 1200 }],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
 			series: [{ data_key: 'value', value_format: { d3_format: ',.0f', prefix: '$', suffix: ' USD' } }],
 		});
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const html = renderChart(chart, 600, 300);
 
 		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['$1,200 USD']);
 		expect(html).toContain('fill="var(--muted, #e5e7eb)"');
 	});
 
 	it('renders formatted values in a fixed right-aligned column', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [
 				{ category: 'Short', value: 200 },
 				{ category: 'Long', value: 1200 },
 			],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
 			series: [{ data_key: 'value', value_format: { d3_format: ',.0f', prefix: '$', suffix: ' USD' } }],
 		});
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const html = renderChart(chart, 600, 300);
 		const labels = readHorizontalBarValueLabels(html);
 
 		expect(labels.map((label) => label.text)).toEqual(['$200 USD', '$1,200 USD']);
@@ -127,20 +106,16 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('stacks multiple series over one track and labels row totals', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [
 				{ category: 'First', direct: 20, partner: 30, total: 50 },
 				{ category: 'Second', direct: 40, partner: 70, total: 110 },
 			],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
 			series: [{ data_key: 'direct' }, { data_key: 'partner' }, { data_key: 'total', is_total: true }],
 		});
-		const children = flattenChildren(chart.props.children);
-		const bars = children.filter((child) => getDisplayName(child) === 'Bar');
-		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const bars = findChartElements(chart, 'Bar');
+		const xAxis = findChartElement(chart, 'XAxis');
+		const html = renderChart(chart, 600, 300);
 
 		expect(bars).toHaveLength(2);
 		expect(bars.map((bar) => bar.props.stackId)).toEqual(['stack', 'stack']);
@@ -173,20 +148,17 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('renders distinct value-axis ticks for all-zero multi-series data', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [
 				{ category: 'First', direct: 0, partner: 0 },
 				{ category: 'Second', direct: 0, partner: 0 },
 			],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
 			series: [
 				{ data_key: 'direct', value_format: { d3_format: ',.0f' } },
 				{ data_key: 'partner', value_format: { d3_format: ',.0f' } },
 			],
 		});
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const html = renderChart(chart, 600, 300);
 		const axisTickTexts = readHorizontalBarValueAxisTicks(html);
 
 		expect(axisTickTexts.length).toBeGreaterThan(0);
@@ -197,18 +169,14 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('stacks mixed-sign series by sign around a zero baseline and labels the signed total', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [{ category: 'First', direct: 100, partner: -100 }],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
 			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
 		});
-		const children = flattenChildren(chart.props.children);
-		const bars = children.filter((child) => getDisplayName(child) === 'Bar');
-		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
-		const referenceLine = children.find((child) => getDisplayName(child) === 'ReferenceLine');
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const bars = findChartElements(chart, 'Bar');
+		const xAxis = findChartElement(chart, 'XAxis');
+		const referenceLine = findChartElement(chart, 'ReferenceLine');
+		const html = renderChart(chart, 600, 300);
 
 		expect(chart.props.stackOffset).toBe('sign');
 		expect(xAxis?.props.domain).toEqual([-100, 100]);
@@ -225,21 +193,16 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('renders a negative single-series value as a bar extending left of zero', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [
 				{ category: 'Loss', value: -30 },
 				{ category: 'Gain', value: 50 },
 			],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
 		});
-		const children = flattenChildren(chart.props.children);
-		const bar = children.find((child) => getDisplayName(child) === 'Bar');
-		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
-		const referenceLine = children.find((child) => getDisplayName(child) === 'ReferenceLine');
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const bar = findChartElement(chart, 'Bar');
+		const xAxis = findChartElement(chart, 'XAxis');
+		const referenceLine = findChartElement(chart, 'ReferenceLine');
+		const html = renderChart(chart, 600, 300);
 
 		expect(chart.props.stackOffset).toBeUndefined();
 		expect(xAxis?.props.hide).not.toBe(true);
@@ -252,17 +215,12 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('keeps the progress track and hidden axis when no value is negative', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [{ category: 'First', value: 30 }],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
 		});
-		const children = flattenChildren(chart.props.children);
-		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
+		const xAxis = findChartElement(chart, 'XAxis');
 
-		expect(children.some((child) => getDisplayName(child) === 'ReferenceLine')).toBe(false);
+		expect(findChartElements(chart, 'ReferenceLine').length > 0).toBe(false);
 		expect(xAxis?.props).toMatchObject({ hide: true, domain: [0, 30] });
 	});
 
@@ -270,17 +228,14 @@ describe('buildChart horizontal bars', () => {
 		const props = {
 			data: [{ category: 'First', direct: 20, partner: 30 }],
 			chartType: 'horizontal_bar_100' as const,
-			xAxisKey: 'category',
-			xAxisType: 'category' as const,
 			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
 		};
-		const chart = buildChart(props);
-		const labelledChart = buildChart({ ...props, showDataLabels: true });
-		const children = flattenChildren(chart.props.children);
-		const bars = children.filter((child) => getDisplayName(child) === 'Bar');
-		const xAxis = children.find((child) => getDisplayName(child) === 'XAxis');
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
-		const labelledHtml = renderToString(React.cloneElement(labelledChart, { width: 600, height: 300 }));
+		const chart = buildHorizontalBarChart(props);
+		const labelledChart = buildHorizontalBarChart({ ...props, showDataLabels: true });
+		const bars = findChartElements(chart, 'Bar');
+		const xAxis = findChartElement(chart, 'XAxis');
+		const html = renderChart(chart, 600, 300);
+		const labelledHtml = renderChart(labelledChart, 600, 300);
 
 		expect(chart.props.stackOffset).toBe('expand');
 		expect(bars).toHaveLength(2);
@@ -291,35 +246,29 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('labels empty normalized rows as zero percent', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [
 				{ category: 'Empty', direct: 0, partner: 0 },
 				{ category: 'Full', direct: 20, partner: 30 },
 			],
 			chartType: 'horizontal_bar_100',
-			xAxisKey: 'category',
-			xAxisType: 'category',
 			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
 			showDataLabels: true,
 		});
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const html = renderChart(chart, 600, 300);
 
 		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['0%', '100%']);
 	});
 
 	it('renders zero and null values at the bar origin', () => {
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: [
 				{ category: 'Zero', value: 0 },
 				{ category: 'Missing', value: null },
 				{ category: 'Full', value: 100 },
 			],
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
 		});
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const html = renderChart(chart, 600, 300);
 		const labels = readHorizontalBarValueLabels(html);
 
 		expect(labels.slice(0, 2).map((label) => label.text)).toEqual(['0', '0']);
@@ -328,18 +277,14 @@ describe('buildChart horizontal bars', () => {
 
 	it('skips value labels and category ticks that do not fit', () => {
 		const rowCount = 96;
-		const chart = buildChart({
+		const chart = buildHorizontalBarChart({
 			data: Array.from({ length: rowCount }, (_, index) => ({
 				category: `Month ${index + 1}`,
 				value: index + 1,
 			})),
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
 		});
-		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const yAxis = findChartElement(chart, 'YAxis');
+		const html = renderChart(chart, 600, 300);
 		const labels = readHorizontalBarValueLabels(html);
 		const boxes = labels.map((label) => labelBox(label.x, label.y, (label.text.length * 7) / 2, 'end', 12));
 
@@ -355,17 +300,10 @@ describe('buildChart horizontal bars', () => {
 	it('keeps value labels inside a dense horizontal bar chart', () => {
 		const chartHeight = 300;
 		const fontSize = 12;
-		const chart = buildChart({
-			data: Array.from({ length: 60 }, (_, index) => ({
-				category: `Customer ${index + 1}`,
-				value: index + 1,
-			})),
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
+		const chart = buildHorizontalBarChart({
+			data: DENSE_CUSTOMERS,
 		});
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: chartHeight }));
+		const html = renderChart(chart, 600, chartHeight);
 		const labels = readHorizontalBarValueLabels(html);
 		const labelTops = labels.map((label) => label.y - fontSize / 2);
 		const labelBottoms = labels.map((label) => label.y + fontSize / 2);
@@ -376,17 +314,10 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('keeps the first value label centered on its bar', () => {
-		const chart = buildChart({
-			data: Array.from({ length: 60 }, (_, index) => ({
-				category: `Customer ${index + 1}`,
-				value: index + 1,
-			})),
-			chartType: 'horizontal_bar',
-			xAxisKey: 'category',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
+		const chart = buildHorizontalBarChart({
+			data: DENSE_CUSTOMERS,
 		});
-		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const html = renderChart(chart, 600, 300);
 		const labels = readHorizontalBarValueLabels(html);
 		const barCenters = readHorizontalBarCenters(html);
 
@@ -396,23 +327,27 @@ describe('buildChart horizontal bars', () => {
 	});
 
 	it('shows value labels by default and removes their margin when hidden', () => {
-		const props = {
-			data: [{ category: 'First', value: 50 }],
-			chartType: 'horizontal_bar' as const,
-			xAxisKey: 'category',
-			xAxisType: 'category' as const,
-			series: [{ data_key: 'value' }],
-		};
-		const visibleChart = buildChart(props);
-		const hiddenChart = buildChart({ ...props, showDataLabels: false });
-		const visibleHtml = renderToString(React.cloneElement(visibleChart, { width: 600, height: 300 }));
-		const hiddenHtml = renderToString(React.cloneElement(hiddenChart, { width: 600, height: 300 }));
+		const props = { data: [{ category: 'First', value: 50 }] };
+		const visibleChart = buildHorizontalBarChart(props);
+		const hiddenChart = buildHorizontalBarChart({ ...props, showDataLabels: false });
+		const visibleHtml = renderChart(visibleChart, 600, 300);
+		const hiddenHtml = renderChart(hiddenChart, 600, 300);
 
 		expect(readHorizontalBarValueLabels(visibleHtml)).toHaveLength(1);
 		expect(readHorizontalBarValueLabels(hiddenHtml)).toHaveLength(0);
 		expect(visibleChart.props.margin.right).toBeGreaterThan(hiddenChart.props.margin?.right ?? 0);
 	});
 });
+
+function buildHorizontalBarChart(props: Pick<BuildChartProps, 'data'> & Partial<BuildChartProps>) {
+	return buildChart({
+		chartType: 'horizontal_bar',
+		xAxisKey: 'category',
+		xAxisType: 'category',
+		series: [{ data_key: 'value' }],
+		...props,
+	});
+}
 
 function readHorizontalBarValueLabels(
 	html: string,
@@ -492,38 +427,4 @@ function readHorizontalBarCenters(html: string): number[] {
 		}
 	}
 	return centers;
-}
-
-interface TestElementProps {
-	[key: string]: unknown;
-	background?: unknown;
-	barSize?: number;
-	domain?: unknown;
-	hide?: boolean;
-	maxBarSize?: number;
-	radius?: number[];
-	shape?: (props: unknown) => ReactElement<{ radius?: number[]; stroke?: string; strokeWidth?: number }>;
-	stackId?: string;
-	tickFormatter?: (value: string | number) => string;
-	width?: number;
-}
-
-type TestElement = ReactElement<TestElementProps>;
-
-function flattenChildren(children: unknown): TestElement[] {
-	if (Array.isArray(children)) {
-		return children.flatMap(flattenChildren);
-	}
-	if (isReactElement(children)) {
-		return [children];
-	}
-	return [];
-}
-
-function isReactElement(value: unknown): value is TestElement {
-	return typeof value === 'object' && value !== null && 'props' in value && 'type' in value;
-}
-
-function getDisplayName(element: TestElement): string | undefined {
-	return typeof element.type === 'string' ? element.type : (element.type as { displayName?: string }).displayName;
 }

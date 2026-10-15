@@ -10,14 +10,13 @@ The test suite is skipped entirely when POSTGRES_HOST is not set.
 
 import os
 import uuid
-from pathlib import Path
 
 import ibis
 import pytest
 
 from nao_core.config.databases.postgres import PostgresConfig
 
-from .base import BaseSyncIntegrationTests, SyncTestSpec
+from .base import BaseSyncIntegrationTests, SyncTestSpec, dml_statements
 
 POSTGRES_HOST = os.environ.get("POSTGRES_HOST")
 
@@ -54,19 +53,12 @@ def temp_database():
             password=os.environ["POSTGRES_PASSWORD"],
         )
 
-        # Read and execute SQL script
-        sql_file = Path(__file__).parent / "dml" / "postgres.sql"
-        sql_content = sql_file.read_text()
-
-        # Execute SQL statements
-        for statement in sql_content.split(";"):
-            statement = statement.strip()
-            if statement:
-                try:
-                    conn.raw_sql(statement).fetchall()
-                except Exception:
-                    # Some statements (like CREATE SCHEMA) don't return results
-                    pass
+        for statement in dml_statements("postgres.sql"):
+            try:
+                conn.raw_sql(statement).fetchall()
+            except Exception:
+                # Some statements (like CREATE SCHEMA) don't return results
+                pass
 
         yield db_name
 
@@ -133,98 +125,6 @@ def spec():
             "- amount",
         ),
         users_table_description="Registered user accounts",
-        users_preview_rows=[
-            {"id": 1, "name": "Alice", "email": "alice@example.com", "active": True},
-            {"id": 2, "name": "Bob", "email": None, "active": False},
-            {"id": 3, "name": "Charlie", "email": "charlie@example.com", "active": True},
-        ],
-        orders_preview_rows=[
-            {"id": 1, "user_id": 1, "amount": 99.99},
-            {"id": 2, "user_id": 1, "amount": 24.5},
-        ],
-        users_profiling_rows=[
-            {
-                "column": "id",
-                "type": "int32",
-                "total_count": 3,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 3,
-                "min": 1,
-                "max": 3,
-                "mean": 2.0,
-                "stddev": 0.8165,
-            },
-            {
-                "column": "name",
-                "type": "string",
-                "total_count": 3,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 3,
-                "top_values": [
-                    {"value": "Alice", "count": 1},
-                    {"value": "Bob", "count": 1},
-                    {"value": "Charlie", "count": 1},
-                ],
-            },
-            {
-                "column": "email",
-                "type": "string",
-                "total_count": 3,
-                "null_count": 1,
-                "null_percentage": 33.33,
-                "distinct_count": 2,
-                "top_values": [
-                    {"value": "alice@example.com", "count": 1},
-                    {"value": "charlie@example.com", "count": 1},
-                ],
-            },
-            {
-                "column": "active",
-                "type": "boolean",
-                "total_count": 3,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 2,
-                "top_values": [{"value": True, "count": 2}, {"value": False, "count": 1}],
-            },
-        ],
-        orders_profiling_rows=[
-            {
-                "column": "id",
-                "type": "int32",
-                "total_count": 2,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 2,
-                "min": 1,
-                "max": 2,
-                "mean": 1.5,
-                "stddev": 0.5,
-            },
-            {
-                "column": "user_id",
-                "type": "int32",
-                "total_count": 2,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 1,
-                "top_values": [{"value": 1, "count": 2}],
-            },
-            {
-                "column": "amount",
-                "type": "float64",
-                "total_count": 2,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 2,
-                "min": 24.5,
-                "max": 99.99,
-                "mean": 62.245,
-                "stddev": 37.745,
-            },
-        ],
         schema_field="schema_name",
         another_schema="another",
         another_table="whatever",

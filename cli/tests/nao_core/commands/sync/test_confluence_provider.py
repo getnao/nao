@@ -225,32 +225,26 @@ def test_sync_pulls_pages_for_a_label(tmp_path: Path):
     assert result.items_synced == 1
 
 
-def test_sync_skips_a_page_unchanged_since_last_run(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("remote_version", "expected_fetched", "expected_details"),
+    [
+        (5, [], {"synced": 0, "unchanged": 1, "removed": 0}),
+        (6, ["100"], {"synced": 1, "unchanged": 0, "removed": 0}),
+    ],
+    ids=["skips_a_page_unchanged_since_last_run", "refetches_a_page_that_changed"],
+)
+def test_sync_compares_page_versions_with_last_run(tmp_path: Path, remote_version, expected_fetched, expected_details):
     provider = ConfluenceSyncProvider()
     existing = tmp_path / "space=ENG"
     existing.mkdir(parents=True)
     (existing / "page-100.md").write_text(render_document(page("100", version=5)), encoding="utf-8")
-    fake = FakeClient({"100": page("100", version=5)}, search=[PageRef("100", version=5)])
+    fake = FakeClient({"100": page("100", version=remote_version)}, search=[PageRef("100", version=remote_version)])
 
     with patched(fake):
         result = provider.sync([cloud_config(spaces=["ENG"])], tmp_path)
 
-    assert fake.fetched == []
-    assert result.details == {"synced": 0, "unchanged": 1, "removed": 0}
-
-
-def test_sync_refetches_a_page_that_changed(tmp_path: Path):
-    provider = ConfluenceSyncProvider()
-    existing = tmp_path / "space=ENG"
-    existing.mkdir(parents=True)
-    (existing / "page-100.md").write_text(render_document(page("100", version=5)), encoding="utf-8")
-    fake = FakeClient({"100": page("100", version=6)}, search=[PageRef("100", version=6)])
-
-    with patched(fake):
-        result = provider.sync([cloud_config(spaces=["ENG"])], tmp_path)
-
-    assert fake.fetched == ["100"]
-    assert result.details == {"synced": 1, "unchanged": 0, "removed": 0}
+    assert fake.fetched == expected_fetched
+    assert result.details == expected_details
 
 
 def test_sync_removes_stale_pages_and_prunes_empty_dirs(tmp_path: Path):

@@ -1,9 +1,18 @@
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { buildChart, computeKpiComparison, computeValueAxisWidth, describePreviousPeriod } from '../src/chart-builder';
+import {
+	buildChart,
+	type BuildChartProps,
+	computeKpiComparison,
+	computeValueAxisWidth,
+	describePreviousPeriod,
+} from '../src/chart-builder';
 import { CHART_FONT_STACK } from '../src/chart-fonts';
 import { formatChartValue } from '../src/chart-values';
+import { type ChartElement, findChartElement } from './helpers/chart-elements';
+
+const LONG_CATEGORY = 'A very long category';
 
 describe('formatChartValue', () => {
 	it('uses en-US formatting by default', () => {
@@ -62,102 +71,46 @@ describe('computeValueAxisWidth', () => {
 });
 
 describe('buildChart', () => {
-	it('uses stack totals for stacked bar fallback bounds', () => {
-		const yAxis = getYAxis(
+	it.each([
+		{ chartType: 'stacked_bar', bounds: 'stack totals', domain: [0, 110] },
+		{ chartType: 'bar', bounds: 'individual values', domain: [0, 60] },
+		{ chartType: 'stacked_area', bounds: 'stack totals', domain: [0, 110] },
+		{ chartType: 'area', bounds: 'individual values', domain: [0, 60] },
+	] as const)('uses $bounds for $chartType fallback bounds', ({ chartType, domain }) => {
+		const yAxis = findChartElement(
 			buildChart({
 				data: [{ name: 'A', costs: 60, revenue: 50 }],
-				chartType: 'stacked_bar',
+				chartType,
 				xAxisKey: 'name',
 				xAxisType: 'category',
 				series: [{ data_key: 'costs' }, { data_key: 'revenue' }],
 				yAxisMin: 0,
 			}),
+			'YAxis',
 		);
 
-		expect(yAxis?.props.domain).toEqual([0, 110]);
-	});
-
-	it('uses individual values for grouped bar fallback bounds', () => {
-		const yAxis = getYAxis(
-			buildChart({
-				data: [{ name: 'A', costs: 60, revenue: 50 }],
-				chartType: 'bar',
-				xAxisKey: 'name',
-				xAxisType: 'category',
-				series: [{ data_key: 'costs' }, { data_key: 'revenue' }],
-				yAxisMin: 0,
-			}),
-		);
-
-		expect(yAxis?.props.domain).toEqual([0, 60]);
-	});
-
-	it('uses stack totals for stacked area fallback bounds', () => {
-		const yAxis = getYAxis(
-			buildChart({
-				data: [{ name: 'A', costs: 60, revenue: 50 }],
-				chartType: 'stacked_area',
-				xAxisKey: 'name',
-				xAxisType: 'category',
-				series: [{ data_key: 'costs' }, { data_key: 'revenue' }],
-				yAxisMin: 0,
-			}),
-		);
-
-		expect(yAxis?.props.domain).toEqual([0, 110]);
-	});
-
-	it('uses individual values for plain area fallback bounds', () => {
-		const yAxis = getYAxis(
-			buildChart({
-				data: [{ name: 'A', costs: 60, revenue: 50 }],
-				chartType: 'area',
-				xAxisKey: 'name',
-				xAxisType: 'category',
-				series: [{ data_key: 'costs' }, { data_key: 'revenue' }],
-				yAxisMin: 0,
-			}),
-		);
-
-		expect(yAxis?.props.domain).toEqual([0, 60]);
+		expect(yAxis?.props.domain).toEqual(domain);
 	});
 
 	it('uses the chart-specific prefix for area gradient ids and fills', () => {
-		const firstChart = buildChart({
-			data: [{ name: 'A', value: 10 }],
-			chartType: 'area',
-			xAxisKey: 'name',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
-			gradientIdPrefix: 'a-',
-		});
-		const secondChart = buildChart({
-			data: [{ name: 'A', value: 10 }],
-			chartType: 'area',
-			xAxisKey: 'name',
-			xAxisType: 'category',
-			series: [{ data_key: 'value' }],
-			gradientIdPrefix: 'b-',
-		});
+		const firstChart = buildCategoryChart({ chartType: 'area', gradientIdPrefix: 'a-' });
+		const secondChart = buildCategoryChart({ chartType: 'area', gradientIdPrefix: 'b-' });
 
 		expect(getGradient(firstChart)?.props.id).toBe('a-grad-0');
-		expect(getArea(firstChart)?.props.fill).toBe('url(#a-grad-0)');
+		expect(findChartElement(firstChart, 'Area')?.props.fill).toBe('url(#a-grad-0)');
 		expect(getGradient(secondChart)?.props.id).toBe('b-grad-0');
 		expect(getGradient(firstChart)?.props.id).not.toBe(getGradient(secondChart)?.props.id);
 	});
 
 	it('shows and angles every compact category label with a custom tick font size', () => {
-		const xAxis = getXAxis(
-			buildChart({
-				data: [{ name: 'A very long category', value: 10 }],
-				chartType: 'bar',
-				xAxisKey: 'name',
-				xAxisType: 'category',
-				series: [{ data_key: 'value' }],
+		const xAxis = findChartElement(
+			buildCategoryChart({
+				data: [{ name: LONG_CATEGORY, value: 10 }],
 				compactXAxis: true,
 				xAxisTickFontSize: 9,
 				labelFormatter: (value) => value,
 			}),
+			'XAxis',
 		);
 
 		expect(xAxis?.props.interval).toBe(0);
@@ -165,63 +118,33 @@ describe('buildChart', () => {
 		expect(xAxis?.props.textAnchor).toBe('end');
 		expect(xAxis?.props.height).toBe(56);
 		expect(xAxis?.props.tick).toEqual({ fontSize: 9, fontFamily: CHART_FONT_STACK });
-		expect(xAxis?.props.tickFormatter('A very long category')).toBe('A very long category');
+		expect(xAxis?.props.tickFormatter(LONG_CATEGORY)).toBe(LONG_CATEGORY);
 	});
 
 	it('reserves the fixed category axis height when labels are not compact', () => {
-		const xAxis = getXAxis(
-			buildChart({
-				data: [{ name: 'Category', value: 10 }],
-				chartType: 'bar',
-				xAxisKey: 'name',
-				xAxisType: 'category',
-				series: [{ data_key: 'value' }],
-			}),
-		);
+		const xAxis = findChartElement(buildCategoryChart({ data: [{ name: 'Category', value: 10 }] }), 'XAxis');
 
 		expect(xAxis?.props.height).toBe(56);
 		expect(xAxis?.props.angle).toBeUndefined();
 	});
 
-	it('does not truncate compact category labels without a character limit', () => {
-		const xAxis = getXAxis(
-			buildChart({
-				data: [{ name: 'A very long category', value: 10 }],
-				chartType: 'bar',
-				xAxisKey: 'name',
-				xAxisType: 'category',
-				series: [{ data_key: 'value' }],
-				compactXAxis: true,
-				labelFormatter: (value) => value,
-			}),
-		);
-
-		expect(xAxis?.props.tickFormatter('A very long category')).toBe('A very long category');
-	});
-
 	it('truncates compact category labels to the configured character limit', () => {
-		const xAxis = getXAxis(
-			buildChart({
-				data: [{ name: 'A very long category', value: 10 }],
-				chartType: 'bar',
-				xAxisKey: 'name',
-				xAxisType: 'category',
-				series: [{ data_key: 'value' }],
+		const xAxis = findChartElement(
+			buildCategoryChart({
+				data: [{ name: LONG_CATEGORY, value: 10 }],
 				compactXAxis: true,
 				xAxisMaxLabelChars: 6,
 				labelFormatter: (value) => value,
 			}),
+			'XAxis',
 		);
 
-		expect(xAxis?.props.tickFormatter('A very long category')).toBe('A ver…');
+		expect(xAxis?.props.tickFormatter(LONG_CATEGORY)).toBe('A ver…');
 	});
 });
 
 describe('computeKpiComparison', () => {
-	const rows = [
-		{ period: '2023-01-01', value: 100 },
-		{ period: '2024-01-01', value: 120 },
-	];
+	const rows = yearOverYear(100, 120);
 
 	it('returns null without a previous row', () => {
 		expect(computeKpiComparison([rows[0]], 'period', 'value', 'percentage')).toBeNull();
@@ -256,31 +179,15 @@ describe('computeKpiComparison', () => {
 	});
 
 	it('computes a percentage decrease as an unsigned magnitude', () => {
-		expect(
-			computeKpiComparison(
-				[
-					{ period: '2023-01-01', value: 100 },
-					{ period: '2024-01-01', value: 80 },
-				],
-				'period',
-				'value',
-				'percentage',
-			),
-		).toMatchObject({ valueText: '20%', direction: 'down', colored: true });
+		expect(computeKpiComparison(yearOverYear(100, 80), 'period', 'value', 'percentage')).toMatchObject({
+			valueText: '20%',
+			direction: 'down',
+			colored: true,
+		});
 	});
 
 	it('returns null for percentage change from zero', () => {
-		expect(
-			computeKpiComparison(
-				[
-					{ period: '2023-01-01', value: 0 },
-					{ period: '2024-01-01', value: 20 },
-				],
-				'period',
-				'value',
-				'percentage',
-			),
-		).toBeNull();
+		expect(computeKpiComparison(yearOverYear(0, 20), 'period', 'value', 'percentage')).toBeNull();
 	});
 
 	it('computes variation as a colored absolute delta', () => {
@@ -300,77 +207,52 @@ describe('computeKpiComparison', () => {
 	});
 
 	it('marks an unchanged value as flat', () => {
-		expect(
-			computeKpiComparison(
-				[
-					{ period: '2023-01-01', value: 100 },
-					{ period: '2024-01-01', value: 100 },
-				],
-				'period',
-				'value',
-				'percentage',
-			),
-		).toMatchObject({ valueText: '0%', direction: 'flat', colored: true });
+		expect(computeKpiComparison(yearOverYear(100, 100), 'period', 'value', 'percentage')).toMatchObject({
+			valueText: '0%',
+			direction: 'flat',
+			colored: true,
+		});
 	});
 });
 
 describe('describePreviousPeriod', () => {
-	it('describes yearly date gaps', () => {
-		expect(describePreviousPeriod('2023-01-01', '2024-01-01')).toBe('last year');
-	});
-
-	it('describes monthly date gaps', () => {
-		expect(describePreviousPeriod('2024-01-01', '2024-02-01')).toBe('last month');
-	});
-
-	it('describes month-only date gaps', () => {
-		expect(describePreviousPeriod('2024-01', '2024-02')).toBe('last month');
-	});
-
-	it('handles space-separated datetimes', () => {
-		expect(describePreviousPeriod('2023-01-01 00:00:00', '2024-01-01 00:00:00')).toBe('last year');
-	});
-
-	it('describes weekly date gaps', () => {
-		expect(describePreviousPeriod('2024-01-01', '2024-01-08')).toBe('last week');
-	});
-
-	it('describes a one-day gap as yesterday', () => {
-		expect(describePreviousPeriod('2024-01-01', '2024-01-02')).toBe('yesterday');
-	});
-
-	it('falls back for non-date categories', () => {
-		expect(describePreviousPeriod('Q1', 'Q2')).toBe('previous period');
+	it.each([
+		{ gap: 'yearly date gaps', previous: '2023-01-01', current: '2024-01-01', expected: 'last year' },
+		{ gap: 'monthly date gaps', previous: '2024-01-01', current: '2024-02-01', expected: 'last month' },
+		{ gap: 'month-only date gaps', previous: '2024-01', current: '2024-02', expected: 'last month' },
+		{
+			gap: 'space-separated datetimes',
+			previous: '2023-01-01 00:00:00',
+			current: '2024-01-01 00:00:00',
+			expected: 'last year',
+		},
+		{ gap: 'weekly date gaps', previous: '2024-01-01', current: '2024-01-08', expected: 'last week' },
+		{ gap: 'a one-day gap', previous: '2024-01-01', current: '2024-01-02', expected: 'yesterday' },
+		{ gap: 'non-date categories', previous: 'Q1', current: 'Q2', expected: 'previous period' },
+	])('describes $gap as $expected', ({ previous, current, expected }) => {
+		expect(describePreviousPeriod(previous, current)).toBe(expected);
 	});
 });
 
-function getYAxis(chart: ReactElement): ReactElement | undefined {
-	return flattenChildren(chart.props.children).find((child) => child.type.displayName === 'YAxis');
+function buildCategoryChart(overrides: Partial<BuildChartProps> = {}): ReactElement {
+	return buildChart({
+		data: [{ name: 'A', value: 10 }],
+		chartType: 'bar',
+		xAxisKey: 'name',
+		xAxisType: 'category',
+		series: [{ data_key: 'value' }],
+		...overrides,
+	});
 }
 
-function getXAxis(chart: ReactElement): ReactElement | undefined {
-	return flattenChildren(chart.props.children).find((child) => child.type.displayName === 'XAxis');
+function yearOverYear(previous: number, current: number) {
+	return [
+		{ period: '2023-01-01', value: previous },
+		{ period: '2024-01-01', value: current },
+	];
 }
 
-function getGradient(chart: ReactElement): ReactElement | undefined {
-	const definitions = flattenChildren(chart.props.children).find((child) => child.type === 'defs');
-	return flattenChildren(definitions?.props.children).find((child) => child.type === 'linearGradient');
-}
-
-function getArea(chart: ReactElement): ReactElement | undefined {
-	return flattenChildren(chart.props.children).find((child) => child.type.displayName === 'Area');
-}
-
-function flattenChildren(children: unknown): ReactElement[] {
-	if (Array.isArray(children)) {
-		return children.flatMap(flattenChildren);
-	}
-	if (isReactElement(children)) {
-		return [children];
-	}
-	return [];
-}
-
-function isReactElement(value: unknown): value is ReactElement {
-	return typeof value === 'object' && value !== null && 'props' in value && 'type' in value;
+function getGradient(chart: ReactElement): ChartElement | undefined {
+	const definitions = findChartElement(chart, 'defs');
+	return definitions && findChartElement(definitions, 'linearGradient');
 }

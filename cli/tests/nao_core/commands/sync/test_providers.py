@@ -25,19 +25,10 @@ class TestSyncResult:
         )
         assert result.get_summary() == "Custom summary message"
 
-    def test_get_summary_with_default_summary(self):
-        result = SyncResult(
-            provider_name="Test",
-            items_synced=5,
-        )
-        assert result.get_summary() == "5 synced"
-
-    def test_get_summary_zero_items(self):
-        result = SyncResult(
-            provider_name="Test",
-            items_synced=0,
-        )
-        assert result.get_summary() == "0 synced"
+    @pytest.mark.parametrize("items_synced", [5, 0], ids=["with_default_summary", "zero_items"])
+    def test_get_summary_defaults_to_synced_count(self, items_synced):
+        result = SyncResult(provider_name="Test", items_synced=items_synced)
+        assert result.get_summary() == f"{items_synced} synced"
 
     def test_result_with_details(self):
         result = SyncResult(

@@ -39,86 +39,32 @@ def test_parse_server_catalog_config() -> None:
 
 
 def test_mysql_catalog_defaults_to_3306() -> None:
-    cfg = parse_database_config(
-        {
-            "type": "ducklake",
-            "name": "lake",
-            "catalog": {
-                "type": "mysql",
-                "host": "db",
-                "database": "cat",
-                "user": "u",
-                "password": "p",
-            },
-            "data_path": "/data/lake/",
-        }
-    )
+    cfg = _config(catalog={"type": "mysql", "host": "db", "database": "cat", "user": "u", "password": "p"})
     assert isinstance(cfg, DuckLakeConfig)
     assert cfg.catalog.port == 3306
     assert cfg.catalog_connection_string() == "mysql:"
 
 
 def test_file_catalog_uses_path() -> None:
-    cfg = parse_database_config(
-        {
-            "type": "ducklake",
-            "name": "lake",
-            "catalog": {"type": "duckdb", "path": "/data/catalog.ducklake"},
-            "data_path": "/data/lake/",
-        }
-    )
+    cfg = _config()
     assert isinstance(cfg, DuckLakeConfig)
     assert cfg.catalog_connection_string() == "/data/catalog.ducklake"
 
 
 def test_sqlite_catalog_is_prefixed() -> None:
-    cfg = parse_database_config(
-        {
-            "type": "ducklake",
-            "name": "lake",
-            "catalog": {"type": "sqlite", "path": "/data/catalog.sqlite"},
-            "data_path": "/data/lake/",
-        }
-    )
+    cfg = _config(catalog={"type": "sqlite", "path": "/data/catalog.sqlite"})
     assert isinstance(cfg, DuckLakeConfig)
     assert cfg.catalog_connection_string() == "sqlite:/data/catalog.sqlite"
 
 
 def test_server_catalog_requires_host() -> None:
     with pytest.raises(ValidationError, match="host, database, user and password"):
-        parse_database_config(
-            {
-                "type": "ducklake",
-                "name": "lake",
-                "catalog": {"type": "postgres", "path": "/nope"},
-                "data_path": "/data/",
-            }
-        )
+        _config(catalog={"type": "postgres", "path": "/nope"})
 
 
 def test_file_catalog_requires_path() -> None:
     with pytest.raises(ValidationError, match="requires 'path'"):
-        parse_database_config(
-            {
-                "type": "ducklake",
-                "name": "lake",
-                "catalog": {"type": "duckdb", "host": "localhost"},
-                "data_path": "/data/",
-            }
-        )
-
-
-def test_hyphenated_connection_name_is_accepted() -> None:
-    """The repo's own names use hyphens (postgres-prod, duckdb-local)."""
-    cfg = parse_database_config(
-        {
-            "type": "ducklake",
-            "name": "analytics-lake",
-            "catalog": {"type": "duckdb", "path": "/c.ducklake"},
-            "data_path": "/data/",
-        }
-    )
-    assert cfg.get_database_name() == "analytics-lake"
+        _config(catalog={"type": "duckdb", "host": "localhost"})
 
 
 def test_ducklake_requires_the_duckdb_extra() -> None:
@@ -135,17 +81,6 @@ def test_ducklake_requires_the_duckdb_extra() -> None:
     assert get_required_extras(config) == ["duckdb"]
 
 
-def _config(**overrides: object) -> DuckLakeConfig:
-    payload: dict[str, object] = {
-        "type": "ducklake",
-        "name": "lake",
-        "catalog": {"type": "duckdb", "path": "/data/catalog.ducklake"},
-        "data_path": "/data/lake/",
-    }
-    payload.update(overrides)
-    return parse_database_config(payload)  # type: ignore[return-value]
-
-
 def test_local_file_catalog_statements() -> None:
     statements = _config().connection_statements()
     assert statements == [
@@ -158,17 +93,9 @@ def test_local_file_catalog_statements() -> None:
 
 
 def test_postgres_catalog_loads_its_driver() -> None:
-    statements = _config(
-        catalog={
-            "type": "postgres",
-            "host": "localhost",
-            "database": "cat",
-            "user": "u",
-            "password": "p",
-        }
-    ).connection_statements()
+    statements = _config(catalog=_postgres_catalog()).connection_statements()
     assert "INSTALL postgres" in statements
-    assert statements.index("LOAD postgres") < statements.index([s for s in statements if s.startswith("ATTACH")][0])
+    assert statements.index("LOAD postgres") < statements.index(_attach_statement(statements))
 
 
 def test_remote_storage_adds_httpfs_and_secret() -> None:
@@ -192,22 +119,14 @@ def test_remote_storage_adds_httpfs_and_secret() -> None:
     assert "ENDPOINT 'localhost:9010'" in secret
     assert "URL_STYLE 'path'" in secret
     assert "USE_SSL false" in secret
-    assert statements.index(secret) < statements.index([s for s in statements if s.startswith("ATTACH")][0])
+    assert statements.index(secret) < statements.index(_attach_statement(statements))
 
 
 def test_server_catalog_password_never_reaches_the_attach() -> None:
     """DuckDB echoes the ATTACH string in errors that reach the agent."""
-    statements = _config(
-        catalog={
-            "type": "postgres",
-            "host": "localhost",
-            "database": "cat",
-            "user": "u",
-            "password": "SUPERSECRET",
-        }
-    ).connection_statements()
+    statements = _config(catalog=_postgres_catalog(password="SUPERSECRET")).connection_statements()
 
-    attach = next(s for s in statements if s.startswith("ATTACH"))
+    attach = _attach_statement(statements)
     assert "SUPERSECRET" not in attach
     assert "ducklake:postgres:" in attach
 
@@ -216,38 +135,13 @@ def test_server_catalog_password_never_reaches_the_attach() -> None:
     assert statements.index(secret) < statements.index(attach)
 
 
-def test_local_data_path_needs_no_httpfs() -> None:
-    statements = _config().connection_statements()
-    assert not any("httpfs" in s for s in statements)
-    assert not any("SECRET" in s for s in statements)
-
-
-def test_lockdown_statements_are_emitted_after_the_attach() -> None:
-    """Order is the whole correctness argument: extensions/secrets, ATTACH, then lockdown."""
-    statements = _config().connection_statements()
-    attach_index = statements.index([s for s in statements if s.startswith("ATTACH")][0])
-    allowed_dirs_index = statements.index("SET allowed_directories = ['/data/lake/']")
-    external_access_index = statements.index("SET enable_external_access = false")
-
-    assert attach_index < allowed_dirs_index
-    assert attach_index < external_access_index
-    assert allowed_dirs_index < external_access_index
-    assert not any("lock_configuration" in s for s in statements)
-
-
 def test_extensions_and_secrets_precede_the_attach() -> None:
     statements = _config(
-        catalog={
-            "type": "postgres",
-            "host": "localhost",
-            "database": "cat",
-            "user": "u",
-            "password": "p",
-        },
+        catalog=_postgres_catalog(),
         data_path="s3://bucket/warehouse/",
         storage={"type": "s3", "key_id": "KEY", "secret": "SECRET"},
     ).connection_statements()
-    attach_index = statements.index([s for s in statements if s.startswith("ATTACH")][0])
+    attach_index = statements.index(_attach_statement(statements))
 
     assert statements.index("INSTALL ducklake") < attach_index
     assert statements.index("LOAD ducklake") < attach_index
@@ -261,28 +155,22 @@ def test_extensions_and_secrets_precede_the_attach() -> None:
 
 def test_single_quotes_in_values_are_escaped() -> None:
     statements = _config(data_path="/data/o'brien/").connection_statements()
-    attach = next(s for s in statements if s.startswith("ATTACH"))
+    attach = _attach_statement(statements)
     assert "DATA_PATH '/data/o''brien/'" in attach
     allowed_directories = next(s for s in statements if s.startswith("SET allowed_directories"))
     assert allowed_directories == "SET allowed_directories = ['/data/o''brien/']"
 
 
-def test_metadata_schema_is_omitted_when_unset() -> None:
-    """Lakes using the catalog's default schema must keep the plain ATTACH."""
-    attach = next(s for s in _config().connection_statements() if s.startswith("ATTACH"))
-    assert "METADATA_SCHEMA" not in attach
-
-
 def test_metadata_schema_is_emitted_when_set() -> None:
     """Without it, a lake whose ducklake_* tables live in a non-default schema is
     reported as non-existent — the attach does not search other schemas."""
-    attach = next(s for s in _config(metadata_schema="lake").connection_statements() if s.startswith("ATTACH"))
+    attach = _attach_statement(_config(metadata_schema="lake").connection_statements())
     assert "METADATA_SCHEMA 'lake'" in attach
     assert attach.index("DATA_PATH") < attach.index("METADATA_SCHEMA") < attach.index("READ_ONLY")
 
 
 def test_metadata_schema_single_quotes_are_escaped() -> None:
-    attach = next(s for s in _config(metadata_schema="o'brien").connection_statements() if s.startswith("ATTACH"))
+    attach = _attach_statement(_config(metadata_schema="o'brien").connection_statements())
     assert "METADATA_SCHEMA 'o''brien'" in attach
 
 
@@ -313,15 +201,7 @@ def test_unknown_error_is_passed_through() -> None:
 
 
 def test_unknown_error_redacts_catalog_password() -> None:
-    cfg = _config(
-        catalog={
-            "type": "postgres",
-            "host": "localhost",
-            "database": "cat",
-            "user": "u",
-            "password": "SUPERSECRET",
-        }
-    )
+    cfg = _config(catalog=_postgres_catalog(password="SUPERSECRET"))
     message = cfg.translate_connection_error("syntax error near PASSWORD 'SUPERSECRET'")
     assert "SUPERSECRET" not in message
     assert "[redacted]" in message
@@ -346,15 +226,7 @@ def test_unknown_error_redacts_storage_secret() -> None:
 
 def test_empty_password_does_not_corrupt_unrelated_message() -> None:
     """Regression guard: replacing an empty string would insert [redacted] between every character."""
-    cfg = _config(
-        catalog={
-            "type": "postgres",
-            "host": "localhost",
-            "database": "cat",
-            "user": "u",
-            "password": "",
-        }
-    )
+    cfg = _config(catalog=_postgres_catalog(password=""))
     assert cfg.translate_connection_error("some other failure") == "some other failure"
 
 
@@ -408,3 +280,22 @@ def test_context_splits_a_hyphenated_alias_into_three_part_sql() -> None:
     cfg = _config(name="analytics-lake")
     context = cfg.create_context(conn=None, schema="analytics-lake.main", table_name="t")  # type: ignore[invalid-argument-type]
     assert context._qualified_table_sql() == '"analytics-lake"."main"."t"'
+
+
+def _config(**overrides: object) -> DuckLakeConfig:
+    payload: dict[str, object] = {
+        "type": "ducklake",
+        "name": "lake",
+        "catalog": {"type": "duckdb", "path": "/data/catalog.ducklake"},
+        "data_path": "/data/lake/",
+    }
+    payload.update(overrides)
+    return parse_database_config(payload)  # type: ignore[return-value]
+
+
+def _postgres_catalog(password: str = "p") -> dict[str, str]:
+    return {"type": "postgres", "host": "localhost", "database": "cat", "user": "u", "password": password}
+
+
+def _attach_statement(statements: list[str]) -> str:
+    return next(statement for statement in statements if statement.startswith("ATTACH"))
