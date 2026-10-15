@@ -65,7 +65,7 @@ export async function compileSemanticQuery(query: SemanticQuery, context: ToolCo
 		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
 		const detail = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
 		const message = `Error compiling semantic query: ${detail}`;
-		throw response.status === 400 ? new SemanticQueryCompileError(message) : new Error(message);
+		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
 	}
 
 	return (await response.json()) as CompiledSemanticQuery;

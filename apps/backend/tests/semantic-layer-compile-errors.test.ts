@@ -11,7 +11,7 @@ afterEach(() => {
 
 describe('compileSemanticQuery errors', () => {
 	it('raises a SemanticQueryCompileError when the layer rejects the query', async () => {
-		stubCompileResponse(400, { detail: 'Got error(s) during query resolution. no_such_metric' });
+		stubCompileResponse(422, { detail: 'Got error(s) during query resolution. no_such_metric' });
 
 		const error = await compileSemanticQuery({ metrics: ['no_such_metric'] }, context).catch((caught) => caught);
 
@@ -21,7 +21,7 @@ describe('compileSemanticQuery errors', () => {
 		);
 	});
 
-	it.each([500, 503])('raises a plain error for status %s', async (status) => {
+	it.each([400, 500, 503])('raises a plain error for status %s', async (status) => {
 		stubCompileResponse(status, { detail: 'Semantic layer unavailable' });
 
 		const error = await compileSemanticQuery({ metrics: ['revenue'] }, context).catch((caught) => caught);

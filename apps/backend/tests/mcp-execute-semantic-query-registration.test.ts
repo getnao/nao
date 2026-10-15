@@ -132,8 +132,17 @@ describe('MCP execute_semantic_query registration', () => {
 		const client = await connect('prioritized');
 		const executeSql = (await client.listTools()).tools.find((tool) => tool.name === 'execute_sql');
 
+		const warehouseResult = await client.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select 1', database_id: 'analytics' },
+		});
+
 		expect(executeSql?.description).not.toContain('only reachable through execute_semantic_query');
 		expect(executeSql?.inputSchema.required ?? []).not.toContain('database_id');
+		expect(warehouseResult.isError).not.toBe(true);
+		expect(testState.calls.map((call) => call.input)).toEqual([
+			{ sql_query: 'select 1', database_id: 'analytics' },
+		]);
 	});
 
 	it('returns the semantic layer message when the query does not compile', async () => {

@@ -61,6 +61,7 @@ from nao_core.semantic_layer import (  # noqa: E402
     SemanticLayerError,
     SemanticLayerUnavailableError,
     SemanticQuery,
+    SemanticQueryError,
     metricflow_dialect_for,
     runtime_manifest_path,
 )
@@ -630,6 +631,8 @@ async def compile_semantic_query(request: CompileSemanticQueryRequest):
         raise
     except SemanticLayerUnavailableError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except SemanticQueryError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except (NaoConfigError, SemanticLayerError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
