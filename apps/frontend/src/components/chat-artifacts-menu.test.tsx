@@ -133,11 +133,17 @@ describe('ChatArtifactsMenu', () => {
 		expect(screen.queryByText('Stories')).toBeNull();
 	});
 
-	it('outlines the query result it scrolls to', () => {
+	it('expands, scrolls to and outlines the query result it reveals', () => {
 		vi.stubGlobal('CSS', { escape: (value: string) => value });
+		vi.stubGlobal('matchMedia', () => ({ matches: true }));
 		const toolCall = document.createElement('div');
 		toolCall.dataset.replayTargetId = 'call_query';
 		toolCall.scrollIntoView = vi.fn();
+		const trigger = document.createElement('button');
+		trigger.setAttribute('aria-expanded', 'false');
+		const expand = vi.fn();
+		trigger.addEventListener('click', expand);
+		toolCall.appendChild(trigger);
 		document.body.appendChild(toolCall);
 		renderMenu(NARROW_COLUMN);
 
@@ -145,9 +151,25 @@ describe('ChatArtifactsMenu', () => {
 		fireEvent.click(screen.getByText('Queries'));
 		fireEvent.click(screen.getByText('Monthly revenue'));
 
-		expect(toolCall.scrollIntoView).toHaveBeenCalled();
+		expect(expand).toHaveBeenCalled();
+		expect(toolCall.scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
 		expect(toolCall.classList.contains('chat-artifact-reveal-highlight')).toBe(true);
 		toolCall.remove();
+	});
+
+	it('closes the expanded panel on Escape and on a click outside', () => {
+		renderMenu(NARROW_COLUMN);
+		const toggle = screen.getByRole('button', { name: 'Library (3)' });
+
+		fireEvent.click(toggle);
+		fireEvent.keyDown(document, { key: 'Escape' });
+		expect(screen.queryByText('Stories')).toBeNull();
+
+		fireEvent.click(toggle);
+		fireEvent.pointerDown(screen.getByText('Stories'));
+		expect(screen.getByText('Stories')).toBeDefined();
+		fireEvent.pointerDown(document.body);
+		expect(screen.queryByText('Stories')).toBeNull();
 	});
 
 	it('hides queries for a compact tool call density', () => {

@@ -1,5 +1,5 @@
 import { ChevronDown, Layers, Table2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import type { ChatArtifacts, FileArtifact, QueryArtifact } from '@/lib/chat-artifacts';
 import type { StorySummary } from '@/lib/story.utils';
@@ -44,13 +44,20 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 	const count = countChatArtifacts(artifacts, showQueries);
 	const hasRoom = useHasRoomBesideChat(chatColumnRef);
 	const [isExpanded, setIsExpanded] = useState(false);
-
-	if (count === 0) {
-		return null;
-	}
-
+	const rootRef = useRef<HTMLDivElement>(null);
 	const isDocked = hasRoom && artifacts.stories.length > 0;
 	const isOpen = isDocked || isExpanded;
+
+	const collapse = useCallback(() => setIsExpanded(false), []);
+
+	useDismissOnOutsideInteraction(rootRef, isExpanded && !isDocked, collapse);
+
+	if (count === 0) {
+		if (isExpanded) {
+			setIsExpanded(false);
+		}
+		return null;
+	}
 
 	const toggle = () => {
 		setIsExpanded((value) => !value);
@@ -69,7 +76,7 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 	};
 
 	return (
-		<>
+		<div ref={rootRef} className='contents'>
 			{!isDocked && (
 				<Button
 					variant='outline'
@@ -102,7 +109,7 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 					/>
 				</div>
 			)}
-		</>
+		</div>
 	);
 }
 
@@ -246,6 +253,35 @@ function useHasRoomBesideChat(chatColumnRef: RefObject<HTMLElement | null> | und
 	return hasRoom;
 }
 
+function useDismissOnOutsideInteraction(
+	rootRef: RefObject<HTMLElement | null>,
+	isActive: boolean,
+	onDismiss: () => void,
+) {
+	useEffect(() => {
+		if (!isActive) {
+			return;
+		}
+
+		const handlePointerDown = (event: PointerEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) {
+				onDismiss();
+			}
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				onDismiss();
+			}
+		};
+		document.addEventListener('pointerdown', handlePointerDown);
+		document.addEventListener('keydown', handleKeyDown);
+		return () => {
+			document.removeEventListener('pointerdown', handlePointerDown);
+			document.removeEventListener('keydown', handleKeyDown);
+		};
+	}, [rootRef, isActive, onDismiss]);
+}
+
 function hasRoomBesideChat(columnWidth: number): boolean {
 	const gutter = (columnWidth - CHAT_COLUMN_MAX_WIDTH) / 2;
 	return gutter >= PANEL_WIDTH + PANEL_HORIZONTAL_MARGIN;
@@ -263,8 +299,20 @@ function scrollToToolCall(toolCallId: string) {
 		return;
 	}
 
-	target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	expandToolCall(target);
+	target.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
 	highlightRevealedElement(target);
+}
+
+function expandToolCall(toolCall: HTMLElement) {
+	const trigger = toolCall.querySelector<HTMLButtonElement>('button[aria-expanded]');
+	if (trigger?.getAttribute('aria-expanded') === 'false') {
+		trigger.click();
+	}
+}
+
+function prefersReducedMotion(): boolean {
+	return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 /** Re-adding the class after a reflow restarts the fade when the same element is revealed twice in a row. */

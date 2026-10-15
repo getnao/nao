@@ -48,7 +48,7 @@ export function MobileHeader({
 						</Link>
 					</Button>
 				)}
-				{chatId && <ChatArtifactsMenu chatId={chatId} panelClassName='right-3 mt-1' />}
+				{chatId && <ChatArtifactsMenu key={chatId} chatId={chatId} panelClassName='right-3 mt-1' />}
 			</div>
 		</div>
 	);

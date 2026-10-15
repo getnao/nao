@@ -81,11 +81,24 @@ describe('collectChatArtifacts', () => {
 		expect(countChatArtifacts(artifacts, false)).toBe(1);
 	});
 
+	it('leaves out the messages carried over from a forked chat', () => {
+		const forked = { ...message('a0', 'assistant', queryPart('query_a', undefined, ['x'], 1)), isForked: true };
+		const artifacts = collectChatArtifacts([forked, message('a1', 'assistant', storyPart('s', 'S'))]);
+
+		expect(artifacts.queries).toEqual([]);
+		expect(artifacts.stories).toEqual([{ id: 's', title: 'S' }]);
+	});
+
 	it('compares artifacts by content', () => {
-		const build = () => collectChatArtifacts([message('a1', 'assistant', queryPart('query_a', 'A', ['x'], 1))]);
-		const changed = collectChatArtifacts([message('a1', 'assistant', queryPart('query_a', 'A', ['x'], 2))]);
+		const build = (rowCount = 1, storyTitle = 'S', filename = 'sales.csv') =>
+			collectChatArtifacts([
+				message('u1', 'user', filePart('/home/uploads/sales.csv', filename)),
+				message('a1', 'assistant', queryPart('query_a', 'A', ['x'], rowCount), storyPart('s', storyTitle)),
+			]);
 
 		expect(areChatArtifactsEqual(build(), build())).toBe(true);
-		expect(areChatArtifactsEqual(build(), changed)).toBe(false);
+		expect(areChatArtifactsEqual(build(), build(2))).toBe(false);
+		expect(areChatArtifactsEqual(build(), build(1, 'Renamed'))).toBe(false);
+		expect(areChatArtifactsEqual(build(), build(1, 'S', 'renamed.csv'))).toBe(false);
 	});
 });

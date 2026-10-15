@@ -26,16 +26,20 @@ export interface ChatArtifacts {
 
 const artifactsByMessages = new WeakMap<UIMessage[], ChatArtifacts>();
 
-/** Everything a conversation produced or received that outlives a single message. */
+/**
+ * Everything a conversation produced or received that outlives a single message.
+ * Messages carried over from a forked chat are hidden from the thread, so they are left out too.
+ */
 export function collectChatArtifacts(messages: UIMessage[]): ChatArtifacts {
 	const cached = artifactsByMessages.get(messages);
 	if (cached) {
 		return cached;
 	}
+	const visibleMessages = messages.filter((message) => !message.isForked);
 	const artifacts: ChatArtifacts = {
-		stories: findStories(messages),
-		files: collectFileArtifacts(messages),
-		queries: collectQueryArtifacts(messages),
+		stories: findStories(visibleMessages),
+		files: collectFileArtifacts(visibleMessages),
+		queries: collectQueryArtifacts(visibleMessages),
 	};
 	artifactsByMessages.set(messages, artifacts);
 	return artifacts;

@@ -256,6 +256,7 @@ function ChatPage() {
 									)}
 								</Button>
 								<ChatArtifactsMenu
+									key={chatId}
 									chatId={chatId}
 									chatColumnRef={chatColumnRef}
 									panelClassName='right-0 mt-2'
