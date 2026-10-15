@@ -3,11 +3,13 @@ import { useCallback, useState } from 'react';
 import { McpAppHeader } from './mcp-app-header';
 import { OpenInNaoButton } from './open-in-nao-button';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { DownloadFormat } from '@nao/shared/types';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -20,23 +22,34 @@ interface StoryAppViewProps {
 	title: string;
 	code: string;
 	queryData: QueryDataMap | null;
+	theme?: StoryThemePair | null;
 	naoUrl?: string;
 	onDownload?: (format: DownloadFormat) => Promise<void>;
 }
 
-export function StoryAppView({ title, code, queryData, naoUrl, onDownload }: StoryAppViewProps) {
+export function StoryAppView({ title, code, queryData, theme, naoUrl, onDownload }: StoryAppViewProps) {
+	const storyTheme = useStoryThemeForCurrentMode(theme);
+
 	return (
 		<div className='flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-background text-foreground'>
 			<McpAppHeader title={title}>
 				{onDownload ? <StoryDownloadButton onDownload={onDownload} /> : null}
 				{naoUrl ? <OpenInNaoButton url={naoUrl} /> : null}
 			</McpAppHeader>
-			<StoryBody code={code} queryData={queryData} />
+			<StoryBody code={code} queryData={queryData} theme={storyTheme} />
 		</div>
 	);
 }
 
-function StoryBody({ code, queryData }: { code: string; queryData: QueryDataMap | null }) {
+function StoryBody({
+	code,
+	queryData,
+	theme,
+}: {
+	code: string;
+	queryData: QueryDataMap | null;
+	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
+}) {
 	const renderChart = useCallback(
 		(
 			chart: ParsedChartBlock,
@@ -103,6 +116,7 @@ function StoryBody({ code, queryData }: { code: string; queryData: QueryDataMap 
 		<StoryTabbedContent
 			code={code}
 			baselineQueryData={queryData}
+			theme={theme}
 			renderChart={renderChart}
 			renderTable={renderTable}
 			renderMap={renderMap}

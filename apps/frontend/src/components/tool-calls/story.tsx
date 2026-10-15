@@ -9,12 +9,14 @@ import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Button } from '../ui/button';
 import type { ToolCallComponentProps } from '.';
-import { trpc } from '@/main';
+import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useTimeAgo } from '@/hooks/use-time-ago';
+import { trpc } from '@/main';
 
 const STORY_ACTION_LABELS = {
 	create: { pending: 'Creating...', done: 'Created' },
@@ -32,7 +34,6 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const input = toolPart.input;
 	const isStreaming = toolPart.state === 'input-streaming';
 	const output = toolPart.output;
-	const summary = extractStorySummary(output?.code ?? '');
 	const hasAutoOpenedRef = useRef(false);
 
 	const finalStorySlug = output?.id ?? input?.id;
@@ -51,6 +52,8 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		}),
 		enabled: !isStreaming && canOpen,
 	});
+	const summary = extractStorySummary(latestStory?.code ?? output?.code ?? '');
+	const storyTheme = useStoryThemeForCurrentMode(latestStory?.theme);
 
 	useEffect(() => {
 		const shouldAutoOpen = (isCreateAction && isStreaming) || isCustomPublished;
@@ -138,12 +141,21 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		>
 			<div className='items-end relative h-16 w-30 shrink-0'>
 				{isCustomStory ? (
-					<CustomStoryThumbnail isToolPart={true} />
+					<CustomStoryThumbnail
+						storyId={latestStory?.storyId}
+						version={latestStory?.version}
+						isToolPart={true}
+						summary={summary}
+						theme={storyTheme}
+						queryData={latestStory?.queryData as QueryDataMap | null | undefined}
+					/>
 				) : (
 					<StoryThumbnail
 						summary={summary}
 						className='rounded-lg overflow-visible right-6'
 						isToolPart={true}
+						theme={storyTheme}
+						queryData={latestStory?.queryData as QueryDataMap | null | undefined}
 					/>
 				)}
 			</div>

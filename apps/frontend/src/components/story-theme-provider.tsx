@@ -2,9 +2,10 @@ import { ChartStyleContext, DEFAULT_CHART_STYLE } from '@nao/shared';
 import { storyThemeToCssVars } from '@nao/shared/story-theme';
 import { useEffect, useMemo } from 'react';
 import type { ChartStyle } from '@nao/shared';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 import type { CSSProperties, ReactNode } from 'react';
 
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { cn } from '@/lib/utils';
 
 interface StoryThemeProviderProps {
@@ -33,6 +34,11 @@ export function StoryThemeProvider({ theme, children, className }: StoryThemePro
 			</div>
 		</ChartStyleContext.Provider>
 	);
+}
+
+export function useStoryThemeForCurrentMode(pair: StoryThemePair | null | undefined): StoryTheme | null {
+	const isDarkMode = useIsDarkMode();
+	return pair ? pair[isDarkMode ? 'dark' : 'light'] : null;
 }
 
 function toReactStyle(cssVars: Record<string, string>): CSSProperties {

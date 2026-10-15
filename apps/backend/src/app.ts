@@ -65,6 +65,7 @@ import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
+import { storyThumbnailRoutes } from './routes/story-thumbnail';
 import { stripeWebhookRoutes } from './routes/stripe-webhook';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
@@ -226,6 +227,10 @@ app.register(authErrorRedirectRoutes, {
 
 app.register(embedStoryDownloadRoutes, {
 	prefix: '/api/embed',
+});
+
+app.register(storyThumbnailRoutes, {
+	prefix: '/api/stories',
 });
 
 app.register(notificationUnsubscribeRoutes, {

@@ -10,6 +10,8 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
 import {
+	getActiveThemeForProject,
+	getActiveThemeForStory,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
 	getSharedCustomStoryQueryData,
@@ -40,6 +42,8 @@ import {
 } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
+import { themeFontStylesheets } from '../utils/story-headless-page';
+import { withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -75,7 +79,7 @@ export const sharedStoryRoutes = {
 		const projects = await projectQueries.listUserProjects(ctx.user.id);
 		const projectIds = projects.map((p) => p.id);
 		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, input.projectId);
-		return stories.map(({ id: _shareId, ...story }) => ({
+		const items = stories.map(({ id: _shareId, ...story }) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
@@ -86,6 +90,7 @@ export const sharedStoryRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
+		return withKpiPreviewData(items, (story) => story.storyId);
 	}),
 
 	create: canSendProcedure
@@ -186,7 +191,10 @@ export const sharedStoryRoutes = {
 		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
 		const canFork = await getStoryForkAccess(shared, ctx.user.id, ctx.userRole);
 
-		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
+		const [lastRefreshFailure, theme] = await Promise.all([
+			activityQueries.getLatestStoryRefreshFailure(shared.storyId),
+			getActiveThemeForStory(shared.storyId),
+		]);
 		const { queryData, cachedAt, code, needsRefresh } =
 			shared.format === 'custom'
 				? { queryData: null, cachedAt: null, code: shared.code, needsRefresh: false }
@@ -218,6 +226,7 @@ export const sharedStoryRoutes = {
 			cachedAt,
 			lastRefreshFailure,
 			needsRefresh: needsRefresh ?? false,
+			theme,
 			userRole: ctx.userRole,
 			canRefresh,
 			canFork,
@@ -333,7 +342,8 @@ export const sharedStoryRoutes = {
 				},
 			});
 
-			return buildStorySnapshotDownload(input.format, shared.title, input.html);
+			const fontStylesheets = themeFontStylesheets(await getActiveThemeForStory(shared.storyId));
+			return buildStorySnapshotDownload(input.format, shared.title, input.html, fontStylesheets);
 		}),
 
 	getVersionQueryData: shareAccessProcedure
@@ -611,9 +621,21 @@ export const sharedStoryRoutes = {
 				},
 			});
 
-			const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
+			const [displaySettings, theme] = shared.projectId
+				? await Promise.all([
+						projectQueries.getDisplaySettings(shared.projectId),
+						getActiveThemeForProject(shared.projectId),
+					])
+				: [null, null];
 
-			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				version.title,
+				code,
+				queryData,
+				displaySettings?.dateFormat,
+				theme,
+			);
 		}),
 };
 

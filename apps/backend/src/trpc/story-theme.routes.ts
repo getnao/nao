@@ -12,6 +12,7 @@ import { env } from '../env';
 import * as storyThemeQueries from '../queries/story-theme.queries';
 import { generateStoryThemePairFromSources } from '../services/story-theme/generate';
 import { DesignSourceError } from '../services/story-theme/signals';
+import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
 import { cloudBillingAdminProcedure, projectProtectedProcedure } from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
@@ -53,10 +54,10 @@ const storyThemeAdminProcedure = cloudBillingAdminProcedure.use(async ({ ctx, ne
 
 export const storyThemeRoutes = {
 	getActive: projectProtectedProcedure.query(async ({ ctx }) => {
-		if (!env.BETA_CUSTOM_STORIES_ENABLED) {
-			return { theme: null };
-		}
-		return { theme: await storyThemeQueries.getActiveStoryTheme(ctx.project.id) };
+		const theme = env.BETA_CUSTOM_STORIES_ENABLED
+			? await storyThemeQueries.getActiveStoryTheme(ctx.project.id)
+			: null;
+		return { theme, thumbnailFingerprint: storyThemeFingerprint(theme) };
 	}),
 
 	getState: storyThemeReadProcedure.query(async ({ ctx }) => {

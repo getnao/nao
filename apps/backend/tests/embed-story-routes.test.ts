@@ -29,6 +29,7 @@ describe('public embedded Story routes', () => {
 			chatId: 'chat-1',
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 			dateFormat: null,
+			theme: null,
 		});
 		mocks.buildDownloadResponse.mockReturnValue({ filename: 'orders.pdf' });
 	});
@@ -55,6 +56,7 @@ describe('public embedded Story routes', () => {
 			'Orders',
 			'<table query_id="query_orders" />',
 			{ query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+			null,
 			null,
 		);
 	});

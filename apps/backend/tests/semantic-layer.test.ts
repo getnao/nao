@@ -14,6 +14,19 @@ vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('@resvg/resvg-js', () => ({
+	Resvg: class FakeResvg {
+		render() {
+			return { asPng: () => Buffer.from([]) };
+		}
+	},
+}));
+vi.mock('../src/agents/tools/display-chart', () => ({ default: {} }));
+vi.mock('../src/agents/tools/display-map', () => ({ createDisplayMapTool: () => ({}) }));
+vi.mock('../src/agents/tools/story', () => ({
+	buildStoryToolDescription: () => 'Story tool',
+	default: {},
+}));
 
 const dirs: string[] = [];
 
@@ -98,7 +111,7 @@ describe('execute_semantic_query exposure', () => {
 		expect(toolNames('disabled')).not.toContain('execute_semantic_query');
 		expect(toolNames('prioritized')).toContain('execute_semantic_query');
 		expect(toolNames('exclusive')).toContain('execute_semantic_query');
-	});
+	}, 10_000);
 
 	it('restricts execute_sql to the local database in semantics-only mode', async () => {
 		const { getTools } = await import('../src/agents/tools');

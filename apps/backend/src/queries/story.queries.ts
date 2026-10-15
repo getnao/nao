@@ -25,7 +25,12 @@ export type UserStoryRow = Pick<
 	| 'format'
 	| 'createdAt'
 	| 'updatedAt'
-> & { code: string; version: number; versionCreatedAt: DBStoryVersion['createdAt']; certifiedByName: string | null };
+> & {
+	code: string;
+	version: number;
+	versionCreatedAt: DBStoryVersion['createdAt'];
+	certifiedByName: string | null;
+};
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
 
@@ -542,6 +547,29 @@ export function getStoryDataCacheByChatAndSlug(chatId: string, slug: string): Pr
 
 export function getStoryDataCacheByStoryId(storyId: string): Promise<DBStoryDataCache | null> {
 	return getStoryDataCache(eq(s.story.id, storyId));
+}
+
+export async function getStoryDataCachedAt(storyId: string): Promise<Date | null> {
+	const [row] = await db
+		.select({ cachedAt: s.storyDataCache.cachedAt })
+		.from(s.storyDataCache)
+		.where(eq(s.storyDataCache.storyId, storyId))
+		.execute();
+	return row?.cachedAt ?? null;
+}
+
+export async function getStoryQueryDataByStoryIds(
+	storyIds: string[],
+): Promise<Map<string, DBStoryDataCache['queryData']>> {
+	if (storyIds.length === 0) {
+		return new Map();
+	}
+	const rows = await db
+		.select({ storyId: s.storyDataCache.storyId, queryData: s.storyDataCache.queryData })
+		.from(s.storyDataCache)
+		.where(inArray(s.storyDataCache.storyId, storyIds))
+		.execute();
+	return new Map(rows.map((row) => [row.storyId, row.queryData]));
 }
 
 export async function upsertStoryDataCache(

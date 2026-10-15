@@ -1,6 +1,6 @@
 import { resolveDataKey } from '@nao/shared';
 import { Code, Pencil } from 'lucide-react';
-import { memo, useContext, useMemo, useState } from 'react';
+import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { ChartType } from '@nao/shared/chart-types';
@@ -9,10 +9,11 @@ import type { displayChart } from '@nao/shared/tools';
 
 import { StoryChartQueryView } from '@/components/side-panel/story-chart-query';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
-import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
+import { ChartConfigEditDialog, resolveChartPaletteHexes } from '@/components/tool-calls/display-chart-edit-dialog';
 import { Button } from '@/components/ui/button';
 import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { useStoryQuerySql } from '@/contexts/story-query-sql';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { sortByDateKey } from '@/lib/charts.utils';
@@ -124,8 +125,11 @@ export function StoryChartEmbedShell({
 }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const querySqlSource = useStoryQuerySql();
+	const paletteScopeRef = useRef<HTMLDivElement>(null);
+	const isDarkMode = useIsDarkMode();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [showQuery, setShowQuery] = useState(false);
+	const [palette, setPalette] = useState<string[] | undefined>();
 	const canEdit = Boolean(edit && chart.rawTag);
 	const canViewQuery = Boolean(querySqlSource);
 
@@ -160,11 +164,22 @@ export function StoryChartEmbedShell({
 	);
 
 	const isKpi = chart.chartType === 'kpi_card';
+	const openEditor = () => {
+		setPalette(resolveChartPaletteHexes(paletteScopeRef.current));
+		setIsEditOpen(true);
+	};
+
+	useEffect(() => {
+		if (isEditOpen) {
+			setPalette(resolveChartPaletteHexes(paletteScopeRef.current));
+		}
+	}, [isEditOpen, isDarkMode]);
+
 	const editButton = canEdit ? (
 		<Button
 			variant='ghost-muted'
 			size='icon-xs'
-			onClick={() => setIsEditOpen(true)}
+			onClick={openEditor}
 			title='Edit chart'
 			className='shrink-0 hover:bg-accent hover:rounded-full'
 		>
@@ -184,7 +199,7 @@ export function StoryChartEmbedShell({
 	) : null;
 
 	return (
-		<div className='my-2 flex flex-col gap-4'>
+		<div ref={paletteScopeRef} className='my-2 flex flex-col gap-4'>
 			{!isKpi && (canEdit || canViewQuery || dragHandle != null || chart.title) && (
 				<div className='flex w-full items-center justify-between gap-2'>
 					<div className='flex min-w-0 flex-1 items-center gap-1'>
@@ -221,6 +236,7 @@ export function StoryChartEmbedShell({
 					config={config}
 					availableColumns={availableColumns}
 					data={data}
+					palette={palette}
 					isSaving={edit.isSaving}
 					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
 					description={edit.saveDescription}

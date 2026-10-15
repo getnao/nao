@@ -1,7 +1,9 @@
 import type { DateFormatSettings } from '@nao/shared/date';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
+import { getActiveThemeForProject } from '../services/custom-story';
 import { getStoryQueryData } from '../services/live-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
@@ -16,6 +18,7 @@ export type EmbedStoryContent = {
 	chatId: string | null;
 	queryData: StoryQueryDataMap | null;
 	dateFormat: DateFormatSettings | null;
+	theme: StoryThemePair | null;
 };
 
 export async function loadEmbedStoryContent(storyId: string, token: string): Promise<EmbedStoryContent> {
@@ -43,9 +46,10 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 	if (!ownerId) {
 		throw new HandlerError('FORBIDDEN', 'Story has no execution owner.');
 	}
-	const [storyData, displaySettings] = await Promise.all([
+	const [storyData, displaySettings, theme] = await Promise.all([
 		loadEmbedStoryData(version, projectId, ownerId),
 		projectQueries.getDisplaySettings(projectId),
+		getActiveThemeForProject(projectId),
 	]);
 
 	return {
@@ -57,6 +61,7 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 		chatId: version.chatId,
 		queryData: storyData.queryData,
 		dateFormat: displaySettings.dateFormat ?? null,
+		theme,
 	};
 }
 

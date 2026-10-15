@@ -2,7 +2,7 @@ import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
-import type { DBStory, DBStoryDataCache } from '../db/abstractSchema';
+import type { DBStory, DBStoryDataCache, DBStoryVersion } from '../db/abstractSchema';
 import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
@@ -81,7 +81,19 @@ export async function getCustomStoryVersion(
 ): Promise<CustomStoryVersionView> {
 	const story = await getCustomStory(chatId, storySlug);
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
+	return buildCustomStoryVersionView(story, version);
+}
 
+export async function getLatestCustomStoryVersionByStoryId(storyId: string): Promise<CustomStoryVersionView> {
+	const story = await getCustomStoryById(storyId);
+	const version = await storyQueries.getLatestVersionByStoryId(storyId);
+	if (!version) {
+		throw new CustomStoryNotFoundError();
+	}
+	return buildCustomStoryVersionView(story, version);
+}
+
+async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersion): Promise<CustomStoryVersionView> {
 	const [bundle, files, theme, cache, lastRefreshFailure] = await Promise.all([
 		storyFileQueries.getVersionBundle(version.id),
 		storyFileQueries.listVersionFiles(version.id),
@@ -186,6 +198,36 @@ export async function getCustomStoryNarratives(
 	);
 }
 
+/** The results already saved for the story (its data cache, else the chat's own), without running any query. */
+export async function getStoredCustomStoryQueryDataByStoryId(
+	storyId: string,
+	queryIds: string[],
+): Promise<Record<string, StoryQueryResult>> {
+	const story = await getCustomStoryById(storyId);
+	const usesCache = story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
+	const cached = usesCache ? ((await storyQueries.getStoryDataCacheByStoryId(story.id))?.queryData ?? {}) : {};
+	const uncachedIds = new Set(queryIds.filter((queryId) => !cached[queryId]));
+	const fromChat =
+		story.chatId && uncachedIds.size > 0
+			? await executeSqlQueries.getLatestSqlQueryDataByIds(story.chatId, uncachedIds)
+			: {};
+	return Object.fromEntries(
+		queryIds.flatMap((queryId) => {
+			const result = cached[queryId] ?? fromChat[queryId];
+			return result ? [[queryId, result]] : [];
+		}),
+	);
+}
+
+/** The narratives already saved for the story, without refreshing it. */
+export async function getStoredCustomStoryNarrativesByStoryId(storyId: string): Promise<StoryNarratives> {
+	const story = await getCustomStoryById(storyId);
+	if (!story.isLive || !story.isLiveTextDynamic) {
+		return {};
+	}
+	return (await storyQueries.getStoryDataCacheByStoryId(story.id))?.analysisResults ?? {};
+}
+
 /** A shared custom story only serves the queries its own sources reference, never any other query of the chat. */
 export async function getSharedCustomStoryQueryData(
 	chatId: string,
@@ -261,6 +303,14 @@ async function getCustomStory(chatId: string, storySlug: string): Promise<DBStor
 	return story;
 }
 
+async function getCustomStoryById(storyId: string): Promise<DBStory> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story || story.format !== 'custom') {
+		throw new CustomStoryNotFoundError();
+	}
+	return story;
+}
+
 async function getCustomStoryVersionRow(chatId: string, storySlug: string, versionNumber?: number) {
 	const version =
 		versionNumber === undefined
@@ -284,10 +334,14 @@ function refreshOnce(chatId: string, storySlug: string): Promise<RefreshResult> 
 	return refresh;
 }
 
-async function getActiveThemeForStory(storyId: string): Promise<StoryThemePair | null> {
+export async function getActiveThemeForStory(storyId: string): Promise<StoryThemePair | null> {
 	if (!env.BETA_CUSTOM_STORIES_ENABLED) {
 		return null;
 	}
 	const projectId = await storyQueries.getStoryProjectId(storyId);
-	return projectId ? storyThemeQueries.getActiveStoryTheme(projectId) : null;
+	return projectId ? getActiveThemeForProject(projectId) : null;
+}
+
+export async function getActiveThemeForProject(projectId: string): Promise<StoryThemePair | null> {
+	return env.BETA_CUSTOM_STORIES_ENABLED ? storyThemeQueries.getActiveStoryTheme(projectId) : null;
 }

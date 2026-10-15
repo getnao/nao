@@ -1,7 +1,15 @@
 import { ChartColumn, ChartLine, ChartPie, Pencil } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { SHEET_SURFACE, SHEET_TRANSFORM, SHEET_VISUAL } from '@/components/story-thumbnail';
+import type { StorySummary } from '@nao/shared/types';
+import type { StoryTheme } from '@nao/shared/story-theme';
+import type { QueryDataMap } from '@/components/story-embeds';
+import { SHEET_TRANSFORM, SHEET_VISUAL, StoryThumbnail } from '@/components/story-thumbnail';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 const ANIMATED = 'app-preview-animated';
 
@@ -14,8 +22,8 @@ const LINE_CHART_PATH =
 const SPARKLINE_PATH = 'M2 20L9 15L16 17L23 9L30 12L37 5L44 7';
 const POINTER_PATH = 'M4 3l6.5 17 2.4-7.1L20 10.5z';
 
-/** Screen-space projection of the 12px block shift through SHEET_TRANSFORM, so overlays keep tracking the blocks. */
 const BLOCKS_SHIFT_ON_SCREEN = 'translate(-8.2px, 1.7px)';
+const FLAT_THUMBNAIL_FRAME = 'overflow-hidden bg-background';
 
 const CLICKS = [
 	{ x: 112.9, y: 24.2, atSeconds: 0.6 },
@@ -26,27 +34,235 @@ const CLICKS = [
 	{ x: 159.3, y: 16.3, atSeconds: 9.3 },
 ];
 
-export function CustomStoryThumbnail({ isToolPart = false }: { isToolPart?: boolean }) {
+const SCREENSHOT_RETRY_DELAYS_MS = [3_000, 8_000, 20_000, 45_000];
+const MAX_SCREENSHOT_ATTEMPTS = 12;
+
+export function CustomStoryThumbnail({
+	storyId,
+	version,
+	isToolPart = false,
+	summary,
+	queryData,
+	theme: fallbackTheme,
+}: {
+	storyId?: string;
+	version?: number;
+	isToolPart?: boolean;
+	summary?: StorySummary;
+	queryData?: QueryDataMap | null;
+	theme?: StoryTheme | null;
+}) {
+	const mode = useIsDarkMode() ? 'dark' : 'light';
+	const { data: activeTheme } = useQuery({
+		...trpc.storyTheme.getActive.queryOptions(),
+		enabled: storyId !== undefined,
+	});
+	const theme = activeTheme?.theme?.[mode] ?? fallbackTheme ?? null;
+	const fallback = (
+		<ThumbnailFallback summary={summary} queryData={queryData} isToolPart={isToolPart} theme={theme} />
+	);
+	if (storyId === undefined || activeTheme === undefined) {
+		return fallback;
+	}
+	const src = thumbnailUrl(storyId, version, activeTheme.thumbnailFingerprint, mode);
+	return <StoryScreenshot key={src} src={src} isToolPart={isToolPart} theme={theme} fallback={fallback} />;
+}
+
+function StoryScreenshot({
+	src,
+	isToolPart,
+	theme,
+	fallback,
+}: {
+	src: string;
+	isToolPart: boolean;
+	theme: StoryTheme | null;
+	fallback: ReactNode;
+}) {
+	const [status, setStatus] = useState<'loading' | 'loaded' | 'missing'>('loading');
+	const [attempt, setAttempt] = useState(0);
+
+	useEffect(() => {
+		if (status !== 'missing' || attempt >= MAX_SCREENSHOT_ATTEMPTS) {
+			return;
+		}
+		const timeout = setTimeout(() => {
+			setAttempt(attempt + 1);
+			setStatus('loading');
+		}, retryDelayAfter(attempt));
+		return () => clearTimeout(timeout);
+	}, [status, attempt]);
+
 	return (
-		<div className='custom-story-thumbnail pointer-events-none absolute inset-0'>
+		<>
+			{status !== 'loaded' && fallback}
+			{status !== 'missing' && (
+				<ScreenshotSheet
+					key={attempt}
+					src={src}
+					isToolPart={isToolPart}
+					isVisible={status === 'loaded'}
+					theme={theme}
+					onLoad={() => setStatus('loaded')}
+					onError={() => setStatus('missing')}
+				/>
+			)}
+		</>
+	);
+}
+
+function ThumbnailFallback({
+	summary,
+	queryData,
+	isToolPart,
+	theme,
+}: {
+	summary?: StorySummary;
+	queryData?: QueryDataMap | null;
+	isToolPart: boolean;
+	theme: StoryTheme | null;
+}) {
+	if (summary && summary.segments.length > 0) {
+		return (
+			<StoryThumbnail
+				summary={summary}
+				queryData={queryData}
+				isToolPart={isToolPart}
+				theme={theme}
+				className={isToolPart ? 'rounded-lg overflow-visible right-6' : undefined}
+			/>
+		);
+	}
+
+	return <AppIllustration isToolPart={isToolPart} theme={theme} />;
+}
+
+/** The version and theme in the URL let the browser keep an image until either of them changes. */
+function retryDelayAfter(attempt: number): number {
+	return SCREENSHOT_RETRY_DELAYS_MS[Math.min(attempt, SCREENSHOT_RETRY_DELAYS_MS.length - 1)];
+}
+
+function thumbnailUrl(storyId: string, version: number | undefined, theme: string, mode: 'light' | 'dark'): string {
+	const params = new URLSearchParams();
+	if (version !== undefined) {
+		params.set('version', String(version));
+	}
+	params.set('theme', theme);
+	params.set('mode', mode);
+	return `/api/stories/${encodeURIComponent(storyId)}/thumbnail?${params}`;
+}
+
+function ScreenshotSheet({
+	src,
+	isToolPart,
+	isVisible,
+	theme,
+	onLoad,
+	onError,
+}: {
+	src: string;
+	isToolPart: boolean;
+	isVisible: boolean;
+	theme: StoryTheme | null;
+	onLoad: () => void;
+	onError: () => void;
+}) {
+	if (isToolPart) {
+		return (
 			<div
 				className={cn(
-					'absolute top-0 left-0 h-[88px] w-[210px]',
-					isToolPart && '-left-[9px] origin-top-left scale-[0.73]',
+					'pointer-events-none absolute inset-0 transition-opacity duration-300',
+					isVisible ? 'opacity-100' : 'opacity-0',
 				)}
 			>
+				<StoryThemeProvider theme={theme} className='relative'>
+					<div className='absolute top-0 -left-[9px] h-[88px] w-[210px] origin-top-left scale-[0.73]'>
+						<div
+							className={cn(
+								'absolute top-[27%] left-[15%] h-auto w-[196px] max-w-none origin-top-left aspect-[8/5] bg-secondary',
+								SHEET_VISUAL,
+							)}
+							style={{ transform: SHEET_TRANSFORM }}
+						/>
+						<img
+							src={src}
+							alt=''
+							loading='lazy'
+							decoding='async'
+							fetchPriority='low'
+							onLoad={onLoad}
+							onError={onError}
+							className={cn(
+								'absolute top-[26%] left-[16%] h-auto w-[196px] max-w-none origin-top-left aspect-[8/5] object-cover object-top-left bg-background',
+								SHEET_VISUAL,
+								'border-t border-r border-border/40',
+							)}
+							style={{ transform: SHEET_TRANSFORM }}
+						/>
+					</div>
+				</StoryThemeProvider>
+			</div>
+		);
+	}
+
+	return (
+		<div
+			className={cn(
+				'pointer-events-none absolute inset-0 transition-opacity duration-300',
+				isVisible ? 'opacity-100' : 'opacity-0',
+				'overflow-hidden',
+			)}
+		>
+			<StoryThemeProvider theme={theme} className={cn('relative', FLAT_THUMBNAIL_FRAME)}>
+				<div className='absolute inset-0 overflow-hidden bg-background'>
+					<img
+						src={src}
+						alt=''
+						loading='lazy'
+						decoding='async'
+						fetchPriority='low'
+						onLoad={onLoad}
+						onError={onError}
+						className='size-full max-w-none object-cover object-top-left bg-background'
+					/>
+				</div>
+			</StoryThemeProvider>
+		</div>
+	);
+}
+
+function AppIllustration({ isToolPart, theme }: { isToolPart: boolean; theme: StoryTheme | null }) {
+	if (isToolPart) {
+		return (
+			<div className='custom-story-thumbnail pointer-events-none absolute inset-0'>
+				<StoryThemeProvider theme={theme} className='relative overflow-hidden'>
+					<div className='absolute top-0 -left-[9px] h-[88px] w-[210px] origin-top-left scale-[0.73]'>
+						<AppSheet isToolPart={isToolPart} />
+						<div className='absolute inset-0' style={{ transform: BLOCKS_SHIFT_ON_SCREEN }}>
+							<BarTooltip />
+							{CLICKS.map((click) => (
+								<ClickRipple key={click.atSeconds} {...click} />
+							))}
+							<Pointer />
+						</div>
+					</div>
+				</StoryThemeProvider>
+			</div>
+		);
+	}
+
+	return (
+		<div className='custom-story-thumbnail pointer-events-none absolute inset-0 overflow-hidden'>
+			<StoryThemeProvider theme={theme} className={cn('relative', FLAT_THUMBNAIL_FRAME)}>
 				<AppSheet isToolPart={isToolPart} />
-				<div
-					className='absolute inset-0'
-					style={isToolPart ? { transform: BLOCKS_SHIFT_ON_SCREEN } : undefined}
-				>
+				<div className='absolute inset-0'>
 					<BarTooltip />
 					{CLICKS.map((click) => (
 						<ClickRipple key={click.atSeconds} {...click} />
 					))}
 					<Pointer />
 				</div>
-			</div>
+			</StoryThemeProvider>
 		</div>
 	);
 }
@@ -54,26 +270,41 @@ export function CustomStoryThumbnail({ isToolPart = false }: { isToolPart?: bool
 function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 	const sheetSize = isToolPart ? 'h-[150px] w-[196px]' : 'h-[400px] w-[480px]';
 
+	if (isToolPart) {
+		return (
+			<>
+				<div
+					className={cn(
+						'absolute top-[27%] left-[15%] origin-top-left bg-secondary',
+						sheetSize,
+						SHEET_VISUAL,
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				/>
+				<div
+					className={cn(
+						'absolute top-[26%] left-[16%] origin-top-left overflow-hidden',
+						sheetSize,
+						'bg-background',
+						SHEET_VISUAL,
+						'border-t border-r',
+					)}
+					style={{ transform: SHEET_TRANSFORM }}
+				>
+					<BlockEditPanel isToolPart={isToolPart} />
+					<StoryTitle isToolPart={isToolPart} />
+					<StoryTabs isToolPart={isToolPart} />
+					<TextBlock isToolPart={isToolPart} />
+					<ChartBlock isToolPart={isToolPart} />
+					<InsightsBlock isToolPart={isToolPart} />
+				</div>
+			</>
+		);
+	}
+
 	return (
-		<>
-			<div
-				className={cn(
-					'absolute top-[27%] left-[15%] origin-top-left bg-secondary dark:bg-secondary/90',
-					sheetSize,
-					SHEET_VISUAL,
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			/>
-			<div
-				className={cn(
-					'absolute top-[26%] left-[16%] origin-top-left overflow-hidden',
-					sheetSize,
-					SHEET_SURFACE,
-					SHEET_VISUAL,
-					isToolPart && 'border-t border-r',
-				)}
-				style={{ transform: SHEET_TRANSFORM }}
-			>
+		<div className='absolute inset-0 overflow-hidden bg-background'>
+			<div className='absolute inset-0 overflow-hidden'>
 				<BlockEditPanel isToolPart={isToolPart} />
 				<StoryTitle isToolPart={isToolPart} />
 				<StoryTabs isToolPart={isToolPart} />
@@ -81,7 +312,7 @@ function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 				<ChartBlock isToolPart={isToolPart} />
 				<InsightsBlock isToolPart={isToolPart} />
 			</div>
-		</>
+		</div>
 	);
 }
 
@@ -90,7 +321,7 @@ function BlockEditPanel({ isToolPart }: { isToolPart: boolean }) {
 	return (
 		<div
 			className={cn(
-				'absolute top-0 left-0 h-full border-r border-foreground/6 bg-foreground/6',
+				'absolute top-0 left-0 h-full border-r border-foreground/6 bg-card',
 				isToolPart ? 'w-[52px]' : 'w-16',
 			)}
 		>

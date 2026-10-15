@@ -1148,6 +1148,8 @@ export const storyBundle = sqliteTable('story_bundle', {
 	bundle: text('bundle'),
 	pageShell: text('page_shell'),
 	bundleError: text('bundle_error'),
+	thumbnail: text('thumbnail'),
+	thumbnailTheme: text('thumbnail_theme'),
 	builtAt: integer('built_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),

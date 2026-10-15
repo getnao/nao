@@ -174,6 +174,42 @@ export async function updateExecuteSqlPart(
 	);
 }
 
+/** Same as `getLatestSqlQueryDataByIds` for several chats at once, in a single query. */
+export async function getLatestSqlQueryDataByChats(
+	queryIdsByChat: Map<string, Set<string>>,
+): Promise<Map<string, Record<string, { data: unknown[]; columns: string[] }>>> {
+	const allQueryIds = new Set([...queryIdsByChat.values()].flatMap((ids) => [...ids]));
+	if (allQueryIds.size === 0) {
+		return new Map();
+	}
+	const parts = await db
+		.select({ chatId: s.chatMessage.chatId, toolOutput: s.messagePart.toolOutput })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(
+			and(
+				inArray(s.chatMessage.chatId, [...queryIdsByChat.keys()]),
+				isNull(s.chatMessage.supersededAt),
+				isQueryToolPart(),
+				messagePartToolOutputIdIn(allQueryIds),
+			),
+		)
+		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.createdAt), asc(s.messagePart.order))
+		.execute();
+
+	const dataByChat = new Map<string, Record<string, { data: unknown[]; columns: string[] }>>();
+	for (const part of parts) {
+		const output = part.toolOutput as { id?: string; data?: unknown[]; columns?: string[] } | null;
+		if (!output?.id || !queryIdsByChat.get(part.chatId)?.has(output.id)) {
+			continue;
+		}
+		const chatData = dataByChat.get(part.chatId) ?? {};
+		chatData[output.id] = { data: output.data ?? [], columns: output.columns ?? [] };
+		dataByChat.set(part.chatId, chatData);
+	}
+	return dataByChat;
+}
+
 async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) {
 	return db
 		.select({

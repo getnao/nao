@@ -648,8 +648,15 @@ function escapeStrayBackslashes(value: string): string {
 	return value.replace(/\\(?!(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))/g, '\\\\');
 }
 
+/** Saved stories may hold malformed entries such as `null`; only objects naming a data key are series. */
 function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
-	return parseSeriesJsonArray(value) as ParsedChartBlock['series'] | null;
+	return parseSeriesJsonArray(value)?.filter(isParsedChartSeries) ?? null;
+}
+
+function isParsedChartSeries(entry: unknown): entry is ParsedChartSeries {
+	return (
+		typeof entry === 'object' && entry !== null && typeof (entry as { data_key?: unknown }).data_key === 'string'
+	);
 }
 
 function parseOptionalNumberAttr(value: string | undefined): number | undefined {

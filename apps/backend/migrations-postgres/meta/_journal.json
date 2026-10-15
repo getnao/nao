@@ -547,6 +547,13 @@
       "when": 1791358974879,
       "tag": "0077_story_app_state",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1791883791929,
+      "tag": "0078_add_story_bundle_thumbnail",
+      "breakpoints": true
     }
   ]
 }

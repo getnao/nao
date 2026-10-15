@@ -21,6 +21,7 @@ import {
 	AuthorDateLabel,
 	CertifiedBadge,
 	GRID_CARD_CLASS,
+	GRID_HOVER_ACTION_GRADIENT_CLASS,
 	GRID_THUMBNAIL_CLASS,
 	GridCardFooter,
 	LINES_CARD_CLASS,
@@ -35,6 +36,7 @@ import StoryIcon from '@/components/ui/story-icon';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
+import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
@@ -100,6 +102,7 @@ export function StoryCard({
 	const { isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
+	const storyTheme = useActiveStoryTheme();
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
@@ -168,17 +171,24 @@ export function StoryCard({
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
 						{item.format === 'custom' ? (
-							<CustomStoryThumbnail />
+							<CustomStoryThumbnail
+								storyId={item.storyId}
+								version={item.version}
+								summary={item.summary}
+								theme={storyTheme}
+								queryData={item.kpiPreviewData}
+							/>
 						) : (
-							<StoryThumbnail summary={item.summary} />
+							<StoryThumbnail summary={item.summary} theme={storyTheme} queryData={item.kpiPreviewData} />
 						)}
 					</div>
+					<div className={GRID_HOVER_ACTION_GRADIENT_CLASS} />
 
 					{!selectionActive && (
 						<Link
 							{...item.link}
 							onClick={handleLinkClick}
-							className='absolute inset-0 flex flex-col justify-end p-2.5'
+							className='absolute inset-0 z-[2] flex flex-col justify-end p-2.5'
 						>
 							{certifiedBadge}
 							<div className='flex items-end gap-1.5'>

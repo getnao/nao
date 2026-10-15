@@ -11,10 +11,8 @@ import {
 	choroplethValueDomain,
 	computeKpiComparison,
 	type CustomBoundarySet,
-	DEFAULT_COLORS,
 	DEFAULT_MARKER_COLOR,
 	DEFAULT_MARKER_RADIUS,
-	defaultColorFor,
 	formatChartValue,
 	formatCompactNumber,
 	indexBoundaries,
@@ -47,6 +45,7 @@ import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from
 import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import { marked, Renderer } from 'marked';
 import React, { createContext, useContext } from 'react';
@@ -71,6 +70,12 @@ import {
 	VIEW_WIDTH,
 } from './static-map-svg';
 import type { QueryDataMap, StoryInput } from './story-download';
+import {
+	DEFAULT_EXPORT_PALETTE,
+	exportSeriesColor,
+	type StoryExportPalette,
+	storyExportPalette,
+} from './story-export-palette';
 
 const WORLD_BACKDROP_KEY = 'world_countries';
 
@@ -103,6 +108,7 @@ type InlinedBoundaries = Map<string, { geojson: unknown; joinProps: string[] | n
 type Basemaps = Map<string, Basemap>;
 
 const DateFormatContext = createContext<DateFormatSettings>({ ...DEFAULT_DATE_FORMAT_SETTINGS });
+const PaletteContext = createContext<StoryExportPalette>(DEFAULT_EXPORT_PALETTE);
 const InlinedBoundariesContext = createContext<InlinedBoundaries>(new Map());
 const BasemapContext = createContext<Basemaps>(new Map());
 
@@ -133,10 +139,11 @@ export async function generateStoryHtml(
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
 	customBoundaries?: CustomBoundarySet[],
-	options?: { staticMaps?: boolean },
+	options?: { staticMaps?: boolean; theme?: StoryThemePair | null },
 ): Promise<string> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
 	const staticMaps = options?.staticMaps ?? false;
+	const palette = storyExportPalette(options?.theme);
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
 	const hasMap = segmentsIncludeMap(segments);
@@ -146,22 +153,24 @@ export async function generateStoryHtml(
 		: new Map<string, Basemap>();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
-			<StaticMapsContext.Provider value={staticMaps}>
-				<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
-					<BasemapContext.Provider value={basemaps}>
-						<StoryDocument
-							title={story.title}
-							loadMapLibre={hasMap && !staticMaps}
-							loadLeaflet={hasMap && staticMaps}
-						>
-							{segments.map((seg, i) => (
-								<StorySegment key={i} segment={seg} queryData={queryData} />
-							))}
-							<StoryFooter />
-						</StoryDocument>
-					</BasemapContext.Provider>
-				</InlinedBoundariesContext.Provider>
-			</StaticMapsContext.Provider>
+			<PaletteContext.Provider value={palette}>
+				<StaticMapsContext.Provider value={staticMaps}>
+					<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
+						<BasemapContext.Provider value={basemaps}>
+							<StoryDocument
+								title={story.title}
+								loadMapLibre={hasMap && !staticMaps}
+								loadLeaflet={hasMap && staticMaps}
+							>
+								{segments.map((seg, i) => (
+									<StorySegment key={i} segment={seg} queryData={queryData} />
+								))}
+								<StoryFooter />
+							</StoryDocument>
+						</BasemapContext.Provider>
+					</InlinedBoundariesContext.Provider>
+				</StaticMapsContext.Provider>
+			</PaletteContext.Provider>
 		</DateFormatContext.Provider>,
 	);
 	return `<!DOCTYPE html>\n${markup}`;
@@ -177,8 +186,10 @@ export async function generateStoryEmailHtml(
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
 	customBoundaries?: CustomBoundarySet[],
+	theme?: StoryThemePair | null,
 ): Promise<StoryEmailHtml> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
+	const palette = storyExportPalette(theme);
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
 	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], true);
@@ -186,31 +197,36 @@ export async function generateStoryEmailHtml(
 	const sink = createEmailImageSink();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
-			<StaticMapsContext.Provider value={true}>
-				<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
-					<BasemapContext.Provider value={basemaps}>
-						<EmailImageSinkContext.Provider value={sink}>
-							<div style={STORY_EMAIL_CONTAINER_STYLE}>
-								{segments.map((seg, i) => (
-									<StorySegment key={i} segment={seg} queryData={queryData} />
-								))}
-								<StoryFooter />
-							</div>
-						</EmailImageSinkContext.Provider>
-					</BasemapContext.Provider>
-				</InlinedBoundariesContext.Provider>
-			</StaticMapsContext.Provider>
+			<PaletteContext.Provider value={palette}>
+				<StaticMapsContext.Provider value={true}>
+					<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
+						<BasemapContext.Provider value={basemaps}>
+							<EmailImageSinkContext.Provider value={sink}>
+								<div style={emailContainerStyle(palette)}>
+									{segments.map((seg, i) => (
+										<StorySegment key={i} segment={seg} queryData={queryData} />
+									))}
+									<StoryFooter />
+								</div>
+							</EmailImageSinkContext.Provider>
+						</BasemapContext.Provider>
+					</InlinedBoundariesContext.Provider>
+				</StaticMapsContext.Provider>
+			</PaletteContext.Provider>
 		</DateFormatContext.Provider>,
 	);
 	return { html: markup, images: sink.images };
 }
 
-const STORY_EMAIL_CONTAINER_STYLE: React.CSSProperties = {
-	fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-	lineHeight: 1.6,
-	color: 'rgba(0,0,0,0.85)',
-	padding: '8px 24px 24px',
-};
+function emailContainerStyle(palette: StoryExportPalette): React.CSSProperties {
+	return {
+		fontFamily: palette.bodyFont,
+		lineHeight: 1.6,
+		color: palette.body,
+		background: palette.page,
+		padding: '8px 24px 24px',
+	};
+}
 
 function segmentsIncludeMap(segments: Segment[]): boolean {
 	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
@@ -372,8 +388,9 @@ function StoryDocument({
 	children: React.ReactNode;
 }) {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	const pattern = resolveDateFormatPattern(dateFormat);
-	const tooltipScript = renderTooltipScript(pattern);
+	const tooltipScript = renderTooltipScript(pattern, palette.series);
 	return (
 		<html lang='en'>
 			<head>
@@ -382,7 +399,10 @@ function StoryDocument({
 				<title>{title}</title>
 				{loadMapLibre && <link rel='stylesheet' href={MAPLIBRE_CSS_URL} />}
 				{loadLeaflet && <link rel='stylesheet' href={LEAFLET_CSS_URL} />}
-				<style dangerouslySetInnerHTML={{ __html: DOCUMENT_STYLES }} />
+				{palette.fontStylesheets.map((href) => (
+					<link key={href} rel='stylesheet' href={href} />
+				))}
+				<style dangerouslySetInnerHTML={{ __html: documentStyles(palette) }} />
 			</head>
 			<body>
 				{children}
@@ -399,11 +419,18 @@ function StoryDocument({
 
 function StoryFooter() {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	const today = new Date().toISOString().slice(0, 10);
 	const date = formatDateValue(today, dateFormat);
 	return (
 		<footer
-			style={{ marginTop: 48, paddingTop: 16, borderTop: '1px solid #e5e7eb', fontSize: 12, color: '#9ca3af' }}
+			style={{
+				marginTop: 48,
+				paddingTop: 16,
+				borderTop: `1px solid ${palette.border}`,
+				fontSize: 12,
+				color: palette.faint,
+			}}
 		>
 			Generated on {date}
 		</footer>
@@ -432,35 +459,39 @@ safeRenderer.html = () => '';
 
 function MarkdownBlock({ content }: { content: string }) {
 	const emailSink = useContext(EmailImageSinkContext);
+	const palette = useContext(PaletteContext);
 	const html = marked.parse(content, { async: false, renderer: safeRenderer }) as string;
 	if (emailSink) {
-		return <div dangerouslySetInnerHTML={{ __html: inlineMarkdownStyles(html) }} />;
+		return <div dangerouslySetInnerHTML={{ __html: inlineMarkdownStyles(html, palette) }} />;
 	}
 	return <div className='nao-md' dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-const MARKDOWN_EMAIL_STYLES: Record<string, string> = {
-	h1: 'font-size:20px;font-weight:700;margin:0 0 24px;color:#111827',
-	h2: 'font-size:20px;font-weight:600;margin:32px 0 12px;color:#111827',
-	h3: 'font-size:18px;font-weight:600;margin:24px 0 8px;color:#374151',
-	h4: 'font-size:16px;font-weight:600;margin:16px 0 8px;color:#374151',
-	p: 'margin:8px 0;font-size:14px',
-	ul: 'padding-left:24px;margin:8px 0;font-size:14px',
-	ol: 'padding-left:24px;margin:8px 0;font-size:14px',
-	li: 'margin:4px 0',
-	blockquote: 'border-left:3px solid #d1d5db;padding-left:16px;margin:12px 0;color:#6b7280',
-	pre: 'background:#f3f4f6;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace',
-	code: 'background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace',
-	table: 'width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;border:1px solid #e5e7eb',
-	th: 'padding:8px 12px;text-align:left;font-weight:500;color:rgba(0,0,0,0.5);border-bottom:1px solid #e5e7eb;background:#fafafa',
-	td: 'padding:4px 12px;font-size:11px;line-height:20px;border-bottom:1px solid rgba(0,0,0,0.05)',
-	a: 'color:#4F46E5',
-};
+function markdownEmailStyles(palette: StoryExportPalette): Record<string, string> {
+	const monospace = 'font-family:source-code-pro,Menlo,Monaco,Consolas,monospace';
+	return {
+		h1: `font-size:20px;font-weight:700;margin:0 0 24px;color:${palette.heading};font-family:${palette.headingFont}`,
+		h2: `font-size:20px;font-weight:600;margin:32px 0 12px;color:${palette.heading};font-family:${palette.headingFont}`,
+		h3: `font-size:18px;font-weight:600;margin:24px 0 8px;color:${palette.subheading};font-family:${palette.headingFont}`,
+		h4: `font-size:16px;font-weight:600;margin:16px 0 8px;color:${palette.subheading};font-family:${palette.headingFont}`,
+		p: 'margin:8px 0;font-size:14px',
+		ul: 'padding-left:24px;margin:8px 0;font-size:14px',
+		ol: 'padding-left:24px;margin:8px 0;font-size:14px',
+		li: 'margin:4px 0',
+		blockquote: `border-left:3px solid ${palette.strongBorder};padding-left:16px;margin:12px 0;color:${palette.muted}`,
+		pre: `background:${palette.sunken};padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;${monospace}`,
+		code: `background:${palette.sunken};padding:2px 6px;border-radius:4px;font-size:12px;${monospace}`,
+		table: `width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;border:${palette.tableBorderWidth}px solid ${palette.tableBorder};background:${palette.tableBackground}`,
+		th: `padding:8px 12px;text-align:left;font-weight:500;color:${palette.tableHeaderText};border-bottom:1px solid ${palette.tableBorder};background:${palette.tableHeaderBackground}`,
+		td: `padding:4px 12px;font-size:11px;line-height:20px;border-bottom:1px solid ${palette.tableDivider}`,
+		a: `color:${palette.link}`,
+	};
+}
 
 /** Inlines styles into marked's HTML so markdown keeps the story look in clients that strip `<style>`. */
-function inlineMarkdownStyles(html: string): string {
+function inlineMarkdownStyles(html: string, palette: StoryExportPalette): string {
 	let out = html;
-	for (const [tag, style] of Object.entries(MARKDOWN_EMAIL_STYLES)) {
+	for (const [tag, style] of Object.entries(markdownEmailStyles(palette))) {
 		out = out.replace(new RegExp(`<${tag}(?=[\\s>])`, 'g'), `<${tag} style="${style}"`);
 	}
 	return out;
@@ -500,6 +531,7 @@ function GridBlock({
 function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
 	const emailSink = useContext(EmailImageSinkContext);
+	const palette = useContext(PaletteContext);
 	const rows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
 		return <Placeholder label={rawChart.title || 'Chart'} message='Data unavailable' />;
@@ -518,7 +550,16 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
 	if (emailSink) {
-		return <EmailChart chart={chart} rows={rows} isPie={isPie} dateFormat={dateFormat} sink={emailSink} />;
+		return (
+			<EmailChart
+				chart={chart}
+				rows={rows}
+				isPie={isPie}
+				dateFormat={dateFormat}
+				palette={palette}
+				sink={emailSink}
+			/>
+		);
 	}
 
 	try {
@@ -532,6 +573,7 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 			margin: { top: 0, right: 0, bottom: 0, left: 0 },
 			includeLegend: isPie,
 			dateFormat,
+			palette,
 		});
 		const chartData = JSON.stringify({
 			data: chartRows,
@@ -577,12 +619,14 @@ function EmailChart({
 	rows,
 	isPie,
 	dateFormat,
+	palette,
 	sink,
 }: {
 	chart: ParsedChartBlock;
 	rows: Record<string, unknown>[];
 	isPie: boolean;
 	dateFormat: DateFormatSettings;
+	palette: StoryExportPalette;
 	sink: EmailImageSink;
 }) {
 	try {
@@ -594,6 +638,7 @@ function EmailChart({
 			margin: { top: 0, right: 0, bottom: 0, left: 0 },
 			includeLegend: isPie,
 			dateFormat,
+			palette,
 		});
 		const cid = sink.add(png);
 		return (
@@ -613,14 +658,15 @@ function EmailChart({
 
 function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	return (
 		<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, paddingTop: 12 }}>
 			{series.map((s, i) => {
-				const color = s.color || defaultColorFor(s.data_key, i);
+				const color = s.color || exportSeriesColor(palette, i);
 				return (
 					<div
 						key={s.data_key}
-						style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#6b7280', fontSize: 12 }}
+						style={{ display: 'flex', alignItems: 'center', gap: 6, color: palette.muted, fontSize: 12 }}
 					>
 						<div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: color }} />
 						{s.label || labelize(s.data_key, dateFormat)}
@@ -632,6 +678,7 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 }
 
 function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
+	const palette = useContext(PaletteContext);
 	const sortedRows = [...rows].sort((a, b) => {
 		const av = a[chart.xAxisKey];
 		const bv = b[chart.xAxisKey];
@@ -659,12 +706,13 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
 				return (
 					<div key={s.data_key} style={{ minWidth: 160 }}>
-						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: '#1f2937' }}>{label}</div>
+						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: palette.body }}>{label}</div>
 						<div
 							style={{
 								fontSize: 30,
 								fontWeight: 500,
-								color: '#111827',
+								color: palette.heading,
+								fontFamily: palette.headingFont,
 								fontVariantNumeric: 'tabular-nums',
 							}}
 						>
@@ -677,7 +725,7 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 									? comparison.direction === 'up'
 										? '#16a34a'
 										: '#dc2626'
-									: '#6b7280';
+									: palette.muted;
 								return (
 									<div
 										style={{
@@ -725,6 +773,7 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 }
 
 function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: QueryDataMap | null }) {
+	const palette = useContext(PaletteContext);
 	const qd = queryData?.[table.queryId];
 	if (!qd?.data.length) {
 		return <Placeholder label={table.title || 'Table'} message='Data unavailable' />;
@@ -741,8 +790,8 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 		textAlign: numericCols.has(col) ? 'right' : 'left',
 		fontWeight: 500,
 		whiteSpace: 'nowrap',
-		color: 'rgba(0,0,0,0.5)',
-		borderBottom: '1px solid #e5e7eb',
+		color: palette.tableHeaderText,
+		borderBottom: `1px solid ${palette.tableBorder}`,
 	});
 
 	const tdStyle = (col: string): React.CSSProperties => ({
@@ -766,12 +815,12 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 				style={{
 					overflow: 'auto',
 					borderRadius: 8,
-					border: '1px solid #e5e7eb',
-					background: 'rgba(255,255,255,0.5)',
+					border: `${palette.tableBorderWidth}px solid ${palette.tableBorder}`,
+					background: palette.tableBackground,
 				}}
 			>
 				<table style={{ width: '100%', borderCollapse: 'collapse', borderSpacing: 0, fontSize: 12 }}>
-					<thead style={{ background: '#fafafa' }}>
+					<thead style={{ background: palette.tableHeaderBackground }}>
 						<tr>
 							{columns.map((col) => (
 								<th key={col} style={thStyle(col)}>
@@ -782,7 +831,7 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 					</thead>
 					<tbody>
 						{rows.map((row, i) => (
-							<tr key={i} style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+							<tr key={i} style={{ borderBottom: `1px solid ${palette.tableDivider}` }}>
 								{columns.map((col) => (
 									<td key={col} style={tdStyle(col)}>
 										<CellValue value={row[col]} />
@@ -793,9 +842,7 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 					</tbody>
 				</table>
 			</div>
-			<div style={{ textAlign: 'right', padding: '4px 8px', fontSize: 14, color: 'rgba(0,0,0,0.5)' }}>
-				{rowCount}
-			</div>
+			<div style={{ textAlign: 'right', padding: '4px 8px', fontSize: 14, color: palette.muted }}>{rowCount}</div>
 		</div>
 	);
 }
@@ -888,7 +935,13 @@ function StaticPointMap({
 					`<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.r}" fill="${circleFill}" fill-opacity="0.9" stroke="#ffffff" stroke-width="0.75"/>`,
 			)
 			.join('');
-		return renderEmailMapImage(map.title, buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes), emailSink);
+		return (
+			<EmailMapImage
+				title={map.title}
+				svg={buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes)}
+				sink={emailSink}
+			/>
+		);
 	}
 	const leafletPayload: LeafletPayload = {
 		type: 'points',
@@ -995,7 +1048,8 @@ function escapeSvgAttr(value: string): string {
 	return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
-function renderEmailMapImage(title: string | undefined, svg: string, sink: EmailImageSink): React.ReactElement {
+function EmailMapImage({ title, svg, sink }: { title: string | undefined; svg: string; sink: EmailImageSink }) {
+	const palette = useContext(PaletteContext);
 	const cid = sink.add(svgToPng(svg));
 	return (
 		<div style={{ margin: '16px 0' }}>
@@ -1009,7 +1063,7 @@ function renderEmailMapImage(title: string | undefined, svg: string, sink: Email
 					maxWidth: VIEW_WIDTH,
 					height: 'auto',
 					borderRadius: 8,
-					border: '1px solid #e5e7eb',
+					border: `1px solid ${palette.border}`,
 				}}
 			/>
 		</div>
@@ -1033,6 +1087,7 @@ function StaticMapShell({
 	leafletPayload: LeafletPayload;
 	children: React.ReactNode;
 }) {
+	const palette = useContext(PaletteContext);
 	return (
 		<div style={{ margin: '16px 0' }}>
 			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
@@ -1045,7 +1100,7 @@ function StaticMapShell({
 					height: MAP_HEIGHT,
 					borderRadius: 8,
 					overflow: 'hidden',
-					border: '1px solid #e5e7eb',
+					border: `1px solid ${palette.border}`,
 				}}
 			>
 				<div className='nao-map-fallback' style={{ width: '100%', height: '100%' }}>
@@ -1155,7 +1210,13 @@ function StaticChoroplethMap({
 					`<path d="${region.d}" fill="${escapeSvgAttr(region.fill)}" stroke="#ffffff" stroke-width="0.4" stroke-opacity="0.6" fill-rule="evenodd"/>`,
 			)
 			.join('');
-		return renderEmailMapImage(map.title, buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes), emailSink);
+		return (
+			<EmailMapImage
+				title={map.title}
+				svg={buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes)}
+				sink={emailSink}
+			/>
+		);
 	}
 	const leafletPayload: LeafletPayload = { type: 'choropleth', color: payload.color, regions: leafletRegions };
 	return (
@@ -1192,6 +1253,7 @@ function MapShell({
 	payload: PointPayload | ChoroplethPayload;
 	legend: React.ReactNode;
 }) {
+	const palette = useContext(PaletteContext);
 	return (
 		<div style={{ margin: '16px 0' }}>
 			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
@@ -1204,7 +1266,7 @@ function MapShell({
 						height: '100%',
 						borderRadius: 8,
 						overflow: 'hidden',
-						border: '1px solid #e5e7eb',
+						border: `1px solid ${palette.border}`,
 						background: '#eef1f5',
 					}}
 				/>
@@ -1422,22 +1484,24 @@ const LEGEND_BOX_STYLE: React.CSSProperties = {
 
 function CellValue({ value }: { value: unknown }) {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	if (value === null || value === undefined) {
-		return <span style={{ fontStyle: 'italic', color: 'rgba(0,0,0,0.3)' }}>NULL</span>;
+		return <span style={{ fontStyle: 'italic', color: palette.faint }}>NULL</span>;
 	}
 	return <>{formatCellValue(value, dateFormat)}</>;
 }
 
 function Placeholder({ label, message }: { label: string; message: string }) {
+	const palette = useContext(PaletteContext);
 	return (
 		<div
 			style={{
 				margin: '16px 0',
 				padding: 24,
-				border: '1px dashed #d1d5db',
+				border: `1px dashed ${palette.strongBorder}`,
 				borderRadius: 8,
 				textAlign: 'center',
-				color: '#9ca3af',
+				color: palette.faint,
 				fontSize: 13,
 			}}
 		>
@@ -1465,21 +1529,25 @@ function toChartConfig(chart: ParsedChartBlock) {
 	};
 }
 
-const DOCUMENT_STYLES = `
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:rgba(0,0,0,0.85);max-width:900px;margin:0 auto;padding:32px 24px}
-h1{font-size:20px;font-weight:700;margin:0 0 24px;color:#111827}
-h2{font-size:20px;font-weight:600;margin:32px 0 12px;color:#111827}
-h3{font-size:18px;font-weight:600;margin:24px 0 8px;color:#374151}
+function documentStyles(palette: StoryExportPalette): string {
+	return `:root{${cssVariableDeclarations(palette.cssVariables)}}
+@page{background:${palette.page}}
+html{background:${palette.page}}
+body{font-family:${palette.bodyFont};line-height:1.6;color:${palette.body};background:${palette.page};max-width:900px;margin:0 auto;padding:32px 24px}
+h1{font-size:20px;font-weight:700;margin:0 0 24px;color:${palette.heading};font-family:${palette.headingFont}}
+h2{font-size:20px;font-weight:600;margin:32px 0 12px;color:${palette.heading};font-family:${palette.headingFont}}
+h3{font-size:18px;font-weight:600;margin:24px 0 8px;color:${palette.subheading};font-family:${palette.headingFont}}
 p{margin:8px 0;font-size:14px}
 ul,ol{padding-left:24px;margin:8px 0;font-size:14px}
 li{margin:4px 0}
-code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
-pre{background:#f3f4f6;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
-blockquote{border-left:3px solid #d1d5db;padding-left:16px;margin:12px 0;color:#6b7280}
-.nao-md table{width:100%;border-collapse:separate;border-spacing:0;margin:8px 0;font-size:12px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.5)}
-.nao-md thead{background:#fafafa}
-.nao-md th{padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap;color:rgba(0,0,0,0.5);border-bottom:1px solid #e5e7eb}
-.nao-md td{padding:4px 12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace;font-size:11px;line-height:20px;white-space:nowrap;border-bottom:1px solid rgba(0,0,0,0.05)}
+code{background:${palette.sunken};padding:2px 6px;border-radius:4px;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
+pre{background:${palette.sunken};padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
+blockquote{border-left:3px solid ${palette.strongBorder};padding-left:16px;margin:12px 0;color:${palette.muted}}
+a{color:${palette.link}}
+.nao-md table{width:100%;border-collapse:separate;border-spacing:0;margin:8px 0;font-size:12px;border:${palette.tableBorderWidth}px solid ${palette.tableBorder};border-radius:8px;overflow:hidden;background:${palette.tableBackground}}
+.nao-md thead{background:${palette.tableHeaderBackground}}
+.nao-md th{padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap;color:${palette.tableHeaderText};border-bottom:1px solid ${palette.tableBorder}}
+.nao-md td{padding:4px 12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace;font-size:11px;line-height:20px;white-space:nowrap;border-bottom:1px solid ${palette.tableDivider}}
 .nao-md tr:last-child td{border-bottom:none}
 svg{max-width:100%;height:auto}
 img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
@@ -1501,27 +1569,34 @@ img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 .maplibregl-popup.map-tooltip{pointer-events:none}
 .maplibregl-popup.map-tooltip .maplibregl-popup-content{padding:0;background:transparent;box-shadow:none;border-radius:0}
 .maplibregl-popup.map-tooltip .maplibregl-popup-tip{display:none}
-.nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-.nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:#111827}
+.nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:${palette.popover};border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:${palette.heading}}
 .nao-map-pop-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
 .nao-map-pop-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;line-height:1.25}
-.nao-map-pop-name{color:rgba(0,0,0,0.5)}
-.nao-map-pop-val{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
-.nao-tooltip{position:absolute;pointer-events:none;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;opacity:0;transition:opacity .15s;min-width:128px;display:grid;gap:6px}
+.nao-map-pop-name{color:${palette.muted}}
+.nao-map-pop-val{color:${palette.heading};font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
+.nao-tooltip{position:absolute;pointer-events:none;background:${palette.popover};border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;opacity:0;transition:opacity .15s;min-width:128px;display:grid;gap:6px}
 .nao-tooltip.visible{opacity:1}
-.nao-tooltip-label{font-weight:500;color:#111827;text-align:left}
+.nao-tooltip-label{font-weight:500;color:${palette.heading};text-align:left}
 .nao-tooltip-rows{display:grid;gap:6px}
 .nao-tooltip-row{display:flex;align-items:center;gap:8px;width:100%}
 .nao-tooltip-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0}
-.nao-tooltip-name{color:rgba(0,0,0,0.5);flex:1;text-align:left}
-.nao-tooltip-value{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;margin-left:auto}
+.nao-tooltip-name{color:${palette.muted};flex:1;text-align:left}
+.nao-tooltip-value{color:${palette.heading};font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;margin-left:auto}
 .nao-tooltip-total{display:flex;align-items:center;gap:8px;width:100%;border-top:1px solid rgba(0,0,0,0.08);padding-top:6px;margin-top:2px}
 .nao-tooltip-total .nao-tooltip-name{font-weight:500}
 .nao-tooltip-total .nao-tooltip-value{font-weight:500}
 @media print{body{padding:0;max-width:none}.nao-tooltip{display:none}.nao-chart{break-inside:avoid}.nao-map{break-inside:avoid}.maplibregl-ctrl{display:none!important}table{break-inside:avoid}div[style*="display:flex"]{break-inside:avoid}h1,h2,h3{break-after:avoid}svg{max-width:100%!important;height:auto!important}footer{break-inside:avoid}}
 `;
+}
 
-function renderTooltipScript(datePattern: string): string {
+function cssVariableDeclarations(cssVariables: Record<string, string>): string {
+	return Object.entries(cssVariables)
+		.map(([name, value]) => `${name}:${value}`)
+		.join(';');
+}
+
+function renderTooltipScript(datePattern: string, seriesColors: string[]): string {
 	// Inside a `<script>` block, an HTML parser will close the script tag on a
 	// raw `</script>` regardless of JS string quoting. Escape `<` (and the
 	// equally hazardous `--` / `]]>`) so a user-supplied custom pattern can
@@ -1532,7 +1607,10 @@ function renderTooltipScript(datePattern: string): string {
 		.replace(/&/g, '\\u0026')
 		.replace(/\u2028/g, '\\u2028')
 		.replace(/\u2029/g, '\\u2029');
-	return TOOLTIP_SCRIPT_TEMPLATE.replace('__DATE_PATTERN__', escapedPattern);
+	return TOOLTIP_SCRIPT_TEMPLATE.replace('__DATE_PATTERN__', escapedPattern).replace(
+		'__PIE_COLORS__',
+		JSON.stringify(seriesColors),
+	);
 }
 
 export function renderMapScript(): string {
@@ -1679,7 +1757,7 @@ const LEAFLET_MAP_SCRIPT_TEMPLATE = `
 
 const TOOLTIP_SCRIPT_TEMPLATE = `
 (function(){
-	var PIE_COLORS=${JSON.stringify(DEFAULT_COLORS)};
+	var PIE_COLORS=__PIE_COLORS__;
 	var DATE_PATTERN=__DATE_PATTERN__;
 	var MONTHS_LONG=['January','February','March','April','May','June','July','August','September','October','November','December'];
 	var MONTHS_SHORT=MONTHS_LONG.map(function(m){return m.slice(0,3)});

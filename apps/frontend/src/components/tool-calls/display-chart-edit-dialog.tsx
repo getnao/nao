@@ -209,10 +209,13 @@ export function ChartConfigEditForm({
 		setYAxisMaxText(toRangeString(config.y_axis_max));
 		setYAxisRightMinText(toRangeString(config.y_axis_right_min));
 		setYAxisRightMaxText(toRangeString(config.y_axis_right_max));
-		setPaletteHexes(palette ?? resolveChartPaletteHexes());
 		setError(null);
 		setOpenValueFormatIndexes(new Set());
-	}, [config, palette]);
+	}, [config]);
+
+	useEffect(() => {
+		setPaletteHexes(palette ?? resolveChartPaletteHexes());
+	}, [palette]);
 
 	const xAxisOptions = useMemo(() => {
 		if (availableColumns.length === 0) {
@@ -1147,8 +1150,10 @@ function normalizeHexColor(color: string | undefined, fallback: string): string 
 	return HEX_RE.test(fallback) ? fallback : DEFAULT_COLORS[0];
 }
 
-function resolveChartPaletteHexes(): string[] {
-	return DEFAULT_COLORS.map((fallback, index) => resolveCssVariableColorHex(`--chart-${index + 1}`, fallback));
+export function resolveChartPaletteHexes(element?: HTMLElement | null): string[] {
+	return DEFAULT_COLORS.map((fallback, index) =>
+		resolveCssVariableColorHex(`--chart-${index + 1}`, fallback, element),
+	);
 }
 
 function applyChartConfigToMessages(

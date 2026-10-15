@@ -1,5 +1,7 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
+import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
+import { getLatestSqlQueryDataByChats } from '../queries/execute-sql.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -63,6 +65,78 @@ export async function backfillMissingQueryData(
 
 	const merged = { ...(cachedQueryData ?? {}), ...filled };
 	return Object.keys(merged).length > 0 ? merged : null;
+}
+
+interface KpiPreviewSource {
+	chatId?: string | null;
+	isLive?: boolean;
+	summary: StorySummary;
+}
+
+export async function withKpiPreviewData<T extends KpiPreviewSource>(
+	stories: T[],
+	storyIdOf: (story: T) => string,
+): Promise<(T & { kpiPreviewData: StoryQueryDataMap | null })[]> {
+	const queryIdsByStory = new Map(
+		stories.map((story) => [storyIdOf(story), collectKpiQueryIds(story.summary.segments)]),
+	);
+	const previewedStoryIds = [...queryIdsByStory].filter(([, ids]) => ids.size > 0).map(([storyId]) => storyId);
+	const cachedByStoryId = await storyQueries.getStoryQueryDataByStoryIds(previewedStoryIds);
+	const plans = stories.map((story) => {
+		const queryIds = queryIdsByStory.get(storyIdOf(story)) ?? new Set<string>();
+		const fromCache = pickQueryData(cachedByStoryId.get(storyIdOf(story)) ?? {}, queryIds);
+		return { story, fromCache, idsFromChat: idsToReadFromChat(story, queryIds, fromCache) };
+	});
+	const chatResults = await getLatestSqlQueryDataByChats(groupIdsByChat(plans)).catch(() => new Map());
+	return plans.map(({ story, fromCache, idsFromChat }) => {
+		const fromChat = story.chatId ? pickQueryData(chatResults.get(story.chatId) ?? {}, idsFromChat) : {};
+		return { ...story, kpiPreviewData: latestRowOnly({ ...fromCache, ...fromChat }) };
+	});
+}
+
+function idsToReadFromChat(story: KpiPreviewSource, queryIds: Set<string>, fromCache: StoryQueryDataMap): Set<string> {
+	if (!story.chatId) {
+		return new Set();
+	}
+	return story.isLive === false ? queryIds : new Set([...queryIds].filter((id) => !fromCache[id]));
+}
+
+function groupIdsByChat(plans: { story: KpiPreviewSource; idsFromChat: Set<string> }[]): Map<string, Set<string>> {
+	const idsByChat = new Map<string, Set<string>>();
+	for (const { story, idsFromChat } of plans) {
+		if (!story.chatId || idsFromChat.size === 0) {
+			continue;
+		}
+		const chatIds = idsByChat.get(story.chatId) ?? new Set<string>();
+		idsFromChat.forEach((id) => chatIds.add(id));
+		idsByChat.set(story.chatId, chatIds);
+	}
+	return idsByChat;
+}
+
+function collectKpiQueryIds(segments: SummarySegment[]): Set<string> {
+	const ids = new Set<string>();
+	for (const segment of segments) {
+		if (segment.type === 'chart' && segment.chartType === 'kpi_card' && segment.queryId) {
+			ids.add(segment.queryId);
+		}
+		if (segment.type === 'grid') {
+			collectKpiQueryIds(segment.children).forEach((id) => ids.add(id));
+		}
+	}
+	return ids;
+}
+
+function pickQueryData(queryData: StoryQueryDataMap, queryIds: Set<string>): StoryQueryDataMap {
+	return Object.fromEntries(Object.entries(queryData).filter(([id]) => queryIds.has(id)));
+}
+
+function latestRowOnly(queryData: StoryQueryDataMap): StoryQueryDataMap | null {
+	const entries = Object.entries(queryData).map(([id, result]) => [
+		id,
+		{ columns: result.columns, data: result.data.slice(-1) },
+	]);
+	return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 async function fetchFromChat(chatId: string, code: string, ids: string[]): Promise<StoryQueryDataMap> {
