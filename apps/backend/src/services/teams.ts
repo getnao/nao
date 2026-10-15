@@ -37,8 +37,6 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { posthog, PostHogEvent } from './posthog';
-
 interface TeamsRawMessage {
 	from?: { aadObjectId?: string };
 	conversation?: { tenantId?: string };
@@ -285,15 +283,6 @@ class TeamsService {
 		const appName = await getAppName();
 		const card = await ctx.thread.post(createCompletionCard(chatUrl, { appName }));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
-
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: ctx.config.projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'teams',
-			domain_host: new URL(ctx.config.redirectUrl).host,
-		});
 	}
 
 	private async _createAgentStream(
@@ -306,7 +295,11 @@ class TeamsService {
 			{ billingAccessVerifiedProjectId: ctx.config.projectId, supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
-		return agent.stream(chat.messages, { provider: 'teams', timezone: ctx.timezone });
+		return agent.stream(chat.messages, {
+			provider: 'teams',
+			timezone: ctx.timezone,
+			tracking: { source: 'teams', isNewChat: ctx.isNewChat, domainHost: new URL(ctx.config.redirectUrl).host },
+		});
 	}
 
 	private async _readStreamAndUpdateMessage(

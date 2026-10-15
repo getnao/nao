@@ -449,12 +449,14 @@ describe('SystemPrompt SQL query rules', () => {
 });
 
 describe('SystemPrompt follow-up suggestions rules', () => {
-	it('asks for a closing sentence pointing the user to the suggestions', () => {
+	it('requires the tool as the final call without asking the model to announce the UI', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 
 		expect(markdown).toContain('**suggest_follow_ups**');
-		expect(markdown).toContain('points the user to the suggestions shown below your message');
-		expect(markdown).toContain('never a note to yourself or part of your thinking');
+		expect(markdown).toContain('For every analytical response based on business data');
+		expect(markdown).toContain('as the sole and final tool call');
+		expect(markdown).not.toContain('points the user to the suggestions shown below your message');
+		expect(markdown).not.toContain('Pick one of the suggestions below');
 	});
 
 	it('omits the rule when the run excludes the tool', () => {

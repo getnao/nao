@@ -19,6 +19,8 @@ export function isQueryToolPart() {
 
 type QueryPart = { toolInput: executeSql.Input; toolOutput: executeSql.Output };
 
+export type StoredSqlQuery = { sqlQuery: string; databaseId?: string; dialect?: string; adminMode: boolean };
+
 /**
  * Reads a stored query part as plain SQL whichever tool produced it: a semantic query
  * resolves to the SQL the layer compiled, on the database the layer chose.
@@ -216,15 +218,15 @@ async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) 
 export async function getLatestSqlQueriesByIds(
 	chatId: string,
 	queryIds: Set<string>,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
+): Promise<Record<string, StoredSqlQuery>> {
 	if (queryIds.size === 0) {
 		return {};
 	}
 
 	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
-	const queries: Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }> = {};
+	const queries: Record<string, StoredSqlQuery> = {};
 	for (const part of parts) {
-		const output = part.toolOutput as { id?: string } | null;
+		const output = part.toolOutput as { id?: string; dialect?: string } | null;
 		if (!output?.id || !queryIds.has(output.id) || !part.toolName) {
 			continue;
 		}
@@ -233,6 +235,7 @@ export async function getLatestSqlQueriesByIds(
 			queries[output.id] = {
 				sqlQuery,
 				...(databaseId && { databaseId }),
+				...(output.dialect && { dialect: output.dialect }),
 				adminMode: part.messageSource === 'admin',
 			};
 		}

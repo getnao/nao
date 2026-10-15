@@ -31,6 +31,9 @@ export const FollowUpSuggestions = ({ toolPart }: { toolPart: UIToolPart<'sugges
 
 	return (
 		<div key={'suggestions'} className={cn('flex flex-col gap-1', 'animate-fade-in-up delay-100')}>
+			<p className='px-3 pb-1 text-sm text-muted-foreground'>
+				Pick a suggestion below to keep going, or ask me anything else.
+			</p>
 			{toolPart.input.suggestions.map((suggestion, index) => (
 				<Button
 					key={index}
