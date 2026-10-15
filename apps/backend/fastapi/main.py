@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
+import orjson
 import pandas as pd
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from pydantic_core import to_jsonable_python
 
 __all__ = ["BlockedRowAccessTable", "EnforcedRowSecurity", "PredicateRowAccessTable"]
 
@@ -198,6 +200,33 @@ def _execute_sql_with_guards(
         return db_config.execute_sql(validated_sql, conn=conn)
     finally:
         conn.disconnect()
+
+
+def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
+    """Results can hold hundreds of thousands of rows: serialize column by column and skip response model validation."""
+    columns = [str(column) for column in df.columns]
+    column_values = [_column_values(df.iloc[:, index]) for index in range(len(columns))]
+    data = [dict(zip(columns, row)) for row in zip(*column_values)]
+    content = orjson.dumps(
+        {"data": data, "row_count": len(data), "columns": columns, "dialect": dialect},
+        default=_json_fallback,
+        option=orjson.OPT_SERIALIZE_NUMPY,
+    )
+    return Response(content=content, media_type="application/json")
+
+
+def _column_values(column: pd.Series) -> list:
+    """Python datetimes serialize natively but drop nanoseconds, which only `pd.Timestamp` keeps."""
+    if pd.api.types.is_datetime64_any_dtype(column.dtype) and not column.dt.nanosecond.gt(0).any():
+        return column.array.to_pydatetime().tolist()
+    return column.tolist()
+
+
+def _json_fallback(value: object):
+    converted = _convert_value(value)
+    if converted is value:
+        return to_jsonable_python(value)
+    return converted
 
 
 def _convert_value(v: object):
@@ -471,7 +500,7 @@ async def health_check():
 
 
 @app.post("/execute_sql", response_model=ExecuteSQLResponse, dependencies=internal_only)
-async def execute_sql(request: ExecuteSQLRequest):
+def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
         group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
@@ -516,14 +545,7 @@ async def execute_sql(request: ExecuteSQLRequest):
             RowSecurityGuardError,
         ) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        data = [{k: _convert_value(v) for k, v in row.items()} for row in df.to_dict(orient="records")]
-
-        return ExecuteSQLResponse(
-            data=data,
-            row_count=len(data),
-            columns=[str(c) for c in df.columns.tolist()],
-            dialect=db_config.type,
-        )
+        return _query_result_response(df, db_config.type)
     except HTTPException:
         raise
     except NaoConfigError as e:
@@ -537,7 +559,7 @@ async def execute_sql(request: ExecuteSQLRequest):
     response_model=ValidateSQLResponse,
     dependencies=internal_only,
 )
-async def validate_sql(request: ExecuteSQLRequest):
+def validate_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
         group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
@@ -591,7 +613,7 @@ async def validate_row_predicate(request: ValidateRowPredicateRequest):
     response_model=CompileSemanticQueryResponse,
     dependencies=internal_only,
 )
-async def compile_semantic_query(request: CompileSemanticQueryRequest):
+def compile_semantic_query(request: CompileSemanticQueryRequest):
     """Compile a metric query to SQL with the project's semantic layer. Execution stays with /execute_sql."""
     try:
         project_path = Path(request.nao_project_folder)
