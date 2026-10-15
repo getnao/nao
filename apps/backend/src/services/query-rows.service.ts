@@ -34,7 +34,7 @@ export async function getQueryRowsPage(request: QueryRowsRequest): Promise<Query
 /** A query from the turn still running is only in the agent's memory: its part is saved when the turn ends. */
 async function findQueryResult(chatId: string, toolCallId: string, queryId: string): Promise<QueryResult | null> {
 	const persisted = await getQueryToolOutputInChat(chatId, toolCallId);
-	if (persisted && Array.isArray(persisted.columns) && Array.isArray(persisted.data)) {
+	if (persisted?.id === queryId && Array.isArray(persisted.columns) && Array.isArray(persisted.data)) {
 		return { columns: persisted.columns, data: persisted.data };
 	}
 	return agentService.get(chatId)?.getQueryResult(queryId) ?? null;

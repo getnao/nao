@@ -64,7 +64,7 @@ export const chatRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }): Promise<QueryRowsPage> => {
-			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			const projectId = await chatQueries.getActiveChatProjectId(input.chatId);
 			if (!projectId || !(await canUserViewChatContent(input.chatId, projectId, ctx.user.id))) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 			}

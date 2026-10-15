@@ -161,6 +161,7 @@ export const SidePanelContent = ({
 					}
 				}
 
+				queryClient.removeQueries(trpc.chat.getQueryRows.pathFilter());
 				void queryClient.invalidateQueries(trpc.story.getQuerySql.pathFilter());
 				void queryClient.invalidateQueries(trpc.story.getFilteredQueryData.pathFilter());
 				void queryClient.invalidateQueries(trpc.storyShare.getQuerySql.pathFilter());

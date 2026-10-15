@@ -63,6 +63,7 @@ export function areSourceQueriesEqual(left: SourceQuery | null, right: SourceQue
 	}
 	return (
 		left.output.id === right.output.id &&
+		left.toolCallId === right.toolCallId &&
 		left.output.revision === right.output.revision &&
 		areStructurallyEqual(left.input, right.input)
 	);

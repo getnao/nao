@@ -35,23 +35,23 @@ export function useQueryRowsSource(
 	}, [chatId, toolCallId, output?.id, output?.row_count, output?.is_preview]);
 }
 
-/** The whole result: a preview output gets its remaining rows from the server. */
+/** The whole result: a preview output gets its remaining rows from the server, and is null if they fail to load. */
 export function useFullQueryOutput<T extends executeSql.Output>(
 	output: T | null,
 	source: QueryRowsSource | undefined,
 	{ enabled = true }: { enabled?: boolean } = {},
 ): { output: T | null; isLoadingRows: boolean } {
 	const shouldLoad = Boolean(source && enabled);
-	const { data, isLoading } = useQuery(
+	const { data, isLoading, isError } = useQuery(
 		trpc.chat.getQueryRows.queryOptions(source && shouldLoad ? allRowsInput(source) : skipToken),
 	);
 
 	return useMemo(() => {
 		if (!output || !data) {
-			return { output, isLoadingRows: shouldLoad && isLoading };
+			return { output: shouldLoad && isError ? null : output, isLoadingRows: shouldLoad && isLoading };
 		}
 		return { output: { ...output, data: data.rows, is_preview: false }, isLoadingRows: false };
-	}, [output, data, shouldLoad, isLoading]);
+	}, [output, data, shouldLoad, isLoading, isError]);
 }
 
 /** For actions that need every row on demand, such as exports. Shares its cache with `useFullQueryOutput`. */

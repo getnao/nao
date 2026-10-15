@@ -71,7 +71,9 @@ describe('withQueryResultPreviewsInChat', () => {
 		expect(textPart).toEqual({ type: 'text', text: 'Here are the orders' });
 		expect(queryPart).toMatchObject({ output: { row_count: QUERY_RESULT_PREVIEW_ROWS + 1, is_preview: true } });
 		expect((queryPart as { output: { data: unknown[] } }).output.data).toHaveLength(QUERY_RESULT_PREVIEW_ROWS);
-		expect(chat.messages[0].parts[1]).toMatchObject({ output: { data: output.data } });
+		expect(chat.messages[0].parts[1]).toMatchObject({
+			output: { data: queryOutput(QUERY_RESULT_PREVIEW_ROWS + 1).data },
+		});
 	});
 });
 

@@ -52,6 +52,13 @@ describe('getQueryRowsPage', () => {
 		expect(page).toEqual({ columns: ['amount'], rows: [{ amount: 30 }], totalRows: 5 });
 	});
 
+	it('ignores a persisted part holding another query', async () => {
+		mockPersistedRows(ROWS);
+		vi.mocked(agentService.get).mockReturnValue(undefined);
+
+		expect(await getQueryRowsPage({ ...REQUEST, queryId: 'query_other' })).toBeNull();
+	});
+
 	it('returns null when the query is nowhere to be found', async () => {
 		vi.mocked(getQueryToolOutputInChat).mockResolvedValue(null);
 		vi.mocked(agentService.get).mockReturnValue(undefined);
