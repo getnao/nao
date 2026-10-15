@@ -74,6 +74,7 @@ import {
 	getStripeClient,
 	listCloudInvoices,
 	listCloudSubscriptions,
+	listCurrentCloudSubscriptions,
 	resumeCloudSubscription,
 	validateCloudBillingConfiguration,
 } from '../src/services/stripe.service';
@@ -1073,6 +1074,66 @@ describe('cloud billing recovery', () => {
 		expect(stripeMocks.resumeSubscription).not.toHaveBeenCalled();
 	});
 });
+
+describe('listCurrentCloudSubscriptions', () => {
+	it('normalizes cloud subscriptions to a monthly amount net of recurring coupons', async () => {
+		const subscriptionsByStatus: Record<string, Stripe.Subscription[]> = {
+			active: [
+				cloudSubscription({
+					id: 'sub_yearly',
+					status: 'active',
+					currency: 'usd',
+					items: { data: [{ price: cloudYearlyPrice(), quantity: 1 }] } as Stripe.Subscription['items'],
+					discounts: [discount({ duration: 'forever', percent_off: 20 })],
+				}),
+				cloudSubscription({
+					id: 'sub_eur',
+					customer: 'cus_eur',
+					status: 'active',
+					currency: 'eur',
+					discounts: [discount({ duration: 'repeating', amount_off: 30_000, currency: 'eur' })],
+				}),
+			],
+			trialing: [
+				cloudSubscription({
+					id: 'sub_trial',
+					currency: 'usd',
+					discounts: [discount({ duration: 'once', percent_off: 100 })],
+				}),
+			],
+		};
+		stripeMocks.listSubscriptions.mockImplementation(({ status }: Stripe.SubscriptionListParams) =>
+			paginatedList(subscriptionsByStatus[status ?? ''] ?? []),
+		);
+		stripeMocks.retrievePrice.mockResolvedValue({ currency_options: { eur: { unit_amount: 180_000 } } });
+
+		await expect(listCurrentCloudSubscriptions()).resolves.toEqual([
+			{
+				id: 'sub_yearly',
+				stripeCustomerId: 'cus_cloud',
+				status: 'active',
+				currency: 'usd',
+				monthlyAmount: 133_333,
+			},
+			{ id: 'sub_eur', stripeCustomerId: 'cus_eur', status: 'active', currency: 'eur', monthlyAmount: 150_000 },
+			{
+				id: 'sub_trial',
+				stripeCustomerId: 'cus_cloud',
+				status: 'trialing',
+				currency: 'usd',
+				monthlyAmount: 200_000,
+			},
+		]);
+		expect(stripeMocks.retrievePrice).toHaveBeenCalledWith('price_cloud_monthly', { expand: ['currency_options'] });
+	});
+});
+
+function discount(coupon: Partial<Stripe.Coupon>): Stripe.Discount {
+	return {
+		end: null,
+		source: { type: 'coupon', coupon: { amount_off: null, currency: null, percent_off: null, ...coupon } },
+	} as Stripe.Discount;
+}
 
 function cloudMonthlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
 	const price = {
