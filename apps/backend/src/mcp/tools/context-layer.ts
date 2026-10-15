@@ -13,7 +13,11 @@ import * as chatQueries from '../../queries/chat.queries';
 import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
-import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
+import {
+	isSemanticQueryToolEnabled,
+	isWarehouseSqlEnabled,
+	SemanticQueryCompileError,
+} from '../../services/semantic-layer.service';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
@@ -202,8 +206,15 @@ function registerExecuteSemanticQuery(server: McpServer, ctx: McpContext): void 
 			resolveChatId: (input) => input.chat_id ?? null,
 			formatResult: ({ output: { compiled_sql: _compiledSql, ...output }, ...result }) =>
 				formatQueryResult(ctx, { ...result, output }),
+			errorMessage: semanticQueryErrorMessage,
 		},
 	);
+}
+
+function semanticQueryErrorMessage(error: unknown): string {
+	return error instanceof SemanticQueryCompileError
+		? error.message
+		: 'execute_semantic_query failed. Please try again.';
 }
 
 async function formatQueryResult<TOutput extends executeSql.Output>(

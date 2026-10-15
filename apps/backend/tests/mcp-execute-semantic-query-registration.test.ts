@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const testState = vi.hoisted(() => ({
 	calls: [] as Array<{ input: unknown; chatId: string | null | undefined }>,
+	error: null as Error | null,
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -13,6 +14,9 @@ vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/mcp/tools/run-agent-tool', () => ({
 	runAgentTool: async (_tool: unknown, input: unknown, _ctx: unknown, chatId?: string | null) => {
 		testState.calls.push({ input, chatId });
+		if (testState.error) {
+			throw testState.error;
+		}
 		const sqlOutput = {
 			_version: '1',
 			columns: ['metric_time__month', 'revenue'],
@@ -40,11 +44,13 @@ vi.mock('../src/queries/mcp-query-data.queries', () => ({
 
 import { registerContextLayerTools } from '../src/mcp/tools/context-layer';
 import { upsertMcpQueryData } from '../src/queries/mcp-query-data.queries';
+import { SemanticQueryCompileError } from '../src/services/semantic-layer.service';
 
 const connections: Array<{ client: Client; server: McpServer }> = [];
 
 afterEach(async () => {
 	testState.calls = [];
+	testState.error = null;
 	await Promise.all(connections.splice(0).map(({ client, server }) => Promise.all([client.close(), server.close()])));
 	vi.clearAllMocks();
 });
@@ -128,6 +134,33 @@ describe('MCP execute_semantic_query registration', () => {
 
 		expect(executeSql?.description).not.toContain('only reachable through execute_semantic_query');
 		expect(executeSql?.inputSchema.required ?? []).not.toContain('database_id');
+	});
+
+	it('returns the semantic layer message when the query does not compile', async () => {
+		const client = await connect('prioritized');
+		testState.error = new SemanticQueryCompileError(
+			'Error compiling semantic query: Got error(s) during query resolution. no_such_metric',
+		);
+
+		const result = await client.callTool({
+			name: 'execute_semantic_query',
+			arguments: { metrics: ['no_such_metric'] },
+		});
+
+		expect(result.isError).toBe(true);
+		expect(resultText(result)).toBe(
+			'Error compiling semantic query: Got error(s) during query resolution. no_such_metric',
+		);
+	});
+
+	it('hides other errors behind the generic message', async () => {
+		const client = await connect('prioritized');
+		testState.error = new Error('connect ECONNREFUSED 127.0.0.1:8005');
+
+		const result = await client.callTool({ name: 'execute_semantic_query', arguments: { metrics: ['revenue'] } });
+
+		expect(result.isError).toBe(true);
+		expect(resultText(result)).toBe('execute_semantic_query failed. Please try again.');
 	});
 
 	it('rejects a query without metrics before running it', async () => {
