@@ -13,15 +13,15 @@ vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/mcp/tools/run-agent-tool', () => ({
 	runAgentTool: async (_tool: unknown, input: unknown, _ctx: unknown, chatId?: string | null) => {
 		testState.calls.push({ input, chatId });
-		return {
+		const sqlOutput = {
 			_version: '1',
 			columns: ['metric_time__month', 'revenue'],
 			data: [{ metric_time__month: '2024-01-01', revenue: 42 }],
 			id: 'query_semantic',
 			row_count: 1,
-			compiled_sql: 'select 1',
-			database_id: 'analytics',
 		};
+		const isSemanticQuery = typeof input === 'object' && input !== null && 'metrics' in input;
+		return isSemanticQuery ? { ...sqlOutput, compiled_sql: 'select 1', database_id: 'analytics' } : sqlOutput;
 	},
 }));
 
@@ -87,6 +87,8 @@ describe('MCP execute_semantic_query registration', () => {
 			},
 		]);
 		expect(result.structuredContent).toMatchObject({ query_id: 'query_semantic', database_id: 'analytics' });
+		expect(result.structuredContent).not.toHaveProperty('compiled_sql');
+		expect(resultText(result)).not.toContain('compiled_sql');
 		expect(upsertMcpQueryData).toHaveBeenCalledWith(
 			'query_semantic',
 			expect.any(String),
@@ -95,6 +97,37 @@ describe('MCP execute_semantic_query registration', () => {
 			[{ metric_time__month: '2024-01-01', revenue: 42 }],
 			{ sourceChatId: 'chat-1' },
 		);
+	});
+
+	it('limits execute_sql to the local database in exclusive mode', async () => {
+		const client = await connect('exclusive');
+		const executeSql = (await client.listTools()).tools.find((tool) => tool.name === 'execute_sql');
+
+		const warehouseResult = await client.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select 1', database_id: 'analytics' },
+		});
+		const localResult = await client.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select * from query_semantic', database_id: 'duckdb_local' },
+		});
+
+		expect(executeSql?.description).toContain('the warehouse is only reachable through execute_semantic_query');
+		expect(executeSql?.inputSchema.required).toContain('database_id');
+		expect(JSON.stringify(executeSql?.inputSchema)).not.toContain('"analytics"');
+		expect(warehouseResult.isError).toBe(true);
+		expect(localResult.isError).not.toBe(true);
+		expect(testState.calls.map((call) => call.input)).toEqual([
+			{ sql_query: 'select * from query_semantic', database_id: 'duckdb_local' },
+		]);
+	});
+
+	it('keeps warehouse access for execute_sql in prioritized mode', async () => {
+		const client = await connect('prioritized');
+		const executeSql = (await client.listTools()).tools.find((tool) => tool.name === 'execute_sql');
+
+		expect(executeSql?.description).not.toContain('only reachable through execute_semantic_query');
+		expect(executeSql?.inputSchema.required ?? []).not.toContain('database_id');
 	});
 
 	it('rejects a query without metrics before running it', async () => {
@@ -134,6 +167,11 @@ async function connect(semanticLayerMode: SemanticLayerMode | null): Promise<Cli
 	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 	connections.push({ client, server });
 	return client;
+}
+
+function resultText(result: Awaited<ReturnType<Client['callTool']>>): string {
+	const content = result.content as Array<{ type: string; text?: string }> | undefined;
+	return content?.map((item) => item.text ?? '').join('\n') ?? '';
 }
 
 async function toolNames(client: Client): Promise<string[]> {

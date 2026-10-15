@@ -5,7 +5,7 @@ import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
 import executeSemanticQueryTool from '../../agents/tools/execute-semantic-query';
-import executeSqlTool from '../../agents/tools/execute-sql';
+import executeSqlTool, { localOnlyExecuteSql } from '../../agents/tools/execute-sql';
 import grepTool from '../../agents/tools/grep';
 import listTool from '../../agents/tools/list';
 import readTool from '../../agents/tools/read';
@@ -13,7 +13,7 @@ import * as chatQueries from '../../queries/chat.queries';
 import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
-import { isSemanticQueryToolEnabled } from '../../services/semantic-layer.service';
+import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
@@ -110,6 +110,14 @@ const QUERY_ID_OUTPUT_SCHEMA = zodV3
 
 const EXECUTE_SQL_BASE_INPUT_SCHEMA = executeSql.InputSchema.extend({ chat_id: CHAT_ID_INPUT_SCHEMA });
 
+const LOCAL_ONLY_EXECUTE_SQL_INPUT_SCHEMA = EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
+	database_id: zodV3
+		.literal(LOCAL_DATABASE_ID)
+		.describe(
+			`Must be "${LOCAL_DATABASE_ID}": raw SQL on the warehouse is disabled in this project, so query metrics with \`execute_semantic_query\`.`,
+		),
+});
+
 export function registerContextLayerTools(
 	server: McpServer,
 	ctx: McpContext,
@@ -117,7 +125,7 @@ export function registerContextLayerTools(
 	semanticLayerMode: SemanticLayerMode | null = null,
 ): void {
 	registerFileTools(server, ctx);
-	registerExecuteSql(server, ctx, configuredDatabases);
+	registerExecuteSql(server, ctx, configuredDatabases, isWarehouseSqlEnabled(semanticLayerMode));
 	if (isSemanticQueryToolEnabled(semanticLayerMode)) {
 		registerExecuteSemanticQuery(server, ctx);
 	}
@@ -153,14 +161,23 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 	});
 }
 
-function registerExecuteSql(server: McpServer, ctx: McpContext, configuredDatabases: ConfiguredDatabase[]): void {
+function registerExecuteSql(
+	server: McpServer,
+	ctx: McpContext,
+	configuredDatabases: ConfiguredDatabase[],
+	warehouseSqlEnabled: boolean,
+): void {
 	const warehouseDatabaseIds = getWarehouseDatabaseIds(configuredDatabases);
 	registerAgentToolAsMcp<executeSql.Input, executeSql.Output, ExecuteSqlMcpInput>(server, ctx, {
 		name: 'execute_sql',
-		agentTool: executeSqlTool,
+		agentTool: warehouseSqlEnabled ? executeSqlTool : localOnlyExecuteSql,
 		title: 'Execute SQL',
-		description: buildExecuteSqlDescription(warehouseDatabaseIds),
-		inputSchema: buildExecuteSqlInputSchema(warehouseDatabaseIds),
+		description: warehouseSqlEnabled
+			? buildExecuteSqlDescription(warehouseDatabaseIds)
+			: localOnlyExecuteSql.description,
+		inputSchema: warehouseSqlEnabled
+			? buildExecuteSqlInputSchema(warehouseDatabaseIds)
+			: LOCAL_ONLY_EXECUTE_SQL_INPUT_SCHEMA,
 		outputSchema: executeSql.OutputSchema.extend({ query_id: QUERY_ID_OUTPUT_SCHEMA }).shape,
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
@@ -178,10 +195,13 @@ function registerExecuteSemanticQuery(server: McpServer, ctx: McpContext): void 
 			title: 'Execute Semantic Query',
 			description: EXECUTE_SEMANTIC_QUERY_DESCRIPTION,
 			inputSchema: executeSemanticQuery.InputSchema.extend({ chat_id: CHAT_ID_INPUT_SCHEMA }),
-			outputSchema: executeSemanticQuery.OutputSchema.extend({ query_id: QUERY_ID_OUTPUT_SCHEMA }).shape,
+			outputSchema: executeSemanticQuery.OutputSchema.omit({ compiled_sql: true }).extend({
+				query_id: QUERY_ID_OUTPUT_SCHEMA,
+			}).shape,
 			mapInput: ({ chat_id: _chatId, ...input }) => input,
 			resolveChatId: (input) => input.chat_id ?? null,
-			formatResult: (result) => formatQueryResult(ctx, result),
+			formatResult: ({ output: { compiled_sql: _compiledSql, ...output }, ...result }) =>
+				formatQueryResult(ctx, { ...result, output }),
 		},
 	);
 }

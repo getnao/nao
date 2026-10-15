@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { getAgentSettings, getCustomBoundaries, getProjectById } from '../queries/project.queries';
+import { getCustomBoundaries, getProjectById } from '../queries/project.queries';
 import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
 import { isCustomStoriesEnabled } from '../services/story-mount';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
@@ -38,9 +38,7 @@ export async function createMcpServer(
 	if (settings.contextLayerModeEnabled) {
 		const project = await getProjectById(projectId);
 		const configuredDatabases = project?.path ? extractConfiguredDatabases(project.path) : [];
-		const semanticLayerMode = project?.path
-			? resolveSemanticLayerMode(project.path, await getAgentSettings(projectId))
-			: null;
+		const semanticLayerMode = project?.path ? resolveSemanticLayerMode(project.path, project.agentSettings) : null;
 		registerContextLayerTools(server, ctx, configuredDatabases, semanticLayerMode);
 	}
 
