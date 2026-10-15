@@ -36,7 +36,6 @@ async function loadSandboxModules(kvmAccess: KvmAccess, platform = 'linux') {
 		ExecError: class FakeExecError extends Error {},
 		TimeoutError: class FakeTimeoutError extends Error {},
 	}));
-	vi.doMock('@resvg/resvg-js', () => ({ Resvg: class FakeResvg {} }));
 	vi.doMock('../src/db/db', () => ({ db: {} }));
 
 	const runtime = await import('../src/services/sandbox-runtime');

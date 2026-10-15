@@ -312,6 +312,7 @@ async function assertCommitBranch(
 function readContextBranchNames(repo: ResolvedContextRepo): Set<string> {
 	const output = runGit(repo.worktreeRoot, [
 		'for-each-ref',
+		'--exclude=refs/remotes/origin/HEAD',
 		'--format=%(refname:short)',
 		'refs/heads',
 		'refs/remotes/origin',
