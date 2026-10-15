@@ -734,17 +734,21 @@ export class McpService {
 	 * Resolves and caches whether a server needs per-user OAuth. A server that already carries a
 	 * static credential in `mcp.json` (e.g. an `Authorization` or `x-api-key` header) is treated as
 	 * pre-authenticated for everyone — no per-user token is required even if it advertises OAuth.
-	 * A server declaring a pre-registered OAuth client is always OAuth, without probing metadata.
+	 * A declared `oauth` block wins over static headers: the server is always OAuth, without probing metadata.
 	 */
 	private async _ensureOAuthFlag(name: string, config: McpServerConfig): Promise<boolean> {
 		if (this._oauth[name] !== undefined) {
 			return this._oauth[name];
 		}
-		if (this._transportOf(config) !== 'http' || !config.url || this._hasStaticAuth(config)) {
+		if (this._transportOf(config) !== 'http' || !config.url) {
 			this._oauth[name] = false;
 			return false;
 		}
-		this._oauth[name] = !!config.oauth || (await isOAuthServer(config.url.toString()));
+		if (config.oauth) {
+			this._oauth[name] = true;
+			return true;
+		}
+		this._oauth[name] = !this._hasStaticAuth(config) && (await isOAuthServer(config.url.toString()));
 		return this._oauth[name];
 	}
 

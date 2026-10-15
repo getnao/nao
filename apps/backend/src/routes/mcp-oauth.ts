@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import type { UserRole } from '@nao/shared';
+import type { FastifyReply } from 'fastify';
 
 import type { App } from '../app';
 import { getSession } from '../auth';
@@ -103,6 +104,10 @@ ${body}
 </body></html>`;
 }
 
+function sendConnectError(reply: FastifyReply, server: string, returnTo: unknown, message: string): FastifyReply {
+	return reply.type('text/html').send(resultPage('error', server, normalizeReturnTo(returnTo), message));
+}
+
 /**
  * Tool discovery runs with a single user's token. An admin always takes it over on connect;
  * a regular user only claims it when no admin ever connected the server, so the agent still
@@ -129,17 +134,22 @@ export const mcpOAuthRoutes = async (app: App) => {
 
 		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user) {
-			return reply.status(401).send({ error: 'Unauthorized' });
+			return sendConnectError(reply.status(401), server, returnTo, 'Sign in to nao, then try again.');
 		}
 
 		const project = await projectQueries.getProjectByUserId(session.user.id, projectId ?? null);
 		if (!project) {
-			return reply.status(400).send({ error: 'No project configured' });
+			return sendConnectError(reply.status(400), server, returnTo, 'No project configured.');
 		}
 
 		const serverUrl = await mcpService.getServerUrl(project.id, server);
 		if (!serverUrl) {
-			return reply.status(400).send({ error: `MCP server "${server}" is not an HTTP server` });
+			return sendConnectError(
+				reply.status(400),
+				server,
+				returnTo,
+				`MCP server "${server}" is not an HTTP server.`,
+			);
 		}
 
 		const state = encodeState({
@@ -168,9 +178,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 				projectId: project.id,
 				context: { server, error: String(error) },
 			});
-			return reply
-				.type('text/html')
-				.send(resultPage('error', server, normalizeReturnTo(returnTo), errorMessage(error)));
+			return sendConnectError(reply, server, returnTo, errorMessage(error));
 		}
 	});
 
