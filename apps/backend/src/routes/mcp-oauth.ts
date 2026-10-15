@@ -124,11 +124,11 @@ async function claimDiscovery(role: UserRole, projectId: string, server: string,
 export const mcpOAuthRoutes = async (app: App) => {
 	app.get('/connect', async (request, reply) => {
 		const { server, projectId, returnTo } = request.query as {
-			server?: string;
+			server?: unknown;
 			projectId?: string;
 			returnTo?: string;
 		};
-		if (!server) {
+		if (typeof server !== 'string' || !server) {
 			return reply.status(400).send({ error: 'Missing server' });
 		}
 
