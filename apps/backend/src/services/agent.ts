@@ -1,4 +1,4 @@
-import type { CustomBoundarySet } from '@nao/shared';
+import { type CustomBoundarySet, normalizeCitationMarkers } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
@@ -55,6 +55,7 @@ import {
 	settleToolParts,
 } from '../utils/ai';
 import { assertBudgetNotExceeded } from '../utils/budget';
+import { normalizeCitationMarkersStream } from '../utils/citation-markers-stream';
 import { HandlerError } from '../utils/error';
 import {
 	getProjectDeclaredModels,
@@ -597,6 +598,7 @@ export class AgentManager {
 				result = await this._agent.stream({
 					messages,
 					abortSignal: this._abortController.signal,
+					experimental_transform: normalizeCitationMarkersStream(),
 				});
 
 				// Extract memory immediately after the request to the agent is sent
@@ -900,7 +902,7 @@ export class AgentManager {
 			const finishReason = result.finishReason ?? 'stop';
 
 			return {
-				text: result.text,
+				text: normalizeCitationMarkers(result.text),
 				usage,
 				cost,
 				finishReason,

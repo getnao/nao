@@ -4,6 +4,7 @@ import { type ModelMessage, stepCountIs, streamText } from 'ai';
 import type { TokenUsage } from '../../types/chat';
 import type { ToolContext } from '../../types/tools';
 import { convertToTokenUsage } from '../../utils/ai';
+import { normalizeCitationMarkersStream } from '../../utils/citation-markers-stream';
 import { cachedSystemInstructions } from '../../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../../utils/schedule-task';
 import { truncateMiddle } from '../../utils/utils';
@@ -45,6 +46,7 @@ export async function* runSubagent(
 		topP: callSettings.topP,
 		topK: callSettings.topK,
 		abortSignal,
+		experimental_transform: normalizeCitationMarkersStream(),
 		experimental_context: context,
 		experimental_telemetry: llmTelemetry(`nao-subagent-${definition.type}`, {
 			sessionId: context.chatId,
