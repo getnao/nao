@@ -371,9 +371,7 @@ def test_table_access_request_model_accepts_project_table_limit():
 
     EnforcedTableAccess.model_validate({"enforced": True, "tables": [table] * 10_000})
     with pytest.raises(ValidationError):
-        EnforcedTableAccess.model_validate(
-            {"enforced": True, "tables": [table] * 10_001}
-        )
+        EnforcedTableAccess.model_validate({"enforced": True, "tables": [table] * 10_001})
 
 
 def test_row_security_request_model_accepts_blocked_table():
@@ -1267,3 +1265,119 @@ def test_compile_semantic_query_without_semantic_layer(duckdb_project_folder):
 
     assert response.status_code == 400
     assert "semantic_layer" in response.json()["detail"]
+
+
+# ─── SQL tagging ──────────────────────────────────────────────────────────────
+
+
+def test_execute_sql_request_model_accepts_chat_and_user_ids():
+    # The TS backend passes chat_id/user_id as attribution for sql_tagging; the
+    # endpoint accepts them and leaves them None when absent (older callers).
+    with_ids = main.ExecuteSQLRequest.model_validate(
+        {
+            "sql": "SELECT 1",
+            "nao_project_folder": "/tmp",
+            "table_access": {"enforced": False},
+            "row_security": {"enforced": False},
+            "chat_id": "chat-abc",
+            "user_id": "user-xyz",
+        }
+    )
+    assert with_ids.chat_id == "chat-abc"
+    assert with_ids.user_id == "user-xyz"
+
+    without_ids = main.ExecuteSQLRequest.model_validate(
+        {
+            "sql": "SELECT 1",
+            "nao_project_folder": "/tmp",
+            "table_access": {"enforced": False},
+            "row_security": {"enforced": False},
+        }
+    )
+    assert without_ids.chat_id is None
+    assert without_ids.user_id is None
+
+
+def test_execute_sql_with_guards_forwards_tag_body_to_the_warehouse(monkeypatch):
+    # The guards branch is what runs for the admin's secured deployments, so the
+    # tag body must flow through _execute_sql_with_guards into db_config.execute_sql.
+    executed: list[str] = []
+
+    class FakeConn:
+        def disconnect(self):
+            return None
+
+    class FakeDbConfig:
+        def __init__(self):
+            self.allow_listed_only = True
+
+        def connect(self):
+            return FakeConn()
+
+        def execute_sql(self, sql, conn=None):
+            executed.append(sql)
+
+            class _Df:
+                columns = ["x"]
+
+                def to_dict(self, orient):
+                    return [{"x": 1}]
+
+            _Df.tolist = lambda self: ["x"]  # noqa: ARG005
+            return _Df()
+
+    monkeypatch.setattr(main, "_validate_sql", lambda sql, *a, **kw: sql)
+
+    main._execute_sql_with_guards(
+        sql="SELECT 1 AS x",
+        db_config=FakeDbConfig(),
+        project_path=Path("/tmp"),
+        enforce_excluded_columns=False,
+        group_allowed_tables=None,
+        row_security_policies=None,
+        database_folder="database=d",
+        tag_body="nao chat_id=c user_id=u",
+    )
+
+    assert executed == ["/* nao chat_id=c user_id=u */\nSELECT 1 AS x"]
+
+
+def test_execute_sql_with_guards_leaves_sql_unchanged_when_tag_body_is_none(monkeypatch):
+    executed: list[str] = []
+
+    class FakeConn:
+        def disconnect(self):
+            return None
+
+    class FakeDbConfig:
+        def __init__(self):
+            self.allow_listed_only = True
+
+        def connect(self):
+            return FakeConn()
+
+        def execute_sql(self, sql, conn=None):
+            executed.append(sql)
+
+            class _Df:
+                columns: list[str] = []
+
+                def to_dict(self, orient):
+                    return []
+
+            return _Df()
+
+    monkeypatch.setattr(main, "_validate_sql", lambda sql, *a, **kw: sql)
+
+    main._execute_sql_with_guards(
+        sql="SELECT 1",
+        db_config=FakeDbConfig(),
+        project_path=Path("/tmp"),
+        enforce_excluded_columns=False,
+        group_allowed_tables=None,
+        row_security_policies=None,
+        database_folder="database=d",
+        tag_body=None,
+    )
+
+    assert executed == ["SELECT 1"]

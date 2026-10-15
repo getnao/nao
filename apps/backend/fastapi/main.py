@@ -56,6 +56,7 @@ from nao_core.config.databases.row_security_guard import (  # noqa: E402
     validate_row_security_predicate,
 )
 from nao_core.context import get_context_provider  # noqa: E402
+from nao_core.config.sql_tagging import render_sql_tag, tag_sql  # noqa: E402
 from nao_core.semantic_layer import (  # noqa: E402
     MetricFlowSemanticLayer,
     SemanticLayerError,
@@ -182,6 +183,7 @@ def _execute_sql_with_guards(
     group_allowed_tables: set[tuple[str, str]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
+    tag_body: str | None,
 ) -> pd.DataFrame:
     conn = db_config.connect()
     try:
@@ -195,7 +197,7 @@ def _execute_sql_with_guards(
             row_security_policies=row_security_policies,
             database_folder=database_folder,
         )
-        return db_config.execute_sql(validated_sql, conn=conn)
+        return db_config.execute_sql(tag_sql(validated_sql, tag_body), conn=conn)
     finally:
         conn.disconnect()
 
@@ -248,9 +250,7 @@ def require_internal_secret(
     """Only the nao backend, which shares BETTER_AUTH_SECRET, may call internal routes."""
     expected = os.environ.get("BETTER_AUTH_SECRET")
     if not expected:
-        raise HTTPException(
-            status_code=503, detail="BETTER_AUTH_SECRET is not configured"
-        )
+        raise HTTPException(status_code=503, detail="BETTER_AUTH_SECRET is not configured")
     if provided is None or not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid internal secret")
 
@@ -258,7 +258,7 @@ def require_internal_secret(
 internal_only = [Depends(require_internal_secret)]
 
 
-def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
+def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str, NaoConfig]:
     project_path = Path(request.nao_project_folder)
     config = NaoConfig.try_load(
         project_path,
@@ -267,7 +267,17 @@ def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
     )
     assert config is not None
     db_config, database_folder = _resolve_database(config, request.database_id)
-    return project_path, db_config, database_folder
+    return project_path, db_config, database_folder, config
+
+
+def _resolve_tagged_sql(sql: str, request: ExecuteSQLRequest, config: NaoConfig) -> str:
+    """Apply the project's SQL tagging config, if any, to a validated SQL query."""
+    tag_body = render_sql_tag(
+        config.sql_tagging,
+        chat_id=request.chat_id,
+        user_id=request.user_id,
+    )
+    return tag_sql(sql, tag_body)
 
 
 def _resolve_database(config: Any, database_id: str | None) -> tuple[Any, str]:
@@ -473,9 +483,14 @@ async def health_check():
 @app.post("/execute_sql", response_model=ExecuteSQLResponse, dependencies=internal_only)
 async def execute_sql(request: ExecuteSQLRequest):
     try:
-        project_path, db_config, database_folder = _load_database(request)
+        project_path, db_config, database_folder, config = _load_database(request)
         group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
         row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
+        tag_body = render_sql_tag(
+            config.sql_tagging,
+            chat_id=request.chat_id,
+            user_id=request.user_id,
+        )
         try:
             if _is_azure_entra_id(db_config):
                 validated_sql = _validate_request(
@@ -487,7 +502,7 @@ async def execute_sql(request: ExecuteSQLRequest):
                     database_folder,
                 )
                 df = db_config.execute_sql_with_token(
-                    validated_sql,
+                    tag_sql(validated_sql, tag_body),
                     request.azure_access_token,
                 )
             elif db_config.allow_listed_only or group_allowed_tables is not None or row_security_policies is not None:
@@ -499,6 +514,7 @@ async def execute_sql(request: ExecuteSQLRequest):
                     group_allowed_tables,
                     row_security_policies,
                     database_folder,
+                    tag_body,
                 )
             else:
                 validated_sql = _validate_request(
@@ -509,7 +525,7 @@ async def execute_sql(request: ExecuteSQLRequest):
                     row_security_policies,
                     database_folder,
                 )
-                df = db_config.execute_sql(validated_sql)
+                df = db_config.execute_sql(tag_sql(validated_sql, tag_body))
         except (
             AllowListedOnlyGuardError,
             ColumnAccessError,
@@ -539,7 +555,7 @@ async def execute_sql(request: ExecuteSQLRequest):
 )
 async def validate_sql(request: ExecuteSQLRequest):
     try:
-        project_path, db_config, database_folder = _load_database(request)
+        project_path, db_config, database_folder, _config = _load_database(request)
         group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
         row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
         try:
@@ -595,9 +611,7 @@ async def compile_semantic_query(request: CompileSemanticQueryRequest):
     """Compile a metric query to SQL with the project's semantic layer. Execution stays with /execute_sql."""
     try:
         project_path = Path(request.nao_project_folder)
-        config = NaoConfig.try_load(
-            project_path, raise_on_error=True, extra_env=request.env_vars
-        )
+        config = NaoConfig.try_load(project_path, raise_on_error=True, extra_env=request.env_vars)
         assert config is not None
 
         semantic_layer = config.semantic_layer
@@ -609,9 +623,7 @@ async def compile_semantic_query(request: CompileSemanticQueryRequest):
 
         db_config = _resolve_semantic_layer_database(config, semantic_layer.database)
         dialect = metricflow_dialect_for(db_config.type)
-        engine = MetricFlowSemanticLayer.load(
-            runtime_manifest_path(semantic_layer, project_path), dialect
-        )
+        engine = MetricFlowSemanticLayer.load(runtime_manifest_path(semantic_layer, project_path), dialect)
         sql = engine.compile(
             SemanticQuery(
                 metrics=request.metrics,
@@ -623,9 +635,7 @@ async def compile_semantic_query(request: CompileSemanticQueryRequest):
                 end_time=request.end_time,
             )
         )
-        return CompileSemanticQueryResponse(
-            sql=sql, database_id=db_config.name, dialect=db_config.type
-        )
+        return CompileSemanticQueryResponse(sql=sql, database_id=db_config.name, dialect=db_config.type)
     except HTTPException:
         raise
     except SemanticLayerUnavailableError as e:
@@ -638,9 +648,7 @@ async def compile_semantic_query(request: CompileSemanticQueryRequest):
 
 def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | None):
     if database_name is not None:
-        db_config = next(
-            (db for db in config.databases if db.name == database_name), None
-        )
+        db_config = next((db for db in config.databases if db.name == database_name), None)
         if db_config is None:
             raise HTTPException(
                 status_code=400,
