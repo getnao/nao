@@ -15,7 +15,7 @@ import {
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
 import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
-import { sanitizeToolCallIds } from '../utils/model-message';
+import { sanitizeToolCalls } from '../utils/model-message';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
@@ -212,7 +212,7 @@ export class CompactionService {
 		}
 
 		const messagesToSummarize = opts.messages.slice(firstNonSystemIndex, lastUserIndex);
-		const { summary, usage } = await llm.compact(sanitizeToolCallIds(messagesToSummarize, provider));
+		const { summary, usage } = await llm.compact(sanitizeToolCalls(messagesToSummarize, provider));
 
 		this._replaceCompactedMessages(
 			opts.messages,

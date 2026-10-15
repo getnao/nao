@@ -1,7 +1,7 @@
 import type { ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
-import { sanitizeToolCallIds, toProviderSafeToolCallId } from '../src/utils/model-message';
+import { sanitizeToolCalls, toProviderSafeToolCallId } from '../src/utils/model-message';
 
 const SAFE_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const NAMESPACED_ID = '3f0d9a3e-6f1a-4b8e-9d2c-1a2b3c4d5e6f:functions.get_automation_run_history:0';
@@ -71,15 +71,14 @@ describe('toProviderSafeToolCallId with LiteLLM thought signatures', () => {
 	});
 });
 
-describe('sanitizeToolCallIds', () => {
-	it('rewrites the call and its result with the same id', () => {
+describe('sanitizeToolCalls', () => {
+	it('rewrites the call and its result with the same provider-safe id and name', () => {
+		const toolName = 'legacy.server__list-dashboards';
 		const messages: ModelMessage[] = [
 			{ role: 'user', content: 'hello' },
 			{
 				role: 'assistant',
-				content: [
-					{ type: 'tool-call', toolCallId: NAMESPACED_ID, toolName: 'get_automation_run_history', input: {} },
-				],
+				content: [{ type: 'tool-call', toolCallId: NAMESPACED_ID, toolName, input: {} }],
 			},
 			{
 				role: 'tool',
@@ -87,20 +86,23 @@ describe('sanitizeToolCallIds', () => {
 					{
 						type: 'tool-result',
 						toolCallId: NAMESPACED_ID,
-						toolName: 'get_automation_run_history',
+						toolName,
 						output: { type: 'json', value: { runs: [] } },
 					},
 				],
 			},
 		];
 
-		const [user, assistant, tool] = sanitizeToolCallIds(messages, 'anthropic');
-		const callId = (assistant.content[0] as { toolCallId: string }).toolCallId;
-		const resultId = (tool.content[0] as { toolCallId: string }).toolCallId;
+		const [user, assistant, tool] = sanitizeToolCalls(messages, 'anthropic');
+		const call = assistant.content[0] as { toolCallId: string; toolName: string };
+		const result = tool.content[0] as { toolCallId: string; toolName: string };
 
 		expect(user).toEqual(messages[0]);
-		expect(callId).toMatch(SAFE_PATTERN);
-		expect(callId.length).toBeLessThanOrEqual(64);
-		expect(resultId).toBe(callId);
+		expect(call.toolCallId).toMatch(SAFE_PATTERN);
+		expect(call.toolCallId.length).toBeLessThanOrEqual(64);
+		expect(result.toolCallId).toBe(call.toolCallId);
+		expect(call.toolName).toMatch(SAFE_PATTERN);
+		expect(call.toolName.length).toBeLessThanOrEqual(64);
+		expect(result.toolName).toBe(call.toolName);
 	});
 });
