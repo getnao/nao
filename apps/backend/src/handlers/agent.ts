@@ -19,6 +19,7 @@ interface HandleAgentMessageInput extends AgentRequest {
 	userId: string;
 	projectId: string | undefined;
 	billingAccessVerifiedProjectId?: string;
+	domainHost: string | undefined;
 }
 
 interface HandleAgentMessageResult {
@@ -103,6 +104,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 				: undefined,
 			newUserMessage: { newId: newMessageId },
 		},
+		tracking: { source, isNewChat, domainHost: opts.domainHost },
 	});
 
 	return {

@@ -59,8 +59,6 @@ import {
 	truncateMattermostMarkdown,
 	verifyMattermostFeedbackMetadata,
 } from './mattermost-helpers';
-import { posthog, PostHogEvent } from './posthog';
-
 /** Matches Slack's 200ms cadence; 429s are retried because Mattermost's server bucket is shared. */
 const UPDATE_INTERVAL_MS = 200;
 
@@ -448,15 +446,6 @@ class ProjectMattermostBot {
 				await this._setStopAttachment(answerPostId, false);
 			}
 			await this._attachAnswerAndSeedReactions(ctx, lastMessage?.id);
-
-			posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-				project_id: this._config.projectId,
-				chat_id: ctx.chatId,
-				model_id: ctx.modelId,
-				is_new_chat: ctx.isNewChat,
-				source: 'mattermost',
-				domain_host: new URL(this._config.redirectUrl).host,
-			});
 		} finally {
 			if (answerPostId) {
 				await this._setStopAttachment(answerPostId, false);
@@ -474,7 +463,15 @@ class ProjectMattermostBot {
 			{ billingAccessVerifiedProjectId: this._config.projectId, supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
-		return agent.stream(chat.messages, { provider: 'mattermost', timezone: ctx.timezone });
+		return agent.stream(chat.messages, {
+			provider: 'mattermost',
+			timezone: ctx.timezone,
+			tracking: {
+				source: 'mattermost',
+				isNewChat: ctx.isNewChat,
+				domainHost: new URL(this._config.redirectUrl).host,
+			},
+		});
 	}
 
 	private async _readStreamAndUpdateMessage(
