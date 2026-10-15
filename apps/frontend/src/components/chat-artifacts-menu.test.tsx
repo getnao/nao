@@ -78,7 +78,7 @@ function renderMenu(columnWidth: number) {
 	const column = document.createElement('div');
 	Object.defineProperty(column, 'clientWidth', { value: columnWidth });
 	document.body.appendChild(column);
-	return render(<ChatArtifactsMenu chatId='chat-1' />, { container: column });
+	return render(<ChatArtifactsMenu chatId='chat-1' chatColumnRef={{ current: column }} />, { container: column });
 }
 
 describe('ChatArtifactsMenu', () => {
@@ -96,8 +96,8 @@ describe('ChatArtifactsMenu', () => {
 	it('docks the panel without a toggle beside a wide chat when the conversation has a story', () => {
 		renderMenu(WIDE_COLUMN);
 
-		expect(screen.queryByRole('button', { name: 'Artifacts (3)' })).toBeNull();
-		expect(screen.getByText('Artifacts')).toBeDefined();
+		expect(screen.queryByRole('button', { name: 'Library (3)' })).toBeNull();
+		expect(screen.getByText('Library')).toBeDefined();
 		expect(screen.getByText('Stories')).toBeDefined();
 		expect(screen.getByText('Files')).toBeDefined();
 		expect(screen.getByText('Queries')).toBeDefined();
@@ -106,7 +106,7 @@ describe('ChatArtifactsMenu', () => {
 	it('stays collapsed when the panel would overlap the chat', () => {
 		renderMenu(NARROW_COLUMN);
 
-		expect(screen.getByRole('button', { name: 'Artifacts (3)' }).getAttribute('aria-expanded')).toBe('false');
+		expect(screen.getByRole('button', { name: 'Library (3)' }).getAttribute('aria-expanded')).toBe('false');
 		expect(screen.queryByText('Stories')).toBeNull();
 	});
 
@@ -114,13 +114,13 @@ describe('ChatArtifactsMenu', () => {
 		mocks.messages = [user('u1', filePart), assistant('a1', queryPart)];
 		renderMenu(WIDE_COLUMN);
 
-		expect(screen.getByRole('button', { name: 'Artifacts (2)' }).getAttribute('aria-expanded')).toBe('false');
+		expect(screen.getByRole('button', { name: 'Library (2)' }).getAttribute('aria-expanded')).toBe('false');
 	});
 
 	it('lists artifacts on demand, keeps queries collapsed and opens a story in the side panel', () => {
 		renderMenu(NARROW_COLUMN);
 
-		fireEvent.click(screen.getByRole('button', { name: 'Artifacts (3)' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Library (3)' }));
 		expect(screen.getByText('Stories')).toBeDefined();
 		expect(screen.getByText('Files')).toBeDefined();
 		expect(screen.queryByText('12 rows · 2 cols')).toBeNull();
@@ -133,11 +133,28 @@ describe('ChatArtifactsMenu', () => {
 		expect(screen.queryByText('Stories')).toBeNull();
 	});
 
+	it('outlines the query result it scrolls to', () => {
+		vi.stubGlobal('CSS', { escape: (value: string) => value });
+		const toolCall = document.createElement('div');
+		toolCall.dataset.replayTargetId = 'call_query';
+		toolCall.scrollIntoView = vi.fn();
+		document.body.appendChild(toolCall);
+		renderMenu(NARROW_COLUMN);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Library (3)' }));
+		fireEvent.click(screen.getByText('Queries'));
+		fireEvent.click(screen.getByText('Monthly revenue'));
+
+		expect(toolCall.scrollIntoView).toHaveBeenCalled();
+		expect(toolCall.classList.contains('chat-artifact-reveal-highlight')).toBe(true);
+		toolCall.remove();
+	});
+
 	it('hides queries for a compact tool call density', () => {
 		mocks.density = 'compact';
 		renderMenu(NARROW_COLUMN);
 
-		fireEvent.click(screen.getByRole('button', { name: 'Artifacts (2)' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Library (2)' }));
 		expect(screen.queryByText('Queries')).toBeNull();
 		expect(screen.getByText('sales.csv')).toBeDefined();
 	});

@@ -1,5 +1,5 @@
 import { ChevronDown, Layers, Table2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import type { ChatArtifacts, FileArtifact, QueryArtifact } from '@/lib/chat-artifacts';
 import type { StorySummary } from '@/lib/story.utils';
@@ -21,26 +21,28 @@ const CHAT_COLUMN_MAX_WIDTH = 768;
 const PANEL_WIDTH = 288;
 /** Right offset of the panel plus the breathing room kept from the chat column. */
 const PANEL_HORIZONTAL_MARGIN = 32;
+const REVEAL_HIGHLIGHT_CLASS = 'chat-artifact-reveal-highlight';
 
 interface ChatArtifactsMenuProps {
 	chatId: string;
-	className?: string;
+	chatColumnRef?: RefObject<HTMLElement | null>;
+	panelClassName?: string;
 }
 
 /**
- * Floating entry point to what the conversation produced: its stories, the files the user
+ * Header entry point to what the conversation produced: its stories, the files the user
  * shared, and — for users who see detailed tool calls — the query results the agent ran.
  * The panel docks beside the chat when a story exists and the column leaves room for it;
- * otherwise it collapses to a pill the user can expand on demand.
+ * otherwise it collapses to a header pill the user can expand on demand.
+ * The panel is absolutely positioned, so the header rendering the menu must be positioned.
  */
-export function ChatArtifactsMenu({ chatId, className }: ChatArtifactsMenuProps) {
-	const rootRef = useRef<HTMLDivElement>(null);
+export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: ChatArtifactsMenuProps) {
 	const [density] = useToolCallDensity();
 	const { open: openSidePanel } = useSidePanel();
 	const artifacts = useAgentMessagesSelector(collectChatArtifacts, areChatArtifactsEqual);
 	const showQueries = density !== 'compact';
 	const count = countChatArtifacts(artifacts, showQueries);
-	const hasRoom = useHasRoomBesideChat(rootRef, count > 0);
+	const hasRoom = useHasRoomBesideChat(chatColumnRef);
 	const [isExpanded, setIsExpanded] = useState(false);
 
 	if (count === 0) {
@@ -67,24 +69,29 @@ export function ChatArtifactsMenu({ chatId, className }: ChatArtifactsMenuProps)
 	};
 
 	return (
-		<div ref={rootRef} className={cn('flex flex-col items-end gap-2', className)}>
+		<>
 			{!isDocked && (
 				<Button
 					variant='outline'
 					size='icon-sm'
-					className='w-auto gap-1.5 rounded-full px-2.5 shadow-sm hover:rounded-full'
+					className='w-auto gap-1.5 rounded-full border px-2 hover:rounded-full'
 					onClick={toggle}
 					aria-expanded={isOpen}
-					aria-label={`Artifacts (${count})`}
+					aria-label={`Library (${count})`}
 				>
-					<Layers className='size-3.5' strokeWidth={2.25} />
-					<span className='text-xs'>Artifacts</span>
+					<Layers className='size-3' strokeWidth={2.25} />
+					<span className='text-xs'>Library</span>
 					<span className='rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums'>{count}</span>
 					<ChevronDown className={cn('size-3 transition-transform', isOpen && 'rotate-180')} />
 				</Button>
 			)}
 			{isOpen && (
-				<div className='w-72 rounded-lg border bg-popover p-2 text-popover-foreground shadow-md animate-fade-in'>
+				<div
+					className={cn(
+						'absolute top-full z-20 w-72 rounded-lg border bg-popover p-2 text-popover-foreground animate-fade-in',
+						panelClassName,
+					)}
+				>
 					{isDocked && <ArtifactsPanelHeading count={count} />}
 					<ChatArtifactsList
 						artifacts={artifacts}
@@ -95,7 +102,7 @@ export function ChatArtifactsMenu({ chatId, className }: ChatArtifactsMenuProps)
 					/>
 				</div>
 			)}
-		</div>
+		</>
 	);
 }
 
@@ -103,7 +110,7 @@ function ArtifactsPanelHeading({ count }: { count: number }) {
 	return (
 		<div className='mb-2 flex items-center gap-1.5 px-2 pt-1 text-xs font-medium'>
 			<Layers className='size-3.5' strokeWidth={2.25} />
-			<span>Artifacts</span>
+			<span>Library</span>
 			<span className='rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums'>{count}</span>
 		</div>
 	);
@@ -220,11 +227,11 @@ function ArtifactItem({ icon, label, detail, title, onClick }: ArtifactItemProps
 }
 
 /** Whether the chat column is wide enough for the panel to sit beside the messages without covering them. */
-function useHasRoomBesideChat(rootRef: RefObject<HTMLDivElement | null>, isMounted: boolean) {
+function useHasRoomBesideChat(chatColumnRef: RefObject<HTMLElement | null> | undefined) {
 	const [hasRoom, setHasRoom] = useState(false);
 
 	useEffect(() => {
-		const column = rootRef.current?.parentElement;
+		const column = chatColumnRef?.current;
 		if (!column) {
 			return;
 		}
@@ -234,7 +241,7 @@ function useHasRoomBesideChat(rootRef: RefObject<HTMLDivElement | null>, isMount
 		});
 		observer.observe(column);
 		return () => observer.disconnect();
-	}, [rootRef, isMounted]);
+	}, [chatColumnRef]);
 
 	return hasRoom;
 }
@@ -252,5 +259,26 @@ function describeQuery(query: QueryArtifact): string {
 
 function scrollToToolCall(toolCallId: string) {
 	const target = document.querySelector<HTMLElement>(`[data-replay-target-id="${CSS.escape(toolCallId)}"]`);
-	target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	if (!target) {
+		return;
+	}
+
+	target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	highlightRevealedElement(target);
+}
+
+/** Re-adding the class after a reflow restarts the fade when the same element is revealed twice in a row. */
+function highlightRevealedElement(element: HTMLElement) {
+	element.classList.remove(REVEAL_HIGHLIGHT_CLASS);
+	void element.offsetWidth;
+	element.classList.add(REVEAL_HIGHLIGHT_CLASS);
+
+	const removeHighlight = (event: AnimationEvent) => {
+		if (event.target !== element) {
+			return;
+		}
+		element.classList.remove(REVEAL_HIGHLIGHT_CLASS);
+		element.removeEventListener('animationend', removeHighlight);
+	};
+	element.addEventListener('animationend', removeHighlight);
 }
