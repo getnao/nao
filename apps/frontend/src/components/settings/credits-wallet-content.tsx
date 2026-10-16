@@ -43,7 +43,7 @@ export function OrganizationCreditsContent({ creditCheckout }: { creditCheckout?
 		<div className='flex flex-col gap-4'>
 			{summary.data?.enabled && (
 				<>
-					<SettingsCard title='Organization wallet'>
+					<SettingsCard title='Balance'>
 						<div className='mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
 							<p className='text-sm text-muted-foreground'>
 								Shared nao credits available across every project in this organization.

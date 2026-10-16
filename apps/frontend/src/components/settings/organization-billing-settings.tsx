@@ -24,7 +24,7 @@ export function OrganizationBillingSettings({ search }: { search: OrganizationBi
 		<SettingsPageWrapper>
 			<div className='flex flex-col gap-5'>
 				<div>
-					<h1 className='text-lg font-semibold text-foreground'>Plan & Billing</h1>
+					<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
 					<p className='text-sm text-muted-foreground'>
 						Review your current plan, subscription history, invoices, and billing actions.
 					</p>

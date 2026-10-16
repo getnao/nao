@@ -17,7 +17,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/bil
 				: undefined,
 	}),
 	staticData: {
-		title: 'Plan & Billing',
+		title: 'Billing & Credits',
 	},
 	component: PlanAndBillingPage,
 });

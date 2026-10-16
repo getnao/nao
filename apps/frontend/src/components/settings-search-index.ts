@@ -31,9 +31,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Organization credits',
-		title: 'Wallet and nao credits',
+		title: 'Balance',
 		description: "View your organization's nao credit balance, refill the wallet, and review credit history.",
 		keywords: ['wallet', 'gift', 'ledger', 'billing', 'refill', 'top up', 'organization credits'],
 		orgAdminOnly: true,
@@ -114,8 +114,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
-		title: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
+		title: 'Billing & Credits',
 		description: 'Review the nao Cloud plan, pricing, trial, and billing availability.',
 		keywords: ['subscription', 'price', 'plan', 'payment', 'invoice', 'trial', 'stripe'],
 		orgAdminOnly: true,
@@ -123,7 +123,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Current plan',
 		title: 'Subscription status',
 		description: 'Review whether the organization plan is active, paused, past due, or canceled.',
@@ -133,7 +133,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Invoices',
 		title: 'Invoices',
 		description: 'View and download organization billing invoices.',
@@ -143,7 +143,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Billing setup',
 		title: 'Subscribe to nao Cloud',
 		description: 'Subscribe during or after the organization’s 14-day nao Cloud trial.',
