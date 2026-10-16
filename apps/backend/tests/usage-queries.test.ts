@@ -4,7 +4,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getMessagesUsage, getMessagesUsageByUser, getTotalUsage } from '../src/queries/usage.queries';
+import {
+	getMessagesUsage,
+	getMessagesUsageByUser,
+	getTotalUsage,
+	getUsedProviders,
+} from '../src/queries/usage.queries';
 import {
 	getUserPreferences,
 	mutateUserPreferences,
@@ -380,6 +385,48 @@ describe('usage query results', () => {
 		expect(records.find((record) => record.date === formatDate(previousDay, 'day'))?.users).toEqual([
 			{ userName: 'Other Usage User', messageCount: 1, totalTokens: 0, totalCost: 0 },
 		]);
+	});
+
+	it('scopes every usage aggregate and provider to one user', async () => {
+		const now = new Date();
+		await db.insert(s.chatMessage).values([
+			{ id: 'own-message', chatId: CHAT_ID, role: 'user', source: 'web', createdAt: now },
+			{
+				id: 'own-assistant',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'anthropic',
+				llmModelId: 'claude-haiku-4-5',
+				totalTokens: 100,
+				createdAt: now,
+			},
+			{ id: 'other-message', chatId: OTHER_USER_CHAT_ID, role: 'user', source: 'web', createdAt: now },
+		]);
+		await db.insert(s.llmInference).values({
+			id: 'other-inference',
+			projectId: PROJECT_ID,
+			userId: OTHER_USER_ID,
+			chatId: OTHER_USER_CHAT_ID,
+			type: 'title_generation',
+			llmProvider: 'openai',
+			llmModelId: 'gpt-4o',
+			totalTokens: 50,
+			createdAt: now,
+		});
+		const period = { value: 15, unit: 'day' as const };
+
+		const [usage, byUser, total, providers] = await Promise.all([
+			getMessagesUsage(PROJECT_ID, { period }, USER_ID),
+			getMessagesUsageByUser(PROJECT_ID, { period }, USER_ID),
+			getTotalUsage(PROJECT_ID, { period }, USER_ID),
+			getUsedProviders(PROJECT_ID, USER_ID),
+		]);
+
+		expect(usage.reduce((sum, record) => sum + record.messageCount, 0)).toBe(1);
+		expect(usage.reduce((sum, record) => sum + record.totalTokens, 0)).toBe(100);
+		expect(byUser.flatMap((record) => record.users).map((user) => user.userName)).toEqual(['Usage User']);
+		expect(total).toEqual({ totalMessages: 1, uniqueUsers: 1 });
+		expect(providers).toEqual(['anthropic']);
 	});
 
 	it('applies user and source filters to the per-user breakdown', async () => {

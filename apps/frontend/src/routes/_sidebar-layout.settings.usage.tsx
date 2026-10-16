@@ -7,7 +7,7 @@ import type { displayChart } from '@nao/shared/tools';
 import type { UsageRecord } from '@nao/backend/usage';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { ChatsReplaySearchBar } from '@/components/settings/chats-replay-search-bar';
-import { CreditsWalletContent } from '@/components/settings/credits-wallet-content';
+import { ManagedAiChargesContent } from '@/components/settings/credits-wallet-content';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
 import {
@@ -22,12 +22,12 @@ import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUsagePeriodSettings } from '@/hooks/use-usage-period-settings';
 import { trpc } from '@/main';
-import { requireUsageOrWalletAccess } from '@/lib/route-guards';
+import { requireUsageOrManagedAiAccess } from '@/lib/route-guards';
 import { buildUserUsageChart } from '@/lib/usage-by-user';
 import { formatUsageBucketLabel } from '@/lib/usage-date';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
-	beforeLoad: requireUsageOrWalletAccess,
+	beforeLoad: requireUsageOrManagedAiAccess,
 	validateSearch: validateUsageSearchWithStoredFilters,
 	component: UsagePage,
 });
@@ -80,20 +80,20 @@ const messageSeries = [
 
 const usageTabLabels: Record<UsageTab, string> = {
 	usage: 'Usage & replay',
-	wallet: 'Wallet',
+	'managed-ai': 'nao AI',
 };
 
 function UsagePage() {
 	const usageSearch = Route.useSearch();
 	const navigate = Route.useNavigate();
-	const { canViewChatReplay, canViewUsage, isOrgAdmin } = usePermissions();
+	const { canViewAllUsage, canViewChatReplay, canViewUsage, isOrgAdmin } = usePermissions();
 	const isCloud = useIsCloud();
 	const isReplayRoute = useRouterState({
 		select: (state) => state.location.pathname.startsWith('/settings/usage/replay/'),
 	});
 	const availableTabs = getAvailableUsageTabs({
 		canViewUsage,
-		canViewWallet: isCloud && isOrgAdmin,
+		canViewManagedAi: isCloud && (canViewUsage || isOrgAdmin),
 		canViewChatReplay,
 	});
 	const activeTab = availableTabs.includes(usageSearch.tab as UsageTab) ? usageSearch.tab : availableTabs[0];
@@ -128,8 +128,10 @@ function UsagePage() {
 	return (
 		<div className='flex min-h-0 flex-1 flex-col overflow-hidden bg-background'>
 			<div className='shrink-0 px-4 pt-4 md:px-8 md:pt-8'>
-				<h1 className='text-lg font-semibold text-foreground'>Usage, Costs & Wallet</h1>
-				<p className='text-sm text-muted-foreground'>{getTabDescription(activeTab)}</p>
+				<h1 className='text-lg font-semibold text-foreground'>Usage & Costs</h1>
+				<p className='text-sm text-muted-foreground'>
+					{getTabDescription(activeTab, activeTab === 'managed-ai' ? isOrgAdmin : canViewChatReplay)}
+				</p>
 				<TabBar
 					tabs={availableTabs.map((tab) => ({ id: tab, label: usageTabLabels[tab] }))}
 					activeTab={activeTab}
@@ -144,12 +146,14 @@ function UsagePage() {
 						usageSearch={usageSearch}
 						onUpdateSearch={updateSearch}
 						onOpenChatReplay={openChatReplay}
+						canViewAllUsage={canViewAllUsage}
+						canViewChatReplay={canViewChatReplay}
 						canViewUsage={canViewUsage}
 					/>
 				)}
-				{activeTab === 'wallet' && (
+				{activeTab === 'managed-ai' && (
 					<div className='flex-1 overflow-auto p-4 md:p-8'>
-						<CreditsWalletContent canViewReplay={canViewChatReplay} />
+						<ManagedAiChargesContent canViewReplay={canViewChatReplay} organizationWide={isOrgAdmin} />
 					</div>
 				)}
 			</TabPanel>
@@ -157,12 +161,16 @@ function UsagePage() {
 	);
 }
 
-function getTabDescription(tab: UsageTab): string {
+function getTabDescription(tab: UsageTab, organizationWide: boolean): string {
 	switch (tab) {
 		case 'usage':
-			return 'Current project usage, estimated provider costs, and chat replay.';
-		case 'wallet':
-			return 'Organization-wide nao credit balance and managed AI charges.';
+			return organizationWide
+				? 'Current project usage, estimated provider costs, and chat replay.'
+				: 'Your current project usage and estimated provider costs.';
+		case 'managed-ai':
+			return organizationWide
+				? 'Organization-wide nao AI calls and credit charges.'
+				: 'Your nao AI calls and charges.';
 	}
 }
 
@@ -170,11 +178,15 @@ function UsageOverview({
 	usageSearch,
 	onUpdateSearch,
 	onOpenChatReplay,
+	canViewAllUsage,
+	canViewChatReplay,
 	canViewUsage,
 }: {
 	usageSearch: UsageRouteSearch;
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
+	canViewAllUsage: boolean;
+	canViewChatReplay: boolean;
 	canViewUsage: boolean;
 }) {
 	const { provider, users, feedback, tools, sources, search, splitByUser, tokenView } = usageSearch;
@@ -191,29 +203,31 @@ function UsageOverview({
 			pageSize: 1,
 		}),
 		placeholderData: keepPreviousData,
+		enabled: canViewChatReplay,
 	});
+	const splitUsageByUser = canViewAllUsage && splitByUser;
 	const chartFilter = {
 		period,
 		granularity,
 		provider: provider === 'all' ? undefined : provider,
-		userNames: users,
+		userNames: canViewAllUsage ? users : undefined,
 		sources,
 	};
 	const messagesUsage = useQuery({
 		...trpc.usage.getMessagesUsage.queryOptions(chartFilter),
 		placeholderData: keepPreviousData,
-		enabled: canViewUsage && periodState.isReady && !splitByUser,
+		enabled: canViewUsage && periodState.isReady && !splitUsageByUser,
 	});
 	const usageByUser = useQuery({
 		...trpc.usage.getMessagesUsageByUser.queryOptions(chartFilter),
 		placeholderData: keepPreviousData,
-		enabled: canViewUsage && periodState.isReady && splitByUser,
+		enabled: canViewUsage && periodState.isReady && splitUsageByUser,
 	});
 	const totalUsage = useQuery({
 		...trpc.usage.getTotalUsage.queryOptions({
 			period,
 			provider: provider === 'all' ? undefined : provider,
-			userNames: users,
+			userNames: canViewAllUsage ? users : undefined,
 			sources,
 		}),
 		placeholderData: keepPreviousData,
@@ -222,13 +236,13 @@ function UsageOverview({
 
 	const chartData = messagesUsage.data ?? [];
 	const chartDataByUser = usageByUser.data ?? [];
-	const chartQuery = splitByUser ? usageByUser : messagesUsage;
+	const chartQuery = splitUsageByUser ? usageByUser : messagesUsage;
 	const totalUsageChartData = totalUsage.data ? [totalUsage.data] : [];
 	const showCost = tokenView === 'dollars';
-	const messagesChart: UsageChart = splitByUser
+	const messagesChart: UsageChart = splitUsageByUser
 		? buildUserUsageChart(chartDataByUser, 'messageCount')
 		: buildMessagesBySourceChart(chartData);
-	const tokensChart: UsageChart = splitByUser
+	const tokensChart: UsageChart = splitUsageByUser
 		? buildUserUsageChart(
 				chartDataByUser,
 				showCost ? 'totalCost' : 'totalTokens',
@@ -239,6 +253,7 @@ function UsageOverview({
 	const filtersComponent = (
 		<UsageFilters
 			showUsageControls={canViewUsage}
+			showUserControls={canViewAllUsage}
 			provider={provider}
 			onProviderChange={(value) => onUpdateSearch({ provider: value })}
 			periodSelection={periodState.selection}
@@ -283,11 +298,15 @@ function UsageOverview({
 											label: 'Total messages',
 											color: 'var(--chart-1)',
 										},
-										{
-											data_key: 'uniqueUsers',
-											label: 'Unique users',
-											color: 'var(--chart-2)',
-										},
+										...(canViewAllUsage
+											? [
+													{
+														data_key: 'uniqueUsers',
+														label: 'Unique users',
+														color: 'var(--chart-2)',
+													},
+												]
+											: []),
 									]}
 								/>
 							</div>
@@ -302,7 +321,9 @@ function UsageOverview({
 								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
 								titleAccessory={
 									<span className='text-xs text-muted-foreground'>
-										{splitByUser ? 'Number of messages by user' : 'Number of messages by source'}
+										{splitUsageByUser
+											? 'Number of messages by user'
+											: 'Number of messages by source'}
 									</span>
 								}
 								series={messagesChart.series}
@@ -343,32 +364,34 @@ function UsageOverview({
 						</div>
 					)}
 				</div>
-				<section className='flex min-h-[400px] w-full flex-1 flex-col overflow-hidden xl:min-h-0'>
-					<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
-						<h2 className='text-sm font-semibold'>Chats replay</h2>
-						<div className='flex flex-wrap items-center gap-2'>
-							<ChatsReplaySearchBar
-								value={search}
-								onChange={(value) => onUpdateSearch({ search: value })}
-							/>
-							<ReplayFilters
-								chatFacets={chatFacets.data?.facets}
-								selectedFeedbackStates={feedback}
-								onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
-								selectedToolStates={tools}
-								onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
-							/>
+				{canViewChatReplay && (
+					<section className='flex min-h-[400px] w-full flex-1 flex-col overflow-hidden xl:min-h-0'>
+						<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
+							<h2 className='text-sm font-semibold'>Chats replay</h2>
+							<div className='flex flex-wrap items-center gap-2'>
+								<ChatsReplaySearchBar
+									value={search}
+									onChange={(value) => onUpdateSearch({ search: value })}
+								/>
+								<ReplayFilters
+									chatFacets={chatFacets.data?.facets}
+									selectedFeedbackStates={feedback}
+									onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
+									selectedToolStates={tools}
+									onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
+								/>
+							</div>
 						</div>
-					</div>
-					<ChatsReplayPage
-						search={search}
-						selectedUserNames={users}
-						selectedFeedbackStates={feedback}
-						selectedToolStates={tools}
-						selectedSources={sources}
-						onOpenChat={onOpenChatReplay}
-					/>
-				</section>
+						<ChatsReplayPage
+							search={search}
+							selectedUserNames={canViewAllUsage ? users : undefined}
+							selectedFeedbackStates={feedback}
+							selectedToolStates={tools}
+							selectedSources={sources}
+							onOpenChat={onOpenChatReplay}
+						/>
+					</section>
+				)}
 			</div>
 		</div>
 	);

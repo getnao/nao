@@ -11,9 +11,14 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/bil
 				? search.checkout
 				: undefined,
 		portal: search.portal === 'returned' ? search.portal : undefined,
+		creditCheckout:
+			typeof search.creditCheckout === 'string' &&
+			(search.creditCheckout === 'canceled' || search.creditCheckout.startsWith('cs_'))
+				? search.creditCheckout
+				: undefined,
 	}),
 	staticData: {
-		title: 'Plan & Billing',
+		title: 'Billing & Credits',
 	},
 	component: PlanAndBillingPage,
 });

@@ -111,10 +111,9 @@ const settingsNavGroups: NavGroup[] = [
 				leavesSettings: true,
 			},
 			{
-				label: 'Usage, Costs & Wallet',
+				label: 'Usage & Costs',
 				to: '/settings/usage',
-				visible: ({ isAdmin, isContextAdmin, isCloud, isOrgAdmin }) =>
-					isAdmin || isContextAdmin || (isCloud && isOrgAdmin),
+				visible: ({ isViewer, isCloud, isOrgAdmin }) => !isViewer || (isCloud && isOrgAdmin),
 			},
 			{
 				label: 'Server logs',
@@ -139,9 +138,16 @@ const settingsNavGroups: NavGroup[] = [
 				exact: true,
 			},
 			{
-				label: 'Plan & Billing',
+				label: 'Billing & Credits',
 				to: '/settings/organization/billing',
 				visible: ({ isCloudBillingEnabled, isOrgAdmin }) => isCloudBillingEnabled && isOrgAdmin,
+				exact: true,
+			},
+			{
+				label: 'Organization credits',
+				to: '/settings/credits-wallet',
+				visible: ({ isCloud, isCloudBillingEnabled, isOrgAdmin }) =>
+					isCloud && !isCloudBillingEnabled && isOrgAdmin,
 				exact: true,
 			},
 			{

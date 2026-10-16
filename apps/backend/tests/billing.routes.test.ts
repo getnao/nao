@@ -19,6 +19,9 @@ const stripeMocks = vi.hoisted(() => ({
 	reconcileCustomer: vi.fn(),
 	resumeSubscription: vi.fn(),
 }));
+const creditWalletMocks = vi.hoisted(() => ({
+	getPurchaseByCheckoutSession: vi.fn(),
+}));
 
 vi.mock('../src/auth', () => ({
 	getSession: vi.fn(async () => null),
@@ -45,6 +48,10 @@ vi.mock('../src/queries/billing.queries', () => ({
 			? { ...testState.membership.organization, billing: testState.billing }
 			: null,
 	),
+}));
+
+vi.mock('../src/queries/credit-wallet.queries', () => ({
+	getCreditPurchaseByCheckoutSession: creditWalletMocks.getPurchaseByCheckoutSession,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
@@ -380,6 +387,25 @@ describe('billing.createTrialCheckoutSession', () => {
 				message: 'Trial Checkout is unavailable',
 			},
 		);
+	});
+});
+
+describe('billing.getCreditTopUpStatus', () => {
+	beforeEach(() => {
+		testState.billingEnabled = true;
+		testState.membership = membership({});
+		vi.clearAllMocks();
+	});
+
+	it('hides purchase lookup errors from the client', async () => {
+		creditWalletMocks.getPurchaseByCheckoutSession.mockRejectedValueOnce(
+			new Error('relation "credit_purchase" does not exist'),
+		);
+
+		await expect(caller().billing.getCreditTopUpStatus({ checkoutSessionId: 'cs_credit' })).rejects.toMatchObject({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: 'Unable to confirm credit Checkout',
+		});
 	});
 });
 

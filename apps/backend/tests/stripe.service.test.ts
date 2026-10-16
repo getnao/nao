@@ -13,6 +13,7 @@ const stripeMocks = vi.hoisted(() => ({
 	listSubscriptions: vi.fn(),
 	retrieveCheckoutSession: vi.fn(),
 	retrievePrice: vi.fn(),
+	retrieveProduct: vi.fn(),
 	resumeSubscription: vi.fn(),
 	retrieveCustomer: vi.fn(),
 	retrieveSubscription: vi.fn(),
@@ -46,6 +47,9 @@ vi.mock('stripe', () => ({
 			list: stripeMocks.listPrices,
 			retrieve: stripeMocks.retrievePrice,
 		};
+		products = {
+			retrieve: stripeMocks.retrieveProduct,
+		};
 		subscriptions = {
 			list: stripeMocks.listSubscriptions,
 			resume: stripeMocks.resumeSubscription,
@@ -66,11 +70,13 @@ import {
 	createCloudPaymentMethodSession,
 	createCloudPortalSession,
 	createCloudResubscribeSession,
+	createCreditTopUpCheckoutSession,
 	findCloudSubscription,
 	getCloudBillingPlans,
 	getCloudPrice,
 	getCloudSubscriptionCurrency,
 	getCloudUpcomingInvoice,
+	getCreditTopUpPurchase,
 	getStripeClient,
 	listCloudInvoices,
 	listCloudSubscriptions,
@@ -89,6 +95,8 @@ beforeEach(() => {
 	process.env.STRIPE_CLOUD_PRODUCT_ID = 'prod_cloud';
 	process.env.STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY = 'nao_cloud_monthly_v2';
 	process.env.STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY = 'yearly_sub';
+	process.env.STRIPE_CREDIT_PRODUCT_ID = 'prod_credits';
+	process.env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID = 'prod_platform_fee';
 	process.env.STRIPE_SECRET_KEY = 'sk_test_example';
 	process.env.STRIPE_WEBHOOK_SECRET = 'whsec_example';
 	__reloadEnvForTesting();
@@ -109,6 +117,7 @@ beforeEach(() => {
 		status: 'active',
 		status_details: { active: {} },
 	});
+	stripeMocks.retrieveProduct.mockImplementation((id: string) => ({ id, active: true }));
 });
 
 afterEach(() => {
@@ -297,6 +306,226 @@ describe('validateCloudBillingConfiguration', () => {
 });
 
 describe('cloud Checkout', () => {
+	it('creates an idempotent USD credit Checkout with a separate 5% platform fee', async () => {
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/credits',
+		});
+
+		await expect(
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId: 'request-id',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/credits');
+
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: 'payment',
+				currency: 'usd',
+				customer: 'cus_cloud',
+				allow_promotion_codes: false,
+				line_items: [
+					{
+						price_data: {
+							currency: 'usd',
+							product: 'prod_credits',
+							unit_amount: 2_000,
+						},
+						quantity: 1,
+					},
+					{
+						price_data: {
+							currency: 'usd',
+							product: 'prod_platform_fee',
+							unit_amount: 100,
+						},
+						quantity: 1,
+					},
+				],
+				success_url:
+					'https://cloud.getnao.io/settings/organization/billing?creditCheckout={CHECKOUT_SESSION_ID}',
+				cancel_url: 'https://cloud.getnao.io/settings/organization/billing?creditCheckout=canceled',
+				expires_at: expect.any(Number),
+			}),
+			{ idempotencyKey: 'credit-top-up-v1:org-id:request-id' },
+		);
+	});
+
+	it('reuses an open credit Checkout for the same purchase', async () => {
+		stripeMocks.listCheckoutSessions.mockReturnValue(
+			paginatedList([
+				{
+					id: 'cs_open',
+					mode: 'payment',
+					status: 'open',
+					url: 'https://checkout.stripe.com/open-credits',
+					metadata: {
+						nao_org_id: 'org-id',
+						nao_checkout_kind: 'credit_top_up',
+						nao_credit_amount_cents: '2000',
+						nao_wallet_amount_micro_usd: '20000000',
+						nao_platform_fee_cents: '100',
+						nao_initiating_user_id: 'user-id',
+					},
+				} as Stripe.Checkout.Session,
+			]),
+		);
+
+		await expect(
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId: 'new-request-id',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/open-credits');
+
+		expect(stripeMocks.createCheckoutSession).not.toHaveBeenCalled();
+		expect(stripeMocks.expireCheckoutSession).not.toHaveBeenCalled();
+	});
+
+	it('serializes concurrent credit Checkout creation for an organization', async () => {
+		const sessions: Stripe.Checkout.Session[] = [];
+		stripeMocks.listCheckoutSessions.mockImplementation(() => paginatedList(sessions));
+		stripeMocks.createCheckoutSession.mockImplementation((params: Stripe.Checkout.SessionCreateParams) => {
+			const session = {
+				id: 'cs_created',
+				mode: 'payment',
+				status: 'open',
+				url: 'https://checkout.stripe.com/created-credits',
+				metadata: params.metadata,
+			} as Stripe.Checkout.Session;
+			sessions.push(session);
+			return session;
+		});
+
+		const createSession = (requestId: string) =>
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId,
+			});
+
+		await expect(Promise.all([createSession('request-1'), createSession('request-2')])).resolves.toEqual([
+			'https://checkout.stripe.com/created-credits',
+			'https://checkout.stripe.com/created-credits',
+		]);
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledOnce();
+	});
+
+	it('expires a superseded credit Checkout before creating another', async () => {
+		stripeMocks.listCheckoutSessions.mockReturnValue(
+			paginatedList([
+				{
+					id: 'cs_open',
+					mode: 'payment',
+					status: 'open',
+					url: 'https://checkout.stripe.com/open-credits',
+					metadata: {
+						nao_org_id: 'org-id',
+						nao_checkout_kind: 'credit_top_up',
+						nao_credit_amount_cents: '3000',
+					},
+				} as Stripe.Checkout.Session,
+			]),
+		);
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/new-credits',
+		});
+
+		await createCreditTopUpCheckoutSession({
+			creditAmountCents: 2_000,
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			initiatingUserId: 'user-id',
+			requestId: 'new-request-id',
+		});
+
+		expect(stripeMocks.expireCheckoutSession).toHaveBeenCalledWith('cs_open');
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledOnce();
+	});
+
+	it('honours the platform fee the customer paid even after the fee rate changes', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_050, amount_total: 2_250 }),
+		);
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual(
+			expect.objectContaining({ creditAmountCents: 2_000, platformFeeCents: 50, totalAmountCents: 2_250 }),
+		);
+	});
+
+	it('rejects a paid top-up whose line items disagree with its metadata', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_100, amount_total: 2_300 }),
+		);
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).rejects.toThrow('has invalid credit top-up amounts');
+	});
+
+	it('accepts a paid top-up only after canonical amounts and Products are verified', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue({
+			id: 'cs_top_up',
+			mode: 'payment',
+			payment_status: 'paid',
+			currency: 'usd',
+			customer: 'cus_cloud',
+			client_reference_id: 'org-id',
+			payment_intent: 'pi_top_up',
+			invoice: 'in_top_up',
+			metadata: {
+				nao_checkout_kind: 'credit_top_up',
+				nao_org_id: 'org-id',
+				nao_initiating_user_id: 'user-id',
+				nao_credit_amount_cents: '2000',
+				nao_wallet_amount_micro_usd: '20000000',
+				nao_platform_fee_cents: '100',
+			},
+			amount_subtotal: 2_100,
+			amount_total: 2_300,
+			total_details: { amount_discount: 0, amount_tax: 200 },
+			line_items: {
+				data: [
+					{
+						quantity: 1,
+						currency: 'usd',
+						amount_subtotal: 2_000,
+						price: { product: 'prod_credits' },
+					},
+					{
+						quantity: 1,
+						currency: 'usd',
+						amount_subtotal: 100,
+						price: { product: 'prod_platform_fee' },
+					},
+				],
+			},
+		});
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual({
+			checkoutSessionId: 'cs_top_up',
+			paymentIntentId: 'pi_top_up',
+			invoiceId: 'in_top_up',
+			organizationId: 'org-id',
+			initiatingUserId: 'user-id',
+			stripeCustomerId: 'cus_cloud',
+			creditAmountCents: 2_000,
+			platformFeeCents: 100,
+			walletAmountMicroUsd: 20_000_000,
+			taxAmountCents: 200,
+			totalAmountCents: 2_300,
+		});
+		expect(stripeMocks.retrieveCheckoutSession).toHaveBeenCalledWith('cs_top_up', {
+			expand: ['line_items.data.price.product', 'payment_intent', 'invoice'],
+		});
+	});
+
 	it('requires a saved card and tax details before starting a new trial', async () => {
 		stripeMocks.createCheckoutSession.mockResolvedValue({
 			url: 'https://checkout.stripe.com/trial',
@@ -1207,6 +1436,41 @@ function cloudSubscription(overrides: Partial<Stripe.Subscription> = {}): Stripe
 		trial_start: 1_799_000_000,
 		...overrides,
 	} as Stripe.Subscription;
+}
+
+function paidCreditTopUpSession(input: { platformFeeCents: number; amount_subtotal: number; amount_total: number }) {
+	return {
+		id: 'cs_top_up',
+		mode: 'payment',
+		payment_status: 'paid',
+		currency: 'usd',
+		customer: 'cus_cloud',
+		client_reference_id: 'org-id',
+		payment_intent: 'pi_top_up',
+		invoice: 'in_top_up',
+		metadata: {
+			nao_checkout_kind: 'credit_top_up',
+			nao_org_id: 'org-id',
+			nao_initiating_user_id: 'user-id',
+			nao_credit_amount_cents: '2000',
+			nao_wallet_amount_micro_usd: '20000000',
+			nao_platform_fee_cents: String(input.platformFeeCents),
+		},
+		amount_subtotal: input.amount_subtotal,
+		amount_total: input.amount_total,
+		total_details: { amount_discount: 0, amount_tax: 200 },
+		line_items: {
+			data: [
+				{ quantity: 1, currency: 'usd', amount_subtotal: 2_000, price: { product: 'prod_credits' } },
+				{
+					quantity: 1,
+					currency: 'usd',
+					amount_subtotal: input.platformFeeCents,
+					price: { product: 'prod_platform_fee' },
+				},
+			],
+		},
+	};
 }
 
 function paginatedList<T>(items: T[], nextPage?: () => AsyncIterable<T>): AsyncIterable<T> & { data: T[] } {

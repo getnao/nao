@@ -5,15 +5,18 @@ import type { SubscriptionProjection } from '../queries/billing.queries';
 import {
 	BILLING_STATUSES,
 	type BillingStatus,
+	calculateCreditTopUp,
 	CLOUD_BILLING_CURRENCIES,
 	CLOUD_BILLING_PLANS,
 	type CloudBillingCurrency,
 	type CloudBillingInterval,
 	type CloudBillingPlan,
 	type CloudBillingPlanDefinition,
+	CREDIT_TOP_UP_CURRENCY,
 	isCloudBillingPlanKey,
 	isTerminalBillingStatus,
 } from '../types/billing';
+import { withKeyedLock } from '../utils/keyed-lock';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2026-08-26.dahlia';
 const CLOUD_PRICE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -21,6 +24,13 @@ const SUBSCRIPTION_CURRENCY_CACHE_LIMIT = 1_000;
 const ORGANIZATION_METADATA_KEY = 'nao_org_id';
 const PLAN_METADATA_KEY = 'nao_plan_key';
 const CHECKOUT_KIND_METADATA_KEY = 'nao_checkout_kind';
+const CREDIT_AMOUNT_METADATA_KEY = 'nao_credit_amount_cents';
+const WALLET_AMOUNT_METADATA_KEY = 'nao_wallet_amount_micro_usd';
+const PLATFORM_FEE_METADATA_KEY = 'nao_platform_fee_cents';
+const INITIATING_USER_METADATA_KEY = 'nao_initiating_user_id';
+const CREDIT_TOP_UP_CHECKOUT_KIND = 'credit_top_up';
+const CREDIT_TOP_UP_CHECKOUT_TTL_SECONDS = 60 * 60;
+const MICRO_USD_PER_CENT = 10_000;
 
 type CloudRecurringPriceDetails = Stripe.Price & {
 	recurring: Stripe.Price.Recurring;
@@ -38,7 +48,7 @@ type CloudSubscriptionItem = Stripe.SubscriptionItem & {
 interface CloudInvoice {
 	id: string;
 	number: string | null;
-	invoiceKind: 'trial' | 'subscription' | 'no_charge';
+	invoiceKind: 'trial' | 'subscription' | 'credit_top_up' | 'no_charge';
 	promotionCodes: string[];
 	status: Stripe.Invoice.Status | null;
 	createdAt: Date;
@@ -84,6 +94,20 @@ export class CloudSubscriptionUnavailableError extends Error {}
 
 export class CloudSubscriptionResumeError extends Error {}
 
+export interface CreditTopUpPurchase {
+	checkoutSessionId: string;
+	paymentIntentId: string;
+	invoiceId: string | null;
+	organizationId: string;
+	initiatingUserId: string;
+	stripeCustomerId: string;
+	creditAmountCents: number;
+	platformFeeCents: number;
+	walletAmountMicroUsd: number;
+	taxAmountCents: number;
+	totalAmountCents: number;
+}
+
 let stripeClient: Stripe | undefined;
 const cloudPriceCache = new Map<
 	CloudBillingInterval,
@@ -105,6 +129,93 @@ export async function createCloudCustomer(input: {
 		},
 		{ idempotencyKey: `cloud-customer-v2:${input.organizationId}` },
 	);
+}
+
+export async function createCreditTopUpCheckoutSession(input: {
+	creditAmountCents: number;
+	organizationId: string;
+	stripeCustomerId: string;
+	initiatingUserId: string;
+	requestId: string;
+}): Promise<string> {
+	return withKeyedLock(`credit-top-up-checkout:${input.organizationId}`, () =>
+		createLockedCreditTopUpCheckoutSession(input),
+	);
+}
+
+async function createLockedCreditTopUpCheckoutSession(input: {
+	creditAmountCents: number;
+	organizationId: string;
+	stripeCustomerId: string;
+	initiatingUserId: string;
+	requestId: string;
+}): Promise<string> {
+	const topUp = calculateCreditTopUp(input.creditAmountCents);
+	const metadata = {
+		[ORGANIZATION_METADATA_KEY]: input.organizationId,
+		[CHECKOUT_KIND_METADATA_KEY]: CREDIT_TOP_UP_CHECKOUT_KIND,
+		[CREDIT_AMOUNT_METADATA_KEY]: String(topUp.creditAmountCents),
+		[WALLET_AMOUNT_METADATA_KEY]: String(topUp.walletAmountMicroUsd),
+		[PLATFORM_FEE_METADATA_KEY]: String(topUp.platformFeeCents),
+		[INITIATING_USER_METADATA_KEY]: input.initiatingUserId,
+	};
+	const existingSession = await reuseOrExpireOpenCreditTopUpSessions(
+		input.stripeCustomerId,
+		input.organizationId,
+		metadata,
+	);
+	if (existingSession?.url) {
+		return existingSession.url;
+	}
+	const creditsUrl = new URL('/settings/organization/billing', env.BETTER_AUTH_URL);
+	const session = await getStripeClient().checkout.sessions.create(
+		{
+			mode: 'payment',
+			currency: CREDIT_TOP_UP_CURRENCY,
+			customer: input.stripeCustomerId,
+			customer_update: { address: 'auto', name: 'auto' },
+			automatic_tax: { enabled: true },
+			tax_id_collection: { enabled: true },
+			billing_address_collection: 'required',
+			client_reference_id: input.organizationId,
+			line_items: [
+				{
+					price_data: {
+						currency: CREDIT_TOP_UP_CURRENCY,
+						product: configuredCreditProductId(),
+						unit_amount: topUp.creditAmountCents,
+					},
+					quantity: 1,
+				},
+				{
+					price_data: {
+						currency: CREDIT_TOP_UP_CURRENCY,
+						product: configuredCreditPlatformFeeProductId(),
+						unit_amount: topUp.platformFeeCents,
+					},
+					quantity: 1,
+				},
+			],
+			allow_promotion_codes: false,
+			payment_method_types: ['card'],
+			invoice_creation: { enabled: true, invoice_data: { metadata } },
+			metadata,
+			payment_intent_data: { metadata },
+			custom_text: {
+				submit: {
+					message: 'Your organization receives the credit amount shown. The separate nao platform fee is 5%.',
+				},
+			},
+			success_url: `${creditsUrl.toString()}?creditCheckout={CHECKOUT_SESSION_ID}`,
+			cancel_url: `${creditsUrl.toString()}?creditCheckout=canceled`,
+			expires_at: Math.floor(Date.now() / 1_000) + CREDIT_TOP_UP_CHECKOUT_TTL_SECONDS,
+		},
+		{ idempotencyKey: `credit-top-up-v1:${input.organizationId}:${input.requestId}` },
+	);
+	if (!session.url) {
+		throw new Error('Stripe did not return a Checkout URL');
+	}
+	return session.url;
 }
 
 export async function createCloudCheckoutSession(input: {
@@ -275,11 +386,13 @@ export async function listCloudInvoices(stripeCustomerId: string): Promise<Cloud
 		id: invoice.id,
 		number: invoice.number,
 		invoiceKind:
-			invoice.total !== 0
-				? 'subscription'
-				: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
-					? 'trial'
-					: 'no_charge',
+			invoice.metadata?.[CHECKOUT_KIND_METADATA_KEY] === CREDIT_TOP_UP_CHECKOUT_KIND
+				? 'credit_top_up'
+				: invoice.total !== 0
+					? 'subscription'
+					: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
+						? 'trial'
+						: 'no_charge',
 		promotionCodes: invoicePromotionCodes(invoice),
 		status: invoice.status,
 		createdAt: new Date(invoice.created * 1_000),
@@ -456,12 +569,70 @@ export async function getStripeCheckoutSession(stripeCheckoutSessionId: string):
 	return getStripeClient().checkout.sessions.retrieve(stripeCheckoutSessionId);
 }
 
+export function isCreditTopUpCheckoutSession(session: Stripe.Checkout.Session): boolean {
+	return session.mode === 'payment' && session.metadata?.[CHECKOUT_KIND_METADATA_KEY] === CREDIT_TOP_UP_CHECKOUT_KIND;
+}
+
+export async function getCreditTopUpPurchase(stripeCheckoutSessionId: string): Promise<CreditTopUpPurchase> {
+	const session = await getStripeClient().checkout.sessions.retrieve(stripeCheckoutSessionId, {
+		expand: ['line_items.data.price.product', 'payment_intent', 'invoice'],
+	});
+	if (!isCreditTopUpCheckoutSession(session) || session.payment_status !== 'paid') {
+		throw new Error(`Stripe Checkout Session "${session.id}" is not a paid credit top-up`);
+	}
+	if (session.currency !== CREDIT_TOP_UP_CURRENCY) {
+		throw new Error(`Stripe Checkout Session "${session.id}" must use USD`);
+	}
+	const organizationId = session.metadata?.[ORGANIZATION_METADATA_KEY] ?? session.client_reference_id;
+	const initiatingUserId = session.metadata?.[INITIATING_USER_METADATA_KEY];
+	if (!organizationId || !initiatingUserId) {
+		throw new Error(`Stripe Checkout Session "${session.id}" has incomplete credit top-up metadata`);
+	}
+	const creditAmountCents = metadataInteger(session, CREDIT_AMOUNT_METADATA_KEY);
+	const walletAmountMicroUsd = metadataInteger(session, WALLET_AMOUNT_METADATA_KEY);
+	const platformFeeCents = metadataInteger(session, PLATFORM_FEE_METADATA_KEY);
+	const subtotalAmountCents = creditAmountCents + platformFeeCents;
+	if (
+		walletAmountMicroUsd !== creditAmountCents * MICRO_USD_PER_CENT ||
+		session.amount_subtotal !== subtotalAmountCents ||
+		session.total_details?.amount_discount !== 0
+	) {
+		throw new Error(`Stripe Checkout Session "${session.id}" has invalid credit top-up amounts`);
+	}
+	validateCreditTopUpLineItems(session, creditAmountCents, platformFeeCents);
+	const taxAmountCents = session.total_details?.amount_tax ?? 0;
+	if (session.amount_total !== subtotalAmountCents + taxAmountCents) {
+		throw new Error(`Stripe Checkout Session "${session.id}" has an unexpected total`);
+	}
+	return {
+		checkoutSessionId: session.id,
+		paymentIntentId: stripeId(session.payment_intent),
+		invoiceId: session.invoice ? stripeId(session.invoice) : null,
+		organizationId,
+		initiatingUserId,
+		stripeCustomerId: stripeId(session.customer),
+		creditAmountCents,
+		platformFeeCents,
+		walletAmountMicroUsd,
+		taxAmountCents,
+		totalAmountCents: session.amount_total,
+	};
+}
+
 export async function getStripeInvoice(stripeInvoiceId: string): Promise<Stripe.Invoice> {
 	return getStripeClient().invoices.retrieve(stripeInvoiceId);
 }
 
 export async function getStripePaymentMethod(stripePaymentMethodId: string): Promise<Stripe.PaymentMethod> {
 	return getStripeClient().paymentMethods.retrieve(stripePaymentMethodId);
+}
+
+export async function getStripeCharge(stripeChargeId: string): Promise<Stripe.Charge> {
+	return getStripeClient().charges.retrieve(stripeChargeId);
+}
+
+export async function getStripeDispute(stripeDisputeId: string): Promise<Stripe.Dispute> {
+	return getStripeClient().disputes.retrieve(stripeDisputeId, { expand: ['charge'] });
 }
 
 export async function cloudSubscriptionProjection(subscription: Stripe.Subscription): Promise<SubscriptionProjection> {
@@ -506,11 +677,26 @@ export async function cloudSubscriptionProjection(subscription: Stripe.Subscript
 }
 
 export async function validateCloudBillingConfiguration(): Promise<void> {
-	await getAvailableCloudPrices();
+	await Promise.all([getAvailableCloudPrices(), validateCreditProducts()]);
 	const taxSettings = await getStripeClient().tax.settings.retrieve();
 	if (taxSettings.status !== 'active') {
 		const missingFields = taxSettings.status_details.pending?.missing_fields?.join(', ');
 		throw new Error(`Stripe Tax must be active${missingFields ? `; missing: ${missingFields}` : ''}`);
+	}
+}
+
+async function validateCreditProducts(): Promise<void> {
+	const creditProductId = configuredCreditProductId();
+	const platformFeeProductId = configuredCreditPlatformFeeProductId();
+	if (creditProductId === platformFeeProductId) {
+		throw new Error('Stripe credit and platform-fee Products must be different');
+	}
+	const products = await Promise.all([
+		getStripeClient().products.retrieve(creditProductId),
+		getStripeClient().products.retrieve(platformFeeProductId),
+	]);
+	if (products.some((product) => product.deleted || !product.active)) {
+		throw new Error('Stripe credit and platform-fee Products must be active');
 	}
 }
 
@@ -642,6 +828,48 @@ function billingPageUrl(): string {
 	return new URL('/settings/organization/billing', env.BETTER_AUTH_URL).toString();
 }
 
+async function reuseOrExpireOpenCreditTopUpSessions(
+	stripeCustomerId: string,
+	organizationId: string,
+	metadata: Record<string, string>,
+): Promise<Stripe.Checkout.Session | undefined> {
+	let reusableSession: Stripe.Checkout.Session | undefined;
+	for await (const session of getStripeClient().checkout.sessions.list({
+		customer: stripeCustomerId,
+		status: 'open',
+		limit: 100,
+	})) {
+		if (
+			!isCreditTopUpCheckoutSession(session) ||
+			session.metadata?.[ORGANIZATION_METADATA_KEY] !== organizationId
+		) {
+			continue;
+		}
+		const matches = Object.entries(metadata).every(([key, value]) => session.metadata?.[key] === value);
+		if (!reusableSession && matches && session.url) {
+			reusableSession = session;
+			continue;
+		}
+		await expireOpenCreditTopUpSession(session);
+	}
+	return reusableSession;
+}
+
+async function expireOpenCreditTopUpSession(session: Stripe.Checkout.Session): Promise<void> {
+	try {
+		await getStripeClient().checkout.sessions.expire(session.id);
+	} catch (error) {
+		const currentSession = await getStripeClient().checkout.sessions.retrieve(session.id);
+		if (currentSession.status === 'expired') {
+			return;
+		}
+		if (currentSession.status === 'complete') {
+			throw new Error('A credit top-up completed while another Checkout was starting');
+		}
+		throw error;
+	}
+}
+
 function checkoutTrialMessage(trialDays: number): string {
 	return `Nothing is charged today. Your ${trialDays}-day free trial starts when you confirm. The recurring price shown, including any promotion code discount, starts after the trial.`;
 }
@@ -755,6 +983,38 @@ function hasProduct(subscription: Stripe.Subscription, productId: string): boole
 	return cloudProductItem(subscription, productId) !== null;
 }
 
+function validateCreditTopUpLineItems(
+	session: Stripe.Checkout.Session,
+	creditAmountCents: number,
+	platformFeeCents: number,
+): void {
+	const items = session.line_items?.data ?? [];
+	const matches = (productId: string, amount: number) =>
+		items.filter(
+			(item) =>
+				item.quantity === 1 &&
+				item.currency === CREDIT_TOP_UP_CURRENCY &&
+				item.amount_subtotal === amount &&
+				item.price !== null &&
+				stripeProductId(item.price.product) === productId,
+		).length === 1;
+	if (
+		items.length !== 2 ||
+		!matches(configuredCreditProductId(), creditAmountCents) ||
+		!matches(configuredCreditPlatformFeeProductId(), platformFeeCents)
+	) {
+		throw new Error(`Stripe Checkout Session "${session.id}" has invalid credit top-up line items`);
+	}
+}
+
+function metadataInteger(session: Stripe.Checkout.Session, key: string): number {
+	const value = Number(session.metadata?.[key]);
+	if (!Number.isSafeInteger(value) || value <= 0) {
+		throw new Error(`Stripe Checkout Session "${session.id}" has invalid ${key} metadata`);
+	}
+	return value;
+}
+
 function cloudProductItem(subscription: Stripe.Subscription, productId: string): CloudSubscriptionItem | null {
 	return (
 		subscription.items.data.find(
@@ -771,12 +1031,33 @@ function configuredCloudProductId(): string {
 	return env.STRIPE_CLOUD_PRODUCT_ID;
 }
 
+function configuredCreditProductId(): string {
+	if (!env.STRIPE_CREDIT_PRODUCT_ID) {
+		throw new Error('STRIPE_CREDIT_PRODUCT_ID is required when cloud billing is enabled');
+	}
+	return env.STRIPE_CREDIT_PRODUCT_ID;
+}
+
+function configuredCreditPlatformFeeProductId(): string {
+	if (!env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID) {
+		throw new Error('STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID is required when cloud billing is enabled');
+	}
+	return env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID;
+}
+
 function stripeCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer): string {
 	return typeof customer === 'string' ? customer : customer.id;
 }
 
 function stripeProductId(product: string | Stripe.Product | Stripe.DeletedProduct): string {
 	return typeof product === 'string' ? product : product.id;
+}
+
+function stripeId(value: string | { id: string } | null): string {
+	if (!value) {
+		throw new Error('Stripe object reference is missing');
+	}
+	return typeof value === 'string' ? value : value.id;
 }
 
 function hasSubscriptionDefaultPaymentMethod(subscription: Stripe.Subscription): boolean {

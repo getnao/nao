@@ -18,6 +18,35 @@ export function isTerminalBillingStatus(status: string | null | undefined): bool
 export const CLOUD_BILLING_CURRENCIES = ['usd', 'eur'] as const;
 export type CloudBillingCurrency = (typeof CLOUD_BILLING_CURRENCIES)[number];
 
+export const CREDIT_TOP_UP_CURRENCY = 'usd';
+export const CREDIT_TOP_UP_MIN_CENTS = 2_000;
+export const CREDIT_TOP_UP_MAX_CENTS = 50_000;
+export const CREDIT_TOP_UP_PLATFORM_FEE_BASIS_POINTS = 500;
+
+export function calculateCreditTopUp(creditAmountCents: number): {
+	creditAmountCents: number;
+	platformFeeCents: number;
+	totalAmountCents: number;
+	walletAmountMicroUsd: number;
+} {
+	if (
+		!Number.isSafeInteger(creditAmountCents) ||
+		creditAmountCents < CREDIT_TOP_UP_MIN_CENTS ||
+		creditAmountCents > CREDIT_TOP_UP_MAX_CENTS
+	) {
+		throw new RangeError(
+			`Credit top-up amount must be between ${CREDIT_TOP_UP_MIN_CENTS} and ${CREDIT_TOP_UP_MAX_CENTS} cents`,
+		);
+	}
+	const platformFeeCents = Math.ceil((creditAmountCents * CREDIT_TOP_UP_PLATFORM_FEE_BASIS_POINTS) / 10_000);
+	return {
+		creditAmountCents,
+		platformFeeCents,
+		totalAmountCents: creditAmountCents + platformFeeCents,
+		walletAmountMicroUsd: creditAmountCents * 10_000,
+	};
+}
+
 export const CLOUD_BILLING_PLANS = {
 	monthly: {
 		key: 'cloud_monthly_v2',

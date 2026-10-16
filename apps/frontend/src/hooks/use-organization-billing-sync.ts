@@ -10,6 +10,7 @@ const STATUS_CONFIRMATION_TIMEOUT_MS = 15_000;
 export type OrganizationBillingSearch = {
 	checkout?: 'success' | 'subscribed' | 'canceled';
 	portal?: 'returned';
+	creditCheckout?: string;
 };
 
 export function useOrganizationBillingSync(

@@ -16,19 +16,18 @@ export async function requireNonCloud() {
 	}
 }
 
-export async function requireCloudBilling() {
-	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+export async function requireOrganizationAdminCloudBilling() {
+	const config = await requireCloud();
 	if (!config.cloudBillingEnabled) {
 		throw redirect({ to: '/settings/account' });
 	}
+	await requireOrganizationAdmin();
 }
 
-export async function requireOrganizationAdminCloudBilling() {
-	await requireCloudBilling();
-	const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
-	if (organization.role !== 'admin') {
-		throw redirect({ to: '/settings/account' });
-	}
+export async function requireOrganizationAdminCloud() {
+	const config = await requireCloud();
+	await requireOrganizationAdmin();
+	return config;
 }
 
 export async function requireCloud() {
@@ -36,6 +35,7 @@ export async function requireCloud() {
 	if (config.naoMode !== 'cloud') {
 		throw redirect({ to: '/settings/account' });
 	}
+	return config;
 }
 
 export async function requireAdminNonCloud() {
@@ -55,12 +55,15 @@ export async function requireContextAdminOrAdmin() {
 	}
 }
 
-export async function requireUsageOrWalletAccess() {
+export async function requireUsageOrManagedAiAccess() {
 	const [project, config] = await Promise.all([
 		queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions()),
 		queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions()),
 	]);
-	if (project && (project.userRole === 'admin' || project.userRole === 'context_admin')) {
+	if (
+		project &&
+		(project.userRole === 'admin' || project.userRole === 'user' || project.userRole === 'context_admin')
+	) {
 		return;
 	}
 
@@ -85,5 +88,12 @@ export async function requireAutomationsEnabled() {
 	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
 	if (!config.betaAutomationsEnabled) {
 		throw redirect({ to: '/' });
+	}
+}
+
+async function requireOrganizationAdmin() {
+	const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
+	if (organization.role !== 'admin') {
+		throw redirect({ to: '/settings/account' });
 	}
 }

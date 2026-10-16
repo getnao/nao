@@ -35,8 +35,15 @@ const walletProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	return next({ ctx: { membership } });
 });
 
-const walletAdminProcedure = walletProcedure.use(async ({ ctx, next }) => {
-	if (ctx.membership?.role !== 'admin') {
+const walletMemberProcedure = walletProcedure.use(async ({ ctx, next }) => {
+	if (!ctx.membership) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Organization membership is required' });
+	}
+	return next({ ctx: { membership: ctx.membership } });
+});
+
+const walletAdminProcedure = walletMemberProcedure.use(async ({ ctx, next }) => {
+	if (ctx.membership.role !== 'admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only organization admins can view wallet activity' });
 	}
 	return next({ ctx: { membership: ctx.membership } });
@@ -44,17 +51,21 @@ const walletAdminProcedure = walletProcedure.use(async ({ ctx, next }) => {
 
 export const accountRoutes = {
 	getManagedCreditStatus: projectProtectedProcedure.query(({ ctx }) => getManagedCreditStatus(ctx.project)),
-	getCreditSummary: walletProcedure.query(async ({ ctx }) => {
-		const summary = ctx.membership
-			? await creditWalletQueries.getCreditSummary(ctx.membership.orgId)
-			: { balanceMicroUsd: 0, lifetimeCreditedMicroUsd: 0, lifetimeDebitedMicroUsd: 0 };
+	getCreditSummary: walletAdminProcedure.query(async ({ ctx }) => {
+		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
 		return { ...summary, enabled: isManagedAiEnabled() };
 	}),
 	listCreditLedger: walletAdminProcedure.input(creditLedgerPaginationInput).query(({ ctx, input }) => {
 		return creditWalletQueries.listCreditLedger(ctx.membership.orgId, input);
 	}),
-	listManagedAiUsage: walletAdminProcedure.input(managedAiUsagePaginationInput).query(({ ctx, input }) => {
-		return managedAiUsageQueries.listManagedAiUsage({ orgId: ctx.membership.orgId }, input);
+	listManagedAiUsage: walletMemberProcedure.input(managedAiUsagePaginationInput).query(({ ctx, input }) => {
+		return managedAiUsageQueries.listManagedAiUsage(
+			{
+				orgId: ctx.membership.orgId,
+				userId: ctx.membership.role === 'admin' ? undefined : ctx.user.id,
+			},
+			input,
+		);
 	}),
 	resetPassword: adminProtectedProcedure
 		.input(
@@ -142,7 +153,7 @@ async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>) {
 		return {
 			enabled: isManagedAiEnabled(),
 			organization: null,
-			balanceMicroUsd: 0,
+			hasCredits: false,
 		};
 	}
 	const [organization, summary] = await Promise.all([
@@ -152,6 +163,6 @@ async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>) {
 	return {
 		enabled: isManagedAiEnabled(),
 		organization: organization ? { id: organization.id, name: organization.name } : null,
-		balanceMicroUsd: summary.balanceMicroUsd,
+		hasCredits: summary.balanceMicroUsd > 0,
 	};
 }
