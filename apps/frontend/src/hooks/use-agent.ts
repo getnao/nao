@@ -27,6 +27,7 @@ import {
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
 	parseBudgetError,
+	parseManagedCreditsError,
 	resolveImagesFromMessage,
 } from '@/lib/ai';
 import { createLocalStorage } from '@/lib/local-storage';
@@ -177,6 +178,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}
 		};
 
+		let activeRequestProvider: LlmSelectedModel['provider'] | undefined;
 		const newAgent = new Agent<UIMessage>({
 			transport: new DefaultChatTransport({
 				api: '/api/agent',
@@ -196,8 +198,10 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					const citation = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
 					const documents = extractDocumentPathsFromMessage(messageToSend);
+					const model = activeSelectedModelRef.current ?? undefined;
 					const adminModeAtSend = activeAdminModeRef.current;
 					agentAdminModeStore.set(newAgent, adminModeAtSend);
+					activeRequestProvider = model?.provider;
 					return {
 						headers: getActiveProjectId() ? { 'x-nao-project-id': getActiveProjectId()! } : undefined,
 						body: {
@@ -209,7 +213,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 								documents: documents.length > 0 ? documents : undefined,
 								citation,
 							},
-							model: activeSelectedModelRef.current ?? undefined,
+							model,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 							adminMode: adminModeAtSend || undefined,
@@ -219,6 +223,17 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
+				const finishedRequestProvider = activeRequestProvider;
+				activeRequestProvider = undefined;
+				if (finishedRequestProvider === 'nao') {
+					queryClient.invalidateQueries({ queryKey: trpc.account.getManagedCreditStatus.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.getCreditSummary.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.listCreditLedger.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.listManagedAiUsage.queryKey() });
+					queryClient.invalidateQueries({
+						queryKey: trpc.project.listAvailableTranscribeModels.queryKey(),
+					});
+				}
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
@@ -275,7 +290,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	}, [chatId]);
 
 	useEffect(() => {
-		if (!parseBudgetError(error)) {
+		if (!parseBudgetError(error) && !parseManagedCreditsError(error)) {
 			return;
 		}
 		const lastMsg = messages.at(-1);

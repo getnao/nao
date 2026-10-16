@@ -566,15 +566,25 @@ export const listProjectChats = async (
 	`;
 
 	const costLookup = await createCostLookup(projectId);
-	const totalCostExpr = sql<number>`
+	const estimatedByokCostExpr = sql<number>`
 		(
 			select coalesce(sum(${TOTAL_COST_EXPR}), 0)
 			from ${s.chatMessage}
 			left join ${costLookup.table} on ${costLookup.joinCondition}
 			where ${s.chatMessage.chatId} = ${s.chat.id}
 				and ${s.chatMessage.supersededAt} is null
+				and ${s.chatMessage.llmProvider} <> ${'nao'}
 		)
 	`;
+	const managedCreditsCostExpr = sql<number>`
+		(
+			select coalesce(sum(${s.managedAiUsage.customerChargeMicroUsd}), 0) / 1000000.0
+			from ${s.managedAiUsage}
+			where ${s.managedAiUsage.chatId} = ${s.chat.id}
+				and ${eq(s.managedAiUsage.isManaged, true)}
+		)
+	`;
+	const totalCostExpr = sql<number>`${estimatedByokCostExpr} + ${managedCreditsCostExpr}`;
 
 	const downvotesExpr = feedbackExpr('down', sql<number>`count(*)`);
 	const upvotesExpr = feedbackExpr('up', sql<number>`count(*)`);

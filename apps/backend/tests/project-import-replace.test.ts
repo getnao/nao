@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
+	recordOrganizationSetupCandidate: vi.fn(),
 	touchProjectUpdatedAt: vi.fn(),
 }));
 
@@ -15,6 +16,9 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/handlers/context-recommendations.handler', () => ({
 	ensureContextRecommendationsScheduleForNewProject: vi.fn(),
+}));
+vi.mock('../src/services/credit-grant.service', () => ({
+	recordOrganizationSetupCandidate: mocks.recordOrganizationSetupCandidate,
 }));
 
 import type { DBProject } from '../src/db/abstractSchema';
@@ -57,6 +61,7 @@ describe('replaceExistingProject', () => {
 			replaceExistingProject({ sourceDir, project, projectName: 'Sales', userId: 'context-admin-id' }),
 		).resolves.toMatchObject({ status: 'updated' });
 		expect(mocks.getUserRoleInProject).toHaveBeenCalledWith('project-id', 'context-admin-id');
+		expect(mocks.recordOrganizationSetupCandidate).toHaveBeenCalledWith('project-id');
 		expect(fs.readFileSync(path.join(project.path!, 'RULES.md'), 'utf-8')).toBe('imported');
 	});
 });

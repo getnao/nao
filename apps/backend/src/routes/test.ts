@@ -6,7 +6,7 @@ import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
-import { getEnvVars, retrieveProjectById } from '../queries/project.queries';
+import { getEnvVars, getUserRoleInProject, retrieveProjectById } from '../queries/project.queries';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
@@ -63,6 +63,10 @@ export const testRoutes = async (app: App) => {
 			if (!projectId) {
 				return reply.status(400).send({ error: noProjectMessage() });
 			}
+			const userRole = await getUserRoleInProject(projectId, userId);
+			if (!userRole || userRole === 'viewer') {
+				return reply.status(403).send({ error: 'Viewers cannot run tests' });
+			}
 
 			try {
 				const modelSelection = model as LlmSelectedModel | undefined;
@@ -77,6 +81,7 @@ export const testRoutes = async (app: App) => {
 					);
 					const verified = await testAgentService.runVerification(
 						projectId,
+						userId,
 						prompt,
 						result,
 						expectedColumns,

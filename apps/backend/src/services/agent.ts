@@ -19,6 +19,7 @@ import {
 	UIMessageStreamWriter,
 } from 'ai';
 
+import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
@@ -45,6 +46,7 @@ import {
 	UIMessagePart,
 } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
+import type { ManagedAiUsageCategory } from '../types/managed-ai-usage';
 import { Provider } from '../types/messaging-provider';
 import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
@@ -209,6 +211,7 @@ export async function buildToolContext(opts: {
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
 	modelSelection?: LlmSelectedModel;
+	usageRunId?: string;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -216,6 +219,7 @@ export async function buildToolContext(opts: {
 		chatId: opts.chatId,
 		adminMode: opts.adminMode ?? false,
 		...(opts.modelSelection && { modelSelection: opts.modelSelection }),
+		...(opts.usageRunId && { usageRunId: opts.usageRunId }),
 	};
 }
 
@@ -269,12 +273,16 @@ async function _buildContextBase(opts: {
 	};
 }
 
+async function assertModelBudget(projectId: string, model: LlmSelectedModel, userId?: string): Promise<void> {
+	await assertBudgetNotExceeded(projectId, model.provider, userId);
+}
+
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
 	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
 		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		await assertBudgetNotExceeded(projectId, resolved.provider, userId);
+		await assertModelBudget(projectId, resolved, userId);
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
@@ -320,6 +328,10 @@ export class AgentService {
 			/** Enables project-defined charts that render only in the web client. */
 			supportsCustomCharts?: boolean;
 			billingAccessVerifiedProjectId?: string;
+			/** Attributes model calls made by non-interactive agent runs. */
+			usageCategory?: ManagedAiUsageCategory;
+			/** Omits chat attribution when the run uses a transient, unpersisted chat. */
+			attributeUsageToChat?: boolean;
 			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
 			isBudgetChecked?: boolean;
 		} = {},
@@ -330,9 +342,16 @@ export class AgentService {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		if (!options.isBudgetChecked) {
-			await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
+			await assertModelBudget(chat.projectId, resolvedLlmSelectedModel, chat.userId);
 		}
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
+		const usageContext: ManagedAiUsageContext = {
+			userId: chat.userId,
+			projectId: chat.projectId,
+			chatId: options.attributeUsageToChat === false ? undefined : chat.id,
+			runId: crypto.randomUUID(),
+			category: options.usageCategory ?? 'chat',
+		};
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, usageContext);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
@@ -345,6 +364,7 @@ export class AgentService {
 			adminMode: options.adminMode,
 			supportsCustomCharts: options.supportsCustomCharts,
 			modelSelection: resolvedLlmSelectedModel,
+			usageRunId: usageContext.runId,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
@@ -363,6 +383,7 @@ export class AgentService {
 			agentTools,
 			toolContext,
 			userGroupAccess,
+			usageContext,
 			stopWhen,
 			options.systemPrompt,
 		);
@@ -418,8 +439,18 @@ export class AgentService {
 		return createWebSearchTools(provider, settings);
 	}
 
-	protected async _getModelConfig(projectId: string, modelSelection: LlmSelectedModel): Promise<ProviderModelResult> {
-		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
+	protected async _getModelConfig(
+		projectId: string,
+		modelSelection: LlmSelectedModel,
+		usageContext?: ManagedAiUsageContext,
+	): Promise<ProviderModelResult> {
+		const result = await resolveProviderModel(
+			projectId,
+			modelSelection.provider,
+			modelSelection.modelId,
+			true,
+			usageContext,
+		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
 		}
@@ -445,6 +476,7 @@ export class AgentManager {
 		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
 		private readonly _userGroupAccess: AgentUserGroupAccess,
+		private readonly _usageContext: ManagedAiUsageContext,
 		stopWhen: StopCondition<AgentTools>[] = [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 		private readonly _systemPromptOverride?: string,
 	) {
@@ -499,6 +531,7 @@ export class AgentManager {
 			chat: this.chat,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
+			runId: this._usageContext.runId,
 			messages: workingMessages,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
@@ -556,6 +589,8 @@ export class AgentManager {
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
+		const assistantMessageId = crypto.randomUUID();
+		this._usageContext.messageId = assistantMessageId;
 		const handleError = (err: unknown): string => {
 			error = err;
 			logger.error(`Agent stream error: ${String(err)}`, {
@@ -567,9 +602,8 @@ export class AgentManager {
 		};
 
 		return createUIMessageStream<UIMessage>({
-			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
-				writer.write({ type: 'start' });
+				writer.write({ type: 'start', messageId: assistantMessageId });
 
 				if (opts.events?.newChat) {
 					writer.write({
@@ -770,6 +804,7 @@ export class AgentManager {
 			messages: uiMessages,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
+			runId: this._usageContext.runId,
 		});
 	}
 
@@ -793,7 +828,13 @@ export class AgentManager {
 				this._modelSelection,
 				getProviderMeta(provider).summaryModelId,
 			));
-		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false);
+		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false, {
+			userId: this.chat.userId,
+			projectId: this.chat.projectId,
+			chatId: this.chat.id,
+			runId: this._usageContext.runId,
+			category: 'title',
+		});
 		if (!modelResult) {
 			return;
 		}

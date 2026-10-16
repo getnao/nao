@@ -1,0 +1,641 @@
+import '../src/env';
+
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import type {
+	LanguageModelV3,
+	LanguageModelV3CallOptions,
+	LanguageModelV3GenerateResult,
+	LanguageModelV3StreamPart,
+	LanguageModelV3Usage,
+} from '@ai-sdk/provider';
+import Database from 'better-sqlite3';
+import { eq, sql } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import { type ManagedAiUsageContext, withManagedAiUsageMetering } from '../src/agents/managed-ai';
+import s from '../src/db/abstractSchema';
+import { db } from '../src/db/db';
+import { getCreditGrant, getCreditSummary, listCreditLedger } from '../src/queries/credit-wallet.queries';
+import { listManagedAiUsage } from '../src/queries/managed-ai-usage.queries';
+import { listProjectChats } from '../src/queries/project.queries';
+import * as creditWalletService from '../src/services/credit-wallet.service';
+import { ManagedCreditsExhaustedError } from '../src/utils/error';
+
+const { issueCreditGrant, recordManagedAiUsageAndChargeWallet, reserveManagedAiCredits } = creditWalletService;
+
+vi.mock('../src/db/db', async () => {
+	const { default: Database } = await import('better-sqlite3');
+	const { drizzle } = await import('drizzle-orm/better-sqlite3');
+	const { generateSQLiteDrizzleJson, generateSQLiteMigration } = await import('drizzle-kit/api');
+	const sqliteSchema = await import('../src/db/sqlite-schema');
+
+	const sqlite = new Database(':memory:');
+	const statements = await generateSQLiteMigration(
+		await generateSQLiteDrizzleJson({}),
+		await generateSQLiteDrizzleJson(sqliteSchema),
+	);
+	for (const statement of statements) {
+		sqlite.exec(statement);
+	}
+	sqlite.pragma('foreign_keys = ON');
+
+	return { db: drizzle(sqlite, { schema: sqliteSchema }) };
+});
+
+const MANAGED_USER_ID = 'managed-user';
+const BYOK_USER_ID = 'byok-user';
+const EXHAUSTED_USER_ID = 'exhausted-user';
+const SECOND_USER_ID = 'second-user';
+const UNCLAIMED_USER_ID = 'unclaimed-user';
+const RACE_USER_ID = 'race-user';
+const ORG_ID = 'managed-org';
+const POOL_ORG_ID = 'pool-org';
+const EXHAUSTED_ORG_ID = 'exhausted-org';
+const RACE_ORG_A_ID = 'race-org-a';
+const RACE_ORG_B_ID = 'race-org-b';
+const PROJECT_ID = 'managed-project';
+const CHAT_ID = 'managed-chat';
+const HYBRID_CHAT_ID = 'hybrid-cost-chat';
+const MESSAGE_ID = 'managed-message';
+const ORGANIZATION_SETUP_GRANT_MICRO_USD = 20_000_000;
+const USER_JOIN_GRANT_MICRO_USD = 5_000_000;
+
+const ISSUE_USER_JOIN_GRANT_SCRIPT = `
+import { once } from 'node:events';
+import { db } from './src/db/db.ts';
+import { issueCreditGrant } from './src/services/credit-wallet.service.ts';
+
+db.$client.run('PRAGMA busy_timeout = 5000');
+process.stdout.write('claim-ready\\n');
+await once(process.stdin, 'data');
+await issueCreditGrant({
+	grantType: 'user_join',
+	orgId: process.env.CLAIM_ORG_ID!,
+	userId: process.env.CLAIM_USER_ID!,
+});
+db.$client.close();
+`;
+
+const usage: LanguageModelV3Usage = {
+	inputTokens: { total: 1_000, noCache: 1_000, cacheRead: 0, cacheWrite: 0 },
+	outputTokens: { total: 100, text: 80, reasoning: 20 },
+};
+
+describe('managed AI usage and organization credits', () => {
+	beforeAll(async () => {
+		await db.insert(s.creditGrantPolicy).values([
+			{ grantType: 'organization_setup', amountMicroUsd: ORGANIZATION_SETUP_GRANT_MICRO_USD },
+			{ grantType: 'user_join', amountMicroUsd: USER_JOIN_GRANT_MICRO_USD },
+		]);
+		await db.insert(s.user).values([
+			{ id: MANAGED_USER_ID, name: 'Managed User', email: 'managed@example.com' },
+			{ id: BYOK_USER_ID, name: 'BYOK User', email: 'byok@example.com' },
+			{ id: EXHAUSTED_USER_ID, name: 'Exhausted User', email: 'exhausted@example.com' },
+			{ id: SECOND_USER_ID, name: 'Second User', email: 'second@example.com' },
+			{ id: UNCLAIMED_USER_ID, name: 'Unclaimed User', email: 'unclaimed@example.com' },
+			{ id: RACE_USER_ID, name: 'Race User', email: 'race@example.com' },
+		]);
+		await db.insert(s.organization).values([
+			{ id: ORG_ID, name: 'Managed Org', slug: ORG_ID },
+			{ id: POOL_ORG_ID, name: 'Pool Org', slug: POOL_ORG_ID },
+			{ id: EXHAUSTED_ORG_ID, name: 'Exhausted Org', slug: EXHAUSTED_ORG_ID },
+			{ id: RACE_ORG_A_ID, name: 'Race Org A', slug: RACE_ORG_A_ID },
+			{ id: RACE_ORG_B_ID, name: 'Race Org B', slug: RACE_ORG_B_ID },
+		]);
+		await db.insert(s.project).values({
+			id: PROJECT_ID,
+			orgId: ORG_ID,
+			name: 'Managed Project',
+			type: 'local',
+			path: '/tmp/managed-project',
+		});
+		await db.insert(s.chat).values([
+			{ id: CHAT_ID, projectId: PROJECT_ID, userId: MANAGED_USER_ID },
+			{ id: HYBRID_CHAT_ID, projectId: PROJECT_ID, userId: MANAGED_USER_ID },
+		]);
+		await issueCreditGrant({ grantType: 'organization_setup', orgId: ORG_ID, projectId: PROJECT_ID });
+		const exhaustedWalletId = 'exhausted-wallet';
+		await db.insert(s.creditWallet).values({
+			id: exhaustedWalletId,
+			orgId: EXHAUSTED_ORG_ID,
+			balanceMicroUsd: 0,
+		});
+		await db.insert(s.creditLedger).values({
+			walletId: exhaustedWalletId,
+			entryType: 'gift',
+			deltaMicroUsd: USER_JOIN_GRANT_MICRO_USD,
+			balanceAfterMicroUsd: USER_JOIN_GRANT_MICRO_USD,
+			idempotencyKey: `user-join:v0:${EXHAUSTED_USER_ID}`,
+		});
+	});
+
+	afterAll(() => {
+		db.$client.close();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('creates the database-configured organization setup gift exactly once', async () => {
+		await issueCreditGrant({ grantType: 'organization_setup', orgId: ORG_ID, projectId: PROJECT_ID });
+		await issueCreditGrant({ grantType: 'organization_setup', orgId: ORG_ID, projectId: PROJECT_ID });
+
+		const summary = await getCreditSummary(ORG_ID);
+		const entries = await db
+			.select()
+			.from(s.creditLedger)
+			.where(eq(s.creditLedger.idempotencyKey, `organization-setup:v0:${ORG_ID}`));
+		expect(summary).toEqual({
+			balanceMicroUsd: ORGANIZATION_SETUP_GRANT_MICRO_USD,
+			lifetimeCreditedMicroUsd: ORGANIZATION_SETUP_GRANT_MICRO_USD,
+			lifetimeDebitedMicroUsd: 0,
+		});
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.metadata).toMatchObject({
+			grantType: 'organization_setup',
+			amountMicroUsd: ORGANIZATION_SETUP_GRANT_MICRO_USD,
+			projectId: PROJECT_ID,
+		});
+	});
+
+	it('issues one user join gift globally and keeps it in the first organization', async () => {
+		expect(await issueCreditGrant({ grantType: 'user_join', orgId: POOL_ORG_ID, userId: SECOND_USER_ID })).toBe(
+			true,
+		);
+		expect(await issueCreditGrant({ grantType: 'user_join', orgId: POOL_ORG_ID, userId: SECOND_USER_ID })).toBe(
+			false,
+		);
+		expect(await issueCreditGrant({ grantType: 'user_join', orgId: ORG_ID, userId: SECOND_USER_ID })).toBe(false);
+
+		expect((await getCreditSummary(POOL_ORG_ID)).balanceMicroUsd).toBe(USER_JOIN_GRANT_MICRO_USD);
+		expect((await getCreditSummary(ORG_ID)).balanceMicroUsd).toBe(ORGANIZATION_SETUP_GRANT_MICRO_USD);
+		expect(await getCreditGrant('user_join', SECOND_USER_ID)).toEqual({ orgId: POOL_ORG_ID });
+		expect((await listCreditLedger(POOL_ORG_ID, { limit: 100 })).groups[0]?.grantedForUserName).toBe('Second User');
+		expect((await listCreditLedger(ORG_ID, { limit: 100 })).groups).toHaveLength(1);
+	});
+
+	it('keeps one winning organization when two user join gifts race', async () => {
+		const databasePath = path.join(os.tmpdir(), `nao-welcome-grant-race-${crypto.randomUUID()}.sqlite`);
+		await (db.$client as unknown as InstanceType<typeof Database>).backup(databasePath);
+		const claims = [
+			startUserJoinGrant(databasePath, RACE_ORG_A_ID),
+			startUserJoinGrant(databasePath, RACE_ORG_B_ID),
+		];
+
+		try {
+			await Promise.all(claims.map((claim) => claim.ready));
+			for (const claim of claims) {
+				claim.child.stdin.end('claim\n');
+			}
+			await Promise.all(claims.map((claim) => claim.completed));
+
+			const raceDatabase = new Database(databasePath, { readonly: true });
+			try {
+				const winningClaims = raceDatabase
+					.prepare(
+						`select credit_wallet.org_id as orgId
+						from credit_ledger
+						inner join credit_wallet on credit_wallet.id = credit_ledger.wallet_id
+						where credit_ledger.idempotency_key = ?`,
+					)
+					.all(`user-join:v0:${RACE_USER_ID}`) as { orgId: string }[];
+				const { total } = raceDatabase
+					.prepare(
+						`select coalesce(sum(balance_micro_usd), 0) as total
+						from credit_wallet
+						where org_id in (?, ?)`,
+					)
+					.get(RACE_ORG_A_ID, RACE_ORG_B_ID) as { total: number };
+
+				expect(winningClaims).toHaveLength(1);
+				expect([RACE_ORG_A_ID, RACE_ORG_B_ID]).toContain(winningClaims[0]?.orgId);
+				expect(total).toBe(USER_JOIN_GRANT_MICRO_USD);
+			} finally {
+				raceDatabase.close();
+			}
+		} finally {
+			for (const claim of claims) {
+				if (claim.child.exitCode === null) {
+					claim.child.kill();
+				}
+			}
+			await Promise.allSettled(claims.map((claim) => claim.completed));
+			fs.rmSync(databasePath, { force: true });
+		}
+	});
+
+	it('allows members whose join gift funded another organization to use a shared wallet', async () => {
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withManagedAiUsageMetering(createModel(providerCall), 'nao', 'gpt-5.6-luna', {
+			userId: SECOND_USER_ID,
+			orgId: ORG_ID,
+			projectId: PROJECT_ID,
+			category: 'chat',
+		});
+
+		await model.doGenerate({} as LanguageModelV3CallOptions);
+
+		expect(providerCall).toHaveBeenCalledOnce();
+		expect(await getCreditGrant('user_join', SECOND_USER_ID)).toEqual({ orgId: POOL_ORG_ID });
+	});
+
+	it('rejects managed usage without a billed organization before calling the provider', async () => {
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withManagedAiUsageMetering(createModel(providerCall), 'nao', 'gpt-5.6-luna', {
+			userId: MANAGED_USER_ID,
+			category: 'chat',
+		});
+
+		await expect(model.doGenerate({} as LanguageModelV3CallOptions)).rejects.toThrow('billed organization');
+		expect(providerCall).not.toHaveBeenCalled();
+	});
+
+	it('records and charges one row per managed invocation before the assistant message is persisted', async () => {
+		const context: ManagedAiUsageContext = {
+			userId: MANAGED_USER_ID,
+			orgId: ORG_ID,
+			projectId: PROJECT_ID,
+			chatId: CHAT_ID,
+			category: 'chat',
+		};
+		const model = withManagedAiUsageMetering(createModel(), 'nao', 'gpt-5.6-luna', context);
+		context.messageId = MESSAGE_ID;
+		await model.doGenerate({} as LanguageModelV3CallOptions);
+		const streamed = await model.doStream({} as LanguageModelV3CallOptions);
+		await consume(streamed.stream);
+
+		const rows = await db.select().from(s.managedAiUsage).where(eq(s.managedAiUsage.userId, MANAGED_USER_ID));
+		expect(rows).toHaveLength(2);
+		expect(rows).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					chatMessageId: MESSAGE_ID,
+					llmProvider: 'nao',
+					status: 'completed',
+					costSource: 'price_book',
+					providerRequestId: 'provider-response',
+				}),
+			]),
+		);
+		expect(rows.reduce((total, row) => total + (row.totalTokens ?? 0), 0)).toBe(2_200);
+		expect(new Set(rows.map((row) => row.runId)).size).toBe(1);
+		const groupedUsage = await listManagedAiUsage({ orgId: ORG_ID, userId: MANAGED_USER_ID }, { limit: 100 });
+		const usageRun = groupedUsage.runs.find((run) => run.id === rows[0]?.runId);
+		expect(usageRun?.chatTitle).toBe('New Conversation');
+		expect(usageRun?.userName).toBe('Managed User');
+		expect(usageRun?.events).toHaveLength(2);
+		const groupedLedger = await listCreditLedger(ORG_ID, { limit: 100 });
+		const ledgerGroup = groupedLedger.groups.find((group) => group.id === rows[0]?.runId);
+		expect(ledgerGroup?.entries).toHaveLength(2);
+		expect(ledgerGroup?.usageUserName).toBe('Managed User');
+		const summary = await getCreditSummary(ORG_ID);
+		const transactionSequences = ledgerGroup?.entries.map((entry) => entry.transactionSequence) ?? [];
+		expect(transactionSequences).toEqual([...transactionSequences].sort((left, right) => left - right));
+		expect(ledgerGroup?.entries.at(-1)?.balanceAfterMicroUsd).toBe(summary.balanceMicroUsd);
+		const [ledgerTotal] = await db
+			.select({ total: sql<number>`coalesce(sum(${s.creditLedger.deltaMicroUsd}), 0)` })
+			.from(s.creditLedger)
+			.innerJoin(s.creditWallet, eq(s.creditLedger.walletId, s.creditWallet.id))
+			.where(eq(s.creditWallet.orgId, ORG_ID));
+		expect(Number(ledgerTotal.total)).toBe(summary.balanceMicroUsd);
+	});
+
+	it('propagates settlement failures after successful generation', async () => {
+		const settlementError = new Error('wallet settlement failed');
+		const settleUsage = vi
+			.spyOn(creditWalletService, 'recordManagedAiUsageAndChargeWallet')
+			.mockRejectedValueOnce(settlementError);
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withManagedAiUsageMetering(createModel(providerCall), 'nao', 'gpt-5.6-luna', {
+			userId: MANAGED_USER_ID,
+			orgId: ORG_ID,
+			category: 'chat',
+		});
+
+		await expect(model.doGenerate({} as LanguageModelV3CallOptions)).rejects.toBe(settlementError);
+		expect(providerCall).toHaveBeenCalledOnce();
+		expect(settleUsage).toHaveBeenCalledOnce();
+	});
+
+	it('does not log BYOK usage or touch the organization wallet', async () => {
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withManagedAiUsageMetering(createModel(providerCall), 'openai', 'gpt-5.6-luna', {
+			userId: BYOK_USER_ID,
+			orgId: ORG_ID,
+			projectId: PROJECT_ID,
+			category: 'automation',
+		});
+		const before = await getCreditSummary(ORG_ID);
+		await model.doGenerate({} as LanguageModelV3CallOptions);
+
+		const rows = await db.select().from(s.managedAiUsage).where(eq(s.managedAiUsage.userId, BYOK_USER_ID));
+		expect(providerCall).toHaveBeenCalledOnce();
+		expect(rows).toHaveLength(0);
+		expect(await getCreditSummary(ORG_ID)).toEqual(before);
+	});
+
+	it('combines managed credit charges with estimated BYOK cost in chat replay', async () => {
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'hybrid-byok-message',
+				chatId: HYBRID_CHAT_ID,
+				senderUserId: MANAGED_USER_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-5.6-luna',
+				inputNoCacheTokens: 1_000_000,
+				totalTokens: 1_000_000,
+			},
+			{
+				id: 'hybrid-managed-message',
+				chatId: HYBRID_CHAT_ID,
+				senderUserId: MANAGED_USER_ID,
+				role: 'assistant',
+				llmProvider: 'nao',
+				llmModelId: 'gpt-5.6-luna',
+				inputNoCacheTokens: 1_000_000,
+				totalTokens: 1_000_000,
+			},
+		]);
+		await reserveManagedAiCredits(ORG_ID, 'hybrid-managed-operation', 2_000_000);
+		await recordManagedAiUsageAndChargeWallet(
+			{
+				operationId: 'hybrid-managed-operation',
+				runId: 'hybrid-managed-run',
+				userId: MANAGED_USER_ID,
+				orgId: ORG_ID,
+				projectId: PROJECT_ID,
+				chatId: HYBRID_CHAT_ID,
+				category: 'chat',
+				llmProvider: 'nao',
+				llmModelId: 'gpt-5.6-luna',
+				status: 'completed',
+				costSource: 'price_book',
+				completedAt: new Date(),
+			},
+			2_000_000,
+		);
+
+		const replay = await listProjectChats(PROJECT_ID, { pageSize: 100 });
+		expect(replay.chats.find((chat) => chat.id === HYBRID_CHAT_ID)?.totalCost).toBeCloseTo(2.2);
+	});
+
+	it('records an estimated charge when a stream is aborted', async () => {
+		const controller = new AbortController();
+		const model = withManagedAiUsageMetering(
+			createModel(undefined, [
+				{ type: 'text-delta', id: 'text-1', delta: 'done' },
+				{ type: 'tool-input-delta', id: 'tool-1', delta: 'tool' },
+			]),
+			'nao',
+			'gpt-5.6-luna',
+			{ userId: MANAGED_USER_ID, orgId: ORG_ID, category: 'chat' },
+		);
+		const { stream } = await model.doStream({
+			prompt: [{ role: 'user', content: [{ type: 'text', text: 'x'.repeat(4_000) }] }],
+			abortSignal: controller.signal,
+		});
+		const reader = stream.getReader();
+		await reader.read();
+		await reader.read();
+		controller.abort();
+		await reader.cancel();
+
+		await vi.waitFor(async () => {
+			const rows = await db.select().from(s.managedAiUsage).where(eq(s.managedAiUsage.status, 'aborted'));
+			expect(rows.at(-1)).toMatchObject({ costSource: 'estimated', outputTotalTokens: 2 });
+		});
+	});
+
+	it('records failed provider calls without replacing the provider error', async () => {
+		const providerError = new Error('provider unavailable');
+		const model = withManagedAiUsageMetering(
+			createModel(async () => {
+				throw providerError;
+			}),
+			'nao',
+			'gpt-5.6-luna',
+			{ userId: MANAGED_USER_ID, orgId: ORG_ID, category: 'chat' },
+		);
+
+		await expect(
+			model.doGenerate({
+				prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+			} as LanguageModelV3CallOptions),
+		).rejects.toBe(providerError);
+		const rows = await db.select().from(s.managedAiUsage).where(eq(s.managedAiUsage.status, 'failed'));
+		expect(rows.at(-1)).toMatchObject({ costSource: 'estimated' });
+	});
+
+	it('blocks an exhausted wallet before calling the provider', async () => {
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withManagedAiUsageMetering(createModel(providerCall), 'nao', 'gpt-5.6-luna', {
+			userId: EXHAUSTED_USER_ID,
+			orgId: EXHAUSTED_ORG_ID,
+			category: 'chat',
+		});
+
+		await expect(model.doGenerate({} as LanguageModelV3CallOptions)).rejects.toBeInstanceOf(
+			ManagedCreditsExhaustedError,
+		);
+		expect(providerCall).not.toHaveBeenCalled();
+	});
+
+	it('reserves credits before dispatch and never settles below zero', async () => {
+		await db.update(s.creditWallet).set({ balanceMicroUsd: 2 }).where(eq(s.creditWallet.orgId, EXHAUSTED_ORG_ID));
+		let releaseProvider!: () => void;
+		const firstProviderCall = vi.fn(
+			async () =>
+				await new Promise<LanguageModelV3GenerateResult>((resolve) => {
+					releaseProvider = () => resolve(generateResult());
+				}),
+		);
+		const secondProviderCall = vi.fn(async () => generateResult());
+		const context = { userId: EXHAUSTED_USER_ID, orgId: EXHAUSTED_ORG_ID, category: 'chat' as const };
+		const firstModel = withManagedAiUsageMetering(createModel(firstProviderCall), 'nao', 'gpt-5.6-luna', context);
+		const secondModel = withManagedAiUsageMetering(createModel(secondProviderCall), 'nao', 'gpt-5.6-luna', context);
+		const params = { maxOutputTokens: 1 } as LanguageModelV3CallOptions;
+
+		const firstCall = firstModel.doGenerate(params);
+		await vi.waitFor(() => expect(firstProviderCall).toHaveBeenCalledOnce());
+		await expect(secondModel.doGenerate(params)).rejects.toBeInstanceOf(ManagedCreditsExhaustedError);
+		expect(secondProviderCall).not.toHaveBeenCalled();
+
+		releaseProvider();
+		await firstCall;
+
+		const summary = await getCreditSummary(EXHAUSTED_ORG_ID);
+		const rows = await db.select().from(s.managedAiUsage).where(eq(s.managedAiUsage.orgId, EXHAUSTED_ORG_ID));
+		expect(summary.balanceMicroUsd).toBe(0);
+		expect(rows.at(-1)).toMatchObject({
+			customerChargeMicroUsd: 2,
+			upstreamCostMicroUsd: 320,
+		});
+	});
+
+	it('charges a repeated operation only once', async () => {
+		const operationId = crypto.randomUUID();
+		const input = {
+			operationId,
+			runId: crypto.randomUUID(),
+			userId: MANAGED_USER_ID,
+			orgId: ORG_ID,
+			category: 'chat' as const,
+			llmProvider: 'nao' as const,
+			llmModelId: 'gpt-5.6-luna',
+			status: 'completed' as const,
+			costSource: 'price_book' as const,
+			completedAt: new Date(),
+		};
+		const before = await getCreditSummary(ORG_ID);
+		await reserveManagedAiCredits(ORG_ID, operationId, 100);
+		const pendingReservation = (await listCreditLedger(ORG_ID, { limit: 100 })).groups.find(
+			(group) => group.entries[0]?.idempotencyKey === operationId,
+		);
+		expect(pendingReservation?.entries).toEqual([
+			expect.objectContaining({ entryType: 'reservation', deltaMicroUsd: -100 }),
+		]);
+		await recordManagedAiUsageAndChargeWallet(input, 100);
+		await recordManagedAiUsageAndChargeWallet(input, 100);
+		const after = await getCreditSummary(ORG_ID);
+
+		expect(before.balanceMicroUsd - after.balanceMicroUsd).toBe(100);
+	});
+
+	it('scopes usage to the organization, and to the user when one is given', async () => {
+		const orgUsage = await listManagedAiUsage({ orgId: ORG_ID }, { limit: 100 });
+		const byokUsage = await listManagedAiUsage({ orgId: ORG_ID, userId: BYOK_USER_ID }, { limit: 100 });
+		const otherOrgUsage = await listManagedAiUsage({ orgId: POOL_ORG_ID }, { limit: 100 });
+
+		const orgUserIds = new Set(orgUsage.runs.flatMap((run) => run.events.map((event) => event.userId)));
+		expect(orgUserIds).toEqual(new Set([MANAGED_USER_ID, SECOND_USER_ID]));
+		expect(byokUsage.runs).toHaveLength(0);
+		expect(otherOrgUsage.runs).toHaveLength(0);
+	});
+
+	it('pages usage runs and ledger groups through the returned cursor', async () => {
+		const scope = { orgId: ORG_ID, userId: MANAGED_USER_ID };
+		const firstUsage = await listManagedAiUsage(scope, { limit: 1 });
+		const secondUsage = await listManagedAiUsage(scope, { cursor: firstUsage.nextCursor!, limit: 100 });
+		const firstLedger = await listCreditLedger(ORG_ID, { limit: 1 });
+		const secondLedger = await listCreditLedger(ORG_ID, { cursor: firstLedger.nextCursor!, limit: 100 });
+
+		expect(secondUsage.runs.length).toBeGreaterThan(0);
+		expect(secondUsage.runs.map((run) => run.id)).not.toContain(firstUsage.runs[0]?.id);
+		expect(secondLedger.groups.length).toBeGreaterThan(0);
+		expect(secondLedger.groups.map((group) => group.id)).not.toContain(firstLedger.groups[0]?.id);
+	});
+});
+
+function startUserJoinGrant(
+	databasePath: string,
+	orgId: string,
+): {
+	child: ChildProcessWithoutNullStreams;
+	ready: Promise<void>;
+	completed: Promise<void>;
+} {
+	const child = spawn('bun', ['--eval', ISSUE_USER_JOIN_GRANT_SCRIPT], {
+		cwd: path.resolve(import.meta.dirname, '..'),
+		env: {
+			...process.env,
+			DB_URI: `sqlite:${databasePath}`,
+			CLAIM_ORG_ID: orgId,
+			CLAIM_USER_ID: RACE_USER_ID,
+		},
+	});
+	let stderr = '';
+	child.stderr.setEncoding('utf8');
+	child.stderr.on('data', (chunk: string) => {
+		stderr += chunk;
+	});
+
+	return {
+		child,
+		ready: waitForOutput(child, 'claim-ready'),
+		completed: once(child, 'exit').then(([exitCode]) => {
+			if (exitCode !== 0) {
+				throw new Error(`User join grant exited with code ${String(exitCode)}: ${stderr}`);
+			}
+		}),
+	};
+}
+
+function waitForOutput(child: ChildProcessWithoutNullStreams, expected: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		let stdout = '';
+		child.stdout.setEncoding('utf8');
+		const onData = (chunk: string) => {
+			stdout += chunk;
+			if (stdout.includes(expected)) {
+				cleanup();
+				resolve();
+			}
+		};
+		const onError = (error: Error) => {
+			cleanup();
+			reject(error);
+		};
+		const onExit = (exitCode: number | null) => {
+			cleanup();
+			reject(new Error(`Process exited with code ${String(exitCode)} before writing "${expected}".`));
+		};
+		const cleanup = () => {
+			child.stdout.off('data', onData);
+			child.off('error', onError);
+			child.off('exit', onExit);
+		};
+		child.stdout.on('data', onData);
+		child.once('error', onError);
+		child.once('exit', onExit);
+	});
+}
+
+function createModel(
+	doGenerate: LanguageModelV3['doGenerate'] = async () => generateResult(),
+	streamParts: LanguageModelV3StreamPart[] = [
+		{ type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage },
+	],
+): LanguageModelV3 {
+	return {
+		specificationVersion: 'v3',
+		provider: 'test',
+		modelId: 'gpt-5.6-luna',
+		supportedUrls: {},
+		doGenerate,
+		doStream: async () => ({
+			stream: new ReadableStream<LanguageModelV3StreamPart>({
+				start(controller) {
+					for (const part of streamParts) {
+						controller.enqueue(part);
+					}
+					if (streamParts.some((part) => part.type === 'finish')) {
+						controller.close();
+					}
+				},
+			}),
+		}),
+	};
+}
+
+function generateResult(): LanguageModelV3GenerateResult {
+	return {
+		content: [{ type: 'text', text: 'done' }],
+		finishReason: { unified: 'stop', raw: 'stop' },
+		usage,
+		response: { id: 'provider-response' },
+		warnings: [],
+	};
+}
+
+async function consume(stream: ReadableStream<LanguageModelV3StreamPart>): Promise<void> {
+	for await (const chunk of stream) {
+		void chunk;
+	}
+}

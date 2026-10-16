@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	extractToolCalls: vi.fn(() => []),
 	getAzureAccessTokenForUser: vi.fn(),
 	getEnvVars: vi.fn(),
+	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveProjectContextAccess: vi.fn(),
 	retrieveProjectById: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('../src/middleware/auth', () => ({
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getEnvVars: mocks.getEnvVars,
+	getUserRoleInProject: mocks.getUserRoleInProject,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
 vi.mock('../src/services/license.service', () => ({
@@ -57,6 +59,7 @@ describe('test routes', () => {
 			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 		});
 		mocks.getEnvVars.mockResolvedValue({ WAREHOUSE_HOST: 'warehouse.example.com' });
+		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.hasFeature.mockResolvedValue(true);
 		mocks.getAzureAccessTokenForUser.mockResolvedValue('azure-access-token');
 		mocks.executeQuery.mockResolvedValue({ data: [], columns: [] });
@@ -124,6 +127,15 @@ describe('test routes', () => {
 		expect(mocks.runVerification).not.toHaveBeenCalled();
 		expect(reply.status).not.toHaveBeenCalled();
 		expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ text: 'answer', verification: undefined }));
+	});
+
+	it('rejects project viewers before running a test', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('viewer');
+
+		const reply = await runExpectedQuery({ prompt: 'Question' });
+
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(mocks.runTest).not.toHaveBeenCalled();
 	});
 });
 

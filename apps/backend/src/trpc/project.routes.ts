@@ -26,6 +26,7 @@ import * as telegramConfigQueries from '../queries/project-telegram-config.queri
 import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
+import { reconcileOrganizationSetupGrant } from '../services/credit-grant.service';
 import {
 	type DefaultModelsOverview,
 	getDefaultModelsOverview,
@@ -249,6 +250,9 @@ export const projectRoutes = {
 		)
 		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
 		.mutation(async ({ ctx, input }) => {
+			if (input.provider === 'nao') {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'The nao-managed provider is configured by nao.' });
+			}
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const inheritedConfig = existingConfig
 				? null
@@ -1194,6 +1198,7 @@ export const projectRoutes = {
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
 			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+			await reconcileOrganizationSetupGrant(ctx.project.id);
 			void mcpService.refreshProjectConfig(ctx.project.id);
 		}),
 

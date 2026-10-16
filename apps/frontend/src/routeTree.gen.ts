@@ -39,6 +39,7 @@ import { Route as SidebarLayoutSettingsMcpEndpointRouteImport } from './routes/_
 import { Route as SidebarLayoutSettingsLogsRouteImport } from './routes/_sidebar-layout.settings.logs'
 import { Route as SidebarLayoutSettingsGitRouteImport } from './routes/_sidebar-layout.settings.git'
 import { Route as SidebarLayoutSettingsEnterpriseRouteImport } from './routes/_sidebar-layout.settings.enterprise'
+import { Route as SidebarLayoutSettingsCreditsWalletRouteImport } from './routes/_sidebar-layout.settings.credits-wallet'
 import { Route as SidebarLayoutSettingsContextExplorerRouteImport } from './routes/_sidebar-layout.settings.context-explorer'
 import { Route as SidebarLayoutSettingsAppearanceRouteImport } from './routes/_sidebar-layout.settings.appearance'
 import { Route as SidebarLayoutSettingsAccountRouteImport } from './routes/_sidebar-layout.settings.account'
@@ -236,6 +237,12 @@ const SidebarLayoutSettingsEnterpriseRoute =
   SidebarLayoutSettingsEnterpriseRouteImport.update({
     id: '/enterprise',
     path: '/enterprise',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsCreditsWalletRoute =
+  SidebarLayoutSettingsCreditsWalletRouteImport.update({
+    id: '/credits-wallet',
+    path: '/credits-wallet',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsContextExplorerRoute =
@@ -458,6 +465,7 @@ export interface FileRoutesByFullPath {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
+  '/settings/credits-wallet': typeof SidebarLayoutSettingsCreditsWalletRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
@@ -521,6 +529,7 @@ export interface FileRoutesByTo {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
+  '/settings/credits-wallet': typeof SidebarLayoutSettingsCreditsWalletRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
@@ -583,6 +592,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/_sidebar-layout/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
   '/_sidebar-layout/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
+  '/_sidebar-layout/settings/credits-wallet': typeof SidebarLayoutSettingsCreditsWalletRoute
   '/_sidebar-layout/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/_sidebar-layout/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/_sidebar-layout/settings/logs': typeof SidebarLayoutSettingsLogsRoute
@@ -650,6 +660,7 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/appearance'
     | '/settings/context-explorer'
+    | '/settings/credits-wallet'
     | '/settings/enterprise'
     | '/settings/git'
     | '/settings/logs'
@@ -713,6 +724,7 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/appearance'
     | '/settings/context-explorer'
+    | '/settings/credits-wallet'
     | '/settings/enterprise'
     | '/settings/git'
     | '/settings/logs'
@@ -774,6 +786,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/account'
     | '/_sidebar-layout/settings/appearance'
     | '/_sidebar-layout/settings/context-explorer'
+    | '/_sidebar-layout/settings/credits-wallet'
     | '/_sidebar-layout/settings/enterprise'
     | '/_sidebar-layout/settings/git'
     | '/_sidebar-layout/settings/logs'
@@ -1046,6 +1059,13 @@ declare module '@tanstack/react-router' {
       path: '/enterprise'
       fullPath: '/settings/enterprise'
       preLoaderRoute: typeof SidebarLayoutSettingsEnterpriseRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/credits-wallet': {
+      id: '/_sidebar-layout/settings/credits-wallet'
+      path: '/credits-wallet'
+      fullPath: '/settings/credits-wallet'
+      preLoaderRoute: typeof SidebarLayoutSettingsCreditsWalletRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/context-explorer': {
@@ -1446,6 +1466,7 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsAccountRoute: typeof SidebarLayoutSettingsAccountRoute
   SidebarLayoutSettingsAppearanceRoute: typeof SidebarLayoutSettingsAppearanceRoute
   SidebarLayoutSettingsContextExplorerRoute: typeof SidebarLayoutSettingsContextExplorerRoute
+  SidebarLayoutSettingsCreditsWalletRoute: typeof SidebarLayoutSettingsCreditsWalletRoute
   SidebarLayoutSettingsEnterpriseRoute: typeof SidebarLayoutSettingsEnterpriseRoute
   SidebarLayoutSettingsGitRoute: typeof SidebarLayoutSettingsGitRoute
   SidebarLayoutSettingsLogsRoute: typeof SidebarLayoutSettingsLogsRoute
@@ -1465,6 +1486,8 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsAppearanceRoute: SidebarLayoutSettingsAppearanceRoute,
   SidebarLayoutSettingsContextExplorerRoute:
     SidebarLayoutSettingsContextExplorerRoute,
+  SidebarLayoutSettingsCreditsWalletRoute:
+    SidebarLayoutSettingsCreditsWalletRoute,
   SidebarLayoutSettingsEnterpriseRoute: SidebarLayoutSettingsEnterpriseRoute,
   SidebarLayoutSettingsGitRoute: SidebarLayoutSettingsGitRoute,
   SidebarLayoutSettingsLogsRoute: SidebarLayoutSettingsLogsRoute,

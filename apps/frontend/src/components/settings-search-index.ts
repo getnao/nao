@@ -30,6 +30,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['name', 'email', 'sign out', 'logout', 'avatar'],
 	},
 	{
+		page: '/settings/usage',
+		pageLabel: 'Usage, Costs & Wallet',
+		section: 'Organization wallet',
+		search: { tab: 'wallet' },
+		title: 'Wallet and managed AI charges',
+		description: "View your organization's nao credit balance, wallet history, managed usage, tokens, and costs.",
+		keywords: ['wallet', 'gift', 'ledger', 'billing', 'tokens', 'cost', 'model usage', 'organization credits'],
+		orgAdminOnly: true,
+		cloudOnly: true,
+	},
+	{
 		page: '/settings/account',
 		pageLabel: 'Account',
 		section: 'General Settings',
@@ -1004,10 +1015,11 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
-	// ── Usage & Costs ────────────────────────────────────────
+	// ── Usage, Costs & Wallet ─────────────────────────────────
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage, Costs & Wallet',
+		search: { tab: 'usage' },
 		title: 'Messages',
 		description: 'How many messages have been sent across all chats?',
 		keywords: ['usage', 'analytics', 'statistics'],
@@ -1015,7 +1027,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage, Costs & Wallet',
+		search: { tab: 'usage' },
 		title: 'Tokens',
 		description: 'Tokens used across all chats.',
 		keywords: ['token usage', 'input tokens', 'output tokens'],
@@ -1023,7 +1036,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage, Costs & Wallet',
+		search: { tab: 'usage' },
 		title: 'Cost',
 		description: 'Estimated cost in USD based on token usage and model pricing.',
 		keywords: ['price', 'billing', 'expense', 'spending'],
@@ -1031,7 +1045,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage, Costs & Wallet',
+		search: { tab: 'usage' },
 		title: 'Split per user',
 		description: 'Break down messages, tokens and cost per user instead of per source or token category.',
 		keywords: ['per user', 'by user', 'user breakdown', 'who spends', 'top users', 'split'],
@@ -1039,7 +1054,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage, Costs & Wallet',
+		search: { tab: 'usage' },
 		title: 'Feedbacks',
 		description: 'Feedbacks users have given to the agent during their sessions.',
 		keywords: ['thumbs up', 'thumbs down', 'rating', 'review'],
@@ -1050,6 +1066,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/usage',
 		pageLabel: 'Chats replay',
+		search: { tab: 'usage' },
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review', 'search conversations', 'find chat'],

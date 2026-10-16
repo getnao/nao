@@ -110,4 +110,4 @@ const settingsSuggestionPages = [
 	'/settings/usage',
 ];
 
-const viewerVisiblePages = ['/settings/account'];
+const viewerVisiblePages = ['/settings/account', '/settings/usage'];

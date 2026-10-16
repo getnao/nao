@@ -1,8 +1,5 @@
 /* @license Enterprise */
 
-import fs from 'node:fs';
-import path from 'node:path';
-
 import type { UserRole } from '@nao/shared/types';
 
 import * as backofficeQueries from '../queries/backoffice.queries';
@@ -13,7 +10,8 @@ import * as orgQueries from '../queries/organization.queries';
 import type { SearchPaginationInput } from '../types/backoffice';
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
-import { extractConfiguredDatabases, extractRequiredEnvVars } from '../utils/nao-config';
+import { extractConfiguredDatabases } from '../utils/nao-config';
+import { assessProjectReadiness } from '../utils/project-readiness';
 import { toBillingSummary } from './backoffice-billing.service';
 import * as membershipService from './membership.service';
 
@@ -164,31 +162,25 @@ async function requireUser(userId: string) {
 }
 
 function inspectProject(project: Awaited<ReturnType<typeof requireProject>>) {
-	const hasPath = isSet(project.path);
-	const directoryExists = hasPath && isDirectory(project.path!);
-	const naoConfigExists = directoryExists && fs.existsSync(path.join(project.path!, 'nao_config.yaml'));
-	const requiredEnvVars = directoryExists ? extractRequiredEnvVars(project.path!) : [];
-	const setEnvVarNames = Object.keys(project.envVars).sort();
-	const missingEnvVars = requiredEnvVars.filter((name) => !isSet(project.envVars[name]));
-	const configuredDatabases = directoryExists ? extractConfiguredDatabases(project.path!) : [];
+	const readiness = assessProjectReadiness(project);
+	const configuredDatabases = readiness.directoryExists ? extractConfiguredDatabases(project.path!) : [];
 	return {
-		context: { hasPath, directoryExists, naoConfigExists, requiredEnvVars, setEnvVarNames, missingEnvVars },
+		context: {
+			hasPath: readiness.hasPath,
+			directoryExists: readiness.directoryExists,
+			naoConfigExists: readiness.naoConfigExists,
+			requiredEnvVars: readiness.requiredEnvVars,
+			setEnvVarNames: readiness.setEnvVarNames,
+			missingEnvVars: readiness.missingEnvVars,
+		},
 		databases: configuredDatabases.map((database) => ({
 			id: database.id,
 			type: database.type ?? '',
-			requiredEnvVars,
-			missingEnvVars,
-			configured: missingEnvVars.length === 0,
+			requiredEnvVars: readiness.requiredEnvVars,
+			missingEnvVars: readiness.missingEnvVars,
+			configured: readiness.missingEnvVars.length === 0,
 		})),
 	};
-}
-
-function isDirectory(directoryPath: string): boolean {
-	try {
-		return fs.statSync(directoryPath).isDirectory();
-	} catch {
-		return false;
-	}
 }
 
 function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOrganization>>) {

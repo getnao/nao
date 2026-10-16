@@ -1,0 +1,227 @@
+// @vitest-environment jsdom
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { CreditsWalletContent } from './credits-wallet-content';
+import type { AnchorHTMLAttributes } from 'react';
+
+const mocks = vi.hoisted(() => ({
+	getSummary: vi.fn(),
+	listLedger: vi.fn(),
+	listUsage: vi.fn(),
+}));
+
+vi.mock('@/main', () => ({
+	trpc: {
+		account: {
+			getCreditSummary: {
+				queryOptions: () => ({ queryKey: ['credit-summary'], queryFn: mocks.getSummary }),
+			},
+			listCreditLedger: {
+				queryOptions: () => ({ queryKey: ['credit-ledger'], queryFn: mocks.listLedger }),
+			},
+			listManagedAiUsage: {
+				queryOptions: () => ({ queryKey: ['managed-ai-usage'], queryFn: mocks.listUsage }),
+			},
+		},
+	},
+}));
+
+vi.mock('@tanstack/react-router', () => ({
+	Link: ({ children, 'aria-label': ariaLabel }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
+		<a href='#replay' aria-label={ariaLabel}>
+			{children}
+		</a>
+	),
+}));
+
+describe('CreditsWalletContent', () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+	});
+
+	it('shows organization wallet totals to admins', async () => {
+		mocks.getSummary.mockResolvedValue({
+			balanceMicroUsd: 23_000_000,
+			lifetimeCreditedMicroUsd: 25_000_000,
+			lifetimeDebitedMicroUsd: 2_000_000,
+			enabled: true,
+		});
+		mocks.listLedger.mockResolvedValue({
+			groups: [
+				{
+					id: 'gift',
+					createdAt: new Date(),
+					grantedForUserName: 'Managed User',
+					usageUserName: null,
+					entries: [
+						{
+							entryType: 'gift',
+							deltaMicroUsd: 5_000_000,
+							balanceAfterMicroUsd: 5_000_000,
+							transactionSequence: 1,
+							metadata: { grantType: 'user_join' },
+						},
+					],
+				},
+				{
+					id: 'setup-gift',
+					createdAt: new Date(),
+					grantedForUserName: null,
+					usageUserName: null,
+					entries: [
+						{
+							entryType: 'gift',
+							deltaMicroUsd: 20_000_000,
+							balanceAfterMicroUsd: 25_000_000,
+							transactionSequence: 2,
+							metadata: { grantType: 'organization_setup' },
+						},
+					],
+				},
+				{
+					id: 'run',
+					createdAt: new Date(),
+					grantedForUserName: null,
+					usageUserName: 'Managed User',
+					entries: [
+						{
+							entryType: 'usage',
+							deltaMicroUsd: -1_000_000,
+							balanceAfterMicroUsd: 23_000_000,
+							transactionSequence: 5,
+						},
+						{
+							entryType: 'usage',
+							deltaMicroUsd: -1_000_000,
+							balanceAfterMicroUsd: 24_000_000,
+							transactionSequence: 3,
+						},
+					],
+				},
+			],
+			nextCursor: null,
+		});
+		mocks.listUsage.mockResolvedValue({
+			runs: [
+				{
+					id: 'run',
+					startedAt: new Date(),
+					chatTitle: 'Sales analysis',
+					userName: 'Managed User',
+					events: [
+						{
+							id: 'usage',
+							chatId: 'chat-1',
+							category: 'chat',
+							llmModelId: 'gpt-5.6',
+							llmProvider: 'nao',
+							status: 'completed',
+							costSource: 'price_book',
+							totalTokens: 100,
+							upstreamCostMicroUsd: 1_000,
+							customerChargeMicroUsd: 2_000,
+						},
+					],
+				},
+			],
+			nextCursor: null,
+		});
+
+		renderCreditsWalletContent(true);
+
+		await screen.findByText('Available');
+		expect(screen.getByRole('link', { name: 'Open chat replay' })).toBeTruthy();
+		expect(
+			await screen.findByText(
+				(_, element) =>
+					element?.tagName === 'TD' && element.textContent?.trim() === '$5 member join grant Managed User',
+			),
+		).toBeTruthy();
+		expect(
+			await screen.findByText(
+				(_, element) => element?.tagName === 'TD' && element.textContent?.trim() === '$20 project setup grant',
+			),
+		).toBeTruthy();
+		expect(
+			await screen.findByText(
+				(_, element) =>
+					element?.tagName === 'TD' && element.textContent?.trim() === 'nao AI - Managed User 2 calls',
+			),
+		).toBeTruthy();
+		expect(await screen.findByText(/Managed User · .* · gpt-5\.6/)).toBeTruthy();
+		expect(
+			screen.getByText((_, element) => element?.tagName === 'TD' && element.textContent?.trim() === '$23.00'),
+		).toBeTruthy();
+		expect(screen.queryByText(/You gave your \$5 welcome credit/)).toBeNull();
+	});
+
+	it('distinguishes failed and aborted runs from mixed runs', async () => {
+		mocks.getSummary.mockResolvedValue({ enabled: false });
+		mocks.listUsage.mockResolvedValue({
+			runs: [
+				usageRun('failed', ['failed', 'failed']),
+				usageRun('aborted', ['aborted', 'aborted']),
+				usageRun('partially-failed', ['completed', 'failed']),
+				usageRun('partially-aborted', ['completed', 'aborted']),
+			],
+			nextCursor: null,
+		});
+
+		renderCreditsWalletContent(true);
+
+		expect(await screen.findByText(/^Failed/)).toBeTruthy();
+		expect(screen.getByText(/^Aborted/)).toBeTruthy();
+		expect(screen.getByText(/^Partially failed/)).toBeTruthy();
+		expect(screen.getByText(/^Partially aborted/)).toBeTruthy();
+	});
+
+	it('does not offer older pages before cursors load', async () => {
+		mocks.getSummary.mockResolvedValue({
+			balanceMicroUsd: 0,
+			lifetimeCreditedMicroUsd: 0,
+			lifetimeDebitedMicroUsd: 0,
+			enabled: true,
+		});
+		mocks.listLedger.mockReturnValue(new Promise(() => undefined));
+		mocks.listUsage.mockReturnValue(new Promise(() => undefined));
+
+		renderCreditsWalletContent(true);
+
+		await screen.findByText('Available');
+		expect(screen.queryByRole('button', { name: 'Older' })).toBeNull();
+	});
+});
+
+function usageRun(id: string, statuses: ('completed' | 'failed' | 'aborted')[]) {
+	return {
+		id,
+		startedAt: new Date(),
+		chatTitle: id,
+		userName: 'Managed User',
+		events: statuses.map((status, index) => ({
+			id: `${id}-${index}`,
+			chatId: null,
+			category: 'chat',
+			llmModelId: 'gpt-5.6',
+			llmProvider: 'nao',
+			status,
+			costSource: status === 'completed' ? 'price_book' : 'estimated',
+			totalTokens: 0,
+			upstreamCostMicroUsd: 0,
+			customerChargeMicroUsd: 0,
+		})),
+	};
+}
+
+function renderCreditsWalletContent(canViewReplay: boolean) {
+	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	return render(
+		<QueryClientProvider client={queryClient}>
+			<CreditsWalletContent canViewReplay={canViewReplay} />
+		</QueryClientProvider>,
+	);
+}

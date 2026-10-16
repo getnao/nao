@@ -31,6 +31,13 @@ export async function requireOrganizationAdminCloudBilling() {
 	}
 }
 
+export async function requireCloud() {
+	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+	if (config.naoMode !== 'cloud') {
+		throw redirect({ to: '/settings/account' });
+	}
+}
+
 export async function requireAdminNonCloud() {
 	await requireAdmin();
 	await requireNonCloud();
@@ -46,6 +53,25 @@ export async function requireContextAdminOrAdmin() {
 	if (!project || (project.userRole !== 'admin' && project.userRole !== 'context_admin')) {
 		throw redirect({ to: '/settings/account' });
 	}
+}
+
+export async function requireUsageOrWalletAccess() {
+	const [project, config] = await Promise.all([
+		queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions()),
+		queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions()),
+	]);
+	if (project && (project.userRole === 'admin' || project.userRole === 'context_admin')) {
+		return;
+	}
+
+	if (config.naoMode === 'cloud') {
+		const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
+		if (organization.role === 'admin') {
+			return;
+		}
+	}
+
+	throw redirect({ to: '/settings/account' });
 }
 
 export async function requireNonViewer() {

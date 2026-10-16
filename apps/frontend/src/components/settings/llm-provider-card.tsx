@@ -1,8 +1,10 @@
 import { Pencil, Trash2 } from 'lucide-react';
 import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
 import { providerKind, providerLabel, providerLabels, providerName } from '@nao/shared/types';
+import { Link } from '@tanstack/react-router';
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
 import type { LlmProvider } from '@nao/shared/types';
+import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Button } from '@/components/ui/button';
 
 interface ProviderCardProps {
@@ -12,11 +14,13 @@ interface ProviderCardProps {
 	baseUrl?: string | null;
 	envBaseUrl?: string;
 	enabledModels?: string[] | null;
+	status?: string;
+	linkStatusToWallet?: boolean;
 	/** Where this provider comes from, e.g. `ENV` or `nao_config.yaml`. */
 	badges?: string[];
 	isAdmin: boolean;
 	isFormActive: boolean;
-	onEdit: () => void;
+	onEdit?: () => void;
 	onDelete?: () => void;
 	isDeleting?: boolean;
 	getModelDisplayName: (provider: LlmProvider, modelId: string) => string;
@@ -29,6 +33,8 @@ export function ProviderCard({
 	baseUrl,
 	envBaseUrl,
 	enabledModels,
+	status,
+	linkStatusToWallet = false,
 	badges = [],
 	isAdmin,
 	isFormActive,
@@ -78,13 +84,24 @@ export function ProviderCard({
 						</div>
 					) : (
 						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
-							<span>
-								{getProviderAuth(provider).apiKey === 'required'
-									? 'API key from environment'
-									: getProviderAuth(provider).apiKey === 'optional'
-										? 'Using credentials from environment'
-										: 'No API key required'}
-							</span>
+							{status && linkStatusToWallet ? (
+								<Link
+									to='/settings/usage'
+									search={{ ...DEFAULT_USAGE_SEARCH, tab: 'wallet' }}
+									className='hover:text-foreground hover:underline'
+								>
+									{status}
+								</Link>
+							) : (
+								<span>
+									{status ??
+										(getProviderAuth(provider).apiKey === 'required'
+											? 'API key from environment'
+											: getProviderAuth(provider).apiKey === 'optional'
+												? 'Using credentials from environment'
+												: 'No API key required')}
+								</span>
+							)}
 							{envBaseUrl && (
 								<>
 									<span className='text-border'>•</span>
@@ -96,11 +113,13 @@ export function ProviderCard({
 						</div>
 					)}
 				</div>
-				{isAdmin && (
+				{isAdmin && (onEdit || onDelete) && (
 					<div className='flex items-center gap-1'>
-						<Button variant='ghost' size='icon-sm' onClick={onEdit} disabled={isFormActive}>
-							<Pencil className='size-3 text-muted-foreground' />
-						</Button>
+						{onEdit && (
+							<Button variant='ghost' size='icon-sm' onClick={onEdit} disabled={isFormActive}>
+								<Pencil className='size-3 text-muted-foreground' />
+							</Button>
+						)}
 						{onDelete && (
 							<Button
 								variant='ghost'

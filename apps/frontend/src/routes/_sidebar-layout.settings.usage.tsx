@@ -1,29 +1,33 @@
 import { useEffect } from 'react';
 import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
+import type { TokenChartDisplayMode, UsageRouteSearch, UsageTab } from '@/components/settings/usage-route-search';
 import type { UsageChartData } from '@/components/settings/usage-chart-card';
 import type { displayChart } from '@nao/shared/tools';
 import type { UsageRecord } from '@nao/backend/usage';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { ChatsReplaySearchBar } from '@/components/settings/chats-replay-search-bar';
+import { CreditsWalletContent } from '@/components/settings/credits-wallet-content';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
 import {
+	getAvailableUsageTabs,
 	saveUsageFilters,
 	validateUsageSearch,
 	validateUsageSearchWithStoredFilters,
 } from '@/components/settings/usage-route-search';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUsagePeriodSettings } from '@/hooks/use-usage-period-settings';
 import { trpc } from '@/main';
-import { requireContextAdminOrAdmin } from '@/lib/route-guards';
+import { requireUsageOrWalletAccess } from '@/lib/route-guards';
 import { buildUserUsageChart } from '@/lib/usage-by-user';
 import { formatUsageBucketLabel } from '@/lib/usage-date';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
-	beforeLoad: requireContextAdminOrAdmin,
+	beforeLoad: requireUsageOrWalletAccess,
 	validateSearch: validateUsageSearchWithStoredFilters,
 	component: UsagePage,
 });
@@ -74,12 +78,25 @@ const messageSeries = [
 	},
 ] as const;
 
+const usageTabLabels: Record<UsageTab, string> = {
+	usage: 'Usage & replay',
+	wallet: 'Wallet',
+};
+
 function UsagePage() {
 	const usageSearch = Route.useSearch();
 	const navigate = Route.useNavigate();
+	const { canViewChatReplay, canViewUsage, isOrgAdmin } = usePermissions();
+	const isCloud = useIsCloud();
 	const isReplayRoute = useRouterState({
 		select: (state) => state.location.pathname.startsWith('/settings/usage/replay/'),
 	});
+	const availableTabs = getAvailableUsageTabs({
+		canViewUsage,
+		canViewWallet: isCloud && isOrgAdmin,
+		canViewChatReplay,
+	});
+	const activeTab = availableTabs.includes(usageSearch.tab as UsageTab) ? usageSearch.tab : availableTabs[0];
 
 	useEffect(() => {
 		saveUsageFilters(usageSearch);
@@ -89,38 +106,78 @@ function UsagePage() {
 		return <Outlet />;
 	}
 
+	if (!activeTab) {
+		return null;
+	}
+
+	const updateSearch = (next: Partial<UsageRouteSearch>) => {
+		navigate({
+			to: '/settings/usage',
+			search: (current) => validateUsageSearch({ ...current, ...next }),
+			replace: true,
+		});
+	};
+	const openChatReplay = (chatId: string) => {
+		navigate({
+			to: '/settings/usage/replay/$chatId',
+			params: { chatId },
+			search: { ...usageSearch, tab: 'usage' },
+		});
+	};
+
 	return (
-		<UsageOverview
-			usageSearch={usageSearch}
-			onUpdateSearch={(next) => {
-				navigate({
-					to: '/settings/usage',
-					search: (current) => validateUsageSearch({ ...current, ...next }),
-					replace: true,
-				});
-			}}
-			onOpenChatReplay={(chatId) => {
-				navigate({
-					to: '/settings/usage/replay/$chatId',
-					params: { chatId },
-					search: usageSearch,
-				});
-			}}
-		/>
+		<div className='flex min-h-0 flex-1 flex-col overflow-hidden bg-background'>
+			<div className='shrink-0 px-4 pt-4 md:px-8 md:pt-8'>
+				<h1 className='text-lg font-semibold text-foreground'>Usage, Costs & Wallet</h1>
+				<p className='text-sm text-muted-foreground'>{getTabDescription(activeTab)}</p>
+				<TabBar
+					tabs={availableTabs.map((tab) => ({ id: tab, label: usageTabLabels[tab] }))}
+					activeTab={activeTab}
+					onTabChange={(tab) => updateSearch({ tab })}
+					idBase='usage-costs'
+					className='mt-3 border-b'
+				/>
+			</div>
+			<TabPanel idBase='usage-costs' tabId={activeTab} className='flex min-h-0 flex-1 flex-col overflow-hidden'>
+				{activeTab === 'usage' && (
+					<UsageOverview
+						usageSearch={usageSearch}
+						onUpdateSearch={updateSearch}
+						onOpenChatReplay={openChatReplay}
+						canViewUsage={canViewUsage}
+					/>
+				)}
+				{activeTab === 'wallet' && (
+					<div className='flex-1 overflow-auto p-4 md:p-8'>
+						<CreditsWalletContent canViewReplay={canViewChatReplay} />
+					</div>
+				)}
+			</TabPanel>
+		</div>
 	);
+}
+
+function getTabDescription(tab: UsageTab): string {
+	switch (tab) {
+		case 'usage':
+			return 'Current project usage, estimated provider costs, and chat replay.';
+		case 'wallet':
+			return 'Organization-wide nao credit balance and managed AI charges.';
+	}
 }
 
 function UsageOverview({
 	usageSearch,
 	onUpdateSearch,
 	onOpenChatReplay,
+	canViewUsage,
 }: {
 	usageSearch: UsageRouteSearch;
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
+	canViewUsage: boolean;
 }) {
 	const { provider, users, feedback, tools, sources, search, splitByUser, tokenView } = usageSearch;
-	const { canViewUsage } = usePermissions();
 	const periodState = useUsagePeriodSettings({ canViewUsage, usageSearch, onUpdateSearch });
 	const { period, granularity } = periodState;
 
@@ -205,13 +262,13 @@ function UsageOverview({
 	);
 
 	return (
-		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden bg-background'>
+		<div className='flex min-h-0 flex-1 overflow-auto bg-background xl:overflow-hidden'>
 			<div className='flex min-h-0 w-full flex-col xl:h-full'>
-				<div className='flex flex-col w-full gap-2 px-4 md:p-8 xl:shrink-0'>
+				<div className='flex w-full flex-col gap-2 px-4 md:p-8 xl:shrink-0'>
 					{filtersComponent}
 
 					{canViewUsage && (
-						<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
+						<div className='grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr]'>
 							<div className='lg:col-span-2 xl:col-span-1'>
 								<UsageChartCard
 									title='Messages'
@@ -286,8 +343,7 @@ function UsageOverview({
 						</div>
 					)}
 				</div>
-
-				<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
+				<section className='flex min-h-[400px] w-full flex-1 flex-col overflow-hidden xl:min-h-0'>
 					<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
 						<h2 className='text-sm font-semibold'>Chats replay</h2>
 						<div className='flex flex-wrap items-center gap-2'>

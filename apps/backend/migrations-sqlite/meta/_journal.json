@@ -547,6 +547,13 @@
       "when": 1791358973255,
       "tag": "0077_story_app_state",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1791882440746,
+      "tag": "0078_managed_ai_usage_wallet",
+      "breakpoints": true
     }
   ]
 }

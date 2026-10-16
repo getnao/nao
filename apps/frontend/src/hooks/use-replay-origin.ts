@@ -23,5 +23,5 @@ export function useReplayOrigin(usageSearch: UsageRouteSearch) {
 		});
 	};
 
-	return { label: isFromRecommendations ? 'Recommendations' : 'Usage', goBack };
+	return { label: isFromRecommendations ? 'Recommendations' : 'Usage, Costs & Wallet', goBack };
 }

@@ -18,6 +18,7 @@ vi.mock('../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: vi.fn(async () => []),
 }));
 
+import { isManagedAiEnabled } from '../src/agents/managed-ai';
 import { __reloadEnvForTesting, env } from '../src/env';
 import { getEnvProviders, hasEnvApiKey, isProviderDisabled, resolveProviderSettings } from '../src/utils/llm';
 
@@ -92,6 +93,22 @@ describe('DISABLED_PROVIDERS', () => {
 		setDisabledProviders('bedrock');
 		expect(hasEnvApiKey('bedrock')).toBe(false);
 		expect(getEnvProviders()).not.toContain('bedrock');
+	});
+
+	it('never auto-registers the nao-managed key as an environment provider', () => {
+		process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
+		process.env.NAO_MODE = 'cloud';
+		setDisabledProviders(undefined);
+		expect(isManagedAiEnabled()).toBe(true);
+		expect(hasEnvApiKey('nao')).toBe(false);
+		expect(getEnvProviders()).not.toContain('nao');
+
+		setDisabledProviders('nao');
+		expect(isManagedAiEnabled()).toBe(false);
+
+		process.env.NAO_MODE = 'self-hosted';
+		setDisabledProviders(undefined);
+		expect(isManagedAiEnabled()).toBe(false);
 	});
 
 	it('overrides credentials configured in the database', async () => {

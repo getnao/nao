@@ -117,7 +117,9 @@ export const contextRecommendationRoutes = {
 		return { ...fresh, alreadyTerminal: !cancelled };
 	}),
 
-	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => getProjectAvailableModels(ctx.project.id)),
+	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => {
+		return getProjectAvailableModels(ctx.project.id);
+	}),
 
 	getConfig: recommendationsProcedure.query(async ({ ctx }) => {
 		return crQueries.getConfig(ctx.project.id);

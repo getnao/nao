@@ -6,6 +6,7 @@ import * as userQueries from '../queries/user.queries';
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { cleanupContextWorktree } from './context-explorer-git.service';
+import { recordOrganizationJoinCandidate, recordProjectJoinCandidate } from './credit-grant.service';
 
 export async function putOrganizationMember(
 	orgId: string,
@@ -29,6 +30,7 @@ export async function putOrganizationMember(
 		}
 	} else {
 		await orgQueries.addOrgMember({ orgId, userId, role });
+		await recordOrganizationJoinCandidate(orgId, userId);
 	}
 	return { userId, role };
 }
@@ -69,6 +71,7 @@ export async function putProjectMember(projectId: string, userId: string, role: 
 		await projectQueries.updateProjectMemberRole(projectId, userId, role);
 	} else {
 		await projectQueries.addProjectMember({ projectId, userId, role });
+		await recordProjectJoinCandidate(projectId, userId);
 	}
 	if (project.path && isContextRole(previousRole) && !isContextRole(role)) {
 		await cleanupContextWorktree(projectId, project.path, userId);

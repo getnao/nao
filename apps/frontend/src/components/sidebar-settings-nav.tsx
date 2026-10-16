@@ -111,14 +111,10 @@ const settingsNavGroups: NavGroup[] = [
 				leavesSettings: true,
 			},
 			{
-				label: 'Usage, costs & replay',
+				label: 'Usage, Costs & Wallet',
 				to: '/settings/usage',
-				visible: ({ isAdmin }) => isAdmin,
-			},
-			{
-				label: 'Chats replay',
-				to: '/settings/usage',
-				visible: ({ isAdmin, isContextAdmin }) => !isAdmin && isContextAdmin,
+				visible: ({ isAdmin, isContextAdmin, isCloud, isOrgAdmin }) =>
+					isAdmin || isContextAdmin || (isCloud && isOrgAdmin),
 			},
 			{
 				label: 'Server logs',

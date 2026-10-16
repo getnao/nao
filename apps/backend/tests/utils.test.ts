@@ -8,6 +8,7 @@ import {
 	recoverMalformedToolInputs,
 	settleInterruptedToolParts,
 } from '../src/utils/ai';
+import { ManagedCreditsExhaustedError } from '../src/utils/error';
 import { buildUsernameAllowlist, formatErrorMessageForUI, replaceEnvVars, truncateMiddle } from '../src/utils/utils';
 
 describe('buildUsernameAllowlist', () => {
@@ -33,6 +34,14 @@ describe('formatErrorMessageForUI', () => {
 	it('returns the message from a normal Error', () => {
 		const reason = 'Query blocked because main.customers.last_name is an excluded column.';
 		expect(formatErrorMessageForUI(new Error(reason))).toBe(reason);
+	});
+
+	it('preserves the managed-credit code for streamed errors', () => {
+		const error = new ManagedCreditsExhaustedError();
+		expect(JSON.parse(formatErrorMessageForUI(error))).toEqual({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+		});
 	});
 
 	it('replaces provider payload validation errors with a concise message', () => {

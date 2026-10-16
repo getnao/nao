@@ -1,6 +1,7 @@
 import { type BackgroundModelCategory, type DefaultModelSettings, selectBackgroundModel } from '@nao/shared';
 import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
 
+import { isManagedAiEnabled, type ManagedAiUsageContext, withManagedAiUsageMetering } from '../agents/managed-ai';
 import {
 	createProviderModel,
 	getDefaultModelId,
@@ -9,6 +10,7 @@ import {
 	type ProviderModelResult,
 } from '../agents/providers';
 import { env } from '../env';
+import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import type { CustomModelMetadata, ProviderSettings } from '../types/llm';
@@ -18,7 +20,8 @@ export { getDefaultModelId };
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
-	return process.env[getProviderMeta(provider).envVar];
+	const { envVar } = getProviderMeta(provider);
+	return envVar ? process.env[envVar] : undefined;
 }
 
 /** Get the base URL from environment for a provider (e.g. OPENAI_BASE_URL) */
@@ -102,6 +105,9 @@ export async function resolveProviderSettings(
 	if (isProviderDisabled(provider)) {
 		return null;
 	}
+	if (provider === 'nao') {
+		return null;
+	}
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
 		return {
@@ -139,50 +145,104 @@ export async function resolveProviderModel(
 	provider: LlmProvider,
 	modelId: string,
 	applyUserSettings = true,
+	usageContext?: ManagedAiUsageContext,
 ): Promise<ProviderModelResult | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
 	}
+	if (provider === 'nao') {
+		const apiKey = process.env.NAO_MANAGED_OPENAI_API_KEY;
+		if (!isManagedAiEnabled() || !usageContext?.userId || !apiKey || !isKnownModel(provider, modelId)) {
+			return null;
+		}
+		const byokSources = await getProjectModelSources(projectId);
+		if (byokSources.some((source) => source.provider !== 'nao' && hasSelectableModel(source))) {
+			return null;
+		}
+		const model = createProviderModel(provider, { apiKey }, modelId);
+		const project = await projectQueries.getProjectById(projectId);
+		const attribution = {
+			...usageContext,
+			projectId,
+			orgId: usageContext.orgId ?? project?.orgId ?? undefined,
+		};
+		return meterModel(model, provider, modelId, attribution);
+	}
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
-		return createProviderModel(
+		return meterModel(
+			createProviderModel(
+				provider,
+				{
+					apiKey: config.apiKey,
+					...(config.baseUrl && { baseURL: config.baseUrl }),
+					...(config.credentials && { credentials: config.credentials }),
+				},
+				modelId,
+				applyUserSettings ? config.modelSettings?.[modelId] : undefined,
+			),
 			provider,
-			{
-				apiKey: config.apiKey,
-				...(config.baseUrl && { baseURL: config.baseUrl }),
-				...(config.credentials && { credentials: config.credentials }),
-			},
 			modelId,
-			applyUserSettings ? config.modelSettings?.[modelId] : undefined,
+			usageContext,
+			config.customModels ?? [],
 		);
 	}
 
 	const configured = findConfigLlmProvider(await getProjectConfigLlm(projectId), provider);
 	if (configured) {
-		return createProviderModel(
+		return meterModel(
+			createProviderModel(
+				provider,
+				toProviderSettings(configured),
+				modelId,
+				applyUserSettings ? configured.modelSettings[modelId] : undefined,
+			),
 			provider,
-			toProviderSettings(configured),
 			modelId,
-			applyUserSettings ? configured.modelSettings[modelId] : undefined,
+			usageContext,
+			configured.customModels,
 		);
 	}
 
 	const envApiKey = getEnvApiKey(provider);
 	if (envApiKey) {
 		const envBaseUrl = getEnvBaseUrl(provider);
-		return createProviderModel(
+		return meterModel(
+			createProviderModel(provider, { apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) }, modelId),
 			provider,
-			{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
 			modelId,
+			usageContext,
 		);
 	}
 
 	if (hasEnvApiKey(provider)) {
 		const envBaseUrl = getEnvBaseUrl(provider);
-		return createProviderModel(provider, { apiKey: '', ...(envBaseUrl && { baseURL: envBaseUrl }) }, modelId);
+		return meterModel(
+			createProviderModel(provider, { apiKey: '', ...(envBaseUrl && { baseURL: envBaseUrl }) }, modelId),
+			provider,
+			modelId,
+			usageContext,
+		);
 	}
 
 	return null;
+}
+
+function meterModel(
+	result: ProviderModelResult,
+	provider: LlmProvider,
+	modelId: string,
+	context?: ManagedAiUsageContext,
+	customModels: CustomModelMetadata[] = [],
+): ProviderModelResult {
+	if (!context) {
+		return result;
+	}
+	const declaredCosts = customModels.find((model) => model.id === modelId)?.costPerM;
+	return {
+		...result,
+		model: withManagedAiUsageMetering(result.model, provider, modelId, context, declaredCosts),
+	};
 }
 
 /** Read the `llm` block of the project's nao_config.yaml, if the project has one on disk. */
@@ -409,7 +469,26 @@ async function getProjectModelSources(projectId: string): Promise<ProviderModelS
 		}
 	}
 
-	return sources.filter((source) => !isProviderDisabled(source.provider));
+	const enabledSources = sources.filter(
+		(source) => source.provider !== 'nao' && !isProviderDisabled(source.provider),
+	);
+	if (!enabledSources.some(hasSelectableModel) && isManagedAiEnabled()) {
+		const project = await projectQueries.getProjectById(projectId);
+		const summary = project?.orgId ? await creditWalletQueries.getCreditSummary(project.orgId) : null;
+		if (summary && summary.balanceMicroUsd > 0) {
+			enabledSources.push({
+				provider: 'nao',
+				enabledModels: getKnownModelIds('nao'),
+				customModels: [],
+				baseUrl: null,
+			});
+		}
+	}
+	return enabledSources;
+}
+
+function hasSelectableModel(source: ProviderModelSource): boolean {
+	return source.enabledModels.length > 0 || Boolean(getDefaultModelId(source.provider));
 }
 
 const getModelName = (provider: LlmProvider, modelId: string): string =>

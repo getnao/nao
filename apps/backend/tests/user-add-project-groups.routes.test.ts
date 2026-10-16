@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	addTeamMember: vi.fn(),
 	hasFeature: vi.fn(),
 	organizationRoleMappingActive: false,
+	recordProjectJoinCandidate: vi.fn(),
 	updateProjectMemberRole: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
 		constructor(
@@ -38,6 +39,9 @@ vi.mock('../src/queries/user-group.queries', () => ({
 }));
 vi.mock('../src/queries/user-preference.queries', () => ({}));
 vi.mock('../src/services/context-explorer-git.service', () => ({ cleanupContextWorktree: vi.fn() }));
+vi.mock('../src/services/credit-grant.service', () => ({
+	recordProjectJoinCandidate: mocks.recordProjectJoinCandidate,
+}));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { userGroups: 'user-groups' },
@@ -104,6 +108,7 @@ describe('add user to project groups', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 		expect(mocks.validateAssignableUserGroupIds).not.toHaveBeenCalled();
 		expect(mocks.addProjectMember).toHaveBeenCalledOnce();
+		expect(mocks.recordProjectJoinCandidate).toHaveBeenCalledWith('project-id', 'added-user-id');
 		expect(mocks.addProjectMemberWithUserGroups).not.toHaveBeenCalled();
 	});
 
@@ -117,6 +122,7 @@ describe('add user to project groups', () => {
 		expect(mocks.addTeamMember).toHaveBeenCalledOnce();
 		expect(mocks.addProjectMember).not.toHaveBeenCalled();
 		expect(mocks.addProjectMemberWithUserGroups).toHaveBeenCalledOnce();
+		expect(mocks.recordProjectJoinCandidate).toHaveBeenCalledWith('project-id', 'added-user-id');
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
