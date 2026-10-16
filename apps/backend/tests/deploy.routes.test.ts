@@ -79,7 +79,7 @@ describe('deploy route archive validation', () => {
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
-		mocks.validateApiKey.mockResolvedValue({ id: 'organization-id' });
+		mocks.validateApiKey.mockResolvedValue({ status: 'ok', org: { id: 'organization-id' }, scope: 'deploy' });
 		await deployRoutes({ post: mocks.post } as never);
 	});
 
