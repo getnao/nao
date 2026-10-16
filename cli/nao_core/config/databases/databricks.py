@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,8 @@ class DatabricksDatabaseContext(DatabaseContext):
         try:
             query = f"""
                 SELECT COMMENT FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+                WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema, escape_backslash=True)}'
+                  AND TABLE_NAME = '{quote_sql_literal(self._table_name, escape_backslash=True)}'
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -69,14 +70,15 @@ class DatabricksDatabaseContext(DatabaseContext):
     def _fetch_column_descriptions(self) -> dict[str, str]:
         query = f"""
             SELECT COLUMN_NAME, COMMENT FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+            WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema, escape_backslash=True)}'
+              AND TABLE_NAME = '{quote_sql_literal(self._table_name, escape_backslash=True)}'
               AND COMMENT IS NOT NULL AND COMMENT != ''
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
 
     def _quote(self, name: str) -> str:
-        return f"`{name}`"
+        return _quote_ident(name)
 
     def _cast_float(self, expr: str) -> str:
         return f"CAST({expr} AS DOUBLE)"
@@ -98,7 +100,8 @@ def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str
     query = f"""
         SELECT column_name
         FROM information_schema.columns
-        WHERE table_schema = '{schema}' AND table_name = '{table}' AND is_partition_column = 'YES'
+        WHERE table_schema = '{quote_sql_literal(schema, escape_backslash=True)}'
+          AND table_name = '{quote_sql_literal(table, escape_backslash=True)}' AND is_partition_column = 'YES'
     """
     result = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
     return [row[0] for row in result]

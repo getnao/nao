@@ -10,6 +10,12 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 
+def quote_sql_literal(value: str, *, escape_backslash: bool = False) -> str:
+    if escape_backslash:
+        value = value.replace("\\", "\\\\")
+    return value.replace("'", "''")
+
+
 class DatabaseContext:
     """Context object passed to Jinja2 templates during database sync.
 
@@ -309,7 +315,8 @@ class DatabaseContext:
     # ─── SQL primitives ───────────────────────────────────────────────────────
 
     def _quote(self, name: str) -> str:
-        return f'"{name}"'
+        escaped = name.replace('"', '""')
+        return f'"{escaped}"'
 
     def _cast_float(self, expr: str) -> str:
         return f"CAST({expr} AS DOUBLE)"
