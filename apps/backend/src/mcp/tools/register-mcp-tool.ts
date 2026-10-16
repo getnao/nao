@@ -29,6 +29,7 @@ export interface WrapAgentToolOptions<TAgentInput, TOutput, TMcpInput = TAgentIn
 	mapInput?: (input: TMcpInput) => TAgentInput;
 	resolveChatId?: (input: TMcpInput) => string | null;
 	formatResult?: (args: { input: TMcpInput; output: TOutput; callLogId: string }) => Promise<ToolResult> | ToolResult;
+	errorMessage?: (error: unknown) => string;
 }
 
 export function registerMcpTool(server: McpServer, ctx: McpContext, opts: RegisterMcpToolOptions): void {
@@ -59,6 +60,7 @@ export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentI
 		inputSchema: options.inputSchema ?? options.agentTool.inputSchema,
 		outputSchema: options.outputSchema,
 		_meta: options._meta,
+		errorMessage: options.errorMessage,
 		handler: async (input, _extra, callLogId) => {
 			const agentInput = options.mapInput ? options.mapInput(input) : (input as unknown as TAgentInput);
 			const inputError = validateAgentToolInput(options.agentTool.inputSchema, agentInput);

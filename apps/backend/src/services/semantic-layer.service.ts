@@ -9,6 +9,9 @@ import { extractConfiguredSemanticLayer } from '../utils/nao-config';
 /** A metric query in semantic terms, mirroring the `/semantic_layer/compile` request body. */
 export type SemanticQuery = Omit<executeSemanticQuery.Input, 'name'>;
 
+/** The semantic layer rejected the query (for example an unknown metric or dimension); its message is safe to show to the caller. */
+export class SemanticQueryCompileError extends Error {}
+
 export type CompiledSemanticQuery = {
 	sql: string;
 	database_id: string;
@@ -61,7 +64,8 @@ export async function compileSemanticQuery(query: SemanticQuery, context: ToolCo
 	if (!response.ok) {
 		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
 		const detail = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
-		throw new Error(`Error compiling semantic query: ${detail}`);
+		const message = `Error compiling semantic query: ${detail}`;
+		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
 	}
 
 	return (await response.json()) as CompiledSemanticQuery;

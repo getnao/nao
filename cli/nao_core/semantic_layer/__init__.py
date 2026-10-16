@@ -9,6 +9,7 @@ from .metricflow import (
     SemanticLayerError,
     SemanticLayerUnavailableError,
     SemanticQuery,
+    SemanticQueryError,
     metricflow_dialect_for,
     runtime_manifest_path,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "SemanticLayerError",
     "SemanticLayerUnavailableError",
     "SemanticQuery",
+    "SemanticQueryError",
     "metricflow_dialect_for",
     "runtime_manifest_path",
 ]

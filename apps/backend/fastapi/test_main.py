@@ -1320,7 +1320,7 @@ def test_compile_semantic_query_reports_unknown_metric(semantic_layer_project_fo
         json={"nao_project_folder": semantic_layer_project_folder, "metrics": ["revenu"]},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert "revenue" in response.json()["detail"]
 
 
