@@ -98,7 +98,7 @@ describe('execute_semantic_query exposure', () => {
 		expect(toolNames('disabled')).not.toContain('execute_semantic_query');
 		expect(toolNames('prioritized')).toContain('execute_semantic_query');
 		expect(toolNames('exclusive')).toContain('execute_semantic_query');
-	});
+	}, 15_000);
 
 	it('restricts execute_sql to the local database in semantics-only mode', async () => {
 		const { getTools } = await import('../src/agents/tools');

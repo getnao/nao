@@ -97,9 +97,7 @@ export function TextareaField({
 	return (
 		<form.Field
 			name={name}
-			validators={
-				required ? { onChange: ({ value }: { value: string }) => (!value ? 'Required' : undefined) } : undefined
-			}
+			validators={required ? { onChange: validateRequired, onSubmit: validateRequired } : undefined}
 		>
 			{(field: {
 				state: { value: string; meta: { errors: string[] } };
@@ -118,6 +116,7 @@ export function TextareaField({
 						value={field.state.value ?? ''}
 						onChange={(e) => field.handleChange(e.target.value)}
 						onBlur={field.handleBlur}
+						required={required}
 						rows={rows}
 						className='font-mono text-xs'
 					/>

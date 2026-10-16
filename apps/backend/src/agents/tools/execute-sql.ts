@@ -9,6 +9,7 @@ import {
 	getExecuteSqlPartByQueryIdInChat,
 	updateExecuteSqlPart,
 } from '../../queries/execute-sql.queries';
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '../../services/example-project';
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
 import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
@@ -42,11 +43,14 @@ export async function executeQuery(
 				"blocked regardless of write permissions, since these open a connection to another server rather than write to this database's data.",
 		);
 	}
-	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
+	const writePermEnabled =
+		context.projectId !== SYSTEM_EXAMPLE_PROJECT_ID &&
+		(context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false);
 	if (!writePermEnabled && !(await isReadOnlySqlQuery(effectiveSql))) {
 		throw new Error(
-			'Write SQL operations are disabled. Only SELECT queries are allowed. ' +
-				'Enable "Dangerous write permissions" in the admin panel to allow INSERT, UPDATE, DELETE and DDL queries.',
+			context.projectId === SYSTEM_EXAMPLE_PROJECT_ID
+				? 'Write SQL operations are disabled for the example project. Only SELECT queries are allowed.'
+				: 'Write SQL operations are disabled. Only SELECT queries are allowed. Enable "Dangerous write permissions" in the admin panel to allow INSERT, UPDATE, DELETE and DDL queries.',
 		);
 	}
 

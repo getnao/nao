@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Settings, TriangleAlert } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { providerLabel, providerName } from '@nao/shared/types';
+
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { usePermissions } from '@/hooks/use-permissions';
 import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
+import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { trpc } from '@/main';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
@@ -29,6 +33,8 @@ export function ChatInputModelSelect() {
 		canCycleModels,
 	} = useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
+
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	// Fall back to the nao default when the pinned model is no longer available
 	useEffect(() => {
@@ -68,7 +74,7 @@ export function ChatInputModelSelect() {
 	const selectedModelName = usesDefaultModel ? NAO_DEFAULT_LABEL : (resolvedModelName ?? 'Select model');
 	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? modelValue(selectedModel) : undefined;
 
-	if (isPending) {
+	if (isPending || project.isPending) {
 		return null;
 	}
 
@@ -84,21 +90,21 @@ export function ChatInputModelSelect() {
 		);
 	}
 
-	if (!canCycleModels) {
-		const singleModel = (
-			<>
-				{selectedModel && (
-					<LlmProviderIcon
-						provider={selectedModel.provider}
-						baseUrl={selectedAvailableModel?.baseUrl}
-						className='size-4'
-					/>
-				)}
-				<span>{resolvedModelName ?? 'Select model'}</span>
-				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
-			</>
-		);
+	const singleModel = (
+		<>
+			{selectedModel && (
+				<LlmProviderIcon
+					provider={selectedModel.provider}
+					baseUrl={selectedAvailableModel?.baseUrl}
+					className='size-4'
+				/>
+			)}
+			<span>{selectedModelName}</span>
+			{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+		</>
+	);
 
+	if (!canCycleModels) {
 		if (!isAdmin) {
 			return (
 				<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>{singleModel}</div>
@@ -158,7 +164,7 @@ export function ChatInputModelSelect() {
 				</SelectItem>
 				<SelectSeparator />
 
-				{availableModels.map((model) => (
+				{availableModels?.map((model) => (
 					<SelectItem key={`${model.provider}-${model.modelId}`} value={modelValue(model)}>
 						<LlmProviderIcon
 							provider={model.provider}

@@ -26,9 +26,10 @@ describe('validateUsageSearch', () => {
 		expect(validateUsageSearch({ provider: 'toString' }).provider).toBe('all');
 	});
 
-	it('accepts context recommendations as a source', () => {
-		expect(validateUsageSearch({ sources: ['contextRecommendations'] }).sources).toEqual([
+	it('accepts background agent sources', () => {
+		expect(validateUsageSearch({ sources: ['contextRecommendations', 'onboarding'] }).sources).toEqual([
 			'contextRecommendations',
+			'onboarding',
 		]);
 	});
 

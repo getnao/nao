@@ -13,7 +13,7 @@ import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
 import { getActiveOrganizationId } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
-import { getActiveProjectId } from './lib/active-project';
+import { getActiveProjectId, getProjectRequestHeaders } from './lib/active-project';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -70,7 +70,7 @@ export const trpcClient = createTRPCClient<TrpcRouter>({
 					{ organizationId: activeOrganizationId, projectId: activeProjectId },
 				);
 				return {
-					...(activeProjectId ? { 'x-nao-project-id': activeProjectId } : {}),
+					...getProjectRequestHeaders(),
 					...(activeOrganizationId ? { 'x-nao-organization-id': activeOrganizationId } : {}),
 				};
 			},

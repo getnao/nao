@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	submitFeedback: vi.fn(),
 	inactivityDelays: [] as number[],
 	storyId: null as string | null,
+	mode: 'default' as 'default' | 'onboarding',
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
@@ -20,6 +21,7 @@ vi.mock('@/contexts/agent.provider', () => ({
 		isReadonly: false,
 		isRunning: false,
 		queueOrSendMessage: mocks.queueOrSendMessage,
+		mode: mocks.mode,
 	}),
 	useAgentMessages: () => mocks.messages,
 }));
@@ -70,6 +72,7 @@ beforeEach(() => {
 	localStorage.clear();
 	mocks.inactivityDelays = [];
 	mocks.storyId = null;
+	mocks.mode = 'default';
 	mocks.messages = [{ id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'Result' }] }];
 	const observerCallbacks = new Map<ResizeObserver, ResizeObserverCallback>();
 	globalThis.ResizeObserver = class {
@@ -110,6 +113,14 @@ describe('ChatInputSuggestions', () => {
 
 		expect(screen.queryByText('Would you want to create a story?')).toBeNull();
 		expect(screen.getByText('How did this conversation go?')).toBeTruthy();
+	});
+
+	it('does not show conversation feedback for onboarding chats', () => {
+		mocks.mode = 'onboarding';
+
+		render(<ChatInputSuggestions storyCreationEnabled={false} />);
+
+		expect(screen.queryByText('How did this conversation go?')).toBeNull();
 	});
 
 	it('keeps MCP authentication suggestions when Story creation is denied', () => {

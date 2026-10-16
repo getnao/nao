@@ -36,10 +36,11 @@ import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { invalidateStoriesCaches } from '@/lib/stories-cache';
-import { cn, hideIf } from '@/lib/utils';
+import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
+import { useSession } from '@/lib/auth-client';
 
 export function Sidebar() {
 	const navigate = useNavigate();
@@ -267,6 +268,7 @@ export function Sidebar() {
 					isCloud={isCloud}
 					isCloudBillingEnabled={config.data?.cloudBillingEnabled === true}
 					isOrgAdmin={isOrgAdmin}
+					isTrial={project.data === null}
 				/>
 			) : (
 				<>
@@ -283,10 +285,10 @@ export function Sidebar() {
 						groupBy={groupBy}
 						filters={filters}
 						isViewer={isViewer}
+						isTrial={project.isSuccess && project.data === null}
 					/>
 				</>
 			)}
-
 			{!isInSettings && <div className='border-b border-sidebar-border mx-2'></div>}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
@@ -399,18 +401,45 @@ function SidebarNav({
 	groupBy,
 	filters,
 	isViewer,
+	isTrial,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
 	isViewer: boolean;
+	isTrial: boolean;
 }) {
 	const groupedChats = useQuery({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
 		placeholderData: keepPreviousData,
 	});
-	const groups = groupedChats.data?.groups;
-	const isEmpty = groups?.every((group) => group.chats.length === 0);
+	const unfilteredChats = useQuery(trpc.chat.listGrouped.queryOptions({ groupBy: 'none', filters: ['all'] }));
+	const onboardingChat = unfilteredChats.data?.groups
+		.flatMap((group) => group.chats)
+		.find((chat) => chat.isOnboarding);
+	const onboardingChatId = onboardingChat?.id;
+	const activeOnboardingJob = useQuery({
+		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+			onboardingChatId: onboardingChatId ?? '',
+		}),
+		enabled: Boolean(onboardingChatId),
+		refetchInterval: (query) => {
+			const status = query.state.data?.status;
+			return status && status !== 'awaiting_context' ? 2000 : false;
+		},
+		refetchOnWindowFocus: 'always',
+	});
+	const onboardingNeedsAttention = activeOnboardingJob.data?.status === 'awaiting_context';
+
+	const groups = groupedChats.data?.groups.map((group) => ({
+		...group,
+		chats: group.chats.filter((chat) => !(onboardingNeedsAttention && chat.id === onboardingChatId)),
+	}));
+
+	const showAttentionChat = onboardingNeedsAttention ? onboardingChat : undefined;
+	const isEmpty = !showAttentionChat && groups?.every((group) => group.chats.length === 0);
+	const { data: session } = useSession();
+	const username = session?.user?.name;
 	return (
 		<div
 			className={cn(
@@ -418,14 +447,33 @@ function SidebarNav({
 				hideIf(isCollapsed),
 			)}
 		>
+			{showAttentionChat && (
+				<div className='px-2 space-y-1'>
+					<ChatListItem chat={showAttentionChat} needsAttention resumeOnboarding={isTrial} />
+				</div>
+			)}
 			{groups?.map((group) => (
-				<GroupSection key={group.label} group={group} groupBy={groupBy} />
+				<GroupSection
+					key={group.label}
+					group={group}
+					groupBy={groupBy}
+					attentionChatId={onboardingNeedsAttention ? onboardingChatId : undefined}
+					resumeOnboardingChatId={isTrial ? onboardingChatId : undefined}
+				/>
 			))}
 
 			{isEmpty && (
 				<p className='text-sm text-muted-foreground text-center p-4'>
 					{isViewer ? (
 						'No chats shared with you.'
+					) : isTrial ? (
+						<>
+							{username ? `Welcome to nao, ${capitalize(username)}! ` : ''}
+							<br />
+							Your chat history will appear here.
+							<br />
+							Start a new chat!
+						</>
 					) : (
 						<>
 							No chats yet.
@@ -549,7 +597,17 @@ function AutomationListItem({
 
 const GROUP_INITIAL_COUNT = 10;
 
-function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroupBy }) {
+function GroupSection({
+	group,
+	groupBy,
+	attentionChatId,
+	resumeOnboardingChatId,
+}: {
+	group: ChatGroup;
+	groupBy: ChatGroupBy;
+	attentionChatId?: string;
+	resumeOnboardingChatId?: string;
+}) {
 	const { isOpen, toggle } = useSidebarSectionOpen(`section:chat-group:${group.label}`);
 	const [expanded, setExpanded] = useState(false);
 	const hasMore = group.chats.length > GROUP_INITIAL_COUNT;
@@ -575,7 +633,12 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 						item.kind === 'shared' ? (
 							<SharedChatGroupItem key={`shared-${item.shareId}`} item={item} groupBy={groupBy} />
 						) : (
-							<ChatListItem key={item.id} chat={item} />
+							<ChatListItem
+								key={item.id}
+								chat={item}
+								needsAttention={item.id === attentionChatId}
+								resumeOnboarding={item.id === resumeOnboardingChatId}
+							/>
 						),
 					)}
 

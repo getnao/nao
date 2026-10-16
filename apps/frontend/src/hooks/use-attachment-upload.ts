@@ -35,9 +35,14 @@ interface UseAttachmentUploadOptions {
 	/** Off when the instance has no permanent storage, which is where documents are kept. */
 	documentsEnabled: boolean | undefined;
 	maxDocumentSizeMb: number;
+	disabled?: boolean;
 }
 
-export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: UseAttachmentUploadOptions) {
+export function useAttachmentUpload({
+	documentsEnabled,
+	maxDocumentSizeMb,
+	disabled = false,
+}: UseAttachmentUploadOptions) {
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [rejection, setRejection] = useState<string | undefined>(undefined);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,7 +50,7 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 	const addFiles = useCallback(
 		async (files: FileList | File[]) => {
 			const candidates = Array.from(files);
-			if (candidates.length === 0) {
+			if (disabled || candidates.length === 0) {
 				return;
 			}
 
@@ -77,7 +82,7 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 				added.map((attachment, index) => prepare(attachment, withinLimit[index], setAttachments)),
 			);
 		},
-		[attachments.length, documentsEnabled, maxDocumentSizeMb],
+		[attachments.length, disabled, documentsEnabled, maxDocumentSizeMb],
 	);
 
 	const removeAttachment = useCallback((id: string) => {
@@ -89,22 +94,31 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 		setRejection(undefined);
 	}, []);
 
-	const restoreDocuments = useCallback((documents: DocumentAttachment[]) => {
-		setAttachments((previous) => [
-			...previous,
-			...documents.map((document) => ({
-				id: crypto.randomUUID(),
-				kind: 'document' as const,
-				name: document.filename,
-				mediaType: document.mediaType,
-				path: document.path,
-			})),
-		]);
-	}, []);
+	const restoreDocuments = useCallback(
+		(documents: DocumentAttachment[]) => {
+			if (disabled) {
+				return;
+			}
+			setAttachments((previous) => [
+				...previous,
+				...documents.map((document) => ({
+					id: crypto.randomUUID(),
+					kind: 'document' as const,
+					name: document.filename,
+					mediaType: document.mediaType,
+					path: document.path,
+				})),
+			]);
+		},
+		[disabled],
+	);
 
 	const openFilePicker = useCallback(() => {
+		if (disabled) {
+			return;
+		}
 		fileInputRef.current?.click();
-	}, []);
+	}, [disabled]);
 
 	const handleFileInputChange = useCallback(
 		(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -118,6 +132,9 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 
 	const handlePaste = useCallback(
 		(e: ClipboardEvent) => {
+			if (disabled) {
+				return;
+			}
 			const pasted = Array.from(e.clipboardData?.items ?? [])
 				.filter((item) => item.kind === 'file')
 				.map((item) => item.getAsFile())
@@ -128,7 +145,7 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 				addFiles(pasted);
 			}
 		},
-		[addFiles],
+		[addFiles, disabled],
 	);
 
 	const getPayload = useCallback((): AttachmentPayload => {

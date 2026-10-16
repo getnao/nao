@@ -7,6 +7,11 @@ import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
+import {
+	getExampleProjectForUser,
+	getSystemExampleProject,
+	SYSTEM_EXAMPLE_PROJECT_ID,
+} from '../services/example-project';
 import { AgentRequestSchema } from '../types/chat';
 import { trackAgentStreamDisconnect } from '../utils/agent-stream-disconnect';
 import { withQueryResultPreviewsInStream } from '../utils/query-result-preview';
@@ -20,10 +25,63 @@ export const agentRoutes = async (app: App) => {
 
 	app.post('/', { schema: { body: AgentRequestSchema } }, async (request, reply) => {
 		const { user, project, body, headers } = request;
-		const projectId = body.chatId ? await chatQueries.getChatProjectId(body.chatId) : project?.id;
+
+		const isOnboarding = body.mode === 'onboarding';
+		const isExampleMode = body.mode === 'example';
+		const chatModeError = body.chatId
+			? getChatModeMismatchError(isOnboarding, await chatQueries.isOnboardingChat(body.chatId))
+			: null;
+		if (chatModeError) {
+			return reply.status(403).send({ error: chatModeError });
+		}
+
+		const onboardingProject = isOnboarding ? await projectQueries.getProjectById(SYSTEM_EXAMPLE_PROJECT_ID) : null;
+
+		const exampleProject =
+			!isOnboarding && (isExampleMode || !project)
+				? isExampleMode
+					? await getSystemExampleProject()
+					: await getExampleProjectForUser(user.id)
+				: null;
+
+		const projectId = body.chatId
+			? await chatQueries.getChatProjectId(body.chatId)
+			: isOnboarding
+				? onboardingProject?.id
+				: isExampleMode
+					? exampleProject?.id
+					: (project?.id ?? exampleProject?.id);
+
+		if (isExampleMode && projectId !== SYSTEM_EXAMPLE_PROJECT_ID) {
+			return reply
+				.status(body.chatId ? 403 : 503)
+				.send({ error: body.chatId ? 'Invalid example conversation' : 'Example project is unavailable' });
+		}
+
+		const isExampleProject = projectId === SYSTEM_EXAMPLE_PROJECT_ID;
+		const exampleChatOwnerId =
+			isExampleProject && body.chatId ? await chatQueries.getChatOwnerId(body.chatId) : undefined;
 
 		let canChatWithNaoData = false;
-		if (projectId) {
+		if (isOnboarding) {
+			if (!onboardingProject) {
+				return reply.status(503).send({ error: 'Onboarding is unavailable' });
+			}
+			if (projectId !== SYSTEM_EXAMPLE_PROJECT_ID && !body.chatId) {
+				return reply.status(403).send({ error: 'Invalid onboarding conversation' });
+			}
+		} else if (isExampleProject) {
+			if (
+				!canAccessExampleChat({
+					chatId: body.chatId,
+					chatOwnerId: exampleChatOwnerId,
+					userId: user.id,
+					exampleProjectAvailable: exampleProject?.id === SYSTEM_EXAMPLE_PROJECT_ID,
+				})
+			) {
+				return reply.status(403).send({ error: 'Example project access is unavailable' });
+			}
+		} else if (projectId) {
 			const userRole = await projectQueries.getUserRoleInProject(projectId, user.id);
 			if (!userRole || userRole === 'viewer') {
 				return reply.status(403).send({ error: 'Viewers cannot send messages' });
@@ -39,6 +97,7 @@ export const agentRoutes = async (app: App) => {
 			billingAccessVerifiedProjectId: projectId,
 			adminMode: body.adminMode && canChatWithNaoData,
 			domainHost: getDomainHost(headers),
+			projectAccessAlreadyAuthorized: isExampleProject,
 		});
 
 		let stream = withQueryResultPreviewsInStream(result.stream);
@@ -80,4 +139,27 @@ export const agentRoutes = async (app: App) => {
 function getDomainHost(headers: IncomingHttpHeaders): string | undefined {
 	const host = headers['x-forwarded-host'] || headers.host;
 	return Array.isArray(host) ? host[0] : host;
+}
+
+export function getChatModeMismatchError(requestIsOnboarding: boolean, chatIsOnboarding: boolean): string | null {
+	if (requestIsOnboarding === chatIsOnboarding) {
+		return null;
+	}
+	return requestIsOnboarding
+		? 'Regular conversations cannot be continued through onboarding'
+		: 'Onboarding conversations must be continued through onboarding';
+}
+
+export function canAccessExampleChat({
+	chatId,
+	chatOwnerId,
+	userId,
+	exampleProjectAvailable,
+}: {
+	chatId: string | undefined;
+	chatOwnerId: string | undefined;
+	userId: string;
+	exampleProjectAvailable: boolean;
+}): boolean {
+	return chatId ? chatOwnerId === userId : exampleProjectAvailable;
 }

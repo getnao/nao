@@ -43,12 +43,16 @@ import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
 import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
+
+type ChatInputVariant = 'default' | 'onboarding';
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
 	className?: string;
+	variant?: ChatInputVariant;
 	placeholder?: string;
 	initialText?: string;
 	onCancel?: () => void;
@@ -63,7 +67,7 @@ type ChatInputInlineProps = {
 	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
 };
 
-export function ChatInput() {
+export function ChatInput({ variant = 'default' }: { variant?: ChatInputVariant }) {
 	const promptRef = useRef<PromptHandle>(null);
 	const { queueOrSendMessage } = useAgentContext();
 
@@ -75,7 +79,7 @@ export function ChatInput() {
 		requestAnimationFrame(() => promptRef.current?.focus());
 	});
 
-	return <ChatInputBase promptRef={promptRef} onSubmitMessage={queueOrSendMessage} allowQueueing />;
+	return <ChatInputBase promptRef={promptRef} variant={variant} onSubmitMessage={queueOrSendMessage} allowQueueing />;
 }
 
 export function ChatInputInline({ className, initialText, onCancel, onSubmitMessage }: ChatInputInlineProps) {
@@ -95,6 +99,7 @@ export function ChatInputInline({ className, initialText, onCancel, onSubmitMess
 function ChatInputBase({
 	promptRef,
 	className,
+	variant = 'default',
 	placeholder = 'Ask anything about your data...',
 	initialText,
 	onCancel,
@@ -112,6 +117,7 @@ function ChatInputBase({
 		submitQueuedMessageNow,
 		error,
 		selectedModel,
+		mode,
 	} = useAgentContext();
 	const navigate = useNavigate();
 	const { canChatWithNaoData } = usePermissions();
@@ -133,13 +139,21 @@ function ChatInputBase({
 		navigate({ to: '/', search: { admin: true } });
 	}, [adminModeLocked, isAdminMode, setAdminMode, navigate]);
 	const { canCycleModels, cycleModel } = useModelSelection();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const isTrial = useIsCloud() && project.data === null;
 	const uploadLimits = useQuery(trpc.storage.getUploadLimits.queryOptions());
 	const attachmentUpload = useAttachmentUpload({
 		documentsEnabled: uploadLimits.data?.enabled,
 		maxDocumentSizeMb: uploadLimits.data?.maxFileSizeMb ?? 0,
+		disabled: isTrial,
 	});
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
-	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
+	const effectivePlaceholder =
+		isRunning && allowQueueing
+			? 'Add a follow-up...'
+			: variant === 'onboarding'
+				? 'Tell me where you are starting from...'
+				: placeholder;
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const transcribeModels = useQuery(trpc.project.getKnownTranscribeModels.queryOptions());
@@ -404,7 +418,7 @@ function ChatInputBase({
 					isHidden={inputText.trim().length > 0}
 				/>
 			)}
-			{isAdminMode && <ChatInputAdminBadge />}
+			{isAdminMode ? <ChatInputAdminBadge /> : variant === 'onboarding' ? <ChatInputOnboardingBadge /> : null}
 
 			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>
 				<InputGroup
@@ -413,9 +427,10 @@ function ChatInputBase({
 						'bg-background dark:bg-background shadow-xs border-none max-md:rounded-4xl',
 						isDragging && 'ring-2 ring-primary/50 border-primary',
 						isAdminMode && 'ring-4 ring-amber-500/60',
+						!isAdminMode && variant === 'onboarding' && 'ring-4 ring-foreground/10',
 					)}
 				>
-					{!isAdminMode && <ChatInputAnimatedBorder />}
+					{!isAdminMode && variant === 'default' && <ChatInputAnimatedBorder />}
 					<ChatInputAttachmentPreview
 						attachments={attachmentUpload.attachments}
 						rejection={attachmentUpload.rejection}
@@ -434,6 +449,7 @@ function ChatInputBase({
 						type='file'
 						accept={ATTACHMENT_ACCEPT}
 						multiple
+						disabled={isTrial}
 						className='hidden'
 						onChange={attachmentUpload.handleFileInputChange}
 					/>
@@ -444,22 +460,25 @@ function ChatInputBase({
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
 						<div className='flex items-center gap-1.5 md:gap-2 ml-auto relative'>
-							<ChatInputPlusMenu
-								hasDatabases={hasDatabases}
-								hasSkills={hasSkills}
-								canChatWithNaoData={canChatWithNaoData}
-								isAdminMode={isAdminMode}
-								adminModeLocked={adminModeLocked}
-								onSelectAdminMode={handleSelectAdminMode}
-								onAddAttachment={attachmentUpload.openFilePicker}
-								storyMentions={storyMentionOptions}
-								onAddStory={(mention) => {
-									promptRef.current?.appendMention({ id: mention.id, label: mention.label }, '#');
-								}}
-								onOpenSkills={openSkillsMenu}
-								onOpenDatabase={openDatabaseMenu}
-								onFocusPrompt={() => promptRef.current?.focus()}
-							/>
+							{mode !== 'onboarding' && (
+								<ChatInputPlusMenu
+									hasDatabases={hasDatabases}
+									hasSkills={hasSkills}
+									storyMentions={storyMentionOptions}
+									canChatWithNaoData={canChatWithNaoData}
+									isAdminMode={isAdminMode}
+									adminModeLocked={adminModeLocked}
+									isTrial={isTrial}
+									onSelectAdminMode={handleSelectAdminMode}
+									onAddAttachment={attachmentUpload.openFilePicker}
+									onAddStory={(mention) => {
+										promptRef.current?.appendMention({ id: mention.id, label: mention.label }, '#');
+									}}
+									onOpenSkills={openSkillsMenu}
+									onOpenDatabase={openDatabaseMenu}
+									onFocusPrompt={() => promptRef.current?.focus()}
+								/>
+							)}
 
 							{onCancel && (
 								<Button variant='ghost' type='button' size='sm' onClick={onCancel}>
@@ -628,6 +647,16 @@ function ChatInputAdminBadge() {
 	);
 }
 
+function ChatInputOnboardingBadge() {
+	return (
+		<div className='flex justify-end pr-4'>
+			<span className='mb-1 flex w-fit items-center rounded-t-lg bg-foreground/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground'>
+				Onboarding
+			</span>
+		</div>
+	);
+}
+
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
 	const prevProviderRef = useRef(selectedModel?.provider);
@@ -672,6 +701,7 @@ function ChatInputPlusMenu({
 	canChatWithNaoData,
 	isAdminMode,
 	adminModeLocked,
+	isTrial,
 	onSelectAdminMode,
 	onAddAttachment,
 	onAddStory,
@@ -685,6 +715,7 @@ function ChatInputPlusMenu({
 	canChatWithNaoData: boolean;
 	isAdminMode: boolean;
 	adminModeLocked: boolean;
+	isTrial: boolean;
 	onSelectAdminMode: () => void;
 	onAddAttachment: () => void;
 	onAddStory: (mention: MentionOption) => void;
@@ -713,10 +744,12 @@ function ChatInputPlusMenu({
 					requestAnimationFrame(onFocusPrompt);
 				}}
 			>
-				<DropdownMenuItem onSelect={onAddAttachment}>
-					<Paperclip className='size-4' />
-					<span>Attach file</span>
-				</DropdownMenuItem>
+				{!isTrial && (
+					<DropdownMenuItem onSelect={onAddAttachment}>
+						<Paperclip className='size-4' />
+						<span>Attach file</span>
+					</DropdownMenuItem>
+				)}
 				{hasDatabases && (
 					<DropdownMenuItem onSelect={onOpenDatabase}>
 						<Database className='size-4' />

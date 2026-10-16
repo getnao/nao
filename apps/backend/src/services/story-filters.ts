@@ -138,6 +138,7 @@ async function loadStoryCodeAndQueries(chatId: string, storySlug: string) {
 	}
 
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
+
 	return {
 		code: version.code,
 		sqlQueries,

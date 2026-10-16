@@ -11,6 +11,11 @@ vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock('../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/env')>()),
+	isCloud: false,
+}));
+
 vi.mock('../src/db/db', () => {
 	const selectChain = {
 		from: () => selectChain,

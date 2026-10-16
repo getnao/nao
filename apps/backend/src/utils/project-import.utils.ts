@@ -64,12 +64,13 @@ export async function createNewProject({
 	sourceDir,
 	projectName,
 	orgId,
+	projectId = crypto.randomUUID(),
 }: {
 	sourceDir: string;
 	projectName: string;
 	orgId: string;
+	projectId?: string;
 }) {
-	const projectId = crypto.randomUUID();
 	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
 
 	try {
@@ -83,6 +84,7 @@ export async function createNewProject({
 	}
 
 	const project = await projectQueries.createProject({
+		id: projectId,
 		name: projectName,
 		type: 'local',
 		path: projectDir,

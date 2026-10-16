@@ -233,6 +233,7 @@ const sourceLabels: Record<UsageSource, string> = {
 	admin: 'Admin mode',
 	mcp: 'MCP',
 	contextRecommendations: 'Context recommendations',
+	onboarding: 'Onboarding',
 };
 
 function sameValues<T extends string>(a: T[], b: T[]): boolean {

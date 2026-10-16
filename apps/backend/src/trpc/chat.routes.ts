@@ -21,7 +21,7 @@ import { canUserViewChatContent } from '../utils/chat-access';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { buildChatDownloadResponse } from '../utils/chat-download';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
-import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 const MAX_QUERY_ROWS_PAGE_SIZE = 1000;
@@ -121,7 +121,7 @@ export const chatRoutes = {
 			return response;
 		}),
 
-	listGrouped: projectProtectedProcedure
+	listGrouped: protectedProcedure
 		.input(
 			z.object({
 				groupBy: z.enum(CHAT_GROUP_BY_OPTIONS).default('none'),

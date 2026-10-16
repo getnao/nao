@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	getChatProjectId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	handleAgentRoute: vi.fn(),
+	isOnboardingChat: vi.fn(),
 	post: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock('../src/handlers/agent', () => ({
 vi.mock('../src/middleware/auth', () => ({ authMiddleware: vi.fn() }));
 vi.mock('../src/queries/chat.queries', () => ({
 	getChatProjectId: mocks.getChatProjectId,
+	isOnboardingChat: mocks.isOnboardingChat,
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
@@ -86,6 +88,7 @@ describe('agent route billing access', () => {
 		const accessError = new Error('Cloud billing access is restricted');
 		mocks.getChatProjectId.mockResolvedValue('project-1');
 		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.isOnboardingChat.mockResolvedValue(false);
 		mocks.assertProjectCloudBillingAccess.mockRejectedValue(accessError);
 		await agentRoutes({ addHook: mocks.addHook, post: mocks.post } as never);
 		const handler = mocks.post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;

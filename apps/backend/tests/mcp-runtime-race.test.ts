@@ -46,6 +46,13 @@ vi.mock('mcporter', () => ({
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/env')>()),
+	isCloud: false,
+}));
+vi.mock('../src/services/warehouse-credentials', () => ({
+	getProjectWarehouseEnvVars: async () => ({}),
+}));
 
 let projectPath = '';
 

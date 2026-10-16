@@ -6,9 +6,10 @@ import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
-import { getEnvVars, retrieveProjectById } from '../queries/project.queries';
+import { retrieveProjectById } from '../queries/project.queries';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
+import { getProjectRuntimeEnvVars } from '../services/project-runtime-env';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
 import { resolveProjectContextAccess } from '../services/user-group-context-access.service';
 import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
@@ -108,7 +109,7 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		throw new Error('Project path does not exist.');
 	}
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
-		getEnvVars(projectId),
+		getProjectRuntimeEnvVars(projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(userId) : null)),
 		resolveProjectContextAccess(projectId, userId, projectFolder),
 	]);

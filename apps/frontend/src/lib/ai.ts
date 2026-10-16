@@ -91,7 +91,17 @@ export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'stat
 
 /** Tools that should NOT be collapsed (important UI elements), per density setting. */
 const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName | DynamicToolName)[]> = {
-	compact: ['story', 'display_chart', 'display_map', 'suggest_follow_ups', 'clarification'],
+	compact: [
+		'story',
+		'display_chart',
+		'display_map',
+		'suggest_follow_ups',
+		'clarification',
+		'onboarding_agent_prompt',
+		'onboarding_command',
+		'request_warehouse_credentials',
+		'generate_onboarding_rules',
+	],
 	detailed: [
 		'story',
 		'task',
@@ -103,8 +113,12 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'display_map',
 		'suggest_follow_ups',
 		'clarification',
+		'onboarding_agent_prompt',
+		'onboarding_command',
 		'execute_python',
 		'execute_sandboxed_code',
+		'request_warehouse_credentials',
+		'generate_onboarding_rules',
 	],
 };
 
@@ -513,6 +527,12 @@ export const getMessageText = (message: UIMessage): string => {
 		.filter((part) => part.type === 'text')
 		.map((part) => part.text)
 		.join('\n');
+};
+
+export const ONBOARDING_CONTEXT_REQUEST_PREFIX = '[internal:onboarding-context-request]';
+
+export const isOnboardingContextRequestMessage = (message: UIMessage): boolean => {
+	return message.role === 'user' && getMessageText(message).startsWith(ONBOARDING_CONTEXT_REQUEST_PREFIX);
 };
 
 export const getMessageImages = (message: UIMessage): { url: string; mediaType: string }[] => {

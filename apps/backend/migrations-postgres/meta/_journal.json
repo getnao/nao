@@ -547,6 +547,20 @@
       "when": 1791358974879,
       "tag": "0077_story_app_state",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1791988172902,
+      "tag": "0078_warehouse_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1792157112673,
+      "tag": "0079_warehouse_sync_logs",
+      "breakpoints": true
     }
   ]
 }

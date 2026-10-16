@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 import secrets
@@ -15,7 +16,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_core import to_jsonable_python
 
 __all__ = ["BlockedRowAccessTable", "EnforcedRowSecurity", "PredicateRowAccessTable"]
@@ -66,6 +67,11 @@ from nao_core.semantic_layer import (  # noqa: E402
     metricflow_dialect_for,
     runtime_manifest_path,
 )
+from warehouse_provisioning import (  # noqa: E402
+    infer_warehouse_error_fields,
+    prepare_warehouse_config,
+    validate_warehouse_credentials,
+)
 
 port = int(os.environ.get("PORT", 8005))
 
@@ -114,7 +120,9 @@ async def _refresh_context_task():
         if updated:
             print(f"[Scheduler] Context refreshed at {datetime.now().isoformat()}")
         else:
-            print(f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}")
+            print(
+                f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}"
+            )
     except Exception as e:
         print(f"[Scheduler] Failed to refresh context: {e}")
 
@@ -147,6 +155,20 @@ class CompileSemanticQueryResponse(BaseModel):
     dialect: str
 
 
+class PrepareWarehouseRequest(BaseModel):
+    provider: str
+    credentials: dict[str, object]
+
+
+class PrepareWarehouseResponse(BaseModel):
+    database_config: dict[str, object]
+    env_vars: dict[str, str]
+
+
+class ValidateWarehouseResponse(BaseModel):
+    valid: bool
+
+
 def _validate_sql(
     sql: str,
     db_config,
@@ -166,7 +188,9 @@ def _validate_sql(
         database_folder=database_folder,
     )
     if enforce_excluded_columns:
-        validated_sql = validate_column_access(validated_sql, db_config, project_path, database_folder)
+        validated_sql = validate_column_access(
+            validated_sql, db_config, project_path, database_folder
+        )
     validated_sql = enforce_row_security(
         validated_sql,
         db_config,
@@ -217,7 +241,10 @@ def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
 
 def _column_values(column: pd.Series) -> list:
     """Python datetimes serialize natively but drop nanoseconds, which only `pd.Timestamp` keeps."""
-    if pd.api.types.is_datetime64_any_dtype(column.dtype) and not column.dt.nanosecond.gt(0).any():
+    if (
+        pd.api.types.is_datetime64_any_dtype(column.dtype)
+        and not column.dt.nanosecond.gt(0).any()
+    ):
         return column.array.to_pydatetime().tolist()
     return column.tolist()
 
@@ -311,14 +338,21 @@ def _resolve_database(config: Any, database_id: str | None) -> tuple[Any, str]:
     if duplicate_names:
         raise HTTPException(
             status_code=400,
-            detail=("Database connection names must be unique. Duplicate name(s): " + ", ".join(duplicate_names)),
+            detail=(
+                "Database connection names must be unique. Duplicate name(s): "
+                + ", ".join(duplicate_names)
+            ),
         )
 
     if len(config.databases) == 1:
         selected_index = 0
     elif database_id:
         selected_index = next(
-            (index for index, db in enumerate(config.databases) if db.name == database_id),
+            (
+                index
+                for index, db in enumerate(config.databases)
+                if db.name == database_id
+            ),
             None,
         )
         if selected_index is None:
@@ -344,7 +378,9 @@ def _resolve_database(config: Any, database_id: str | None) -> tuple[Any, str]:
     authorization_identity = (str(db_config.type).lower(), database_folder)
     matching_identities = [
         index
-        for index, (candidate, candidate_folder) in enumerate(zip(config.databases, database_folders, strict=True))
+        for index, (candidate, candidate_folder) in enumerate(
+            zip(config.databases, database_folders, strict=True)
+        )
         if (str(candidate.type).lower(), candidate_folder) == authorization_identity
     ]
     if len(matching_identities) != 1:
@@ -372,7 +408,8 @@ def _active_group_allowed_tables(
     return {
         (entry.schema_name, entry.table)
         for entry in table_access.tables
-        if entry.database_type.lower() == database_type and entry.database == database_folder_name
+        if entry.database_type.lower() == database_type
+        and entry.database == database_folder_name
     }
 
 
@@ -388,7 +425,10 @@ def _active_row_security_policies(
     database_type = str(db_config.type).lower()
     policies: dict[tuple[str, str], RowSecurityPolicy] = {}
     for entry in row_security.tables:
-        if entry.database_type.lower() != database_type or entry.database != database_folder_name:
+        if (
+            entry.database_type.lower() != database_type
+            or entry.database != database_folder_name
+        ):
             continue
         identity = (entry.schema_name, entry.table)
         if identity in policies:
@@ -412,7 +452,9 @@ def _active_row_security_policies(
 
 
 def _is_azure_entra_id(db_config: Any) -> bool:
-    return getattr(getattr(db_config, "auth_mode", None), "value", None) == ("azure_entra_id")
+    return getattr(getattr(db_config, "auth_mode", None), "value", None) == (
+        "azure_entra_id"
+    )
 
 
 def _assert_azure_request_can_validate(
@@ -434,12 +476,17 @@ def _assert_azure_request_can_validate(
         )
 
     table_validation_enabled = (
-        db_config.allow_listed_only or group_allowed_tables is not None or row_security_policies is not None
+        db_config.allow_listed_only
+        or group_allowed_tables is not None
+        or row_security_policies is not None
     )
     if (
         table_validation_enabled
         and query_references_base_tables(request.sql, db_config.type)
-        and (not getattr(db_config, "user", None) or not getattr(db_config, "password", None))
+        and (
+            not getattr(db_config, "user", None)
+            or not getattr(db_config, "password", None)
+        )
     ):
         raise HTTPException(
             status_code=400,
@@ -461,7 +508,9 @@ def _validate_request(
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> str:
-    _assert_azure_request_can_validate(request, db_config, group_allowed_tables, row_security_policies)
+    _assert_azure_request_can_validate(
+        request, db_config, group_allowed_tables, row_security_policies
+    )
     return _validate_sql(
         request.sql,
         db_config,
@@ -503,8 +552,12 @@ async def health_check():
 def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
-        group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
-        row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
+        group_allowed_tables = _active_group_allowed_tables(
+            request.table_access, db_config, database_folder
+        )
+        row_security_policies = _active_row_security_policies(
+            request.row_security, db_config, database_folder
+        )
         try:
             if _is_azure_entra_id(db_config):
                 validated_sql = _validate_request(
@@ -519,7 +572,11 @@ def execute_sql(request: ExecuteSQLRequest):
                     validated_sql,
                     request.azure_access_token,
                 )
-            elif db_config.allow_listed_only or group_allowed_tables is not None or row_security_policies is not None:
+            elif (
+                db_config.allow_listed_only
+                or group_allowed_tables is not None
+                or row_security_policies is not None
+            ):
                 df = _execute_sql_with_guards(
                     request.sql,
                     db_config,
@@ -562,8 +619,12 @@ def execute_sql(request: ExecuteSQLRequest):
 def validate_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
-        group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
-        row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
+        group_allowed_tables = _active_group_allowed_tables(
+            request.table_access, db_config, database_folder
+        )
+        row_security_policies = _active_row_security_policies(
+            request.row_security, db_config, database_folder
+        )
         try:
             _validate_request(
                 request,
@@ -675,6 +736,77 @@ def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | Non
         status_code=400,
         detail="semantic_layer.database must name the database that runs semantic queries when several are configured",
     )
+
+
+@app.post(
+    "/warehouse/validate",
+    response_model=ValidateWarehouseResponse,
+    dependencies=internal_only,
+)
+async def validate_warehouse(request: PrepareWarehouseRequest):
+    try:
+        await asyncio.to_thread(
+            validate_warehouse_credentials, request.provider, request.credentials
+        )
+        return ValidateWarehouseResponse(valid=True)
+    except ValidationError as error:
+        fields = sorted(
+            {
+                ".".join(str(part) for part in issue["loc"])
+                for issue in error.errors(include_input=False)
+            }
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_warehouse_credentials",
+                "fields": fields,
+            },
+        ) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "warehouse_connection_failed",
+                "fields": infer_warehouse_error_fields(request.provider, error),
+            },
+        ) from error
+
+
+@app.post(
+    "/warehouse/prepare",
+    response_model=PrepareWarehouseResponse,
+    dependencies=internal_only,
+)
+async def prepare_warehouse(request: PrepareWarehouseRequest):
+    try:
+        database_config, env_vars = prepare_warehouse_config(
+            request.provider,
+            request.credentials,
+        )
+        return PrepareWarehouseResponse(
+            database_config=database_config,
+            env_vars=env_vars,
+        )
+    except ValidationError as error:
+        fields = sorted(
+            {
+                ".".join(str(part) for part in issue["loc"])
+                for issue in error.errors(include_input=False)
+            }
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_warehouse_credentials",
+                "fields": fields,
+            },
+        ) from error
+    except (ValueError, TypeError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid warehouse credentials",
+        ) from error
 
 
 if __name__ == "__main__":
