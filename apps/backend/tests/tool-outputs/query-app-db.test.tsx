@@ -76,12 +76,16 @@ role: assistant
 		expect(result.length).toBeLessThan(3_000);
 	});
 
-	it('always shows the first row even when it exceeds the budget', () => {
+	it('shrinks values so that a wide row still fits the character budget', () => {
+		const wideRow = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`c${index}`, 'z'.repeat(1_000)]));
 		const result = renderToMarkdown(
-			<QueryAppDbOutput output={buildResult([{ text: 'z'.repeat(500) }])} maxRowsCharacters={10} />,
+			<QueryAppDbOutput output={buildResult([wideRow, wideRow])} maxRowsCharacters={10_000} />,
 		);
 
 		expect(result).toContain('#1');
-		expect(result).not.toContain('more rows not shown');
+		expect(result).not.toContain('#2');
+		expect(result).toContain('1 more rows not shown');
+		expect(result).toContain('Values longer than 94 characters are truncated');
+		expect(result.length).toBeLessThan(13_000);
 	});
 });
