@@ -27,6 +27,9 @@ dependencies = [
     "pyyaml>=6.0.0",
     "rich>=14.0.0",
     "ibis-framework>=9.0.0",
+    # ibis's shared SQL compilers import packaging, but most ibis backend extras
+    # (mssql, postgres, mysql, ...) don't declare it.
+    "packaging>=21.3",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
     "cryptography>=46.0.3",
