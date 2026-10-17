@@ -9,7 +9,7 @@ export const InputSchema = z.object({
 			'The id of a previous `execute_sql` tool call (e.g. "query_a1b2c3d4"). The query result must be from this conversation.',
 		),
 	offset: z.number().int().min(0).optional().describe('Row index to start reading from (0-based, default 0).'),
-	limit: z.number().int().min(1).optional().describe('Maximum number of rows to return (default 20).'),
+	limit: z.number().int().min(1).optional().describe('Maximum number of rows to return (default 20, at most 100).'),
 });
 
 export const OutputSchema = z.object({

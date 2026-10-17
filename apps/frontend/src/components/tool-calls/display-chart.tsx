@@ -22,17 +22,15 @@ import {
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Customized } from 'recharts';
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
-import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { Button } from '../ui/button';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '../ui/chart';
-import { Skeleton } from '../ui/skeleton';
-import { TextShimmer } from '../ui/text-shimmer';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import { DisplayChartTable } from './display-chart-table';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import { CustomChart } from './custom-chart';
 import { SqlQueryDisplay } from './sql-query-display';
 import { SqlResultDisplay } from './sql-result-display';
+import { VisualizationSkeleton } from './visualization-skeleton';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ChartConfig } from '@nao/shared/chart-tooltip';
 import type { ChartType } from '@nao/shared/chart-types';
@@ -112,7 +110,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && isBuiltinChart);
 
-	const { sourceQuery, sourceData } = useSourceQuery(chartConfig?.query_id);
+	const { sourceQuery, sourceData, isLoadingRows } = useSourceQuery(chartConfig?.query_id);
 	const sqlQuery = sourceQuery?.input?.sql_query;
 
 	const handleDownloadPng = async () => {
@@ -182,15 +180,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (state !== 'input-streaming' || isSettled) {
 			return null;
 		}
-		return (
-			<div className='my-4 flex flex-col gap-2 items-center aspect-3/2'>
-				<Skeleton className='w-1/2 h-4' />
-				<Skeleton className='w-full flex-1 flex flex-col items-center justify-center gap-3'>
-					<GraphLoaderAnimated className='w-96 h-64 text-muted-foreground' />
-					<TextShimmer text='Loading chart' />
-				</Skeleton>
-			</div>
-		);
+		return <VisualizationSkeleton label='Loading chart' />;
 	}
 
 	if (chartConfig.series.length === 0) {
@@ -199,6 +189,10 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				Could not display the chart because no series are configured.
 			</div>
 		);
+	}
+
+	if (isLoadingRows) {
+		return <VisualizationSkeleton label='Loading chart data' />;
 	}
 
 	if (!sourceData) {
@@ -402,6 +396,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					config={{ ...chartConfig, chart_type: chartConfig.chart_type }}
 					availableColumns={sourceData.columns ?? []}
 					data={sourceData.data ?? []}
+					sourceQuery={sourceQuery ?? undefined}
 				/>
 			)}
 

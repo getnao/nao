@@ -65,6 +65,7 @@ import {
 } from '../utils/llm';
 import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
+import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
@@ -1147,7 +1148,7 @@ export const projectRoutes = {
 			}
 
 			return {
-				...chat,
+				...withQueryResultPreviewsInChat(chat),
 				ownerId: ownerId ?? null,
 				ownerName,
 				chatOwnerId: ownerId ?? null,

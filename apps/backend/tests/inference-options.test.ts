@@ -1,7 +1,7 @@
 import { type LlmProvider, providerKind } from '@nao/shared/types';
 import { describe, expect, it } from 'vitest';
 
-import { createProviderModel, fitThinkingBudget } from '../src/agents/providers';
+import { createProviderModel, disableModelReasoning, fitThinkingBudget } from '../src/agents/providers';
 import type { ModelInferenceSettings, ProviderSettings } from '../src/types/llm';
 
 const SETTINGS: ProviderSettings = { apiKey: 'test-key' };
@@ -10,6 +10,16 @@ const VERTEX_SETTINGS: ProviderSettings = {
 	credentials: { project: 'test-project', location: 'us-east5' },
 };
 const COMPATIBLE_SETTINGS: ProviderSettings = { apiKey: 'test-key', baseURL: 'http://localhost:8000/v1' };
+const BEDROCK_GPT6_IDS = [
+	'global.openai.gpt-6-astra',
+	'global.openai.gpt-6.1-sol',
+	'global.openai.gpt-6-sol',
+	'global.openai.gpt-6-luna',
+	'us.openai.gpt-6-astra',
+	'us.openai.gpt-6.1-sol',
+	'us.openai.gpt-6-sol',
+	'us.openai.gpt-6-luna',
+];
 
 function settingsFor(provider: LlmProvider): ProviderSettings {
 	if (provider === 'vertex') {
@@ -328,6 +338,46 @@ describe('Google Gemini', () => {
 });
 
 describe('Bedrock', () => {
+	describe.each([
+		{ region: 'us-east-1', prefix: 'us' },
+		{ region: 'eu-west-1', prefix: 'eu' },
+		{ region: 'ap-southeast-1', prefix: 'ap' },
+	])('profile routing in $region', ({ region, prefix }) => {
+		const settings: ProviderSettings = { ...SETTINGS, credentials: { region } };
+
+		it.each(BEDROCK_GPT6_IDS)('preserves the explicitly selected profile %s', (modelId) => {
+			const { model } = createProviderModel('bedrock', settings, modelId);
+
+			expect(model.modelId).toBe(modelId);
+		});
+
+		it('continues region-adapting bare Claude IDs', () => {
+			const { model } = createProviderModel('bedrock', settings, 'anthropic.claude-sonnet-4-6');
+
+			expect(model.modelId).toBe(`${prefix}.anthropic.claude-sonnet-4-6`);
+		});
+
+		it('continues region-adapting geographic Claude IDs', () => {
+			const { model } = createProviderModel('bedrock', settings, 'us.anthropic.claude-sonnet-4-6');
+
+			expect(model.modelId).toBe(`${prefix}.anthropic.claude-sonnet-4-6`);
+		});
+	});
+
+	it.each(BEDROCK_GPT6_IDS)('reports the 1.05M window for %s', (modelId) => {
+		expect(createProviderModel('bedrock', SETTINGS, modelId).contextWindow).toBe(1_050_000);
+	});
+
+	it.each(BEDROCK_GPT6_IDS)('drops unsupported sampling settings for %s', (modelId) => {
+		const { callSettings } = createProviderModel('bedrock', SETTINGS, modelId, {
+			temperature: 0.5,
+			topP: 0.9,
+			maxOutputTokens: 2000,
+		});
+
+		expect(callSettings).toEqual({ maxOutputTokens: 2000 });
+	});
+
 	it('sends adaptive reasoningConfig for Claude and drops sampling', () => {
 		const { options, callSettings } = resolve('bedrock', 'us.anthropic.claude-sonnet-4-6', {
 			reasoningEffort: 'max',
@@ -443,6 +493,33 @@ describe('Qwen, MiniMax and Moonshot (OpenAI-compatible endpoints)', () => {
 
 		expect(options).not.toHaveProperty('reasoningEffort');
 		expect(callSettings).toEqual({ temperature: 0.4 });
+	});
+
+	it('sends the Muse effort as-is, including max', () => {
+		const max = resolve('meta', 'muse-wonder-1.0', { reasoningEffort: 'max' });
+		const minimal = resolve('meta', 'muse-spark-1.3', { reasoningEffort: 'minimal' });
+
+		expect(max.options.reasoningEffort).toBe('max');
+		expect(minimal.options.reasoningEffort).toBe('minimal');
+	});
+
+	it('raises a Top P of 0 to the lowest value Muse accepts', () => {
+		const { callSettings } = resolve('meta', 'muse-spark-1.3', { topP: 0 });
+
+		expect(callSettings).toEqual({ topP: 0.05 });
+	});
+
+	it('snaps max down on custom Muse models, which may not accept it', () => {
+		const { options } = resolve('meta', 'muse-spark-1.3-contributor', { reasoningEffort: 'max' });
+
+		expect(options.reasoningEffort).toBe('high');
+	});
+
+	it('lowers Muse reasoning to minimal instead of disabling it, as Muse rejects none', () => {
+		const result = createProviderModel('meta', SETTINGS, 'muse-spark-1.3', { reasoningEffort: 'high' });
+		const options = disableModelReasoning('meta', result).providerOptions.meta as Record<string, unknown>;
+
+		expect(options.reasoningEffort).toBe('minimal');
 	});
 
 	it('sends the Qwen thinking budget under the field names the API expects', () => {

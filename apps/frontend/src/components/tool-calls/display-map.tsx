@@ -20,7 +20,6 @@ import {
 } from '@nao/shared';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { Skeleton } from '../ui/skeleton';
-import { TextShimmer } from '../ui/text-shimmer';
 import { Button } from '../ui/button';
 import {
 	DropdownMenu,
@@ -29,11 +28,11 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { TableDisplay } from './display-table';
 import { MapConfigEditDialog } from './display-map-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { VisualizationSkeleton } from './visualization-skeleton';
 import type { ToolCallComponentProps } from '.';
 import type { ReactNode } from 'react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
@@ -67,7 +66,7 @@ export const DisplayMapToolCall = ({
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const config = state !== 'input-streaming' ? input : undefined;
-	const { sourceQuery, sourceData } = useSourceQuery(config?.query_id);
+	const { sourceQuery, sourceData, isLoadingRows } = useSourceQuery(config?.query_id);
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -213,15 +212,11 @@ export const DisplayMapToolCall = ({
 	}
 
 	if (!config) {
-		return (
-			<div className='my-4 flex flex-col gap-2 items-center aspect-3/2'>
-				<Skeleton className='w-1/2 h-4' />
-				<Skeleton className='w-full flex-1 flex flex-col items-center justify-center gap-3'>
-					<GraphLoaderAnimated className='w-96 h-64 text-muted-foreground' />
-					<TextShimmer text='Loading map' />
-				</Skeleton>
-			</div>
-		);
+		return <VisualizationSkeleton label='Loading map' />;
+	}
+
+	if (isLoadingRows) {
+		return <VisualizationSkeleton label='Loading map data' />;
 	}
 
 	if (!sourceData) {

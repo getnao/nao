@@ -158,12 +158,15 @@ export function SystemPrompt({
 						: []),
 					hasTool('suggest_follow_ups') && (
 						<ListItem>
-							Call <Bold>suggest_follow_ups</Bold> once, as the very last tool of your turn, after your
-							answer is complete. Right before calling it, close your visible reply with one short,
-							friendly sentence that points the user to the suggestions shown below your message (e.g.
-							"Pick one of the suggestions below to keep going, or ask me anything else."), so they know
-							they can click one to continue. That sentence must be part of your message to the user,
-							never a note to yourself or part of your thinking.
+							For every analytical response based on business data—including trends, comparisons,
+							anomalies, causes, breakdowns, or analysis across multiple metrics, customers, or time
+							periods—call <Bold>suggest_follow_ups</Bold> exactly once. A complete answer is not a reason
+							to omit it: suggestions should extend the analysis, not complete the answer. Skip it only
+							for simple one-fact answers, acknowledgements, and clarification requests. The turn must
+							also contain a complete visible answer; the answer and tool call may occur in either order.
+							Call it only after all data gathering is complete, as the sole and final tool call, never in
+							parallel with another tool. The interface presents the suggestions separately, so do not
+							announce them in the visible answer.
 						</ListItem>
 					),
 					...dialectToolCallRules,

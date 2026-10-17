@@ -6,10 +6,10 @@ import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
 import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
-import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { ChatAccessError } from '@/components/chat-access-error';
+import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
@@ -97,6 +97,7 @@ function ChatPage() {
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
 
 	const containerRef = useRef<HTMLDivElement>(null);
+	const chatColumnRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const inputAreaRef = useRef<HTMLDivElement>(null);
 	const inputAreaHeight = useHeight(inputAreaRef);
@@ -166,12 +167,13 @@ function ChatPage() {
 			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div
+						ref={chatColumnRef}
 						className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'
 						style={{ '--chat-input-height': `${inputAreaHeight}px` } as React.CSSProperties}
 					>
 						<MobileHeader chatId={chatId} title={title} automationId={automationId} />
 
-						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-10 max-md:hidden'>
+						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-20 max-md:hidden'>
 							<div className='min-w-0 max-w-[60%] flex flex-row gap-4'>
 								{title && (
 									<EditableChatTitle
@@ -253,7 +255,12 @@ function ChatPage() {
 										</>
 									)}
 								</Button>
-								<StoryOpenButton variant='outline' />
+								<ChatArtifactsMenu
+									key={chatId}
+									chatId={chatId}
+									chatColumnRef={chatColumnRef}
+									panelClassName='right-0 mt-2'
+								/>
 							</div>
 						</div>
 

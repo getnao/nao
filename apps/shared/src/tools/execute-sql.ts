@@ -77,6 +77,11 @@ export const OutputSchema = z.object({
 	 * the query can tell a fresh result from an unchanged one.
 	 */
 	revision: z.number().optional(),
+	/**
+	 * Set on results sent to the web app when `data` only holds the first rows. `row_count`
+	 * stays the full count; the remaining rows are loaded through `chat.getQueryRows`.
+	 */
+	is_preview: z.boolean().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

@@ -68,10 +68,19 @@ describe('member budget resolution', () => {
 		expect(mocks.getUserPeriodCost).toHaveBeenCalledWith('project-id', 'user-id', 'month');
 	});
 
-	it('skips usage when no limit applies or the license is missing', async () => {
+	it('reports usage without warning when no limit applies', async () => {
 		mocks.getMemberBudgetSettings.mockResolvedValue({ period: 'month', defaultLimitUsd: 0 });
-		await expect(resolveMemberBudgetUsage('project-id', 'user-id')).resolves.toBeNull();
+		await expect(resolveMemberBudgetUsage('project-id', 'user-id')).resolves.toMatchObject({
+			limitUsd: 0,
+			source: 'default',
+			spendUsd: 90,
+			ratio: 0,
+			period: 'month',
+		});
+		expect(mocks.getUserPeriodCost).toHaveBeenCalledWith('project-id', 'user-id', 'month');
+	});
 
+	it('skips usage when the license is missing', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 		await expect(resolveMemberBudgetUsage('project-id', 'user-id')).resolves.toBeNull();
 		expect(mocks.getUserPeriodCost).not.toHaveBeenCalled();
