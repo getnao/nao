@@ -1,18 +1,144 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
 import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import questionary
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from nao_core.config.exceptions import ResultTooLargeError
+
 if TYPE_CHECKING:
     import pandas as pd
     from ibis import BaseBackend
+
+
+DEFAULT_SQL_MAX_RESULT_ROWS = 100_000
+DEFAULT_SQL_MAX_RESULT_BYTES = 100 * 1024 * 1024  # 100 MiB
+SQL_FETCH_BATCH_SIZE = 10_000
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    """Read a positive integer from env; fall back to default for missing or invalid values."""
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _sql_result_limits() -> tuple[int, int]:
+    """Return the configured (max_rows, max_bytes) for a SQL result."""
+    return (
+        _positive_int_env("NAO_SQL_MAX_RESULT_ROWS", DEFAULT_SQL_MAX_RESULT_ROWS),
+        _positive_int_env("NAO_SQL_MAX_RESULT_BYTES", DEFAULT_SQL_MAX_RESULT_BYTES),
+    )
+
+
+def _too_large_message(reason: str) -> str:
+    return (
+        f"Result too large: {reason}. Narrow the query (add a WHERE filter, aggregate, or LIMIT), "
+        "or raise NAO_SQL_MAX_RESULT_ROWS / NAO_SQL_MAX_RESULT_BYTES if this is expected."
+    )
+
+
+def _guard_dataframe(df: "pd.DataFrame", max_rows: int, max_bytes: int) -> "pd.DataFrame":
+    """Reject a materialized DataFrame that exceeds the configured caps."""
+    row_count = len(df)
+    if row_count > max_rows:
+        raise ResultTooLargeError(_too_large_message(f"{row_count} rows exceed the cap of {max_rows}"))
+    byte_size = int(df.memory_usage(deep=True).sum())
+    if byte_size > max_bytes:
+        raise ResultTooLargeError(
+            _too_large_message(f"{byte_size} bytes exceed the cap of {max_bytes} ({max_bytes // (1024 * 1024)} MiB)")
+        )
+    return df
+
+
+def _deep_size(root: Any) -> int:
+    """Approximate the in-memory size of a value including nested containers.
+
+    ``sys.getsizeof`` returns only the top-level container's own size (24-56
+    bytes for a dict or list) and does not account for its elements, so a
+    nested JSON blob of thousands of rows would otherwise register as a few
+    dozen bytes and sail past the byte cap. This walks lists, tuples, sets,
+    frozensets and dicts iteratively — no recursion — and sums the sizes of
+    their descendants once each. An iterative traversal means a payload
+    nested beyond CPython's recursion limit (~1000) is still fully accounted
+    for and can trip the byte cap, instead of silently skipping descendants
+    or crashing the worker with ``RecursionError``.
+
+    ``memoryview`` is special-cased: ``sys.getsizeof`` reports only the view
+    object (~192 bytes) and excludes the backing buffer, so a large binary
+    result (e.g. a BLOB column) would otherwise bypass the cap. ``.nbytes``
+    gives the real size of the viewed data.
+    """
+    import sys
+
+    seen: set[int] = set()
+    stack: list[Any] = [root]
+    size = 0
+    while stack:
+        value = stack.pop()
+        value_id = id(value)
+        if value_id in seen:
+            continue
+        seen.add(value_id)
+
+        if isinstance(value, memoryview):
+            size += sys.getsizeof(value) + value.nbytes
+            continue
+        size += sys.getsizeof(value)
+        if isinstance(value, (str, bytes, bytearray)):
+            continue
+        if isinstance(value, dict):
+            for key, item in value.items():
+                stack.append(key)
+                stack.append(item)
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            stack.extend(value)
+    return size
+
+
+def _fetch_bounded_rows(cursor: Any, max_rows: int, max_bytes: int) -> list[tuple]:
+    """Fetch cursor rows in batches, stopping before either cap is exceeded.
+
+    Uses ``fetchmany`` so the driver streams the result instead of
+    materializing it all at once (the original cause of the OOM). The batch
+    size shrinks as the row budget runs out so a cap of (say) 10 rows cannot
+    cause the driver to materialize a full 10,000-row batch before the check
+    runs. Row size is approximated with ``_deep_size`` which walks nested
+    containers iteratively; it undercounts opaque driver-specific objects
+    but is cheap and catches the pathological large-payload case before
+    the process is killed.
+    """
+    rows: list[tuple] = []
+    total_bytes = 0
+    while True:
+        remaining_rows = max_rows - len(rows) + 1  # +1 so the > max_rows guard still trips
+        batch_size = max(1, min(SQL_FETCH_BATCH_SIZE, remaining_rows))
+        batch = cursor.fetchmany(batch_size)
+        if not batch:
+            break
+        for row in batch:
+            row_tuple = tuple(row)
+            rows.append(row_tuple)
+            total_bytes += sum(_deep_size(cell) for cell in row_tuple)
+            if len(rows) > max_rows:
+                raise ResultTooLargeError(_too_large_message(f"more than {max_rows} rows"))
+            if total_bytes > max_bytes:
+                raise ResultTooLargeError(
+                    _too_large_message(f"more than {max_bytes} bytes ({max_bytes // (1024 * 1024)} MiB) streamed")
+                )
+    return rows
 
 
 class DatabaseType(str, Enum):
@@ -214,8 +340,16 @@ class DatabaseConfig(BaseModel, ABC):
         ...
 
     def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
-        """Execute arbitrary SQL and return results as a DataFrame."""
+        """Execute arbitrary SQL and return results as a DataFrame.
+
+        Enforces NAO_SQL_MAX_RESULT_ROWS and NAO_SQL_MAX_RESULT_BYTES: when the
+        driver supports ``fetchmany``, rows are streamed and the cap aborts
+        before the full result is in memory; otherwise the materialized
+        DataFrame is rejected after the fetch with ResultTooLargeError.
+        """
         import pandas as pd  # noqa: F811
+
+        max_rows, max_bytes = _sql_result_limits()
 
         owns_connection = conn is None
         if conn is None:
@@ -224,20 +358,28 @@ class DatabaseConfig(BaseModel, ABC):
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
 
             if hasattr(cursor, "fetchdf"):
-                return cursor.fetchdf()
+                return _guard_dataframe(cursor.fetchdf(), max_rows, max_bytes)
             if hasattr(cursor, "to_dataframe"):
-                return cursor.to_dataframe()
+                return _guard_dataframe(cursor.to_dataframe(), max_rows, max_bytes)
             if hasattr(cursor, "to_pandas"):
-                return cursor.to_pandas()
+                return _guard_dataframe(cursor.to_pandas(), max_rows, max_bytes)
 
             # ClickHouse (clickhouse_connect) returns QueryResult with result_rows + column_names
             if hasattr(cursor, "result_rows") and hasattr(cursor, "column_names"):
                 columns = list(cursor.column_names)
-                return pd.DataFrame(cursor.result_rows, columns=columns)  # type: ignore[arg-type]
+                return _guard_dataframe(
+                    pd.DataFrame(cursor.result_rows, columns=columns),  # type: ignore[arg-type]
+                    max_rows,
+                    max_bytes,
+                )
 
             if hasattr(cursor, "description") and cursor.description is not None and hasattr(cursor, "fetchall"):
                 columns = [desc[0] for desc in cursor.description]
-                return pd.DataFrame([tuple(row) for row in cursor.fetchall()], columns=columns)  # type: ignore[arg-type]
+                if callable(getattr(cursor, "fetchmany", None)):
+                    rows = _fetch_bounded_rows(cursor, max_rows, max_bytes)
+                else:
+                    rows = [tuple(row) for row in cursor.fetchall()]
+                return _guard_dataframe(pd.DataFrame(rows, columns=columns), max_rows, max_bytes)  # type: ignore[arg-type]
 
             raise TypeError(
                 f"Unsupported raw_sql result type: {type(cursor).__name__}. "
