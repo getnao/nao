@@ -105,6 +105,8 @@ class ExecuteSQLRequest(StrictRequestModel):
     env_vars: dict[str, str] | None = None
     azure_access_token: str | None = None
     enforce_excluded_columns: bool = False
+    chat_id: str | None = None
+    user_id: str | None = None
 
     @field_validator("table_access", mode="before")
     @classmethod

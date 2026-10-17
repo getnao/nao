@@ -11,6 +11,9 @@ interface WarehouseSqlOptions {
 	enforceExcludedColumns: boolean;
 	tableAccess: WarehouseTableAccess;
 	rowSecurity: WarehouseRowSecurity;
+	/** Attribution ids rendered into the per-query SQL comment when sql_tagging is enabled. */
+	chatId?: string | null;
+	userId?: string | null;
 }
 
 export interface WarehouseSqlResult {
@@ -86,6 +89,8 @@ async function requestWarehouseSql<T>(
 			...(options.databaseId && { database_id: options.databaseId }),
 			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
 			...(options.azureAccessToken && { azure_access_token: options.azureAccessToken }),
+			...(options.chatId != null && { chat_id: options.chatId }),
+			...(options.userId != null && { user_id: options.userId }),
 		}),
 	});
 
