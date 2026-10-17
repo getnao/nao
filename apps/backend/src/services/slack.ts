@@ -622,7 +622,7 @@ export class ProjectSlackBot {
 
 		try {
 			this._getSlackStreamState(ctx).messageTs = await this._postSlackCard(ctx, [
-				createTextBlock('✨ nao is answering...'),
+				createTextBlock(`✨ ${await getAppName()} is answering...`),
 				createStopButtonActions(),
 			]);
 			await this._saveOrUpdateUserMessage(ctx, options.fetchUnseenMessages);
