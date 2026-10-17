@@ -3,6 +3,7 @@ import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
 import { getProviderMeta } from '../agents/providers';
 import * as projectQueries from '../queries/project.queries';
+import * as discordConfigQueries from '../queries/project-discord-config.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
@@ -15,10 +16,11 @@ import {
 	resolveAnnotationModelId,
 	selectDefaultChatModel,
 } from '../utils/llm';
+import { discordService } from './discord';
 import { mattermostService } from './mattermost';
 import { slackService } from './slack';
 
-export const MODEL_INTEGRATIONS = ['slack', 'teams', 'telegram', 'whatsapp', 'mattermost'] as const;
+export const MODEL_INTEGRATIONS = ['slack', 'teams', 'telegram', 'whatsapp', 'mattermost', 'discord'] as const;
 
 export type ModelIntegration = (typeof MODEL_INTEGRATIONS)[number];
 
@@ -104,12 +106,13 @@ async function resolveBuiltInTaskModels(
 
 /** The model each configured messaging integration answers with; null means it follows the chat default. */
 export async function listIntegrationModels(projectId: string): Promise<IntegrationModel[]> {
-	const [slack, teams, telegram, whatsapp, mattermost] = await Promise.all([
+	const [slack, teams, telegram, whatsapp, mattermost, discord] = await Promise.all([
 		slackConfigQueries.getProjectSlackConfig(projectId),
 		teamsConfigQueries.getProjectTeamsConfig(projectId),
 		telegramConfigQueries.getProjectTelegramConfig(projectId),
 		whatsappConfigQueries.getProjectWhatsappConfig(projectId),
 		mattermostConfigQueries.getProjectMattermostConfig(projectId),
+		discordConfigQueries.getProjectDiscordConfig(projectId),
 	]);
 	const configs: Array<[ModelIntegration, { modelSelection?: LlmSelectedModel } | null]> = [
 		['slack', slack],
@@ -117,6 +120,7 @@ export async function listIntegrationModels(projectId: string): Promise<Integrat
 		['telegram', telegram],
 		['whatsapp', whatsapp],
 		['mattermost', mattermost],
+		['discord', discord],
 	];
 	return configs
 		.filter((entry): entry is [ModelIntegration, { modelSelection?: LlmSelectedModel }] => entry[1] !== null)
@@ -154,6 +158,10 @@ export async function updateIntegrationModel(
 				await mattermostConfigQueries.getProjectMattermostConfig(projectId),
 				projectId,
 			);
+			return;
+		case 'discord':
+			await discordConfigQueries.updateProjectDiscordModel(projectId, provider, modelId);
+			await discordService.syncProject(await discordConfigQueries.getProjectDiscordConfig(projectId), projectId);
 			return;
 	}
 }

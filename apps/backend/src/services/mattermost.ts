@@ -19,8 +19,16 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import { logger } from '../utils/logger';
 import {
+	createMarkdownTable,
+	getLoginCommandForUnlinkedUser,
+	type MessageAuthorType,
+	resolveSqlOutput,
+	shouldHandleMessage,
+	truncateMarkdown,
+} from '../utils/markdown-messaging';
+import {
 	createLiveToolCall,
-	createMattermostAnswerMessage,
+	createMarkdownAnswerMessage,
 	createSummaryToolCalls,
 	escapeMarkdownText,
 	EXCLUDED_TOOLS,
@@ -37,26 +45,20 @@ import {
 	cacheMattermostEmail,
 	createMattermostActionSecret,
 	createMattermostFeedbackMetadata,
-	createMattermostMarkdownTable,
 	createMattermostStopAttachment,
 	fetchMattermostPost,
 	fetchMattermostUserEmail,
 	fetchMattermostUserProfile,
-	getMattermostLoginCommandForUnlinkedUser,
 	getMattermostPostBaseProps,
 	hasExplicitMattermostMention,
 	MATTERMOST_FEEDBACK_PROP,
 	MATTERMOST_POST_MAX_LENGTH,
-	type MattermostAuthorType,
 	type MattermostEmailCache,
 	type MattermostPostPlacement,
 	patchMattermostAnswerPost,
 	resolveMattermostAccount,
 	resolveMattermostReactionFeedback,
-	resolveMattermostSqlOutput,
 	resolveMattermostThreadId,
-	shouldHandleMattermostMessage,
-	truncateMattermostMarkdown,
 	verifyMattermostFeedbackMetadata,
 } from './mattermost-helpers';
 /** Matches Slack's 200ms cadence; 429s are retried because Mattermost's server bucket is shared. */
@@ -167,7 +169,7 @@ class ProjectMattermostBot {
 		const threadContext = needsThreadContext
 			? await this._resolveMessageThreadContext(thread, post, isDirectMessage)
 			: { hasExistingChat: false };
-		return shouldHandleMattermostMessage({
+		return shouldHandleMessage({
 			isDirectMessage,
 			isThreadReply,
 			isMention: isExplicitMention,
@@ -187,7 +189,7 @@ class ProjectMattermostBot {
 		return { hasExistingChat: Boolean(existingChat) };
 	}
 
-	private async _resolveMessageAuthorType(message: Message): Promise<MattermostAuthorType> {
+	private async _resolveMessageAuthorType(message: Message): Promise<MessageAuthorType> {
 		if (message.author.isMe) {
 			return 'unknown';
 		}
@@ -239,7 +241,7 @@ class ProjectMattermostBot {
 		const resolvedThread = this._resolveMessageThread(thread, message);
 		message.text = message.text.replace(/(?:<at>[^<]*<\/at>|@\S+)\s*/g, '').trim();
 		const linkedUser = await this._resolveLinkedUser(message);
-		const loginCommand = getMattermostLoginCommandForUnlinkedUser(message.text, Boolean(linkedUser));
+		const loginCommand = getLoginCommandForUnlinkedUser(message.text, Boolean(linkedUser));
 		if (loginCommand) {
 			await this._handleLoginCommand(resolvedThread, message, loginCommand.code);
 			return;
@@ -530,12 +532,9 @@ class ProjectMattermostBot {
 			return;
 		}
 		const appName = await getAppName();
-		const linkLength = chatUrl ? createMattermostAnswerMessage('', chatUrl, appName).markdown.length + 2 : 0;
-		const body = truncateMattermostMarkdown(
-			this._renderBody(ctx),
-			Math.max(MATTERMOST_POST_MAX_LENGTH - linkLength, 0),
-		);
-		const message = createMattermostAnswerMessage(body, chatUrl, appName).markdown;
+		const linkLength = chatUrl ? createMarkdownAnswerMessage('', chatUrl, appName).markdown.length + 2 : 0;
+		const body = truncateMarkdown(this._renderBody(ctx), Math.max(MATTERMOST_POST_MAX_LENGTH - linkLength, 0));
+		const message = createMarkdownAnswerMessage(body, chatUrl, appName).markdown;
 		await this._patchAnswerPost(answerMessage.id, (state) => {
 			state.message = message;
 		});
@@ -590,7 +589,7 @@ class ProjectMattermostBot {
 	}
 
 	private async _resolveSqlOutput(queryId: string, chatId: string, state: StreamState) {
-		const sqlOutput = await resolveMattermostSqlOutput({
+		const sqlOutput = await resolveSqlOutput({
 			queryId,
 			sqlOutputs: state.sqlOutputs,
 			loadPersisted: async (persistedQueryId) => {
@@ -630,7 +629,7 @@ class ProjectMattermostBot {
 			return;
 		}
 		if (displayChart.isTableInput(part.input)) {
-			const table = createMattermostMarkdownTable({ title: part.input.title ?? 'Results', rows: sqlOutput.rows });
+			const table = createMarkdownTable({ title: part.input.title ?? 'Results', rows: sqlOutput.rows });
 			if (!table) {
 				return;
 			}
