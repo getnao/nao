@@ -285,10 +285,11 @@ class ProjectMattermostBot {
 				return;
 			}
 			await assertProjectCloudBillingAccess(this._config.projectId);
-			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
+			const answeringMessage = `✨ ${await getAppName()} is answering...`;
+			ctx.convMessage = await ctx.thread.post(answeringMessage);
 			this._answerPostStates.set(ctx.convMessage.id, {
 				baseProps: getMattermostPostBaseProps(ctx.convMessage.raw),
-				message: '✨ nao is answering...',
+				message: answeringMessage,
 				stopAttached: false,
 				appliedStopAttached: false,
 			});
