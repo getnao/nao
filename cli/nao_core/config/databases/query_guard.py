@@ -244,8 +244,7 @@ def _catalog_matches_connection(
     *,
     case_insensitive: bool = False,
 ) -> bool:
-    database_parts = database_name.split(".")
-    database_candidates = [".".join(database_parts[:index]) for index in range(1, len(database_parts) + 1)]
+    database_candidates = _connection_catalog_candidates(requested_catalog, database_name, dialect)
     schema_catalogs = [schema.rsplit(".", 1)[0] for schema in schemas if "." in schema]
     return (
         match_sql_identifier(
@@ -263,6 +262,36 @@ def _catalog_matches_connection(
         )
         is not None
     )
+
+
+def _connection_catalog_candidates(
+    requested_catalog: exp.Identifier,
+    database_name: str,
+    dialect: str,
+) -> list[str]:
+    """Cumulative prefixes of the configured database name, folded for unquoted requests.
+
+    The connected database name is configuration rather than metadata: users write it in
+    whatever case their client accepts (`database: prod` for a Snowflake database named
+    `PROD`) and every engine that folds unquoted identifiers resolves it that way. The
+    guard folded the request but compared it against the raw configured name, which
+    rejected every instance-qualified query whenever the configured case differed from the
+    dialect's fold. Unquoted requests therefore compare against the folded name; quoted
+    requests keep matching the configured spelling exactly, as they do for metadata names.
+    """
+    parts = database_name.split(".")
+    candidates = [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
+    strategy = Dialect.get_or_raise(dialect).NORMALIZATION_STRATEGY
+    folds_unquoted_identifiers = strategy in {
+        NormalizationStrategy.UPPERCASE,
+        NormalizationStrategy.LOWERCASE,
+        NormalizationStrategy.CASE_INSENSITIVE,
+        NormalizationStrategy.CASE_INSENSITIVE_UPPERCASE,
+    }
+    if not folds_unquoted_identifiers or requested_catalog.args.get("quoted"):
+        return candidates
+
+    return [_normalized_identifier(exp.to_identifier(candidate), dialect) for candidate in candidates]
 
 
 def _identifier_matches_metadata(
