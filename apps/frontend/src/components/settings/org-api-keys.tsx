@@ -6,7 +6,15 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
+
+type ApiKeyScope = 'deploy' | 'user_management';
+
+const DEFAULT_KEY_NAMES: Record<ApiKeyScope, string> = {
+	deploy: 'Deploy key',
+	user_management: 'User management key',
+};
 
 interface OrgApiKeysProps {
 	isAdmin?: boolean;
@@ -22,8 +30,11 @@ export function OrgApiKeys({
 	description = 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 }: OrgApiKeysProps) {
 	const queryClient = useQueryClient();
-	const [name, setName] = useState('Deploy key');
+	const [name, setName] = useState(DEFAULT_KEY_NAMES.deploy);
+	const [scope, setScope] = useState<ApiKeyScope>('deploy');
 	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
+	// The deploy command is only useful for a deploy-scoped key, so remember what was just created.
+	const [latestKeyScope, setLatestKeyScope] = useState<ApiKeyScope>('deploy');
 	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
 	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
 
@@ -35,8 +46,10 @@ export function OrgApiKeys({
 	const createApiKey = useMutation(
 		trpc.apiKey.create.mutationOptions({
 			onSuccess: async (result) => {
+				const createdScope: ApiKeyScope = result.scope === 'user_management' ? 'user_management' : 'deploy';
 				setLatestPlaintextKey(result.plaintext);
-				setName('Deploy key');
+				setLatestKeyScope(createdScope);
+				setName(DEFAULT_KEY_NAMES[createdScope]);
 				await queryClient.invalidateQueries({ queryKey: trpc.apiKey.list.queryOptions().queryKey });
 			},
 		}),
@@ -51,12 +64,19 @@ export function OrgApiKeys({
 	);
 
 	const deployCommand = useMemo(() => {
-		if (!deployUrl) {
+		if (!deployUrl || latestKeyScope !== 'deploy') {
 			return null;
 		}
 
 		return `nao deploy ${deployUrl} --api-key ${latestPlaintextKey ?? '<your-api-key>'}`;
-	}, [deployUrl, latestPlaintextKey]);
+	}, [deployUrl, latestPlaintextKey, latestKeyScope]);
+
+	const handleScopeChange = (value: string) => {
+		const nextScope = value as ApiKeyScope;
+		// Only rename a name the user never touched: swapping the scope must not overwrite their own label.
+		setName((current) => (current === DEFAULT_KEY_NAMES[scope] ? DEFAULT_KEY_NAMES[nextScope] : current));
+		setScope(nextScope);
+	};
 
 	if (!isAdmin) {
 		return null;
@@ -68,7 +88,7 @@ export function OrgApiKeys({
 			return;
 		}
 
-		await createApiKey.mutateAsync({ name: trimmedName });
+		await createApiKey.mutateAsync({ name: trimmedName, scope });
 	};
 
 	return (
@@ -79,19 +99,39 @@ export function OrgApiKeys({
 						<KeyRound className='size-4' />
 					</div>
 					<div className='min-w-0 flex-1 space-y-1'>
-						<div className='text-sm font-medium text-foreground'>Generate a deploy key</div>
+						<div className='text-sm font-medium text-foreground'>
+							{scope === 'deploy' ? 'Generate a deploy key' : 'Generate a user management key'}
+						</div>
 						<p className='text-sm text-muted-foreground'>
-							Create an API key for your organization, then use it with{' '}
-							<code className='dollar'>nao deploy</code> to upload a project context.
+							{scope === 'deploy' ? (
+								<>
+									Create an API key for your organization, then use it with{' '}
+									<code className='dollar'>nao deploy</code> to upload a project context.
+								</>
+							) : (
+								<>
+									Create an API key for the user management API: it can list, invite and remove users
+									and manage groups and roles, but cannot deploy.
+								</>
+							)}
 						</p>
 					</div>
 				</div>
 
 				<div className='flex flex-col gap-2 sm:flex-row'>
+					<Select value={scope} onValueChange={handleScopeChange}>
+						<SelectTrigger aria-label='API key scope'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='deploy'>Deploy</SelectItem>
+							<SelectItem value='user_management'>User management</SelectItem>
+						</SelectContent>
+					</Select>
 					<Input
 						value={name}
 						onChange={(event) => setName(event.target.value)}
-						placeholder='Deploy key'
+						placeholder={DEFAULT_KEY_NAMES[scope]}
 						aria-label='API key name'
 					/>
 					<Button
@@ -179,6 +219,9 @@ export function OrgApiKeys({
 										{apiKey.name}{' '}
 										<span className='text-xs font-mono text-muted-foreground'>
 											{apiKey.keyPrefix}...
+										</span>
+										<span className='ml-2 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase text-muted-foreground'>
+											{apiKey.scope === 'user_management' ? 'user management' : 'deploy'}
 										</span>
 									</div>
 									<div className='text-xs text-muted-foreground'>

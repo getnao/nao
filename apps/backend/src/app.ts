@@ -69,6 +69,7 @@ import { stripeWebhookRoutes } from './routes/stripe-webhook';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
+import { userManagementRoutes } from './routes/user-management';
 import { whatsappRoutes } from './routes/whatsapp';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
@@ -267,6 +268,10 @@ if (isCloudBillingEnabled()) {
 }
 
 app.register(deployRoutes, {
+	prefix: '/api',
+});
+
+app.register(userManagementRoutes, {
 	prefix: '/api',
 });
 
