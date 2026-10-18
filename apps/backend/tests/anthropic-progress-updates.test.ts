@@ -40,16 +40,11 @@ describe('withProgressUpdates', () => {
 	});
 
 	describe('answer promotion', () => {
-		const ANSWER = [
-			{ type: 'reasoning-start', id: '1' },
-			{ type: 'reasoning-delta', id: '1', delta: 'There are 99 orders. ' },
-			{ type: 'reasoning-delta', id: '1', delta: 'Pick a suggestion below.' },
-			{ type: 'reasoning-end', id: '1', providerMetadata: SIGNATURE },
-		] satisfies LanguageModelV3StreamPart[];
+		const ANSWER = note('1', ['There are 99 orders, ', 'up 12% on last month.']);
 		const FOLLOW_UPS = toolCall('call-1', 'suggest_follow_ups');
 
 		it('promotes the note written before a lone suggest_follow_ups call to a text block', async () => {
-			const parts = await streamThrough([...ANSWER, ...FOLLOW_UPS], UPDATES);
+			const parts = await streamThrough([...ANSWER, ...FOLLOW_UPS, FINISH], UPDATES);
 
 			expect(parts.map((part) => part.type)).toEqual([
 				'reasoning-start',
@@ -62,12 +57,36 @@ describe('withProgressUpdates', () => {
 				'tool-input-start',
 				'tool-input-end',
 				'tool-call',
+				'finish',
 			]);
 			expect(parts.find((part) => part.type === 'text-delta')).toEqual({
 				type: 'text-delta',
 				id: 'call-1-answer',
-				delta: 'There are 99 orders. Pick a suggestion below.',
+				delta: 'There are 99 orders, up 12% on last month.',
 			});
+		});
+
+		it('promotes only the last note when Claude left several', async () => {
+			const earlier = note('0', ['Checking the orders table first.']);
+			const parts = await streamThrough([...earlier, ...ANSWER, ...FOLLOW_UPS, FINISH], UPDATES);
+
+			expect(parts.filter((part) => part.type === 'text-delta').map((part) => part.delta)).toEqual([
+				'There are 99 orders, up 12% on last month.',
+			]);
+		});
+
+		it('does not promote when another tool call follows suggest_follow_ups in the same response', async () => {
+			const chunks = [...ANSWER, ...FOLLOW_UPS, ...toolCall('call-2', 'execute_sql'), FINISH];
+			const parts = await streamThrough(chunks, UPDATES);
+
+			expect(parts.map((part) => part.type)).toEqual(chunks.map((chunk) => chunk.type));
+		});
+
+		it('releases the held call when the stream ends without finishing', async () => {
+			const parts = await streamThrough([...ANSWER, ...FOLLOW_UPS], UPDATES);
+
+			expect(parts.some((part) => part.type === 'text-start')).toBe(false);
+			expect(parts.filter((part) => part.type === 'tool-call')).toHaveLength(1);
 		});
 
 		it('does not promote when Claude already wrote visible text', async () => {
@@ -76,14 +95,14 @@ describe('withProgressUpdates', () => {
 				{ type: 'text-delta', id: 't', delta: 'Here is the answer.' },
 				{ type: 'text-end', id: 't' },
 			];
-			const parts = await streamThrough([...ANSWER, ...text, ...FOLLOW_UPS], UPDATES);
+			const parts = await streamThrough([...ANSWER, ...text, ...FOLLOW_UPS, FINISH], UPDATES);
 
 			expect(parts.filter((part) => part.type === 'text-delta')).toHaveLength(1);
 		});
 
 		it('does not promote when suggest_follow_ups follows another tool call in the same response', async () => {
 			const parts = await streamThrough(
-				[...ANSWER, ...toolCall('call-0', 'execute_sql'), ...FOLLOW_UPS],
+				[...ANSWER, ...toolCall('call-0', 'execute_sql'), ...FOLLOW_UPS, FINISH],
 				UPDATES,
 			);
 
@@ -91,13 +110,13 @@ describe('withProgressUpdates', () => {
 		});
 
 		it('does not promote for other tools', async () => {
-			const parts = await streamThrough([...ANSWER, ...toolCall('call-0', 'execute_sql')], UPDATES);
+			const parts = await streamThrough([...ANSWER, ...toolCall('call-0', 'execute_sql'), FINISH], UPDATES);
 
 			expect(parts.some((part) => part.type === 'text-start')).toBe(false);
 		});
 
 		it('does not promote under other displays', async () => {
-			const chunks = [...ANSWER, ...FOLLOW_UPS];
+			const chunks = [...ANSWER, ...FOLLOW_UPS, FINISH];
 			const parts = await streamThrough(chunks, { thinking: { type: 'adaptive', display: 'summarized' } });
 
 			expect(parts).toEqual(chunks);
@@ -106,6 +125,20 @@ describe('withProgressUpdates', () => {
 });
 
 const UPDATES = { thinking: { type: 'adaptive', display: 'updates' } };
+
+const FINISH: LanguageModelV3StreamPart = {
+	type: 'finish',
+	finishReason: { unified: 'tool-calls', raw: undefined },
+	usage: {} as never,
+};
+
+function note(id: string, deltas: string[]): LanguageModelV3StreamPart[] {
+	return [
+		{ type: 'reasoning-start', id },
+		...deltas.map((delta): LanguageModelV3StreamPart => ({ type: 'reasoning-delta', id, delta })),
+		{ type: 'reasoning-end', id, providerMetadata: SIGNATURE },
+	];
+}
 
 function toolCall(id: string, toolName: string): LanguageModelV3StreamPart[] {
 	return [

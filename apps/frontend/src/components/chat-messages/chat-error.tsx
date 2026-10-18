@@ -1,14 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
 import { AlertCircleIcon, CheckIcon, CopyIcon, CreditCardIcon, RotateCcwIcon } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Callout } from '../ui/callout';
 import type { UIMessage } from '@nao/backend/chat';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
 import { getLastUserMessageIdx, parseBudgetError } from '@/lib/ai';
+import { isCloudBillingAccessError } from '@/lib/cloud-billing-access';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 export interface Props {
 	className?: string;
@@ -51,10 +51,7 @@ export function ChatError({ className }: Props) {
 	const openOrganizationBilling = useOpenOrganizationBilling();
 	const parsed = error ? parseError(error) : null;
 	const isBillingAccessError = isCloudBillingAccessError(parsed);
-	const billingAccess = useQuery({
-		...trpc.billing.getAccess.queryOptions(),
-		enabled: isBillingAccessError,
-	});
+	const billingAccess = useCloudBillingAccess({ enabled: isBillingAccessError });
 
 	if (!error || parseBudgetError(error)) {
 		return null;
@@ -203,8 +200,4 @@ function BillingAccessError({
 function findLastUserMessageId(messages: UIMessage[]): string | undefined {
 	const lastUserMessageIndex = getLastUserMessageIdx(messages);
 	return lastUserMessageIndex !== undefined ? messages[lastUserMessageIndex].id : undefined;
-}
-
-function isCloudBillingAccessError(error: ParsedError | null): boolean {
-	return [error?.error, error?.message].some((value) => value?.includes('Cloud billing access is restricted'));
 }

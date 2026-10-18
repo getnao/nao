@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
 	deleteJobByUniqueKey: vi.fn(),
 	ensureRecurring: vi.fn(),
 	getLatestRun: vi.fn(),
-	hasProjectCloudBillingAccess: vi.fn(),
 	listProjectRecommendationScheduleConfigs: vi.fn(),
 	runContextRecommendations: vi.fn(),
 }));
@@ -34,10 +33,6 @@ vi.mock('../src/services/context-recommendations.service', () => ({
 	runContextRecommendations: mocks.runContextRecommendations,
 }));
 
-vi.mock('../src/services/cloud-billing-access.service', () => ({
-	hasProjectCloudBillingAccess: mocks.hasProjectCloudBillingAccess,
-}));
-
 vi.mock('../src/services/scheduler.service', () => ({
 	ensureRecurring: mocks.ensureRecurring,
 }));
@@ -46,7 +41,6 @@ describe('context recommendations scheduling', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getLatestRun.mockResolvedValue(null);
-		mocks.hasProjectCloudBillingAccess.mockResolvedValue(true);
 	});
 
 	it('uses one recurring job key per project', async () => {
@@ -118,15 +112,6 @@ describe('context recommendations scheduling', () => {
 
 		await contextRecommendationsHandler({ projectId: 'project-1' }, {} as never);
 
-		expect(mocks.runContextRecommendations).not.toHaveBeenCalled();
-	});
-
-	it('skips scheduled recommendations when cloud billing access is restricted', async () => {
-		mocks.hasProjectCloudBillingAccess.mockResolvedValue(false);
-
-		await contextRecommendationsHandler({ projectId: 'project-1' }, {} as never);
-
-		expect(mocks.getLatestRun).not.toHaveBeenCalled();
 		expect(mocks.runContextRecommendations).not.toHaveBeenCalled();
 	});
 });

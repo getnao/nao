@@ -1,9 +1,9 @@
 import type { App } from '../app';
 import { env } from '../env';
+import { STRIPE_WEBHOOK_PROCESS_JOB_NAME } from '../handlers/stripe-webhook.handler';
 import * as billingQueries from '../queries/billing.queries';
 import { enqueueOnce } from '../services/scheduler.service';
 import { getStripeClient } from '../services/stripe.service';
-import { STRIPE_WEBHOOK_PROCESS_JOB_NAME } from '../types/billing';
 import { logger } from '../utils/logger';
 
 export const stripeWebhookRoutes = async (app: App) => {

@@ -66,7 +66,6 @@ import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService, defaultAgentToolsExcluding } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
 import { readUserFileBytes } from './storage/user-files';
 import { ensureMessagingProviderUser } from './team-member';
@@ -623,7 +622,7 @@ export class ProjectSlackBot {
 
 		try {
 			this._getSlackStreamState(ctx).messageTs = await this._postSlackCard(ctx, [
-				createTextBlock('✨ nao is answering...'),
+				createTextBlock(`✨ ${await getAppName()} is answering...`),
 				createStopButtonActions(),
 			]);
 			await this._saveOrUpdateUserMessage(ctx, options.fetchUnseenMessages);
@@ -1209,15 +1208,6 @@ export class ProjectSlackBot {
 			createCompletionCard(chatUrl, { hiddenTables, appName }).children,
 		);
 		this._lastCompletionCard.set(ctx.thread.id, { channelId, messageTs, chatUrl, hiddenTables });
-
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this.projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'slack',
-			domain_host: new URL(this._redirectUrl).host,
-		});
 	}
 
 	private async _createAgentStream(
@@ -1230,12 +1220,20 @@ export class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
-			{ supportsCustomCharts: false, tools: defaultAgentToolsExcluding(SLACK_EXCLUDED_TOOLS) },
+			{
+				billingAccessVerifiedProjectId: this.projectId,
+				supportsCustomCharts: false,
+				tools: defaultAgentToolsExcluding(SLACK_EXCLUDED_TOOLS),
+			},
 		);
 		ctx.modelId = agent.getModelId();
 		return {
 			agent,
-			stream: agent.stream(chat.messages, { provider: 'slack', timezone: ctx.timezone }),
+			stream: agent.stream(chat.messages, {
+				provider: 'slack',
+				timezone: ctx.timezone,
+				tracking: { source: 'slack', isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
+			}),
 		};
 	}
 

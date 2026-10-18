@@ -12,7 +12,7 @@ const createStep = (text: string, toolNames: string[]): StepResult<AgentTools> =
 
 describe('hasFollowUpsWithText', () => {
 	it('stops when suggest_follow_ups comes with visible text', async () => {
-		const steps = [createStep('Revenue grew 12%. Pick a suggestion below.', ['suggest_follow_ups'])];
+		const steps = [createStep('Revenue grew 12% over the quarter.', ['suggest_follow_ups'])];
 
 		expect(await hasFollowUpsWithText({ steps })).toBe(true);
 	});

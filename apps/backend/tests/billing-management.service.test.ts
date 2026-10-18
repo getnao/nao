@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	getMember: vi.fn(),
-	getOrganization: vi.fn(),
+	getOrganizationWithBilling: vi.fn(),
 	attachCustomer: vi.fn(),
 	reconcileCustomer: vi.fn(),
 	createCheckout: vi.fn(),
@@ -15,17 +14,13 @@ const mocks = vi.hoisted(() => ({
 	resumeSubscription: vi.fn(),
 }));
 
-vi.mock('../src/queries/organization.queries', () => ({
-	getOrgMember: mocks.getMember,
-	getOrganizationById: mocks.getOrganization,
-}));
-
 vi.mock('../src/queries/user.queries', () => ({
 	getUser: vi.fn(),
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: mocks.attachCustomer,
+	getOrganizationWithBilling: mocks.getOrganizationWithBilling,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
@@ -44,51 +39,32 @@ vi.mock('../src/services/stripe.service', () => ({
 	resumeCloudSubscription: mocks.resumeSubscription,
 }));
 
-import {
-	createCloudPaymentMethodPortalForAdmin,
-	createCloudPortalForAdmin,
-	createCloudResubscribeForAdmin,
-	createCloudTrialCheckoutForAdmin,
-	getCloudBillingOrganizationForAdmin,
-	getCloudUpcomingInvoiceForAdmin,
-	listCloudInvoicesForAdmin,
-	resumeCloudSubscriptionForAdmin,
-	syncCloudBillingForAdmin,
-} from '../src/services/billing-management.service';
+import { getCloudBillingOrganizationForAdmin } from '../src/services/billing-management.service';
 
 const adminInput = { userId: 'user-id', organizationId: 'org-id' };
-const requestInput = { ...adminInput, requestId: 'request-id' };
 
-describe('billing management authorization', () => {
+describe('billing management organization loading', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.getMember.mockResolvedValue({ role: 'member' });
 	});
 
-	it.each([
-		['billing status', () => getCloudBillingOrganizationForAdmin(adminInput)],
-		['invoices', () => listCloudInvoicesForAdmin(adminInput)],
-		['upcoming invoice', () => getCloudUpcomingInvoiceForAdmin(adminInput)],
-		['billing synchronization', () => syncCloudBillingForAdmin(adminInput)],
-		['trial Checkout', () => createCloudTrialCheckoutForAdmin(adminInput)],
-		['Customer Portal', () => createCloudPortalForAdmin(requestInput)],
-		['payment methods', () => createCloudPaymentMethodPortalForAdmin(requestInput)],
-		['resubscription', () => createCloudResubscribeForAdmin(adminInput)],
-		['subscription resume', () => resumeCloudSubscriptionForAdmin(requestInput)],
-	])('rejects a non-admin before %s work', async (_name, operation) => {
-		await expect(operation()).rejects.toMatchObject({ codeMessage: 'FORBIDDEN' });
-		expect(mocks.getOrganization).not.toHaveBeenCalled();
-		expect([
-			mocks.attachCustomer,
-			mocks.reconcileCustomer,
-			mocks.createCheckout,
-			mocks.createCustomer,
-			mocks.createPaymentMethod,
-			mocks.createPortal,
-			mocks.createResubscribe,
-			mocks.getUpcomingInvoice,
-			mocks.listInvoices,
-			mocks.resumeSubscription,
-		]).toSatisfy((stripeCalls) => stripeCalls.every((mock) => mock.mock.calls.length === 0));
+	it('returns the joined organization and billing state', async () => {
+		const organization = {
+			id: 'org-id',
+			name: 'Organization',
+			billing: { orgId: 'org-id', billingStatus: 'active' },
+		};
+		mocks.getOrganizationWithBilling.mockResolvedValue(organization);
+
+		await expect(getCloudBillingOrganizationForAdmin(adminInput)).resolves.toBe(organization);
+		expect(mocks.getOrganizationWithBilling).toHaveBeenCalledWith('org-id');
+	});
+
+	it('rejects a missing organization', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(null);
+
+		await expect(getCloudBillingOrganizationForAdmin(adminInput)).rejects.toMatchObject({
+			codeMessage: 'NOT_FOUND',
+		});
 	});
 });

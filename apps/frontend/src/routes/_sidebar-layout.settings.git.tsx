@@ -28,7 +28,7 @@ import { ErrorMessage } from '@/components/ui/error-message';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Spinner } from '@/components/ui/spinner';
 import { usePermissions } from '@/hooks/use-permissions';
-import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/git')({

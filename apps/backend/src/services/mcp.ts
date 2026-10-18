@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { McpServerConfig, McpServerStatus, McpToolSummary, McpTransport } from '@nao/shared';
+import type { McpOAuthClientConfig, McpServerConfig, McpServerStatus, McpToolSummary, McpTransport } from '@nao/shared';
 import { debounce } from '@nao/shared';
 import { mcpJsonSchema } from '@nao/shared';
 import type { ErrorObject, ValidateFunction } from 'ajv';
@@ -47,6 +47,20 @@ export class McpArgsValidationError extends Error {
 	) {
 		super(`Invalid arguments for MCP tool "${tool}" on server "${server}": ${issues.join('; ')}`);
 		this.name = 'McpArgsValidationError';
+	}
+}
+
+/** Thrown when a server's `oauth` block references environment variables that are not set. */
+export class McpOAuthConfigError extends Error {
+	constructor(
+		public readonly server: string,
+		public readonly missingVariables: string[],
+	) {
+		super(
+			`MCP server "${server}" needs ${missingVariables.join(', ')} to be set. ` +
+				'Add it in Settings > Environment variables or in the server environment.',
+		);
+		this.name = 'McpOAuthConfigError';
 	}
 }
 
@@ -210,6 +224,13 @@ export class McpService {
 		return config.url.toString();
 	}
 
+	/** The pre-registered OAuth client declared for a server in `mcp.json`, if any. */
+	public async getServerOAuthClient(projectId: string, server: string): Promise<McpOAuthClientConfig | undefined> {
+		await this.initializeMcpState(projectId);
+		const config = this._mcpServers[server];
+		return config ? this._staticOAuthClient(server, config) : undefined;
+	}
+
 	public async getServersStatus(projectId: string, userId?: string): Promise<McpServerStatus[]> {
 		await this.initializeMcpState(projectId);
 		const disabled = await this._loadDisabled();
@@ -236,7 +257,7 @@ export class McpService {
 					enabledToolCount: tools.filter((tool) => tool.enabled).length,
 					tools,
 					specPath: this._virtualServerDir(name),
-					error: this._failedConnections[name],
+					error: this._oauthConfigError(name, config)?.message ?? this._failedConnections[name],
 				};
 			}),
 		);
@@ -342,7 +363,13 @@ export class McpService {
 		server: string,
 		config: McpServerConfig,
 	): Promise<string | undefined> {
-		const token = await getValidAccessToken({ userId, projectId, server, serverUrl: config.url!.toString() });
+		const token = await getValidAccessToken({
+			userId,
+			projectId,
+			server,
+			serverUrl: config.url!.toString(),
+			staticClient: this._staticOAuthClient(server, config),
+		});
 		if (!token) {
 			throw new McpAuthRequiredError(server);
 		}
@@ -413,7 +440,13 @@ export class McpService {
 	}): Promise<unknown> {
 		const { projectId, userId, server, tool, args, config } = opts;
 		const url = config.url!.toString();
-		const token = await getValidAccessToken({ userId, projectId, server, serverUrl: url });
+		const token = await getValidAccessToken({
+			userId,
+			projectId,
+			server,
+			serverUrl: url,
+			staticClient: this._staticOAuthClient(server, config),
+		});
 		if (!token) {
 			throw new McpAuthRequiredError(server);
 		}
@@ -631,7 +664,7 @@ export class McpService {
 			if (error instanceof McpAuthRequiredError) {
 				this._failedConnections[name] =
 					'OAuth connection required — connect this server to discover its tools.';
-			} else if (error instanceof McpTransportNotAllowedError) {
+			} else if (error instanceof McpTransportNotAllowedError || error instanceof McpOAuthConfigError) {
 				this._failedConnections[name] = error.message;
 			} else {
 				if (isUnauthorizedError(error) && !this._hasStaticAuth(config)) {
@@ -657,8 +690,7 @@ export class McpService {
 		discoveryUserId?: string,
 	): Promise<McpToolDefinition[]> {
 		if (await this._ensureOAuthFlag(name, config)) {
-			const url = config.url!.toString();
-			const token = await this._discoveryToken(name, url, discoveryUserId);
+			const token = await this._discoveryToken(name, config, discoveryUserId);
 			if (!token) {
 				throw new McpAuthRequiredError(name);
 			}
@@ -677,7 +709,11 @@ export class McpService {
 		return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 	}
 
-	private async _discoveryToken(server: string, serverUrl: string, preferredUserId?: string): Promise<string | null> {
+	private async _discoveryToken(
+		server: string,
+		config: McpServerConfig,
+		preferredUserId?: string,
+	): Promise<string | null> {
 		if (!this._projectId) {
 			return null;
 		}
@@ -685,24 +721,52 @@ export class McpService {
 		if (!userId) {
 			return null;
 		}
-		return getValidAccessToken({ userId, projectId: this._projectId, server, serverUrl });
+		return getValidAccessToken({
+			userId,
+			projectId: this._projectId,
+			server,
+			serverUrl: config.url!.toString(),
+			staticClient: this._staticOAuthClient(server, config),
+		});
 	}
 
 	/**
 	 * Resolves and caches whether a server needs per-user OAuth. A server that already carries a
 	 * static credential in `mcp.json` (e.g. an `Authorization` or `x-api-key` header) is treated as
 	 * pre-authenticated for everyone — no per-user token is required even if it advertises OAuth.
+	 * A declared `oauth` block wins over static headers: the server is always OAuth, without probing metadata.
 	 */
 	private async _ensureOAuthFlag(name: string, config: McpServerConfig): Promise<boolean> {
 		if (this._oauth[name] !== undefined) {
 			return this._oauth[name];
 		}
-		if (this._transportOf(config) !== 'http' || !config.url || this._hasStaticAuth(config)) {
+		if (this._transportOf(config) !== 'http' || !config.url) {
 			this._oauth[name] = false;
 			return false;
 		}
-		this._oauth[name] = await isOAuthServer(config.url.toString());
+		if (config.oauth) {
+			this._oauth[name] = true;
+			return true;
+		}
+		this._oauth[name] = !this._hasStaticAuth(config) && (await isOAuthServer(config.url.toString()));
 		return this._oauth[name];
+	}
+
+	/** The pre-registered OAuth client of a server, refusing one whose environment variables are not set. */
+	private _staticOAuthClient(name: string, config: McpServerConfig): McpOAuthClientConfig | undefined {
+		const error = this._oauthConfigError(name, config);
+		if (error) {
+			throw error;
+		}
+		return config.oauth;
+	}
+
+	private _oauthConfigError(name: string, config: McpServerConfig): McpOAuthConfigError | undefined {
+		const values = [config.oauth?.clientId, config.oauth?.clientSecret].filter((value) => value !== undefined);
+		const missingVariables = values.flatMap((value) =>
+			[...value.matchAll(/\$\{(\w+)\}/g)].map((match) => match[1]),
+		);
+		return missingVariables.length ? new McpOAuthConfigError(name, missingVariables) : undefined;
 	}
 
 	/** Whether the server config supplies its own credential, removing the need for per-user OAuth. */

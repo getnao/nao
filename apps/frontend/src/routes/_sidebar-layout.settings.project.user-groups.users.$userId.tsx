@@ -6,7 +6,7 @@ import { useEffect } from 'react';
 
 import type { UserGroupUserDetailTab } from '@/components/settings/user-group-user-detail';
 import { UserGroupUserDetail } from '@/components/settings/user-group-user-detail';
-import { requireAdmin } from '@/lib/require-admin';
+import { requireAdmin } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/user-groups/users/$userId')({

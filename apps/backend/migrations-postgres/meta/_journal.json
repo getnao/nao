@@ -540,6 +540,20 @@
       "when": 1791358973879,
       "tag": "0076_member_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1791358974879,
+      "tag": "0077_story_app_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792154736384,
+      "tag": "0078_add_discord",
+      "breakpoints": true
     }
   ]
 }

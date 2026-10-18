@@ -9,7 +9,8 @@ type MessageHandler = (
 ) => Promise<void>;
 
 const teamsHarness = vi.hoisted(() => ({
-	billingAccess: vi.fn(),
+	assertProjectCloudBillingAccess: vi.fn(),
+	createChat: vi.fn(),
 	createAgent: vi.fn(),
 	credentials: [] as Array<[string, string, string]>,
 	getChat: vi.fn(),
@@ -72,6 +73,7 @@ vi.mock('../src/components/generate-chart', () => ({
 
 vi.mock('../src/queries/chart-image', () => ({}));
 vi.mock('../src/queries/chat.queries', () => ({
+	createChat: teamsHarness.createChat,
 	getChat: teamsHarness.getChat,
 	getChatByTeamsThread: teamsHarness.getChatByTeamsThread,
 	upsertMessage: teamsHarness.upsertMessage,
@@ -87,7 +89,7 @@ vi.mock('../src/services/agent', () => ({
 	agentService: { create: teamsHarness.createAgent, get: vi.fn() },
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
-	assertProjectCloudBillingAccess: teamsHarness.billingAccess,
+	assertProjectCloudBillingAccess: teamsHarness.assertProjectCloudBillingAccess,
 }));
 vi.mock('../src/services/posthog', () => ({
 	PostHogEvent: { MessageSent: 'message_sent' },
@@ -112,11 +114,12 @@ describe('TeamsService', () => {
 			_redirectUrl: '',
 			_modelSelection: undefined,
 		});
-		teamsHarness.billingAccess.mockReset().mockRejectedValue(new Error('stop after access check'));
-		teamsHarness.createAgent.mockReset();
+		teamsHarness.assertProjectCloudBillingAccess.mockReset().mockResolvedValue(undefined);
+		teamsHarness.createChat.mockReset();
+		teamsHarness.createAgent.mockReset().mockRejectedValue(new Error('stop after agent creation'));
 		teamsHarness.credentials.length = 0;
-		teamsHarness.getChat.mockReset();
-		teamsHarness.getChatByTeamsThread.mockReset();
+		teamsHarness.getChat.mockReset().mockResolvedValue([{ id: 'chat-id', messages: [] }]);
+		teamsHarness.getChatByTeamsThread.mockReset().mockResolvedValue({ id: 'chat-id' });
 		teamsHarness.messageHandlers.length = 0;
 		teamsHarness.projectRole.mockReset().mockResolvedValue('user');
 		teamsHarness.upsertMessage.mockReset();
@@ -145,7 +148,7 @@ describe('TeamsService', () => {
 
 		const thread = {
 			isDM: true,
-			post: vi.fn(async () => ({})),
+			post: vi.fn(async () => ({ edit: vi.fn(), delete: vi.fn() })),
 			subscribe: vi.fn(async () => undefined),
 		};
 		await firstProjectHandler(thread, {
@@ -163,37 +166,9 @@ describe('TeamsService', () => {
 		]);
 		expect(teamsHarness.projectRole).toHaveBeenNthCalledWith(1, 'project-a', 'user-id');
 		expect(teamsHarness.projectRole).toHaveBeenNthCalledWith(2, 'project-b', 'user-id');
-		expect(teamsHarness.billingAccess).toHaveBeenNthCalledWith(1, 'project-a');
-		expect(teamsHarness.billingAccess).toHaveBeenNthCalledWith(2, 'project-b');
 	});
 
-	it('posts only the billing error when access is blocked', async () => {
-		const config: TeamsConfig = {
-			projectId: 'project-blocked',
-			appId: 'app-blocked',
-			appPassword: 'password-blocked',
-			tenantId: 'tenant-blocked',
-			redirectUrl: 'https://blocked.example',
-		};
-		teamsService.getWebhooks(config);
-		const handler = teamsHarness.messageHandlers[0];
-		const post = vi.fn(async () => ({}));
-
-		await handler(
-			{ isDM: true, post, subscribe: vi.fn(async () => undefined) },
-			{
-				text: 'question',
-				raw: { from: { aadObjectId: 'aad-id' }, conversation: { tenantId: 'sender-tenant' } },
-			},
-		);
-
-		expect(post).toHaveBeenCalledOnce();
-		expect(post).toHaveBeenCalledWith('billing blocked');
-		expect(post).not.toHaveBeenCalledWith('✨ nao is answering...');
-		expect(teamsHarness.createAgent).not.toHaveBeenCalled();
-	});
-
-	it('passes the completed billing check to agent creation', async () => {
+	it('passes preverified billing access to agent creation', async () => {
 		const config: TeamsConfig = {
 			projectId: 'project-a',
 			appId: 'app-a',
@@ -208,7 +183,6 @@ describe('TeamsService', () => {
 			post: vi.fn(async () => response),
 			subscribe: vi.fn(async () => undefined),
 		};
-		teamsHarness.billingAccess.mockResolvedValue(undefined);
 		teamsHarness.getChatByTeamsThread.mockResolvedValue({ id: 'chat-id' });
 		teamsHarness.getChat.mockResolvedValue([{ id: 'chat-id', messages: [] }]);
 		teamsHarness.createAgent.mockRejectedValue(new Error('stop after agent creation'));
@@ -224,5 +198,35 @@ describe('TeamsService', () => {
 			undefined,
 			{ billingAccessVerifiedProjectId: 'project-a', supportsCustomCharts: false },
 		);
+	});
+
+	it('checks billing access before storing a new thread message', async () => {
+		const config: TeamsConfig = {
+			projectId: 'project-a',
+			appId: 'app-a',
+			appPassword: 'password-a',
+			tenantId: 'tenant-a',
+			redirectUrl: 'https://a.example',
+		};
+		const thread = {
+			id: 'thread-id',
+			isDM: true,
+			post: vi.fn(async () => ({ edit: vi.fn(), delete: vi.fn() })),
+			subscribe: vi.fn(async () => undefined),
+		};
+		teamsHarness.assertProjectCloudBillingAccess.mockRejectedValue(new Error('billing restricted'));
+		teamsHarness.getChatByTeamsThread.mockResolvedValue(null);
+
+		teamsService.getWebhooks(config);
+		await teamsHarness.messageHandlers[0](thread, {
+			text: 'question',
+			raw: { from: { aadObjectId: 'aad-id' }, conversation: { tenantId: 'sender-tenant' } },
+		});
+
+		expect(teamsHarness.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-a');
+		expect(teamsHarness.getChatByTeamsThread).not.toHaveBeenCalled();
+		expect(teamsHarness.createChat).not.toHaveBeenCalled();
+		expect(teamsHarness.upsertMessage).not.toHaveBeenCalled();
+		expect(teamsHarness.createAgent).not.toHaveBeenCalled();
 	});
 });

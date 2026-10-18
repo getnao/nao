@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { normalizeCitationMarkers } from '@nao/shared';
 import { type LlmSelectedModel, STORY_FORMATS } from '@nao/shared/types';
 import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
@@ -7,7 +8,6 @@ import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
-import { assertProjectCloudBillingAccess } from '../../services/cloud-billing-access.service';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
@@ -156,7 +156,6 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 		},
 		errorMessage: () => 'Nao agent failed to process the request.',
 		handler: async ({ question, chatId }) => {
-			await assertProjectCloudBillingAccess(ctx.projectId);
 			await mcpService.initializeMcpState(ctx.projectId);
 			await skillService.initializeSkills(ctx.projectId);
 
@@ -164,6 +163,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			const naoChatUrl = chatUrl(chat.id);
 
 			const agent = await agentService.create(chat, await resolveSubAgentModel(ctx), {
+				billingAccessVerifiedProjectId: ctx.projectId,
 				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
 			askNaoRuns.start(chat.id);
@@ -555,7 +555,7 @@ export function extractFinalText(message: UIMessage | null): string {
 	}
 	return message.parts
 		.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
-		.map((p) => p.text)
+		.map((p) => normalizeCitationMarkers(p.text))
 		.join('\n\n');
 }
 

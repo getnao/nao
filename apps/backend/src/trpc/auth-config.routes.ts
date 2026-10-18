@@ -17,7 +17,7 @@ import {
 	isOidcOrganizationRoleMappingActive,
 	isOrganizationRoleMappingActive,
 } from '../services/sso-group-mapping.service';
-import { adminProtectedProcedure, publicProcedure } from './trpc';
+import { adminProtectedProcedure, assertCanManageUserAccount, publicProcedure } from './trpc';
 
 export const authConfigRoutes = {
 	sso: {
@@ -129,6 +129,12 @@ export const authConfigRoutes = {
 				) {
 					throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
 				}
+				await assertCanManageUserAccount(
+					ctx.user.id,
+					targetUserId,
+					ctx.project.orgId,
+					'inspect their sign-in token',
+				);
 				return inspectSsoToken(targetUserId);
 			}),
 	},

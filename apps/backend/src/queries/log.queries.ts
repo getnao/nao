@@ -9,8 +9,16 @@ export const insertLog = async (record: NewLog): Promise<void> => {
 	await db.insert(s.log).values(record).execute();
 };
 
-export const listLogs = async (projectId: string, filter: LogFilter) => {
-	const conditions: SQL[] = [or(eq(s.log.projectId, projectId), isNull(s.log.projectId))!];
+export const listLogs = async (
+	projectId: string,
+	filter: LogFilter,
+	{ includeProjectlessLogs }: { includeProjectlessLogs: boolean },
+) => {
+	const conditions: SQL[] = [
+		includeProjectlessLogs
+			? or(eq(s.log.projectId, projectId), isNull(s.log.projectId))!
+			: eq(s.log.projectId, projectId),
+	];
 
 	if (filter.level) {
 		conditions.push(eq(s.log.level, filter.level));

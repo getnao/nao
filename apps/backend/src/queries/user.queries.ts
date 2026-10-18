@@ -1,6 +1,6 @@
 import type { MemberStatus } from '@nao/shared/types';
 import crypto from 'crypto';
-import { and, count, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -15,6 +15,17 @@ export const getUser = async (identifier: { id: string } | { email: string }): P
 
 	const [user] = await db.select().from(s.user).where(condition).execute();
 
+	return user ?? null;
+};
+
+export const getUserProfile = async (
+	userId: string,
+): Promise<{ id: string; name: string; email: string; image: string | null } | null> => {
+	const [user] = await db
+		.select({ id: s.user.id, name: s.user.name, email: s.user.email, image: s.user.image })
+		.from(s.user)
+		.where(eq(s.user.id, userId))
+		.execute();
 	return user ?? null;
 };
 
@@ -48,6 +59,30 @@ export const getUsersByIds = async (userIds: string[]): Promise<Array<{ id: stri
 
 export const updateUser = async (id: string, name: string): Promise<void> => {
 	await db.update(s.user).set({ name }).where(eq(s.user.id, id)).execute();
+};
+
+/** Whether every organization and project membership of the user sits inside the given organization. */
+export const isUserConfinedToOrganization = async (userId: string, orgId: string | null): Promise<boolean> => {
+	const [foreignOrgMembership] = await db
+		.select({ orgId: s.orgMember.orgId })
+		.from(s.orgMember)
+		.where(and(eq(s.orgMember.userId, userId), orgId === null ? undefined : ne(s.orgMember.orgId, orgId)))
+		.limit(1)
+		.execute();
+	if (foreignOrgMembership) {
+		return false;
+	}
+
+	const outsideOrganization =
+		orgId === null ? isNotNull(s.project.orgId) : or(isNull(s.project.orgId), ne(s.project.orgId, orgId));
+	const [foreignProjectMembership] = await db
+		.select({ projectId: s.projectMember.projectId })
+		.from(s.projectMember)
+		.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
+		.where(and(eq(s.projectMember.userId, userId), outsideOrganization))
+		.limit(1)
+		.execute();
+	return !foreignProjectMembership;
 };
 
 export const getUserMemoryEnabled = async (userId: string): Promise<boolean> => {

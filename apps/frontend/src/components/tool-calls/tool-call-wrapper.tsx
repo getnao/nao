@@ -14,6 +14,7 @@ import { ExportDataMenu } from '@/components/export-data-menu';
 interface ExportAction {
 	columns: string[];
 	data: Record<string, unknown>[];
+	loadAllRows?: () => Promise<Record<string, unknown>[]>;
 	filename: string;
 	onExport?: (format: DataExportFormat) => void;
 }

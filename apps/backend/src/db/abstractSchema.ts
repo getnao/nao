@@ -42,6 +42,9 @@ export type NewUserGroupMember = typeof sqliteSchema.userGroupMember.$inferInser
 export type DBProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferSelect;
 export type NewProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferInsert;
 
+export type DBProjectDiscordLink = typeof sqliteSchema.projectDiscordLink.$inferSelect;
+export type NewProjectDiscordLink = typeof sqliteSchema.projectDiscordLink.$inferInsert;
+
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 
@@ -107,6 +110,9 @@ export type NewStoryBundle = typeof sqliteSchema.storyBundle.$inferInsert;
 
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
+
+export type DBStoryAppState = typeof sqliteSchema.storyAppState.$inferSelect;
+export type NewStoryAppState = typeof sqliteSchema.storyAppState.$inferInsert;
 
 export type DBActivity = typeof sqliteSchema.activity.$inferSelect;
 export type NewActivity = typeof sqliteSchema.activity.$inferInsert;

@@ -26,32 +26,31 @@ class CloudBillingAccessRestrictedError extends HandlerError {
 }
 
 export function hasCloudBillingAccess(entitlement: CloudBillingEntitlement | null): boolean {
-	if (!entitlement) {
-		return false;
-	}
+	const accessEndsAt = getCloudBillingAccessEndsAt(entitlement);
+	return accessEndsAt !== null && accessEndsAt.getTime() > Date.now();
+}
 
-	const now = new Date();
+export function getCloudBillingAccessEndsAt(entitlement: CloudBillingEntitlement | null): Date | null {
+	if (!entitlement) {
+		return null;
+	}
 	switch (entitlement.billingStatus) {
 		case 'trialing':
 			if (entitlement.stripeSubscriptionId === null) {
-				return false;
+				return null;
 			}
-			return entitlement.hasDefaultPaymentMethod && !entitlement.cancellationScheduled
-				? isAfterWithGrace(entitlement.trialEndsAt, now, ACTIVE_RECONCILIATION_GRACE_MS)
-				: isAfter(entitlement.trialEndsAt, now) &&
-						(!entitlement.billingAccessEndsAt || isAfter(entitlement.billingAccessEndsAt, now));
+			if (entitlement.hasDefaultPaymentMethod && !entitlement.cancellationScheduled) {
+				return addGrace(entitlement.trialEndsAt);
+			}
+			return earlierDate(entitlement.trialEndsAt, entitlement.billingAccessEndsAt);
 		case 'past_due':
-			return isAfterWithGrace(entitlement.currentPeriodEndsAt, now, ACTIVE_RECONCILIATION_GRACE_MS);
+			return addGrace(entitlement.currentPeriodEndsAt);
 		case 'active':
 			return entitlement.cancellationScheduled
-				? isAfter(entitlement.billingAccessEndsAt ?? entitlement.currentPeriodEndsAt, now)
-				: isAfterWithGrace(
-						entitlement.currentPeriodEndsAt ?? entitlement.billingAccessEndsAt,
-						now,
-						ACTIVE_RECONCILIATION_GRACE_MS,
-					);
+				? (entitlement.billingAccessEndsAt ?? entitlement.currentPeriodEndsAt)
+				: addGrace(entitlement.currentPeriodEndsAt ?? entitlement.billingAccessEndsAt);
 		default:
-			return false;
+			return null;
 	}
 }
 
@@ -93,10 +92,13 @@ export async function assertProjectCloudBillingAccess(projectId: string): Promis
 	}
 }
 
-function isAfter(date: Date | null, now: Date): boolean {
-	return date !== null && date.getTime() > now.getTime();
+function addGrace(date: Date | null): Date | null {
+	return date ? new Date(date.getTime() + ACTIVE_RECONCILIATION_GRACE_MS) : null;
 }
 
-function isAfterWithGrace(date: Date | null, now: Date, graceMs: number): boolean {
-	return date !== null && date.getTime() + graceMs > now.getTime();
+function earlierDate(first: Date | null, second: Date | null): Date | null {
+	if (!first) {
+		return null;
+	}
+	return second && second < first ? second : first;
 }

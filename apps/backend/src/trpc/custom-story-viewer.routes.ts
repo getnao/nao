@@ -14,8 +14,14 @@ import {
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 } from '../services/custom-story';
+import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { storySnapshotHtml, toCustomStoryQueryTrpcError, toCustomStoryTrpcError } from '../utils/custom-story-trpc';
+import {
+	storySnapshotHtml,
+	storyStateChange,
+	toCustomStoryQueryTrpcError,
+	toCustomStoryTrpcError,
+} from '../utils/custom-story-trpc';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { protectedProcedure } from './trpc';
 
@@ -91,6 +97,22 @@ export const customStoryViewerRoutes = {
 				throw toCustomStoryTrpcError(error);
 			}
 		}),
+
+	getState: viewerProcedure.query(async ({ ctx, input }) => {
+		try {
+			return await getCustomStoryState(ctx.viewer.chatId, input.storySlug, ctx.user.id);
+		} catch (error) {
+			throw toCustomStoryTrpcError(error);
+		}
+	}),
+
+	setState: viewerProcedure.input(z.object({ change: storyStateChange })).mutation(async ({ ctx, input }) => {
+		try {
+			await setCustomStoryState(ctx.viewer.chatId, input.storySlug, ctx.user.id, input.change);
+		} catch (error) {
+			throw toCustomStoryTrpcError(error);
+		}
+	}),
 
 	getNarratives: viewerProcedure.query(async ({ ctx, input }) => {
 		try {

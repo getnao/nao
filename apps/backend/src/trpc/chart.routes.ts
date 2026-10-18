@@ -4,14 +4,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { generateChartImage } from '../components/generate-chart';
-import {
-	getChartDataByQueryId,
-	getChartOwnerInfo,
-	getDisplayConfigByToolCallId,
-	updateChartConfig,
-} from '../queries/chart-image';
+import { getChartOwnerInfo, getDisplayConfigByToolCallId, updateChartConfig } from '../queries/chart-image';
+import { getExecuteSqlPartByQueryIdInChat } from '../queries/execute-sql.queries';
 import { getDisplaySettings } from '../queries/project.queries';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { canUserViewChatContent } from '../utils/chat-access';
 import { logger } from '../utils/logger';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
@@ -23,23 +20,31 @@ export const chartRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
+			const owner = await getChartOwnerInfo(input.toolCallId);
+			if (!owner || !(await canUserViewChatContent(owner.chatId, owner.projectId, ctx.user.id))) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Visualization not found.' });
+			}
 			const config = await readDownloadableChartConfig(input.toolCallId);
-			const data = await getChartDataByQueryId(config.query_id);
-			const displaySettings = await getDisplaySettings(ctx.project.id);
-			const png = generateChartImage({ config, data, dateFormat: displaySettings.dateFormat });
+			const query = await getExecuteSqlPartByQueryIdInChat(owner.chatId, config.query_id);
+			if (!query) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Query ${config.query_id} not found.` });
+			}
+			const displaySettings = await getDisplaySettings(owner.projectId);
+			const png = generateChartImage({
+				config,
+				data: query.toolOutput.data,
+				dateFormat: displaySettings.dateFormat,
+			});
 
 			try {
-				const owner = await getChartOwnerInfo(input.toolCallId);
-				if (owner?.chatId) {
-					logAnalyticsEvent({
-						projectId: ctx.project.id,
-						type: 'download',
-						assetType: 'chat',
-						actorUserId: ctx.user.id,
-						chatId: owner.chatId,
-						metadata: { type: 'download', format: 'png', queryId: input.toolCallId, title: config.title },
-					});
-				}
+				logAnalyticsEvent({
+					projectId: owner.projectId,
+					type: 'download',
+					assetType: 'chat',
+					actorUserId: ctx.user.id,
+					chatId: owner.chatId,
+					metadata: { type: 'download', format: 'png', queryId: input.toolCallId, title: config.title },
+				});
 			} catch (error) {
 				logger.error(`Failed to log chart download analytics for ${input.toolCallId}: ${String(error)}`, {
 					source: 'agent',

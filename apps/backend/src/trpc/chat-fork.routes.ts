@@ -7,12 +7,11 @@ import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
-import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { compactionService } from '../services/compaction';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
-import { canSendProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { canSendProcedure, cloudBillingMiddleware, projectProtectedProcedure, protectedProcedure } from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 const selectionSchema = z.object({ start: z.number(), end: z.number(), text: z.string() });
@@ -20,6 +19,40 @@ const forkSourceSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('chat'), shareId: z.string() }),
 	z.object({ type: z.literal('story'), storyId: z.string() }),
 ]);
+const forkInputSchema = z.object({ source: forkSourceSchema, selection: selectionSchema.optional() });
+const openStandaloneInputSchema = z.object({ storyId: z.string() });
+
+const resolvedForkProcedure = canSendProcedure.input(forkInputSchema).use(async ({ ctx, input, next }) => {
+	const source =
+		input.source.type === 'chat'
+			? { type: 'chat' as const, share: await resolveSharedChat(input.source.shareId, ctx.user.id) }
+			: { type: 'story' as const, share: await resolveSharedStory(input.source.storyId, ctx.user.id) };
+	return next({ ctx: { source } });
+});
+
+const cloudBillingForkProcedure = resolvedForkProcedure.use(
+	cloudBillingMiddleware<{
+		source:
+			| { type: 'chat'; share: sharedChatQueries.SharedChatWithDetails }
+			| { type: 'story'; share: sharedStoryQueries.SharedStoryWithLatest };
+	}>(({ source }) => ({ projectId: source.share.projectId })),
+);
+
+const resolvedStandaloneStoryProcedure = projectProtectedProcedure
+	.input(openStandaloneInputSchema)
+	.use(async ({ ctx, input, next }) => {
+		const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
+		if (!story || story.projectId !== ctx.project.id) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		return next({ ctx: { story } });
+	});
+
+const openStandaloneProcedure = resolvedStandaloneStoryProcedure.use(
+	cloudBillingMiddleware<{ project: { id: string; orgId: string | null }; story: { chatId: string | null } }>(
+		({ project, story }) => (story.chatId ? null : { projectId: project.id, organizationId: project.orgId }),
+	),
+);
 
 export interface SelectionInfo {
 	start: number;
@@ -28,58 +61,49 @@ export interface SelectionInfo {
 }
 
 export const chatForkRoutes = {
-	fork: canSendProcedure
-		.input(z.object({ source: forkSourceSchema, selection: selectionSchema.optional() }))
-		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
-			if (input.source.type === 'chat') {
-				return forkSharedChat(input.source.shareId, input.selection, ctx.user.id);
-			}
-			return forkSharedStoryItem(input.source.storyId, input.selection, ctx.user.id);
-		}),
+	fork: cloudBillingForkProcedure.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
+		if (ctx.source.type === 'chat') {
+			return forkSharedChat(ctx.source.share, input.selection, ctx.user.id);
+		}
+		return forkSharedStoryItem(ctx.source.share, input.selection, ctx.user.id);
+	}),
 
-	openStandalone: projectProtectedProcedure
-		.input(z.object({ storyId: z.string() }))
-		.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
-			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
-			if (!story || story.projectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-			}
-			if (story.chatId) {
-				return { chatId: story.chatId };
-			}
-			await assertProjectCloudBillingAccess(ctx.project.id);
+	openStandalone: openStandaloneProcedure.mutation(async ({ ctx }): Promise<{ chatId: string }> => {
+		const { story } = ctx;
+		if (story.chatId) {
+			return { chatId: story.chatId };
+		}
+		const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
+		const seedMessages = cache?.queryData
+			? buildQueryDataMessages(cache.queryData as Record<string, { data: unknown[]; columns: string[] }>)
+			: [];
 
-			const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
-			const seedMessages = cache?.queryData
-				? buildQueryDataMessages(cache.queryData as Record<string, { data: unknown[]; columns: string[] }>)
-				: [];
+		const chat = await chatQueries.createForkedChat(
+			{ projectId: ctx.project.id, userId: ctx.user.id, title: story.title },
+			seedMessages,
+		);
 
-			const chat = await chatQueries.createForkedChat(
-				{ projectId: ctx.project.id, userId: ctx.user.id, title: story.title },
-				seedMessages,
-			);
+		const latestVersion = await storyQueries.getLatestVersionByStoryId(story.id);
+		await storyQueries.assignChatToStory(story.id, chat.id);
+		await pinStoryMessageToChat({
+			chatId: chat.id,
+			slug: story.slug,
+			title: story.title,
+			code: story.code,
+			version: latestVersion?.version ?? 1,
+		});
 
-			const latestVersion = await storyQueries.getLatestVersionByStoryId(story.id);
-			await storyQueries.assignChatToStory(story.id, chat.id);
-			await pinStoryMessageToChat({
-				chatId: chat.id,
-				slug: story.slug,
-				title: story.title,
-				code: story.code,
-				version: latestVersion?.version ?? 1,
-			});
+		logAnalyticsEvent({
+			projectId: ctx.project.id,
+			type: 'fork',
+			assetType: 'story',
+			actorUserId: ctx.user.id,
+			storyId: story.id,
+			metadata: { type: 'fork', resultId: chat.id, scope: 'full', versionNumber: story.version },
+		});
 
-			logAnalyticsEvent({
-				projectId: ctx.project.id,
-				type: 'fork',
-				assetType: 'story',
-				actorUserId: ctx.user.id,
-				storyId: story.id,
-				metadata: { type: 'fork', resultId: chat.id, scope: 'full', versionNumber: story.version },
-			});
-
-			return { chatId: chat.id };
-		}),
+		return { chatId: chat.id };
+	}),
 
 	getSelectionForks: protectedProcedure
 		.input(z.object({ source: forkSourceSchema }))
@@ -93,15 +117,12 @@ export const chatForkRoutes = {
 };
 
 async function forkSharedChat(
-	shareId: string,
+	share: sharedChatQueries.SharedChatWithDetails,
 	selection: SelectionInfo | undefined,
 	userId: string,
 ): Promise<{ chatId: string }> {
-	const share = await resolveSharedChat(shareId, userId);
-	await assertProjectCloudBillingAccess(share.projectId);
-
 	const forkMetadata: ForkMetadata = selection
-		? buildSelectionMetadata('chat_selection', shareId, share.title, share.authorName, selection)
+		? buildSelectionMetadata('chat_selection', share.id, share.title, share.authorName, selection)
 		: { type: 'chat', id: share.chatId, title: share.title, authorName: share.authorName };
 
 	const rawMessages = await chatQueries.getChatMessages(share.chatId);
@@ -129,20 +150,18 @@ async function forkSharedChat(
 }
 
 async function forkSharedStoryItem(
-	storyId: string,
+	share: sharedStoryQueries.SharedStoryWithLatest,
 	selection: SelectionInfo | undefined,
 	userId: string,
 ): Promise<{ chatId: string }> {
-	const share = await resolveSharedStory(storyId, userId);
 	const projectId = share.projectId;
-	await assertProjectCloudBillingAccess(projectId);
 	if (userId !== share.userId) {
 		await assertUserGroupFeatureForTrpc(projectId, userId, 'storyCreation');
 	}
 
 	const forkMetadata: ForkMetadata = selection
-		? buildSelectionMetadata('story_selection', storyId, share.title, share.authorName, selection)
-		: { type: 'story', id: storyId, title: share.title, authorName: share.authorName };
+		? buildSelectionMetadata('story_selection', share.storyId, share.title, share.authorName, selection)
+		: { type: 'story', id: share.storyId, title: share.title, authorName: share.authorName };
 
 	if (selection) {
 		const [rawMessages, queryData] = await Promise.all([

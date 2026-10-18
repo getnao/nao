@@ -69,6 +69,7 @@ export function ChatInputSuggestions({
 				transition: 'height 300ms ease-out, opacity 300ms ease-out',
 			}}
 			aria-hidden={isCollapsed}
+			inert={isCollapsed}
 		>
 			<div ref={ref} className={cn('pb-2', isCollapsed && 'pointer-events-none')}>
 				{content}
@@ -119,6 +120,7 @@ function renderSuggestion({
 			<SuggestionCard
 				icon={<Plug className='size-4 text-primary' />}
 				message={`Connect your account to "${mcpAuth.server}" to continue`}
+				description={mcpAuth.error}
 			>
 				<Button
 					variant='ghost'
@@ -205,6 +207,7 @@ function renderSuggestion({
 				<SuggestionCard
 					icon={<MessageSquare className='size-4 text-muted-foreground' />}
 					message='How did this conversation go?'
+					keepActionsInline
 				>
 					<Button
 						variant='ghost'
@@ -254,6 +257,7 @@ interface McpAuthSuggestion {
 	isVisible: boolean;
 	server: string | null;
 	connecting: boolean;
+	error?: string;
 	connect: () => void;
 	dismiss: () => void;
 }
@@ -268,28 +272,34 @@ function useMcpAuthSuggestion(): McpAuthSuggestion {
 	const chatId = useChatId();
 
 	const [connecting, setConnecting] = useState(false);
+	const [failure, setFailure] = useState<{ server: string; error?: string }>();
 	const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set());
 
 	useEffect(() => {
 		setResolved(new Set());
+		setFailure(undefined);
 	}, [chatId]);
 
 	const server = useAgentMessagesSelector(findPendingAuthServer);
 	const pendingServer = server && !resolved.has(server) ? server : null;
+	const error = failure?.server === pendingServer ? failure.error : undefined;
 
 	const connect = useCallback(async () => {
 		if (!pendingServer) {
 			return;
 		}
 		setConnecting(true);
-		const connected = await openMcpConnectPopup(pendingServer);
+		setFailure(undefined);
+		const result = await openMcpConnectPopup(pendingServer);
 		setConnecting(false);
-		if (connected) {
-			setResolved((prev) => new Set(prev).add(pendingServer));
-			const payload = lastUserMessagePayload(getAgentMessages());
-			if (payload) {
-				void queueOrSendMessage(payload);
-			}
+		if (!result.connected) {
+			setFailure({ server: pendingServer, error: result.error });
+			return;
+		}
+		setResolved((prev) => new Set(prev).add(pendingServer));
+		const payload = lastUserMessagePayload(getAgentMessages());
+		if (payload) {
+			void queueOrSendMessage(payload);
 		}
 	}, [pendingServer, getAgentMessages, queueOrSendMessage]);
 
@@ -299,7 +309,7 @@ function useMcpAuthSuggestion(): McpAuthSuggestion {
 		}
 	}, [pendingServer]);
 
-	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, connect, dismiss };
+	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, error, connect, dismiss };
 }
 
 /** Returns the server from the most recent MCP tool call that reported it needs the user to connect. */
@@ -528,6 +538,8 @@ function useConversationFeedback(): ConversationFeedback {
 				void ctx.client.invalidateQueries({
 					queryKey: trpc.project.getProjectChats.queryKey(),
 				});
+				setThanksForChat(variables.chatId);
+				setFeedbackDialogOpen(false);
 			},
 		}),
 	);
@@ -572,8 +584,6 @@ function useConversationFeedback(): ConversationFeedback {
 				return;
 			}
 			submitFeedback.mutate({ chatId, messageId: lastAssistantMessageId, vote: value, explanation });
-			setThanksForChat(chatId);
-			setFeedbackDialogOpen(false);
 		},
 		[chatId, lastAssistantMessageId, submitFeedback],
 	);
@@ -615,24 +625,85 @@ function SuggestionCard({
 	message,
 	description,
 	children,
+	keepActionsInline = false,
 }: {
 	icon?: React.ReactNode;
 	message: string;
 	description?: string;
 	children?: React.ReactNode;
+	keepActionsInline?: boolean;
 }) {
 	return (
 		<div
 			data-selection-ignore
-			className='group flex items-center gap-1 rounded-2xl border border-muted-foreground/25 bg-background p-2'
+			className={cn(
+				'@container group relative flex flex-wrap items-center gap-1 rounded-2xl border border-muted-foreground/25 bg-background p-2',
+				icon && 'min-h-[3.25rem]',
+			)}
 		>
-			{icon && <div className='flex size-9 shrink-0 items-center justify-center'>{icon}</div>}
-			<div className='min-w-0 flex-1'>
+			{icon && (
+				<div className='absolute left-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center'>
+					{icon}
+				</div>
+			)}
+			<div className={cn('min-w-0 flex-1', icon && 'ml-9')}>
 				<p className='truncate text-sm font-medium text-foreground'>{message}</p>
-				{description && <p className='text-xs text-muted-foreground'>{description}</p>}
+				{description && <ExpandableDescription key={description} description={description} />}
 			</div>
-			{children && <div className='flex shrink-0 items-center gap-1'>{children}</div>}
+			{children && (
+				<div
+					className={cn(
+						'flex shrink-0 items-center gap-1',
+						keepActionsInline ? 'ml-auto' : 'w-full justify-end @lg:w-auto',
+						icon && !keepActionsInline && 'pl-9 @lg:pl-0',
+					)}
+				>
+					{children}
+				</div>
+			)}
 		</div>
+	);
+}
+
+function ExpandableDescription({ description }: { description: string }) {
+	const textRef = useRef<HTMLParagraphElement>(null);
+	const [isExpanded, setExpanded] = useState(false);
+	const [isOverflowing, setOverflowing] = useState(false);
+
+	useLayoutEffect(() => {
+		const element = textRef.current;
+		if (!element || isExpanded) {
+			return;
+		}
+		const updateOverflow = () => {
+			const lineHeight = Number.parseFloat(window.getComputedStyle(element).lineHeight);
+			const overflowThreshold = Number.isFinite(lineHeight) ? lineHeight / 2 : 1;
+			setOverflowing(element.scrollHeight - element.clientHeight > overflowThreshold);
+		};
+		const observer = new ResizeObserver(updateOverflow);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [isExpanded]);
+
+	return (
+		<>
+			<div className='text-xs text-muted-foreground @lg:hidden'>
+				<p ref={textRef} className={cn(!isExpanded && 'line-clamp-2')}>
+					{description}
+				</p>
+				{isOverflowing && (
+					<button
+						type='button'
+						className='font-medium text-foreground hover:underline'
+						aria-expanded={isExpanded}
+						onClick={() => setExpanded((expanded) => !expanded)}
+					>
+						{isExpanded ? 'Show less' : 'Read more'}
+					</button>
+				)}
+			</div>
+			<p className='hidden text-xs text-muted-foreground @lg:block'>{description}</p>
+		</>
 	);
 }
 

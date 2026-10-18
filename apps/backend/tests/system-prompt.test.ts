@@ -267,6 +267,20 @@ describe('SystemPrompt saved files rules', () => {
 		expect(markdown).not.toContain('**save_to**');
 	});
 
+	it('tells custom stories to persist what a viewer would redo on every visit', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				toolNames: ['execute_sql', 'write', 'story'],
+				options: { customStoriesEnabled: true },
+			}),
+		);
+		expect(markdown).toContain('useStoryState("key", initial)');
+		expect(markdown).toContain('nao.state.set(key, value)');
+		expect(markdown).toContain('useSharedStoryState("key", initial)');
+		expect(markdown).toContain('nao.sharedState');
+		expect(markdown).toContain('Saved state works like localStorage');
+	});
+
 	it('explains that an attachment arrives as a path, not as content', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('**/home/uploads**');
@@ -435,12 +449,14 @@ describe('SystemPrompt SQL query rules', () => {
 });
 
 describe('SystemPrompt follow-up suggestions rules', () => {
-	it('asks for a closing sentence pointing the user to the suggestions', () => {
+	it('requires the tool as the final call without asking the model to announce the UI', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 
 		expect(markdown).toContain('**suggest_follow_ups**');
-		expect(markdown).toContain('points the user to the suggestions shown below your message');
-		expect(markdown).toContain('never a note to yourself or part of your thinking');
+		expect(markdown).toContain('For every analytical response based on business data');
+		expect(markdown).toContain('as the sole and final tool call');
+		expect(markdown).not.toContain('points the user to the suggestions shown below your message');
+		expect(markdown).not.toContain('Pick one of the suggestions below');
 	});
 
 	it('omits the rule when the run excludes the tool', () => {

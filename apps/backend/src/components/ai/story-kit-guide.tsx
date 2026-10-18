@@ -1,4 +1,10 @@
-import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_MANIFEST_PATH, STORY_HTML_API_GLOBAL } from '@nao/shared/story-app';
+import {
+	MAX_STORY_STATE_KEYS,
+	MAX_STORY_STATE_VALUE_BYTES,
+	STORY_APP_ALLOWED_IMPORTS,
+	STORY_APP_MANIFEST_PATH,
+	STORY_HTML_API_GLOBAL,
+} from '@nao/shared/story-app';
 import type { ReactElement } from 'react';
 
 import { Bold, List, ListItem, renderToMarkdown } from '../../lib/markdown';
@@ -50,6 +56,30 @@ export function storyKitGuideItems(): ReactElement[] {
 			your own element (e.g. {'<p>'}): when the story is live, each refresh rewrites that text from the new data.
 			Use a distinct literal id and plain literal text; text built from query rows in code is already live and
 			needs no Narrative.
+		</ListItem>,
+		<ListItem key='state'>
+			<Bold>Save what a viewer would otherwise redo on every visit</Bold> with a hook used like useState: chosen
+			filters, metric or date range, what-if inputs, the slide or tab they were on. Pick its scope by asking
+			whether other viewers should see the change.
+		</ListItem>,
+		<ListItem key='state-scope'>
+			<Bold>Personal, by default:</Bold> <Bold>{'useStoryState("key", initial)'}</Bold>. Each viewer, owner
+			included, keeps their own value: one person's exploration of the data, such as filters, drill-downs or
+			scenario inputs. <Bold>Shared:</Bold> <Bold>{'useSharedStoryState("key", initial)'}</Bold>. One value every
+			viewer reads and writes, for what the team builds together: agreed targets or thresholds, annotations on a
+			chart, a review status, a vote, an action-item checklist. The last change wins and others see it on their
+			next visit.
+		</ListItem>,
+		<ListItem key='state-rules'>
+			Saved state works like localStorage: every change is saved as it happens, so when viewers should explore
+			before keeping something, hold the draft in useState and save it on their own action. Keep transient UI
+			(hover, an open menu) in useState and never save query rows or secrets. Use stable literal keys and small
+			JSON values (up to {MAX_STORY_STATE_VALUE_BYTES / 1024} KB; {MAX_STORY_STATE_KEYS} personal keys per viewer
+			and {MAX_STORY_STATE_KEYS} shared keys); a saved value may predate your latest version, so check its shape
+			and fall back to the initial value. In an HTML story, use{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.state.get(key)`}</Bold> and{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.state.set(key, value)`}</Bold> for personal state, and the same methods on{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.sharedState`}</Bold> for shared state.
 		</ListItem>,
 		<ListItem key='bespoke-visuals'>
 			For bespoke visuals the kit has no block for, wrap Recharts or your own markup in{' '}

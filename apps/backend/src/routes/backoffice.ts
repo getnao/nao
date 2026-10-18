@@ -14,6 +14,7 @@ import * as eventQueries from '../queries/backoffice-events.queries';
 import * as statsQueries from '../queries/backoffice-stats.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
 import * as backofficeService from '../services/backoffice.service';
+import * as billingService from '../services/backoffice-billing.service';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
 
@@ -49,12 +50,14 @@ export const backofficeRoutes = async (app: App) => {
 
 	app.get('/stats', async () => statsQueries.getBackofficeStats());
 
+	app.get('/billing', async () => billingService.getBillingOverview());
+
 	app.get('/organizations', async (request, reply) => {
 		const query = parse(searchPaginationSchema, request.query, reply);
 		if (!query) {
 			return;
 		}
-		return backofficeQueries.listOrganizations(query);
+		return backofficeService.listOrganizations(query);
 	});
 
 	app.get('/organizations/:orgId', async (request, reply) => {
@@ -63,6 +66,14 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.getOrganizationDetail(params.orgId));
+	});
+
+	app.get('/organizations/:orgId/billing', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, () => billingService.getOrganizationBillingDetail(params.orgId));
 	});
 
 	app.patch('/organizations/:orgId', async (request, reply) => {

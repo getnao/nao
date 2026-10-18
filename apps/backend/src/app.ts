@@ -10,7 +10,7 @@ import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { env, isCloud, isCloudBillingEnabled } from './env';
-import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
+import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
@@ -20,6 +20,7 @@ import {
 	CONTEXT_RECOMMENDATIONS_JOB_NAME,
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
+	resolveContextRecommendationsProjectId,
 } from './handlers/context-recommendations.handler';
 import {
 	INVITATION_CLEANUP_JOB_NAME,
@@ -29,8 +30,16 @@ import {
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
-import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
-import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
+import {
+	resolveStoryDeliveryProjectId,
+	STORY_DELIVERY_JOB_NAME,
+	storyDeliveryHandler,
+} from './handlers/story-delivery.handler';
+import {
+	resolveStoryRefreshProjectId,
+	STORY_REFRESH_JOB_NAME,
+	storyRefreshHandler,
+} from './handlers/story-refresh.handler';
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
@@ -46,6 +55,7 @@ import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { cliAuthRoutes } from './routes/cli-auth';
 import { deployRoutes } from './routes/deploy';
+import { discordRoutes } from './routes/discord';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
@@ -61,6 +71,7 @@ import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
+import { discordService } from './services/discord';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
 import { mattermostService } from './services/mattermost';
@@ -245,6 +256,10 @@ app.register(telegramRoutes, {
 
 app.register(mattermostRoutes, {
 	prefix: '/api/webhooks/mattermost',
+});
+
+app.register(discordRoutes, {
+	prefix: '/api/webhooks/discord',
 });
 
 app.register(whatsappRoutes, {
@@ -434,9 +449,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		uniqueKey: INVITATION_CLEANUP_JOB_NAME,
 	});
 
-	registerJob(AUTOMATION_JOB_NAME, automationHandler);
-	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
-	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler);
+	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
+	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
+	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
 	if (isCloudBillingEnabled()) {
 		// Process accepted webhooks in the background so Stripe receives an immediate response.
 		registerJob(STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler);
@@ -470,7 +485,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	});
 
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
-		registerJob(CONTEXT_RECOMMENDATIONS_JOB_NAME, contextRecommendationsHandler);
+		registerJob(CONTEXT_RECOMMENDATIONS_JOB_NAME, contextRecommendationsHandler, {
+			resolveProjectId: resolveContextRecommendationsProjectId,
+		});
 		try {
 			await ensureContextRecommendationsSchedules();
 		} catch (err) {
@@ -490,6 +507,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	void pingLicensesServer();
 	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());
 	void mattermostService.startForAllProjects();
+	void discordService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 

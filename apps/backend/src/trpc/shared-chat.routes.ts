@@ -12,6 +12,7 @@ import { getStoryQueryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import { type UIChat } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import { buildDownloadResponse } from '../utils/story-download';
 import { canSendProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
 
@@ -53,6 +54,9 @@ export const sharedChatRoutes = {
 			}
 			if (chatInfo.projectId !== ctx.project.id) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+			}
+			if (chatInfo.userId !== ctx.user.id && ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
 			}
 
 			const created = await sharedChatQueries.createSharedChat(
@@ -110,7 +114,7 @@ export const sharedChatRoutes = {
 				});
 			}
 
-			return { share: ctx.resource, chat, userRole: ctx.userRole };
+			return { share: ctx.resource, chat: withQueryResultPreviewsInChat(chat), userRole: ctx.userRole };
 		},
 	),
 

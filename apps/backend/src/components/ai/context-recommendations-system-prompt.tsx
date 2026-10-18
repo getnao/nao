@@ -128,6 +128,11 @@ function ContextRecommendationsSystemPrompt({
 					The views run on <Bold>{dbConfig.dialect === Dialect.Postgres ? 'PostgreSQL' : 'SQLite'}</Bold>, so
 					write SQL for that dialect.
 				</Span>
+				<Span>
+					Results are trimmed before you see them: only the first rows are shown and long values are cut.
+					Select the columns you need rather than <Code>*</Code>, aggregate or filter before reading raw rows,
+					and only read <Code>tool_input</Code>/<Code>tool_output</Code> for the specific parts you inspect.
+				</Span>
 				<AppDbTimestamps />
 			</Block>
 

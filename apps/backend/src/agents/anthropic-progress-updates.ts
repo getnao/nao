@@ -13,13 +13,15 @@ import { type LanguageModelMiddleware, wrapLanguageModel } from 'ai';
  * sent back to the model unchanged.
  *
  * When the only tool of the response is `suggest_follow_ups` and Claude wrote no text, the note
- * it left before the call is its answer: it is promoted to a text block so the user reads it.
+ * it left right before the call is its answer: it is promoted to a text block so the user reads it.
  */
 export function withProgressUpdates(model: LanguageModelV3): LanguageModelV3 {
 	return wrapLanguageModel({ model, middleware: progressUpdatesMiddleware });
 }
 
 const ANSWER_ONLY_TOOL = 'suggest_follow_ups';
+
+type PendingToolCall = { toolCallId: string; chunks: LanguageModelV3StreamPart[] };
 
 const progressUpdatesMiddleware: LanguageModelMiddleware = {
 	specificationVersion: 'v3',
@@ -36,6 +38,11 @@ const progressUpdatesMiddleware: LanguageModelMiddleware = {
 				new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
 					transform(chunk, controller) {
 						for (const part of promoter.promote(tagger.tag(chunk))) {
+							controller.enqueue(part);
+						}
+					},
+					flush(controller) {
+						for (const part of promoter.release()) {
 							controller.enqueue(part);
 						}
 					},
@@ -73,36 +80,78 @@ class ProgressUpdateTagger {
 	}
 }
 
-/** Turns the progress update preceding a lone `suggest_follow_ups` call into the visible answer. */
+/**
+ * Turns the last progress update into the visible answer when `suggest_follow_ups` turns out to be
+ * the only tool of the response. From that call on, chunks are held until the response finishes
+ * (promote) or another tool call starts (release as-is).
+ */
 class AnswerPromoter {
-	private _progressUpdateText = '';
+	private _lastNoteId: string | undefined;
+	private _lastNoteText = '';
 	private _hasVisibleText = false;
 	private _toolCallCount = 0;
+	private _pending: PendingToolCall | undefined;
 
 	promote(chunk: LanguageModelV3StreamPart): LanguageModelV3StreamPart[] {
-		if (isProgressUpdateDelta(chunk)) {
-			this._progressUpdateText += chunk.delta;
+		if (chunk.type === 'tool-input-start') {
+			return this._onToolInputStart(chunk);
 		}
+		if (this._pending) {
+			return this._hold(this._pending, chunk);
+		}
+		this._trackText(chunk);
+		return [chunk];
+	}
+
+	release(): LanguageModelV3StreamPart[] {
+		const chunks = this._pending?.chunks ?? [];
+		this._pending = undefined;
+		return chunks;
+	}
+
+	private _onToolInputStart(
+		chunk: Extract<LanguageModelV3StreamPart, { type: 'tool-input-start' }>,
+	): LanguageModelV3StreamPart[] {
+		this._toolCallCount += 1;
+		if (this._pending) {
+			return [...this.release(), chunk];
+		}
+		if (!this._canPromoteBefore(chunk.toolName)) {
+			return [chunk];
+		}
+		this._pending = { toolCallId: chunk.id, chunks: [chunk] };
+		return [];
+	}
+
+	private _hold(pending: PendingToolCall, chunk: LanguageModelV3StreamPart): LanguageModelV3StreamPart[] {
+		if (chunk.type !== 'finish') {
+			pending.chunks.push(chunk);
+			return [];
+		}
+		const answer = textBlock(`${pending.toolCallId}-answer`, this._lastNoteText.trim());
+		return [...answer, ...this.release(), chunk];
+	}
+
+	private _trackText(chunk: LanguageModelV3StreamPart): void {
 		if (chunk.type === 'text-delta' && chunk.delta.trim() !== '') {
 			this._hasVisibleText = true;
 		}
-		if (chunk.type !== 'tool-input-start') {
-			return [chunk];
+		if (!isProgressUpdateDelta(chunk)) {
+			return;
 		}
-		this._toolCallCount += 1;
-		if (!this._shouldPromote(chunk.toolName)) {
-			return [chunk];
+		if (chunk.id !== this._lastNoteId) {
+			this._lastNoteId = chunk.id;
+			this._lastNoteText = '';
 		}
-		this._hasVisibleText = true;
-		return [...textBlock(`${chunk.id}-answer`, this._progressUpdateText.trim()), chunk];
+		this._lastNoteText += chunk.delta;
 	}
 
-	private _shouldPromote(toolName: string): boolean {
+	private _canPromoteBefore(toolName: string): boolean {
 		return (
 			toolName === ANSWER_ONLY_TOOL &&
 			this._toolCallCount === 1 &&
 			!this._hasVisibleText &&
-			this._progressUpdateText.trim() !== ''
+			this._lastNoteText.trim() !== ''
 		);
 	}
 }

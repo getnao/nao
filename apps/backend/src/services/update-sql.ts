@@ -5,19 +5,23 @@ import { TRPCError } from '@trpc/server';
 import { executeQuery } from '../agents/tools/execute-sql';
 import {
 	EXECUTE_SEMANTIC_QUERY_TOOL_NAME,
-	getLatestExecuteSqlByQueryId,
+	type LatestExecuteSqlRow,
 	updateExecuteSqlPart,
 } from '../queries/execute-sql.queries';
 import { buildToolContext } from './agent';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 
-export async function updateSqlQueryInChat(opts: {
+type SqlEditOptions = {
 	queryId: string;
 	sqlQuery: string;
 	databaseId?: string;
 	name?: string;
 	userId: string;
-}): Promise<{ input: executeSql.Input; output: executeSql.Output; toolCallId: string; chatId: string }> {
+	existing: LatestExecuteSqlRow | null;
+};
+
+export async function updateSqlQueryInChat(
+	opts: SqlEditOptions,
+): Promise<{ input: executeSql.Input; output: executeSql.Output; toolCallId: string; chatId: string }> {
 	const { existing, context, input } = await prepareSqlEditContext(opts);
 	const output = await executeQuery({ ...input, query_id: opts.queryId as `query_${string}` }, context);
 	await updateExecuteSqlPart(existing.toolCallId, input, output);
@@ -25,26 +29,15 @@ export async function updateSqlQueryInChat(opts: {
 	return { input, output, toolCallId: existing.toolCallId, chatId: existing.chatId };
 }
 
-export async function previewSqlQueryInChat(opts: {
-	queryId: string;
-	sqlQuery: string;
-	databaseId?: string;
-	userId: string;
-}): Promise<executeSql.Output> {
+export async function previewSqlQueryInChat(opts: SqlEditOptions): Promise<executeSql.Output> {
 	const { context, input } = await prepareSqlEditContext(opts);
 	return executeQuery(input, context);
 }
 
-async function prepareSqlEditContext(opts: {
-	queryId: string;
-	sqlQuery: string;
-	databaseId?: string;
-	name?: string;
-	userId: string;
-}) {
+async function prepareSqlEditContext(opts: SqlEditOptions) {
 	assertSqlQueryEditable(opts.sqlQuery);
 
-	const existing = await getLatestExecuteSqlByQueryId(opts.queryId);
+	const existing = opts.existing;
 	if (!existing) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Query ${opts.queryId} not found.` });
 	}
@@ -58,7 +51,6 @@ async function prepareSqlEditContext(opts: {
 		});
 	}
 
-	await assertProjectCloudBillingAccess(existing.projectId);
 	const context = await buildToolContext({
 		projectId: existing.projectId,
 		userId: opts.userId,

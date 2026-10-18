@@ -27,6 +27,7 @@ interface CustomStoryBodyProps {
 	onEditBlock?: (payload: StoryBlockEditPayload) => void;
 	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
 	onAskBlock?: (block: StoryBlockReference) => void;
+	onRememberState?: () => void;
 }
 
 const MAX_RUNTIME_ERRORS = 5;
@@ -55,6 +56,7 @@ export function CustomStoryBody({
 	onEditBlock,
 	onEditTableFormat,
 	onAskBlock,
+	onRememberState,
 }: CustomStoryBodyProps) {
 	const { runtimeErrors, runtimeErrorCount, handleRuntimeError } = useRuntimeErrors(content?.version.id);
 	const styles = useMemo(() => content?.styles.map((style) => style.content) ?? [], [content?.styles]);
@@ -79,7 +81,12 @@ export function CustomStoryBody({
 						onEditBlock={onEditBlock}
 						onEditTableFormat={onEditTableFormat}
 						onAskBlock={onAskBlock}
+						onRememberState={onRememberState}
 						onError={handleRuntimeError}
+						stateControls={{
+							usesState: content.usesState,
+							hasLocalState: content.hasLocalState,
+						}}
 					/>
 				) : (
 					<BuildFailure message={content?.bundleError ?? 'This version has no build output.'} />

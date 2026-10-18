@@ -3,12 +3,12 @@ import { z } from 'zod/v4';
 
 import * as transcribeService from '../services/transcribe.service';
 import { HandlerError } from '../utils/error';
-import { projectProtectedProcedure } from './trpc';
+import { cloudBillingProjectProcedure, projectProtectedProcedure } from './trpc';
 
 const transcribeProviderSchema = z.enum(['openai']);
 
 export const transcribeRoutes = {
-	transcribe: projectProtectedProcedure
+	transcribe: cloudBillingProjectProcedure
 		.input(
 			z.object({
 				audio: z.string(),

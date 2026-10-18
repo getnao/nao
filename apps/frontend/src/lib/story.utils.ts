@@ -1,4 +1,4 @@
-import type { UIMessage } from '@nao/backend/chat';
+import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 
 export interface StorySummary {
 	id: string;
@@ -13,6 +13,11 @@ export interface StoryDraft {
 }
 
 const storiesByMessages = new WeakMap<UIMessage[], StorySummary[]>();
+
+/** The slug a story tool call acts on, from its output when available and from the (possibly partial) input otherwise. */
+export function getStoryToolPartSlug(part: UIToolPart<'story'>): string | undefined {
+	return part.output?.id ?? part.input?.id;
+}
 
 const isStoryIdMatch = (expectedId: string, candidateId: string) => {
 	return expectedId === candidateId;
@@ -59,6 +64,7 @@ export function findStoryIds(messages: UIMessage[]): string[] {
 /**
  * Finds the latest tool-story state for a specific story ID.
  * Prefers currently-streaming tool input, then falls back to latest code-bearing input/output.
+ * A failed call never produced a version, so its input is not a draft to show.
  */
 export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDraft | null {
 	let prefixMatchedDraft: StoryDraft | null = null;
@@ -68,13 +74,13 @@ export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDra
 
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p];
-			if (part.type !== 'tool-story') {
+			if (part.type !== 'tool-story' || part.state === 'output-error') {
 				continue;
 			}
 
 			const input = part.input;
 			const output = part.output;
-			const id = output?.id ?? input?.id;
+			const id = getStoryToolPartSlug(part);
 			if (!id) {
 				continue;
 			}

@@ -5,15 +5,26 @@ import { z } from 'zod/v4';
 import { env } from '../env';
 import * as memoryQueries from '../queries/memory';
 import * as projectQueries from '../queries/project.queries';
+import * as discordConfigQueries from '../queries/project-discord-config.queries';
+import * as discordLinkQueries from '../queries/project-discord-link.queries';
 import * as userQueries from '../queries/user.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import * as userPreferenceQueries from '../queries/user-preference.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
+import { discordService } from '../services/discord';
+import { canUseDiscordInProject } from '../services/discord-helpers';
 import { addProjectMemberWithUserGroups } from '../services/project-user-group-membership.service';
 import { addTeamMember } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
+import { type DiscordLinkTokenPayload, verifyDiscordLinkToken } from '../utils/discord-link-token';
 import { buildUserAddedEmail } from '../utils/email-builders';
-import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	assertCanRenameUser,
+	projectProtectedProcedure,
+	protectedProcedure,
+	publicProcedure,
+} from './trpc';
 
 export const userRoutes = {
 	hasUsers: publicProcedure.query(async () => {
@@ -21,15 +32,17 @@ export const userRoutes = {
 	}),
 
 	get: projectProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
-		if (ctx.userRole !== 'admin' && input.userId !== ctx.user.id) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
+		if (input.userId !== ctx.user.id) {
+			if (ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can access other users information' });
+			}
+			const targetRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
+			if (!targetRole) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found in this project' });
+			}
 		}
 
-		const user = await userQueries.getUser({ id: input.userId });
-		if (!user) {
-			return null;
-		}
-		return user;
+		return userQueries.getUserProfile(input.userId);
 	}),
 
 	modify: adminProtectedProcedure
@@ -42,6 +55,9 @@ export const userRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			const previousRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
+			if (!previousRole) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found in this project' });
+			}
 
 			if (previousRole === 'admin' && input.newRole && input.newRole !== 'admin') {
 				const moreThanOneAdmin = await projectQueries.checkProjectHasMoreThanOneAdmin(ctx.project.id);
@@ -53,6 +69,10 @@ export const userRoutes = {
 				}
 			}
 			const previousName = await userQueries.getUserName(input.userId);
+			const shouldRename = !!input.name && input.name !== previousName;
+			if (shouldRename) {
+				await assertCanRenameUser(ctx.user.id, input.userId, ctx.project.orgId);
+			}
 
 			if (input.newRole && input.newRole !== previousRole) {
 				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
@@ -66,8 +86,8 @@ export const userRoutes = {
 					await cleanupContextWorktree(ctx.project.id, ctx.project.path, input.userId);
 				}
 			}
-			if (input.name && input.name !== previousName) {
-				await userQueries.updateUser(input.userId, input.name);
+			if (shouldRename) {
+				await userQueries.updateUser(input.userId, input.name!);
 			}
 		}),
 
@@ -127,7 +147,43 @@ export const userRoutes = {
 	getMemories: protectedProcedure.query(async ({ ctx }) => {
 		return memoryQueries.getUserMemories(ctx.user.id);
 	}),
+
+	getDiscordLinkRequest: protectedProcedure.input(z.object({ token: z.string() })).query(async ({ input }) => {
+		const request = await resolveDiscordLinkRequest(input.token);
+		return { discordUserName: request.discordUserName };
+	}),
+
+	linkDiscordAccount: protectedProcedure.input(z.object({ token: z.string() })).mutation(async ({ input, ctx }) => {
+		const request = await resolveDiscordLinkRequest(input.token);
+		const role = await projectQueries.getUserRoleInProject(request.projectId, ctx.user.id);
+		if (!canUseDiscordInProject(role)) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Your account does not have access to this project.' });
+		}
+
+		await discordLinkQueries.upsertLinkedDiscordUser({
+			projectId: request.projectId,
+			discordUserId: request.discordUserId,
+			userId: ctx.user.id,
+		});
+		await discordService.notifyAccountLinked(request.projectId, request.discordUserId, ctx.user.email);
+		return { email: ctx.user.email };
+	}),
 };
+
+async function resolveDiscordLinkRequest(token: string): Promise<DiscordLinkTokenPayload> {
+	const request = verifyDiscordLinkToken(token);
+	if (!request) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'This link is invalid or has expired. Mention the bot again to get a new one.',
+		});
+	}
+	const config = await discordConfigQueries.getProjectDiscordConfig(request.projectId);
+	if (!config) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Discord is no longer configured for this project.' });
+	}
+	return request;
+}
 
 async function handleUserGroupQuery<T>(operation: () => Promise<T>): Promise<T> {
 	try {

@@ -1,7 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	hasAccess: vi.fn(),
+	getStoryById: vi.fn(async () => ({
+		id: 'story-id',
+		archivedAt: null,
+		chatId: 'chat-id',
+		projectId: 'project-id',
+		slug: 'story-slug',
+		userId: 'user-id',
+	})),
 	notifyUsers: vi.fn(),
 	refreshStoryData: vi.fn(),
 	updateJobPayload: vi.fn(),
@@ -16,14 +23,7 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	})),
 }));
 vi.mock('../src/queries/story.queries', () => ({
-	getStoryById: vi.fn(async () => ({
-		id: 'story-id',
-		archivedAt: null,
-		chatId: 'chat-id',
-		projectId: 'project-id',
-		slug: 'story-slug',
-		userId: 'user-id',
-	})),
+	getStoryById: mocks.getStoryById,
 	getLatestVersionByChatAndSlug: vi.fn(async () => ({
 		code: 'export default {}',
 		title: 'Story title',
@@ -34,9 +34,6 @@ vi.mock('../src/queries/story-delivery.queries', () => ({
 }));
 vi.mock('../src/queries/user.queries', () => ({
 	getUserName: vi.fn(async () => 'Story owner'),
-}));
-vi.mock('../src/services/cloud-billing-access.service', () => ({
-	hasProjectCloudBillingAccess: mocks.hasAccess,
 }));
 vi.mock('../src/services/live-story', () => ({ refreshStoryData: mocks.refreshStoryData }));
 vi.mock('../src/services/notification.service', () => ({
@@ -65,7 +62,11 @@ vi.mock('../src/utils/story-links', () => ({
 	storyPath: vi.fn(() => '/stories/story-id'),
 }));
 
-import { runScheduledStoryDelivery, storyDeliveryHandler } from '../src/handlers/story-delivery.handler';
+import {
+	resolveStoryDeliveryProjectId,
+	runScheduledStoryDelivery,
+	storyDeliveryHandler,
+} from '../src/handlers/story-delivery.handler';
 import { NotificationChannelDeliveryError } from '../src/services/notification.service';
 
 beforeEach(() => {
@@ -73,18 +74,7 @@ beforeEach(() => {
 	mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
 });
 
-it('skips scheduled delivery when the project has no billing access', async () => {
-	mocks.hasAccess.mockResolvedValue(false);
-
-	await runScheduledStoryDelivery('story-id');
-
-	expect(mocks.hasAccess).toHaveBeenCalledWith('project-id');
-	expect(mocks.refreshStoryData).not.toHaveBeenCalled();
-});
-
-it('delivers the refreshed story when the project has billing access', async () => {
-	mocks.hasAccess.mockResolvedValue(true);
-
+it('delivers the refreshed story with scheduler-verified billing access', async () => {
 	await runScheduledStoryDelivery('story-id');
 
 	expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-id', 'story-slug', {
@@ -98,8 +88,13 @@ it('delivers the refreshed story when the project has billing access', async () 
 	);
 });
 
+it('lets the handler no-op when the scheduled story no longer exists', async () => {
+	mocks.getStoryById.mockResolvedValueOnce(undefined);
+
+	await expect(resolveStoryDeliveryProjectId({ storyId: 'deleted-story-id' })).resolves.toBeNull();
+});
+
 it('preserves successful channels when the scheduler retries delivery', async () => {
-	mocks.hasAccess.mockResolvedValue(true);
 	const previousSkips = [{ userId: 'recipient-user-id', channel: 'slack' as const }];
 	const newlySucceeded = [{ userId: 'recipient-user-id', channel: 'email' as const }];
 	const error = new NotificationChannelDeliveryError(newlySucceeded, [

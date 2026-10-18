@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
 
-import { requireNonViewer } from '@/lib/require-admin';
+import { requireNonViewer } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/user-groups')({
 	beforeLoad: requireNonViewer,

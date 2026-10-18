@@ -1,5 +1,6 @@
 import { hasModifier, replayKeydown, snapshotKeydown } from '@nao/shared/keyboard-shortcut';
 import {
+	EMPTY_STORY_STATE_SNAPSHOT,
 	isFromStoryChannel,
 	isStoryFrameMessage,
 	STORY_CONNECT_MESSAGE,
@@ -8,13 +9,16 @@ import {
 } from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { narrativesOptions, queryDataOptions, querySqlOptions } from './story-data-options';
+import { narrativesOptions, queryDataOptions, querySqlOptions, stateOptions } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
+import { RememberStateHeader } from './remember-state-header';
+import { useStoryStateRecorder } from './use-story-state-recorder';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
 	StoryFrameMessage,
 	StoryHostMessage,
+	StoryStateSnapshot,
 	StoryTableFormatEditRequest,
 } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -45,7 +49,15 @@ interface CustomStoryFrameProps {
 	onAskBlock?: (block: StoryBlockReference) => void;
 	onReady?: () => void;
 	onError?: (error: CustomStoryRuntimeError) => void;
+	stateControls?: StoryStateControls;
+	/** Offered on a story that saves no state yet, to have the agent add it. */
+	onRememberState?: () => void;
 	className?: string;
+}
+
+export interface StoryStateControls {
+	usesState: boolean;
+	hasLocalState: boolean;
 }
 
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
@@ -61,6 +73,8 @@ export function CustomStoryFrame({
 	onAskBlock,
 	onReady,
 	onError,
+	stateControls,
+	onRememberState,
 	className,
 }: CustomStoryFrameProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -70,7 +84,8 @@ export function CustomStoryFrame({
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
 	const dateFormat = useDateFormat();
-	const frameDocument = useStoryFrameDocument(app, styles, theme, onError);
+	const usesState = stateControls?.usesState ?? false;
+	const frameDocument = useStoryFrameDocument(app, styles, theme, dataSource, usesState, onError);
 	const srcDoc = frameDocument?.html ?? null;
 	const channel = frameDocument?.channel;
 	const bootTheme = frameDocument?.theme;
@@ -78,6 +93,9 @@ export function CustomStoryFrame({
 	const reply = useCallback((message: StoryHostMessage) => {
 		portRef.current?.postMessage(message);
 	}, []);
+
+	const reportStateError = useCallback((message: string) => onError?.({ message }), [onError]);
+	const recordStateChange = useStoryStateRecorder(dataSource, reportStateError);
 
 	const syncThemeOnReady = useEffectEvent(() => {
 		if (theme !== bootTheme) {
@@ -206,6 +224,9 @@ export function CustomStoryFrame({
 				case 'nao-story:query-sql':
 					void answerQuerySql(message.requestId, message.queryId);
 					break;
+				case 'nao-story:set-state':
+					recordStateChange({ key: message.key, value: message.value, shared: message.shared === true });
+					break;
 				case 'nao-story:keydown':
 					replayKeydown(document, message);
 					break;
@@ -229,6 +250,7 @@ export function CustomStoryFrame({
 		onEditTableFormat,
 		onError,
 		onReady,
+		recordStateChange,
 		reply,
 	]);
 
@@ -278,16 +300,21 @@ export function CustomStoryFrame({
 	}
 
 	return (
-		<iframe
-			ref={iframeRef}
-			aria-label='Custom story'
-			sandbox='allow-scripts'
-			allowFullScreen
-			referrerPolicy='no-referrer'
-			srcDoc={srcDoc}
-			onLoad={handleLoad}
-			className={cn('block h-full w-full border-0 bg-transparent', className)}
-		/>
+		<div className='flex h-full flex-col'>
+			{!usesState && stateControls?.hasLocalState && onRememberState && (
+				<RememberStateHeader onRemember={onRememberState} />
+			)}
+			<iframe
+				ref={iframeRef}
+				aria-label='Custom story'
+				sandbox='allow-scripts'
+				allowFullScreen
+				referrerPolicy='no-referrer'
+				srcDoc={srcDoc}
+				onLoad={handleLoad}
+				className={cn('block min-h-0 w-full flex-1 border-0 bg-transparent', className)}
+			/>
+		</div>
 	);
 }
 
@@ -301,34 +328,51 @@ function useStoryFrameDocument(
 	app: StoryApp,
 	styles: string[],
 	theme: StoryTheme,
+	dataSource: CustomStoryDataSource,
+	usesState: boolean,
 	onError?: (error: CustomStoryRuntimeError) => void,
 ): StoryFrameDocument | null {
 	const [frameDocument, setFrameDocument] = useState<StoryFrameDocument | null>(null);
+	const queryClient = useQueryClient();
 	const reportError = useEffectEvent((error: unknown) => onError?.({ message: describeError(error) }));
 	const readTheme = useEffectEvent(() => theme);
+	const loadState = useEffectEvent(async (): Promise<StoryStateSnapshot> => {
+		if (!usesState) {
+			return EMPTY_STORY_STATE_SNAPSHOT;
+		}
+		const options = stateOptions(dataSource);
+		return queryClient
+			.fetchQuery(options)
+			.catch(() => queryClient.getQueryData(options.queryKey) ?? EMPTY_STORY_STATE_SNAPSHOT);
+	});
 	useEffect(() => {
 		let cancelled = false;
 		setFrameDocument(null);
 		const channel = crypto.randomUUID();
 		const bootTheme = readTheme();
-		buildStoryFrameDocument({
-			app,
-			styles,
-			theme: bootTheme,
-			runtime: storyRuntimeLocation(),
-			channel,
-		}).then(
-			(html) => {
-				if (!cancelled) {
-					setFrameDocument({ html, channel, theme: bootTheme });
-				}
-			},
-			(error: unknown) => {
-				if (!cancelled) {
-					reportError(error);
-				}
-			},
-		);
+		loadState()
+			.then((state) =>
+				buildStoryFrameDocument({
+					app,
+					styles,
+					theme: bootTheme,
+					state,
+					runtime: storyRuntimeLocation(),
+					channel,
+				}),
+			)
+			.then(
+				(html) => {
+					if (!cancelled) {
+						setFrameDocument({ html, channel, theme: bootTheme });
+					}
+				},
+				(error: unknown) => {
+					if (!cancelled) {
+						reportError(error);
+					}
+				},
+			);
 		return () => {
 			cancelled = true;
 		};

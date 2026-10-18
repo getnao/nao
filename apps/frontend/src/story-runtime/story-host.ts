@@ -10,6 +10,7 @@ import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { resolveBlockColors } from './story-colors';
+import { initStoryState, readStoryState, writeStoryState } from './story-state';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { Shortcut } from '@nao/shared/keyboard-shortcut';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -22,8 +23,10 @@ import type {
 	StoryFrameMessage,
 	StoryHostMessage,
 	StoryHtmlApi,
+	StoryHtmlStateApi,
 	StoryNarratives,
 	StoryQueryResult,
+	StoryStateSnapshot,
 	StoryTableExportFormat,
 } from '@nao/shared/story-app';
 
@@ -32,6 +35,7 @@ interface BootOptions {
 	source: string;
 	theme: StoryTheme;
 	exportData?: StoryExportData;
+	state?: StoryStateSnapshot;
 	channel?: string;
 }
 
@@ -59,11 +63,13 @@ export async function bootStory({
 	source,
 	theme,
 	exportData: embeddedData,
+	state,
 	channel,
 }: BootOptions): Promise<void> {
 	activeTheme = theme;
 	frameChannel = channel;
 	exportData = embeddedData ?? null;
+	bootStoryState(state);
 	installGlobalErrorReporting();
 
 	try {
@@ -111,6 +117,8 @@ function exposeHtmlApi(): void {
 			}),
 		isExport: isStoryExport,
 		isPrint: isPrintMode,
+		state: htmlStateApi(false),
+		sharedState: htmlStateApi(true),
 	};
 	Object.defineProperty(globalThis, STORY_HTML_API_GLOBAL, { value: Object.freeze(api), enumerable: true });
 }
@@ -327,6 +335,23 @@ function awaitReply<T>(
 		});
 		send(buildMessage(requestId));
 	});
+}
+
+function htmlStateApi(shared: boolean): StoryHtmlStateApi {
+	return {
+		get: (key) => readStoryState(key, shared),
+		set: (key, value) => writeStoryState(key, value, shared),
+	};
+}
+
+function bootStoryState(state: StoryStateSnapshot | undefined): void {
+	if (exportData) {
+		initStoryState(exportData.state, null);
+		return;
+	}
+	initStoryState(state, ({ key, value, shared }) =>
+		send({ type: 'nao-story:set-state', key, value: toJsonSafe(value), shared }),
+	);
 }
 
 function send(message: StoryFrameMessage): void {

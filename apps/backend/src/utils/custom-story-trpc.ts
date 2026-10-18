@@ -8,6 +8,7 @@ import {
 	CustomStoryQueryNotAllowedError,
 	CustomStoryQueryNotFoundError,
 } from '../services/custom-story';
+import { InvalidStoryStateError } from '../services/custom-story-state';
 import { InvalidStoryFilePathError } from './story-file-path';
 import { MAX_STORY_SNAPSHOT_BYTES } from './story-snapshot';
 
@@ -18,6 +19,12 @@ export const storySnapshotHtml = z
 		message: `The story snapshot exceeds ${MAX_STORY_SNAPSHOT_BYTES / 1024 / 1024} MB.`,
 	});
 
+export const storyStateChange = z.object({
+	key: z.string(),
+	value: z.unknown(),
+	shared: z.boolean(),
+});
+
 export function toCustomStoryTrpcError(error: unknown): unknown {
 	if (
 		error instanceof CustomStoryNotFoundError ||
@@ -26,7 +33,7 @@ export function toCustomStoryTrpcError(error: unknown): unknown {
 	) {
 		return new TRPCError({ code: 'NOT_FOUND', message: error.message });
 	}
-	if (error instanceof InvalidStoryFilePathError) {
+	if (error instanceof InvalidStoryFilePathError || error instanceof InvalidStoryStateError) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 	}
 	if (error instanceof CustomStoryQueryNotAllowedError) {

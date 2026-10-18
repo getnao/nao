@@ -320,7 +320,12 @@ function StorySubHeader({
 				<span className='text-xs text-muted-foreground'>
 					{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
 				</span>
-				<Button variant='outline' size='sm' onClick={versionControls.onRestore} className='gap-1.5'>
+				<Button
+					variant='outline'
+					size='sm'
+					onClick={versionControls.onRestore}
+					className='gap-1.5 rounded-full'
+				>
 					<RotateCcw className='size-3' strokeWidth={2.25} />
 					<span>Restore</span>
 				</Button>

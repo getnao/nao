@@ -16,13 +16,23 @@ export type DataExportFormat = 'csv' | 'xlsx';
 interface ExportDataMenuProps {
 	columns: string[];
 	data: Record<string, unknown>[];
+	/** Exports these rows instead of `data`, which may only be a preview of the result. */
+	loadAllRows?: () => Promise<Record<string, unknown>[]>;
 	filename: string;
 	onExport?: (format: DataExportFormat) => void;
 	align?: 'start' | 'end';
 	children: ReactElement;
 }
 
-export function ExportDataMenu({ columns, data, filename, onExport, align = 'end', children }: ExportDataMenuProps) {
+export function ExportDataMenu({
+	columns,
+	data,
+	loadAllRows,
+	filename,
+	onExport,
+	align = 'end',
+	children,
+}: ExportDataMenuProps) {
 	const [open, setOpen] = useState(false);
 	const toolCallActions = useToolCallActions();
 	const dateFormat = useDateFormat();
@@ -33,10 +43,11 @@ export function ExportDataMenu({ columns, data, filename, onExport, align = 'end
 	};
 
 	const handleExport = async (format: DataExportFormat) => {
+		const rows = loadAllRows ? await loadAllRows() : data;
 		if (format === 'csv') {
-			downloadCsv(`${filename}.csv`, tableToCsv(columns, data, dateFormat));
+			downloadCsv(`${filename}.csv`, tableToCsv(columns, rows, dateFormat));
 		} else {
-			await downloadXlsx(`${filename}.xlsx`, columns, data, dateFormat);
+			await downloadXlsx(`${filename}.xlsx`, columns, rows, dateFormat);
 		}
 		onExport?.(format);
 	};

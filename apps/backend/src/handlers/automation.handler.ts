@@ -16,10 +16,6 @@ import {
 	getAutomationIntegrationToolNames,
 	isGithubAutomationTool,
 } from '../services/automation-tools';
-import {
-	assertProjectCloudBillingAccess,
-	hasProjectCloudBillingAccess,
-} from '../services/cloud-billing-access.service';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
 import type { AutomationIntegrationResult } from '../types/automation';
@@ -47,23 +43,29 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	if (!automation) {
 		throw new Error(`Automation not found: ${automationId}`);
 	}
-	if (!(await hasProjectCloudBillingAccess(automation.projectId))) {
-		return;
-	}
 	await runAutomation(automationId, {
 		billingAccessVerifiedProjectId: automation.projectId,
 		requireEnabled: true,
 	});
 }
 
+export async function resolveAutomationProjectId(payload: AutomationJobPayload): Promise<string> {
+	const automationId = payload.automationId;
+	if (!automationId) {
+		throw new Error('automationId is required.');
+	}
+	const automation = await automationQueries.getAutomationById(automationId);
+	if (!automation) {
+		throw new Error(`Automation not found: ${automationId}`);
+	}
+	return automation.projectId;
+}
+
 export async function runAutomation(
 	automationId: string,
 	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, {
-		billingAccessVerifiedProjectId,
-		requireEnabled,
-	});
+	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
 	return finishAutomationRun(automation, run, billingAccessVerifiedProjectId);
 }
 
@@ -71,17 +73,14 @@ export async function startAutomationRun(
 	automationId: string,
 	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, {
-		billingAccessVerifiedProjectId,
-		requireEnabled,
-	});
+	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
 	void finishAutomationRun(automation, run, billingAccessVerifiedProjectId).catch(() => undefined);
 	return run;
 }
 
 async function createAutomationRun(
 	automationId: string,
-	{ billingAccessVerifiedProjectId, requireEnabled }: RunAutomationOptions & { requireEnabled: boolean },
+	requireEnabled: boolean,
 ): Promise<{ automation: AutomationWithSchedule; run: DBAutomationRun }> {
 	const automation = await automationQueries.getAutomationById(automationId);
 	if (!automation) {
@@ -90,10 +89,6 @@ async function createAutomationRun(
 	if (requireEnabled && !automation.enabled) {
 		throw new Error(`Automation is disabled: ${automationId}`);
 	}
-	if (billingAccessVerifiedProjectId !== automation.projectId) {
-		await assertProjectCloudBillingAccess(automation.projectId);
-	}
-
 	const run = await automationQueries.createAutomationRun({
 		automationId,
 		status: 'running',

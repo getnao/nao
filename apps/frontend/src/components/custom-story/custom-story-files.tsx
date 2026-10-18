@@ -80,7 +80,7 @@ export function CustomStoryFiles({ source, versionNumber, files, editable = fals
 	return (
 		<div className='flex h-full flex-col'>
 			{edits.hasChanges || edits.buildErrors.length > 0 ? (
-				<StoryFileEditBar edits={edits} canSave={editable} storySlug={source.storySlug} />
+				<StoryFileEditBar edits={edits} canSave={editable && edits.isSavable} storySlug={source.storySlug} />
 			) : null}
 			<ResizablePanelGroup
 				orientation='horizontal'
@@ -236,6 +236,7 @@ function useStoryFileEdits(source: CustomStoryFileSource, versionNumber: number)
 	const [drafts, setDrafts] = useState<Record<string, string>>({});
 	const [buildErrors, setBuildErrors] = useState<string[]>([]);
 	const saveMutation = useMutation(trpc.story.saveCustomStoryFiles.mutationOptions());
+	const chatId = ownerChatId(source);
 
 	const setDraft = (path: string, content: string, original: string) => {
 		setDrafts((current) => {
@@ -250,10 +251,10 @@ function useStoryFileEdits(source: CustomStoryFileSource, versionNumber: number)
 	};
 
 	const save = async () => {
-		if (source.kind !== 'owner') {
+		if (!chatId) {
 			return;
 		}
-		const { chatId, storySlug } = source;
+		const { storySlug } = source;
 		const files = Object.entries(drafts).map(([path, content]) => ({ path, content }));
 		const result = await saveMutation.mutateAsync({ chatId, storySlug, versionNumber, files });
 		if (!result.success) {
@@ -282,9 +283,18 @@ function useStoryFileEdits(source: CustomStoryFileSource, versionNumber: number)
 		buildErrors,
 		saveError: saveMutation.error,
 		isSaving: saveMutation.isPending,
+		isSavable: chatId !== null,
 		hasChanges: Object.keys(drafts).length > 0,
 		changedCount: Object.keys(drafts).length,
 	};
+}
+
+/** Saving goes through the owner's chat, so owner sources resolved by story id alone are read-only here. */
+function ownerChatId(source: CustomStoryFileSource): string | null {
+	if (source.kind !== 'owner' || typeof source.chatId !== 'string') {
+		return null;
+	}
+	return source.chatId;
 }
 
 interface StoryFileEditBarProps {

@@ -158,6 +158,7 @@ export const LLM_PROVIDERS = [
 	'qwen',
 	'minimax',
 	'moonshot',
+	'meta',
 	'openaiCompatible',
 ] as const;
 
@@ -175,6 +176,7 @@ export const providerLabels: Record<LlmProviderKind, string> = {
 	qwen: 'Qwen',
 	minimax: 'MiniMax',
 	moonshot: 'Moonshot',
+	meta: 'Meta',
 	openaiCompatible: 'OpenAI Compatible',
 };
 

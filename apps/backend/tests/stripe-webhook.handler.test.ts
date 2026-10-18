@@ -103,6 +103,40 @@ describe('stripeWebhookProcessHandler', () => {
 		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
 	});
 
+	it('reconciles a yearly subscription Checkout', async () => {
+		mocks.getEvent.mockResolvedValue({
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: 'cs_yearly',
+					mode: 'subscription',
+					metadata: { nao_plan_key: 'cloud_yearly_v1' },
+				},
+			},
+		});
+		mocks.getCheckoutSubscription.mockResolvedValue({
+			session: {
+				id: 'cs_yearly',
+				client_reference_id: 'org-id',
+				customer: 'cus_cloud',
+				metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_yearly_v1' },
+				mode: 'subscription',
+			},
+			subscription: {
+				id: 'sub_yearly',
+				customer: 'cus_cloud',
+				metadata: { nao_org_id: 'org-id' },
+			},
+		});
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_cloud',
+			organizationIdHint: 'org-id',
+		});
+	});
+
 	it('rejects a Checkout Session whose Customer differs from its Subscription', async () => {
 		mocks.getEvent.mockResolvedValue({
 			type: 'checkout.session.completed',

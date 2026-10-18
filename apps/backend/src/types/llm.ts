@@ -142,6 +142,8 @@ export type ModelCapabilities = {
 	/** Effort vocabulary of this model, when it differs from its provider's default translation. */
 	effortMap?: Record<ActiveEffort, string>;
 	temperatureMax?: number;
+	/** Lowest Top P the API accepts, for models that reject 0. */
+	topPMin?: number;
 	extraParams?: ExtraParamKey[];
 	serviceTierOptions?: ServiceTier[];
 	/** Provider physical max output tokens; budget-thinking Claude clamps budgets under this since the SDK sends max_tokens = maxOutputTokens + budgetTokens. */
@@ -207,7 +209,7 @@ type Flatten<T> = { [K in keyof T]: T[K] };
 export type OpenAICompatibleOptions = OpenAICompatibleProviderOptions & Record<string, JSONValue>;
 
 /** Providers served through a plain OpenAI-compatible chat endpoint rather than a dedicated SDK. */
-export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'requesty' | 'openaiCompatible';
+export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'meta' | 'requesty' | 'openaiCompatible';
 
 /** Map each provider kind to its specific config type */
 export type ProviderConfigMap = {
@@ -223,6 +225,7 @@ export type ProviderConfigMap = {
 	qwen: OpenAICompatibleOptions;
 	minimax: OpenAICompatibleOptions;
 	moonshot: OpenAICompatibleOptions;
+	meta: OpenAICompatibleOptions;
 	requesty: OpenAICompatibleOptions;
 	openaiCompatible: OpenAICompatibleOptions;
 };

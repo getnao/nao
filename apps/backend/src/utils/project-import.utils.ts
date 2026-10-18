@@ -98,11 +98,20 @@ export async function replaceExistingProject({
 	sourceDir,
 	project,
 	projectName,
+	userId,
 }: {
 	sourceDir: string;
 	project: DBProject;
 	projectName: string;
+	userId: string;
 }) {
+	const role = await projectQueries.getUserRoleInProject(project.id, userId);
+	if (role !== 'admin' && role !== 'context_admin') {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: `Only admins or context admins of "${projectName}" can replace it.`,
+		});
+	}
 	if (!project.path) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 	}

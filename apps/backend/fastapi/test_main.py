@@ -904,6 +904,73 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
     assert "main.users.email" in guarded.json()["detail"]
 
 
+def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    pd = main.pd
+    result = pd.DataFrame(
+        {
+            "id": pd.array([1, None], dtype="Int64"),
+            "amount": [1.5, float("nan")],
+            "price": [main.Decimal("9.99"), None],
+            "day": [main.date(2024, 1, 2), None],
+            "created_at": pd.to_datetime(["2024-01-02 03:04:05.123456", None]).tz_localize("UTC"),
+            "precise_at": pd.to_datetime(["2024-01-02 03:04:05.000000001", None]),
+            "active": [True, False],
+            "payload": [b"raw", None],
+            "duration": [pd.Timedelta(hours=1), pd.Timedelta(minutes=30)],
+        }
+    )
+
+    class DatabaseConfig:
+        name = "warehouse"
+        type = "duckdb"
+        allow_listed_only = False
+
+        def get_database_name(self) -> str:
+            return "warehouse"
+
+        def execute_sql(self, sql: str):
+            return result
+
+    config = SimpleNamespace(databases=[DatabaseConfig()])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={"sql": "SELECT 1", "nao_project_folder": str(tmp_path), "table_access": UNENFORCED_TABLE_ACCESS},
+    )
+
+    assert response.status_code == 200, response.text
+    assert_sql_result(
+        response.json(),
+        row_count=2,
+        columns=list(result.columns),
+        expected_data=[
+            {
+                "id": 1,
+                "amount": 1.5,
+                "price": 9.99,
+                "day": "2024-01-02",
+                "created_at": "2024-01-02T03:04:05.123456+00:00",
+                "precise_at": "2024-01-02T03:04:05.000000001",
+                "active": True,
+                "payload": "raw",
+                "duration": "PT1H",
+            },
+            {
+                "id": None,
+                "amount": None,
+                "price": None,
+                "day": None,
+                "created_at": None,
+                "precise_at": None,
+                "active": False,
+                "payload": None,
+                "duration": "PT30M",
+            },
+        ],
+    )
+
+
 def test_execute_sql_simple_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
     client = TestClient(app, headers=INTERNAL_HEADERS)

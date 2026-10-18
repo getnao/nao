@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
 import { OrganizationBillingSettings } from '@/components/settings/organization-billing-settings';
-import { requireOrganizationAdminCloudBilling } from '@/lib/require-admin';
+import { requireOrganizationAdminCloudBilling } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/organization/billing')({
 	beforeLoad: requireOrganizationAdminCloudBilling,
