@@ -1,4 +1,4 @@
-import type { requestWarehouseCredentials } from '@nao/shared/tools';
+import { requestWarehouseCredentials } from '@nao/shared/tools';
 
 export type SqlProvider = requestWarehouseCredentials.Provider;
 
@@ -42,21 +42,7 @@ interface SqlProviderSettings {
 	fields: readonly WarehouseCredentialField[];
 }
 
-export const WAREHOUSE_PROVIDER_LABELS: Record<requestWarehouseCredentials.Provider, string> = {
-	athena: 'Amazon Athena',
-	bigquery: 'BigQuery',
-	clickhouse: 'ClickHouse',
-	databricks: 'Databricks',
-	fabric: 'Microsoft Fabric',
-	motherduck: 'MotherDuck',
-	mssql: 'Microsoft SQL Server',
-	mysql: 'MySQL',
-	postgres: 'Postgres',
-	redshift: 'Amazon Redshift',
-	snowflake: 'Snowflake',
-	starrocks: 'StarRocks',
-	trino: 'Trino',
-};
+export const WAREHOUSE_PROVIDER_LABELS = requestWarehouseCredentials.WAREHOUSE_PROVIDER_LABELS;
 
 export const SQL_PROVIDER_SETTINGS: Record<SqlProvider, SqlProviderSettings> = {
 	athena: {

@@ -16,7 +16,8 @@ import { HandlerError } from '../utils/error';
 import { buildImageUrl } from '../utils/image';
 import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from '../utils/tools';
 
-interface HandleAgentMessageInput extends AgentRequest {
+interface HandleAgentMessageInput extends Omit<AgentRequest, 'mode'> {
+	isOnboarding: boolean;
 	userId: string;
 	projectId: string | undefined;
 	billingAccessVerifiedProjectId?: string;
@@ -42,7 +43,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		projectId,
 		adminMode,
 		billingAccessVerifiedProjectId,
-		mode,
+		isOnboarding,
 	} = opts;
 
 	if (!projectId) {
@@ -51,7 +52,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 
 	await agentService.assertBudget(projectId, model, userId);
 
-	const source: MessageSource = mode === 'onboarding' ? 'onboarding' : adminMode ? 'admin' : 'web';
+	const source: MessageSource = isOnboarding ? 'onboarding' : adminMode ? 'admin' : 'web';
 	const scope: StorageScope = { projectId, userId };
 	let chatId = opts.chatId;
 	const isNewChat = !chatId;
@@ -82,19 +83,18 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
 
-	const agentOptions =
-		mode === 'onboarding'
+	const agentOptions = isOnboarding
+		? {
+				tools: onboardingAgentTools,
+				systemPrompt: renderOnboardingSystemPrompt(),
+			}
+		: adminMode
 			? {
-					tools: onboardingAgentTools,
-					systemPrompt: renderOnboardingSystemPrompt(),
+					tools: adminAgentTools,
+					systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
+					adminMode: true,
 				}
-			: adminMode
-				? {
-						tools: adminAgentTools,
-						systemPrompt: renderAdminSystemPrompt({ timezone: opts.timezone }),
-						adminMode: true,
-					}
-				: undefined;
+			: undefined;
 
 	const agent = await agentService.create({ ...chat, userId, projectId }, model, {
 		...agentOptions,
@@ -111,7 +111,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	const stream = agent.stream(chat.messages, {
 		mentions,
 		timezone: opts.timezone,
-		source: mode === 'onboarding' ? source : undefined,
+		source: isOnboarding ? source : undefined,
 		events: {
 			newChat: shouldEmitNewChat
 				? {

@@ -194,6 +194,7 @@ export const onboardingAgentTools: AgentToolsResolver = ({ agentSettings }) =>
 				'onboarding_command',
 				'onboarding_progress',
 				'request_warehouse_credentials',
+				'request_warehouse_selection',
 				'generate_onboarding_rules',
 			],
 		},

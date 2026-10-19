@@ -10,7 +10,6 @@ export default tool<clarification.Input, clarification.Output>({
 		'Guidelines:',
 		'- Ask only ONE focused question per call. If you need multiple pieces of information, pick the highest-leverage one first — you can call this tool again on a later turn after the user answers.',
 		'- Provide 2-5 mutually exclusive `options` whenever the answer is naturally enumerable (table choice, granularity, time range, segmentation). Omit `options` for open-ended questions.',
-		'- Exception: "Which database are you using?" may use the complete supported database option list defined by the schema.',
 		'- Never call this tool together with `suggest_follow_ups`.',
 	].join('\n'),
 	inputSchema: clarification.InputSchema,

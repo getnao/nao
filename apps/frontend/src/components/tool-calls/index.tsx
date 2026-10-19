@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
-import { ClarificationToolCall } from './clarification';
+import { ClarificationToolCall, RequestWarehouseSelectionToolCall } from './clarification';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { DisplayMapToolCall } from './display-map';
@@ -53,6 +53,7 @@ const toolComponents: Partial<{
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
 	request_warehouse_credentials: RequestWarehouseCredentialsToolCall,
+	request_warehouse_selection: RequestWarehouseSelectionToolCall,
 	search: SearchToolCall,
 	str_replace: StrReplaceToolCall,
 	task: TaskToolCall,

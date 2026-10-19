@@ -21,6 +21,7 @@ export const hasFollowUpsWithText: StopCondition<AgentTools> = ({ steps }) => {
 export const interactiveStopConditions: StopCondition<AgentTools>[] = [
 	hasFollowUpsWithText,
 	hasToolCall('clarification'),
+	hasToolCall('request_warehouse_selection'),
 ];
 
 const callsFollowUps = (step: StepResult<AgentTools>): boolean => {

@@ -94,6 +94,7 @@ export const agentRoutes = async (app: App) => {
 			userId: user.id,
 			projectId,
 			...body,
+			isOnboarding,
 			billingAccessVerifiedProjectId: projectId,
 			adminMode: body.adminMode && canChatWithNaoData,
 			domainHost: getDomainHost(headers),

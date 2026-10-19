@@ -1,3 +1,4 @@
+import { requestWarehouseSelection } from '@nao/shared/tools';
 import { Check, HelpCircle } from 'lucide-react';
 import { memo } from 'react';
 import { Button } from '../ui/button';
@@ -6,30 +7,57 @@ import type { ToolCallComponentProps } from '.';
 import type { UIMessage } from '@nao/backend/chat';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
-import { getMessageText, isOnboardingContextRequestMessage } from '@/lib/ai';
+import { getMessageText, isOnboardingContextRequestMessage, isToolUIPart } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 
 type AnsweredState = { isAnswered: true; answer: string } | { isAnswered: false; answer?: undefined };
 
-export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<'clarification'>) => {
+export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<'clarification'>) => (
+	<ClarificationQuestion
+		toolCallId={toolPart.toolCallId}
+		isStreaming={toolPart.state === 'input-streaming'}
+		question={toolPart.input?.question}
+		options={toolPart.input?.options}
+	/>
+));
+
+export const RequestWarehouseSelectionToolCall = memo(
+	({ toolPart }: ToolCallComponentProps<'request_warehouse_selection'>) => (
+		<ClarificationQuestion
+			toolCallId={toolPart.toolCallId}
+			isStreaming={false}
+			question={requestWarehouseSelection.QUESTION}
+			options={requestWarehouseSelection.OPTIONS}
+		/>
+	),
+);
+
+function ClarificationQuestion({
+	toolCallId,
+	isStreaming,
+	question,
+	options: rawOptions,
+}: {
+	toolCallId: string;
+	isStreaming: boolean;
+	question: string | undefined;
+	options: readonly unknown[] | undefined;
+}) {
 	const { isSettled } = useToolCallContext();
 	const { queueOrSendMessage, isRunning } = useAgentContext();
-	const answer = useAgentMessagesSelector((messages) => findAnswerForToolCall(messages, toolPart.toolCallId));
+	const answer = useAgentMessagesSelector((messages) => findAnswerForToolCall(messages, toolCallId));
 	const answeredState: AnsweredState = answer !== null ? { isAnswered: true, answer } : { isAnswered: false };
 
-	const input = toolPart.input;
-	const isStreaming = toolPart.state === 'input-streaming';
-
-	if (isStreaming && !input?.question) {
+	if (isStreaming && !question) {
 		return <ClarificationSkeleton />;
 	}
 
-	if (!input?.question) {
+	if (!question) {
 		return null;
 	}
 
 	const options: string[] =
-		input.options?.flatMap((option) => {
+		rawOptions?.flatMap((option) => {
 			if (typeof option !== 'string') {
 				return [];
 			}
@@ -60,7 +88,7 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
 					<span className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
 						{isAnswered ? 'Answered' : 'Quick question'}
 					</span>
-					<p className='text-sm leading-relaxed text-foreground whitespace-pre-wrap'>{input.question}</p>
+					<p className='text-sm leading-relaxed text-foreground whitespace-pre-wrap'>{question}</p>
 				</div>
 			</div>
 
@@ -95,7 +123,7 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
 			)}
 		</div>
 	);
-});
+}
 
 /**
  * Find whether the user has already answered this clarification turn by
@@ -104,7 +132,7 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
  */
 function findAnswerForToolCall(messages: UIMessage[], toolCallId: string): string | null {
 	const toolMessageIndex = messages.findIndex((message) =>
-		message.parts.some((part) => part.type === 'tool-clarification' && part.toolCallId === toolCallId),
+		message.parts.some((part) => isToolUIPart(part) && part.toolCallId === toolCallId),
 	);
 	if (toolMessageIndex === -1) {
 		return null;

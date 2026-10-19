@@ -31,6 +31,7 @@ import onboardingProgress from './onboarding-progress';
 import read from './read';
 import readQueryResult from './read-query-result';
 import requestWarehouseCredentials from './request-warehouse-credentials';
+import requestWarehouseSelection from './request-warehouse-selection';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import strReplace, { buildStrReplaceToolDescription } from './str-replace';
@@ -61,6 +62,7 @@ export const tools = {
 	onboarding_command: onboardingCommand,
 	onboarding_progress: onboardingProgress,
 	request_warehouse_credentials: requestWarehouseCredentials,
+	request_warehouse_selection: requestWarehouseSelection,
 	generate_onboarding_rules: generateOnboardingRules,
 	read,
 	search,
@@ -126,11 +128,11 @@ export const getTools = (
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
-		clarification: clarificationTool,
 		onboarding_agent_prompt: onboardingAgentPromptTool,
 		onboarding_command: onboardingCommandTool,
 		onboarding_progress: onboardingProgressTool,
 		request_warehouse_credentials: requestWarehouseCredentialsTool,
+		request_warehouse_selection: requestWarehouseSelectionTool,
 		generate_onboarding_rules: generateOnboardingRulesTool,
 		suggest_follow_ups,
 		task: taskTool,
@@ -155,12 +157,12 @@ export const getTools = (
 
 	const allTools = {
 		...baseTools,
-		clarification: clarificationTool,
 		...(options.onboarding && {
 			onboarding_agent_prompt: onboardingAgentPromptTool,
 			onboarding_command: onboardingCommandTool,
 			onboarding_progress: onboardingProgressTool,
 			request_warehouse_credentials: requestWarehouseCredentialsTool,
+			request_warehouse_selection: requestWarehouseSelectionTool,
 			generate_onboarding_rules: generateOnboardingRulesTool,
 		}),
 		...mcpTools,

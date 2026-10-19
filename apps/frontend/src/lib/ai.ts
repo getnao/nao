@@ -100,6 +100,7 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'onboarding_agent_prompt',
 		'onboarding_command',
 		'request_warehouse_credentials',
+		'request_warehouse_selection',
 		'generate_onboarding_rules',
 	],
 	detailed: [
@@ -118,6 +119,7 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'execute_python',
 		'execute_sandboxed_code',
 		'request_warehouse_credentials',
+		'request_warehouse_selection',
 		'generate_onboarding_rules',
 	],
 };

@@ -19,6 +19,7 @@ export { QueryIdSchema } from './query-id';
 export * as readFile from './read';
 export * as readQueryResult from './read-query-result';
 export * as requestWarehouseCredentials from './request-warehouse-credentials';
+export * as requestWarehouseSelection from './request-warehouse-selection';
 export * as searchFiles from './search';
 export * as story from './story';
 export * as strReplace from './str-replace';
