@@ -1,5 +1,5 @@
 import type { StoryThemePair } from '@nao/shared/story-theme';
-import { sameThemePair } from '@nao/shared/story-theme';
+import { DEFAULT_STORY_THEME_PAIR, sameThemePair } from '@nao/shared/story-theme';
 import { parseStoredStoryThemePair } from '@nao/shared/story-theme-pair';
 import { asc, desc, eq, sql } from 'drizzle-orm';
 
@@ -92,6 +92,10 @@ export async function restoreStoryThemeVersion(projectId: string, version: numbe
 export async function setStoryThemeEnabled(projectId: string, enabled: boolean): Promise<void> {
 	const latest = await getLatest(projectId);
 	if (!latest) {
+		if (!enabled) {
+			return;
+		}
+		await saveStoryTheme(projectId, DEFAULT_STORY_THEME_PAIR);
 		return;
 	}
 	await db.update(s.projectStoryTheme).set({ enabled }).where(eq(s.projectStoryTheme.id, latest.id)).execute();

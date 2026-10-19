@@ -151,17 +151,13 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				<SettingsControlRow
 					id='story-theme-enabled'
 					label='Apply to custom stories'
-					description={
-						saved
-							? 'Turn off to fall back to the classic nao look without losing the saved theme.'
-							: 'Saving a theme turns this on.'
-					}
+					description='Turn off to fall back to the classic nao look without losing the saved theme.'
 					control={
 						<Switch
 							id='story-theme-enabled'
 							checked={enabled}
 							onCheckedChange={(next) => setEnabled.mutate({ enabled: next })}
-							disabled={!saved || controlsDisabled}
+							disabled={controlsDisabled}
 						/>
 					}
 				/>
