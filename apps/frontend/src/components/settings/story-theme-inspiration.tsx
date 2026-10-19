@@ -1,5 +1,6 @@
-import { useMutation } from '@tanstack/react-query';
-import { FileText, FolderArchive, Globe, Image as ImageIcon, Loader2, PenLine, Sparkles, X } from 'lucide-react';
+import { joinWithAnd } from '@nao/shared';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { BadgeCheck, Globe, Loader2, PenLine, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
 	MAX_IMAGE_BYTES,
@@ -10,20 +11,32 @@ import {
 	SOURCE_IMAGE_MEDIA_TYPES,
 } from '@nao/shared/story-theme-source';
 
+import { describeStoryThemeSources } from '@nao/shared/story-theme-generation';
+import { STORY_LOGO_MEDIA_TYPES } from '@nao/shared/story-theme';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { SourceImageMediaType } from '@nao/shared/story-theme-source';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
+import type { StoryLogoMediaType } from '@nao/shared/story-theme';
 import type { RenderedPdf } from '@/components/settings/story-theme-pdf';
+import type { ViewedThemeVersion } from '@/components/settings/story-theme-recorded-sources';
 import { renderPdfPages, renderZipPdfs } from '@/components/settings/story-theme-pdf';
+import {
+	GenerationSummary,
+	RecordedSources,
+	SOURCE_ICONS,
+	WELL_CLASS,
+} from '@/components/settings/story-theme-recorded-sources';
 import { Button } from '@/components/ui/button';
 import { Favicon } from '@/components/ui/favicon';
+import { Switch } from '@/components/ui/switch';
 import { NakedInput } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Textarea } from '@/components/ui/textarea';
 import { cn, formatBytes } from '@/lib/utils';
 import { trpc } from '@/main';
 
-type GenerateResult = inferRouterOutputs<TrpcRouter>['storyTheme']['generate'];
+export type GenerateResult = inferRouterOutputs<TrpcRouter>['storyTheme']['generate'];
 type FileSourceKind = 'image' | 'pdf' | 'zip';
 
 interface PickedFile {
@@ -35,40 +48,53 @@ interface PickedFile {
 
 const IMAGE_MEDIA_TYPE_ALIASES: Record<string, SourceImageMediaType> = { 'image/jpg': 'image/jpeg' };
 const ZIP_MEDIA_TYPES = ['application/zip', 'application/x-zip-compressed', 'application/x-zip'];
-const MAX_BYTES: Record<FileSourceKind, number> = { image: MAX_IMAGE_BYTES, pdf: MAX_PDF_BYTES, zip: MAX_ZIP_BYTES };
+const MAX_BYTES: Record<FileSourceKind, number> = {
+	image: MAX_IMAGE_BYTES,
+	pdf: MAX_PDF_BYTES,
+	zip: MAX_ZIP_BYTES,
+};
 const MAX_SOURCE_FILE_NAME_LENGTH = 200;
 const SOURCE_NAMES: Record<FileSourceKind, string> = { image: 'Image', pdf: 'PDF', zip: 'ZIP' };
-const WELL_CLASS =
-	'flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm';
 const TEXT_WELL_CLASS = cn(WELL_CLASS, 'border-solid transition-colors focus-within:border-foreground/30');
 
 export interface InspirationOutcome {
 	label: string;
+	generation: StoryThemeGeneration | null;
 }
 
 export function StoryThemeInspiration({
 	disabled,
 	outcome,
+	viewedVersion,
 	onGenerated,
 	onDismiss,
+	onLeaveVersion,
+	logo,
 }: {
 	disabled: boolean;
 	outcome: InspirationOutcome | null;
+	viewedVersion: ViewedThemeVersion | null;
 	onGenerated: (label: string, result: GenerateResult) => void;
 	onDismiss: () => void;
+	onLeaveVersion: () => void;
+	/** The logo set in the Brand header card, sent along as a source so the model reads it. */
+	logo: string | null;
 }) {
 	const [url, setUrl] = useState('');
 	const [image, setImage] = useState<PickedFile | null>(null);
 	const [zip, setZip] = useState<PickedFile | null>(null);
 	const [pdf, setPdf] = useState<PickedFile | null>(null);
 	const [instructions, setInstructions] = useState('');
+	const [useWhiteLabel, setUseWhiteLabel] = useState(true);
+	const whiteLabel = useWhiteLabelSource();
+	const readsWhiteLabel = whiteLabel !== null && useWhiteLabel;
 	const [error, setError] = useState<string | null>(null);
 	const [running, setRunning] = useState(false);
 
 	const onError = (mutationError: { message: string }) => setError(mutationError.message);
 	const generateTheme = useMutation({ ...trpc.storyTheme.generate.mutationOptions(), onError });
 	const sourceLocked = disabled || running;
-	const hasSource = Boolean(url.trim() || image || zip || pdf || instructions.trim());
+	const hasSource = Boolean(url.trim() || image || zip || pdf || instructions.trim() || readsWhiteLabel);
 	const canGenerate = hasSource && !sourceLocked;
 
 	const generate = () => {
@@ -78,7 +104,7 @@ export function StoryThemeInspiration({
 		const trimmed = url.trim();
 		const trimmedInstructions = instructions.trim();
 		const normalized = trimmed ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`) : undefined;
-		if (!normalized && !image && !zip && !pdf && !trimmedInstructions) {
+		if (!normalized && !image && !zip && !pdf && !trimmedInstructions && !readsWhiteLabel) {
 			return;
 		}
 		setRunning(true);
@@ -88,15 +114,31 @@ export function StoryThemeInspiration({
 					{
 						url: normalized,
 						image: image
-							? { data: image.data, mediaType: image.mediaType as SourceImageMediaType }
+							? {
+									data: image.data,
+									mediaType: image.mediaType as SourceImageMediaType,
+									fileName: toSourceFileName(image.name, DEFAULT_FILE_NAMES.image),
+								}
 							: undefined,
 						zip: zip ? { data: zip.data, fileName: toSourceFileName(zip.name, 'brand.zip') } : undefined,
+						logo: logoSource(logo),
 						pdfs,
 						instructions: trimmedInstructions || undefined,
+						useWhiteLabel: readsWhiteLabel,
 					},
 					{
 						onSuccess: (result) => {
-							onGenerated(sourceLabel(normalized, image, pdf, zip, trimmedInstructions), result);
+							onGenerated(
+								sourceLabel(
+									normalized,
+									image,
+									pdf,
+									zip,
+									trimmedInstructions,
+									readsWhiteLabel ? whiteLabel : null,
+								),
+								result,
+							);
 							setError(null);
 						},
 						onSettled: () => {
@@ -117,49 +159,65 @@ export function StoryThemeInspiration({
 		<SettingsCard
 			title='Start from a brand'
 			description='Describe the theme you want, then optionally add a website, image, PDF or ZIP so nao can ground it in brand assets.'
-			className={cn('gap-0', outcome && 'overflow-hidden pb-0')}
+			className={cn('gap-0', (outcome || viewedVersion) && 'overflow-hidden pb-0')}
 		>
-			<div className='flex flex-col gap-2'>
-				<InstructionSource value={instructions} onChange={setInstructions} disabled={sourceLocked} />
-				<UrlSource url={url} onUrlChange={setUrl} disabled={sourceLocked} onSubmit={generate} />
-				<FileSource kind='image' file={image} onFile={setImage} disabled={sourceLocked} setError={setError} />
-				<FileSource kind='pdf' file={pdf} onFile={setPdf} disabled={sourceLocked} setError={setError} />
-				<FileSource kind='zip' file={zip} onFile={setZip} disabled={sourceLocked} setError={setError} />
-				{error && <p className='text-xs text-destructive'>{error}</p>}
-				<div className='flex flex-wrap items-center justify-between gap-3'>
-					<p className='min-w-0 flex-1 text-xs text-muted-foreground'>
-						Assets are optional but help with exact colours, typography and shape language.
-					</p>
-					<GenerateButton
-						pending={running}
-						disabled={!hasSource || disabled}
-						onClick={generate}
-						label={pendingLabel(url, image, pdf, zip, instructions)}
+			{viewedVersion ? (
+				<RecordedSources version={viewedVersion} onLeave={onLeaveVersion} />
+			) : (
+				<div className='flex flex-col gap-2'>
+					<InstructionSource value={instructions} onChange={setInstructions} disabled={sourceLocked} />
+					<UrlSource url={url} onUrlChange={setUrl} disabled={sourceLocked} onSubmit={generate} />
+					<FileSource
+						kind='image'
+						file={image}
+						onFile={setImage}
+						disabled={sourceLocked}
+						setError={setError}
 					/>
-				</div>
-			</div>
-			{outcome && (
-				<div className='-mx-4 mt-4 flex items-start gap-2 border-t bg-muted/40 px-4 py-3'>
-					<div className='min-w-0 flex-1'>
-						<p className='text-sm'>
-							<Sparkles className='mr-1.5 inline size-3.5 text-muted-foreground' />
-							Theme applied from{' '}
-							<span className='font-medium' title={outcome.label}>
-								{outcome.label}
-							</span>
-							.
+					<FileSource kind='pdf' file={pdf} onFile={setPdf} disabled={sourceLocked} setError={setError} />
+					<FileSource kind='zip' file={zip} onFile={setZip} disabled={sourceLocked} setError={setError} />
+					{whiteLabel && (
+						<WhiteLabelSource
+							source={whiteLabel}
+							checked={useWhiteLabel}
+							onCheckedChange={setUseWhiteLabel}
+							disabled={sourceLocked}
+						/>
+					)}
+					{error && <p className='text-xs text-destructive'>{error}</p>}
+					<div className='flex flex-wrap items-center justify-between gap-3'>
+						<p className='min-w-0 flex-1 text-xs text-muted-foreground'>
+							Assets are optional but help with exact colours, typography and shape language.
 						</p>
+						<GenerateButton
+							pending={running}
+							disabled={!hasSource || disabled}
+							onClick={generate}
+							label={pendingLabel(
+								url,
+								image,
+								pdf,
+								zip,
+								instructions,
+								readsWhiteLabel ? whiteLabel : null,
+							)}
+						/>
 					</div>
-					<Button
-						variant='ghost'
-						size='icon'
-						className='-mr-1 -mt-1 size-7 shrink-0'
-						onClick={onDismiss}
-						aria-label='Dismiss'
-					>
-						<X className='size-3.5' />
-					</Button>
 				</div>
+			)}
+			{viewedVersion ? (
+				<GenerationSummary
+					sentence={describeViewedThemeVersion(viewedVersion)}
+					generation={viewedVersion.generation}
+				/>
+			) : (
+				outcome && (
+					<GenerationSummary
+						sentence={`Theme applied from ${outcome.label}.`}
+						generation={outcome.generation}
+						onDismiss={onDismiss}
+					/>
+				)
 			)}
 		</SettingsCard>
 	);
@@ -442,8 +500,16 @@ const DEFAULT_MEDIA_TYPES: Record<FileSourceKind, string> = {
 	pdf: 'application/pdf',
 	zip: 'application/zip',
 };
-const ADD_LABELS: Record<FileSourceKind, string> = { image: 'Add an image', pdf: 'Add a PDF', zip: 'Add a ZIP' };
-const REMOVE_LABELS: Record<FileSourceKind, string> = { image: 'Remove image', pdf: 'Remove PDF', zip: 'Remove ZIP' };
+const ADD_LABELS: Record<FileSourceKind, string> = {
+	image: 'Add an image',
+	pdf: 'Add a PDF',
+	zip: 'Add a ZIP',
+};
+const REMOVE_LABELS: Record<FileSourceKind, string> = {
+	image: 'Remove image',
+	pdf: 'Remove PDF',
+	zip: 'Remove ZIP',
+};
 const DROP_PROMPTS: Record<FileSourceKind, string> = {
 	image: 'Drop, paste or click to add an image',
 	pdf: 'Drop or click to add a PDF',
@@ -456,7 +522,7 @@ const ACCEPTED_TYPES: Record<FileSourceKind, string> = {
 };
 
 function SourceIcon({ kind }: { kind: FileSourceKind }) {
-	const Icon = kind === 'image' ? ImageIcon : kind === 'pdf' ? FileText : FolderArchive;
+	const Icon = SOURCE_ICONS[kind];
 	return <Icon className='size-4 shrink-0 text-muted-foreground' />;
 }
 
@@ -551,12 +617,96 @@ function GenerateButton({
 	);
 }
 
+function describeViewedThemeVersion({ label, generation }: ViewedThemeVersion): string {
+	if (!generation) {
+		return `${label} was set by hand.`;
+	}
+	const edited = generation.editedByHand ? ', then edited by hand' : '';
+	return `${label} was generated from ${describeStoryThemeSources(generation.sources)}${edited}.`;
+}
+
+const LOGO_DATA_URI = /^data:([^;,]+);base64,(.+)$/;
+
+function logoSource(logo: string | null) {
+	const match = logo?.match(LOGO_DATA_URI);
+	const mediaType = match?.[1] as StoryLogoMediaType | undefined;
+	if (!match || !mediaType || !STORY_LOGO_MEDIA_TYPES.includes(mediaType)) {
+		return undefined;
+	}
+	return { data: match[2], mediaType, fileName: 'Brand header logo' };
+}
+
+interface WhiteLabelSourceInfo {
+	name: string;
+	hasName: boolean;
+	brandColor: string | null;
+	logoUrl: string | null;
+}
+
+/** The white-label identity, when this instance has one worth reading. */
+function useWhiteLabelSource(): WhiteLabelSourceInfo | null {
+	const state = useQuery(trpc.storyTheme.getState.queryOptions());
+	const identity = state.data?.whiteLabelIdentity;
+	if (!identity) {
+		return null;
+	}
+	return {
+		name: identity.name || 'White-label settings',
+		hasName: Boolean(identity.name),
+		brandColor: identity.brandColor,
+		logoUrl: identity.logo,
+	};
+}
+
+function WhiteLabelSource({
+	source,
+	checked,
+	onCheckedChange,
+	disabled,
+}: {
+	source: WhiteLabelSourceInfo;
+	checked: boolean;
+	onCheckedChange: (checked: boolean) => void;
+	disabled: boolean;
+}) {
+	const details = [source.hasName ? 'brand name' : 'white-label', source.brandColor, source.logoUrl ? 'logo' : null]
+		.filter(Boolean)
+		.join(' · ');
+	return (
+		<div className={cn(WELL_CLASS, 'border-solid', disabled && 'pointer-events-none opacity-50')}>
+			<span className='flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md'>
+				{source.logoUrl ? (
+					<img src={source.logoUrl} alt='' className='max-h-8 max-w-8 object-contain' />
+				) : (
+					<BadgeCheck className='size-4 text-muted-foreground' />
+				)}
+			</span>
+			<div className='min-w-0 flex-1'>
+				<p className='truncate'>{source.name}</p>
+				<p className='flex items-center gap-1.5 truncate text-xs text-muted-foreground'>
+					{source.brandColor && (
+						<span className='size-2.5 shrink-0 rounded-full' style={{ background: source.brandColor }} />
+					)}
+					{details}
+				</p>
+			</div>
+			<Switch
+				checked={checked}
+				onCheckedChange={onCheckedChange}
+				disabled={disabled}
+				aria-label='Use the white-label branding'
+			/>
+		</div>
+	);
+}
+
 function sourceLabel(
 	url: string | undefined,
 	image: PickedFile | null,
 	pdf: PickedFile | null,
 	zip: PickedFile | null,
 	instructions: string,
+	whiteLabel: WhiteLabelSourceInfo | null,
 ): string {
 	const parts = [
 		url ? displaySourceLabel(url) : null,
@@ -564,14 +714,9 @@ function sourceLabel(
 		pdf?.name ?? null,
 		zip?.name ?? null,
 		instructions ? 'instructions' : null,
+		whiteLabel ? whiteLabelSourceLabel(whiteLabel) : null,
 	].filter((part): part is string => Boolean(part));
-	if (parts.length <= 1) {
-		return parts[0] ?? '';
-	}
-	if (parts.length === 2) {
-		return `${parts[0]} and ${parts[1]}`;
-	}
-	return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+	return joinWithAnd(parts);
 }
 
 function pendingLabel(
@@ -580,8 +725,9 @@ function pendingLabel(
 	pdf: PickedFile | null,
 	zip: PickedFile | null,
 	instructions: string,
+	whiteLabel: WhiteLabelSourceInfo | null,
 ): string {
-	const count = [url.trim(), image, pdf, zip, instructions.trim()].filter(Boolean).length;
+	const count = [url.trim(), image, pdf, zip, instructions.trim(), whiteLabel].filter(Boolean).length;
 	if (count > 1) {
 		return 'Reading your sources…';
 	}
@@ -600,7 +746,19 @@ function pendingLabel(
 	if (instructions.trim()) {
 		return 'Applying instructions…';
 	}
+	if (whiteLabel) {
+		return `Reading ${whiteLabelSourceLabel(whiteLabel)}…`;
+	}
 	return 'Generating theme…';
+}
+
+function whiteLabelSourceLabel(source: WhiteLabelSourceInfo): string {
+	const parts = [
+		source.hasName ? 'brand name' : null,
+		source.logoUrl ? 'logo' : null,
+		source.brandColor ? 'brand colour' : null,
+	].filter((part): part is string => Boolean(part));
+	return parts.length > 0 ? `the ${joinWithAnd(parts)}` : 'the white-label settings';
 }
 
 function displaySourceLabel(label: string): string {

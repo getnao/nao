@@ -47,6 +47,14 @@ const HARMONIC_CHROMA = 0.125;
 const MUDDY_ARC = [58, 138] as const;
 const MIN_HUE_GAP = 22;
 const SAME_HUE_GAP = 12;
+const MIN_ACCENT_TEXT_CONTRAST = 3;
+const MAX_ACCENT_TEXT_STEPS = 10;
+const ACCENT_TEXT_STEP = 0.05;
+const MIN_FILL_DELTA = 8;
+const REPAIRED_BRAND_SERIES_CONTRAST = 2;
+const MIN_BRAND_SERIES_DELTA = 6;
+const BRAND_SERIES_STEP = 0.06;
+const MAX_BRAND_SERIES_STEPS = 10;
 
 export function rgbToHex([r, g, b]: [number, number, number]): string {
 	return formatHex({ mode: 'rgb', r, g, b });
@@ -166,6 +174,23 @@ export function snapSeries(series: string[], surface: string, pinned = 0): strin
 	return out;
 }
 
+export function repairBrandSeries(series: string[], surface: string): string[] {
+	const away = isDarkSurface(surface) ? 1 : -1;
+	const repaired: string[] = [];
+	for (const color of series) {
+		let candidate = color;
+		const vanishes = blendsInto(color, surface);
+		const needsRepair = (hex: string) =>
+			(vanishes && contrastRatio(hex, surface) < REPAIRED_BRAND_SERIES_CONTRAST) ||
+			repaired.some((kept) => deltaE(kept, hex) < MIN_BRAND_SERIES_DELTA);
+		for (let step = 0; step < MAX_BRAND_SERIES_STEPS && needsRepair(candidate); step++) {
+			candidate = shiftLightness(candidate, away * BRAND_SERIES_STEP);
+		}
+		repaired.push(candidate);
+	}
+	return repaired;
+}
+
 /**
  * Builds a categorical palette for a brand that has none: an analogous fan
  * around the accent hue with a complementary pair folded in, at a restrained
@@ -236,6 +261,19 @@ export function separateSurface(surface: string, from: string, minRatio = 1.06):
 		}
 	}
 	return out;
+}
+
+export function legibleOn(color: string, surface: string, minRatio = MIN_ACCENT_TEXT_CONTRAST): string {
+	const direction = isDarkSurface(surface) ? 1 : -1;
+	let legible = color;
+	for (let step = 0; step < MAX_ACCENT_TEXT_STEPS && contrastRatio(legible, surface) < minRatio; step++) {
+		legible = shiftLightness(legible, direction * ACCENT_TEXT_STEP);
+	}
+	return legible;
+}
+
+export function blendsInto(color: string, surface: string): boolean {
+	return deltaE(color, surface) < MIN_FILL_DELTA;
 }
 
 export function readableInkFor(surface: string, candidates: string[] = ['#ffffff', '#111111']): string {

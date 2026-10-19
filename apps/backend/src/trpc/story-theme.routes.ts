@@ -1,4 +1,5 @@
-import { storyThemePairSchema } from '@nao/shared/story-theme';
+import { MAX_STORY_LOGO_BYTES, STORY_LOGO_MEDIA_TYPES, storyThemePairSchema } from '@nao/shared/story-theme';
+import { storyThemeGenerationSchema } from '@nao/shared/story-theme-generation';
 import {
 	MAX_IMAGE_BYTES,
 	MAX_SOURCE_IMAGES,
@@ -13,11 +14,14 @@ import { env } from '../env';
 import * as storyThemeQueries from '../queries/story-theme.queries';
 import { generateStoryThemePairFromSources } from '../services/story-theme/generate';
 import { DesignSourceError } from '../services/story-theme/signals';
+import { readWhiteLabelBrand } from '../services/story-theme/white-label';
 import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
 import { advancedSettingsProtectedProcedure, cloudBillingAdminProcedure, projectProtectedProcedure } from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 const base64Length = (bytes: number): number => 4 * Math.ceil(bytes / 3);
+
+const optionalFileNameSchema = z.string().trim().max(200).optional();
 
 const imageInputSchema = z.object({
 	data: z.string().min(32).max(base64Length(MAX_IMAGE_BYTES)),
@@ -26,7 +30,7 @@ const imageInputSchema = z.object({
 
 const zipInputSchema = z.object({
 	data: z.string().min(32).max(base64Length(MAX_ZIP_BYTES)),
-	fileName: z.string().trim().max(200).optional(),
+	fileName: optionalFileNameSchema,
 });
 
 const pdfInputSchema = z.object({
@@ -62,7 +66,20 @@ export const storyThemeRoutes = {
 	}),
 
 	getState: storyThemeReadProcedure.query(async ({ ctx }) => {
-		return storyThemeQueries.getStoryThemeState(ctx.project.id);
+		const [state, whiteLabel] = await Promise.all([
+			storyThemeQueries.getStoryThemeState(ctx.project.id),
+			readWhiteLabelBrand(),
+		]);
+		return {
+			...state,
+			whiteLabelIdentity: whiteLabel
+				? {
+						name: whiteLabel.appName,
+						brandColor: whiteLabel.brandColor,
+						logo: whiteLabel.logo?.dataUri ?? null,
+					}
+				: null,
+		};
 	}),
 
 	listVersions: storyThemeReadProcedure.query(async ({ ctx }) => {
@@ -70,10 +87,12 @@ export const storyThemeRoutes = {
 		return { versions };
 	}),
 
-	save: storyThemeAdminProcedure.input(z.object({ theme: storyThemePairSchema })).mutation(async ({ ctx, input }) => {
-		await storyThemeQueries.saveStoryTheme(ctx.project.id, input.theme);
-		return { ok: true };
-	}),
+	save: storyThemeAdminProcedure
+		.input(z.object({ theme: storyThemePairSchema, generation: storyThemeGenerationSchema.nullish() }))
+		.mutation(async ({ ctx, input }) => {
+			await storyThemeQueries.saveStoryTheme(ctx.project.id, input.theme, input.generation ?? null);
+			return { ok: true };
+		}),
 
 	restoreVersion: storyThemeAdminProcedure
 		.input(z.object({ version: z.number().int().positive() }))
@@ -96,13 +115,28 @@ export const storyThemeRoutes = {
 			z
 				.object({
 					url: z.string().trim().min(1).max(2048).optional(),
-					image: imageInputSchema.optional(),
+					image: imageInputSchema.extend({ fileName: optionalFileNameSchema }).optional(),
 					zip: zipInputSchema.optional(),
+					logo: z
+						.object({
+							data: z.string().min(16).max(base64Length(MAX_STORY_LOGO_BYTES)),
+							mediaType: z.enum(STORY_LOGO_MEDIA_TYPES),
+							fileName: optionalFileNameSchema,
+						})
+						.optional(),
 					pdfs: z.array(pdfInputSchema).max(MAX_SOURCE_IMAGES).default([]),
 					instructions: z.string().trim().max(MAX_THEME_INSTRUCTIONS_LENGTH).optional(),
+					useWhiteLabel: z.boolean().default(true),
 				})
 				.refine(
-					(value) => value.url || value.image || value.zip || value.pdfs.length > 0 || value.instructions,
+					(value) =>
+						value.url ||
+						value.image ||
+						value.zip ||
+						value.logo ||
+						value.pdfs.length > 0 ||
+						value.instructions ||
+						value.useWhiteLabel,
 					{
 						message: 'Add a website, an image, a PDF, a ZIP or instructions.',
 					},
@@ -113,31 +147,43 @@ export const storyThemeRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			try {
-				return await generateStoryThemePairFromSources(ctx.project.id, {
-					url: input.url,
-					image: input.image
-						? {
-								data: decodeBase64(input.image.data, MAX_IMAGE_BYTES, 'Image'),
-								mediaType: input.image.mediaType,
-							}
-						: undefined,
-					zip: input.zip
-						? {
-								data: decodeBase64(input.zip.data, MAX_ZIP_BYTES, 'ZIP'),
-								fileName: input.zip.fileName ?? 'upload.zip',
-							}
-						: undefined,
-					pdfs: input.pdfs.map((pdf) => ({
-						fileName: pdf.fileName,
-						pageCount: pdf.pageCount,
-						fromZip: pdf.fromZip,
-						pages: pdf.pages.map((page) => ({
-							data: decodeBase64(page.data, MAX_IMAGE_BYTES, 'PDF page'),
-							mediaType: page.mediaType,
+				return await generateStoryThemePairFromSources(
+					{ projectId: ctx.project.id, userId: ctx.user.id },
+					{
+						url: input.url,
+						image: input.image
+							? {
+									data: decodeBase64(input.image.data, MAX_IMAGE_BYTES, 'Image'),
+									mediaType: input.image.mediaType,
+								}
+							: undefined,
+						imageName: input.image?.fileName,
+						logo: input.logo
+							? {
+									data: decodeBase64(input.logo.data, MAX_STORY_LOGO_BYTES, 'Logo'),
+									mediaType: input.logo.mediaType,
+									fileName: input.logo.fileName ?? 'logo',
+								}
+							: undefined,
+						zip: input.zip
+							? {
+									data: decodeBase64(input.zip.data, MAX_ZIP_BYTES, 'ZIP'),
+									fileName: input.zip.fileName ?? 'upload.zip',
+								}
+							: undefined,
+						pdfs: input.pdfs.map((pdf) => ({
+							fileName: pdf.fileName,
+							pageCount: pdf.pageCount,
+							fromZip: pdf.fromZip,
+							pages: pdf.pages.map((page) => ({
+								data: decodeBase64(page.data, MAX_IMAGE_BYTES, 'PDF page'),
+								mediaType: page.mediaType,
+							})),
 						})),
-					})),
-					instructions: input.instructions,
-				});
+						instructions: input.instructions,
+						useWhiteLabel: input.useWhiteLabel,
+					},
+				);
 			} catch (error) {
 				if (error instanceof DesignSourceError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });

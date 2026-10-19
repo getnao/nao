@@ -1,4 +1,4 @@
-import { isDarkSurface, relativeLuminance, rgbToHex } from '@nao/shared/story-theme-contrast';
+import { deltaE, isDarkSurface, relativeLuminance, rgbToHex } from '@nao/shared/story-theme-contrast';
 import { type Color, getPalette } from 'colorthief';
 import { classifySwatches } from 'colorthief/internals';
 
@@ -16,6 +16,10 @@ const PALETTE_COLORS = 16;
 const CORNER_AGREE_RGB = 28;
 const SHELL_CORNER_LUM = 0.15;
 const SHELL_CENTER_LIFT = 0.2;
+const SNAP_MAX_DELTA = 26;
+const SNAP_MIN_SHARE = 0.0005;
+const SNAP_MAX_CANDIDATES = 3000;
+const OPAQUE_ALPHA = 200;
 
 interface Bitmap {
 	data: Uint8Array;
@@ -76,6 +80,49 @@ export async function sampleImage(image: { data: Uint8Array; mediaType: string }
 		signals.surfaces = [ground.center, ...signals.surfaces.filter((surface) => surface !== ground.center)];
 	}
 	return { signals, ground };
+}
+
+export async function snapToImageColors(image: { data: Uint8Array }, colors: string[]): Promise<string[]> {
+	const painted = await paintedColors(image);
+	const snapped: string[] = [];
+	for (const color of colors) {
+		const nearest = nearestPainted(color, painted);
+		snapped.push(nearest && !snapped.includes(nearest) ? nearest : color);
+	}
+	return snapped;
+}
+
+function nearestPainted(color: string, painted: string[]): string | null {
+	let nearest: string | null = null;
+	let nearestDelta = SNAP_MAX_DELTA;
+	for (const candidate of painted) {
+		const delta = deltaE(candidate, color);
+		if (delta <= nearestDelta) {
+			nearest = candidate;
+			nearestDelta = delta;
+		}
+	}
+	return nearest;
+}
+
+/** Exact colours covering a meaningful share of the image, most painted first. */
+async function paintedColors(image: { data: Uint8Array }): Promise<string[]> {
+	const { data } = await decodeImage(image.data);
+	const counts = new Map<string, number>();
+	let total = 0;
+	for (let index = 0; index < data.length; index += 4) {
+		if (data[index + 3] < OPAQUE_ALPHA) {
+			continue;
+		}
+		const hex = rgb255ToHex([data[index], data[index + 1], data[index + 2]]);
+		counts.set(hex, (counts.get(hex) ?? 0) + 1);
+		total++;
+	}
+	return [...counts.entries()]
+		.filter(([, count]) => count / total >= SNAP_MIN_SHARE)
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, SNAP_MAX_CANDIDATES)
+		.map(([hex]) => hex);
 }
 
 function asColorCandidate(color: Color): ColorCandidate {

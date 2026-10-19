@@ -2,6 +2,8 @@ export type { BarChartProps } from './story-kit/bar-chart';
 export { BarChart } from './story-kit/bar-chart';
 export type { BlockProps } from './story-kit/block';
 export { Block, BlockState } from './story-kit/block';
+export type { BrandHeaderProps } from './story-kit/brand-header';
+export { BrandHeader } from './story-kit/brand-header';
 export type { CanvasProps } from './story-kit/canvas';
 export { Canvas } from './story-kit/canvas';
 export type { ChartAxisProps, SeriesInput } from './story-kit/block-config';

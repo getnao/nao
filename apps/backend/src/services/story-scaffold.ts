@@ -18,7 +18,7 @@ export function scaffoldCustomStoryFiles(title: string, files: StoryFileInput[])
 }
 
 function starterApp(title: string): string {
-	return `import { BarChart, DataTable, KpiCard, LineChart, Narrative } from "@nao/story-kit";
+	return `import { BarChart, BrandHeader, DataTable, KpiCard, LineChart, Narrative } from "@nao/story-kit";
 
 // Starter layout, nothing here is wired to data yet: replace every REPLACE_ME with the id
 // of a query you ran with execute_sql in this chat, rename the titles, add format/xKey/series
@@ -26,12 +26,10 @@ function starterApp(title: string): string {
 export default function App() {
   return (
     <main className="page">
-      <header className="page__header">
-        <h1>${jsxText(title)}</h1>
-        <p>
-          <Narrative id="summary">One sentence on what this story answers.</Narrative>
-        </p>
-      </header>
+      <BrandHeader
+        title="${jsxAttribute(title)}"
+        description={<Narrative id="summary">One sentence on what this story answers.</Narrative>}
+      />
 
       <section className="grid grid--3">
         <KpiCard title="Headline metric" queryId="REPLACE_ME" />
@@ -60,16 +58,6 @@ const STARTER_STYLES = `.page {
   gap: 16px;
 }
 
-.page__header h1 {
-  font-size: calc(var(--story-body-size) * var(--story-heading-scale) * 1.6);
-  line-height: 1.2;
-}
-
-.page__header p {
-  margin: 4px 0 0;
-  color: var(--muted-foreground);
-}
-
 .grid {
   display: grid;
   gap: 16px;
@@ -91,6 +79,6 @@ const STARTER_STYLES = `.page {
 }
 `;
 
-function jsxText(value: string): string {
-	return value.replaceAll(/[{}<>&]/g, (char) => `{${JSON.stringify(char)}}`);
+function jsxAttribute(value: string): string {
+	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }

@@ -17,6 +17,7 @@ import {
 import type { DisplaySettings } from '@nao/shared/date';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
@@ -1738,6 +1739,7 @@ export const projectStoryTheme = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		version: integer('version').notNull(),
 		theme: jsonb('theme').$type<StoryThemePair>(),
+		generation: jsonb('generation').$type<StoryThemeGeneration>(),
 		enabled: boolean('enabled').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},

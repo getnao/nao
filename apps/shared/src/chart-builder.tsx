@@ -1689,6 +1689,7 @@ function renderChartTitle(title: string) {
 			key='chart-title'
 			component={({ width = 0 }: { width?: number }) => (
 				<text
+					className='nao-chart-title'
 					x={width / 2}
 					y={16}
 					textAnchor='middle'

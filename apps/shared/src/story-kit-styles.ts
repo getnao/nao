@@ -4,6 +4,7 @@ import {
 	STORY_PRINT_SLIDES_ATTRIBUTE,
 	STORY_SLIDE_SIZE,
 } from './story-app';
+import { storyBrandStyles } from './story-theme-brand-styles';
 
 /** Loaded by the frame document before the story's own CSS, so `app.css` overrides it and hand-rolled */
 export const KIT_STYLES = `
@@ -18,7 +19,7 @@ export const KIT_STYLES = `
 .nao-block__action[aria-pressed=true]{background:color-mix(in srgb, var(--muted-foreground) 14%, transparent);color:var(--foreground)}
 .nao-block__action:hover{background:color-mix(in srgb, var(--muted-foreground) 14%, transparent);color:var(--foreground)}
 .nao-sql{margin:0;max-height:320px;overflow:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre;color:var(--foreground);background:color-mix(in srgb, var(--muted) 50%, transparent);border:1px solid var(--border);border-radius:var(--radius-sm)}
-.nao-sql__keyword{color:var(--primary);font-weight:600}
+.nao-sql__keyword{color:var(--story-accent-text,var(--primary));font-weight:600}
 .nao-sql__string{color:var(--chart-2)}
 .nao-sql__number{color:var(--chart-3)}
 .nao-sql__comment{color:var(--muted-foreground);font-style:italic}
@@ -37,7 +38,7 @@ export const KIT_STYLES = `
 .nao-slides{display:flex;flex-direction:column;gap:12px;height:100vh;padding:16px;box-sizing:border-box;background:var(--story-stage)}
 .nao-slides__top{display:flex;align-items:flex-start;gap:16px}
 .nao-slides__header{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
-.nao-slides__eyebrow,.nao-slide__eyebrow{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--primary)}
+.nao-slides__eyebrow,.nao-slide__eyebrow{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--story-accent-text,var(--primary))}
 .nao-slides__title{margin:0;font-family:var(--font-heading);font-size:clamp(28px,4vw,48px);line-height:1.05;letter-spacing:-.04em;color:var(--foreground)}
 .nao-slides__toolbar{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-left:auto;flex-shrink:0}
 .nao-slides__pager{display:flex;align-items:center;gap:2px}
@@ -190,4 +191,5 @@ td.nao-table-display__index span{padding:0 4px;font-weight:500;color:var(--foreg
 .nao-table__overlay-close{display:flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;color:var(--muted-foreground);background:transparent;border:0;border-radius:999px;cursor:pointer}
 .nao-table__overlay-close:hover{background:color-mix(in srgb, var(--muted-foreground) 14%, transparent);color:var(--foreground)}
 .nao-table__overlay-close svg{width:14px;height:14px}
+${storyBrandStyles()}
 `;

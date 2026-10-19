@@ -76,7 +76,7 @@ export function StoryFilterBar({
 
 	return (
 		<div className='flex flex-col gap-2'>
-			<div className='flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
+			<div className='nao-filter-bar flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
 				{filters.map((filter) => (
 					<StoryFilterControl
 						key={filter.id}
@@ -88,7 +88,7 @@ export function StoryFilterBar({
 					/>
 				))}
 				{hasActiveFilters && (
-					<Button variant='ghost' size='sm' className='h-8 gap-1.5' onClick={onClear}>
+					<Button variant='ghost' size='sm' className='nao-filter__clear h-8 gap-1.5' onClick={onClear}>
 						<FilterX className='size-3.5' />
 						Clear
 					</Button>
@@ -121,9 +121,9 @@ function StoryFilterControl({
 	const isActive = isFilterSelectionActive(filter.filterType, selection);
 
 	return (
-		<div className='flex min-w-36 flex-col gap-1'>
+		<div className='nao-filter flex min-w-36 flex-col gap-1' data-active={isActive || undefined}>
 			<div className='flex items-center justify-between gap-1'>
-				<span className='text-xs font-medium text-muted-foreground'>{filter.label}</span>
+				<span className='nao-label text-xs font-medium text-muted-foreground'>{filter.label}</span>
 				{isActive && (
 					<button
 						type='button'
@@ -149,7 +149,7 @@ function StoryFilterControl({
 							onChange(value === CLEAR_SELECT_VALUE ? '' : value.slice(SELECT_VALUE_PREFIX.length))
 						}
 					>
-						<SelectTrigger className='h-8 min-w-36 bg-background'>
+						<SelectTrigger className='nao-filter__control h-8 min-w-36 bg-background'>
 							<SelectValue placeholder='All' />
 						</SelectTrigger>
 						<SelectContent>
@@ -177,7 +177,7 @@ function StoryFilterControl({
 			) : (
 				<Input
 					type='search'
-					className='h-8 min-w-44 bg-background'
+					className='nao-filter__control h-8 min-w-44 bg-background'
 					placeholder='Search'
 					value={typeof selection === 'string' ? selection : ''}
 					onChange={(event) => onChange(event.target.value)}
@@ -193,7 +193,7 @@ function emptySelection(filterType: ParsedFilterBlock['filterType']): StoryFilte
 
 function FilterOptionsLoading() {
 	return (
-		<div className='flex h-8 min-w-36 items-center gap-2 rounded-md border bg-background px-3 text-xs text-muted-foreground'>
+		<div className='nao-filter__control flex h-8 min-w-36 items-center gap-2 rounded-md border bg-background px-3 text-xs text-muted-foreground'>
 			<Loader2 className='size-3.5 animate-spin' />
 			Loading…
 		</div>
@@ -212,7 +212,11 @@ function MultiSelectFilter({
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant='outline' size='sm' className='h-8 min-w-36 justify-between bg-background font-normal'>
+				<Button
+					variant='outline'
+					size='sm'
+					className='nao-filter__control h-8 min-w-36 justify-between bg-background font-normal'
+				>
 					{value.length > 0 ? `${value.length} selected` : 'All'}
 				</Button>
 			</DropdownMenuTrigger>
@@ -244,7 +248,7 @@ function RangeFilter({ value, onChange }: { value: string[]; onChange: (value: s
 					variant='outline'
 					size='sm'
 					className={cn(
-						'h-8 min-w-56 justify-start bg-background font-normal',
+						'nao-filter__control h-8 min-w-56 justify-start bg-background font-normal',
 						!selected?.from && 'text-muted-foreground',
 					)}
 				>

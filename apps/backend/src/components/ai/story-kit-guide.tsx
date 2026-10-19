@@ -38,6 +38,15 @@ export function storyKitGuideItems(): ReactElement[] {
 			row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the
 			same rule display_chart's conditional_formats takes) to colour cells.
 		</ListItem>,
+		<ListItem key='brand'>
+			Open every story that is not a deck with <Bold>{'<BrandHeader title="..." description="...">'}</Bold>: it
+			shows the brand logo or wordmark in the theme's header style (bare, above a rule, or in a coloured band) and
+			renders only the title when the theme has no brand. Its children sit on the logo row: a period, a status or
+			filter chips. Style filters and toggles as <Bold>{'className="nao-chip"'}</Bold> with{' '}
+			<Bold>aria-pressed</Bold> on the active one (group them in <Bold>nao-chips</Bold>) and actions as{' '}
+			<Bold>nao-button</Bold> (or <Bold>nao-button nao-button--outline</Bold>): they take the brand's button shape
+			and colours. Give small labels <Bold>nao-label</Bold> to follow the brand's casing.
+		</ListItem>,
 		<ListItem key='slides'>
 			For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
 			<Bold>{'<Slide>'}</Bold> per slide (16:9): it provides the navigation and prints one slide per PDF page.
@@ -56,8 +65,9 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>height: 100vh</Bold> and scrolls inside its own panels.
 		</ListItem>,
 		<ListItem key='tabs'>
-			For tabs, put the tab buttons in a <Bold>{'<nav>'}</Bold> (or give them <Bold>role="tab"</Bold>): PDF
-			downloads open each tab in turn and print them one after the other.
+			For tabs, put the tab buttons in a <Bold>{'<nav role="tablist">'}</Bold> and give each{' '}
+			<Bold>role="tab"</Bold> with <Bold>aria-selected</Bold> on the active one: they take the brand's tab look
+			with no CSS of your own, and PDF downloads open each tab in turn and print them one after the other.
 		</ListItem>,
 		<ListItem key='block-editing'>
 			Users edit KpiCard, chart and DataTable blocks through a pencil that rewrites their props in your source:
@@ -116,7 +126,13 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>var(--background)</Bold>, <Bold>var(--card)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
 			<Bold>var(--muted-foreground)</Bold>, <Bold>var(--primary)</Bold>, <Bold>var(--border)</Bold>,{' '}
 			<Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold>, <Bold>var(--font-heading)</Bold>,{' '}
-			<Bold>var(--chart-1…11)</Bold>. They follow theme changes live, so a re-theme needs no republish.
+			<Bold>var(--chart-1…11)</Bold>, <Bold>var(--story-control-radius)</Bold>. Use var(--primary) for fills (with
+			var(--primary-foreground) on them) and <Bold>var(--story-accent-text)</Bold> when the accent is the text
+			colour itself: a bright brand accent can be unreadable as text. Headings, paragraphs, kit blocks, nao-chip,
+			nao-button and nao-label already speak in the brand's type voice; for your own text elements, take a role's{' '}
+			<Bold>var(--story-type-ROLE-font)</Bold>, <Bold>-weight</Bold>, <Bold>-case</Bold>, <Bold>-style</Bold> and{' '}
+			<Bold>-tracking</Bold> (ROLE: display, heading, subheading, body, label, button, figure) instead of setting
+			fonts or casing yourself. They follow theme changes live, so a re-theme needs no republish.
 		</ListItem>,
 		<ListItem key='html-entry'>
 			<Bold>HTML stories are the exception:</Bold> use one only when the user hands you an HTML page to host as-is

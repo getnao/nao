@@ -4,10 +4,12 @@ import {
 	MAX_CHART_SERIES_COLORS,
 	MAX_FONT_STYLESHEETS,
 	MIN_CHART_SERIES_COLORS,
+	normalizeBrandHeader,
 	type StoryTheme,
 	storyThemeSchema,
 } from '@nao/shared/story-theme';
 import {
+	blendsInto,
 	clampChroma,
 	contrastRatio,
 	deltaE,
@@ -17,12 +19,20 @@ import {
 	hexToOklch,
 	isDarkSurface,
 	readableInkFor,
+	repairBrandSeries,
 	separateSurface,
 	type SeriesIssue,
 	shiftLightness,
 	snapSeries,
 	validateSeries,
 } from '@nao/shared/story-theme-contrast';
+import {
+	DEFAULT_STORY_TYPOGRAPHY,
+	ROLE_LIMITS,
+	STORY_TEXT_ROLES,
+	type StoryTextRoleStyle,
+	type StoryTypography,
+} from '@nao/shared/story-theme-typography';
 
 import { barRadiusFromBlock, type ThemeProposal } from './proposal';
 import { type BrandCandidate, normalizeColor } from './signals';
@@ -37,6 +47,8 @@ import { type BrandCandidate, normalizeColor } from './signals';
 export interface GenerateResult {
 	theme: StoryTheme;
 	notes: string[];
+	rationale?: string;
+	alert?: string;
 }
 
 export interface GuardContext {
@@ -53,13 +65,22 @@ const MAX_BLOCK_STEP = 1.22;
 const MIN_SURFACE_STEP = 1.08;
 const SUBTLE_LINE = { min: 1.12, max: 1.75 };
 const DERIVED_SERIES_COUNT = 6;
-const MIN_ACCENT_CONTRAST = 3;
-const ACCENT_LIGHTNESS_STEP = 0.05;
-const MAX_ACCENT_STEPS = 8;
 const DARK_INK = { headingColor: '#f5f5f7', bodyColor: '#c9cbd3', mutedColor: '#8a8d9c' };
 const PURE_WHITE = '#ffffff';
 const PURE_BLACK = '#000000';
 const GOOGLE_FONT_FAMILY = /^[A-Za-z][A-Za-z0-9 ]{1,40}$/;
+const MAX_FIGURE_TRACKING = 0.04;
+const MIN_ACCENT_CHROMA = 0.03;
+const PILL_RADIUS = 999;
+const PILL_RADIUS_THRESHOLD = 24;
+const MIN_BAND_STEP = 1.15;
+const PANEL_RADIUS = 8;
+const TINT_STEP = 0.16;
+const MIN_TINT_DELTA = 12;
+const MIN_TINT_SOURCE_CHROMA = 0.05;
+const MAX_BAR_RADIUS = 12;
+const MIN_PANEL_STEP = 1.03;
+const MAX_BRAND_NAME_LENGTH = 60;
 
 export function applyGuards(proposal: ThemeProposal, context: GuardContext = {}): GenerateResult {
 	const notes: string[] = [...(context.warnings ?? [])];
@@ -79,7 +100,7 @@ export function applyGuards(proposal: ThemeProposal, context: GuardContext = {})
 			mutedColor: colors.read('mutedColor', base.text.mutedColor),
 			headingFont: sanitizeFontStack(proposal.headingFont, base.text.headingFont),
 			bodyFont: sanitizeFontStack(proposal.bodyFont, base.text.bodyFont),
-			headingTracking: clamp(proposal.headingTracking, -0.06, 0.06),
+			typography: guardTypography(proposal.typography),
 			fontStylesheets: [],
 		},
 		block: {
@@ -87,12 +108,21 @@ export function applyGuards(proposal: ThemeProposal, context: GuardContext = {})
 			borderColor: colors.read('blockBorderColor', base.block.borderColor),
 			borderWidth: clamp(Math.round(proposal.blockBorderWidth), 0, 4),
 			radius: blockRadius,
+			controlRadius: resolveControlRadius(proposal.controlRadius),
+			kpiStyle: proposal.kpiStyle,
 		},
 		table: base.table,
 		charts: {
 			series: base.charts.series,
 			grid: colors.read('grid', base.charts.grid),
 			barRadius: resolveBarRadius(blockRadius, proposal.barRadius),
+		},
+		brand: {
+			name: proposal.brandName.trim().slice(0, MAX_BRAND_NAME_LENGTH),
+			logo: null,
+			header: proposal.header,
+			headerBackground: colors.read('headerBackground', page),
+			showName: proposal.nameBesideLogo,
 		},
 	});
 	notes.push(...colors.notes());
@@ -103,9 +133,10 @@ export function applyGuards(proposal: ThemeProposal, context: GuardContext = {})
 	guardLines(theme, pageIsDark, notes);
 	guardFonts(theme, proposal, context.fontLinks ?? [], notes);
 	guardSeries(theme, proposal, context, notes);
+	guardHeader(theme, notes);
 	deriveTable(theme);
 
-	return { theme: storyThemeSchema.parse(theme), notes };
+	return { theme: storyThemeSchema.parse(theme), notes, rationale: proposal.rationale.trim() || undefined };
 }
 
 function guardSurfaces(theme: StoryTheme, pageIsDark: boolean, notes: string[]) {
@@ -128,9 +159,36 @@ function guardSurfaces(theme: StoryTheme, pageIsDark: boolean, notes: string[]) 
 		block.background = closestStep(surfaces.page, pageIsDark ? 0.03 : -0.03, MAX_BLOCK_STEP);
 		notes.push('Block backgrounds were heavy enough to read as slabs, so they were brought closer to the page.');
 	}
-	if (contrastRatio(block.background, surfaces.page) < MIN_SURFACE_STEP && block.borderWidth === 0) {
-		block.borderWidth = 1;
-		notes.push('Blocks nearly share the page colour and had no border, so a 1px border keeps them visible.');
+	if (isFloatingPanel(theme) && contrastRatio(block.background, surfaces.page) < MIN_PANEL_STEP) {
+		block.background = liftedPanel(surfaces.page, pageIsDark);
+		notes.push(
+			'Rounded blocks without a border shared the page colour and would vanish, so they now sit on a panel fill.',
+		);
+	}
+}
+
+/** Rounded and borderless: a card only reads as one through its fill. */
+function isFloatingPanel(theme: StoryTheme): boolean {
+	return theme.block.radius >= PANEL_RADIUS && theme.block.borderWidth === 0;
+}
+
+/** White panels on a tinted light page, a step lighter on a dark one, a soft grey on pure white. */
+function liftedPanel(page: string, pageIsDark: boolean): string {
+	if (pageIsDark) {
+		return shiftLightness(page, 0.05);
+	}
+	return contrastRatio(PURE_WHITE, page) >= MIN_PANEL_STEP ? PURE_WHITE : shiftLightness(page, -0.035);
+}
+
+/** A band the colour of the page is no band: the header falls back to the logo set on the page with a rule under it. */
+function guardHeader(theme: StoryTheme, notes: string[]) {
+	theme.brand = normalizeBrandHeader(theme.brand);
+	const { brand, surfaces } = theme;
+	if (brand.header === 'band' && contrastRatio(brand.headerBackground, surfaces.page) < MIN_BAND_STEP) {
+		brand.header = 'logo';
+		notes.push(
+			'The header band was too close to the page colour to read as a band, so the header sits on the page.',
+		);
 	}
 }
 
@@ -175,7 +233,10 @@ function worstContrast(color: string, surfaces: string[]): number {
 
 function guardAccent(theme: StoryTheme, candidates: BrandCandidate[], notes: string[]) {
 	const strongest = candidates.find((candidate) => candidate.chroma >= 0.12);
-	if (strongest) {
+	const isNeutralInk =
+		hexToOklch(theme.accent.color).c < MIN_ACCENT_CHROMA &&
+		deltaE(theme.accent.color, theme.text.headingColor) < 12;
+	if (strongest && !isNeutralInk) {
 		const onThePage = candidates.some((candidate) => deltaE(candidate.color, theme.accent.color) < 12);
 		const tooDull = hexToOklch(theme.accent.color).c < strongest.chroma * 0.6;
 		if (!onThePage || tooDull) {
@@ -187,25 +248,11 @@ function guardAccent(theme: StoryTheme, candidates: BrandCandidate[], notes: str
 			theme.accent.color = strongest.color;
 		}
 	}
-	const lifted = liftAccentForSurface(theme.accent.color, theme.surfaces.page);
-	if (lifted !== theme.accent.color) {
-		theme.accent.color = lifted;
-		notes.push('The accent was too close to the story background, so its lightness was adjusted.');
-	}
-	if (theme.accent.color === theme.block.background || contrastRatio(theme.accent.color, theme.surfaces.page) < 1.5) {
+	if (blendsInto(theme.accent.color, theme.surfaces.page) || blendsInto(theme.accent.color, theme.block.background)) {
 		theme.accent.color = DEFAULT_STORY_THEME.accent.color;
-		notes.push('The accent was too close to its background to register, so the nao accent is kept.');
+		notes.push('The accent could not be told from the page or the blocks, so the nao accent is kept.');
 	}
-	theme.accent.ink = readableInkFor(theme.accent.color);
-}
-
-function liftAccentForSurface(accent: string, page: string): string {
-	const direction = isDarkSurface(page) ? 1 : -1;
-	let lifted = accent;
-	for (let step = 0; step < MAX_ACCENT_STEPS && contrastRatio(lifted, page) < MIN_ACCENT_CONTRAST; step++) {
-		lifted = shiftLightness(lifted, direction * ACCENT_LIGHTNESS_STEP);
-	}
-	return lifted;
+	theme.accent.ink = readableInkFor(theme.accent.color, [theme.text.headingColor, PURE_WHITE, PURE_BLACK]);
 }
 
 /** Borders and grid lines are structure: neutral, and a soft step off the block. */
@@ -247,7 +294,10 @@ function guardFonts(theme: StoryTheme, proposal: ThemeProposal, fontLinks: strin
 			const brandFace = stack.split(',')[0].trim();
 			const generic = /serif|mono/i.test(stack) && !/sans-serif/i.test(stack) ? 'serif' : 'sans-serif';
 			theme.text[key] = `${brandFace}, '${family}', ${generic}`;
-			notes.push(`${brandFace} cannot be loaded by nao, so ${family} stands in for it.`);
+			const note = `${brandFace} cannot be loaded by nao, so ${family} stands in for it.`;
+			if (!notes.includes(note)) {
+				notes.push(note);
+			}
 		}
 		if (!substitutes.includes(family)) {
 			substitutes.push(family);
@@ -273,21 +323,46 @@ function unquoteFamily(raw: string): string {
 }
 
 function guardSeries(theme: StoryTheme, proposal: ThemeProposal, context: GuardContext, notes: string[]) {
-	const requested = context.steeredByAdmin ? readColors(proposal.series) : [];
+	const requested = readColors(proposal.series);
 	if (requested.length >= MIN_CHART_SERIES_COLORS) {
-		keepRequestedSeries(theme, requested, notes);
+		keepBrandSeries(theme, requested, notes);
 		return;
 	}
 	completeSeries(theme, proposal, context.measuredSeries ?? [], notes);
 }
 
-function keepRequestedSeries(theme: StoryTheme, requested: string[], notes: string[]) {
+function keepBrandSeries(theme: StoryTheme, requested: string[], notes: string[]) {
 	const surface = theme.block.background;
 	const series = requested.slice(0, MAX_CHART_SERIES_COLORS);
-	const report = validateSeries(series, surface);
-	const repaired = report.ok ? series : snapSeries(series, surface, series.length);
-	notes.push(...describeRepairs(report.issues, series, repaired));
-	theme.charts.series = repaired;
+	const repaired = repairBrandSeries(series, surface);
+	const changed = series.map((c, i) => (c === repaired[i] ? null : `${c} to ${repaired[i]}`)).filter(Boolean);
+	if (changed.length) {
+		notes.push(`Brand chart colours that vanished into the blocks were deepened: ${changed.join(', ')}.`);
+	}
+	const topUp = topUpFromBrand(repaired, surface);
+	if (topUp.length > 0) {
+		notes.push(
+			`Kept the ${repaired.length} brand chart colours in order and added ${topUp.length} tints of them for charts with many series.`,
+		);
+	}
+	theme.charts.series = [...repaired, ...topUp];
+}
+
+function topUpFromBrand(series: string[], surface: string): string[] {
+	const missing = DERIVED_SERIES_COUNT - series.length;
+	const chromatic = series.filter((color) => hexToOklch(color).c >= MIN_TINT_SOURCE_CHROMA);
+	const sources = chromatic.length > 0 ? chromatic : series;
+	const tints: string[] = [];
+	for (let index = 0; tints.length < missing && index < sources.length * 2; index++) {
+		const source = sources[index % sources.length];
+		const step = index < sources.length ? TINT_STEP : -TINT_STEP;
+		const tint = shiftLightness(source, blendsInto(shiftLightness(source, step), surface) ? -step : step);
+		const isDistinct = [...series, ...tints].every((kept) => deltaE(kept, tint) >= MIN_TINT_DELTA);
+		if (isDistinct && !blendsInto(tint, surface)) {
+			tints.push(tint);
+		}
+	}
+	return tints;
 }
 
 /**
@@ -411,7 +486,8 @@ type ProposalColorKey =
 	| 'mutedColor'
 	| 'blockBackground'
 	| 'blockBorderColor'
-	| 'grid';
+	| 'grid'
+	| 'headerBackground';
 
 /**
  * Reads proposal colours in any CSS notation. An empty slot means "no
@@ -446,13 +522,37 @@ class ColorReader {
 	}
 }
 
+function guardTypography(proposed: ThemeProposal['typography']): StoryTypography {
+	const guarded = Object.fromEntries(
+		STORY_TEXT_ROLES.map((role) => [role, guardTextRole(proposed[role], DEFAULT_STORY_TYPOGRAPHY[role])]),
+	) as StoryTypography;
+	guarded.figure.tracking = Math.min(guarded.figure.tracking, MAX_FIGURE_TRACKING);
+	return guarded;
+}
+
+function guardTextRole(proposed: StoryTextRoleStyle, fallback: StoryTextRoleStyle): StoryTextRoleStyle {
+	const { weight, tracking, size } = ROLE_LIMITS;
+	return {
+		font: proposed.font,
+		weight: clamp(Math.round((proposed.weight || fallback.weight) / 100) * 100, weight.min, weight.max),
+		case: proposed.case,
+		italic: proposed.italic,
+		tracking: clamp(proposed.tracking, tracking.min, tracking.max),
+		size: clamp(proposed.size || fallback.size, size.min, size.max),
+	};
+}
+
+function resolveControlRadius(proposed: number): number {
+	const radius = clamp(Math.round(proposed), 0, PILL_RADIUS);
+	return radius >= PILL_RADIUS_THRESHOLD ? PILL_RADIUS : radius;
+}
+
+/** Bars read from the brand's own charts are kept as seen; with no chart in the source they follow the cards. */
 function resolveBarRadius(blockRadius: number, proposed: number): number {
-	const derived = barRadiusFromBlock(blockRadius);
-	const clamped = clamp(Math.round(proposed), 0, 12);
-	if (blockRadius <= 2) {
-		return 0;
+	if (!Number.isFinite(proposed) || proposed < 0) {
+		return barRadiusFromBlock(blockRadius);
 	}
-	return Math.max(derived, clamped);
+	return clamp(Math.round(proposed), 0, MAX_BAR_RADIUS);
 }
 
 function clamp(v: number, lo: number, hi: number): number {

@@ -11,15 +11,18 @@ import {
 	storyThemeSchema,
 } from './story-theme';
 import {
+	blendsInto,
 	contrastRatio,
 	desaturate,
 	hexToOklch,
+	legibleOn,
 	oklchToHex,
 	readableInkFor,
+	repairBrandSeries,
 	separateSurface,
 	shiftLightness,
-	snapSeries,
 } from './story-theme-contrast';
+import { parseStoredJson } from './utils';
 
 /**
  * A theme is authored for one colour scheme; its counterpart keeps the brand
@@ -34,21 +37,27 @@ const SURFACE_LIGHTNESS = {
 const SURFACE_MAX_CHROMA = 0.02;
 const MIN_SURFACE_STEP = 1.08;
 const FLAT_BLOCK_STEP = 1.03;
-const MIN_ACCENT_CONTRAST = 3;
-const ACCENT_LIGHTNESS_STEP = 0.05;
+const VISIBLE_FILL_CONTRAST = 1.5;
 const LINE_STEP = { light: -0.11, dark: 0.14 } as const;
 
 export function parseStoredStoryThemePair(raw: unknown): StoryThemePair | null {
-	const value = typeof raw === 'string' ? safeJsonParse(raw) : raw;
-	if (value === null || typeof value !== 'object') {
-		return null;
+	const pair = parseStoredJson(raw, storyThemePairSchema);
+	if (pair) {
+		return pair;
 	}
-	const pair = storyThemePairSchema.safeParse(value);
-	if (pair.success) {
-		return pair.data;
-	}
-	const single = parseStoredStoryTheme(value);
+	const single = parseStoredStoryTheme(raw);
 	return single ? completeStoryThemePair(single) : null;
+}
+
+/** Brand identity is the same in both schemes, so a change to it is applied to both variants. */
+export function mapPairBrand(
+	pair: StoryThemePair,
+	transform: (brand: StoryTheme['brand']) => StoryTheme['brand'],
+): StoryThemePair {
+	return {
+		light: { ...pair.light, brand: transform(pair.light.brand) },
+		dark: { ...pair.dark, brand: transform(pair.dark.brand) },
+	};
 }
 
 export function completeStoryThemePair(theme: StoryTheme): StoryThemePair {
@@ -68,9 +77,8 @@ export function deriveStoryThemeVariant(theme: StoryTheme, mode: StoryThemeMode)
 	const sunken = separateSurface(flipSurface(theme.surfaces.sunken, targets.sunken), page, MIN_SURFACE_STEP);
 	const isFlat = contrastRatio(theme.block.background, theme.surfaces.page) < FLAT_BLOCK_STEP;
 	const blockBackground = isFlat ? page : flipSurface(theme.block.background, targets.block);
-	const blockNeedsBorder = contrastRatio(blockBackground, page) < MIN_SURFACE_STEP && theme.block.borderWidth === 0;
 	const line = desaturate(shiftLightness(blockBackground, LINE_STEP[mode]));
-	const accent = liftAccent(theme.accent.color, page, mode);
+	const accent = keepAccentVisible(theme.accent.color, page);
 
 	return storyThemeSchema.parse({
 		surfaces: { page, sunken },
@@ -85,7 +93,6 @@ export function deriveStoryThemeVariant(theme: StoryTheme, mode: StoryThemeMode)
 			...theme.block,
 			background: blockBackground,
 			borderColor: line,
-			borderWidth: blockNeedsBorder ? 1 : theme.block.borderWidth,
 		},
 		table: {
 			...theme.table,
@@ -96,10 +103,26 @@ export function deriveStoryThemeVariant(theme: StoryTheme, mode: StoryThemeMode)
 		},
 		charts: {
 			...theme.charts,
-			series: snapSeries(theme.charts.series, blockBackground),
+			series: repairBrandSeries(theme.charts.series, blockBackground),
 			grid: line,
 		},
+		brand: {
+			...theme.brand,
+			headerBackground: flipHeaderBackground(
+				theme.brand.headerBackground,
+				theme.surfaces.page,
+				page,
+				targets.block,
+			),
+		},
 	});
+}
+
+function flipHeaderBackground(background: string, sourcePage: string, page: string, lightness: number): string {
+	if (background === sourcePage) {
+		return page;
+	}
+	return hexToOklch(background).c > SURFACE_MAX_CHROMA ? background : flipSurface(background, lightness);
 }
 
 /** Keeps the surface's tint while moving it to the other polarity. */
@@ -108,20 +131,6 @@ function flipSurface(hex: string, lightness: number): string {
 	return oklchToHex({ l: lightness, c: Math.min(c, SURFACE_MAX_CHROMA), h });
 }
 
-/** A brand accent chosen for one ground can sink into the other; it is nudged until it registers. */
-function liftAccent(accent: string, page: string, mode: StoryThemeMode): string {
-	const direction = mode === 'dark' ? 1 : -1;
-	let lifted = accent;
-	for (let step = 0; step < 8 && contrastRatio(lifted, page) < MIN_ACCENT_CONTRAST; step++) {
-		lifted = shiftLightness(lifted, direction * ACCENT_LIGHTNESS_STEP);
-	}
-	return lifted;
-}
-
-function safeJsonParse(raw: string): unknown {
-	try {
-		return JSON.parse(raw);
-	} catch {
-		return null;
-	}
+function keepAccentVisible(accent: string, page: string): string {
+	return blendsInto(accent, page) ? legibleOn(accent, page, VISIBLE_FILL_CONTRAST) : accent;
 }

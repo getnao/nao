@@ -19,12 +19,14 @@ export interface ProbeResult {
 	prefersDarkGround: boolean;
 	writtenColors: string[];
 	documentInShell: boolean;
+	textLength: number;
+	finalUrl: string;
 	screenshot: { data: Uint8Array; mediaType: 'image/jpeg' } | null;
 }
 
 type ProbedPage = Omit<ProbeResult, 'screenshot' | 'documentInShell'>;
 
-interface RawProbe extends Omit<ProbedPage, 'prefersDarkGround'> {
+interface RawProbe extends Omit<ProbedPage, 'prefersDarkGround' | 'finalUrl'> {
 	pageBackground: string;
 }
 
@@ -55,9 +57,7 @@ export async function probeWithBrowser(url: string, allowedFontHosts: string[]):
 		if (response && response.status() >= 400) {
 			const status = response.status();
 			if (status === 403 || status === 401 || status === 429) {
-				throw new ProbeRefusedError(
-					`The site refused an automated request (HTTP ${status}). Its bot protection blocks nao; try a screenshot instead.`,
-				);
+				throw new ProbeRefusedError(`The site refused an automated visit (HTTP ${status}).`);
 			}
 			throw new Error(`The site returned HTTP ${status}.`);
 		}
@@ -77,7 +77,7 @@ async function readRenderedPage(page: Page, figma: boolean, allowedFontHosts: st
 	await page.evaluate('globalThis.__name = globalThis.__name || function (f) { return f; }');
 	const raw = (await page.evaluate(pageProbe, allowedFontHosts)) as RawProbe;
 	const screenshot = await captureScreenshot(page);
-	return applyDocumentGround(normalizeProbe(raw), screenshot);
+	return applyDocumentGround({ ...normalizeProbe(raw), finalUrl: page.url() }, screenshot);
 }
 
 /** The page runs its own scripts during these reads, so a page that never settles is abandoned, then closed by the caller. */
@@ -145,7 +145,7 @@ async function captureScreenshot(page: Page): Promise<{ data: Uint8Array; mediaT
 	}
 }
 
-function normalizeProbe(raw: RawProbe): ProbedPage {
+function normalizeProbe(raw: RawProbe): Omit<ProbedPage, 'finalUrl'> {
 	const roles = Object.fromEntries(
 		Object.entries(raw.roles).map(([role, style]) => [role, normalizeRoleStyle(style)]),
 	) as unknown as RoleEvidence;
@@ -220,6 +220,7 @@ async function applyDocumentGround(
 					fontSize: null,
 					fontWeight: null,
 					letterSpacing: null,
+					textTransform: null,
 					borderRadius: null,
 					borderColor: null,
 					hasBorder: false,
@@ -291,6 +292,7 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 			fontSize: size,
 			fontWeight: cs.fontWeight || null,
 			letterSpacing: ls !== null && size ? Number((ls / size).toFixed(4)) : 0,
+			textTransform: cs.textTransform && cs.textTransform !== 'none' ? cs.textTransform : null,
 			borderRadius: px(cs.borderTopLeftRadius),
 			borderColor: cs.borderTopWidth !== '0px' ? opaque(cs.borderTopColor) : null,
 			hasBorder: cs.borderTopWidth !== '0px' && cs.borderTopStyle !== 'none',
@@ -375,6 +377,13 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 	}
 	const bodyText = [...sizeTally.values()].sort((a, b) => b.count - a.count)[0]?.el ?? null;
 
+	/** Clickable tiles and cards are links too; a button is a short, single line of label. */
+	const buttonShaped = (el: HTMLElement): boolean => {
+		const rect = el.getBoundingClientRect();
+		const label = (el.textContent || '').trim();
+		return rect.height >= 24 && rect.height <= 72 && rect.width <= 480 && label.length > 0 && label.length <= 40;
+	};
+
 	const clickable = all.filter((el) => {
 		if (
 			el.tagName === 'BUTTON' ||
@@ -392,7 +401,7 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 		const cs = getComputedStyle(el);
 		const bg = opaque(cs.backgroundColor);
 		const a = area(el);
-		if (a < 400 || a > 140_000) {
+		if (a < 400 || a > 140_000 || !buttonShaped(el)) {
 			continue;
 		}
 		if (bg && bg !== pageBg) {
@@ -420,16 +429,13 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 			continue;
 		}
 		const radius = px(cs.borderTopLeftRadius) ?? 0;
-		const detached = radius > 0 || cs.boxShadow !== 'none' || cs.borderTopWidth !== '0px';
-		if (!detached) {
+		const height = el.getBoundingClientRect().height;
+		const isPill = radius >= height / 2 && height < 96;
+		if (isPill) {
 			continue;
 		}
 		const hasContent = (el.textContent || '').trim().length > 20;
-		const score =
-			Math.min(a, 200_000) / 4000 +
-			Math.min(radius, 24) * 10 +
-			(cs.boxShadow !== 'none' ? 80 : 0) +
-			(hasContent ? 120 : 0);
+		const score = Math.min(a, 200_000) / 4000 + (cs.boxShadow !== 'none' ? 80 : 0) + (hasContent ? 120 : 0);
 		if (score > cardScore) {
 			cardScore = score;
 			card = el;
@@ -539,6 +545,7 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 
 	return {
 		title: document.title || null,
+		textLength: (document.body?.innerText || '').trim().length,
 		customProperties,
 		pageBackground: pageBg,
 		roles: {
