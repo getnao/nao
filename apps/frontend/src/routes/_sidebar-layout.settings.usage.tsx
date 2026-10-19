@@ -352,7 +352,6 @@ function CollapsibleUsageOverview({ isCollapsed, children }: { isCollapsed: bool
 		<div
 			id='usage-overview'
 			inert={isCollapsed}
-			aria-hidden={isCollapsed}
 			className={cn(
 				'grid xl:shrink-0 transition-[grid-template-rows,opacity] duration-300 ease-in-out',
 				isCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
