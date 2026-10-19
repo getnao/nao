@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
 import { ChatListItem } from './sidebar-chat-list-item';
+import { SidebarBackToApp } from './sidebar-back-to-app';
 import { SidebarCommunity } from './sidebar-community';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { SidebarUserMenu } from './sidebar-user-menu';
@@ -29,6 +30,7 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useTrackLastAppLocation } from '@/hooks/use-last-app-location';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
@@ -67,6 +69,7 @@ export function Sidebar() {
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
 	const isInSettings = !!isSettingsRoute && !isViewer;
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+	useTrackLastAppLocation();
 
 	useEffect(() => {
 		setToggleHintOpen(false);
@@ -207,17 +210,22 @@ export function Sidebar() {
 					</div>
 				</div>
 				{isInSettings && (
-					<ProjectSwitcher
-						projects={projects.data ?? []}
-						currentProjectId={project.data?.id}
-						onChange={handleProjectChange}
-						variant='sidebar'
-						className={cn(
-							'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
-							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
-							hideIf(effectiveIsCollapsed),
-						)}
-					/>
+					<>
+						<div className='pt-4'>
+							<SidebarBackToApp isCollapsed={effectiveIsCollapsed} />
+						</div>
+						<ProjectSwitcher
+							projects={projects.data ?? []}
+							currentProjectId={project.data?.id}
+							onChange={handleProjectChange}
+							variant='sidebar'
+							className={cn(
+								'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
+								effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
+								hideIf(effectiveIsCollapsed),
+							)}
+						/>
+					</>
 				)}
 				{!isInSettings && (
 					<>

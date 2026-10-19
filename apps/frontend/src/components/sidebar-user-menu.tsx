@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { ArrowLeft, SlidersVertical } from 'lucide-react';
 import { Avatar } from './ui/avatar';
+import { useBackToApp } from '@/hooks/use-last-app-location';
 import { useSession } from '@/lib/auth-client';
 import { cn, hideIf } from '@/lib/utils';
 
@@ -13,6 +14,7 @@ export function SidebarUserMenu({ isCollapsed, isInSettings }: SidebarUserMenuPr
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const email = session?.user?.email;
+	const { goBack: goBackToApp } = useBackToApp();
 
 	return (
 		<div className='flex flex-col gap-3'>
@@ -51,9 +53,14 @@ export function SidebarUserMenu({ isCollapsed, isInSettings }: SidebarUserMenuPr
 							<SlidersVertical className='size-4' />
 						</Link>
 					) : (
-						<Link to='/' className='text-muted-foreground hover:text-foreground'>
+						<button
+							type='button'
+							onClick={goBackToApp}
+							aria-label='Back to app'
+							className='text-muted-foreground hover:text-foreground cursor-pointer'
+						>
 							<ArrowLeft className='size-4' />
-						</Link>
+						</button>
 					)}
 				</div>
 			</div>
