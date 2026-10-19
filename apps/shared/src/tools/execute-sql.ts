@@ -10,6 +10,23 @@ import { QueryIdSchema } from './query-id';
 export const LOCAL_DATABASE_ID = 'duckdb_local';
 
 export const SAVE_FORMATS = ['csv', 'parquet'] as const;
+export const ARRAY_PARAMETER_TYPES = [
+	'STRING',
+	'INT64',
+	'FLOAT64',
+	'BOOL',
+	'NUMERIC',
+	'BIGNUMERIC',
+	'DATE',
+	'DATETIME',
+	'TIME',
+	'TIMESTAMP',
+	'INTERVAL',
+	'BYTES',
+	'GEOGRAPHY',
+	'JSON',
+] as const;
+export type ArrayParameterType = (typeof ARRAY_PARAMETER_TYPES)[number];
 
 export const SaveToSchema = z.object({
 	path: z
@@ -21,6 +38,21 @@ export const SaveToSchema = z.object({
 		.enum(SAVE_FORMATS)
 		.describe(
 			'parquet keeps column types and is the better choice for a result you will query again; csv is for a file someone opens.',
+		),
+});
+
+export const ArrayParameterSchema = z.object({
+	name: z
+		.string()
+		.max(128)
+		.regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+		.describe('The BigQuery named parameter without the leading @.'),
+	query_id: QueryIdSchema.describe('The earlier query whose complete result supplies the parameter values.'),
+	column: z.string().min(1).describe('The source result column to bind as the array.'),
+	type: z
+		.enum(ARRAY_PARAMETER_TYPES)
+		.describe(
+			'The BigQuery array element type. Temporal values must use ISO format, INTERVAL must use BigQuery canonical format, NUMERIC and BIGNUMERIC values must be exact decimal strings, BYTES must be base64, and JSON strings must contain valid JSON.',
 		),
 });
 
@@ -39,6 +71,14 @@ export const InputSchema = z.object({
 	save_to: SaveToSchema.optional().describe(
 		`Only for "${LOCAL_DATABASE_ID}". Also writes the result to a file in permanent storage, for an intermediary result you want to query again later or an export the user can download. The rows still come back as usual.`,
 	),
+	array_parameters: z
+		.array(ArrayParameterSchema)
+		.min(1)
+		.max(10)
+		.optional()
+		.describe(
+			'BigQuery only. Bind complete columns from earlier query results as named array parameters. Reference each parameter in SQL with IN UNNEST(@name), never by copying its values into the SQL text.',
+		),
 });
 
 export const OutputSchema = z.object({
@@ -46,6 +86,16 @@ export const OutputSchema = z.object({
 	data: z.array(z.any()),
 	row_count: z.number(),
 	columns: z.array(z.string()),
+	decimal_columns: z
+		.record(
+			z
+				.object({
+					precision: z.number().int().min(1).max(38),
+					scale: z.number().int().min(0).max(38),
+				})
+				.refine(({ precision, scale }) => scale <= precision),
+		)
+		.optional(),
 	/** The id of the query result. May be referenced by the `display_chart` tool call. */
 	id: QueryIdSchema,
 	dialect: z.string().optional(),

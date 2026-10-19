@@ -1120,3 +1120,88 @@ class TestLocation:
 
         assert config._dry_run_bytes("SELECT 1", mock_conn) == 42
         assert mock_conn.client.query.call_args.kwargs["location"] == "us-central1"
+
+
+class TestArrayParameters:
+    def test_execute_sql_binds_array_parameters(self):
+        config = BigQueryConfig(name="test", project_id="my-project", dataset_id="analytics")
+        mock_conn = MagicMock()
+        expected = MagicMock()
+        mock_conn.client.query.return_value.to_dataframe.return_value = expected
+        parameters = [
+            {
+                "name": "users",
+                "type": "STRING",
+                "values": ["a", "b"],
+            }
+        ]
+
+        result = config.execute_sql(
+            "SELECT * FROM users WHERE user_id IN UNNEST(@users)",
+            conn=mock_conn,
+            query_parameters=parameters,
+        )
+
+        assert result is expected
+        mock_conn.raw_sql.assert_not_called()
+        job_config = mock_conn.client.query.call_args.kwargs["job_config"]
+        assert job_config.default_dataset.project == "my-project"
+        assert job_config.default_dataset.dataset_id == "analytics"
+        assert job_config.query_parameters[0].to_api_repr() == {
+            "name": "users",
+            "parameterType": {
+                "type": "ARRAY",
+                "arrayType": {"type": "STRING"},
+            },
+            "parameterValue": {
+                "arrayValues": [{"value": "a"}, {"value": "b"}],
+            },
+        }
+
+    def test_dry_run_binds_array_parameters(self):
+        config = BigQueryConfig(name="test", project_id="my-project")
+        mock_conn = MagicMock()
+        mock_conn.client.query.return_value.total_bytes_processed = 42
+
+        assert (
+            config._dry_run_bytes(
+                "SELECT * FROM users WHERE user_id IN UNNEST(@users)",
+                mock_conn,
+                [{"name": "users", "type": "STRING", "values": ["a", "b"]}],
+            )
+            == 42
+        )
+
+        job_config = mock_conn.client.query.call_args.kwargs["job_config"]
+        assert job_config.dry_run is True
+        assert job_config.use_query_cache is False
+        assert job_config.query_parameters[0].name == "users"
+
+    @pytest.mark.parametrize(
+        ("parameter_type", "value", "expected"),
+        [
+            ("NUMERIC", "123.45", "123.45"),
+            ("BIGNUMERIC", "12345678901234567890.123456789", "12345678901234567890.123456789"),
+            ("DATE", "2026-10-15", "2026-10-15"),
+            ("DATETIME", "2026-10-15 10:30:00.123456", "2026-10-15T10:30:00.123456"),
+            ("TIME", "10:30:00.123456", "10:30:00.123456"),
+            ("TIMESTAMP", "2026-10-15T10:30:00Z", "2026-10-15 10:30:00+00:00"),
+            ("INTERVAL", "0-0 7 00:00:00", "0-0 7 00:00:00"),
+            ("BYTES", "aGVsbG8=", "aGVsbG8="),
+            ("GEOGRAPHY", "POINT(1 2)", "POINT(1 2)"),
+            ("JSON", '{"answer":42}', '{"answer": 42}'),
+        ],
+    )
+    def test_serializes_scalar_array_parameter_types(self, parameter_type, value, expected):
+        config = BigQueryConfig(name="test", project_id="my-project")
+
+        job_config = config._query_job_config([{"name": "values", "type": parameter_type, "values": [value]}])
+
+        representation = job_config.to_api_repr()["query"]["queryParameters"][0]
+        assert representation["parameterValue"]["arrayValues"] == [{"value": expected}]
+
+    def test_rejects_invalid_typed_parameter_value(self):
+        config = BigQueryConfig(name="test", project_id="my-project")
+
+        with pytest.raises(ValueError, match="Invalid DATE query parameter value"):
+            config._query_job_config([{"name": "dates", "type": "DATE", "values": ["not-a-date"]}])

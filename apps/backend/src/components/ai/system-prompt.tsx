@@ -80,7 +80,8 @@ export function SystemPrompt({
 	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
 	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
-	const dialectToolCallRules = getDialectToolCallRules(connections);
+	const canExecuteWarehouseSql = hasTool('execute_sql') && semanticLayerMode !== 'exclusive';
+	const dialectToolCallRules = getDialectToolCallRules(connections, { canExecuteWarehouseSql });
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
 
 	return (
@@ -138,7 +139,7 @@ export function SystemPrompt({
 							only when the user explicitly asks for a specific model to run the subagent.
 						</ListItem>
 					),
-					hasTool('execute_sql') && semanticLayerMode !== 'exclusive' && (
+					canExecuteWarehouseSql && (
 						<ListItem>
 							{hasTool('execute_semantic_query')
 								? 'If you can execute a SQL query and no semantic metric or dimension covers the question, use the execute_sql tool for it.'
@@ -187,7 +188,7 @@ export function SystemPrompt({
 				<LocalDatabaseBlock
 					canSaveResults={hasTool('write') && savedFilesEnabled}
 					hasSemanticResults={hasTool('execute_semantic_query')}
-					warehouseSqlEnabled={semanticLayerMode !== 'exclusive'}
+					warehouseSqlEnabled={canExecuteWarehouseSql}
 				/>
 			)}
 			{semanticLayerMode && (

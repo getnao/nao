@@ -1,5 +1,6 @@
 import json
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,7 +8,7 @@ import duckdb
 import main
 import pytest
 import yaml
-from api_models import EnforcedTableAccess
+from api_models import BigQueryArrayParameter, EnforcedTableAccess
 from fastapi.testclient import TestClient as FastApiTestClient
 from main import app
 from pydantic import ValidationError
@@ -31,6 +32,16 @@ class TestClient(FastApiTestClient):
                 "row_security": UNENFORCED_ROW_SECURITY,
             }
         return super().request(method, url, **kwargs)
+
+
+def test_convert_value_preserves_decimal_precision():
+    value = Decimal("12345678901234567890.123456789")
+
+    assert main._convert_value(value) == "12345678901234567890.123456789"
+
+
+def test_convert_value_serializes_bytes_as_base64():
+    assert main._convert_value(b"\xff\x00ab") == "/wBhYg=="
 
 
 @pytest.fixture(autouse=True)
@@ -948,12 +959,12 @@ def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatc
             {
                 "id": 1,
                 "amount": 1.5,
-                "price": 9.99,
+                "price": "9.99",
                 "day": "2024-01-02",
                 "created_at": "2024-01-02T03:04:05.123456+00:00",
                 "precise_at": "2024-01-02T03:04:05.000000001",
                 "active": True,
-                "payload": "raw",
+                "payload": "cmF3",
                 "duration": "PT1H",
             },
             {
@@ -1168,6 +1179,144 @@ def test_execute_sql_with_cte_duckdb(duckdb_project_folder):
         row_count=1,
         columns=["id", "message"],
         expected_data=[{"id": 1, "message": "hello"}],
+    )
+
+
+def test_execute_sql_forwards_bigquery_array_parameters(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    class FakeBigQueryConfig:
+        type = "bigquery"
+        allow_listed_only = False
+
+        def execute_sql(self, sql: str, query_parameters=None):
+            captured["sql"] = sql
+            captured["query_parameters"] = query_parameters
+            return main.pd.DataFrame([{"user_id": "a"}])
+
+    monkeypatch.setattr(
+        main,
+        "_load_database",
+        lambda _request: (tmp_path, FakeBigQueryConfig(), "database=analytics"),
+    )
+    monkeypatch.setattr(main, "_validate_request", lambda request, *_args: request.sql)
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT * FROM users WHERE user_id IN UNNEST(@users)",
+            "nao_project_folder": str(tmp_path),
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "query_parameters": [
+                {
+                    "name": "users",
+                    "type": "STRING",
+                    "values": ["a", "b"],
+                },
+                {
+                    "name": "metadata",
+                    "type": "JSON",
+                    "values": [{"active": True, "tags": ["nao"]}],
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured == {
+        "sql": "SELECT * FROM users WHERE user_id IN UNNEST(@users)",
+        "query_parameters": [
+            {
+                "name": "users",
+                "type": "STRING",
+                "values": ["a", "b"],
+            },
+            {
+                "name": "metadata",
+                "type": "JSON",
+                "values": [{"active": True, "tags": ["nao"]}],
+            },
+        ],
+    }
+
+
+def test_execute_sql_rejects_duplicate_query_parameter_names():
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": "/unused",
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "query_parameters": [
+                {"name": "users", "type": "STRING", "values": ["a"]},
+                {"name": "users", "type": "STRING", "values": ["b"]},
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["msg"] == "Value error, query parameter names must be unique"
+
+
+@pytest.mark.parametrize(
+    ("parameter_type", "value"),
+    [
+        ("STRING", "001"),
+        ("INT64", "-9223372036854775808"),
+        ("FLOAT64", 1.5),
+        ("BOOL", True),
+        ("NUMERIC", "12345678901234567890.123456789"),
+        ("BIGNUMERIC", "1.25e10"),
+        ("DATE", "2026-10-15"),
+        ("DATETIME", "2026-10-15T10:30:00.123456"),
+        ("TIME", "10:30:00.123456"),
+        ("TIMESTAMP", "2026-10-15T10:30:00Z"),
+        ("INTERVAL", "0-0 7 00:00:00"),
+        ("BYTES", "cmF3"),
+        ("GEOGRAPHY", "POINT(1 2)"),
+        ("JSON", {"active": True}),
+    ],
+)
+def test_bigquery_array_parameter_accepts_compatible_values(parameter_type, value):
+    parameter = BigQueryArrayParameter(name="values", type=parameter_type, values=[value])
+
+    assert parameter.values == [value]
+
+
+@pytest.mark.parametrize(
+    ("parameter_type", "value"),
+    [
+        ("STRING", 1),
+        ("INT64", "not-an-integer"),
+        ("INT64", "9223372036854775808"),
+        ("FLOAT64", "1.5"),
+        ("BOOL", 1),
+        ("NUMERIC", 1.25),
+        ("BIGNUMERIC", "not-a-decimal"),
+        ("DATE", "2026-13-01"),
+        ("DATETIME", "2026-10-15T10:30:00Z"),
+        ("TIME", "25:00:00"),
+        ("TIMESTAMP", "not-a-timestamp"),
+        ("INTERVAL", "seven days"),
+        ("BYTES", "***"),
+        ("GEOGRAPHY", ""),
+        ("JSON", "not-json"),
+    ],
+)
+def test_execute_sql_rejects_incompatible_bigquery_array_parameter_values(parameter_type, value):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": "/unused",
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "query_parameters": [{"name": "values", "type": parameter_type, "values": [value]}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["msg"] == (
+        f"Value error, values must be compatible with BigQuery {parameter_type}"
     )
 
 

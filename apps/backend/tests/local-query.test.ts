@@ -61,6 +61,28 @@ describe('querying saved files', () => {
 		]);
 	});
 
+	it('preserves exact decimal values as strings', async () => {
+		const result = await run("SELECT CAST('12345678901234567890.123456789' AS DECIMAL(38, 9)) AS amount");
+
+		expect(result.data).toEqual([{ amount: '12345678901234567890.123456789' }]);
+	});
+
+	it('serializes BLOB values as base64', async () => {
+		const result = await run("SELECT from_hex('ff006162') AS payload");
+
+		expect(result.data).toEqual([{ payload: '/wBhYg==' }]);
+	});
+
+	it('preserves numeric-looking identifiers when the CSV column is declared VARCHAR', async () => {
+		await writeUserFile(scope, 'uploads/users.csv', 'user_id\n00123\n00456\n');
+
+		const result = await run(
+			"SELECT user_id FROM read_csv('/home/uploads/users.csv', types = {'user_id': 'VARCHAR'}) ORDER BY user_id",
+		);
+
+		expect(result.data).toEqual([{ user_id: '00123' }, { user_id: '00456' }]);
+	});
+
 	it('translates each user to their own space, so the same path means different files', async () => {
 		await writeUserFile(scope, 'notes.csv', 'owner\nuser-1\n');
 		await writeUserFile({ ...scope, userId: 'user-2' }, 'notes.csv', 'owner\nuser-2\n');
@@ -354,7 +376,7 @@ describe('saving the result', () => {
 
 		const result = await run("SELECT id, ratio FROM read_parquet('/home/scratch/step-one.parquet')");
 
-		expect(result.data).toEqual([{ id: 1, ratio: 2.5 }]);
+		expect(result.data).toEqual([{ id: 1, ratio: '2.5' }]);
 	});
 
 	it('saves the rows a query over a file produced', async () => {

@@ -1,4 +1,5 @@
 import type { WarehouseRowSecurity } from '@nao/shared';
+import type { executeSql } from '@nao/shared/tools';
 
 import { env } from '../env';
 import { assertWarehouseTableAccess, type WarehouseTableAccess } from './context-access';
@@ -8,10 +9,24 @@ interface WarehouseSqlOptions {
 	databaseId?: string;
 	envVars?: Record<string, string>;
 	azureAccessToken?: string | null;
+	queryParameters?: WarehouseQueryParameter[];
 	enforceExcludedColumns: boolean;
 	tableAccess: WarehouseTableAccess;
 	rowSecurity: WarehouseRowSecurity;
 }
+
+export interface WarehouseQueryParameter {
+	name: string;
+	type: executeSql.ArrayParameterType;
+	values: WarehouseQueryParameterValue[];
+}
+
+export type WarehouseQueryParameterValue =
+	| string
+	| number
+	| boolean
+	| WarehouseQueryParameterValue[]
+	| { [key: string]: WarehouseQueryParameterValue | null };
 
 export interface WarehouseSqlResult {
 	data: Record<string, unknown>[];
@@ -86,6 +101,7 @@ async function requestWarehouseSql<T>(
 			...(options.databaseId && { database_id: options.databaseId }),
 			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
 			...(options.azureAccessToken && { azure_access_token: options.azureAccessToken }),
+			...(options.queryParameters?.length && { query_parameters: options.queryParameters }),
 		}),
 	});
 

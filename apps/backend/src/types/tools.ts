@@ -13,6 +13,8 @@ import { AgentSettings } from './agent-settings';
 export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
+	decimalColumns?: Record<string, { precision: number; scale: number }>;
+	appliedLimit?: number;
 	compiledBySemanticLayer?: boolean;
 }
 

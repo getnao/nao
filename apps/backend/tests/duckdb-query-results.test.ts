@@ -54,6 +54,27 @@ describe('runSqlOverQueryResults', () => {
 		expect(result.data).toEqual([{ big: '9223372036854775807' }]);
 	});
 
+	it('restores exact decimals when a result is reused', async () => {
+		const ratios = await runSqlOverQueryResults(
+			new Map(),
+			`SELECT ratio FROM (
+				VALUES (1.2500::DECIMAL(20,4)), (2.5000::DECIMAL(20,4))
+			) values_table(ratio)`,
+		);
+
+		expect(ratios).toMatchObject({
+			data: [{ ratio: '1.2500' }, { ratio: '2.5000' }],
+			decimalColumns: { ratio: { precision: 20, scale: 4 } },
+		});
+
+		const result = await runSqlOverQueryResults(
+			new Map([['query_ratios', ratios]]),
+			'SELECT SUM(ratio) AS total FROM query_ratios',
+		);
+
+		expect(result.data).toEqual([{ total: '3.7500' }]);
+	});
+
 	it('registers an empty result as an empty table', async () => {
 		const result = await runSqlOverQueryResults(
 			new Map([['query_empty', { columns: ['id'], data: [] }]]),

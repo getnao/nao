@@ -24,6 +24,8 @@ export type DialectGuidance = {
 	sqlRules?: ReactNode[];
 	/** Rules added to the "Tool Calls" section, one bullet per entry. */
 	toolRules?: ReactNode[];
+	/** Tool-call rules that require raw SQL access to the warehouse. */
+	warehouseSqlToolRules?: ReactNode[];
 };
 
 export const DIALECT_GUIDANCE: DialectGuidance[] = [
@@ -61,6 +63,19 @@ export const DIALECT_GUIDANCE: DialectGuidance[] = [
 	{
 		matches: ['bigquery'],
 		label: 'BigQuery dialect',
+		warehouseSqlToolRules: [
+			<>
+				When filtering BigQuery data with values from an uploaded file, first query the file with{' '}
+				<Code>execute_sql</Code> using <Code>database_id: duckdb_local</Code>. Do not copy the file values into
+				a warehouse <Code>IN (...)</Code> clause. Query the complete file column without <Code>LIMIT</Code>,
+				bind the result with <Code>array_parameters</Code> and filter with <Code>IN UNNEST(@name)</Code>.
+			</>,
+			<>
+				When the BigQuery filter column is <Code>STRING</Code>, make DuckDB read the matching CSV column as{' '}
+				<Code>VARCHAR</Code>, for example with <Code>{"types = {'user_id': 'VARCHAR'}"}</Code>, so
+				numeric-looking IDs and leading zeroes are preserved.
+			</>,
+		],
 		sqlRules: [
 			<>
 				Use backtick-quoted identifiers (e.g. <Code>project.dataset.table</Code>).
@@ -138,8 +153,15 @@ export function getDialectSqlQueryRules(connections: ConnectionLike[]): ReactNod
 	return getActiveDialectGuidance(connections).flatMap(toSqlRuleItems);
 }
 
-export function getDialectToolCallRules(connections: ConnectionLike[]): ReactNode[] {
-	return getActiveDialectGuidance(connections).flatMap(toToolRuleItems);
+export function getDialectToolCallRules(
+	connections: ConnectionLike[],
+	options: { canExecuteWarehouseSql?: boolean } = {},
+): ReactNode[] {
+	const canExecuteWarehouseSql = options.canExecuteWarehouseSql ?? true;
+	return getActiveDialectGuidance(connections).flatMap((guidance) => [
+		...toToolRuleItems(guidance.toolRules),
+		...(canExecuteWarehouseSql ? toToolRuleItems(guidance.warehouseSqlToolRules) : []),
+	]);
 }
 
 function getActiveDialectGuidance(connections: ConnectionLike[]): DialectGuidance[] {
@@ -159,6 +181,6 @@ function toSqlRuleItems(guidance: DialectGuidance): ReactNode[] {
 	);
 }
 
-function toToolRuleItems(guidance: DialectGuidance): ReactNode[] {
-	return (guidance.toolRules ?? []).map((rule) => <ListItem>{rule}</ListItem>);
+function toToolRuleItems(rules: ReactNode[] | undefined): ReactNode[] {
+	return (rules ?? []).map((rule) => <ListItem>{rule}</ListItem>);
 }

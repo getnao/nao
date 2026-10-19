@@ -1,6 +1,19 @@
+import base64
+import json
+import math
+import re
+from datetime import date, datetime, time
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 
 class StrictRequestModel(BaseModel):
@@ -96,6 +109,41 @@ RowSecurity = Annotated[
 ]
 
 
+class BigQueryArrayParameter(StrictRequestModel):
+    name: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=128,
+            pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        ),
+    ]
+    type: Literal[
+        "STRING",
+        "INT64",
+        "FLOAT64",
+        "BOOL",
+        "NUMERIC",
+        "BIGNUMERIC",
+        "DATE",
+        "DATETIME",
+        "TIME",
+        "TIMESTAMP",
+        "INTERVAL",
+        "BYTES",
+        "GEOGRAPHY",
+        "JSON",
+    ]
+    values: list[JsonValue]
+
+    @model_validator(mode="after")
+    def validate_values_match_type(self):
+        if any(not _is_bigquery_parameter_value(self.type, value) for value in self.values):
+            raise ValueError(f"values must be compatible with BigQuery {self.type}")
+        return self
+
+
 class ExecuteSQLRequest(StrictRequestModel):
     sql: str
     nao_project_folder: str
@@ -105,6 +153,18 @@ class ExecuteSQLRequest(StrictRequestModel):
     env_vars: dict[str, str] | None = None
     azure_access_token: str | None = None
     enforce_excluded_columns: bool = False
+    query_parameters: list[BigQueryArrayParameter] = Field(
+        default_factory=list,
+        max_length=10_000,
+    )
+
+    @field_validator("query_parameters")
+    @classmethod
+    def validate_unique_query_parameter_names(cls, value):
+        names = [parameter.name for parameter in value]
+        if len(names) != len(set(names)):
+            raise ValueError("query parameter names must be unique")
+        return value
 
     @field_validator("table_access", mode="before")
     @classmethod
@@ -156,3 +216,60 @@ class HealthResponse(BaseModel):
     context_source: str
     context_initialized: bool
     refresh_schedule: str | None
+
+
+def _is_bigquery_parameter_value(parameter_type: str, value: JsonValue) -> bool:
+    try:
+        if parameter_type == "STRING":
+            return isinstance(value, str)
+        if parameter_type == "INT64":
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                return False
+            if isinstance(value, str) and re.fullmatch(r"-?\d+", value) is None:
+                return False
+            return -(2**63) <= int(value) < 2**63
+        if parameter_type == "FLOAT64":
+            return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+        if parameter_type in {"NUMERIC", "BIGNUMERIC"}:
+            return isinstance(value, str) and re.fullmatch(
+                r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?",
+                value,
+            ) is not None
+        if parameter_type == "BOOL":
+            return isinstance(value, bool)
+        if parameter_type == "DATE":
+            if not isinstance(value, str):
+                return False
+            date.fromisoformat(value)
+            return True
+        if parameter_type == "DATETIME":
+            if not isinstance(value, str):
+                return False
+            return datetime.fromisoformat(value).tzinfo is None
+        if parameter_type == "TIME":
+            if not isinstance(value, str):
+                return False
+            return time.fromisoformat(value).tzinfo is None
+        if parameter_type == "TIMESTAMP":
+            if not isinstance(value, str):
+                return False
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return True
+        if parameter_type == "INTERVAL":
+            return isinstance(value, str) and re.fullmatch(
+                r"-?\d+-\d+ -?\d+ -?\d+:\d+:\d+(?:\.\d*)?",
+                value,
+            ) is not None
+        if parameter_type == "BYTES":
+            return isinstance(value, str) and base64.b64decode(value, validate=True) is not None
+        if parameter_type == "GEOGRAPHY":
+            return isinstance(value, str) and bool(value.strip())
+        if parameter_type == "JSON":
+            if isinstance(value, str):
+                json.loads(value)
+            else:
+                json.dumps(value, allow_nan=False)
+            return value is not None
+    except (AttributeError, OverflowError, TypeError, ValueError):
+        return False
+    return False

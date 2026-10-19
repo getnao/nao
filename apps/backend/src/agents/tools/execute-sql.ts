@@ -11,8 +11,13 @@ import {
 } from '../../queries/execute-sql.queries';
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
+import { getQueryResult } from '../../services/query-result.service';
 import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
-import { executeWarehouseSql } from '../../services/warehouse-sql.service';
+import {
+	executeWarehouseSql,
+	type WarehouseQueryParameter,
+	type WarehouseQueryParameterValue,
+} from '../../services/warehouse-sql.service';
 import { ToolContext } from '../../types/tools';
 import { containsBlockedPassthroughCall, detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
@@ -24,7 +29,7 @@ type ExecuteQueryOptions = {
 };
 
 export async function executeQuery(
-	{ sql_query, database_id, query_id, save_to }: executeSql.Input,
+	{ sql_query, database_id, query_id, save_to, array_parameters }: executeSql.Input,
 	context: ToolContext,
 	options: ExecuteQueryOptions = {},
 ): Promise<executeSql.Output> {
@@ -60,6 +65,10 @@ export async function executeQuery(
 		);
 	}
 
+	if (array_parameters?.length && (context.adminMode || database_id === LOCAL_DATABASE_ID)) {
+		throw new Error('array_parameters only work with a BigQuery warehouse.');
+	}
+
 	if (context.adminMode) {
 		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
 	}
@@ -72,24 +81,26 @@ export async function executeQuery(
 	}
 
 	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
+	const queryParameters = await resolveArrayParameters(array_parameters, context, effectiveSql);
 	const data = await executeWarehouseSql(effectiveSql, {
 		projectFolder: context.projectFolder,
 		databaseId: database_id,
 		envVars: context.envVars,
 		azureAccessToken: context.azureAccessToken,
+		queryParameters,
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
+	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
 	context.queryResults.set(id, {
 		columns: data.columns,
 		data: data.data,
+		...(appliedLimit !== null && { appliedLimit }),
 		...(options.compiledBySemanticLayer && { compiledBySemanticLayer: true }),
 	});
-
-	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
 	return withTemplateWarnings(
 		{
@@ -110,18 +121,24 @@ async function executeLocalQuery(
 	saveTo?: executeSql.SaveTo,
 ): Promise<executeSql.Output> {
 	const {
-		result: { columns, data },
+		result: { columns, data, decimalColumns },
 		savedFile,
 	} = await runQueryOnLocalFiles(sqlQuery, context, saveTo);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
-	context.queryResults.set(id, { columns, data });
 	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	context.queryResults.set(id, {
+		columns,
+		data,
+		...(decimalColumns && { decimalColumns }),
+		...(appliedLimit !== null && { appliedLimit }),
+	});
 
 	return {
 		_version: '1',
 		data,
 		row_count: data.length,
 		columns,
+		...(decimalColumns && { decimal_columns: decimalColumns }),
 		id,
 		dialect: 'duckdb',
 		...(appliedLimit !== null && { applied_limit: appliedLimit }),
@@ -136,8 +153,8 @@ async function executeAppDbQuery(
 ): Promise<executeSql.Output> {
 	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
-	context.queryResults.set(id, { columns, data: rows });
 	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	context.queryResults.set(id, { columns, data: rows, ...(appliedLimit !== null && { appliedLimit }) });
 	return {
 		_version: '1',
 		data: rows,
@@ -168,11 +185,13 @@ async function updateExistingQuery(
 	}
 
 	const saveTo = input.save_to ?? existing.toolInput.save_to;
+	const arrayParameters = input.array_parameters ?? existing.toolInput.array_parameters;
 	const nextInput: executeSql.Input = {
 		sql_query: input.sql_query,
 		database_id: input.database_id ?? existing.toolInput.database_id,
 		name: input.name ?? existing.toolInput.name,
 		...(saveTo && { save_to: saveTo }),
+		...(arrayParameters && { array_parameters: arrayParameters }),
 	};
 
 	const output = await executeQuery({ ...nextInput, query_id: input.query_id }, context);
@@ -205,6 +224,182 @@ function semanticQueryNotEditableError(queryId: string): Error {
 	return new Error(
 		`Query ${queryId} is a semantic query and cannot be edited as SQL. Call execute_semantic_query again with the adjusted metrics, group_by or where.`,
 	);
+}
+
+const MAX_BIGQUERY_PARAMETER_REQUEST_BYTES = 9 * 1024 * 1024;
+
+async function resolveArrayParameters(
+	parameters: executeSql.Input['array_parameters'],
+	context: ToolContext,
+	sql: string,
+): Promise<WarehouseQueryParameter[] | undefined> {
+	if (!parameters?.length) {
+		return undefined;
+	}
+
+	const names = new Set<string>();
+	const resolved = await Promise.all(
+		parameters.map(async (parameter): Promise<WarehouseQueryParameter> => {
+			if (names.has(parameter.name)) {
+				throw new Error(`Duplicate BigQuery array parameter: ${parameter.name}`);
+			}
+			names.add(parameter.name);
+
+			const result = await getQueryResult(context, parameter.query_id);
+			if (!result) {
+				throw new Error(`Query ${parameter.query_id} not found in this chat.`);
+			}
+			if (
+				result.appliedLimit !== undefined &&
+				result.appliedLimit > 0 &&
+				result.data.length >= result.appliedLimit
+			) {
+				throw new Error(
+					`Query ${parameter.query_id} may be truncated by LIMIT ${result.appliedLimit}. Rerun the source query without LIMIT before using it as a BigQuery array parameter.`,
+				);
+			}
+			if (!result.columns.includes(parameter.column)) {
+				throw new Error(
+					`Column "${parameter.column}" not found in query ${parameter.query_id}. Available columns: ${result.columns.join(', ')}`,
+				);
+			}
+
+			const values = uniqueParameterValues(
+				result.data.map((row) => row[parameter.column]),
+				parameter.type,
+				parameter.name,
+			);
+			return { name: parameter.name, type: parameter.type, values };
+		}),
+	);
+
+	const requestBytes = bigQueryRequestBytes(sql, resolved);
+	if (requestBytes > MAX_BIGQUERY_PARAMETER_REQUEST_BYTES) {
+		throw new Error(
+			`BigQuery array parameters are ${Math.ceil(requestBytes / (1024 * 1024))} MB, above nao's 9 MB safety limit. Use a smaller filter file or a BigQuery staging table.`,
+		);
+	}
+	return resolved;
+}
+
+function bigQueryRequestBytes(sql: string, parameters: WarehouseQueryParameter[]): number {
+	const queryParameters = parameters.map((parameter) => ({
+		name: parameter.name,
+		parameterType: { type: 'ARRAY', arrayType: { type: parameter.type } },
+		parameterValue: {
+			arrayValues: parameter.values.map((value) => ({
+				value: parameter.type === 'JSON' ? JSON.stringify(value) : String(value),
+			})),
+		},
+	}));
+	return new TextEncoder().encode(JSON.stringify({ query: sql, queryParameters })).byteLength;
+}
+
+function uniqueParameterValues(
+	values: unknown[],
+	type: WarehouseQueryParameter['type'],
+	name: string,
+): WarehouseQueryParameter['values'] {
+	const unique = new Map<string, WarehouseQueryParameterValue>();
+	for (const value of values) {
+		if (value === null || value === undefined) {
+			continue;
+		}
+		const normalized = normalizeParameterValue(value, type, name);
+		unique.set(`${typeof normalized}:${JSON.stringify(normalized)}`, normalized);
+	}
+	return [...unique.values()];
+}
+
+function normalizeParameterValue(
+	value: unknown,
+	type: WarehouseQueryParameter['type'],
+	name: string,
+): WarehouseQueryParameterValue {
+	if (type === 'STRING' && typeof value === 'string') {
+		return value;
+	}
+	if (
+		type === 'INT64' &&
+		((typeof value === 'number' && Number.isSafeInteger(value)) ||
+			(typeof value === 'string' && /^-?\d+$/.test(value)))
+	) {
+		return value;
+	}
+	if (type === 'FLOAT64' && typeof value === 'number' && Number.isFinite(value)) {
+		return value;
+	}
+	if (type === 'BOOL' && typeof value === 'boolean') {
+		return value;
+	}
+	if (
+		(type === 'NUMERIC' || type === 'BIGNUMERIC') &&
+		typeof value === 'string' &&
+		/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)
+	) {
+		return value;
+	}
+	if ((type === 'NUMERIC' || type === 'BIGNUMERIC') && typeof value === 'number') {
+		throw new Error(
+			`BigQuery array parameter "${name}" received a JavaScript number for ${type}, which may have already lost precision. Cast the source column to VARCHAR in DuckDB or STRING in BigQuery.`,
+		);
+	}
+	if (type === 'DATE' && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+		return value;
+	}
+	if (
+		type === 'DATETIME' &&
+		typeof value === 'string' &&
+		/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(value)
+	) {
+		return value;
+	}
+	if (type === 'TIME' && typeof value === 'string' && /^\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(value)) {
+		return value;
+	}
+	if (type === 'TIMESTAMP' && typeof value === 'string' && !Number.isNaN(Date.parse(value))) {
+		return value;
+	}
+	if (type === 'INTERVAL' && typeof value === 'string' && value.trim().length > 0) {
+		return value.trim();
+	}
+	if (type === 'BYTES' && typeof value === 'string' && isBase64(value)) {
+		return value;
+	}
+	if (type === 'GEOGRAPHY' && typeof value === 'string' && value.length > 0) {
+		return value;
+	}
+	if (type === 'JSON' && isJsonParameterValue(value)) {
+		if (typeof value === 'string') {
+			try {
+				JSON.parse(value);
+			} catch {
+				throw new Error(`BigQuery array parameter "${name}" contains invalid JSON.`);
+			}
+		}
+		return value;
+	}
+	throw new Error(`BigQuery array parameter "${name}" contains a value incompatible with ${type}.`);
+}
+
+function isJsonParameterValue(value: unknown): value is WarehouseQueryParameterValue {
+	if (typeof value === 'string' || typeof value === 'boolean') {
+		return true;
+	}
+	if (typeof value === 'number') {
+		return Number.isFinite(value);
+	}
+	if (Array.isArray(value)) {
+		return value.every((item) => item === null || isJsonParameterValue(item));
+	}
+	if (value && typeof value === 'object') {
+		return Object.values(value).every((item) => item === null || isJsonParameterValue(item));
+	}
+	return false;
+}
+
+function isBase64(value: string): boolean {
+	return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
 }
 
 /** Semantics-only mode: the warehouse is reached through the layer, raw SQL stays for the local database. */

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { DuckDBConnection, DuckDBResultReader } from '@duckdb/node-api';
+import type { DuckDBConnection, DuckDBDecimalType, DuckDBResultReader } from '@duckdb/node-api';
 import type { executeSql } from '@nao/shared/tools';
 
 import { env } from '../env';
@@ -210,21 +210,31 @@ export async function runSqlOverQueryResults(
 }
 
 /**
- * Reads the rows out, turning the numbers DuckDB renders as text back into numbers. BIGINT and
- * DECIMAL arrive as strings so that no precision is lost in JSON, but a count or a sum reaching a
- * chart as `"3"` is worse than the rounding: a value only stays a string when it genuinely cannot
- * survive the trip through a JavaScript number.
+ * Reads the rows out, turning exactly representable integers DuckDB renders as text back into
+ * numbers. DECIMAL values stay strings because JavaScript numbers cannot preserve their precision.
  */
 function toQueryResult(reader: DuckDBResultReader, { DuckDBTypeId }: DuckDBModule): QueryResult {
 	const numericColumns = findNumericColumns(reader, DuckDBTypeId);
+	const decimalColumns = findDecimalColumns(reader, DuckDBTypeId);
+	const blobColumns = findColumns(reader, DuckDBTypeId.BLOB);
+	const rawRows = blobColumns.size > 0 ? reader.getRowObjects() : [];
 
-	const data = reader.getRowObjectsJson().map((row) => {
+	const data = reader.getRowObjectsJson().map((row, rowIndex) => {
 		return Object.fromEntries(
-			Object.entries(row).map(([column, value]) => [column, toNumber(value, numericColumns.get(column))]),
+			Object.entries(row).map(([column, value]) => [
+				column,
+				blobColumns.has(column)
+					? blobToBase64(rawRows[rowIndex]?.[column])
+					: toNumber(value, numericColumns.get(column)),
+			]),
 		);
 	});
 
-	return { columns: reader.columnNames(), data };
+	return {
+		columns: reader.columnNames(),
+		data,
+		...(Object.keys(decimalColumns).length > 0 && { decimalColumns }),
+	};
 }
 
 type NumericKind = 'integer' | 'fractional';
@@ -251,13 +261,47 @@ function findNumericColumns(
 	return numericColumns;
 }
 
+function findDecimalColumns(
+	reader: DuckDBResultReader,
+	typeIds: DuckDBModule['DuckDBTypeId'],
+): NonNullable<QueryResult['decimalColumns']> {
+	const names = reader.deduplicatedColumnNames();
+	return Object.fromEntries(
+		reader
+			.columnTypes()
+			.map((type, index) => {
+				if (type.typeId !== typeIds.DECIMAL) {
+					return null;
+				}
+				const { width: precision, scale } = type as DuckDBDecimalType;
+				return [names[index]!, { precision, scale }] as const;
+			})
+			.filter((entry) => entry !== null),
+	);
+}
+
+function findColumns(reader: DuckDBResultReader, typeId: number): Set<string> {
+	const names = reader.deduplicatedColumnNames();
+	return new Set(reader.columnTypes().flatMap((type, index) => (type.typeId === typeId ? [names[index]!] : [])));
+}
+
+function blobToBase64(value: unknown): unknown {
+	if (value === null) {
+		return null;
+	}
+	if (!value || typeof value !== 'object' || !('bytes' in value) || !(value.bytes instanceof Uint8Array)) {
+		throw new Error('DuckDB returned an invalid BLOB value.');
+	}
+	return Buffer.from(value.bytes).toString('base64');
+}
+
 function toNumber(value: unknown, kind: NumericKind | undefined): unknown {
 	if (!kind || typeof value !== 'string') {
 		return value;
 	}
 
 	const parsed = Number(value);
-	const exactEnough = kind === 'integer' ? Number.isSafeInteger(parsed) : Number.isFinite(parsed);
+	const exactEnough = kind === 'integer' && Number.isSafeInteger(parsed);
 
 	return exactEnough ? parsed : value;
 }
@@ -387,20 +431,48 @@ async function createQueryResultTable(
 	const table = quoteIdentifier(queryId);
 
 	if (queryResult.data.length === 0) {
-		const columns = queryResult.columns.map((column) => `${quoteIdentifier(column)} VARCHAR`);
+		const columns = queryResult.columns.map(
+			(column) =>
+				`${quoteIdentifier(column)} ${decimalSqlType(queryResult.decimalColumns?.[column]) ?? 'VARCHAR'}`,
+		);
 		await connection.run(`CREATE TABLE ${table} (${columns.join(', ') || '"_empty" VARCHAR'})`);
 		return;
 	}
 
 	const rowsFile = join(workspace, `${crypto.randomUUID()}.jsonl`);
 	await writeFile(rowsFile, queryResult.data.map((row) => JSON.stringify(row, replaceUnsupportedJson)).join('\n'));
-	await connection.run(
-		`CREATE TABLE ${table} AS SELECT * FROM read_json_auto(${quoteLiteral(rowsFile)}, format = 'newline_delimited', sample_size = -1)`,
-	);
+	const source = `read_json_auto(${quoteLiteral(rowsFile)}, format = 'newline_delimited', sample_size = -1)`;
+	const availableColumns = new Set(Object.keys(queryResult.data[0]!));
+	const decimalCasts = Object.entries(queryResult.decimalColumns ?? {}).flatMap(([column, type]) => {
+		const sqlType = decimalSqlType(type);
+		return sqlType && availableColumns.has(column)
+			? [`CAST(${quoteIdentifier(column)} AS ${sqlType}) AS ${quoteIdentifier(column)}`]
+			: [];
+	});
+	const select =
+		decimalCasts.length > 0
+			? `SELECT * REPLACE (${decimalCasts.join(', ')}) FROM ${source}`
+			: `SELECT * FROM ${source}`;
+	await connection.run(`CREATE TABLE ${table} AS ${select}`);
 }
 
 function replaceUnsupportedJson(_key: string, value: unknown): unknown {
 	return typeof value === 'bigint' ? value.toString() : value;
+}
+
+function decimalSqlType(type: { precision: number; scale: number } | undefined): string | null {
+	if (
+		!type ||
+		!Number.isInteger(type.precision) ||
+		!Number.isInteger(type.scale) ||
+		type.precision < 1 ||
+		type.precision > 38 ||
+		type.scale < 0 ||
+		type.scale > type.precision
+	) {
+		return null;
+	}
+	return `DECIMAL(${type.precision},${type.scale})`;
 }
 
 function quoteIdentifier(identifier: string): string {
