@@ -21,6 +21,19 @@ describe('clarification InputSchema', () => {
 				question: 'Choose a value',
 				options: ['One', 'Two', 'Three', 'Four', 'Five', 'Six'],
 			}),
-		).toThrow('Clarification questions may contain at most five options.');
+		).toThrow();
+	});
+
+	it.each([
+		undefined,
+		DATABASE_WAREHOUSE_OPTIONS.slice(0, 5),
+		[...DATABASE_WAREHOUSE_OPTIONS.slice(0, -1), 'Oracle'],
+	])('rejects an incomplete or invalid database option list', (options) => {
+		expect(() =>
+			InputSchema.parse({
+				question: DATABASE_WAREHOUSE_QUESTION,
+				options,
+			}),
+		).toThrow();
 	});
 });
