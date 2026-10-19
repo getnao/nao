@@ -76,6 +76,7 @@ export async function saveStoryTheme(projectId: string, theme: StoryThemePair): 
 			enabled: true,
 			version: sql`(${nextVersion})`,
 		})
+		.onConflictDoNothing()
 		.execute();
 }
 
