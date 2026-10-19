@@ -1,14 +1,6 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
-import {
-	ArrowLeftFromLine,
-	ArrowRightToLine,
-	ChevronRight,
-	NewspaperIcon,
-	PlusIcon,
-	SearchIcon,
-	X,
-} from 'lucide-react';
+import { ChevronRight, NewspaperIcon, PanelLeft, PlusIcon, SearchIcon, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
@@ -190,11 +182,7 @@ export function Sidebar() {
 										className='text-muted-foreground'
 										aria-label='Toggle sidebar'
 									>
-										{effectiveIsCollapsed ? (
-											<ArrowRightToLine className='size-4' />
-										) : (
-											<ArrowLeftFromLine className='size-4' />
-										)}
+										<PanelLeft className='size-4' />
 									</Button>
 								</TooltipTrigger>
 								<TooltipContent side='right'>
