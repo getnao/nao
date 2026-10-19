@@ -807,7 +807,7 @@ export const storyRoutes = {
 					);
 					await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds);
 				};
-				bestEffortNotify().catch((error) => {
+				await bestEffortNotify().catch((error) => {
 					logger.error(`Failed to notify story subscribers: ${String(error)}`, {
 						source: 'system',
 						projectId,
