@@ -7,6 +7,7 @@ export type ShortcutId =
 	| 'toggle-theme'
 	| 'new-chat'
 	| 'go-to-stories'
+	| 'back-to-app'
 	| 'toggle-story-chat'
 	| 'keyboard-help'
 	| 'stop-generation'
@@ -65,6 +66,12 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Go to Stories',
 		group: 'Navigation',
 		shortcut: { mod: true, shift: true, key: 's' },
+	},
+	{
+		id: 'back-to-app',
+		label: 'Back to app from settings',
+		group: 'Navigation',
+		shortcut: { key: 'Escape' },
 	},
 	{
 		id: 'stop-generation',
