@@ -967,7 +967,8 @@ function buildBarChart(props: ResolvedProps) {
 		: resolveBarYAxisDomain(yAxisMin, yAxisMax, axisValues, showDataLabels === true);
 	const valueAxisValues = typeof yAxisDomain?.[1] === 'number' ? [...axisValues, yAxisDomain[1]] : axisValues;
 	const valueAxisWidth = computeValueAxisWidth(valueAxisValues, chartLevelFormat, Boolean(yAxisLabel));
-	const dataLabelsLayer = showDataLabels && !isStacked ? renderDataLabelsLayer(series) : undefined;
+	const dataLabelsLayer =
+		showDataLabels && !isStacked ? renderDataLabelsLayer(series, props.backgroundColor) : undefined;
 
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -1134,7 +1135,8 @@ function buildAreaChart(props: ResolvedProps) {
 	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
 	const chartLevelFormat = getChartLevelValueFormat(series);
 	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat, Boolean(yAxisLabel));
-	const dataLabelsLayer = showDataLabels && !isStacked ? renderDataLabelsLayer(series) : undefined;
+	const dataLabelsLayer =
+		showDataLabels && !isStacked ? renderDataLabelsLayer(series, props.backgroundColor) : undefined;
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -1244,7 +1246,7 @@ function buildComboChart(props: ResolvedProps) {
 	const leftAxisWidth = computeComboAxisWidth(data, leftSeries, leftFormat, Boolean(yAxisLabel));
 	const rightAxisWidth = computeComboAxisWidth(data, rightSeries, rightFormat, Boolean(yAxisRightLabel));
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
-	const dataLabelsLayer = showDataLabels ? renderDataLabelsLayer(series) : undefined;
+	const dataLabelsLayer = showDataLabels ? renderDataLabelsLayer(series, props.backgroundColor) : undefined;
 
 	return (
 		<ComposedChart data={data} accessibilityLayer margin={margin}>
@@ -1512,7 +1514,9 @@ function buildRadarChart(props: ResolvedProps) {
 function buildPieChart(props: ResolvedProps) {
 	const { data, chartType, xAxisKey, series, colorFor, children, margin, backgroundColor, showDataLabels } = props;
 	const dataKey = series[0].data_key;
-	const dataLabelsLayer = showDataLabels ? renderPieDataLabelsLayer(series[0].value_format) : undefined;
+	const dataLabelsLayer = showDataLabels
+		? renderPieDataLabelsLayer(series[0].value_format, backgroundColor)
+		: undefined;
 
 	// Callers are expected to bucket the data (see `bucketPieData`) so the legend
 	// and slices share one set; the builder does not re-bucket here.
