@@ -384,7 +384,9 @@ GENERAL RULES
 }
 
 function renderWarehouseProviders(): string {
-	return Object.entries(requestWarehouseCredentials.WAREHOUSE_PROVIDER_LABELS)
-		.map(([provider, label]) => `- ${label} (provider "${provider}")`)
-		.join('\n');
+	return requestWarehouseCredentials.PROVIDERS.map((provider) => {
+		const label = requestWarehouseCredentials.WAREHOUSE_PROVIDER_LABELS[provider];
+		const aliases = requestWarehouseCredentials.WAREHOUSE_PROVIDER_ALIASES[provider];
+		return `- ${[label, ...(aliases ?? [])].join(' or ')} (provider "${provider}")`;
+	}).join('\n');
 }

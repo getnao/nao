@@ -1,3 +1,4 @@
+import { requestWarehouseCredentials } from '@nao/shared/tools';
 import { describe, expect, it } from 'vitest';
 
 import { renderOnboardingSystemPrompt } from '../src/components/ai/onboarding-system-prompt';
@@ -41,6 +42,12 @@ describe('onboarding system prompt', () => {
 		const prompt = renderOnboardingSystemPrompt();
 
 		expect(prompt).toContain('Call request_warehouse_selection to ask which database the user is using');
+		expect(prompt).toContain('- DuckDB (special flow below)');
+		for (const provider of requestWarehouseCredentials.PROVIDERS) {
+			const label = requestWarehouseCredentials.WAREHOUSE_PROVIDER_LABELS[provider];
+			const aliases = requestWarehouseCredentials.WAREHOUSE_PROVIDER_ALIASES[provider] ?? [];
+			expect(prompt).toContain(`- ${[label, ...aliases].join(' or ')} (provider "${provider}")`);
+		}
 		expect(prompt).not.toContain('If the user chooses "Other"');
 		expect(prompt).toContain('Do not invent or guess a provider identifier');
 		expect(prompt).toContain('Do not call request_warehouse_credentials');
