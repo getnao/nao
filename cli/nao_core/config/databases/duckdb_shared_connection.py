@@ -24,8 +24,8 @@ def connect_shared(path: str) -> Backend:
     key = str(Path(path).resolve())
     with _registry_lock:
         root = _shared_roots.get(key) or _open_shared_root(key)
-        root.cursor_count += 1
         cursor = root.backend.con.cursor()
+        root.cursor_count += 1
     return _SharedCursorBackend.over(cursor, key)
 
 
@@ -58,13 +58,19 @@ class _SharedCursorBackend(Backend):
         self._record_batch_readers_consumed = {}
 
     def disconnect(self) -> None:
-        super().disconnect()
-        _release_shared_root(self._shared_key)
+        try:
+            super().disconnect()
+        finally:
+            _release_shared_root(self._shared_key)
 
 
 def _open_shared_root(key: str) -> _SharedRoot:
     backend = ibis.duckdb.connect(database=key, read_only=True)
-    lock_down(backend)
+    try:
+        lock_down(backend)
+    except Exception:
+        backend.disconnect()
+        raise
     root = _SharedRoot(backend)
     _shared_roots[key] = root
     return root
