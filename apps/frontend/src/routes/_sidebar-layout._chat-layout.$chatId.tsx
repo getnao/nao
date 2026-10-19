@@ -5,6 +5,7 @@ import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'luc
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
+import type { Chat } from '@/queries/use-chat-query';
 import { NEW_CHAT_ID } from '@/lib/ai';
 import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -73,7 +74,7 @@ function ChatPage() {
 	const { role, canViewChatReplay } = usePermissions();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const showAutomationLinks = role !== undefined && role !== 'viewer' && config.data?.betaAutomationsEnabled === true;
-	const chat = useChatQuery({ chatId });
+	const chat = useChatQuery({ chatId, select: selectChatHeader });
 	const title = chat.data?.title;
 
 	const isForbidden = chat.isError && isForbiddenError(chat.error);
@@ -394,6 +395,16 @@ function TrialOnboardingBanner() {
 			</div>
 		</div>
 	);
+}
+
+function selectChatHeader(chat: Chat) {
+	return {
+		title: chat.title,
+		projectId: chat.projectId,
+		isOnboarding: chat.isOnboarding,
+		forkMetadata: chat.forkMetadata,
+		automationRun: chat.automationRun,
+	};
 }
 
 function findLatestStorySlug(messages: UIMessage[]): string | undefined {

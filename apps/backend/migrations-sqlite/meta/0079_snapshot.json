@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1b649dba-b10b-4f96-8c06-8ed30ad57292",
-  "prevId": "04bbb569-f8ea-4ad1-8617-f4091da9a7a8",
+  "id": "8c77461b-9315-4c2b-bf82-3da7a53cbddf",
+  "prevId": "525cb43e-6497-4ba2-84f3-3c340bb9e0f5",
   "tables": {
     "account": {
       "name": "account",
@@ -1255,6 +1255,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "discord_thread_id": {
+          "name": "discord_thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "whatsapp_thread_id": {
           "name": "whatsapp_thread_id",
           "type": "text",
@@ -1326,6 +1333,13 @@
           "name": "chat_mattermost_thread_idx",
           "columns": [
             "mattermost_thread_id"
+          ],
+          "isUnique": false
+        },
+        "chat_discord_thread_idx": {
+          "name": "chat_discord_thread_idx",
+          "columns": [
+            "discord_thread_id"
           ],
           "isUnique": false
         },
@@ -1463,6 +1477,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "discord_message_id": {
+          "name": "discord_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1562,6 +1583,13 @@
           "name": "chat_message_senderUserId_idx",
           "columns": [
             "sender_user_id"
+          ],
+          "isUnique": false
+        },
+        "chat_message_discordMessageId_idx": {
+          "name": "chat_message_discordMessageId_idx",
+          "columns": [
+            "discord_message_id"
           ],
           "isUnique": false
         }
@@ -5298,6 +5326,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "discord_settings": {
+          "name": "discord_settings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "whatsapp_settings": {
           "name": "whatsapp_settings",
           "type": "text",
@@ -5389,6 +5424,96 @@
           "value": "CASE WHEN \"type\" = 'local' THEN \"path\" IS NOT NULL ELSE TRUE END"
         }
       }
+    },
+    "project_discord_link": {
+      "name": "project_discord_link",
+      "columns": {
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "discord_user_id": {
+          "name": "discord_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "project_discord_link_userId_idx": {
+          "name": "project_discord_link_userId_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "project_discord_link_project_id_project_id_fk": {
+          "name": "project_discord_link_project_id_project_id_fk",
+          "tableFrom": "project_discord_link",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "project_discord_link_user_id_user_id_fk": {
+          "name": "project_discord_link_user_id_user_id_fk",
+          "tableFrom": "project_discord_link",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "project_discord_link_project_id_discord_user_id_pk": {
+          "columns": [
+            "project_id",
+            "discord_user_id"
+          ],
+          "name": "project_discord_link_project_id_discord_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "project_group_budget": {
       "name": "project_group_budget",
@@ -8742,13 +8867,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'queued'"
-        },
-        "logs": {
-          "name": "logs",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "error": {
           "name": "error",

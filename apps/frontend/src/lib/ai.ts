@@ -138,7 +138,7 @@ const isStoryToolPart = (part: GroupedMessagePart): part is UIToolPart<'story'> 
 };
 
 /** Claude returns the note it writes before a tool call as a reasoning part; the backend tags it so it counts as readable content. */
-export const isProgressUpdatePart = (part: UIMessagePart): boolean => {
+export const isProgressUpdatePart = (part: UIMessagePart): part is ReasoningUIPart => {
 	return isReasoningPart(part) && part.providerMetadata?.anthropic?.progressUpdate === true;
 };
 
@@ -234,8 +234,8 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 		}
 	};
 
-	for (const part of parts) {
-		if (isSettledEmptyReasoning(part)) {
+	for (const [index, part] of parts.entries()) {
+		if (isSettledEmptyReasoning(part) || isProgressUpdateShownAsText(part, parts[index + 1])) {
 			continue;
 		}
 		if (isPartGroupable(part, density)) {
@@ -407,6 +407,11 @@ const isSettledEmptyReasoning = (part: UIMessagePart): boolean => {
 	return isReasoningPart(part) && part.state !== 'streaming' && part.text.trim() === '';
 };
 
+/** The backend promotes the note Claude writes before `suggest_follow_ups` to the visible answer, which makes the note redundant. */
+const isProgressUpdateShownAsText = (part: UIMessagePart, next: UIMessagePart | undefined): boolean => {
+	return isProgressUpdatePart(part) && next?.type === 'text' && next.text.trim() === part.text.trim();
+};
+
 /** Check if a message part should be collapsed (tool or reasoning) */
 export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 'detailed'): part is GroupablePart => {
 	if (isReasoningPart(part)) {
@@ -515,7 +520,8 @@ const isPlainObject = (value: object): value is Record<string, unknown> => {
 export const getLastFollowUpSuggestionsToolCall = (
 	messages: UIMessage[],
 ): UIToolPart<'suggest_follow_ups'> | undefined => {
-	const followUpSuggestionsToolCallPart = messages.at(-1)?.parts.find((p) => p.type === 'tool-suggest_follow_ups');
+	const lastMessageParts = [...(messages.at(-1)?.parts ?? [])].reverse();
+	const followUpSuggestionsToolCallPart = lastMessageParts.find((p) => p.type === 'tool-suggest_follow_ups');
 	if (!followUpSuggestionsToolCallPart) {
 		return undefined;
 	}

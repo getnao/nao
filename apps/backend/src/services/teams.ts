@@ -170,7 +170,7 @@ class TeamsService {
 
 		try {
 			await assertProjectCloudBillingAccess(ctx.config.projectId);
-			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
+			ctx.convMessage = await ctx.thread.post(`✨ ${await getAppName()} is answering...`);
 			await this._saveOrUpdateUserMessage(ctx);
 
 			const [chat] = await chatQueries.getChat(ctx.chatId);

@@ -1,10 +1,10 @@
 import { Check, HelpCircle } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import type { ToolCallComponentProps } from '.';
 import type { UIMessage } from '@nao/backend/chat';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { getMessageText, isOnboardingContextRequestMessage } from '@/lib/ai';
 import { cn } from '@/lib/utils';
@@ -14,12 +14,8 @@ type AnsweredState = { isAnswered: true; answer: string } | { isAnswered: false;
 export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<'clarification'>) => {
 	const { isSettled } = useToolCallContext();
 	const { queueOrSendMessage, isRunning } = useAgentContext();
-	const messages = useAgentMessages();
-
-	const answeredState = useMemo<AnsweredState>(
-		() => getAnsweredStateForToolCall(messages, toolPart.toolCallId),
-		[messages, toolPart.toolCallId],
-	);
+	const answer = useAgentMessagesSelector((messages) => findAnswerForToolCall(messages, toolPart.toolCallId));
+	const answeredState: AnsweredState = answer !== null ? { isAnswered: true, answer } : { isAnswered: false };
 
 	const input = toolPart.input;
 	const isStreaming = toolPart.state === 'input-streaming';
@@ -106,22 +102,22 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
  * looking for a user message that appears after the assistant message
  * containing this tool call.
  */
-function getAnsweredStateForToolCall(messages: UIMessage[], toolCallId: string): AnsweredState {
+function findAnswerForToolCall(messages: UIMessage[], toolCallId: string): string | null {
 	const toolMessageIndex = messages.findIndex((message) =>
 		message.parts.some((part) => part.type === 'tool-clarification' && part.toolCallId === toolCallId),
 	);
 	if (toolMessageIndex === -1) {
-		return { isAnswered: false };
+		return null;
 	}
 
 	for (let i = toolMessageIndex + 1; i < messages.length; i++) {
 		const message = messages[i];
 		if (message.role === 'user' && !isOnboardingContextRequestMessage(message)) {
-			return { isAnswered: true, answer: getMessageText(message).trim() };
+			return getMessageText(message).trim();
 		}
 	}
 
-	return { isAnswered: false };
+	return null;
 }
 
 const ClarificationSkeleton = () => (

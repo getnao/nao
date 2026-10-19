@@ -44,7 +44,8 @@ vi.mock('@/contexts/agent.provider', () => ({
 		isRunning: false,
 		resendMessage: mocks.resendMessage,
 	}),
-	useAgentMessages: () => [{ id: 'message-id', role: 'user' }],
+	useAgentMessagesSelector: (selector: (messages: unknown[]) => unknown) =>
+		selector([{ id: 'message-id', role: 'user' }]),
 }));
 
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({

@@ -17,6 +17,8 @@ import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as discordConfigQueries from '../queries/project-discord-config.queries';
+import * as discordLinkQueries from '../queries/project-discord-link.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
@@ -34,6 +36,8 @@ import {
 	MODEL_INTEGRATIONS,
 	updateIntegrationModel,
 } from '../services/default-models.service';
+import { discordService } from '../services/discord';
+import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -111,6 +115,31 @@ function toIntegrationModelSelection(input: z.infer<typeof integrationModelInput
 const httpUrlSchema = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
 	message: 'Enter a valid HTTP or HTTPS URL',
 });
+
+function toDiscordConfigResponse(config: discordConfigQueries.DiscordConfig) {
+	return {
+		applicationId: config.applicationId,
+		botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+		publicKey: config.publicKey,
+		modelSelection: config.modelSelection,
+		mentionRoleIds: config.mentionRoleIds ?? [],
+		respondToChannelIds: config.respondToChannelIds ?? [],
+		fallbackUserEmail: config.fallbackUserEmail ?? '',
+		hideAnswerLink: config.hideAnswerLink ?? false,
+	};
+}
+
+async function resolveDiscordFallbackUser(projectId: string, email: string) {
+	const user = await userQueries.getUser({ email });
+	if (!user) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: `No user found with the email ${email}.` });
+	}
+	const role = await projectQueries.getUserRoleInProject(projectId, user.id);
+	if (!canUseDiscordInProject(role)) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: `${email} does not have access to this project.` });
+	}
+	return user;
+}
 
 async function validateBoundarySource(url: string): Promise<number> {
 	try {
@@ -673,6 +702,91 @@ export const projectRoutes = {
 	deleteMattermostConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await mattermostConfigQueries.deleteProjectMattermostConfig(ctx.project.id);
 		await mattermostService.stopProject(ctx.project.id);
+		return { success: true };
+	}),
+
+	getDiscordConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '', connected: false, webhookUrl: '' };
+		}
+
+		const config = await discordConfigQueries.getProjectDiscordConfig(ctx.project.id);
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		return {
+			projectConfig: config ? toDiscordConfigResponse(config) : null,
+			projectId: ctx.project.id,
+			connected: discordService.getAdapter(ctx.project.id) !== null,
+			webhookUrl: `${baseUrl}/api/webhooks/discord/${ctx.project.id}`,
+		};
+	}),
+
+	upsertDiscordConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				botToken: z.string().trim().min(1),
+				applicationId: z.string().trim().min(1),
+				publicKey: z
+					.string()
+					.trim()
+					.regex(/^[0-9a-f]{64}$/i, 'Enter the 64-character hex public key from the Discord application.'),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+				mentionRoleIds: z.array(z.string()).optional(),
+				respondToChannelIds: z.array(z.string()).optional(),
+				fallbackUserEmail: z.string().trim().toLowerCase().optional(),
+				hideAnswerLink: z.boolean().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				await validateDiscordConnection({ botToken: input.botToken });
+			} catch (error) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message:
+						error instanceof DiscordConnectionError
+							? error.message
+							: 'Could not verify the Discord connection. Try again.',
+				});
+			}
+
+			const fallbackUser = input.fallbackUserEmail
+				? await resolveDiscordFallbackUser(ctx.project.id, input.fallbackUserEmail)
+				: null;
+			const config = await discordConfigQueries.upsertProjectDiscordConfig({
+				...input,
+				projectId: ctx.project.id,
+				fallbackUserId: fallbackUser?.id,
+				fallbackUserEmail: fallbackUser?.email,
+			});
+			try {
+				await discordService.syncProject(config, ctx.project.id);
+			} catch {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Discord connected, but the bot could not start. Try again.',
+				});
+			}
+
+			posthog.capture(ctx.user.id, PostHogEvent.DiscordConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return toDiscordConfigResponse(config);
+		}),
+
+	updateDiscordModelConfig: adminProtectedProcedure
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'discord', toIntegrationModelSelection(input)),
+		),
+
+	deleteDiscordConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await discordConfigQueries.deleteProjectDiscordConfig(ctx.project.id);
+		await discordService.stopProject(ctx.project.id);
+		await discordLinkQueries.deleteLinkedDiscordUsers(ctx.project.id);
 		return { success: true };
 	}),
 

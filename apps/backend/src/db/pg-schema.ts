@@ -78,6 +78,7 @@ import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import {
+	DiscordSettings,
 	MattermostSettings,
 	SlackSettings,
 	TeamsSettings,
@@ -269,6 +270,7 @@ export const project = pgTable(
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
 		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
 		mattermostSettings: jsonb('mattermost_settings').$type<MattermostSettings>(),
+		discordSettings: jsonb('discord_settings').$type<DiscordSettings>(),
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
@@ -307,6 +309,28 @@ export const projectWhatsappLink = pgTable(
 	(t) => [
 		primaryKey({ columns: [t.projectId, t.whatsappUserId] }),
 		index('project_whatsapp_link_userId_idx').on(t.userId),
+	],
+);
+
+export const projectDiscordLink = pgTable(
+	'project_discord_link',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		discordUserId: text('discord_user_id').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.projectId, t.discordUserId] }),
+		index('project_discord_link_userId_idx').on(t.userId),
 	],
 );
 
@@ -386,6 +410,7 @@ export const chat = pgTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		mattermostThreadId: text('mattermost_thread_id'),
+		discordThreadId: text('discord_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: jsonb('fork_metadata').$type<ForkMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -401,6 +426,7 @@ export const chat = pgTable(
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
 		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
+		index('chat_discord_thread_idx').on(table.discordThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );
@@ -425,6 +451,7 @@ export const chatMessage = pgTable(
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: boolean('isForked'),
 		citation: jsonb('citation').$type<CitationData>(),
+		discordMessageId: text('discord_message_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
 		// Token usage columns
@@ -443,6 +470,7 @@ export const chatMessage = pgTable(
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
 		index('chat_message_senderUserId_idx').on(table.senderUserId),
+		index('chat_message_discordMessageId_idx').on(table.discordMessageId),
 	],
 );
 

@@ -1,6 +1,6 @@
 {
-  "id": "0ff80dc0-c573-4cf0-ad41-158e9dcbc85a",
-  "prevId": "ca4ca082-4c9d-4c7d-8df1-f5fa009b9ee8",
+  "id": "ce1aa17f-1a7b-4cd6-ab7d-cbc8dfb0a741",
+  "prevId": "d1e171f4-acf7-4fcc-9a98-2c69f0b93623",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1383,6 +1383,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "discord_thread_id": {
+          "name": "discord_thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "whatsapp_thread_id": {
           "name": "whatsapp_thread_id",
           "type": "text",
@@ -1491,6 +1497,21 @@
           "columns": [
             {
               "expression": "mattermost_thread_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "chat_discord_thread_idx": {
+          "name": "chat_discord_thread_idx",
+          "columns": [
+            {
+              "expression": "discord_thread_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1633,6 +1654,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "discord_message_id": {
+          "name": "discord_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -1761,6 +1788,21 @@
           "columns": [
             {
               "expression": "sender_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "chat_message_discordMessageId_idx": {
+          "name": "chat_message_discordMessageId_idx",
+          "columns": [
+            {
+              "expression": "discord_message_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5684,6 +5726,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "discord_settings": {
+          "name": "discord_settings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "whatsapp_settings": {
           "name": "whatsapp_settings",
           "type": "jsonb",
@@ -5776,6 +5824,102 @@
           "value": "CASE WHEN \"type\" = 'local' THEN \"path\" IS NOT NULL ELSE TRUE END"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.project_discord_link": {
+      "name": "project_discord_link",
+      "schema": "",
+      "columns": {
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discord_user_id": {
+          "name": "discord_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "project_discord_link_userId_idx": {
+          "name": "project_discord_link_userId_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "project_discord_link_project_id_project_id_fk": {
+          "name": "project_discord_link_project_id_project_id_fk",
+          "tableFrom": "project_discord_link",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "project_discord_link_user_id_user_id_fk": {
+          "name": "project_discord_link_user_id_user_id_fk",
+          "tableFrom": "project_discord_link",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "project_discord_link_project_id_discord_user_id_pk": {
+          "name": "project_discord_link_project_id_discord_user_id_pk",
+          "columns": [
+            "project_id",
+            "discord_user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.project_group_budget": {
@@ -9345,12 +9489,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'queued'"
-        },
-        "logs": {
-          "name": "logs",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "error": {
           "name": "error",

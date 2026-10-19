@@ -4,6 +4,7 @@ import { ArrowRight, PlusIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { StoryItem } from '@/lib/stories-page';
+import type { UIMessage } from '@nao/backend/chat';
 
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
@@ -13,7 +14,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { ProjectSwitcher } from '@/components/project-selector';
 import { StoryCard } from '@/components/stories-groups';
 import { ViewerHome } from '@/components/viewer-home';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useIsDarkMode } from '@/contexts/theme.provider';
 import { useMultiProject } from '@/hooks/use-multi-project';
 import { useIsCloud } from '@/hooks/use-nao-mode';
@@ -45,7 +46,7 @@ function HomePage() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const { setAdminMode } = useAgentContext();
-	const messages = useAgentMessages();
+	const isEmptyState = useAgentMessagesSelector(checkHasNoMessages);
 	const { canChatWithNaoData } = usePermissions();
 	const { admin: adminSearch, example: exampleSearch } = Route.useSearch();
 	const navigate = useNavigate();
@@ -66,7 +67,6 @@ function HomePage() {
 	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true);
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const isDark = useIsDarkMode();
-	const isEmptyState = messages.length === 0;
 	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
 	const sharedStories = useQuery({
 		...trpc.storyShare.list.queryOptions({ projectId: project.data?.id ?? '' }),
@@ -138,7 +138,7 @@ function HomePage() {
 	return (
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
 			<MobileHeader showExampleProjectInfo={showExampleProject} />
-			{messages.length === 0 &&
+			{isEmptyState &&
 				!showExampleProject &&
 				multiProjectMode === 'switch' &&
 				project.data &&
@@ -152,7 +152,7 @@ function HomePage() {
 						/>
 					</div>
 				)}
-			{messages.length ? (
+			{!isEmptyState ? (
 				<>
 					<ChatMessages />
 					<ChatInput />
@@ -364,6 +364,10 @@ function computeStoryCols(containerWidth: number) {
 
 function isPinnedStory(item: StoryItem): boolean {
 	return item.isPinned || (item.sharing?.isPinned ?? false);
+}
+
+function checkHasNoMessages(messages: UIMessage[]): boolean {
+	return messages.length === 0;
 }
 
 function pluralize(singular: string, plural: string, count: number): string {

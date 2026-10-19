@@ -229,6 +229,7 @@ const sourceLabels: Record<UsageSource, string> = {
 	teams: 'Teams',
 	telegram: 'Telegram',
 	mattermost: 'Mattermost',
+	discord: 'Discord',
 	whatsapp: 'WhatsApp',
 	admin: 'Admin mode',
 	mcp: 'MCP',

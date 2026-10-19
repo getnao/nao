@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "04bbb569-f8ea-4ad1-8617-f4091da9a7a8",
+  "id": "525cb43e-6497-4ba2-84f3-3c340bb9e0f5",
   "prevId": "8c245a12-5948-4011-9038-4212c62209d2",
   "tables": {
     "account": {
@@ -1255,6 +1255,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "discord_thread_id": {
+          "name": "discord_thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "whatsapp_thread_id": {
           "name": "whatsapp_thread_id",
           "type": "text",
@@ -1326,6 +1333,13 @@
           "name": "chat_mattermost_thread_idx",
           "columns": [
             "mattermost_thread_id"
+          ],
+          "isUnique": false
+        },
+        "chat_discord_thread_idx": {
+          "name": "chat_discord_thread_idx",
+          "columns": [
+            "discord_thread_id"
           ],
           "isUnique": false
         },
@@ -1463,6 +1477,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "discord_message_id": {
+          "name": "discord_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1562,6 +1583,13 @@
           "name": "chat_message_senderUserId_idx",
           "columns": [
             "sender_user_id"
+          ],
+          "isUnique": false
+        },
+        "chat_message_discordMessageId_idx": {
+          "name": "chat_message_discordMessageId_idx",
+          "columns": [
+            "discord_message_id"
           ],
           "isUnique": false
         }
@@ -5298,6 +5326,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "discord_settings": {
+          "name": "discord_settings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "whatsapp_settings": {
           "name": "whatsapp_settings",
           "type": "text",
@@ -5389,6 +5424,96 @@
           "value": "CASE WHEN \"type\" = 'local' THEN \"path\" IS NOT NULL ELSE TRUE END"
         }
       }
+    },
+    "project_discord_link": {
+      "name": "project_discord_link",
+      "columns": {
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "discord_user_id": {
+          "name": "discord_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "project_discord_link_userId_idx": {
+          "name": "project_discord_link_userId_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "project_discord_link_project_id_project_id_fk": {
+          "name": "project_discord_link_project_id_project_id_fk",
+          "tableFrom": "project_discord_link",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "project_discord_link_user_id_user_id_fk": {
+          "name": "project_discord_link_user_id_user_id_fk",
+          "tableFrom": "project_discord_link",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "project_discord_link_project_id_discord_user_id_pk": {
+          "columns": [
+            "project_id",
+            "discord_user_id"
+          ],
+          "name": "project_discord_link_project_id_discord_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "project_group_budget": {
       "name": "project_group_budget",
@@ -6096,67 +6221,6 @@
         "project_story_theme_project_id_project_id_fk": {
           "name": "project_story_theme_project_id_project_id_fk",
           "tableFrom": "project_story_theme",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "project_warehouse_credentials": {
-      "name": "project_warehouse_credentials",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "encrypted_credentials": {
-          "name": "encrypted_credentials",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "project_warehouse_credentials_project_id_project_id_fk": {
-          "name": "project_warehouse_credentials_project_id_project_id_fk",
-          "tableFrom": "project_warehouse_credentials",
           "tableTo": "project",
           "columnsFrom": [
             "project_id"
@@ -8651,223 +8715,6 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "warehouse_provisioning_job": {
-      "name": "warehouse_provisioning_job",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "org_id": {
-          "name": "org_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "onboarding_chat_id": {
-          "name": "onboarding_chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "project_name": {
-          "name": "project_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "encrypted_credentials": {
-          "name": "encrypted_credentials",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "business_context": {
-          "name": "business_context",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "model_selection": {
-          "name": "model_selection",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "model_project_id": {
-          "name": "model_project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'queued'"
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "temporary_directory": {
-          "name": "temporary_directory",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "locked_by": {
-          "name": "locked_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "locked_at": {
-          "name": "locked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "warehouse_provisioning_job_userId_idx": {
-          "name": "warehouse_provisioning_job_userId_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "warehouse_provisioning_job_status_idx": {
-          "name": "warehouse_provisioning_job_status_idx",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        },
-        "warehouse_provisioning_job_active_user_idx": {
-          "name": "warehouse_provisioning_job_active_user_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": true,
-          "where": "\"warehouse_provisioning_job\".\"status\" NOT IN ('ready', 'failed', 'cancelled')"
-        }
-      },
-      "foreignKeys": {
-        "warehouse_provisioning_job_user_id_user_id_fk": {
-          "name": "warehouse_provisioning_job_user_id_user_id_fk",
-          "tableFrom": "warehouse_provisioning_job",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "warehouse_provisioning_job_org_id_organization_id_fk": {
-          "name": "warehouse_provisioning_job_org_id_organization_id_fk",
-          "tableFrom": "warehouse_provisioning_job",
-          "tableTo": "organization",
-          "columnsFrom": [
-            "org_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "warehouse_provisioning_job_project_id_project_id_fk": {
-          "name": "warehouse_provisioning_job_project_id_project_id_fk",
-          "tableFrom": "warehouse_provisioning_job",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

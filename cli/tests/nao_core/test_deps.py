@@ -1,4 +1,7 @@
+from importlib.metadata import requires
+
 import pytest
+from packaging.requirements import Requirement
 
 from nao_core.config import NaoConfig
 from nao_core.config.semantic_layer import SemanticLayerConfig
@@ -38,6 +41,13 @@ def test_require_dependency_raises_missing_dependency_with_extra(monkeypatch):
         require_dependency("anthropic", "anthropic", "for Anthropic LLM provider")
 
     assert "pip install 'nao-core[anthropic]'" in str(exc_info.value)
+
+
+def test_nao_core_declares_packaging_as_core_dependency():
+    """ibis SQL backends import packaging, but extras like ibis-framework[mssql] don't declare it."""
+    core_requirements = [Requirement(spec) for spec in requires("nao-core") or []]
+
+    assert any(req.name == "packaging" and req.marker is None for req in core_requirements)
 
 
 def test_semantic_layer_config_requires_semantic_layer_extra():

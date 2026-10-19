@@ -1,7 +1,7 @@
 import type { ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
-import { sanitizeToolCallIds, toProviderSafeToolCallId } from '../src/utils/model-message';
+import { sanitizeToolCallIds, stripReasoningParts, toProviderSafeToolCallId } from '../src/utils/model-message';
 
 const SAFE_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const NAMESPACED_ID = '3f0d9a3e-6f1a-4b8e-9d2c-1a2b3c4d5e6f:functions.get_automation_run_history:0';
@@ -102,5 +102,103 @@ describe('sanitizeToolCallIds', () => {
 		expect(callId).toMatch(SAFE_PATTERN);
 		expect(callId.length).toBeLessThanOrEqual(64);
 		expect(resultId).toBe(callId);
+	});
+});
+
+describe('stripReasoningParts', () => {
+	it('removes reasoning parts from a mixed assistant turn and keeps the tool call', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'show me revenue by month' },
+			{
+				role: 'assistant',
+				content: [
+					{ type: 'reasoning', text: 'picking the right SQL' },
+					{ type: 'tool-call', toolCallId: 'call_1', toolName: 'execute_sql', input: { sql: 'SELECT 1' } },
+				],
+			},
+			{
+				role: 'tool',
+				content: [
+					{
+						type: 'tool-result',
+						toolCallId: 'call_1',
+						toolName: 'execute_sql',
+						output: { type: 'json', value: { rows: [] } },
+					},
+				],
+			},
+		];
+
+		const stripped = stripReasoningParts(messages);
+		const assistantParts = stripped[1].content as { type: string }[];
+
+		expect(assistantParts).toHaveLength(1);
+		expect(assistantParts[0].type).toBe('tool-call');
+		expect(stripped[0]).toBe(messages[0]);
+		expect(stripped[2]).toBe(messages[2]);
+	});
+
+	it('replaces a thinking-only assistant turn with a text placeholder so the message stays non-empty', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'what next?' },
+			{ role: 'assistant', content: [{ type: 'reasoning', text: 'just thinking' }] },
+		];
+
+		const stripped = stripReasoningParts(messages);
+		const parts = stripped[1].content as { type: string; text?: string }[];
+
+		expect(parts).toHaveLength(1);
+		expect(parts[0]).toEqual({ type: 'text', text: '[Reasoning omitted]' });
+	});
+
+	it('leaves assistant messages without reasoning untouched', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'hi' },
+			{ role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
+		];
+
+		const stripped = stripReasoningParts(messages);
+		expect(stripped[0]).toBe(messages[0]);
+		expect(stripped[1]).toBe(messages[1]);
+	});
+
+	it('leaves string-content assistant messages untouched', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'hi' },
+			{ role: 'assistant', content: 'hello' },
+		];
+
+		const stripped = stripReasoningParts(messages);
+		expect(stripped[1]).toBe(messages[1]);
+	});
+
+	it('replaces an already-empty assistant content array with the placeholder so the provider does not reject the request', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'hi' },
+			{ role: 'assistant', content: [] },
+		];
+
+		const stripped = stripReasoningParts(messages);
+		const parts = stripped[1].content as { type: string; text?: string }[];
+
+		expect(parts).toHaveLength(1);
+		expect(parts[0]).toEqual({ type: 'text', text: '[Reasoning omitted]' });
+	});
+
+	it('does not strip reasoning parts from user or tool roles', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: [{ type: 'text', text: 'q' }] },
+			{
+				role: 'assistant',
+				content: [
+					{ type: 'reasoning', text: 't' },
+					{ type: 'text', text: 'a' },
+				],
+			},
+		];
+
+		const stripped = stripReasoningParts(messages);
+		expect(stripped[0]).toBe(messages[0]);
+		expect((stripped[1].content as { type: string }[]).map((p) => p.type)).toEqual(['text']);
 	});
 });
