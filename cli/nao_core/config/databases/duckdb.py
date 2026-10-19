@@ -86,17 +86,15 @@ class DuckDBConfig(DatabaseConfig):
         require_database_backend("duckdb")
         import ibis
 
-        is_motherduck = self._is_motherduck_path(self.path)
-        # MotherDuck is remote and needs write-capable sessions; local files stay read-only.
-        read_only = False if (self.path == ":memory:" or is_motherduck) else True
-        conn = ibis.duckdb.connect(
-            database=self.path,
-            read_only=read_only,
-        )
-        if not is_motherduck:
-            conn.raw_sql("SET enable_external_access = false")
-            conn.raw_sql("SET lock_configuration = true")
-        return conn
+        from .duckdb_shared_connection import connect_shared, lock_down
+
+        if self._is_motherduck_path(self.path):
+            return ibis.duckdb.connect(database=self.path, read_only=False)
+        if self.path == ":memory:":
+            conn = ibis.duckdb.connect(database=self.path, read_only=False)
+            lock_down(conn)
+            return conn
+        return connect_shared(self.path)
 
     def get_database_name(self) -> str:
         """Get the database name for DuckDB."""
