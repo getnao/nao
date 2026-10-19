@@ -45,8 +45,10 @@ export const StoryQueryGroup = memo(({ parts, isSettled }: Props) => {
 	}, [isLoading, shouldStayOpenOnError]);
 
 	const storySummary = formatStorySummary(storyDisplays, storyCount);
-	const querySummary = `${isLoading ? 'running' : 'ran'} ${queryCount} ${pluralize('query', queryCount)}`;
-	const summaryTitle = `${storySummary} · ${querySummary}`;
+	const summaryTitle =
+		queryCount > 0
+			? `${storySummary} · ${isLoading ? 'running' : 'ran'} ${queryCount} ${pluralize('query', queryCount)}`
+			: `${storySummary} · ${storyDisplays.length} ${pluralize('revision', storyDisplays.length)}`;
 	const version = getLatestVersion(storyDisplays);
 
 	return (
