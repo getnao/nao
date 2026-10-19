@@ -28,6 +28,7 @@ from .secrets import process_secrets
 from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
 from .slack import SlackConfig
+from .sql_tagging import SqlTaggingConfig
 from .tableau import TableauConfig
 from .test import TestConfig
 
@@ -54,6 +55,7 @@ OPTIONAL_SECTIONS = (
     "test",
     "semantic_layer",
     "tableau",
+    "sql_tagging",
 )
 
 
@@ -77,6 +79,9 @@ class NaoConfig(BaseModel):
         default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
     )
     tableau: TableauConfig | None = Field(default=None, description="The Tableau connection")
+    sql_tagging: SqlTaggingConfig | None = Field(
+        default=None, description="Prepend a /* ... */ comment with chat/user metadata to every warehouse query"
+    )
 
     _missing_secrets: dict[str, None] = {}
 

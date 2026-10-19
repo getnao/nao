@@ -368,6 +368,8 @@ async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlEx
 		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
+		chatId: context.chatId,
+		userId: context.userId,
 	});
 	return { data: data.data, columns: data.columns };
 }
