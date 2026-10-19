@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
 import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
 import type { UsageChartData } from '@/components/settings/usage-chart-card';
 import type { displayChart } from '@nao/shared/tools';
-import type { UsageRecord } from '@nao/backend/usage';
+import type { TotalUsageRecord, UsageRecord } from '@nao/backend/usage';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { ChatsReplaySearchBar } from '@/components/settings/chats-replay-search-bar';
+import { ExpandReplayToggle } from '@/components/settings/expand-replay-toggle';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
 import {
@@ -21,6 +23,7 @@ import { trpc } from '@/main';
 import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 import { buildUserUsageChart } from '@/lib/usage-by-user';
 import { formatUsageBucketLabel } from '@/lib/usage-date';
+import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
 	beforeLoad: requireContextAdminOrAdmin,
@@ -119,7 +122,7 @@ function UsageOverview({
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
 }) {
-	const { provider, users, feedback, tools, sources, search, splitByUser, tokenView } = usageSearch;
+	const { provider, users, feedback, tools, sources, search, splitByUser, tokenView, expandReplay } = usageSearch;
 	const { canViewUsage } = usePermissions();
 	const periodState = useUsagePeriodSettings({ canViewUsage, usageSearch, onUpdateSearch });
 	const { period, granularity } = periodState;
@@ -207,89 +210,103 @@ function UsageOverview({
 	return (
 		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden bg-background'>
 			<div className='flex min-h-0 w-full flex-col xl:h-full'>
-				<div className='flex flex-col w-full gap-2 px-4 md:p-8 xl:shrink-0'>
+				<div
+					className={cn(
+						'flex flex-col w-full px-4 md:p-8 xl:shrink-0 transition-[padding] duration-300',
+						expandReplay ? 'md:pb-4' : 'gap-2',
+					)}
+				>
 					{filtersComponent}
 
 					{canViewUsage && (
-						<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
-							<div className='lg:col-span-2 xl:col-span-1'>
+						<CollapsibleCharts isCollapsed={expandReplay}>
+							<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
+								<div className='lg:col-span-2 xl:col-span-1'>
+									<UsageChartCard
+										title='Messages'
+										isLoading={periodState.isLoading || totalUsage.isLoading}
+										isFetching={totalUsage.isFetching}
+										isError={totalUsage.isError}
+										data={totalUsageChartData}
+										chartType='kpi_card'
+										series={[
+											{
+												data_key: 'totalMessages',
+												label: 'Total messages',
+												color: 'var(--chart-1)',
+											},
+											{
+												data_key: 'uniqueUsers',
+												label: 'Unique users',
+												color: 'var(--chart-2)',
+											},
+										]}
+									/>
+								</div>
+
 								<UsageChartCard
 									title='Messages'
-									isLoading={periodState.isLoading || totalUsage.isLoading}
-									isFetching={totalUsage.isFetching}
-									isError={totalUsage.isError}
-									data={totalUsageChartData}
-									chartType='kpi_card'
-									series={[
-										{
-											data_key: 'totalMessages',
-											label: 'Total messages',
-											color: 'var(--chart-1)',
-										},
-										{
-											data_key: 'uniqueUsers',
-											label: 'Unique users',
-											color: 'var(--chart-2)',
-										},
-									]}
+									isLoading={periodState.isLoading || chartQuery.isLoading}
+									isFetching={chartQuery.isFetching}
+									isError={chartQuery.isError}
+									data={messagesChart.data}
+									chartType='stacked_bar'
+									xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
+									titleAccessory={
+										<span className='text-xs text-muted-foreground'>
+											{splitByUser
+												? 'Number of messages by user'
+												: 'Number of messages by source'}
+										</span>
+									}
+									series={messagesChart.series}
+									showLegend={messagesChart.showLegend}
+								/>
+
+								<UsageChartCard
+									title={showCost ? 'Cost' : 'Tokens'}
+									isLoading={periodState.isLoading || chartQuery.isLoading}
+									isFetching={chartQuery.isFetching}
+									isError={chartQuery.isError}
+									data={tokensChart.data}
+									chartType='stacked_bar'
+									xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
+									valueFormatter={showCost ? formatUsd : undefined}
+									series={tokensChart.series}
+									showLegend={tokensChart.showLegend}
+									titleAccessory={
+										<Select
+											value={tokenView}
+											onValueChange={(value) =>
+												onUpdateSearch({ tokenView: value as TokenChartDisplayMode })
+											}
+										>
+											<SelectTrigger size='sm' variant='ghost' className='mt-0 h-4 px-0 text-xs'>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												{tokenChartDisplayOptions.map((option) => (
+													<SelectItem key={option.value} value={option.value}>
+														{option.label}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									}
 								/>
 							</div>
-
-							<UsageChartCard
-								title='Messages'
-								isLoading={periodState.isLoading || chartQuery.isLoading}
-								isFetching={chartQuery.isFetching}
-								isError={chartQuery.isError}
-								data={messagesChart.data}
-								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
-								titleAccessory={
-									<span className='text-xs text-muted-foreground'>
-										{splitByUser ? 'Number of messages by user' : 'Number of messages by source'}
-									</span>
-								}
-								series={messagesChart.series}
-								showLegend={messagesChart.showLegend}
-							/>
-
-							<UsageChartCard
-								title={showCost ? 'Cost' : 'Tokens'}
-								isLoading={periodState.isLoading || chartQuery.isLoading}
-								isFetching={chartQuery.isFetching}
-								isError={chartQuery.isError}
-								data={tokensChart.data}
-								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
-								valueFormatter={showCost ? formatUsd : undefined}
-								series={tokensChart.series}
-								showLegend={tokensChart.showLegend}
-								titleAccessory={
-									<Select
-										value={tokenView}
-										onValueChange={(value) =>
-											onUpdateSearch({ tokenView: value as TokenChartDisplayMode })
-										}
-									>
-										<SelectTrigger size='sm' variant='ghost' className='mt-0 h-4 px-0 text-xs'>
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											{tokenChartDisplayOptions.map((option) => (
-												<SelectItem key={option.value} value={option.value}>
-													{option.label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								}
-							/>
-						</div>
+						</CollapsibleCharts>
 					)}
 				</div>
 
 				<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
 					<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
-						<h2 className='text-sm font-semibold'>Chats replay</h2>
+						<div className='flex items-baseline gap-3'>
+							<h2 className='text-sm font-semibold'>Chats replay</h2>
+							{canViewUsage && expandReplay && totalUsage.data && (
+								<UsageSummary totalUsage={totalUsage.data} />
+							)}
+						</div>
 						<div className='flex flex-wrap items-center gap-2'>
 							<ChatsReplaySearchBar
 								value={search}
@@ -302,6 +319,12 @@ function UsageOverview({
 								selectedToolStates={tools}
 								onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
 							/>
+							{canViewUsage && (
+								<ExpandReplayToggle
+									isExpanded={expandReplay}
+									onToggle={() => onUpdateSearch({ expandReplay: !expandReplay })}
+								/>
+							)}
 						</div>
 					</div>
 					<ChatsReplayPage
@@ -315,6 +338,33 @@ function UsageOverview({
 				</section>
 			</div>
 		</div>
+	);
+}
+
+function CollapsibleCharts({ isCollapsed, children }: { isCollapsed: boolean; children: ReactNode }) {
+	return (
+		<div
+			id='usage-charts'
+			inert={isCollapsed}
+			aria-hidden={isCollapsed}
+			className={cn(
+				'grid transition-[grid-template-rows,opacity] duration-300 ease-in-out',
+				isCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+			)}
+		>
+			<div className='min-h-0 overflow-hidden'>{children}</div>
+		</div>
+	);
+}
+
+function UsageSummary({ totalUsage }: { totalUsage: TotalUsageRecord }) {
+	const numberFormat = new Intl.NumberFormat('en-US');
+
+	return (
+		<span className='text-xs text-muted-foreground tabular-nums'>
+			{numberFormat.format(totalUsage.totalMessages)} messages · {numberFormat.format(totalUsage.uniqueUsers)}{' '}
+			{totalUsage.uniqueUsers === 1 ? 'user' : 'users'}
+		</span>
 	);
 }
 

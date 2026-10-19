@@ -43,6 +43,16 @@ describe('validateUsageSearch', () => {
 		expect(validateUsageSearchWithStoredFilters({}).splitByUser).toBe(true);
 	});
 
+	it('parses the expand replay toggle without persisting it', () => {
+		expect(validateUsageSearch({}).expandReplay).toBe(false);
+		expect(validateUsageSearch({ expandReplay: true }).expandReplay).toBe(true);
+		expect(validateUsageSearch({ expandReplay: 'true' }).expandReplay).toBe(true);
+
+		saveUsageFilters({ ...DEFAULT_USAGE_SEARCH, expandReplay: true });
+
+		expect(validateUsageSearchWithStoredFilters({}).expandReplay).toBe(false);
+	});
+
 	it('parses the chats search term without persisting it', () => {
 		expect(validateUsageSearch({ search: '  revenue  ' }).search).toBe('revenue');
 		expect(validateUsageSearch({ search: '   ' }).search).toBeUndefined();

@@ -1087,6 +1087,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['history', 'conversation', 'replay', 'review', 'search conversations', 'find chat'],
 		adminOrContextAdmin: true,
 	},
+	{
+		page: '/settings/usage',
+		pageLabel: 'Chats replay',
+		title: 'Expand replay',
+		description: 'Collapse the usage charts so the chats replay takes the full height of the page.',
+		keywords: ['enlarge', 'full height', 'collapse charts', 'hide charts', 'maximize', 'bigger table'],
+		adminOnly: true,
+	},
 
 	// ── Context Recommendations ──────────────────────────────
 	{
