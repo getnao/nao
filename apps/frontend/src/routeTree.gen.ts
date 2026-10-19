@@ -18,7 +18,6 @@ import { Route as DiscordLinkRouteImport } from './routes/discord-link'
 import { Route as ConsentRouteImport } from './routes/consent'
 import { Route as CliLoginRouteImport } from './routes/cli-login'
 import { Route as SidebarLayoutRouteImport } from './routes/_sidebar-layout'
-import { Route as EmbedChartLabelPreviewRouteImport } from './routes/embed.chart-label-preview'
 import { Route as SidebarLayoutSettingsRouteImport } from './routes/_sidebar-layout.settings'
 import { Route as SidebarLayoutChatLayoutRouteImport } from './routes/_sidebar-layout._chat-layout'
 import { Route as SidebarLayoutStoriesIndexRouteImport } from './routes/_sidebar-layout.stories.index'
@@ -120,11 +119,6 @@ const CliLoginRoute = CliLoginRouteImport.update({
 const SidebarLayoutRoute = SidebarLayoutRouteImport.update({
   id: '/_sidebar-layout',
   getParentRoute: () => rootRouteImport,
-} as any)
-const EmbedChartLabelPreviewRoute = EmbedChartLabelPreviewRouteImport.update({
-  id: '/chart-label-preview',
-  path: '/chart-label-preview',
-  getParentRoute: () => EmbedRoute,
 } as any)
 const SidebarLayoutSettingsRoute = SidebarLayoutSettingsRouteImport.update({
   id: '/settings',
@@ -473,7 +467,6 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
-  '/embed/chart-label-preview': typeof EmbedChartLabelPreviewRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
@@ -539,7 +532,6 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
-  '/embed/chart-label-preview': typeof EmbedChartLabelPreviewRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
@@ -604,7 +596,6 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
-  '/embed/chart-label-preview': typeof EmbedChartLabelPreviewRoute
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/_sidebar-layout/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
   '/_sidebar-layout/settings/account': typeof SidebarLayoutSettingsAccountRoute
@@ -674,7 +665,6 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/settings'
-    | '/embed/chart-label-preview'
     | '/$chatId'
     | '/automations/$automationId'
     | '/settings/account'
@@ -740,7 +730,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/signup'
-    | '/embed/chart-label-preview'
     | '/$chatId'
     | '/automations/$automationId'
     | '/settings/account'
@@ -804,7 +793,6 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_sidebar-layout/_chat-layout'
     | '/_sidebar-layout/settings'
-    | '/embed/chart-label-preview'
     | '/_sidebar-layout/_chat-layout/$chatId'
     | '/_sidebar-layout/automations/$automationId'
     | '/_sidebar-layout/settings/account'
@@ -938,13 +926,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof SidebarLayoutRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/embed/chart-label-preview': {
-      id: '/embed/chart-label-preview'
-      path: '/chart-label-preview'
-      fullPath: '/embed/chart-label-preview'
-      preLoaderRoute: typeof EmbedChartLabelPreviewRouteImport
-      parentRoute: typeof EmbedRoute
     }
     '/_sidebar-layout/settings': {
       id: '/_sidebar-layout/settings'
@@ -1584,14 +1565,12 @@ const SidebarLayoutRouteWithChildren = SidebarLayoutRoute._addFileChildren(
 )
 
 interface EmbedRouteChildren {
-  EmbedChartLabelPreviewRoute: typeof EmbedChartLabelPreviewRoute
   EmbedChartChartEmbedIdRoute: typeof EmbedChartChartEmbedIdRoute
   EmbedMapMapEmbedIdRoute: typeof EmbedMapMapEmbedIdRoute
   EmbedStoryStoryIdRoute: typeof EmbedStoryStoryIdRoute
 }
 
 const EmbedRouteChildren: EmbedRouteChildren = {
-  EmbedChartLabelPreviewRoute: EmbedChartLabelPreviewRoute,
   EmbedChartChartEmbedIdRoute: EmbedChartChartEmbedIdRoute,
   EmbedMapMapEmbedIdRoute: EmbedMapMapEmbedIdRoute,
   EmbedStoryStoryIdRoute: EmbedStoryStoryIdRoute,
