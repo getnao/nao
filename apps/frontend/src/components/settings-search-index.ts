@@ -1091,7 +1091,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/usage',
 		pageLabel: 'Chats replay',
 		title: 'Expand replay',
-		description: 'Hide the usage charts and their filters so the chats replay takes the full height of the page.',
+		description: 'Hide the usage charts and chart-only filters so the chats replay takes the full height of the page.',
 		keywords: ['enlarge', 'full height', 'collapse charts', 'hide charts', 'maximize', 'bigger table'],
 		adminOnly: true,
 	},
