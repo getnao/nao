@@ -1,6 +1,6 @@
 import { ArrowRight, CalendarIcon, Check, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
-import { startOfDay } from 'date-fns';
+import { isSameDay, startOfDay } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
 import type { DateRangeField, DateRangePreset, DateRangeSelection } from '@/lib/date-range';
@@ -18,6 +18,9 @@ import {
 	selectDay,
 } from '@/lib/date-range';
 import { cn } from '@/lib/utils';
+
+const TODAY_CLASS_NAME =
+	'[&>button]:font-semibold [&>button]:text-primary [&>button]:underline [&>button]:underline-offset-4 [&>button[data-range-end=true]]:text-primary-foreground [&>button[data-range-start=true]]:text-primary-foreground';
 
 export function DateRangePicker({
 	value,
@@ -57,6 +60,13 @@ export function DateRangePicker({
 		setSelection((current) => ({ ...current, activeField: field }));
 	};
 
+	const handleDayHover = (day: Date) => {
+		if (selection.activeField !== 'end') {
+			return;
+		}
+		setHoveredDay((current) => (current && isSameDay(current, day) ? current : day));
+	};
+
 	const handleApply = () => {
 		onChange(selection.range);
 		setIsOpen(false);
@@ -92,12 +102,13 @@ export function DateRangePicker({
 							mode='range'
 							selected={draftRange}
 							onSelect={(_range, day) => setSelection((current) => selectDay(current, day))}
-							onDayMouseEnter={(day) => setHoveredDay(day)}
+							onDayMouseEnter={handleDayHover}
 							onDayMouseLeave={() => setHoveredDay(undefined)}
 							month={month}
 							onMonthChange={setMonth}
 							numberOfMonths={2}
 							showOutsideDays={false}
+							classNames={{ today: TODAY_CLASS_NAME }}
 							modifiers={{ preview: previewRange ?? [] }}
 							modifiersClassNames={{ preview: 'bg-accent/70 [&>button]:rounded-none' }}
 						/>
