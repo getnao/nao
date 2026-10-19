@@ -1,6 +1,7 @@
-import type { ModelMessage } from 'ai';
+import { convertToModelMessages, type ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
+import type { UIMessage } from '../src/types/chat';
 import { sanitizeToolCalls, toProviderSafeToolCallId } from '../src/utils/model-message';
 
 const SAFE_PATTERN = /^[a-zA-Z0-9_-]+$/;
@@ -72,6 +73,36 @@ describe('toProviderSafeToolCallId with LiteLLM thought signatures', () => {
 });
 
 describe('sanitizeToolCalls', () => {
+	it('sanitizes a legacy tool name after converting replayed UI messages', async () => {
+		const toolName = 'legacy.server__list-dashboards';
+		const modelMessages = await convertToModelMessages<UIMessage>(
+			[
+				{
+					role: 'assistant',
+					parts: [
+						{
+							type: 'dynamic-tool',
+							toolName,
+							toolCallId: 'c1',
+							state: 'output-available',
+							input: {},
+							output: { dashboards: [] },
+						},
+					],
+				},
+			],
+			{ tools: {} },
+		);
+
+		const [assistant, tool] = sanitizeToolCalls(modelMessages, 'anthropic');
+		const call = assistant.content[0] as { toolName: string };
+		const result = tool.content[0] as { toolName: string };
+
+		expect(call.toolName).toMatch(SAFE_PATTERN);
+		expect(call.toolName).not.toBe(toolName);
+		expect(result.toolName).toBe(call.toolName);
+	});
+
 	it('rewrites the call and its result with the same provider-safe id and name', () => {
 		const toolName = 'legacy.server__list-dashboards';
 		const messages: ModelMessage[] = [
