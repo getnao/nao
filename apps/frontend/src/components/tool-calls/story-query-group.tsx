@@ -48,7 +48,7 @@ export const StoryQueryGroup = memo(({ parts, isSettled }: Props) => {
 	const summaryTitle =
 		queryCount > 0
 			? `${storySummary} · ${isLoading ? 'running' : 'ran'} ${queryCount} ${pluralize('query', queryCount)}`
-			: `${storySummary} · ${storyDisplays.length} ${pluralize('revision', storyDisplays.length)}`;
+			: `${storySummary} · ${storyDisplays.length} ${pluralize('action', storyDisplays.length)}`;
 	const version = getLatestVersion(storyDisplays);
 
 	return (
