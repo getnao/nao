@@ -30,6 +30,22 @@ export async function listShareableUserGroups(projectId: string): Promise<Sharea
 		}));
 }
 
+/** Current project members of the given shareable user groups. */
+export async function listShareableUserGroupMemberIds(projectId: string, groupIds: string[]): Promise<string[]> {
+	const shareableGroupIds = await filterShareableUserGroupIds(projectId, groupIds);
+	if (shareableGroupIds.length === 0) {
+		return [];
+	}
+	const [manualMemberships, ssoMemberships, users] = await Promise.all([
+		userGroupQueries.listUserGroupMemberships(projectId),
+		userGroupQueries.listUserGroupSsoMemberships(projectId),
+		projectQueries.listUsersWithProjectAccess(projectId),
+	]);
+	const projectUserIds = new Set(users.map((user) => user.id));
+	const membersByGroupId = groupMemberIdsByGroup([...manualMemberships, ...ssoMemberships], projectUserIds);
+	return [...new Set(shareableGroupIds.flatMap((groupId) => [...(membersByGroupId.get(groupId) ?? [])]))];
+}
+
 export async function assertShareableUserGroupIds(projectId: string, groupIds: string[]): Promise<void> {
 	const shareableGroupIds = await filterShareableUserGroupIds(projectId, groupIds);
 	if (shareableGroupIds.length !== groupIds.length) {

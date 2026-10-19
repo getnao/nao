@@ -1,7 +1,7 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
 import { STORY_KIT_EDITABLE_BLOCKS } from '@nao/shared/story-app';
 import type { BulkStoryItem, NotificationChannel, StoryFormat, UserRole } from '@nao/shared/types';
-import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS, RECIPIENT_MODES } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -32,6 +32,7 @@ import {
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
+import { assertShareableUserGroupIds, listShareableUserGroups } from '../services/shareable-user-groups.service';
 import {
 	editCustomStoryBlock,
 	restoreCustomStoryVersion,
@@ -49,6 +50,7 @@ import {
 	getStoryFilterOptions,
 	getStoryQuerySql,
 } from '../services/story-filters';
+import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -666,12 +668,13 @@ export const storyRoutes = {
 				channels: delivery?.channels ?? (['email'] as NotificationChannel[]),
 				recipientMode: delivery?.recipientMode ?? 'specific',
 				recipientUserIds: delivery?.recipientUserIds ?? [],
+				recipientGroupIds: delivery?.recipientGroupIds ?? [],
 			};
 		}),
 
 	listDeliveryRecipients: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (!projectId) {
 				return [];
@@ -686,10 +689,28 @@ export const storyRoutes = {
 			});
 
 			if (access?.visibility === 'specific' && access.recipientUserIds.length > 0) {
-				const allowed = new Set(access.recipientUserIds);
+				const allowed = new Set([...access.recipientUserIds, ctx.user.id]);
 				return members.filter((member) => allowed.has(member.id)).map(toRecipient);
 			}
 			return members.map(toRecipient);
+		}),
+
+	listDeliveryRecipientGroups: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				return [];
+			}
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			const access = story ? await sharedStoryQueries.getStoryShareAccess(story.id, projectId) : null;
+			const groups = await listShareableUserGroups(projectId);
+
+			if (access?.visibility === 'specific' && access.allowedGroupIds.length > 0) {
+				const allowed = new Set(access.allowedGroupIds);
+				return groups.filter((group) => allowed.has(group.id));
+			}
+			return groups;
 		}),
 
 	updateDelivery: chatOwnerProcedure
@@ -701,8 +722,9 @@ export const storyRoutes = {
 				cron: z.string().nullable(),
 				scheduleDescription: z.string().nullable(),
 				channels: z.array(z.enum(NOTIFICATION_CHANNELS)).min(1),
-				recipientMode: z.enum(['all', 'specific']),
+				recipientMode: z.enum(RECIPIENT_MODES),
 				recipientUserIds: z.array(z.string()),
+				recipientGroupIds: z.array(z.string()).default([]),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
@@ -717,11 +739,23 @@ export const storyRoutes = {
 				});
 			}
 			const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-			assertValidDeliverySchedule(input.enabled, input.cron, input.recipientMode, input.recipientUserIds);
+			assertValidDeliverySchedule(
+				input.enabled,
+				input.cron,
+				input.recipientMode,
+				input.recipientUserIds,
+				input.recipientGroupIds,
+			);
 
 			const existingDelivery = await storyDeliveryQueries.getByStoryId(story.id);
 			const previousRecipientIds = new Set(
-				existingDelivery?.recipientMode === 'specific' ? existingDelivery.recipientUserIds : [],
+				existingDelivery?.recipientMode === 'specific' && projectId
+					? await resolveSpecificRecipientUserIds(
+							projectId,
+							existingDelivery.recipientUserIds,
+							existingDelivery.recipientGroupIds,
+						)
+					: [],
 			);
 
 			if (input.recipientMode === 'specific' && input.recipientUserIds.length > 0) {
@@ -737,6 +771,12 @@ export const storyRoutes = {
 						message: 'Recipients must have access to this project.',
 					});
 				}
+			}
+			if (input.recipientMode === 'specific' && input.recipientGroupIds.length > 0) {
+				if (!projectId) {
+					throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Story has no project.' });
+				}
+				await assertShareableUserGroupIds(projectId, input.recipientGroupIds);
 			}
 
 			if (input.enabled && projectId) {
@@ -758,14 +798,18 @@ export const storyRoutes = {
 				channels: input.channels,
 				recipientMode: input.recipientMode,
 				recipientUserIds: input.recipientUserIds,
+				recipientGroupIds: input.recipientMode === 'specific' ? input.recipientGroupIds : [],
 				createdBy: ctx.user.id,
 			});
 			await syncStoryDeliveryJob(story.id, input.enabled, input.cron);
 
 			if (input.enabled && input.recipientMode === 'specific' && projectId) {
-				const addedUserIds = input.recipientUserIds.filter(
-					(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
+				const recipientIds = await resolveSpecificRecipientUserIds(
+					projectId,
+					input.recipientUserIds,
+					input.recipientGroupIds,
 				);
+				const addedUserIds = recipientIds.filter((id) => id !== ctx.user.id && !previousRecipientIds.has(id));
 				await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds).catch((error) => {
 					logger.error(`Failed to notify story subscribers: ${String(error)}`, {
 						source: 'system',

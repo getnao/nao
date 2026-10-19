@@ -495,6 +495,9 @@ export type EmbedTokenPayload = {
 
 export type StoryPanelDisplayMode = 'grid' | 'lines';
 
+export const RECIPIENT_MODES = ['all', 'specific'] as const;
+export type RecipientMode = (typeof RECIPIENT_MODES)[number];
+
 export const REPO_PROVIDERS = ['github', 'gitlab'] as const;
 export const BULK_ITEMS_LIMIT = 100;
 
