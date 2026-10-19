@@ -58,10 +58,6 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			...trpc.story.listDeliveryRecipients.queryOptions({ chatId, storySlug }),
 			enabled: open,
 		});
-		const recipientGroupsQuery = useQuery({
-			...trpc.story.listDeliveryRecipientGroups.queryOptions({ chatId, storySlug }),
-			enabled: open,
-		});
 		const slackConfigQuery = useQuery({
 			...trpc.project.getSlackConfig.queryOptions(),
 			enabled: open,
@@ -85,6 +81,11 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		const [emailEnabled, setEmailEnabled] = useState(true);
 		const [slackEnabled, setSlackEnabled] = useState(false);
 		const [search, setSearch] = useState('');
+
+		const recipientGroupsQuery = useQuery({
+			...trpc.story.listDeliveryRecipientGroups.queryOptions({ chatId, storySlug }),
+			enabled: open && recipientMode === 'specific',
+		});
 
 		// Seed the form from server state only once per dialog open. Re-syncing on every
 		// refetch (e.g. after a mutation or window refocus) would discard unsaved edits.
@@ -243,8 +244,9 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 				(initial.cron ?? null) !== resolvedCron ||
 				initial.scheduleDescription !== resolvedScheduleDescription ||
 				initial.recipientMode !== recipientMode ||
-				!hasSameIds(initial.recipientUserIds, selected) ||
-				!hasSameIds(initial.recipientGroupIds, selectedGroups) ||
+				(recipientMode === 'specific' &&
+					(!hasSameIds(initial.recipientUserIds, selected) ||
+						!hasSameIds(initial.recipientGroupIds, selectedGroups))) ||
 				initial.channels.includes('email') !== emailEnabled ||
 				initial.channels.includes('slack') !== slackEnabled
 			);

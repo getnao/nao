@@ -32,18 +32,24 @@ export async function listShareableUserGroups(projectId: string): Promise<Sharea
 
 /** Current project members of the given shareable user groups. */
 export async function listShareableUserGroupMemberIds(projectId: string, groupIds: string[]): Promise<string[]> {
-	const shareableGroupIds = await filterShareableUserGroupIds(projectId, groupIds);
-	if (shareableGroupIds.length === 0) {
+	if (groupIds.length === 0) {
 		return [];
 	}
-	const [manualMemberships, ssoMemberships, users] = await Promise.all([
+	const [groups, manualMemberships, ssoMemberships, users] = await Promise.all([
+		listActiveUserGroups(projectId),
 		userGroupQueries.listUserGroupMemberships(projectId),
 		userGroupQueries.listUserGroupSsoMemberships(projectId),
 		projectQueries.listUsersWithProjectAccess(projectId),
 	]);
+	const shareableGroupIds = new Set(
+		groups.filter((group) => !group.isDefault && groupIds.includes(group.id)).map((group) => group.id),
+	);
+	if (shareableGroupIds.size === 0) {
+		return [];
+	}
 	const projectUserIds = new Set(users.map((user) => user.id));
 	const membersByGroupId = groupMemberIdsByGroup([...manualMemberships, ...ssoMemberships], projectUserIds);
-	return [...new Set(shareableGroupIds.flatMap((groupId) => [...(membersByGroupId.get(groupId) ?? [])]))];
+	return [...new Set([...shareableGroupIds].flatMap((groupId) => [...(membersByGroupId.get(groupId) ?? [])]))];
 }
 
 export async function assertShareableUserGroupIds(projectId: string, groupIds: string[]): Promise<void> {

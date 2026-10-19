@@ -702,15 +702,7 @@ export const storyRoutes = {
 			if (!projectId) {
 				return [];
 			}
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			const access = story ? await sharedStoryQueries.getStoryShareAccess(story.id, projectId) : null;
-			const groups = await listShareableUserGroups(projectId);
-
-			if (access?.visibility === 'specific' && access.allowedGroupIds.length > 0) {
-				const allowed = new Set(access.allowedGroupIds);
-				return groups.filter((group) => allowed.has(group.id));
-			}
-			return groups;
+			return listShareableUserGroups(projectId);
 		}),
 
 	updateDelivery: chatOwnerProcedure
@@ -804,13 +796,18 @@ export const storyRoutes = {
 			await syncStoryDeliveryJob(story.id, input.enabled, input.cron);
 
 			if (input.enabled && input.recipientMode === 'specific' && projectId) {
-				const recipientIds = await resolveSpecificRecipientUserIds(
-					projectId,
-					input.recipientUserIds,
-					input.recipientGroupIds,
-				);
-				const addedUserIds = recipientIds.filter((id) => id !== ctx.user.id && !previousRecipientIds.has(id));
-				await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds).catch((error) => {
+				const bestEffortNotify = async () => {
+					const recipientIds = await resolveSpecificRecipientUserIds(
+						projectId,
+						input.recipientUserIds,
+						input.recipientGroupIds,
+					);
+					const addedUserIds = recipientIds.filter(
+						(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
+					);
+					await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds);
+				};
+				bestEffortNotify().catch((error) => {
 					logger.error(`Failed to notify story subscribers: ${String(error)}`, {
 						source: 'system',
 						projectId,
