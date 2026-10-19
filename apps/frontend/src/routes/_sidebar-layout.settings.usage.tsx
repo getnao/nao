@@ -5,12 +5,12 @@ import type { ReactNode } from 'react';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
 import type { UsageChartData } from '@/components/settings/usage-chart-card';
 import type { displayChart } from '@nao/shared/tools';
-import type { TotalUsageRecord, UsageRecord } from '@nao/backend/usage';
+import type { UsageRecord } from '@nao/backend/usage';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { ChatsReplaySearchBar } from '@/components/settings/chats-replay-search-bar';
 import { ExpandReplayToggle } from '@/components/settings/expand-replay-toggle';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
-import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
+import { ReplayFilters, SourceAndUserFilters, UsageFilters } from '@/components/settings/usage-filters';
 import {
 	saveUsageFilters,
 	validateUsageSearch,
@@ -182,6 +182,8 @@ function UsageOverview({
 			)
 		: { data: chartData, series: showCost ? costSeries : tokenSeries, showLegend: true };
 
+	const isReplayExpanded = canViewUsage && expandReplay;
+
 	const filtersComponent = (
 		<UsageFilters
 			showUsageControls={canViewUsage}
@@ -210,16 +212,11 @@ function UsageOverview({
 	return (
 		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden bg-background'>
 			<div className='flex min-h-0 w-full flex-col xl:h-full'>
-				<div
-					className={cn(
-						'flex flex-col w-full px-4 md:p-8 xl:shrink-0 transition-[padding] duration-300',
-						expandReplay ? 'md:pb-4' : 'gap-2',
-					)}
-				>
-					{filtersComponent}
+				<CollapsibleUsageOverview isCollapsed={isReplayExpanded}>
+					<div className='flex flex-col w-full gap-2 px-4 md:p-8'>
+						{filtersComponent}
 
-					{canViewUsage && (
-						<CollapsibleCharts isCollapsed={expandReplay}>
+						{canViewUsage && (
 							<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
 								<div className='lg:col-span-2 xl:col-span-1'>
 									<UsageChartCard
@@ -295,23 +292,32 @@ function UsageOverview({
 									}
 								/>
 							</div>
-						</CollapsibleCharts>
-					)}
-				</div>
+						)}
+					</div>
+				</CollapsibleUsageOverview>
 
 				<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
-					<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
-						<div className='flex items-baseline gap-3'>
-							<h2 className='text-sm font-semibold'>Chats replay</h2>
-							{canViewUsage && expandReplay && totalUsage.data && (
-								<UsageSummary totalUsage={totalUsage.data} />
-							)}
-						</div>
+					<div
+						className={cn(
+							'flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8 transition-[padding] duration-300',
+							isReplayExpanded && 'pt-4 md:pt-8',
+						)}
+					>
+						<h2 className='text-sm font-semibold'>Chats replay</h2>
 						<div className='flex flex-wrap items-center gap-2'>
 							<ChatsReplaySearchBar
 								value={search}
 								onChange={(value) => onUpdateSearch({ search: value })}
 							/>
+							{isReplayExpanded && (
+								<SourceAndUserFilters
+									chatFacets={chatFacets.data?.facets}
+									selectedUserNames={users}
+									onSelectedUserNamesChange={(value) => onUpdateSearch({ users: value })}
+									selectedSources={sources}
+									onSelectedSourcesChange={(value) => onUpdateSearch({ sources: value })}
+								/>
+							)}
 							<ReplayFilters
 								chatFacets={chatFacets.data?.facets}
 								selectedFeedbackStates={feedback}
@@ -341,30 +347,19 @@ function UsageOverview({
 	);
 }
 
-function CollapsibleCharts({ isCollapsed, children }: { isCollapsed: boolean; children: ReactNode }) {
+function CollapsibleUsageOverview({ isCollapsed, children }: { isCollapsed: boolean; children: ReactNode }) {
 	return (
 		<div
-			id='usage-charts'
+			id='usage-overview'
 			inert={isCollapsed}
 			aria-hidden={isCollapsed}
 			className={cn(
-				'grid transition-[grid-template-rows,opacity] duration-300 ease-in-out',
+				'grid xl:shrink-0 transition-[grid-template-rows,opacity] duration-300 ease-in-out',
 				isCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
 			)}
 		>
 			<div className='min-h-0 overflow-hidden'>{children}</div>
 		</div>
-	);
-}
-
-function UsageSummary({ totalUsage }: { totalUsage: TotalUsageRecord }) {
-	const numberFormat = new Intl.NumberFormat('en-US');
-
-	return (
-		<span className='text-xs text-muted-foreground tabular-nums'>
-			{numberFormat.format(totalUsage.totalMessages)} messages · {numberFormat.format(totalUsage.uniqueUsers)}{' '}
-			{totalUsage.uniqueUsers === 1 ? 'user' : 'users'}
-		</span>
 	);
 }
 

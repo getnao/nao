@@ -16,7 +16,7 @@ export function ExpandReplayToggle({ isExpanded, onToggle }: ExpandReplayToggleP
 			size='sm'
 			onClick={onToggle}
 			aria-pressed={isExpanded}
-			aria-controls='usage-charts'
+			aria-controls='usage-overview'
 			className='px-2'
 		>
 			<Icon />
