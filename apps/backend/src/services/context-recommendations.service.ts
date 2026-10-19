@@ -40,6 +40,7 @@ export async function runContextRecommendations(
 	options?: {
 		billingAccessVerifiedProjectId?: string;
 		trigger?: 'schedule' | 'manual';
+		triggeredByUserId?: string;
 		period?: { start?: Date; end?: Date };
 	},
 ): Promise<{ runId: string }> {
@@ -80,7 +81,7 @@ export async function runContextRecommendations(
 			await crQueries.getContextFileReadCosts(projectId, periodStart, periodEnd),
 		);
 
-		const userId = await crQueries.getFirstProjectAdminUserId(projectId);
+		const userId = options?.triggeredByUserId ?? (await crQueries.getFirstProjectAdminUserId(projectId));
 		const [chat] = await chatQueries.createChat(
 			{ title: 'Context recommendations run', userId, projectId },
 			{

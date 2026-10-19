@@ -52,23 +52,19 @@ export async function getMemberBudgetConfig(projectId: string): Promise<MemberBu
 	return { period: settings.period, defaultLimitUsd: settings.defaultLimitUsd };
 }
 
-/** Current-period usage of a member against their cross-provider budget, or null when none applies. */
+/** Current-period usage of a member against their cross-provider budget. */
 export async function resolveMemberBudgetUsage(projectId: string, userId: string): Promise<MemberBudgetUsage | null> {
 	if (!(await isMemberBudgetLicensed())) {
 		return null;
 	}
 
 	const { limitUsd, source, period } = await getMemberBudgetLimit(projectId, userId);
-	if (limitUsd <= 0) {
-		return null;
-	}
-
 	const spendUsd = await memberBudgetQueries.getUserPeriodCost(projectId, userId, period);
 	return {
 		limitUsd,
 		source,
 		spendUsd,
-		ratio: spendUsd / limitUsd,
+		ratio: limitUsd > 0 ? spendUsd / limitUsd : 0,
 		period,
 		resetsAt: getNextPeriodStart(period),
 	};

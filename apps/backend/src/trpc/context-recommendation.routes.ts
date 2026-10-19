@@ -92,6 +92,7 @@ export const contextRecommendationRoutes = {
 		void runContextRecommendations(ctx.project.id, {
 			billingAccessVerifiedProjectId: ctx.project.id,
 			trigger: 'manual',
+			triggeredByUserId: ctx.user.id,
 		}).catch((err) => {
 			logger.error(`Manual context recommendations run failed: ${String(err)}`, { source: 'agent' });
 		});

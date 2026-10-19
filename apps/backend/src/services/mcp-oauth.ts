@@ -10,6 +10,7 @@ import type {
 	OAuthClientMetadata,
 	OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { McpOAuthClientConfig } from '@nao/shared';
 
 import type { DBMcpOAuthClient } from '../db/abstractSchema';
 import { env } from '../env';
@@ -25,7 +26,8 @@ import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger } from '../utils/logger';
 
 const BASE_URL = env.BETTER_AUTH_URL.replace(/\/+$/, '');
-const CALLBACK_URL = `${BASE_URL}/api/mcp-oauth/callback`;
+/** Redirect URI to whitelist on a provider app when using a pre-registered OAuth client. */
+export const MCP_OAUTH_CALLBACK_URL = `${BASE_URL}/api/mcp-oauth/callback`;
 const TOKEN_EXPIRY_BUFFER_MS = 60_000;
 
 /** Thrown when a per-user MCP OAuth token is missing/invalid and the user must (re)connect. */
@@ -41,6 +43,7 @@ interface ProviderOptions {
 	userId: string;
 	server: string;
 	signedState: string;
+	staticClient?: McpOAuthClientConfig;
 }
 
 /** Returns true if the MCP server advertises OAuth protected-resource metadata (RFC 9728). */
@@ -73,6 +76,7 @@ export async function getValidAccessToken(opts: {
 	projectId: string;
 	server: string;
 	serverUrl: string;
+	staticClient?: McpOAuthClientConfig;
 }): Promise<string | null> {
 	const row = await getMcpUserToken(opts.userId, opts.projectId, opts.server);
 	if (!row?.accessToken) {
@@ -90,13 +94,13 @@ export async function getValidAccessToken(opts: {
 
 	try {
 		const info = await discoverOAuthServerInfo(opts.serverUrl);
-		const client = await getMcpOAuthClient(opts.projectId, opts.server);
-		if (!client) {
+		const clientInformation = await resolveClientInformation(opts.projectId, opts.server, opts.staticClient);
+		if (!clientInformation) {
 			return null;
 		}
 		const tokens = await refreshAuthorization(info.authorizationServerUrl, {
 			metadata: info.authorizationServerMetadata,
-			clientInformation: clientInformationFromRow(client),
+			clientInformation,
 			refreshToken: decryptSecret(row.refreshToken),
 		});
 		await persistTokens(opts.userId, opts.projectId, opts.server, tokens);
@@ -119,6 +123,7 @@ export async function buildAuthorizationRedirect(opts: {
 	server: string;
 	serverUrl: string;
 	signedState: string;
+	staticClient?: McpOAuthClientConfig;
 }): Promise<{ status: 'redirect'; url: string } | { status: 'authorized' }> {
 	const provider = new DbOAuthClientProvider(opts);
 	const result = await auth(provider, { serverUrl: opts.serverUrl });
@@ -139,6 +144,7 @@ export async function completeAuthorization(opts: {
 	serverUrl: string;
 	signedState: string;
 	code: string;
+	staticClient?: McpOAuthClientConfig;
 }): Promise<void> {
 	const provider = new DbOAuthClientProvider(opts);
 	const result = await auth(provider, { serverUrl: opts.serverUrl, authorizationCode: opts.code });
@@ -154,6 +160,47 @@ async function persistTokens(userId: string, projectId: string, server: string, 
 		expiresAt: tokens.expires_in !== undefined ? new Date(Date.now() + tokens.expires_in * 1000) : null,
 		scope: tokens.scope ?? null,
 	});
+}
+
+/**
+ * A static client configured in `mcp.json` always wins over a dynamically registered one, so
+ * switching a server from DCR to a pre-registered client never reuses the stale registration.
+ */
+async function resolveClientInformation(
+	projectId: string,
+	server: string,
+	staticClient?: McpOAuthClientConfig,
+): Promise<OAuthClientInformationMixed | undefined> {
+	if (staticClient) {
+		await ensureStaticClientRecord(projectId, server, staticClient);
+		return clientInformationFromConfig(staticClient);
+	}
+	const row = await getMcpOAuthClient(projectId, server);
+	return row && isDynamicallyRegistered(row) ? clientInformationFromRow(row) : undefined;
+}
+
+function isDynamicallyRegistered(row: DBMcpOAuthClient): boolean {
+	return !!row.clientData;
+}
+
+async function ensureStaticClientRecord(
+	projectId: string,
+	server: string,
+	staticClient: McpOAuthClientConfig,
+): Promise<void> {
+	const row = await getMcpOAuthClient(projectId, server);
+	if (row?.clientId === staticClient.clientId && !row.clientSecret && !row.clientData) {
+		return;
+	}
+	await upsertMcpOAuthClient(projectId, server, {
+		clientId: staticClient.clientId,
+		clientSecret: null,
+		clientData: null,
+	});
+}
+
+function clientInformationFromConfig(staticClient: McpOAuthClientConfig): OAuthClientInformationMixed {
+	return { client_id: staticClient.clientId, client_secret: staticClient.clientSecret };
 }
 
 function clientInformationFromRow(row: DBMcpOAuthClient): OAuthClientInformationMixed {
@@ -180,13 +227,13 @@ class DbOAuthClientProvider implements OAuthClientProvider {
 	constructor(private readonly opts: ProviderOptions) {}
 
 	get redirectUrl(): string {
-		return CALLBACK_URL;
+		return MCP_OAUTH_CALLBACK_URL;
 	}
 
 	get clientMetadata(): OAuthClientMetadata {
 		return {
 			client_name: 'nao',
-			redirect_uris: [CALLBACK_URL],
+			redirect_uris: [MCP_OAUTH_CALLBACK_URL],
 			grant_types: ['authorization_code', 'refresh_token'],
 			response_types: ['code'],
 			token_endpoint_auth_method: 'none',
@@ -198,8 +245,7 @@ class DbOAuthClientProvider implements OAuthClientProvider {
 	}
 
 	async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
-		const row = await getMcpOAuthClient(this.opts.projectId, this.opts.server);
-		return row ? clientInformationFromRow(row) : undefined;
+		return resolveClientInformation(this.opts.projectId, this.opts.server, this.opts.staticClient);
 	}
 
 	async saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {

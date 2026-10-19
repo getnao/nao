@@ -3,13 +3,14 @@ import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
 import { PlusIcon, Settings } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { StoryItem } from '@/lib/stories-page';
+import type { UIMessage } from '@nao/backend/chat';
 import { buildStoryItems } from '@/lib/stories-page';
 import { useSession } from '@/lib/auth-client';
 import { capitalize, cn } from '@/lib/utils';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { ProjectSwitcher } from '@/components/project-selector';
 import { ViewerHome } from '@/components/viewer-home';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
@@ -42,7 +43,7 @@ function HomePage() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const { setAdminMode } = useAgentContext();
-	const messages = useAgentMessages();
+	const isEmptyState = useAgentMessagesSelector(checkHasNoMessages);
 	const { canChatWithNaoData } = usePermissions();
 	const { admin: adminSearch } = Route.useSearch();
 	const navigate = useNavigate();
@@ -61,7 +62,6 @@ function HomePage() {
 	const showProjectSetupCue = project.isSuccess && project.data === null;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const theme = useTheme();
-	const isEmptyState = messages.length === 0;
 	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
 	const sharedStories = useQuery({
 		...trpc.storyShare.list.queryOptions({ projectId: project.data?.id ?? '' }),
@@ -135,20 +135,17 @@ function HomePage() {
 	return (
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
 			<MobileHeader />
-			{messages.length === 0 &&
-				multiProjectMode === 'switch' &&
-				project.data &&
-				(projects.data?.length ?? 0) > 1 && (
-					<div className='absolute top-0 left-0 z-10 -ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>
-						<ProjectSwitcher
-							projects={projects.data ?? []}
-							currentProjectId={project.data.id}
-							onChange={switchProject}
-							variant='inline'
-						/>
-					</div>
-				)}
-			{messages.length ? (
+			{isEmptyState && multiProjectMode === 'switch' && project.data && (projects.data?.length ?? 0) > 1 && (
+				<div className='absolute top-0 left-0 z-10 -ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>
+					<ProjectSwitcher
+						projects={projects.data ?? []}
+						currentProjectId={project.data.id}
+						onChange={switchProject}
+						variant='inline'
+					/>
+				</div>
+			)}
+			{!isEmptyState ? (
 				<>
 					<ChatMessages />
 					<ChatInput />
@@ -296,6 +293,10 @@ function computeStoryCols(containerWidth: number) {
 
 function isPinnedStory(item: StoryItem): boolean {
 	return item.isPinned || (item.sharing?.isPinned ?? false);
+}
+
+function checkHasNoMessages(messages: UIMessage[]): boolean {
+	return messages.length === 0;
 }
 
 function pluralize(singular: string, plural: string, count: number): string {

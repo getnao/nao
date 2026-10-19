@@ -3,39 +3,53 @@ import { TOOL_LABELS, pluralize } from '@nao/shared';
 import type { GroupablePart } from '@/types/ai';
 import { isReasoningPart } from '@/lib/ai';
 import { getPartMcpServer, isMcpPart } from '@/lib/mcp';
+import { getLatestToolActivityLabel } from '@/lib/tool-activity';
+import { useThrottledValue } from '@/hooks/use-throttled-value';
+
+/** Each title stays on screen at least this long, so fast successive tool calls remain readable. */
+export const MIN_TITLE_DISPLAY_MS = 1000;
 
 /**
- * Creates a summary title for the tool group based on the tool calls (e.g. "Explore X files, X folders (X errors)").
+ * Creates a summary title for the tool group based on the tool calls (e.g. "Explored X files, X folders (X errors)").
+ * While the group is loading and collapsed, the title follows the latest tool call instead (e.g. "Exploring crm.md from docs").
  */
-export const useToolGroupSummaryTitle = (opts: { parts: GroupablePart[]; isLoading: boolean }): string => {
-	const { parts, isLoading } = opts;
+export const useToolGroupSummaryTitle = (opts: {
+	parts: GroupablePart[];
+	isLoading: boolean;
+	isExpanded: boolean;
+}): string => {
+	const { parts, isLoading, isExpanded } = opts;
 
 	const title = useMemo(() => {
-		let fullTitle = isLoading ? 'Exploring' : 'Explored';
-
-		const mcpParts = parts.filter(isMcpPart);
-		const nonMcpParts = parts.filter((part) => !isMcpPart(part));
-		const toolCallsSummary = createToolCallsSummary(nonMcpParts);
-		const mcpLabel = createMcpLabel(mcpParts);
-
-		if (mcpLabel && toolCallsSummary) {
-			fullTitle = `${fullTitle} ${toolCallsSummary}, ${isLoading ? 'using' : 'used'} ${mcpLabel}`;
-		} else if (mcpLabel) {
-			fullTitle = `${isLoading ? 'Using' : 'Used'} ${mcpLabel}`;
-		} else if (toolCallsSummary) {
-			fullTitle += ` ${toolCallsSummary}`;
-		}
-
+		const latestToolLabel = isLoading && !isExpanded ? getLatestToolActivityLabel(parts) : null;
+		const fullTitle = latestToolLabel ?? createAggregateTitle(parts, isLoading);
 		const errorCount = parts.filter((part) => !isReasoningPart(part) && !!part.errorText).length;
-
-		if (errorCount) {
-			fullTitle += ` (${errorCount} ${pluralize('error', errorCount)})`;
+		if (!errorCount) {
+			return fullTitle;
 		}
+		return `${fullTitle} (${errorCount} ${pluralize('error', errorCount)})`;
+	}, [isLoading, isExpanded, parts]);
 
-		return fullTitle;
-	}, [isLoading, parts]);
+	return useThrottledValue(title, MIN_TITLE_DISPLAY_MS, isLoading);
+};
 
-	return title;
+const createAggregateTitle = (parts: GroupablePart[], isLoading: boolean): string => {
+	const mcpParts = parts.filter(isMcpPart);
+	const nonMcpParts = parts.filter((part) => !isMcpPart(part));
+	const toolCallsSummary = createToolCallsSummary(nonMcpParts);
+	const mcpLabel = createMcpLabel(mcpParts);
+	const exploreVerb = isLoading ? 'Exploring' : 'Explored';
+
+	if (mcpLabel && toolCallsSummary) {
+		return `${exploreVerb} ${toolCallsSummary}, ${isLoading ? 'using' : 'used'} ${mcpLabel}`;
+	}
+	if (mcpLabel) {
+		return `${isLoading ? 'Using' : 'Used'} ${mcpLabel}`;
+	}
+	if (toolCallsSummary) {
+		return `${exploreVerb} ${toolCallsSummary}`;
+	}
+	return exploreVerb;
 };
 
 const createMcpLabel = (parts: GroupablePart[]): string | null => {

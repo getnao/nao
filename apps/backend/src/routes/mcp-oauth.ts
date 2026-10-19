@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import type { UserRole } from '@nao/shared';
+import type { FastifyReply } from 'fastify';
 
 import type { App } from '../app';
 import { getSession } from '../auth';
@@ -64,17 +65,47 @@ function jsonForInlineScript(value: unknown): string {
 		.replace(/\u2029/g, '\\u2029');
 }
 
-/** Page shown in the OAuth popup: notifies the chat window and closes itself. */
-export function resultPage(status: 'connected' | 'error', server: string, returnTo: string): string {
-	const payload = jsonForInlineScript({ type: 'nao-mcp-oauth', status, server });
+function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Page shown in the OAuth popup. On success it notifies the chat window and closes itself; on
+ * failure it stays open with the provider's error so the user can see what went wrong.
+ */
+export function resultPage(status: 'connected' | 'error', server: string, returnTo: string, message?: string): string {
+	const payload = jsonForInlineScript({ type: 'nao-mcp-oauth', status, server, message });
 	const target = jsonForInlineScript(`${returnTo}?mcp=${status}`);
+	const body =
+		status === 'connected'
+			? '<p>Connected. You can close this window.</p>'
+			: `<p>Could not connect to <strong>${escapeHtml(server)}</strong>.</p>
+<pre style="white-space:pre-wrap;word-break:break-word;background:#f4f4f5;padding:12px;border-radius:6px">${escapeHtml(message ?? 'Connection failed.')}</pre>
+<button id="close" style="padding:6px 12px">Close</button>`;
+	const onLoad =
+		status === 'connected'
+			? `if (window.opener) { window.close(); } else { window.location.href = ${target}; }`
+			: `document.getElementById('close').addEventListener('click', function () { if (window.opener) { window.close(); } else { window.location.href = ${target}; } });`;
 	return `<!doctype html><html><head><meta charset="utf-8"><title>nao</title></head><body style="font-family:system-ui;padding:24px">
-<p>${status === 'connected' ? 'Connected. You can close this window.' : 'Connection failed. You can close this window.'}</p>
+${body}
 <script>
 	try { if (window.opener) { window.opener.postMessage(${payload}, window.location.origin); } } catch (e) {}
-	if (window.opener) { window.close(); } else { window.location.href = ${target}; }
+	${onLoad}
 </script>
 </body></html>`;
+}
+
+function sendConnectError(reply: FastifyReply, server: string, returnTo: unknown, message: string): FastifyReply {
+	return reply.type('text/html').send(resultPage('error', server, normalizeReturnTo(returnTo), message));
 }
 
 /**
@@ -93,27 +124,32 @@ async function claimDiscovery(role: UserRole, projectId: string, server: string,
 export const mcpOAuthRoutes = async (app: App) => {
 	app.get('/connect', async (request, reply) => {
 		const { server, projectId, returnTo } = request.query as {
-			server?: string;
+			server?: unknown;
 			projectId?: string;
 			returnTo?: string;
 		};
-		if (!server) {
+		if (typeof server !== 'string' || !server) {
 			return reply.status(400).send({ error: 'Missing server' });
 		}
 
 		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user) {
-			return reply.status(401).send({ error: 'Unauthorized' });
+			return sendConnectError(reply.status(401), server, returnTo, 'Sign in to nao, then try again.');
 		}
 
 		const project = await projectQueries.getProjectByUserId(session.user.id, projectId ?? null);
 		if (!project) {
-			return reply.status(400).send({ error: 'No project configured' });
+			return sendConnectError(reply.status(400), server, returnTo, 'No project configured.');
 		}
 
 		const serverUrl = await mcpService.getServerUrl(project.id, server);
 		if (!serverUrl) {
-			return reply.status(400).send({ error: `MCP server "${server}" is not an HTTP server` });
+			return sendConnectError(
+				reply.status(400),
+				server,
+				returnTo,
+				`MCP server "${server}" is not an HTTP server.`,
+			);
 		}
 
 		const state = encodeState({
@@ -130,6 +166,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 				server,
 				serverUrl,
 				signedState: state,
+				staticClient: await mcpService.getServerOAuthClient(project.id, server),
 			});
 			if (result.status === 'redirect') {
 				return reply.redirect(result.url);
@@ -141,14 +178,19 @@ export const mcpOAuthRoutes = async (app: App) => {
 				projectId: project.id,
 				context: { server, error: String(error) },
 			});
-			return reply.type('text/html').send(resultPage('error', server, normalizeReturnTo(returnTo)));
+			return sendConnectError(reply, server, returnTo, errorMessage(error));
 		}
 	});
 
 	app.get('/callback', async (request, reply) => {
-		const { code, state } = request.query as { code?: string; state?: string };
-		if (!code || !state) {
-			return reply.status(400).send({ error: 'Missing code or state' });
+		const { code, state, error, error_description } = request.query as {
+			code?: string;
+			state?: string;
+			error?: string;
+			error_description?: string;
+		};
+		if (!state) {
+			return reply.status(400).send({ error: 'Missing state' });
 		}
 
 		const decoded = decodeState(state);
@@ -156,9 +198,23 @@ export const mcpOAuthRoutes = async (app: App) => {
 			return reply.status(400).send({ error: 'Invalid state' });
 		}
 
+		if (error || !code) {
+			const providerError = [error ?? 'Missing authorization code', error_description].filter(Boolean).join(': ');
+			return reply.type('text/html').send(resultPage('error', decoded.server, decoded.returnTo, providerError));
+		}
+
 		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user || session.user.id !== decoded.userId) {
-			return reply.type('text/html').send(resultPage('error', decoded.server, decoded.returnTo));
+			return reply
+				.type('text/html')
+				.send(
+					resultPage(
+						'error',
+						decoded.server,
+						decoded.returnTo,
+						'Sign in to nao in this browser with the account that started the connection, then try again.',
+					),
+				);
 		}
 
 		try {
@@ -179,6 +235,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 				serverUrl,
 				signedState: state,
 				code,
+				staticClient: await mcpService.getServerOAuthClient(decoded.projectId, decoded.server),
 			});
 
 			if (await claimDiscovery(role, decoded.projectId, decoded.server, decoded.userId)) {
@@ -192,7 +249,9 @@ export const mcpOAuthRoutes = async (app: App) => {
 				projectId: decoded.projectId,
 				context: { server: decoded.server, error: String(error) },
 			});
-			return reply.type('text/html').send(resultPage('error', decoded.server, decoded.returnTo));
+			return reply
+				.type('text/html')
+				.send(resultPage('error', decoded.server, decoded.returnTo, errorMessage(error)));
 		}
 	});
 };

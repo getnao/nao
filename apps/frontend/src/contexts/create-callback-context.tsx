@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 
 interface CallbackContextValue<T extends (...args: any[]) => void> {
 	fire: T;
@@ -25,16 +25,9 @@ export const createCallbackContext = <T extends (...args: any[]) => void>() => {
 			callbackRef.current?.(...args);
 		}, []) as T;
 
-		return (
-			<context.Provider
-				value={{
-					fire,
-					register,
-				}}
-			>
-				{children}
-			</context.Provider>
-		);
+		const value = useMemo(() => ({ fire, register }), [fire, register]);
+
+		return <context.Provider value={value}>{children}</context.Provider>;
 	};
 
 	/** Utility hook to handle the registration lifecycle of the callback function */

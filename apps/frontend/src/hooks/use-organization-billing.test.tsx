@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 const mocks = vi.hoisted(() => ({
 	getStatus: vi.fn(),
 	getStatusInput: vi.fn(),
+	mutationInput: vi.fn(),
 }));
 
 vi.mock('@/main', () => {
@@ -21,7 +22,15 @@ vi.mock('@/main', () => {
 			return { queryKey: [['billing', name], input], queryFn };
 		},
 	});
-	const mutation = () => ({ mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) });
+	const mutation = (name: string) => ({
+		mutationOptions: (options: object) => ({
+			mutationFn: (input: unknown) => {
+				mocks.mutationInput(name, input);
+				return new Promise<never>(() => {});
+			},
+			...options,
+		}),
+	});
 	return {
 		trpc: {
 			billing: {
@@ -29,12 +38,12 @@ vi.mock('@/main', () => {
 				getInvoices: query('getInvoices', async () => []),
 				getUpcomingInvoice: query('getUpcomingInvoice', async () => null),
 				getAccess: query('getAccess', async () => null),
-				createTrialCheckoutSession: mutation(),
-				createPortalSession: mutation(),
-				createPaymentMethodSession: mutation(),
-				createResubscribeSession: mutation(),
-				resumeSubscription: mutation(),
-				syncStripeBilling: mutation(),
+				createTrialCheckoutSession: mutation('createTrialCheckoutSession'),
+				createPortalSession: mutation('createPortalSession'),
+				createPaymentMethodSession: mutation('createPaymentMethodSession'),
+				createResubscribeSession: mutation('createResubscribeSession'),
+				resumeSubscription: mutation('resumeSubscription'),
+				syncStripeBilling: mutation('syncStripeBilling'),
 			},
 		},
 	};
@@ -105,8 +114,9 @@ describe('useOrganizationBilling', () => {
 		expect(result.current.plan).toEqual(yearlyPlan);
 	});
 
-	it('loads plans in the currency inferred from the browser locale', async () => {
-		vi.spyOn(navigator, 'language', 'get').mockReturnValue('fr-FR');
+	it('uses the first valid browser locale for plans and Checkout', async () => {
+		vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['not a locale']);
+		vi.spyOn(navigator, 'language', 'get').mockReturnValue('en_FR');
 		mocks.getStatus.mockResolvedValue({
 			hasStripeSubscription: false,
 			status: null,
@@ -117,6 +127,15 @@ describe('useOrganizationBilling', () => {
 
 		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
 		expect(mocks.getStatusInput).toHaveBeenCalledWith({ currency: 'eur' });
+		act(() => {
+			result.current.openTrialCheckout();
+		});
+		await waitFor(() =>
+			expect(mocks.mutationInput).toHaveBeenCalledWith('createTrialCheckoutSession', {
+				billingInterval: 'monthly',
+				currency: 'eur',
+			}),
+		);
 	});
 });
 

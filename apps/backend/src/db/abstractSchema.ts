@@ -42,6 +42,9 @@ export type NewUserGroupMember = typeof sqliteSchema.userGroupMember.$inferInser
 export type DBProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferSelect;
 export type NewProjectWhatsappLink = typeof sqliteSchema.projectWhatsappLink.$inferInsert;
 
+export type DBProjectDiscordLink = typeof sqliteSchema.projectDiscordLink.$inferSelect;
+export type NewProjectDiscordLink = typeof sqliteSchema.projectDiscordLink.$inferInsert;
+
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 

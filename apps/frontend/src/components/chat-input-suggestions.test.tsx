@@ -21,7 +21,8 @@ vi.mock('@/contexts/agent.provider', () => ({
 		isRunning: false,
 		queueOrSendMessage: mocks.queueOrSendMessage,
 	}),
-	useAgentMessages: () => mocks.messages,
+	useAgentMessagesSelector: (selector: (messages: unknown[]) => unknown) => selector(mocks.messages),
+	useAgentMessagesGetter: () => () => mocks.messages,
 }));
 vi.mock('@/hooks/use-chat-id', () => ({ useChatId: () => 'chat-1' }));
 vi.mock('@/hooks/use-inactivity-trigger', () => ({

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import type { ReactNode } from 'react';
 import type { McpServerStatus } from '@nao/shared';
 import { trpcClient } from '@/main';
+import { useMemoObject } from '@/hooks/useMemoObject';
 
 interface McpContextValue {
 	servers: McpServerStatus[] | undefined;
@@ -28,7 +29,9 @@ export function McpProvider({ children }: { children: ReactNode }) {
 		refresh();
 	}, [refresh]);
 
-	return <McpContext.Provider value={{ servers, configError, refresh }}>{children}</McpContext.Provider>;
+	const value = useMemoObject({ servers, configError, refresh });
+
+	return <McpContext.Provider value={value}>{children}</McpContext.Provider>;
 }
 
 export function useMcpContext() {

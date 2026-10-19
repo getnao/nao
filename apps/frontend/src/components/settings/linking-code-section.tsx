@@ -6,13 +6,19 @@ import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
-type MessagingProvider = 'mattermost' | 'telegram' | 'whatsapp';
+type MessagingProvider = 'discord' | 'mattermost' | 'telegram' | 'whatsapp';
 
 interface LinkingCodesCardProps {
 	provider: MessagingProvider;
 }
 
 const PROVIDER_LABELS: Record<MessagingProvider, { name: string; loginHint: string; setupHint: string }> = {
+	discord: {
+		name: 'Discord',
+		loginHint:
+			'Mention the bot and it will send you a connect link by direct message. If your direct messages are closed, send `login <code>` to the bot instead.',
+		setupHint: 'An admin still needs to finish the Discord bot setup.',
+	},
 	mattermost: {
 		name: 'Mattermost',
 		loginHint:
@@ -49,6 +55,10 @@ export function LinkingCodesCard({ provider }: LinkingCodesCardProps) {
 		...trpc.project.getMattermostConfig.queryOptions(),
 		enabled: provider === 'mattermost',
 	});
+	const discordConfig = useQuery({
+		...trpc.project.getDiscordConfig.queryOptions(),
+		enabled: provider === 'discord',
+	});
 	const currentCode = useQuery(trpc.project.getCurrentUserMessagingProviderCode.queryOptions());
 	const linkedAccounts = useQuery({
 		...trpc.project.getCurrentUserWhatsappLinks.queryOptions(),
@@ -57,8 +67,12 @@ export function LinkingCodesCard({ provider }: LinkingCodesCardProps) {
 	const regenerateCode = useMutation(trpc.project.regenerateCurrentUserMessagingProviderCode.mutationOptions());
 	const unlinkWhatsapp = useMutation(trpc.project.unlinkCurrentUserWhatsappLink.mutationOptions());
 
-	const configQuery =
-		provider === 'whatsapp' ? whatsappConfig : provider === 'telegram' ? telegramConfig : mattermostConfig;
+	const configQuery = {
+		whatsapp: whatsappConfig,
+		telegram: telegramConfig,
+		mattermost: mattermostConfig,
+		discord: discordConfig,
+	}[provider];
 	const isConfigured = Boolean(configQuery.data?.projectConfig);
 	const code = currentCode.data ?? '';
 	const [copied, setCopied] = useState(false);

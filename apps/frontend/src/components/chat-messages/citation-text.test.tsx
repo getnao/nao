@@ -93,6 +93,15 @@ describe('AssistantTextWithCitation', () => {
 		expect(container.textContent).not.toContain('saved-file');
 	});
 
+	it('hides citation tags that start with an OpenAI citation marker while streaming', () => {
+		const { container } = renderAnswer(
+			'Up 822.7%. \uE200citation-number id="query_ce90" column="growth">822.7</citation-number> \uE200cite\uE202turn0\uE201',
+			true,
+		);
+
+		expect(container.textContent?.trim()).toBe('Up 822.7%. 822.7');
+	});
+
 	it('turns a saved file into a chip that can be opened or downloaded', () => {
 		renderAnswer(
 			'Your export is ready: <saved-file path="/home/exports/churn-2025.csv">churn-2025.csv</saved-file>',

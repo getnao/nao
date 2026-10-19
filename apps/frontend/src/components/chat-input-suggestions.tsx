@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Activity, MessageSquare, X, ThumbsDown, ThumbsUp, Check, Plug } from 'lucide-react';
 import { FeedbackDialog } from './chat-messages/assistant-message-actions';
@@ -8,7 +8,7 @@ import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import type { FeedbackVote } from './chat-messages/assistant-message-actions';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesGetter, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useInactivityTrigger } from '@/hooks/use-inactivity-trigger';
 import { useStoryIds } from '@/hooks/use-story-ids';
@@ -120,6 +120,7 @@ function renderSuggestion({
 			<SuggestionCard
 				icon={<Plug className='size-4 text-primary' />}
 				message={`Connect your account to "${mcpAuth.server}" to continue`}
+				description={mcpAuth.error}
 			>
 				<Button
 					variant='ghost'
@@ -256,6 +257,7 @@ interface McpAuthSuggestion {
 	isVisible: boolean;
 	server: string | null;
 	connecting: boolean;
+	error?: string;
 	connect: () => void;
 	dismiss: () => void;
 }
@@ -266,34 +268,40 @@ interface McpAuthSuggestion {
  */
 function useMcpAuthSuggestion(): McpAuthSuggestion {
 	const { isRunning, queueOrSendMessage } = useAgentContext();
-	const messages = useAgentMessages();
+	const getAgentMessages = useAgentMessagesGetter();
 	const chatId = useChatId();
 
 	const [connecting, setConnecting] = useState(false);
+	const [failure, setFailure] = useState<{ server: string; error?: string }>();
 	const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set());
 
 	useEffect(() => {
 		setResolved(new Set());
+		setFailure(undefined);
 	}, [chatId]);
 
-	const server = useMemo(() => findPendingAuthServer(messages), [messages]);
+	const server = useAgentMessagesSelector(findPendingAuthServer);
 	const pendingServer = server && !resolved.has(server) ? server : null;
+	const error = failure?.server === pendingServer ? failure.error : undefined;
 
 	const connect = useCallback(async () => {
 		if (!pendingServer) {
 			return;
 		}
 		setConnecting(true);
-		const connected = await openMcpConnectPopup(pendingServer);
+		setFailure(undefined);
+		const result = await openMcpConnectPopup(pendingServer);
 		setConnecting(false);
-		if (connected) {
-			setResolved((prev) => new Set(prev).add(pendingServer));
-			const payload = lastUserMessagePayload(messages);
-			if (payload) {
-				void queueOrSendMessage(payload);
-			}
+		if (!result.connected) {
+			setFailure({ server: pendingServer, error: result.error });
+			return;
 		}
-	}, [pendingServer, messages, queueOrSendMessage]);
+		setResolved((prev) => new Set(prev).add(pendingServer));
+		const payload = lastUserMessagePayload(getAgentMessages());
+		if (payload) {
+			void queueOrSendMessage(payload);
+		}
+	}, [pendingServer, getAgentMessages, queueOrSendMessage]);
 
 	const dismiss = useCallback(() => {
 		if (pendingServer) {
@@ -301,7 +309,7 @@ function useMcpAuthSuggestion(): McpAuthSuggestion {
 		}
 	}, [pendingServer]);
 
-	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, connect, dismiss };
+	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, error, connect, dismiss };
 }
 
 /** Returns the server from the most recent MCP tool call that reported it needs the user to connect. */
@@ -335,13 +343,12 @@ interface StorySuggestion {
 
 function useStorySuggestion(): StorySuggestion {
 	const { isRunning, queueOrSendMessage } = useAgentContext();
-	const messages = useAgentMessages();
 	const chatId = useChatId();
 
 	const [neverPropose, setNeverPropose] = useState(() => storyProposalDisabledStorage.get() ?? false);
 	const [dismissedChats, setDismissedChats] = useState<ReadonlySet<string>>(() => new Set());
 
-	const chartCount = useMemo(() => countDisplayCharts(messages), [messages]);
+	const chartCount = useAgentMessagesSelector(countDisplayCharts);
 	const hasStory = useStoryIds().length > 0;
 
 	const isPersistedChat = !!chatId && chatId !== NEW_CHAT_ID;
@@ -403,7 +410,6 @@ interface LiveStorySuggestion {
  */
 function useLiveStorySuggestion(): LiveStorySuggestion {
 	const { isRunning, isReadonly } = useAgentContext();
-	const messages = useAgentMessages();
 	const chatId = useChatId();
 
 	const [dismissedStories, setDismissedStories] = useState<ReadonlySet<string>>(
@@ -411,7 +417,7 @@ function useLiveStorySuggestion(): LiveStorySuggestion {
 	);
 	const [isSettingsOpen, setSettingsOpen] = useState(false);
 
-	const storySlug = useMemo(() => findLatestCreatedStorySlug(messages), [messages]);
+	const storySlug = useAgentMessagesSelector(findLatestCreatedStorySlug);
 	const isPersistedChat = !!chatId && chatId !== NEW_CHAT_ID;
 	const dismissalKey = isPersistedChat && storySlug ? `${chatId}:${storySlug}` : null;
 
@@ -500,7 +506,9 @@ interface ConversationFeedback {
 
 function useConversationFeedback(): ConversationFeedback {
 	const { isRunning } = useAgentContext();
-	const messages = useAgentMessages();
+	const lastAssistantMessageId = useAgentMessagesSelector(findLastAssistantWithContentId);
+	const hasFeedback = useAgentMessagesSelector(checkLastAssistantWithContentHasFeedback);
+	const messageCount = useAgentMessagesSelector(countMessages);
 	const chatId = useChatId();
 
 	const [dismissCount, setDismissCount] = useState(() => feedbackDismissCountStorage.get() ?? 0);
@@ -536,17 +544,14 @@ function useConversationFeedback(): ConversationFeedback {
 		}),
 	);
 
-	const lastAssistantMessage = useMemo(() => findLastAssistantWithContent(messages), [messages]);
-
 	const isPersistedChat = !!chatId && chatId !== NEW_CHAT_ID;
 	const isDismissed = !!chatId && dismissedChats.has(chatId);
-	const hasFeedback = !!lastAssistantMessage?.feedback;
-	const isEligible = isPersistedChat && !isRunning && !!lastAssistantMessage && !hasFeedback && !isDismissed;
+	const isEligible = isPersistedChat && !isRunning && !!lastAssistantMessageId && !hasFeedback && !isDismissed;
 
 	const isTriggered = useInactivityTrigger({
 		enabled: isEligible,
 		delayMs: feedbackInactivityDelay(dismissCount),
-		resetKey: `${chatId}:${messages.length}`,
+		resetKey: `${chatId}:${messageCount}`,
 	});
 
 	const showThanks = !!chatId && thanksForChat === chatId;
@@ -575,12 +580,12 @@ function useConversationFeedback(): ConversationFeedback {
 
 	const vote = useCallback(
 		(value: FeedbackVote, explanation?: string) => {
-			if (!chatId || !lastAssistantMessage) {
+			if (!chatId || !lastAssistantMessageId) {
 				return;
 			}
-			submitFeedback.mutate({ chatId, messageId: lastAssistantMessage.id, vote: value, explanation });
+			submitFeedback.mutate({ chatId, messageId: lastAssistantMessageId, vote: value, explanation });
 		},
-		[chatId, lastAssistantMessage, submitFeedback],
+		[chatId, lastAssistantMessageId, submitFeedback],
 	);
 
 	const openFeedbackDialog = useCallback((value: FeedbackVote) => {
@@ -700,6 +705,18 @@ function ExpandableDescription({ description }: { description: string }) {
 			<p className='hidden text-xs text-muted-foreground @lg:block'>{description}</p>
 		</>
 	);
+}
+
+function findLastAssistantWithContentId(messages: UIMessage[]): string | undefined {
+	return findLastAssistantWithContent(messages)?.id;
+}
+
+function checkLastAssistantWithContentHasFeedback(messages: UIMessage[]): boolean {
+	return !!findLastAssistantWithContent(messages)?.feedback;
+}
+
+function countMessages(messages: UIMessage[]): number {
+	return messages.length;
 }
 
 function findLastAssistantWithContent(messages: UIMessage[]): UIMessage | undefined {

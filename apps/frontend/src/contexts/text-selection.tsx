@@ -12,6 +12,7 @@ import {
 	measureRangePosition,
 } from '@/lib/selection-dom.utils';
 import { trpc } from '@/main';
+import { useMemoObject } from '@/hooks/useMemoObject';
 
 export type { AnchorPosition };
 
@@ -191,22 +192,24 @@ export const SelectionProvider = ({
 		return measureRangePosition(containerRef.current, start, end);
 	}, []);
 
+	const clearSelection = useCallback(() => setSelection(null), []);
+
+	const value = useMemoObject({
+		selection,
+		clearSelection,
+		containerRef,
+		anchors,
+		openAnchorChatId,
+		addAnchor,
+		resolveAnchor,
+		removeAnchor,
+		openAnchor,
+		closePanel,
+		measureAnchorPosition,
+	});
+
 	return (
-		<SelectionContext.Provider
-			value={{
-				selection,
-				clearSelection: () => setSelection(null),
-				containerRef,
-				anchors,
-				openAnchorChatId,
-				addAnchor,
-				resolveAnchor,
-				removeAnchor,
-				openAnchor,
-				closePanel,
-				measureAnchorPosition,
-			}}
-		>
+		<SelectionContext.Provider value={value}>
 			<div ref={containerRef} onMouseUp={handleMouseUp} style={{ display: 'contents' }}>
 				{children}
 			</div>

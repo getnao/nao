@@ -6,10 +6,16 @@ import {
 	areGroupedMessagePartsEqual,
 	checkAssistantMessageHasContent,
 	groupToolCalls,
+	isQueryGroupPart,
+	isStoryQueryGroupPart,
+	isStoryStatusPart,
 	isToolGroupPart,
 	isToolUIPart,
 } from '@/lib/ai';
 import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
+import { QueryGroup } from '@/components/tool-calls/query-group';
+import { StoryStatus } from '@/components/tool-calls/story-status';
+import { StoryQueryGroup } from '@/components/tool-calls/story-query-group';
 import { ToolCall } from '@/components/tool-calls';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
@@ -107,6 +113,18 @@ export const MessagePart = memo(
 	({ part, isPartSettled }: { part: GroupedMessagePart; isPartSettled: boolean }) => {
 		if (isToolGroupPart(part)) {
 			return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
+		}
+
+		if (isQueryGroupPart(part)) {
+			return <QueryGroup parts={part.parts} isSettled={isPartSettled} />;
+		}
+
+		if (isStoryStatusPart(part)) {
+			return <StoryStatus toolPart={part.part} />;
+		}
+
+		if (isStoryQueryGroupPart(part)) {
+			return <StoryQueryGroup parts={part.parts} isSettled={isPartSettled} />;
 		}
 
 		if (isToolUIPart(part)) {
