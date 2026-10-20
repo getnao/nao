@@ -6,14 +6,44 @@ const LOCK_LEASE_MS = 2 * 60_000;
 const LOCK_RENEW_INTERVAL_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
 const MAX_WAIT_MS = 2 * 60_000;
+const EXPIRED_LOCKS_CLEANUP_INTERVAL_MS = 60 * 60_000;
 
 const inMemoryLocks = new Map<string, Promise<unknown>>();
+let lastExpiredLocksCleanupAt = 0;
 
 export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	if (dbConfig.dialect !== Dialect.Postgres) {
 		return withInMemoryLock(key, fn);
 	}
 	return withDatabaseLock(key, fn);
+}
+
+/**
+ * Claims `key` across every backend instance sharing the database. Only the first caller gets
+ * `true`; later callers get `false` until the lease expires. The claim is never released.
+ */
+export async function claimOnce(key: string, leaseMs: number): Promise<boolean> {
+	const claimed = await keyedLockQueries.tryAcquireLock(key, crypto.randomUUID(), leaseMs);
+	if (claimed) {
+		scheduleExpiredLocksCleanup();
+	}
+	return claimed;
+}
+
+function scheduleExpiredLocksCleanup(): void {
+	if (Date.now() - lastExpiredLocksCleanupAt < EXPIRED_LOCKS_CLEANUP_INTERVAL_MS) {
+		return;
+	}
+	lastExpiredLocksCleanupAt = Date.now();
+	void deleteExpiredLocksSafely();
+}
+
+async function deleteExpiredLocksSafely(): Promise<void> {
+	try {
+		await keyedLockQueries.deleteExpiredLocks();
+	} catch (error) {
+		logger.warn('Failed to delete expired keyed locks.', { source: 'system', context: serializeError(error) });
+	}
 }
 
 function withInMemoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {

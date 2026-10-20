@@ -60,6 +60,11 @@ describe('getSystemPromptOverride', () => {
 		expect(getSystemPromptOverride(ROOT, 'mattermost')).toBe('Mattermost override');
 	});
 
+	it('supports a Discord-specific prompt override', () => {
+		setupPromptFiles({ 'system.md': 'Global override', 'discord.md': 'Discord override' });
+		expect(getSystemPromptOverride(ROOT, 'discord')).toBe('Discord override');
+	});
+
 	it('falls back to system.md when no surface-specific file exists', () => {
 		setupPromptFiles({ 'system.md': 'Global override' });
 		expect(getSystemPromptOverride(ROOT, 'slack')).toBe('Global override');

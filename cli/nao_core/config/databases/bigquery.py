@@ -526,7 +526,7 @@ class BigQueryConfig(DatabaseConfig):
         job_config = bq.QueryJobConfig(dry_run=True, use_query_cache=False)
         if self.dataset_id:
             job_config.default_dataset = f"{self.project_id}.{self.dataset_id}"
-        query_job = conn.client.query(sql, job_config=job_config)
+        query_job = conn.client.query(sql, job_config=job_config, location=self.location)
         return query_job.total_bytes_processed or 0
 
     def connect(self) -> BaseBackend:
@@ -540,6 +540,9 @@ class BigQueryConfig(DatabaseConfig):
 
         if self.dataset_id:
             kwargs["dataset_id"] = self.dataset_id
+
+        if self.location:
+            kwargs["location"] = self.location
 
         if self.sso:
             kwargs["auth_local_webserver"] = True

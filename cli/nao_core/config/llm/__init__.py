@@ -24,6 +24,7 @@ class LLMProvider(str, Enum):
     QWEN = "qwen"
     MINIMAX = "minimax"
     MOONSHOT = "moonshot"
+    META = "meta"
     OPENAI_COMPATIBLE = "openaiCompatible"
 
 
@@ -100,6 +101,12 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         base_url_env_var="MOONSHOT_BASE_URL",
         default_base_url="https://api.moonshot.ai/v1",
     ),
+    LLMProvider.META: ProviderAuthConfig(
+        env_var="META_API_KEY",
+        api_key="required",
+        base_url_env_var="META_BASE_URL",
+        default_base_url="https://api.meta.ai/v1",
+    ),
     LLMProvider.OPENAI_COMPATIBLE: ProviderAuthConfig(
         env_var="OPENAI_COMPATIBLE_API_KEY",
         api_key="optional",
@@ -118,6 +125,7 @@ OPENAI_COMPATIBLE_PROVIDERS: frozenset[LLMProvider] = frozenset(
         LLMProvider.QWEN,
         LLMProvider.MINIMAX,
         LLMProvider.MOONSHOT,
+        LLMProvider.META,
         LLMProvider.OPENAI_COMPATIBLE,
     }
 )
@@ -139,6 +147,7 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.QWEN: "qwen3.7-flash",
     LLMProvider.MINIMAX: "MiniMax-M2.7",
     LLMProvider.MOONSHOT: "kimi-k2.5",
+    LLMProvider.META: "muse-spark-1.3",
 }
 
 """Spellings accepted in config on top of the provider names nao uses internally."""
@@ -353,6 +362,7 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Qwen (Alibaba Cloud Model Studio)", value="qwen"),
             questionary.Choice("MiniMax", value="minimax"),
             questionary.Choice("Moonshot (Kimi)", value="moonshot"),
+            questionary.Choice("Meta (Muse Spark, Muse Wonder)", value="meta"),
             questionary.Choice("Other OpenAI-compatible endpoint (vLLM, LiteLLM, ...)", value="openaiCompatible"),
         ]
         provider_choices = [

@@ -21,8 +21,22 @@ export interface TablePaginationProps {
 	onPageSizeChange: (size: number) => void;
 }
 
+export type TableSort = { column: string; direction: SortDirection };
+
+/** Rows paged and sorted by the server: `data` then only holds the current page, already sorted. */
+export interface TableServerPagination {
+	totalRows: number;
+	pageIndex: number;
+	pageSize: number;
+	sort: TableSort | null;
+	onPageChange: (page: number) => void;
+	onPageSizeChange: (size: number) => void;
+	onSortChange: (sort: TableSort | null) => void;
+}
+
 export interface TableDisplayProps {
 	data: TableRow[];
+	serverPagination?: TableServerPagination;
 	columns?: string[];
 	columnLabels?: Record<string, string>;
 	title?: string;
@@ -33,17 +47,30 @@ export interface TableDisplayProps {
 	maxRowsBeforePagination?: number;
 	compactFooter?: boolean;
 	cellBackground?: (column: string, value: unknown) => string | undefined;
+	headerBackground?: (column: string) => string | undefined;
 	humanizeColumnLabels?: boolean;
 	dateFormat?: DateFormatSettings | null;
 	renderPagination: (pagination: TablePaginationProps & { compact: boolean }) => ReactNode;
 	cn?: ClassNameMerger;
 }
 
-type Sort = { column: string; direction: SortDirection };
+interface TablePaging {
+	pageData: TableRow[];
+	totalRows: number;
+	showPagination: boolean;
+	pageIndex: number;
+	pageSize: number;
+	pageCount: number;
+	sort: TableSort | null;
+	setPageIndex: (page: number) => void;
+	setPageSize: (size: number) => void;
+	toggleSort: (column: string) => void;
+}
 
 /** `nao-table-display__*` classes let surfaces without Tailwind (sandboxed custom stories) style the same markup. */
 export const TableDisplay = memo(function TableDisplay({
 	data,
+	serverPagination,
 	columns,
 	columnLabels,
 	title,
@@ -54,6 +81,7 @@ export const TableDisplay = memo(function TableDisplay({
 	maxRowsBeforePagination = 100,
 	compactFooter = false,
 	cellBackground,
+	headerBackground,
 	humanizeColumnLabels = false,
 	dateFormat,
 	renderPagination,
@@ -68,35 +96,13 @@ export const TableDisplay = memo(function TableDisplay({
 		[data, resolvedColumns],
 	);
 	const hasRows = data.length > 0;
-	const showPagination = hasRows && data.length > maxRowsBeforePagination;
+	const paging = useTablePaging(data, resolvedColumns, maxRowsBeforePagination, serverPagination);
+	const { pageData, pageIndex, pageSize, sort: activeSort } = paging;
 
 	const columnMinWidths = useMemo(
 		() => computeColumnMinWidths(data, resolvedColumns, dateFormat),
 		[data, resolvedColumns, dateFormat],
 	);
-
-	const [pageIndex, setPageIndex] = useState(0);
-	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
-	const [sort, setSort] = useState<Sort | null>(null);
-
-	useEffect(() => setPageIndex(0), [data]);
-
-	const activeSort = sort && resolvedColumns.includes(sort.column) ? sort : null;
-	const sortedData = useMemo(
-		() => (activeSort ? sortTableRows(data, activeSort.column, activeSort.direction) : data),
-		[data, activeSort],
-	);
-
-	const pageCount = Math.ceil(sortedData.length / pageSize);
-	const pageData = useMemo(
-		() => (showPagination ? sortedData.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize) : sortedData),
-		[sortedData, pageIndex, pageSize, showPagination],
-	);
-
-	function toggleSort(column: string) {
-		setPageIndex(0);
-		setSort(nextSort(activeSort, column));
-	}
 
 	function columnLabel(column: string) {
 		return columnLabels?.[column] ?? (humanizeColumnLabels ? formatColumnLabel(column) : column);
@@ -119,9 +125,11 @@ export const TableDisplay = memo(function TableDisplay({
 							{resolvedColumns.map((column) => {
 								const alignRight = numericColumns.has(column);
 								const sortDirection = activeSort?.column === column ? activeSort.direction : null;
+								const background = headerBackground?.(column);
 								return (
 									<th
 										key={column}
+										style={background ? { backgroundColor: background } : undefined}
 										aria-sort={
 											sortDirection
 												? sortDirection === 'asc'
@@ -136,7 +144,7 @@ export const TableDisplay = memo(function TableDisplay({
 									>
 										<button
 											type='button'
-											onClick={() => toggleSort(column)}
+											onClick={() => paging.toggleSort(column)}
 											className='group flex w-full cursor-pointer items-center justify-between gap-3'
 										>
 											<span className={cn(alignRight && 'ml-auto')}>{columnLabel(column)}</span>
@@ -203,18 +211,15 @@ export const TableDisplay = memo(function TableDisplay({
 				</table>
 			</div>
 
-			{showPagination ? (
+			{paging.showPagination ? (
 				renderPagination({
 					compact: compactFooter,
-					totalRows: data.length,
+					totalRows: paging.totalRows,
 					pageIndex,
 					pageSize,
-					pageCount,
-					onPageChange: setPageIndex,
-					onPageSizeChange: (size) => {
-						setPageSize(size);
-						setPageIndex(0);
-					},
+					pageCount: paging.pageCount,
+					onPageChange: paging.setPageIndex,
+					onPageSizeChange: paging.setPageSize,
 				})
 			) : showRowCount ? (
 				<div
@@ -224,13 +229,77 @@ export const TableDisplay = memo(function TableDisplay({
 					)}
 				>
 					<span className={cn('text-muted-foreground', compactFooter ? 'text-xs' : 'text-sm')}>
-						{data.length} rows
+						{paging.totalRows} rows
 					</span>
 				</div>
 			) : null}
 		</div>
 	);
 });
+
+function useTablePaging(
+	data: TableRow[],
+	columns: string[],
+	maxRowsBeforePagination: number,
+	serverPagination: TableServerPagination | undefined,
+): TablePaging {
+	const localPaging = useLocalTablePaging(data, columns, maxRowsBeforePagination);
+	if (!serverPagination) {
+		return localPaging;
+	}
+
+	const { totalRows, pageIndex, pageSize, sort } = serverPagination;
+	return {
+		pageData: data,
+		totalRows,
+		showPagination: totalRows > maxRowsBeforePagination,
+		pageIndex,
+		pageSize,
+		pageCount: Math.ceil(totalRows / pageSize),
+		sort,
+		setPageIndex: serverPagination.onPageChange,
+		setPageSize: serverPagination.onPageSizeChange,
+		toggleSort: (column) => serverPagination.onSortChange(nextSort(sort, column)),
+	};
+}
+
+function useLocalTablePaging(data: TableRow[], columns: string[], maxRowsBeforePagination: number): TablePaging {
+	const [pageIndex, setPageIndex] = useState(0);
+	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
+	const [sort, setSort] = useState<TableSort | null>(null);
+
+	useEffect(() => setPageIndex(0), [data]);
+
+	const activeSort = sort && columns.includes(sort.column) ? sort : null;
+	const sortedData = useMemo(
+		() => (activeSort ? sortTableRows(data, activeSort.column, activeSort.direction) : data),
+		[data, activeSort],
+	);
+	const showPagination = data.length > 0 && data.length > maxRowsBeforePagination;
+	const pageData = useMemo(
+		() => (showPagination ? sortedData.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize) : sortedData),
+		[sortedData, pageIndex, pageSize, showPagination],
+	);
+
+	return {
+		pageData,
+		totalRows: data.length,
+		showPagination,
+		pageIndex,
+		pageSize,
+		pageCount: Math.ceil(sortedData.length / pageSize),
+		sort: activeSort,
+		setPageIndex,
+		setPageSize: (size) => {
+			setPageSize(size);
+			setPageIndex(0);
+		},
+		toggleSort: (column) => {
+			setPageIndex(0);
+			setSort(nextSort(activeSort, column));
+		},
+	};
+}
 
 function SortIndicator({ direction, cn }: { direction: SortDirection | null; cn: ClassNameMerger }) {
 	return (
@@ -276,7 +345,7 @@ function ChevronIcon({ path, className }: { path: string; className: string }) {
 	);
 }
 
-function nextSort(current: Sort | null, column: string): Sort | null {
+function nextSort(current: TableSort | null, column: string): TableSort | null {
 	if (!current || current.column !== column) {
 		return { column, direction: 'asc' };
 	}

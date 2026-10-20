@@ -3,6 +3,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
+import { listShareableUserGroupMemberIds } from './shareable-user-groups.service';
 
 /** Users subscribed to a story's scheduled delivery. Empty when delivery is disabled or unconfigured. */
 export async function resolveDeliverySubscriberIds(storyId: string): Promise<string[]> {
@@ -27,7 +28,12 @@ export async function resolveDeliveryRecipientUserIds(
 	const accessibleIds = await currentProjectAccessIds(projectId);
 
 	if (delivery.recipientMode !== 'all') {
-		return dedupe(delivery.recipientUserIds.filter((id) => accessibleIds.has(id)));
+		const recipientIds = await resolveSpecificRecipientUserIds(
+			projectId,
+			delivery.recipientUserIds,
+			delivery.recipientGroupIds,
+		);
+		return recipientIds.filter((id) => accessibleIds.has(id));
 	}
 
 	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
@@ -43,6 +49,16 @@ export async function resolveDeliveryRecipientUserIds(
 	}
 
 	return excludeOwner([...accessibleIds], ownerId);
+}
+
+/** Users picked directly plus the current members of every picked user group. */
+export async function resolveSpecificRecipientUserIds(
+	projectId: string,
+	userIds: string[],
+	groupIds: string[],
+): Promise<string[]> {
+	const groupMemberIds = await listShareableUserGroupMemberIds(projectId, groupIds);
+	return dedupe([...userIds, ...groupMemberIds]);
 }
 
 async function currentProjectAccessIds(projectId: string): Promise<Set<string>> {

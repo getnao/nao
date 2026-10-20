@@ -26,7 +26,7 @@ import { getBrowser } from './headless-browser';
 import { logger } from './logger';
 import { resolveChoroplethBoundary } from './map-boundary-resolve';
 import { VIEW_HEIGHT, VIEW_WIDTH } from './static-map-svg';
-import { MAPLIBRE_CSS_URL, MAPLIBRE_JS_URL, renderMapScript } from './story-html';
+import { MAPLIBRE_CSS_URL, renderMapScript } from './story-html';
 
 const TITLE_BAND_HEIGHT = 40;
 const MAP_PADDING = 8;
@@ -250,7 +250,6 @@ html,body{background:#ffffff}
 ${titleBar}
 <div class="nao-map" data-map="${dataAttr}">${legendHtml}</div>
 </div>
-<script src="${MAPLIBRE_JS_URL}"></script>
 <script>${renderMapScript()}</script>
 </body>
 </html>`;

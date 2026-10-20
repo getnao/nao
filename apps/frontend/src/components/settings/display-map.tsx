@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
-import maplibregl from 'maplibre-gl';
 
 import type { CustomBoundarySet } from '@nao/shared';
 import type { FeatureCollection } from 'geojson';
@@ -26,6 +25,7 @@ import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { MAP_STYLE_DARK, MAP_STYLE_LIGHT } from '@/hooks/use-map-style';
+import { maplibregl } from '@/lib/maplibre';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 

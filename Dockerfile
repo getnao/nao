@@ -126,6 +126,7 @@ RUN --mount=type=bind,source=docker/install-duckdb-extensions.mjs,target=/app/in
 # Copy backend and shared source (no build needed — Bun runs TS directly)
 COPY --chown=nao:nao apps/backend ./apps/backend
 COPY --chown=nao:nao apps/shared ./apps/shared
+COPY --chown=nao:nao skills/write-context-rules ./skills/write-context-rules
 
 # Lock down the license public key for production: strip the dev override
 # branch from apps/backend/src/services/license-public-key.ts so the

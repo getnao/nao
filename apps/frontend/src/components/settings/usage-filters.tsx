@@ -63,16 +63,6 @@ export function UsageFilters({
 	splitByUser = false,
 	onSplitByUserChange,
 }: UsageFiltersProps) {
-	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
-		value: name,
-		label: name,
-		count: chatFacets?.userNameCounts[name],
-	}));
-	const sourceOptions = USAGE_SOURCES.map((value) => ({
-		value,
-		label: sourceLabels[value],
-	}));
-
 	return (
 		<div className='flex flex-wrap items-center gap-2'>
 			{showUsageControls && (
@@ -104,6 +94,49 @@ export function UsageFilters({
 				</>
 			)}
 
+			<SourceAndUserFilters
+				chatFacets={chatFacets}
+				selectedUserNames={selectedUserNames}
+				onSelectedUserNamesChange={onSelectedUserNamesChange}
+				selectedSources={selectedSources}
+				onSelectedSourcesChange={onSelectedSourcesChange}
+			/>
+			{showUsageControls && onSplitByUserChange && (
+				<ToggleFilter
+					label='Split per user'
+					icon={Split}
+					pressed={splitByUser}
+					onPressedChange={onSplitByUserChange}
+				/>
+			)}
+		</div>
+	);
+}
+
+type SourceAndUserFiltersProps = Pick<
+	UsageFiltersProps,
+	'chatFacets' | 'selectedUserNames' | 'onSelectedUserNamesChange' | 'selectedSources' | 'onSelectedSourcesChange'
+>;
+
+export function SourceAndUserFilters({
+	chatFacets,
+	selectedUserNames,
+	onSelectedUserNamesChange,
+	selectedSources,
+	onSelectedSourcesChange,
+}: SourceAndUserFiltersProps) {
+	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
+		value: name,
+		label: name,
+		count: chatFacets?.userNameCounts[name],
+	}));
+	const sourceOptions = USAGE_SOURCES.map((value) => ({
+		value,
+		label: sourceLabels[value],
+	}));
+
+	return (
+		<>
 			<MultiSelectFilter
 				label='Source'
 				icon={Radio}
@@ -118,15 +151,7 @@ export function UsageFilters({
 				selectedValues={selectedUserNames}
 				onChange={onSelectedUserNamesChange}
 			/>
-			{showUsageControls && onSplitByUserChange && (
-				<ToggleFilter
-					label='Split per user'
-					icon={Split}
-					pressed={splitByUser}
-					onPressedChange={onSplitByUserChange}
-				/>
-			)}
-		</div>
+		</>
 	);
 }
 
@@ -229,10 +254,12 @@ const sourceLabels: Record<UsageSource, string> = {
 	teams: 'Teams',
 	telegram: 'Telegram',
 	mattermost: 'Mattermost',
+	discord: 'Discord',
 	whatsapp: 'WhatsApp',
 	admin: 'Admin mode',
 	mcp: 'MCP',
 	contextRecommendations: 'Context recommendations',
+	onboarding: 'Onboarding',
 };
 
 function sameValues<T extends string>(a: T[], b: T[]): boolean {

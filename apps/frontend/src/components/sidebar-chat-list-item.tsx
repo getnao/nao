@@ -17,18 +17,23 @@ import type { ComponentProps } from 'react';
 
 import type { GroupedChatItem } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
+import { getOnboardingChatIdStorage } from '@/hooks/use-agent';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useToggleStarred } from '@/hooks/use-toggle-starred';
+import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export interface Props extends Omit<ComponentProps<'div'>, 'children'> {
 	chat: GroupedChatItem;
+	needsAttention?: boolean;
+	resumeOnboarding?: boolean;
 }
 
-export function ChatListItem({ chat }: Props) {
+export function ChatListItem({ chat, needsAttention = false, resumeOnboarding = false }: Props) {
 	const navigate = useNavigate();
+	const { data: session } = useSession();
 	const timeAgo = useTimeAgo(chat.updatedAt);
 	const activity = useChatActivity(chat.id);
 	const toggleStarred = useToggleStarred();
@@ -38,7 +43,13 @@ export function ChatListItem({ chat }: Props) {
 
 	const deleteChat = useMutation(
 		trpc.chat.delete.mutationOptions({
-			onSuccess: (_data, _vars, _res, ctx) => {
+			onSuccess: (_data, vars, _res, ctx) => {
+				if (chat.isOnboarding && session?.user.id) {
+					const storage = getOnboardingChatIdStorage(session.user.id);
+					if (storage.get() === vars.chatId) {
+						storage.set(null);
+					}
+				}
 				navigate({ to: '/' });
 				ctx.client.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 			},
@@ -92,7 +103,9 @@ export function ChatListItem({ chat }: Props) {
 	};
 
 	const handleDoubleClick = () => {
-		setIsRenaming(true);
+		if (!chat.isOnboarding) {
+			setIsRenaming(true);
+		}
 	};
 
 	return (
@@ -105,10 +118,19 @@ export function ChatListItem({ chat }: Props) {
 					!isRenaming && 'hover:pr-9 has-data-[state=open]:pr-9',
 				)}
 				inactiveProps={{
-					className: cn('text-sidebar-foreground hover:bg-sidebar-accent opacity-75'),
+					className: 'text-sidebar-foreground hover:bg-sidebar-accent opacity-75',
 				}}
 				activeProps={{
-					className: cn('text-foreground bg-sidebar-accent font-medium'),
+					className: 'text-foreground bg-sidebar-accent font-medium',
+				}}
+				onClick={(event) => {
+					const isUnmodifiedPrimaryClick =
+						event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+
+					if (resumeOnboarding && isUnmodifiedPrimaryClick) {
+						event.preventDefault();
+						navigate({ to: '/onboarding', search: { chatId: chat.id } });
+					}
 				}}
 				onDoubleClick={handleDoubleClick}
 			>
@@ -123,8 +145,12 @@ export function ChatListItem({ chat }: Props) {
 				) : (
 					<>
 						{activity.unread && <span className='size-1.5 shrink-0 rounded-full bg-primary' />}
-						<div className='truncate text-sm mr-auto'>{chat.title}</div>
-						{activity.running ? (
+						<div className='truncate text-sm mr-auto'>
+							{chat.isOnboarding ? 'Project setup' : chat.title}
+						</div>
+						{needsAttention ? (
+							<div className='whitespace-nowrap text-xs font-medium text-violet'>Almost there!</div>
+						) : activity.running ? (
 							<Spinner className='size-3.5 shrink-0' />
 						) : (
 							<div className='text-xs text-muted-foreground whitespace-nowrap'>
@@ -138,6 +164,7 @@ export function ChatListItem({ chat }: Props) {
 									variant='ghost'
 									size='icon-xs'
 									className='absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100'
+									onClick={(event) => event.stopPropagation()}
 								>
 									<EllipsisVertical />
 								</Button>
@@ -149,10 +176,12 @@ export function ChatListItem({ chat }: Props) {
 										{chat.isStarred ? <StarOffIcon /> : <StarIcon />}
 										{chat.isStarred ? 'Unstar' : 'Star'}
 									</DropdownMenuItem>
-									<DropdownMenuItem onSelect={handleRenameSelect}>
-										<Pencil />
-										Rename
-									</DropdownMenuItem>
+									{!chat.isOnboarding && (
+										<DropdownMenuItem onSelect={handleRenameSelect}>
+											<Pencil />
+											Rename
+										</DropdownMenuItem>
+									)}
 									<DropdownMenuItem onSelect={() => setIsShareDialogOpen(true)}>
 										<Upload />
 										Share

@@ -465,8 +465,17 @@ export async function getContextFileReadCosts(
 		});
 }
 
-/** The earliest-created admin of a project, used to attribute scheduled runs. */
+/** The earliest-created admin of a project, falling back to org admins, used to attribute scheduled runs. */
 export async function getFirstProjectAdminUserId(projectId: string): Promise<string> {
+	const adminUserId =
+		(await getFirstDirectProjectAdminUserId(projectId)) ?? (await getFirstInheritedOrgAdminUserId(projectId));
+	if (!adminUserId) {
+		throw new Error(`No admin found for project ${projectId}`);
+	}
+	return adminUserId;
+}
+
+async function getFirstDirectProjectAdminUserId(projectId: string): Promise<string | undefined> {
 	const [admin] = await db
 		.select({ userId: s.projectMember.userId })
 		.from(s.projectMember)
@@ -474,10 +483,24 @@ export async function getFirstProjectAdminUserId(projectId: string): Promise<str
 		.orderBy(asc(s.projectMember.createdAt))
 		.limit(1)
 		.execute();
-	if (!admin) {
-		throw new Error(`No admin found for project ${projectId}`);
-	}
-	return admin.userId;
+	return admin?.userId;
+}
+
+/** Org admins only inherit the admin role on projects where they have no explicit project role. */
+async function getFirstInheritedOrgAdminUserId(projectId: string): Promise<string | undefined> {
+	const [admin] = await db
+		.select({ userId: s.orgMember.userId })
+		.from(s.project)
+		.innerJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.role, 'admin')))
+		.leftJoin(
+			s.projectMember,
+			and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, s.orgMember.userId)),
+		)
+		.where(and(eq(s.project.id, projectId), isNull(s.projectMember.userId)))
+		.orderBy(asc(s.orgMember.createdAt))
+		.limit(1)
+		.execute();
+	return admin?.userId;
 }
 
 /** Returns title, owner id and owner name for a list of chat IDs, scoped to the project. */

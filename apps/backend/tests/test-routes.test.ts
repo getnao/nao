@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
 	executeQuery: vi.fn(),
 	extractToolCalls: vi.fn(() => []),
 	getAzureAccessTokenForUser: vi.fn(),
-	getEnvVars: vi.fn(),
+	getProjectRuntimeEnvVars: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveProjectContextAccess: vi.fn(),
 	retrieveProjectById: vi.fn(),
@@ -19,7 +19,6 @@ vi.mock('../src/middleware/auth', () => ({
 	authMiddleware: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({
-	getEnvVars: mocks.getEnvVars,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
 vi.mock('../src/services/license.service', () => ({
@@ -28,6 +27,9 @@ vi.mock('../src/services/license.service', () => ({
 }));
 vi.mock('../src/services/microsoft-auth.service', () => ({
 	getAzureAccessTokenForUser: mocks.getAzureAccessTokenForUser,
+}));
+vi.mock('../src/services/project-runtime-env', () => ({
+	getProjectRuntimeEnvVars: mocks.getProjectRuntimeEnvVars,
 }));
 vi.mock('../src/services/user-group-context-access.service', () => ({
 	resolveProjectContextAccess: mocks.resolveProjectContextAccess,
@@ -56,7 +58,10 @@ describe('test routes', () => {
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 		});
-		mocks.getEnvVars.mockResolvedValue({ WAREHOUSE_HOST: 'warehouse.example.com' });
+		mocks.getProjectRuntimeEnvVars.mockResolvedValue({
+			WAREHOUSE_HOST: 'warehouse.example.com',
+			WAREHOUSE_PASSWORD: 'encrypted-storage-secret',
+		});
 		mocks.hasFeature.mockResolvedValue(true);
 		mocks.getAzureAccessTokenForUser.mockResolvedValue('azure-access-token');
 		mocks.executeQuery.mockResolvedValue({ data: [], columns: [] });
@@ -74,7 +79,7 @@ describe('test routes', () => {
 		const reply = await runExpectedQuery();
 
 		expect(mocks.retrieveProjectById).toHaveBeenCalledWith('project-id');
-		expect(mocks.getEnvVars).toHaveBeenCalledWith('project-id');
+		expect(mocks.getProjectRuntimeEnvVars).toHaveBeenCalledWith('project-id');
 		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
 		expect(mocks.getAzureAccessTokenForUser).toHaveBeenCalledWith('user-id');
 		expect(mocks.resolveProjectContextAccess).toHaveBeenCalledWith('project-id', 'user-id', '/project');
@@ -88,7 +93,10 @@ describe('test routes', () => {
 				supportsCustomCharts: false,
 				agentSettings: null,
 				adminMode: false,
-				envVars: { WAREHOUSE_HOST: 'warehouse.example.com' },
+				envVars: {
+					WAREHOUSE_HOST: 'warehouse.example.com',
+					WAREHOUSE_PASSWORD: 'encrypted-storage-secret',
+				},
 				azureAccessToken: 'azure-access-token',
 				warehouseTableAccess: { enforced: true },
 				warehouseRowSecurity: { enforced: false },

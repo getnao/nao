@@ -32,7 +32,6 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
 
 const SUPPORTED_WHATSAPP_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -460,15 +459,6 @@ class WhatsappService {
 		for (const link of mapLinks) {
 			await ctx.thread.post(link);
 		}
-
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this._projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'whatsapp',
-			domain_host: new URL(this._redirectUrl).host,
-		});
 	}
 
 	private async _createAgentStream(
@@ -482,7 +472,12 @@ class WhatsappService {
 			{ supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
-		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });
+		return agent.stream(chat.messages, {
+			provider: 'whatsapp',
+			timezone: ctx.timezone,
+			chatUrl,
+			tracking: { source: 'whatsapp', isNewChat: ctx.isNewChat, domainHost: new URL(chatUrl).host },
+		});
 	}
 
 	private async _readStreamAndUpdateMessage(

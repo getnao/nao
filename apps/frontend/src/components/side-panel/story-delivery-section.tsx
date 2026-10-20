@@ -2,7 +2,7 @@ import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Mail, Send, Slack, Wand2 } from 'lucide-react';
-import type { NotificationChannel } from '@nao/shared/types';
+import type { NotificationChannel, RecipientMode } from '@nao/shared/types';
 
 import { MemberPicker } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -30,7 +31,6 @@ interface StoryDeliverySectionProps {
 	onStatusChange: (status: StoryDeliveryStatus) => void;
 }
 
-type RecipientMode = 'all' | 'specific';
 type DeliveryTiming = 'after-refresh' | 'custom-schedule';
 
 const CUSTOM_PRESET = 'custom';
@@ -51,6 +51,8 @@ const SCHEDULE_OPTIONS: { value: string; label: string }[] = [
 export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliverySectionProps>(
 	function StoryDeliverySection({ chatId, storySlug, open, refreshCron, onStatusChange }, ref) {
 		const queryClient = useQueryClient();
+		const { data: session } = useSession();
+		const currentUserId = session?.user?.id ?? null;
 		const delivery = useQuery({ ...trpc.story.getDelivery.queryOptions({ chatId, storySlug }), enabled: open });
 		const recipientsQuery = useQuery({
 			...trpc.story.listDeliveryRecipients.queryOptions({ chatId, storySlug }),
@@ -73,11 +75,17 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		const [nlInput, setNlInput] = useState('');
 		const [savedNlInput, setSavedNlInput] = useState('');
 		const [nlConvertFailed, setNlConvertFailed] = useState(false);
-		const [recipientMode, setRecipientMode] = useState<RecipientMode>('all');
+		const [recipientMode, setRecipientMode] = useState<RecipientMode>('specific');
 		const [selected, setSelected] = useState<Set<string>>(new Set());
+		const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
 		const [emailEnabled, setEmailEnabled] = useState(true);
 		const [slackEnabled, setSlackEnabled] = useState(false);
 		const [search, setSearch] = useState('');
+
+		const recipientGroupsQuery = useQuery({
+			...trpc.story.listDeliveryRecipientGroups.queryOptions({ chatId, storySlug }),
+			enabled: open && recipientMode === 'specific',
+		});
 
 		// Seed the form from server state only once per dialog open. Re-syncing on every
 		// refetch (e.g. after a mutation or window refocus) would discard unsaved edits.
@@ -101,8 +109,9 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			const desc = delivery.data.scheduleDescription ?? '';
 			setNlInput(scheduleValue === CUSTOM_PRESET ? desc : '');
 			setSavedNlInput(scheduleValue === CUSTOM_PRESET ? desc : '');
-			setRecipientMode((delivery.data.recipientMode as RecipientMode) ?? 'all');
+			setRecipientMode((delivery.data.recipientMode as RecipientMode) ?? 'specific');
 			setSelected(new Set(delivery.data.recipientUserIds));
+			setSelectedGroups(new Set(delivery.data.recipientGroupIds));
 			setEmailEnabled(delivery.data.channels.includes('email'));
 			setSlackEnabled(delivery.data.channels.includes('slack'));
 		}, [open, delivery.data]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -145,15 +154,20 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			cronNlpMutation.mutate({ text });
 		}, [nlInput, cronNlpMutation]);
 
-		const handleEnabledChange = useCallback((next: boolean) => {
-			setEnabled(next);
-			if (next) {
-				setTiming('after-refresh');
-				setEmailEnabled(true);
-				setSlackEnabled(false);
-				setRecipientMode('all');
-			}
-		}, []);
+		const handleEnabledChange = useCallback(
+			(next: boolean) => {
+				setEnabled(next);
+				if (next) {
+					setTiming('after-refresh');
+					setEmailEnabled(true);
+					setSlackEnabled(false);
+					setRecipientMode('specific');
+					setSelected(currentUserId ? new Set([currentUserId]) : new Set());
+					setSelectedGroups(new Set());
+				}
+			},
+			[currentUserId],
+		);
 
 		const handleCustomCronChange = useCallback((value: string) => {
 			setCustomCron(value);
@@ -180,6 +194,15 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 				(member) => member.name.toLowerCase().includes(term) || member.email.toLowerCase().includes(term),
 			);
 		}, [recipientsQuery.data, search]);
+
+		const filteredGroups = useMemo(() => {
+			const groups = recipientGroupsQuery.data ?? [];
+			const term = search.trim().toLowerCase();
+			if (!term) {
+				return groups;
+			}
+			return groups.filter((group) => group.name.toLowerCase().includes(term));
+		}, [recipientGroupsQuery.data, search]);
 
 		const resolvedCron =
 			timing === 'after-refresh'
@@ -208,7 +231,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		const valid =
 			!enabled ||
 			(channels.length > 0 &&
-				(recipientMode === 'all' || selected.size > 0) &&
+				(recipientMode === 'all' || selected.size > 0 || selectedGroups.size > 0) &&
 				(timing === 'after-refresh' || Boolean(resolvedCron)));
 
 		const dirty = useMemo(() => {
@@ -216,15 +239,14 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			if (!initial) {
 				return enabled;
 			}
-			const initialSelected = new Set(initial.recipientUserIds);
-			const sameRecipients =
-				initialSelected.size === selected.size && [...selected].every((id) => initialSelected.has(id));
 			return (
 				initial.enabled !== enabled ||
 				(initial.cron ?? null) !== resolvedCron ||
 				initial.scheduleDescription !== resolvedScheduleDescription ||
-				(initial.recipientMode ?? 'all') !== recipientMode ||
-				!sameRecipients ||
+				initial.recipientMode !== recipientMode ||
+				(recipientMode === 'specific' &&
+					(!hasSameIds(initial.recipientUserIds, selected) ||
+						!hasSameIds(initial.recipientGroupIds, selectedGroups))) ||
 				initial.channels.includes('email') !== emailEnabled ||
 				initial.channels.includes('slack') !== slackEnabled
 			);
@@ -235,6 +257,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			resolvedScheduleDescription,
 			recipientMode,
 			selected,
+			selectedGroups,
 			emailEnabled,
 			slackEnabled,
 		]);
@@ -244,15 +267,11 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		}, [dirty, valid, onStatusChange]);
 
 		const toggleUser = (userId: string) => {
-			setSelected((prev) => {
-				const next = new Set(prev);
-				if (next.has(userId)) {
-					next.delete(userId);
-				} else {
-					next.add(userId);
-				}
-				return next;
-			});
+			setSelected((prev) => toggleId(prev, userId));
+		};
+
+		const toggleGroup = (groupId: string) => {
+			setSelectedGroups((prev) => toggleId(prev, groupId));
 		};
 
 		useImperativeHandle(
@@ -271,6 +290,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 						channels: channels.length > 0 ? channels : ['email'],
 						recipientMode,
 						recipientUserIds: recipientMode === 'all' ? [] : [...selected],
+						recipientGroupIds: recipientMode === 'all' ? [] : [...selectedGroups],
 					});
 				},
 			}),
@@ -284,6 +304,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 				channels,
 				recipientMode,
 				selected,
+				selectedGroups,
 				updateDelivery,
 			],
 		);
@@ -398,7 +419,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 										<SelectItem value='all'>
 											{isShared ? 'Everyone with access' : 'All project members'}
 										</SelectItem>
-										<SelectItem value='specific'>Specific members</SelectItem>
+										<SelectItem value='specific'>Specific members & groups</SelectItem>
 									</SelectContent>
 								</Select>
 							</div>
@@ -406,10 +427,13 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 								<MemberPicker
 									members={filteredMembers}
 									selectedUserIds={selected}
-									isLoading={recipientsQuery.isLoading}
+									isLoading={recipientsQuery.isLoading || recipientGroupsQuery.isLoading}
 									search={search}
 									onSearchChange={setSearch}
 									onToggleUser={toggleUser}
+									groups={filteredGroups}
+									selectedGroupIds={selectedGroups}
+									onToggleGroup={toggleGroup}
 								/>
 							)}
 						</div>
@@ -593,4 +617,18 @@ function resolveScheduleValue(cron: string | null): string {
 		return DEFAULT_PRESET;
 	}
 	return STANDARD_PRESETS.some((p) => p.value === cron) ? cron : CUSTOM_PRESET;
+}
+
+function hasSameIds(initialIds: string[], currentIds: Set<string>): boolean {
+	return initialIds.length === currentIds.size && initialIds.every((id) => currentIds.has(id));
+}
+
+function toggleId(ids: Set<string>, id: string): Set<string> {
+	const next = new Set(ids);
+	if (next.has(id)) {
+		next.delete(id);
+	} else {
+		next.add(id);
+	}
+	return next;
 }

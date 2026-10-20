@@ -1,3 +1,5 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, cast
 
@@ -68,3 +70,43 @@ def test_connect_blocks_attach(duckdb_config: DuckDBConfig, tmp_path: Path) -> N
             conn.raw_sql(f"ATTACH '{other_db}' AS other")
     finally:
         conn.disconnect()
+
+
+def test_connect_supports_concurrent_connections_to_the_same_file(duckdb_config: DuckDBConfig) -> None:
+    first = cast(Any, duckdb_config.connect())
+    second = cast(Any, duckdb_config.connect())
+    try:
+        assert second.raw_sql("SELECT name FROM users").fetchall() == [("alice",)]
+        assert second.raw_sql("SELECT current_setting('TimeZone')").fetchone() == ("UTC",)
+        with pytest.raises(Exception, match="locked|Cannot change configuration"):
+            second.raw_sql("SET enable_external_access = true")
+    finally:
+        first.disconnect()
+        second.disconnect()
+
+
+def test_connect_supports_overlapping_queries_from_parallel_threads(duckdb_config: DuckDBConfig) -> None:
+    worker_count = 8
+    all_connected = threading.Barrier(worker_count, timeout=10)
+
+    def query_users_once_all_connected(_: int) -> list[tuple]:
+        conn = cast(Any, duckdb_config.connect())
+        try:
+            all_connected.wait()
+            return conn.raw_sql("SELECT name FROM users").fetchall()
+        finally:
+            conn.disconnect()
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        results = list(executor.map(query_users_once_all_connected, range(worker_count)))
+
+    assert results == [[("alice",)]] * worker_count
+
+
+def test_disconnect_releases_the_file_for_other_writers(duckdb_config: DuckDBConfig) -> None:
+    conn = cast(Any, duckdb_config.connect())
+    conn.disconnect()
+
+    writer = duckdb.connect(duckdb_config.path)
+    writer.execute("INSERT INTO users VALUES (2, 'bob')")
+    writer.close()

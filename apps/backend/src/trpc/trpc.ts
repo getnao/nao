@@ -222,7 +222,7 @@ export const contextAdminProtectedProcedure = projectProtectedProcedure.use(asyn
 
 export const cloudBillingContextAdminProcedure = contextAdminProtectedProcedure.use(selectedProjectBillingMiddleware);
 
-const organizationProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+export const organizationProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(
 		ctx.user.id,
 		ctx.selectedProjectId,

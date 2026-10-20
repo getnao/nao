@@ -8,30 +8,32 @@ import {
 	createMattermostActionSecret,
 	createMattermostCallbackResponse,
 	createMattermostFeedbackMetadata,
-	createMattermostMarkdownTable,
 	createMattermostStopAttachment,
 	fetchMattermostPost,
-	getMattermostLoginCommandForUnlinkedUser,
 	getMattermostPostBaseProps,
 	hasExplicitMattermostMention,
 	MATTERMOST_CALLBACK_CONTENT_TYPE,
 	MATTERMOST_FEEDBACK_PROP,
-	MATTERMOST_TABLE_ROW_LIMIT,
 	type MattermostEmailCacheEntry,
-	parseMattermostLoginCommand,
 	patchMattermostAnswerPost,
 	resolveMattermostAccount,
 	resolveMattermostReactionFeedback,
-	resolveMattermostSqlOutput,
 	resolveMattermostThreadId,
-	shouldHandleMattermostMessage,
-	truncateMattermostMarkdown,
 	validateMattermostConnection,
 	verifyMattermostActionSecret,
 	verifyMattermostFeedbackMetadata,
 } from '../src/services/mattermost-helpers';
 import {
-	createMattermostAnswerMessage,
+	createMarkdownTable,
+	getLoginCommandForUnlinkedUser,
+	MARKDOWN_TABLE_ROW_LIMIT,
+	parseLoginCommand,
+	resolveSqlOutput,
+	shouldHandleMessage,
+	truncateMarkdown,
+} from '../src/utils/markdown-messaging';
+import {
+	createMarkdownAnswerMessage,
 	escapeMarkdownText,
 	formatMessagingError,
 	getMessagingProviderWebhookUrl,
@@ -137,45 +139,45 @@ describe('validateMattermostConnection', () => {
 	});
 });
 
-describe('parseMattermostLoginCommand', () => {
+describe('parseLoginCommand', () => {
 	it('parses a bare login command', () => {
-		expect(parseMattermostLoginCommand('login abc-1234')).toEqual({ code: 'abc-1234' });
-		expect(parseMattermostLoginCommand('  LoGiN   ABC-1234  ')).toEqual({ code: 'abc-1234' });
+		expect(parseLoginCommand('login abc-1234')).toEqual({ code: 'abc-1234' });
+		expect(parseLoginCommand('  LoGiN   ABC-1234  ')).toEqual({ code: 'abc-1234' });
 	});
 
 	it('tolerates slash-prefixed login commands', () => {
-		expect(parseMattermostLoginCommand('/login abc-1234')).toEqual({ code: 'abc-1234' });
-		expect(parseMattermostLoginCommand(' /login   ABC-1234 ')).toEqual({ code: 'abc-1234' });
+		expect(parseLoginCommand('/login abc-1234')).toEqual({ code: 'abc-1234' });
+		expect(parseLoginCommand(' /login   ABC-1234 ')).toEqual({ code: 'abc-1234' });
 	});
 
 	it('accepts linking codes with hyphens and underscores', () => {
-		expect(parseMattermostLoginCommand('login ab-c_123')).toEqual({ code: 'ab-c_123' });
+		expect(parseLoginCommand('login ab-c_123')).toEqual({ code: 'ab-c_123' });
 	});
 
 	it('does not treat ordinary messages as login commands', () => {
-		expect(parseMattermostLoginCommand('login to the system is broken')).toBeNull();
-		expect(parseMattermostLoginCommand('login is broken')).toBeNull();
-		expect(parseMattermostLoginCommand('please login abc-1234')).toBeNull();
-		expect(parseMattermostLoginCommand('logins abc-1234')).toBeNull();
+		expect(parseLoginCommand('login to the system is broken')).toBeNull();
+		expect(parseLoginCommand('login is broken')).toBeNull();
+		expect(parseLoginCommand('please login abc-1234')).toBeNull();
+		expect(parseLoginCommand('logins abc-1234')).toBeNull();
 	});
 
 	it('rejects malformed, short, long, or extended linking codes', () => {
-		expect(parseMattermostLoginCommand('login')).toBeNull();
-		expect(parseMattermostLoginCommand('login abc-123')).toBeNull();
-		expect(parseMattermostLoginCommand('login abc-12345')).toBeNull();
-		expect(parseMattermostLoginCommand('login abc.1234')).toBeNull();
-		expect(parseMattermostLoginCommand('login abc-1234 extra')).toBeNull();
+		expect(parseLoginCommand('login')).toBeNull();
+		expect(parseLoginCommand('login abc-123')).toBeNull();
+		expect(parseLoginCommand('login abc-12345')).toBeNull();
+		expect(parseLoginCommand('login abc.1234')).toBeNull();
+		expect(parseLoginCommand('login abc-1234 extra')).toBeNull();
 	});
 });
 
-describe('getMattermostLoginCommandForUnlinkedUser', () => {
+describe('getLoginCommandForUnlinkedUser', () => {
 	it('returns login commands for unlinked authors', () => {
-		expect(getMattermostLoginCommandForUnlinkedUser('login ABC-1234', false)).toEqual({ code: 'abc-1234' });
+		expect(getLoginCommandForUnlinkedUser('login ABC-1234', false)).toEqual({ code: 'abc-1234' });
 	});
 
 	it('ignores login-like messages from linked authors', () => {
-		expect(getMattermostLoginCommandForUnlinkedUser('login abc-1234', true)).toBeNull();
-		expect(getMattermostLoginCommandForUnlinkedUser('login is broken', true)).toBeNull();
+		expect(getLoginCommandForUnlinkedUser('login abc-1234', true)).toBeNull();
+		expect(getLoginCommandForUnlinkedUser('login is broken', true)).toBeNull();
 	});
 });
 
@@ -264,7 +266,7 @@ describe('hasExplicitMattermostMention', () => {
 	});
 });
 
-describe('shouldHandleMattermostMessage', () => {
+describe('shouldHandleMessage', () => {
 	const baseInput = {
 		isDirectMessage: false,
 		isThreadReply: false,
@@ -275,12 +277,12 @@ describe('shouldHandleMattermostMessage', () => {
 	} as const;
 
 	it('handles top-level direct messages without a mention', () => {
-		expect(shouldHandleMattermostMessage({ ...baseInput, isDirectMessage: true })).toBe(true);
+		expect(shouldHandleMessage({ ...baseInput, isDirectMessage: true })).toBe(true);
 	});
 
 	it('ignores unrelated direct-message thread replies', () => {
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isDirectMessage: true,
 				isThreadReply: true,
@@ -290,14 +292,14 @@ describe('shouldHandleMattermostMessage', () => {
 
 	it('requires a mention before handling a new direct-message thread rooted on a nao answer', () => {
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isDirectMessage: true,
 				isThreadReply: true,
 			}),
 		).toBe(false);
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isDirectMessage: true,
 				isThreadReply: true,
@@ -305,7 +307,7 @@ describe('shouldHandleMattermostMessage', () => {
 			}),
 		).toBe(true);
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isDirectMessage: true,
 				isThreadReply: true,
@@ -316,7 +318,7 @@ describe('shouldHandleMattermostMessage', () => {
 
 	it('handles direct-message threads with an exact existing chat', () => {
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isDirectMessage: true,
 				isThreadReply: true,
@@ -327,7 +329,7 @@ describe('shouldHandleMattermostMessage', () => {
 
 	it('handles mentioned direct-message thread replies', () => {
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isDirectMessage: true,
 				isThreadReply: true,
@@ -337,16 +339,16 @@ describe('shouldHandleMattermostMessage', () => {
 	});
 
 	it('keeps channel mention and follow-up behavior', () => {
-		expect(shouldHandleMattermostMessage(baseInput)).toBe(false);
+		expect(shouldHandleMessage(baseInput)).toBe(false);
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isThreadReply: true,
 				isMention: true,
 			}),
 		).toBe(true);
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				isThreadReply: true,
 				hasExistingChat: true,
@@ -361,20 +363,20 @@ describe('shouldHandleMattermostMessage', () => {
 			isThreadReply: true,
 			isMention: true,
 		};
-		expect(shouldHandleMattermostMessage({ ...mentionedDirectThread, isOwnMessage: true })).toBe(false);
-		expect(shouldHandleMattermostMessage({ ...mentionedDirectThread, authorType: 'bot' })).toBe(false);
+		expect(shouldHandleMessage({ ...mentionedDirectThread, isOwnMessage: true })).toBe(false);
+		expect(shouldHandleMessage({ ...mentionedDirectThread, authorType: 'bot' })).toBe(false);
 	});
 
 	it('handles top-level direct messages and mentions from an unknown author', () => {
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				authorType: 'unknown',
 				isDirectMessage: true,
 			}),
 		).toBe(true);
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				authorType: 'unknown',
 				isThreadReply: true,
@@ -382,7 +384,7 @@ describe('shouldHandleMattermostMessage', () => {
 			}),
 		).toBe(true);
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				authorType: 'unknown',
 				isDirectMessage: true,
@@ -394,7 +396,7 @@ describe('shouldHandleMattermostMessage', () => {
 
 	it('does not let an unknown author activate an unmentioned direct-message thread', () => {
 		expect(
-			shouldHandleMattermostMessage({
+			shouldHandleMessage({
 				...baseInput,
 				authorType: 'unknown',
 				isDirectMessage: true,
@@ -586,12 +588,12 @@ describe('Mattermost answer rendering', () => {
 	});
 
 	it('keeps the answer and link in markdown without a card', () => {
-		const message = createMattermostAnswerMessage('Answer text', 'https://nao.example/chat-1');
+		const message = createMarkdownAnswerMessage('Answer text', 'https://nao.example/chat-1');
 
 		expect(message).toEqual({
 			markdown: 'Answer text\n\n**[Open in nao](https://nao.example/chat-1)**',
 		});
-		expect(createMattermostAnswerMessage('', 'https://nao.example/chat-1')).toEqual({
+		expect(createMarkdownAnswerMessage('', 'https://nao.example/chat-1')).toEqual({
 			markdown: '**[Open in nao](https://nao.example/chat-1)**',
 		});
 		expect(message).not.toHaveProperty('card');
@@ -599,13 +601,13 @@ describe('Mattermost answer rendering', () => {
 	});
 
 	it('labels the link with the white-label app name', () => {
-		expect(createMattermostAnswerMessage('Answer text', 'https://nao.example/chat-1', 'Fibi')).toEqual({
+		expect(createMarkdownAnswerMessage('Answer text', 'https://nao.example/chat-1', 'Fibi')).toEqual({
 			markdown: 'Answer text\n\n**[Open in Fibi](https://nao.example/chat-1)**',
 		});
 	});
 
 	it('escapes markdown punctuation in the app name so it cannot break the link', () => {
-		const { markdown } = createMattermostAnswerMessage(
+		const { markdown } = createMarkdownAnswerMessage(
 			'',
 			'https://nao.example/chat-1',
 			'yolo](https://evil.example)',
@@ -616,10 +618,10 @@ describe('Mattermost answer rendering', () => {
 	});
 });
 
-describe('createMattermostMarkdownTable', () => {
+describe('createMarkdownTable', () => {
 	it('renders table headers, separators, and rows', () => {
 		expect(
-			createMattermostMarkdownTable({
+			createMarkdownTable({
 				title: 'Top customers',
 				rows: [{ customer: 'Acme', total: 42 }],
 			}),
@@ -628,7 +630,7 @@ describe('createMattermostMarkdownTable', () => {
 
 	it('escapes pipes and newlines inside cells', () => {
 		expect(
-			createMattermostMarkdownTable({
+			createMarkdownTable({
 				title: 'Values',
 				rows: [{ value: 'first|second\nthird' }],
 			}),
@@ -636,17 +638,17 @@ describe('createMattermostMarkdownTable', () => {
 	});
 
 	it('caps rows and reports the omitted count', () => {
-		const rows = Array.from({ length: MATTERMOST_TABLE_ROW_LIMIT + 3 }, (_, index) => ({ row: index + 1 }));
-		const table = createMattermostMarkdownTable({ title: 'Rows', rows });
+		const rows = Array.from({ length: MARKDOWN_TABLE_ROW_LIMIT + 3 }, (_, index) => ({ row: index + 1 }));
+		const table = createMarkdownTable({ title: 'Rows', rows });
 
 		expect(table).toContain('_3 rows omitted. Open the full result in nao._');
-		expect(table).toContain(`| ${MATTERMOST_TABLE_ROW_LIMIT} |`);
-		expect(table).not.toContain(`| ${MATTERMOST_TABLE_ROW_LIMIT + 1} |`);
-		expect(table).toContain(`| ${MATTERMOST_TABLE_ROW_LIMIT} |\n\n_3 rows omitted.`);
+		expect(table).toContain(`| ${MARKDOWN_TABLE_ROW_LIMIT} |`);
+		expect(table).not.toContain(`| ${MARKDOWN_TABLE_ROW_LIMIT + 1} |`);
+		expect(table).toContain(`| ${MARKDOWN_TABLE_ROW_LIMIT} |\n\n_3 rows omitted.`);
 	});
 
 	it('does not emit trailing whitespace on table lines', () => {
-		const table = createMattermostMarkdownTable({
+		const table = createMarkdownTable({
 			title: 'Values',
 			rows: [
 				{ first: 'one', second: 'two' },
@@ -658,13 +660,13 @@ describe('createMattermostMarkdownTable', () => {
 	});
 
 	it('returns null when rows are missing or empty', () => {
-		expect(createMattermostMarkdownTable({ title: 'Empty', rows: undefined })).toBeNull();
-		expect(createMattermostMarkdownTable({ title: 'Empty', rows: [] })).toBeNull();
+		expect(createMarkdownTable({ title: 'Empty', rows: undefined })).toBeNull();
+		expect(createMarkdownTable({ title: 'Empty', rows: [] })).toBeNull();
 	});
 
 	it('truncates oversized markdown on a complete line with a visible note', () => {
 		const markdown = Array.from({ length: 20 }, (_, index) => `Line ${index}`).join('\n');
-		const truncated = truncateMattermostMarkdown(markdown, 100);
+		const truncated = truncateMarkdown(markdown, 100);
 
 		expect(truncated.length).toBeLessThanOrEqual(100);
 		expect(truncated).toContain('Response truncated. Open the full result in nao.');
@@ -699,11 +701,11 @@ describe('Mattermost chart images', () => {
 	});
 });
 
-describe('resolveMattermostSqlOutput', () => {
+describe('resolveSqlOutput', () => {
 	it('returns an in-stream result without loading persisted data', async () => {
 		const sqlOutput = { name: 'Current', rows: [{ value: 1 }] };
 		const loadPersisted = vi.fn(async () => null);
-		const result = await resolveMattermostSqlOutput({
+		const result = await resolveSqlOutput({
 			queryId: 'query-1',
 			sqlOutputs: new Map([['query-1', sqlOutput]]),
 			loadPersisted,
@@ -717,8 +719,8 @@ describe('resolveMattermostSqlOutput', () => {
 		const persisted = { name: 'Persisted', rows: [{ value: 2 }] };
 		const sqlOutputs = new Map();
 		const loadPersisted = vi.fn(async () => persisted);
-		const first = await resolveMattermostSqlOutput({ queryId: 'query-2', sqlOutputs, loadPersisted });
-		const second = await resolveMattermostSqlOutput({ queryId: 'query-2', sqlOutputs, loadPersisted });
+		const first = await resolveSqlOutput({ queryId: 'query-2', sqlOutputs, loadPersisted });
+		const second = await resolveSqlOutput({ queryId: 'query-2', sqlOutputs, loadPersisted });
 
 		expect(first).toBe(persisted);
 		expect(second).toBe(persisted);
@@ -728,7 +730,7 @@ describe('resolveMattermostSqlOutput', () => {
 
 	it('returns nothing when in-stream and persisted results are missing', async () => {
 		await expect(
-			resolveMattermostSqlOutput({
+			resolveSqlOutput({
 				queryId: 'missing',
 				sqlOutputs: new Map(),
 				loadPersisted: vi.fn(async () => null),
@@ -738,7 +740,7 @@ describe('resolveMattermostSqlOutput', () => {
 
 	it('returns nothing when the persisted lookup fails', async () => {
 		await expect(
-			resolveMattermostSqlOutput({
+			resolveSqlOutput({
 				queryId: 'failed',
 				sqlOutputs: new Map(),
 				loadPersisted: vi.fn(async () => {
@@ -847,7 +849,7 @@ describe('Mattermost account resolution', () => {
 
 		expect(result).toBeNull();
 		expect(findUser).not.toHaveBeenCalled();
-		expect(parseMattermostLoginCommand('login fallbak1')).toEqual({ code: 'fallbak1' });
+		expect(parseLoginCommand('login fallbak1')).toEqual({ code: 'fallbak1' });
 	});
 
 	it('caches a missing email', async () => {

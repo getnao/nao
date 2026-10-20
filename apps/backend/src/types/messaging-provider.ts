@@ -35,7 +35,7 @@ export type StreamState = {
 	toolGroupBlockIndex: number;
 };
 
-export type Provider = 'slack' | 'teams' | 'telegram' | 'mattermost' | 'whatsapp' | 'automation';
+export type Provider = 'slack' | 'teams' | 'telegram' | 'mattermost' | 'discord' | 'whatsapp' | 'automation';
 
 export const SLACK_TRANSPORT_MODES = ['webhook', 'socket'] as const;
 export type SlackTransportMode = (typeof SLACK_TRANSPORT_MODES)[number];
@@ -82,6 +82,19 @@ export type MattermostSettings = {
 	mattermostLlmModelId: string;
 	mattermostInteractiveButtonsEnabled?: boolean;
 	mattermostCallbackUrl?: string;
+};
+
+export type DiscordSettings = {
+	discordBotToken: string;
+	discordApplicationId: string;
+	discordPublicKey: string;
+	discordLlmProvider: string;
+	discordLlmModelId: string;
+	discordMentionRoleIds?: string[];
+	discordRespondToChannelIds?: string[];
+	discordFallbackUserId?: string;
+	discordFallbackUserEmail?: string;
+	discordHideAnswerLink?: boolean;
 };
 
 export type WhatsappSettings = {

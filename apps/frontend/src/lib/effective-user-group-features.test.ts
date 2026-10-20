@@ -46,6 +46,20 @@ describe('getRenderableUserGroupAccess', () => {
 			},
 		});
 	});
+
+	it('enables classic story creation for the example project', () => {
+		expect(getRenderableUserGroupAccess(undefined, false, true)).toEqual({
+			features: {
+				storyCreation: true,
+				customStoryCreation: true,
+				automationCreation: false,
+			},
+			toolCallDensityPolicy: {
+				defaultDensity: 'detailed',
+				canChange: false,
+			},
+		});
+	});
 });
 
 describe('getEffectiveToolCallDensity', () => {

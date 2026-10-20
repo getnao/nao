@@ -1,3 +1,5 @@
+import { normalizeCitationMarkers } from '@nao/shared';
+
 import type { UIMessage, UIMessagePart, UIToolPart } from '@nao/backend/chat';
 
 const BLOCK_SEPARATOR = '\n\n';
@@ -76,7 +78,7 @@ function serializeMessage(message: UIMessage, options: SerializeOptions): string
 function serializePart(part: UIMessagePart, options: SerializeOptions): string | null {
 	switch (part.type) {
 		case 'text':
-			return part.text.trim() ? part.text : null;
+			return part.text.trim() ? normalizeCitationMarkers(part.text) : null;
 		case 'tool-execute_sql':
 			return serializeExecuteSql(part, options);
 		case 'tool-display_chart':

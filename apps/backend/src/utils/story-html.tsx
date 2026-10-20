@@ -81,8 +81,11 @@ const DOC_HORIZ_PADDING = 24;
 const CHART_WIDTH = DOC_MAX_WIDTH - DOC_HORIZ_PADDING * 2;
 const CHART_HEIGHT = Math.round((CHART_WIDTH * 9) / 16);
 
-const MAPLIBRE_VERSION = '5.24.0';
-export const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+const MAPLIBRE_VERSION = '6.14.0';
+const MAPLIBRE_ESM_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.mjs`;
+// Off http(s) (about:blank PNG/PDF renders, file:// downloads) MapLibre's blob: worker cannot start and
+// `setWorkerUrl` cannot fix file://, so the map script replaces `Worker` with a data: module importing this URL.
+const MAPLIBRE_WORKER_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl-worker.mjs`;
 export const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
 export const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
 const MAP_HEIGHT = 568;
@@ -387,7 +390,6 @@ function StoryDocument({
 			<body>
 				{children}
 				<script dangerouslySetInnerHTML={{ __html: tooltipScript }} />
-				{loadMapLibre && <script src={MAPLIBRE_JS_URL} />}
 				{loadMapLibre && <script dangerouslySetInnerHTML={{ __html: renderMapScript() }} />}
 				{loadLeaflet && <script dangerouslySetInnerHTML={{ __html: STATIC_SVG_SCRIPT_TEMPLATE }} />}
 				{loadLeaflet && <script src={LEAFLET_JS_URL} />}
@@ -1536,7 +1538,9 @@ function renderTooltipScript(datePattern: string): string {
 }
 
 export function renderMapScript(): string {
-	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL));
+	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL))
+		.replace('__MAPLIBRE_ESM_URL__', JSON.stringify(MAPLIBRE_ESM_URL))
+		.replace('__MAPLIBRE_WORKER_URL__', JSON.stringify(MAPLIBRE_WORKER_URL));
 }
 
 function renderStaticMapScript(): string {
@@ -1895,7 +1899,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 `;
 
 const MAP_INIT_SCRIPT_TEMPLATE = `
-(function(){
+function naoInitMaps(maplibregl){
 	var STYLE_URL=__MAP_STYLE_URL__;
 	var MIN_OPACITY=${CHOROPLETH_MIN_OPACITY};
 	var MAX_OPACITY=${CHOROPLETH_MAX_OPACITY};
@@ -1904,7 +1908,7 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		return ['interpolate',['linear'],['coalesce',['get','value'],domain.min],domain.min,MIN_OPACITY,domain.max,MAX_OPACITY];
 	}
 	var containers=document.querySelectorAll('.nao-map');
-	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
+	if(!containers.length){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
 	var pending=containers.length;
 	var rendered=0;
 	window.__naoMapsRendered=0;
@@ -2010,6 +2014,16 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			}
 		});
 	});
+}
+(function(){
 	setTimeout(function(){window.__naoMapsReady=true;},12000);
+	function unavailable(){window.__naoMapsReady=true;window.__naoMapsRendered=0;}
+	if(!document.querySelector('.nao-map')){unavailable();return;}
+	if(!/^https?:$/.test(location.protocol)){
+		var NativeWorker=window.Worker;
+		var workerUrl='data:text/javascript,'+encodeURIComponent('import '+JSON.stringify(__MAPLIBRE_WORKER_URL__));
+		window.Worker=function(url,options){return new NativeWorker(workerUrl,options);};
+	}
+	import(__MAPLIBRE_ESM_URL__).then(naoInitMaps,unavailable);
 })();
 `;

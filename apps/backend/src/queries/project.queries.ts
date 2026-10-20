@@ -9,11 +9,12 @@ import {
 	type MapSettings,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
+	SYSTEM_EXAMPLE_PROJECT_ID,
 	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -81,6 +82,10 @@ export const createProject = async (project: NewProject, transaction?: DBTransac
 		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
 };
 
+export const deleteProject = async (projectId: string): Promise<void> => {
+	await db.delete(s.project).where(eq(s.project.id, projectId)).execute();
+};
+
 export const getProjectMember = async (projectId: string, userId: string): Promise<DBProjectMember | null> => {
 	const [member] = await db
 		.select()
@@ -137,7 +142,12 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
 		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
-		.where(or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)))
+		.where(
+			and(
+				ne(s.project.id, SYSTEM_EXAMPLE_PROJECT_ID),
+				or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)),
+			),
+		)
 		.orderBy(asc(s.project.name))
 		.execute();
 	return results;
@@ -937,4 +947,49 @@ async function loadProjectChatsFacets(args: {
 			toolsWithErrors: Number(toolStateRow?.toolsWithErrors ?? 0),
 		},
 	};
+}
+
+export async function upsertSystemExampleProject(projectPath: string): Promise<DBProject> {
+	const project = {
+		id: SYSTEM_EXAMPLE_PROJECT_ID,
+		orgId: null,
+		name: 'Jaffle Shop',
+		type: 'local' as const,
+		path: projectPath,
+	};
+	return dbConfig.dialect === Dialect.Postgres
+		? db.transaction((transaction) => upsertPostgresSystemExampleProject(project, transaction))
+		: db.transaction((transaction) => {
+				const [stored] = transaction
+					.insert(s.project)
+					.values(project)
+					.onConflictDoUpdate({
+						target: s.project.id,
+						set: {
+							name: project.name,
+							path: project.path,
+						},
+					})
+					.returning()
+					.all();
+				transaction.insert(s.userGroup).values(defaultUserGroupValues(stored.id)).onConflictDoNothing().run();
+				return stored;
+			});
+}
+
+async function upsertPostgresSystemExampleProject(project: NewProject, transaction: DBTransaction): Promise<DBProject> {
+	const [stored] = await transaction
+		.insert(s.project)
+		.values(project)
+		.onConflictDoUpdate({
+			target: s.project.id,
+			set: {
+				name: project.name,
+				path: project.path,
+			},
+		})
+		.returning()
+		.execute();
+	await transaction.insert(s.userGroup).values(defaultUserGroupValues(stored.id)).onConflictDoNothing().execute();
+	return stored;
 }

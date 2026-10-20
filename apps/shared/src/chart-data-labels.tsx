@@ -2,15 +2,16 @@ import React from 'react';
 
 import { barYAxisDomainIsPadded, collectAxisValues, collectStackedAxisValues } from './chart-domain';
 import { CHART_FONT_STACK } from './chart-fonts';
+import { collectFillRegions, ContrastAwareLabels } from './chart-label-contrast';
 import { type ChartType, isPercentStackedChartType, isStackedChartType } from './chart-types';
 import { formatChartValue, getChartLevelValueFormat, niceAxisMax, toFiniteNumber } from './chart-values';
 import type * as displayChart from './tools/display-chart';
 
 const DATA_LABEL_PROPS = {
-	fill: 'var(--foreground, #111827)',
 	fontSize: 11,
 	fontFamily: CHART_FONT_STACK,
 };
+const DEFAULT_LABEL_BACKGROUND = 'var(--background, #ffffff)';
 export const DATA_LABEL_MARGIN_TOP = 24;
 export const DATA_LABEL_X_AXIS_FOOTROOM = 24;
 const DATA_LABEL_HEADROOM_RATIO = 0.9;
@@ -62,9 +63,15 @@ interface PieSector {
 	value?: unknown;
 }
 
-interface GraphicalItem {
-	item?: { type?: { displayName?: string }; props?: { dataKey?: unknown } };
-	props?: { points?: GraphicalPoint[]; data?: GraphicalPoint[]; sectors?: PieSector[]; dataKey?: unknown };
+export interface GraphicalItem {
+	item?: { type?: { displayName?: string }; props?: { dataKey?: unknown; fill?: unknown } };
+	props?: {
+		points?: GraphicalPoint[];
+		data?: GraphicalPoint[];
+		sectors?: PieSector[];
+		dataKey?: unknown;
+		fill?: unknown;
+	};
 }
 
 interface DataLabelsLayerProps {
@@ -149,40 +156,57 @@ export function shouldReserveStackTotalFootroom<Props extends DataLabelChartProp
 }
 
 /** Coordinates cartesian labels across series so conflicts can be dropped without moving labels. */
-export function renderDataLabelsLayer(series: displayChart.SeriesConfig[]) {
-	return createLabelsLayer('DataLabelsLayer', ({ formattedGraphicalItems, offset, width, height }) =>
-		collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}, width, height, series),
+export function renderDataLabelsLayer(series: displayChart.SeriesConfig[], backgroundColor = DEFAULT_LABEL_BACKGROUND) {
+	return createLabelsLayer(
+		'DataLabelsLayer',
+		({ formattedGraphicalItems, offset, width, height }) =>
+			collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}, width, height, series),
+		backgroundColor,
 	);
 }
 
-export function renderStackTotalLabelsLayer(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
-	const valueFormat = getChartLevelValueFormat(series);
-	return createLabelsLayer('StackTotalLabelsLayer', ({ formattedGraphicalItems, offset, width, height }) => {
-		const items = (formattedGraphicalItems ?? []).filter((entry) =>
-			LABELLED_SERIES_KINDS.has(entry.item?.type?.displayName ?? ''),
-		);
-		const kind = items[0]?.item?.type?.displayName;
-		return kind
-			? stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}, width, height, valueFormat)
-			: [];
-	});
-}
-
-export function renderPieDataLabelsLayer(valueFormat?: displayChart.ValueFormat) {
-	return createLabelsLayer('PieDataLabelsLayer', ({ formattedGraphicalItems, width, height }) => {
-		const pie = (formattedGraphicalItems ?? []).find((entry) => entry.item?.type?.displayName === 'Pie');
-		return collectPieLabelCandidates(pie?.props?.sectors ?? [], width, height, valueFormat);
-	});
-}
-
-export function getDataLabelSetup<Props extends Pick<DataLabelChartProps, 'data' | 'series' | 'showDataLabels'>>(
-	props: Props,
-	isStacked: boolean,
+export function renderStackTotalLabelsLayer(
+	data: Record<string, unknown>[],
+	series: displayChart.SeriesConfig[],
+	backgroundColor = DEFAULT_LABEL_BACKGROUND,
 ) {
+	const valueFormat = getChartLevelValueFormat(series);
+	return createLabelsLayer(
+		'StackTotalLabelsLayer',
+		({ formattedGraphicalItems, offset, width, height }) => {
+			const items = (formattedGraphicalItems ?? []).filter((entry) =>
+				LABELLED_SERIES_KINDS.has(entry.item?.type?.displayName ?? ''),
+			);
+			const kind = items[0]?.item?.type?.displayName;
+			return kind
+				? stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}, width, height, valueFormat)
+				: [];
+		},
+		backgroundColor,
+	);
+}
+
+export function renderPieDataLabelsLayer(
+	valueFormat?: displayChart.ValueFormat,
+	backgroundColor = DEFAULT_LABEL_BACKGROUND,
+) {
+	return createLabelsLayer(
+		'PieDataLabelsLayer',
+		({ formattedGraphicalItems, width, height }) => {
+			const pie = (formattedGraphicalItems ?? []).find((entry) => entry.item?.type?.displayName === 'Pie');
+			return collectPieLabelCandidates(pie?.props?.sectors ?? [], width, height, valueFormat);
+		},
+		backgroundColor,
+	);
+}
+
+export function getDataLabelSetup<
+	Props extends Pick<DataLabelChartProps, 'data' | 'series' | 'showDataLabels'> & { backgroundColor?: string },
+>(props: Props, isStacked: boolean) {
 	const renderedSeries = getRenderedSeries(props.series, isStacked);
 	const stackTotalLayer =
 		props.showDataLabels && isStacked && renderedSeries.length > 0
-			? renderStackTotalLabelsLayer(props.data, props.series)
+			? renderStackTotalLabelsLayer(props.data, props.series, props.backgroundColor)
 			: undefined;
 	return { renderedSeries, stackTotalLayer };
 }
@@ -191,33 +215,26 @@ export function getRenderedSeries(series: displayChart.SeriesConfig[], isStacked
 	return isStacked ? series.filter((item) => !item.is_total) : series;
 }
 
-function createLabelsLayer(displayName: string, collect: LabelsCollector) {
+function createLabelsLayer(displayName: string, collect: LabelsCollector, backgroundColor: string) {
 	function LabelsLayer(props: DataLabelsLayerProps) {
-		return renderLabels(resolveLabelOverlaps(collect(props)));
+		const labels = resolveLabelOverlaps(collect(props));
+		return renderLabels(labels, props.formattedGraphicalItems ?? [], backgroundColor);
 	}
 	LabelsLayer.displayName = displayName;
 	return LabelsLayer;
 }
 
-function renderLabels(labels: LabelCandidate[]) {
+function renderLabels(labels: LabelCandidate[], items: GraphicalItem[], backgroundColor: string) {
 	if (labels.length === 0) {
 		return null;
 	}
 	return (
-		<g className='recharts-data-labels'>
-			{labels.map((label, index) => (
-				<text
-					key={index}
-					x={label.cx}
-					y={label.baselineY}
-					textAnchor={label.textAnchor}
-					dominantBaseline='alphabetic'
-					{...DATA_LABEL_PROPS}
-				>
-					{label.text}
-				</text>
-			))}
-		</g>
+		<ContrastAwareLabels
+			labels={labels}
+			regions={collectFillRegions(items)}
+			backgroundColor={backgroundColor}
+			textProps={DATA_LABEL_PROPS}
+		/>
 	);
 }
 

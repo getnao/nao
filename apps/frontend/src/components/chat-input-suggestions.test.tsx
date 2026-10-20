@@ -1,15 +1,19 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatInputSuggestions } from './chat-input-suggestions';
+
+let triggerResizeObservers: () => void;
 
 const mocks = vi.hoisted(() => ({
 	messages: [] as unknown[],
 	queueOrSendMessage: vi.fn(),
 	submitFeedback: vi.fn(),
 	inactivityDelays: [] as number[],
+	storyId: null as string | null,
+	mode: 'default' as 'default' | 'onboarding',
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
@@ -17,8 +21,10 @@ vi.mock('@/contexts/agent.provider', () => ({
 		isReadonly: false,
 		isRunning: false,
 		queueOrSendMessage: mocks.queueOrSendMessage,
+		mode: mocks.mode,
 	}),
-	useAgentMessages: () => mocks.messages,
+	useAgentMessagesSelector: (selector: (messages: unknown[]) => unknown) => selector(mocks.messages),
+	useAgentMessagesGetter: () => () => mocks.messages,
 }));
 vi.mock('@/hooks/use-chat-id', () => ({ useChatId: () => 'chat-1' }));
 vi.mock('@/hooks/use-inactivity-trigger', () => ({
@@ -42,7 +48,7 @@ vi.mock('@/components/side-panel/live-story-settings-dialog', () => ({
 }));
 vi.mock('@/components/side-panel/hooks/use-story-viewer-live-settings', () => ({
 	useStoryViewerLiveSettings: () => ({
-		storyId: null,
+		storyId: mocks.storyId,
 		isLive: false,
 		isLiveTextDynamic: true,
 		cacheSchedule: null,
@@ -66,15 +72,34 @@ vi.mock('@/main', () => ({
 beforeEach(() => {
 	localStorage.clear();
 	mocks.inactivityDelays = [];
+	mocks.storyId = null;
+	mocks.mode = 'default';
 	mocks.messages = [{ id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'Result' }] }];
+	const observerCallbacks = new Map<ResizeObserver, ResizeObserverCallback>();
 	globalThis.ResizeObserver = class {
-		observe() {}
+		constructor(callback: ResizeObserverCallback) {
+			observerCallbacks.set(this, callback);
+		}
+		observe() {
+			observerCallbacks.get(this)?.([], this);
+		}
 		unobserve() {}
-		disconnect() {}
+		disconnect() {
+			observerCallbacks.delete(this);
+		}
+		takeRecords() {
+			return [];
+		}
+	};
+	triggerResizeObservers = () => {
+		observerCallbacks.forEach((callback, observer) => callback([], observer));
 	};
 });
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+});
 
 describe('ChatInputSuggestions', () => {
 	it('shows the Story suggestion when Story creation is allowed', () => {
@@ -89,6 +114,14 @@ describe('ChatInputSuggestions', () => {
 
 		expect(screen.queryByText('Would you want to create a story?')).toBeNull();
 		expect(screen.getByText('How did this conversation go?')).toBeTruthy();
+	});
+
+	it('does not show conversation feedback for onboarding chats', () => {
+		mocks.mode = 'onboarding';
+
+		render(<ChatInputSuggestions storyCreationEnabled={false} />);
+
+		expect(screen.queryByText('How did this conversation go?')).toBeNull();
 	});
 
 	it('keeps MCP authentication suggestions when Story creation is denied', () => {
@@ -109,6 +142,47 @@ describe('ChatInputSuggestions', () => {
 
 		expect(screen.getByText('Connect your account to "salesforce" to continue')).toBeTruthy();
 		expect(screen.queryByText('Would you want to create a story?')).toBeNull();
+	});
+
+	it('makes a collapsed suggestion inert', () => {
+		const { container, rerender } = render(<ChatInputSuggestions storyCreationEnabled />);
+		const panel = container.firstElementChild;
+
+		expect(panel?.hasAttribute('inert')).toBe(false);
+
+		rerender(<ChatInputSuggestions storyCreationEnabled isHidden />);
+
+		expect(panel?.hasAttribute('inert')).toBe(true);
+	});
+
+	it('only expands a live Story description when it is truncated', () => {
+		mocks.storyId = 'story-1';
+		mocks.messages = [
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				parts: [
+					{
+						type: 'tool-story',
+						input: { action: 'create' },
+						output: { success: true, version: 1, id: 'story-1' },
+					},
+				],
+			},
+		];
+		const scrollHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(21);
+		vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(20);
+
+		render(<ChatInputSuggestions storyCreationEnabled={false} />);
+		expect(screen.queryByText('Read more')).toBeNull();
+
+		act(() => {
+			scrollHeight.mockReturnValue(40);
+			triggerResizeObservers();
+		});
+
+		fireEvent.click(screen.getByText('Read more'));
+		expect(screen.getByText('Show less')).toBeTruthy();
 	});
 
 	describe('conversation feedback dismissal', () => {

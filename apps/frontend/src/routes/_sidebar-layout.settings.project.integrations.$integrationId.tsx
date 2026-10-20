@@ -6,6 +6,7 @@ import type { IntegrationId } from '@/components/settings/integrations';
 import { IntegrationStatusBadge } from '@/components/settings/integration-card';
 import { integrations, isIntegrationId, useIntegrationStatuses } from '@/components/settings/integrations';
 import { LinkingCodesCard } from '@/components/settings/linking-code-section';
+import { DiscordConfigSection } from '@/components/settings/discord-config-section';
 import { MattermostConfigSection } from '@/components/settings/mattermost-config-section';
 import { SlackConfigSection } from '@/components/settings/slack-config-section';
 import { TeamsConfigSection } from '@/components/settings/teams-config-section';
@@ -114,6 +115,15 @@ function IntegrationConfiguration({
 			<div className='flex flex-col gap-6'>
 				<MattermostConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />
 				<LinkingCodesCard provider='mattermost' />
+			</div>
+		);
+	}
+
+	if (integrationId === 'discord') {
+		return (
+			<div className='flex flex-col gap-6'>
+				<DiscordConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />
+				<LinkingCodesCard provider='discord' />
 			</div>
 		);
 	}

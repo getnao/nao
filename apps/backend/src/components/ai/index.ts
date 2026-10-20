@@ -1,4 +1,5 @@
 export * from './admin-system-prompt';
+export * from './chat-artifacts-prompt';
 export * from './chat-fork-context-prompt';
 export * from './compaction-system-prompt';
 export * from './context-recommendations-prompt';

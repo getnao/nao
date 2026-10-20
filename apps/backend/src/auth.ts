@@ -116,6 +116,7 @@ async function createAuthInstance(baseURL: string) {
 	const googleConfig = await orgQueries.getGoogleConfig();
 	const googleClientId = isCloud ? env.GOOGLE_CLIENT_ID : googleConfig.clientId;
 	const googleClientSecret = isCloud ? env.GOOGLE_CLIENT_SECRET : googleConfig.clientSecret;
+	const googleAuthDomains = isCloud ? env.GOOGLE_AUTH_DOMAINS : googleConfig.authDomains;
 
 	const socialProviders: Parameters<typeof betterAuth>[0]['socialProviders'] = {};
 	if (googleClientId && googleClientSecret) {
@@ -266,11 +267,7 @@ async function createAuthInstance(baseURL: string) {
 					before: async (user, ctx) => {
 						const providerId = resolveProviderId(ctx);
 
-						if (
-							!isCloud &&
-							providerId === 'google' &&
-							!isEmailDomainAllowed(user.email, googleConfig.authDomains)
-						) {
+						if (providerId === 'google' && !isEmailDomainAllowed(user.email, googleAuthDomains)) {
 							throw new APIError('FORBIDDEN', {
 								message: 'This email domain is not authorized to access this application.',
 							});

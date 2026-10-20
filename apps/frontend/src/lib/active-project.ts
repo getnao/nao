@@ -17,3 +17,9 @@ export function setActiveProjectId(projectId: string | null): void {
 
 	activeProjectStorage.set(projectId);
 }
+
+export function getProjectRequestHeaders(): Record<string, string> {
+	const activeProjectId = getActiveProjectId();
+
+	return activeProjectId ? { 'x-nao-project-id': activeProjectId } : {};
+}

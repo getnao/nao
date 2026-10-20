@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Streamdown } from 'streamdown';
 
-import { stripAssistantTags } from '@nao/shared';
+import { normalizeCitationMarkers, stripAssistantTags } from '@nao/shared';
 
 import { CitationPopover } from '@/components/citation-popover';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
@@ -42,7 +42,7 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 			literalTagContent={LITERAL_TAG_CONTENT}
 			components={SETTLED_COMPONENTS}
 		>
-			{unwrapBacktickedSavedFiles(text)}
+			{unwrapBacktickedSavedFiles(normalizeCitationMarkers(text))}
 		</Streamdown>
 	);
 });

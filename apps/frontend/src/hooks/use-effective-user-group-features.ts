@@ -3,14 +3,19 @@ import { useQuery } from '@tanstack/react-query';
 import type { UserGroupFeature } from '@nao/shared';
 
 import type { EffectiveUserGroupAccess } from '@/lib/effective-user-group-features';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { getActiveProjectId } from '@/lib/active-project';
 import { getRenderableUserGroupAccess } from '@/lib/effective-user-group-features';
 import { trpc } from '@/main';
+import { useOptionalAgentContext } from '@/contexts/agent.provider';
 
 export function useEffectiveUserGroupFeatures() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const isCloud = useIsCloud();
 	const activeProjectId = getActiveProjectId();
 	const hasCurrentProject = Boolean(project.data?.id) && (!activeProjectId || project.data?.id === activeProjectId);
+	const isOnboarding = useOptionalAgentContext()?.mode === 'onboarding';
+	const isExampleProject = isCloud && project.isSuccess && project.data === null && !isOnboarding;
 	const query = useQuery({
 		...trpc.userGroup.effectiveAccess.queryOptions(),
 		enabled: hasCurrentProject,
@@ -20,6 +25,7 @@ export function useEffectiveUserGroupFeatures() {
 	const access = getRenderableUserGroupAccess(
 		query.data as EffectiveUserGroupAccess | undefined,
 		hasCurrentProject && !isLoading && !isError,
+		isExampleProject,
 	);
 	const { features, toolCallDensityPolicy } = access;
 	const isFeatureEnabled = useCallback((feature: UserGroupFeature) => features[feature], [features]);

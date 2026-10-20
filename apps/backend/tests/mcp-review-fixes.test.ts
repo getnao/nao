@@ -5,6 +5,9 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/services/warehouse-credentials', () => ({
+	getProjectWarehouseEnvVars: async () => ({}),
+}));
 
 import { getTools } from '../src/agents/tools';
 import { authRequiredOutput, createMcpCallTool } from '../src/agents/tools/mcp-call';
@@ -269,6 +272,11 @@ describe('MCP connect tool', () => {
 });
 
 describe('MCP tool registration', () => {
+	it('keeps clarification available to focused agent allowlists', () => {
+		expect(getTools(null, undefined, {})).toHaveProperty('clarification');
+		expect(getTools(null, undefined, { builtinToolAllowlist: ['clarification'] })).toHaveProperty('clarification');
+	});
+
 	it('omits the MCP tools when the requested allowlist is empty or unavailable', () => {
 		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(['configured']);
 

@@ -32,6 +32,7 @@ import {
 	FOLDER_VISIBILITY,
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
+	RECIPIENT_MODES,
 	SHARE_VISIBILITY,
 	STORY_ACTIONS,
 	STORY_FORMATS,
@@ -75,6 +76,7 @@ import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import {
+	DiscordSettings,
 	MattermostSettings,
 	SlackSettings,
 	TeamsSettings,
@@ -84,6 +86,12 @@ import {
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
 import type { StoredUserPreferences } from '../types/usage';
+import {
+	WAREHOUSE_PROVISIONING_STATUSES,
+	type WarehouseProvider,
+	type WarehouseProvisioningBusinessContext,
+	type WarehouseProvisioningModelSelection,
+} from '../types/warehouse';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -280,6 +288,7 @@ export const project = sqliteTable(
 		teamsSettings: text('teams_settings', { mode: 'json' }).$type<TeamsSettings>(),
 		telegramSettings: text('telegram_settings', { mode: 'json' }).$type<TelegramSettings>(),
 		mattermostSettings: text('mattermost_settings', { mode: 'json' }).$type<MattermostSettings>(),
+		discordSettings: text('discord_settings', { mode: 'json' }).$type<DiscordSettings>(),
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
@@ -325,6 +334,91 @@ export const projectWhatsappLink = sqliteTable(
 	],
 );
 
+export const projectDiscordLink = sqliteTable(
+	'project_discord_link',
+	{
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		discordUserId: text('discord_user_id').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.projectId, t.discordUserId] }),
+		index('project_discord_link_userId_idx').on(t.userId),
+	],
+);
+
+export const projectWarehouseCredentials = sqliteTable('project_warehouse_credentials', {
+	projectId: text('project_id')
+		.notNull()
+		.primaryKey()
+		.references(() => project.id, { onDelete: 'cascade' }),
+	provider: text('provider').$type<WarehouseProvider>().notNull(),
+	encryptedCredentials: text('encrypted_credentials').notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
+export const warehouseProvisioningJob = sqliteTable(
+	'warehouse_provisioning_job',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		onboardingChatId: text('onboarding_chat_id'),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'set null' }),
+		projectName: text('project_name').notNull(),
+		provider: text('provider').$type<WarehouseProvider>().notNull(),
+		encryptedCredentials: text('encrypted_credentials'),
+		businessContext: text('business_context', { mode: 'json' }).$type<WarehouseProvisioningBusinessContext>(),
+		modelSelection: text('model_selection', { mode: 'json' }).$type<WarehouseProvisioningModelSelection>(),
+		modelProjectId: text('model_project_id'),
+		status: text('status', { enum: WAREHOUSE_PROVISIONING_STATUSES }).notNull().default('queued'),
+		logs: text('logs'),
+		error: text('error'),
+		temporaryDirectory: text('temporary_directory'),
+		lockedBy: text('locked_by'),
+		lockedAt: integer('locked_at', { mode: 'timestamp_ms' }),
+		attempts: integer('attempts').notNull().default(0),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+		finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+	},
+	(t) => [
+		index('warehouse_provisioning_job_userId_idx').on(t.userId),
+		index('warehouse_provisioning_job_status_idx').on(t.status),
+		uniqueIndex('warehouse_provisioning_job_active_user_idx')
+			.on(t.userId)
+			.where(sql`${t.status} NOT IN ('ready', 'failed', 'cancelled')`),
+	],
+);
+
 export const chat = sqliteTable(
 	'chat',
 	{
@@ -344,6 +438,7 @@ export const chat = sqliteTable(
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
 		mattermostThreadId: text('mattermost_thread_id'),
+		discordThreadId: text('discord_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkMetadata>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -361,6 +456,7 @@ export const chat = sqliteTable(
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
 		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
+		index('chat_discord_thread_idx').on(table.discordThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );
@@ -385,6 +481,7 @@ export const chatMessage = sqliteTable(
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: integer('isForked', { mode: 'boolean' }),
 		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
+		discordMessageId: text('discord_message_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -405,6 +502,7 @@ export const chatMessage = sqliteTable(
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
 		index('chat_message_senderUserId_idx').on(table.senderUserId),
+		index('chat_message_discordMessageId_idx').on(table.discordMessageId),
 	],
 );
 
@@ -1416,10 +1514,11 @@ export const storyDelivery = sqliteTable('story_delivery', {
 	cron: text('cron'),
 	scheduleDescription: text('schedule_description'),
 	channels: text('channels', { mode: 'json' }).$type<NotificationChannel[]>().notNull(),
-	recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+	recipientMode: text('recipient_mode', { enum: [...RECIPIENT_MODES] })
 		.notNull()
 		.default('specific'),
 	recipientUserIds: text('recipient_user_ids', { mode: 'json' }).$type<string[]>().notNull(),
+	recipientGroupIds: text('recipient_group_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
 	scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 	createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })

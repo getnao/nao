@@ -24,6 +24,10 @@ class SemanticLayerError(Exception):
     """A semantic query could not be compiled (unknown metric, invalid filter, unsupported dialect...)."""
 
 
+class SemanticQueryError(SemanticLayerError):
+    """The query itself is invalid (unknown metric or dimension, bad filter or date), not the setup."""
+
+
 class SemanticLayerUnavailableError(SemanticLayerError):
     """MetricFlow is not installed in this environment."""
 
@@ -139,7 +143,7 @@ class MetricFlowSemanticLayer:
         from metricflow.engine.metricflow_engine import MetricFlowQueryRequest
 
         if not query.metrics:
-            raise SemanticLayerError("A semantic query needs at least one metric.")
+            raise SemanticQueryError("A semantic query needs at least one metric.")
 
         request = MetricFlowQueryRequest.create(
             metric_names=list(query.metrics),
@@ -155,7 +159,7 @@ class MetricFlowSemanticLayer:
         except SemanticLayerError:
             raise
         except Exception as error:
-            raise SemanticLayerError(str(error)) from error
+            raise SemanticQueryError(str(error)) from error
         return explained.sql_statement.without_descriptions.sql.strip()
 
 
@@ -275,7 +279,7 @@ def _parse_time(value: str | None, name: str) -> datetime.datetime | None:
     try:
         return date_parser.parse(value)
     except (ValueError, OverflowError) as error:
-        raise SemanticLayerError(f"Invalid {name} `{value}`: use an ISO date such as 2024-01-31.") from error
+        raise SemanticQueryError(f"Invalid {name} `{value}`: use an ISO date such as 2024-01-31.") from error
 
 
 def _quiet_metricflow_logs() -> None:

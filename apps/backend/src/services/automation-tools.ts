@@ -145,7 +145,7 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 		send_automation_email: createTool({
 			description: getEmailToolDescription(),
 			inputSchema: z.object({
-				recipients: z.array(z.string().email()).default([]),
+				recipients: z.array(z.string().min(1)).default([]),
 				subject: z.string().min(1).optional(),
 				html: z.string().min(1).optional(),
 				text: z.string().min(1).optional(),
@@ -154,11 +154,17 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 				if (!emailService.isEnabled()) {
 					throw new Error('SMTP email is not configured.');
 				}
+				const resolvedRecipients = [...new Set([...recipients, ...config.recipients])];
+				const invalidRecipients = resolvedRecipients.filter(
+					(recipient) => !z.string().email().safeParse(recipient).success,
+				);
+				if (invalidRecipients.length > 0) {
+					throw new Error(`Invalid email recipient(s): ${invalidRecipients.join(', ')}`);
+				}
 				const attachments = await buildGeneratedArtifactAttachments(projectId, context);
 				const content = appendInlineImages(html ?? `<pre>${escapeHtml(text ?? '')}</pre>`, attachments);
 				const emailAttachments = attachments.map(toEmailAttachment);
 				const resolvedSubject = config.subject ?? subject ?? 'nao automation report';
-				const resolvedRecipients = [...new Set([...recipients, ...config.recipients])];
 				await Promise.all(
 					resolvedRecipients.map((recipient) =>
 						emailService.sendEmail(
