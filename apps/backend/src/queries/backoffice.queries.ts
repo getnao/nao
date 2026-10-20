@@ -32,6 +32,7 @@ export async function listOrganizations(input: SearchPaginationInput) {
 			count: count().as('member_count'),
 		})
 		.from(s.orgMember)
+		.where(eq(s.orgMember.isDeleted, false))
 		.groupBy(s.orgMember.orgId)
 		.as('organization_member_counts');
 	const projectCounts = db
@@ -99,7 +100,7 @@ export async function getOrganizationMembers(orgId: string) {
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.user.id, s.orgMember.userId))
-		.where(eq(s.orgMember.orgId, orgId))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.isDeleted, false)))
 		.orderBy(asc(s.user.name))
 		.execute();
 }
@@ -111,6 +112,7 @@ export async function getOrganizationProjects(orgId: string) {
 			count: count().as('project_member_count'),
 		})
 		.from(s.projectMember)
+		.where(eq(s.projectMember.isDeleted, false))
 		.groupBy(s.projectMember.projectId)
 		.as('project_member_counts');
 	const rows = await db
@@ -166,6 +168,7 @@ export async function listProjects(input: ProjectPaginationInput) {
 			count: count().as('project_member_count'),
 		})
 		.from(s.projectMember)
+		.where(eq(s.projectMember.isDeleted, false))
 		.groupBy(s.projectMember.projectId)
 		.as('project_member_counts');
 	const messageCounts = db
@@ -260,7 +263,7 @@ export async function getProjectMembers(projectId: string) {
 		})
 		.from(s.projectMember)
 		.innerJoin(s.user, eq(s.user.id, s.projectMember.userId))
-		.where(eq(s.projectMember.projectId, projectId))
+		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.isDeleted, false)))
 		.orderBy(asc(s.user.name))
 		.execute();
 }
