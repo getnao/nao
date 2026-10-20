@@ -285,6 +285,8 @@ describe('user group docs and project file context access', () => {
 		const legacy = { version: 3, access: { mode: 'all', strict: true } };
 		expect(parseStoredUserGroupContextAccess(legacy, true).docsAccess).toEqual(ALL_DOCS_CONTEXT_ACCESS);
 		expect(parseStoredUserGroupContextAccess(legacy, false).docsAccess).toEqual(EMPTY_DOCS_CONTEXT_ACCESS);
+		expect(parseStoredUserGroupContextAccess(legacy, true).mcpAccess).toEqual(ALL_MCP_ACCESS);
+		expect(parseStoredUserGroupContextAccess(legacy, false).mcpAccess).toEqual(EMPTY_MCP_ACCESS);
 		expect(parseStoredUserGroupContextAccess(null, true)).toEqual({
 			databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,

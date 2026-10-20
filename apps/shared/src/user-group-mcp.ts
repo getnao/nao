@@ -106,7 +106,7 @@ function normalizeMcpName(value: string): string | null {
 }
 
 function mcpAccessGrantKey(grant: McpAccessGrant): string {
-	return [grant.kind, grant.server, grant.kind === 'tool' ? grant.tool : ''].join('\0');
+	return JSON.stringify([grant.kind, grant.server, grant.kind === 'tool' ? grant.tool : '']);
 }
 
 function compareMcpAccessGrants(left: McpAccessGrant, right: McpAccessGrant): number {

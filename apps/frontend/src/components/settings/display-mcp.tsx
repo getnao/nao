@@ -179,7 +179,7 @@ function McpOAuthConnect({ server, onConnected }: { server: McpServerStatus; onC
 }
 
 const OAUTH_EXPLANATION =
-	'Each user signs in with their own account, and the agent acts with their permissions. The first sign-in discovers the tools; users who have not connected are asked to in chat.';
+	'Each user signs in with their own account, and the agent acts with their permissions. The first sign-in discovers the tools; users who have not connected are asked to connect in chat.';
 
 const isWaitingForConnection = (server: McpServerStatus): boolean =>
 	!!server.error && /connection required/i.test(server.error);

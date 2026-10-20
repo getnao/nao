@@ -1,7 +1,7 @@
 import { isMcpServerFullyGranted, isMcpServerGranted, isMcpToolGranted, normalizeMcpAccess } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { McpAccess, McpServerStatus } from '@nao/shared';
 
 import { UserGroupContextModeSelector } from '@/components/settings/user-group-context-mode-selector';
@@ -99,7 +99,7 @@ function McpServerRow({
 	const partial = !fullyGranted && isMcpServerGranted(access, server.name);
 	const toolNames = server.tools.map((tool) => tool.name);
 	const grantedToolCount = toolNames.filter((tool) => isMcpToolGranted(access, server.name, tool)).length;
-	const panelId = `mcp-server-${toDomId(server.name)}`;
+	const panelId = useId();
 
 	return (
 		<li>
@@ -257,8 +257,4 @@ export function getUnconfiguredMcpGrantServers(access: McpAccess, servers: Pick<
 	}
 	const configured = new Set(servers.map((server) => server.name));
 	return [...new Set(access.grants.map((grant) => grant.server))].filter((server) => !configured.has(server));
-}
-
-function toDomId(value: string): string {
-	return value.replace(/[^a-zA-Z0-9_-]/g, '-');
 }

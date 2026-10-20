@@ -233,6 +233,10 @@ export const mcpOAuthRoutes = async (app: App) => {
 			if (!role) {
 				throw new Error('User no longer has access to the project');
 			}
+			const access = await resolveMcpSettingsAccess(decoded.projectId, decoded.userId, role);
+			if (!isMcpServerGranted(access, decoded.server)) {
+				throw new Error(`MCP server "${decoded.server}" is not available for your user group.`);
+			}
 
 			const serverUrl = await mcpService.getServerUrl(decoded.projectId, decoded.server);
 			if (!serverUrl) {

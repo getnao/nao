@@ -278,6 +278,9 @@ describe('project file access', () => {
 		expect(allowed('/agent/mcps/github/list%2Fissues.json')).toBe(true);
 		expect(allowed('/agent/mcps/github/create_issue.json')).toBe(false);
 		expect(allowed('/agent/mcps/github/nested', 'directory')).toBe(false);
+		expect(allowed('/agent/mcps/linear/nested', 'directory')).toBe(false);
+		expect(allowed('/agent/mcps/linear/nested/search.json')).toBe(false);
+		expect(allowed('/agent/mcps/notes.md')).toBe(false);
 		expect(allowed('/agent/mcps/notion', 'directory')).toBe(false);
 		expect(allowed('/agent/mcps/notion/search.json')).toBe(false);
 		expect(allowed('/Agent/MCPS/notion/search.json')).toBe(false);

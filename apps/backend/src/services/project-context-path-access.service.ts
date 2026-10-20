@@ -128,12 +128,15 @@ function isMcpSpecPathAllowed(access: McpAccess, relativePath: string, kind: Pro
 	}
 	const [server, specFile, ...nestedSegments] = relativePath.slice(MCP_SPECS_DIRECTORY.length).split('/');
 	if (specFile === undefined) {
-		return kind === 'file' || isMcpServerGranted(access, server);
+		return kind === 'directory' && isMcpServerGranted(access, server);
+	}
+	if (kind === 'directory' || nestedSegments.length > 0) {
+		return false;
 	}
 	if (isMcpServerFullyGranted(access, server)) {
 		return true;
 	}
-	if (kind === 'directory' || nestedSegments.length > 0 || !specFile.endsWith('.json')) {
+	if (!specFile.endsWith('.json')) {
 		return false;
 	}
 	const tool = decodeSpecFileName(specFile.slice(0, -'.json'.length));
