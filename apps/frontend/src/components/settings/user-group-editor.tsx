@@ -34,6 +34,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import type { GroupProjectSharing } from '@/lib/project-sharing-policy';
+import type { ProjectWideSharesToRevoke } from '@/hooks/use-project-wide-share-revocation';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
@@ -50,7 +51,12 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
-import { getSavedGroupProjectSharing } from '@/lib/project-sharing-policy';
+import {
+	countSharesToRevoke,
+	NO_SHARES_TO_REVOKE,
+	useProjectWideShareRevocation,
+} from '@/hooks/use-project-wide-share-revocation';
+import { getSavedGroupProjectSharing, withGroupProjectSharing } from '@/lib/project-sharing-policy';
 import { trpc } from '@/main';
 import { projectSharingSettingsStore, useProjectSharingSettings } from '@/stores/project-sharing-settings';
 
@@ -140,6 +146,9 @@ export function UserGroupEditor({
 	const projectSharingSettings = useProjectSharingSettings();
 	const savedProjectSharing = getSavedGroupProjectSharing(projectSharingSettings, existingGroup);
 	const [projectSharing, setProjectSharing] = useState<GroupProjectSharing>(savedProjectSharing);
+	const shareRevocation = useProjectWideShareRevocation();
+	const [pendingShareRevocation, setPendingShareRevocation] = useState<ProjectWideSharesToRevoke | null>(null);
+	const [isRevokingShares, setIsRevokingShares] = useState(false);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
@@ -343,6 +352,20 @@ export function UserGroupEditor({
 			onTabChange('security');
 			return;
 		}
+		const sharesToRevoke =
+			existingGroup && hasProjectSharingChanges
+				? shareRevocation.findSharesToRevoke(
+						withGroupProjectSharing(projectSharingSettings, existingGroup, projectSharing),
+					)
+				: NO_SHARES_TO_REVOKE;
+		if (countSharesToRevoke(sharesToRevoke) > 0) {
+			setPendingShareRevocation(sharesToRevoke);
+			return;
+		}
+		await saveGroup(NO_SHARES_TO_REVOKE);
+	};
+
+	const saveGroup = async (sharesToRevoke: ProjectWideSharesToRevoke) => {
 		const budgetInput = hasGroupBudgetChanges ? { budgetLimitUsd: groupBudgetUsd } : {};
 		try {
 			if (existingGroup) {
@@ -359,6 +382,7 @@ export function UserGroupEditor({
 					...budgetInput,
 				});
 				projectSharingSettingsStore.setGroupProjectSharing(existingGroup, projectSharing);
+				await shareRevocation.revokeShares(sharesToRevoke);
 				await invalidateUserGroupQueries(queryClient);
 			} else {
 				const createdGroup = await createGroup.mutateAsync({
@@ -380,6 +404,16 @@ export function UserGroupEditor({
 		} catch (error) {
 			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
 		}
+	};
+
+	const handleConfirmShareRevocation = async () => {
+		if (!pendingShareRevocation) {
+			return;
+		}
+		setIsRevokingShares(true);
+		await saveGroup(pendingShareRevocation);
+		setIsRevokingShares(false);
+		setPendingShareRevocation(null);
 	};
 
 	const handleDelete = async () => {
@@ -642,8 +676,33 @@ export function UserGroupEditor({
 				isPending={deleteGroup.isPending}
 				preventCloseWhilePending
 			/>
+
+			<ConfirmationDialog
+				open={pendingShareRevocation !== null}
+				onOpenChange={(open) => !open && setPendingShareRevocation(null)}
+				title='Unshare content shared with everyone?'
+				description={describeShareRevocation(pendingShareRevocation ?? NO_SHARES_TO_REVOKE)}
+				confirmLabel='Unshare and save'
+				onConfirm={handleConfirmShareRevocation}
+				isPending={isRevokingShares}
+				preventCloseWhilePending
+			/>
 		</>
 	);
+}
+
+function describeShareRevocation({ chatShareIds, storyIds }: ProjectWideSharesToRevoke): string {
+	const items = [pluralize(chatShareIds.length, 'chat'), pluralize(storyIds.length, 'story', 'stories')]
+		.filter((item): item is string => item !== null)
+		.join(' and ');
+	return `Turning off sharing to the entire project unshares ${items} currently shared with all project members. Their owners can share them again with their groups.`;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string | null {
+	if (count === 0) {
+		return null;
+	}
+	return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
@@ -987,7 +1046,7 @@ function UserGroupFeatures({
 				onChange={onProjectSharingChange}
 			/>
 
-			<div className='flex flex-col gap-3 border-t pt-5'>
+			<div className='flex flex-col gap-3'>
 				<div>
 					<h3 className='text-sm font-medium'>Tool call density</h3>
 					<p className='text-xs text-muted-foreground'>Set how tool calls appear for this group.</p>

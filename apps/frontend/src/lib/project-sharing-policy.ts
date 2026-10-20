@@ -14,6 +14,16 @@ interface GroupMembership {
 	userId: string;
 }
 
+interface UserGroupOverview {
+	groups: Array<{ id: string; isDefault: boolean }>;
+	memberships: GroupMembership[];
+}
+
+interface Share {
+	userId: string;
+	visibility: string;
+}
+
 export const DEFAULT_PROJECT_SHARING_SETTINGS: ProjectSharingSettings = { defaultAllowed: true, groups: {} };
 
 export const UNRESTRICTED_PROJECT_SHARING_POLICY: ProjectSharingPolicy = { canShareToProject: true };
@@ -35,9 +45,7 @@ export function resolveProjectSharingPolicy(
 	memberships: GroupMembership[],
 	userId: string,
 ): ProjectSharingPolicy {
-	const shareableGroupIds = new Set(
-		memberships.filter((membership) => membership.userId === userId).map((membership) => membership.groupId),
-	);
+	const shareableGroupIds = new Set(getUserGroupIds(memberships, userId));
 	if (canShareToEntireProject(settings, [...shareableGroupIds])) {
 		return UNRESTRICTED_PROJECT_SHARING_POLICY;
 	}
@@ -47,6 +55,24 @@ export function resolveProjectSharingPolicy(
 			.map((membership) => membership.userId),
 	);
 	return { canShareToProject: false, shareableGroupIds, shareableMemberIds };
+}
+
+/** Project-wide shares whose owner is no longer allowed to share to the entire project under the given settings. */
+export function findProjectWideSharesToRevoke<S extends Share>(
+	shares: S[],
+	settings: ProjectSharingSettings,
+	memberships: GroupMembership[],
+): S[] {
+	return shares.filter(
+		(share) =>
+			share.visibility === 'project' &&
+			!canShareToEntireProject(settings, getUserGroupIds(memberships, share.userId)),
+	);
+}
+
+export function getCustomGroupMemberships(overview: UserGroupOverview): GroupMembership[] {
+	const defaultGroupIds = new Set(overview.groups.filter((group) => group.isDefault).map((group) => group.id));
+	return overview.memberships.filter((membership) => !defaultGroupIds.has(membership.groupId));
 }
 
 export function getSavedGroupProjectSharing(
@@ -72,4 +98,8 @@ export function withGroupProjectSharing(
 		delete groups[group.id];
 	}
 	return { ...settings, groups };
+}
+
+function getUserGroupIds(memberships: GroupMembership[], userId: string): string[] {
+	return memberships.filter((membership) => membership.userId === userId).map((membership) => membership.groupId);
 }

@@ -9,7 +9,7 @@ import {
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +26,7 @@ import type { UserGroupEditorGroup, UserGroupEditorTab } from './user-group-edit
 import type { UserGroupUserDetailTab } from './user-group-user-detail';
 import type { ProjectRowSecurity } from '@nao/shared';
 import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
+import { projectSharingSettingsStore } from '@/stores/project-sharing-settings';
 
 const mocks = vi.hoisted(() => ({
 	useLicenseFeatures: vi.fn(),
@@ -85,9 +86,18 @@ vi.mock('@/main', () => ({
 			readFile: { queryOptions: vi.fn(() => ({ queryKey: ['rules-file'] })) },
 		},
 		project: {
+			getCurrent: { queryOptions: vi.fn(() => ({ queryKey: ['current-project'] })) },
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
 			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
 			removeProjectMember: { mutationOptions: vi.fn() },
+		},
+		sharedChat: {
+			list: { queryOptions: vi.fn(() => ({ queryKey: ['shared-chats'] })) },
+			delete: { mutationOptions: vi.fn() },
+		},
+		storyShare: {
+			list: { queryOptions: vi.fn(() => ({ queryKey: ['shared-stories'] })) },
+			delete: { mutationOptions: vi.fn() },
 		},
 		system: {
 			getPublicConfig: { queryOptions: vi.fn(() => ({ queryKey: ['system-config'] })) },
@@ -938,6 +948,48 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
 		expect(screen.queryByText('Context permissions')).toBeNull();
 		expect(screen.queryByRole('navigation', { name: 'User group sections' })).toBeNull();
+	});
+
+	it('confirms and unshares project-wide content when project sharing is turned off', async () => {
+		const defaultQuery = mocks.useQuery.getMockImplementation()!;
+		const readyQuery = (data: unknown) => ({ isLoading: false, isError: false, data });
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
+			const queryKey = options?.queryKey?.[0];
+			if (queryKey === 'current-project') {
+				return readyQuery({ id: 'project-1' });
+			}
+			if (queryKey === 'shared-chats') {
+				return readyQuery([
+					{ id: 'analyst-chat-share', projectId: 'project-1', userId: 'project-user', visibility: 'project' },
+					{
+						id: 'other-chat-share',
+						projectId: 'project-1',
+						userId: 'organization-user',
+						visibility: 'project',
+					},
+				]);
+			}
+			if (queryKey === 'shared-stories') {
+				return readyQuery([{ storyId: 'analyst-story', userId: 'project-user', visibility: 'project' }]);
+			}
+			return defaultQuery(options);
+		});
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		fireEvent.keyDown(screen.getByRole('combobox', { name: 'Allow sharing to entire project' }), { key: 'Enter' });
+		fireEvent.click(screen.getByRole('option', { name: 'Not allowed' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(screen.getByText(/unshares 1 chat and 1 story/)).toBeTruthy();
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Unshare and save' }));
+
+		await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledWith({ shareId: 'analyst-chat-share' }));
+		expect(mocks.mutateAsync).toHaveBeenCalledWith({ storyId: 'analyst-story' });
+		expect(mocks.mutateAsync).not.toHaveBeenCalledWith({ shareId: 'other-chat-share' });
+		projectSharingSettingsStore.setGroupProjectSharing(analysts, 'inherit');
 	});
 
 	it('reports editor tab changes to the route', () => {
