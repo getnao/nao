@@ -1,13 +1,12 @@
 import { joinClassNames } from '@nao/shared/class-names';
 import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
 import { StoryBrandMark } from '@nao/shared/story-brand-mark';
-import { showsBrandIdentity } from '@nao/shared/story-theme';
 import { ChevronLeftIcon, ChevronRightIcon, MaximizeIcon, MinimizeIcon } from 'lucide-react';
 import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isPrintMode } from '../story-host';
 import { useFrameRelativeStoryStyles } from './frame-styles';
-import { useStoryTheme } from './hooks';
+import { useStoryBrand } from './hooks';
 import { fitScale, useStageSize } from './stage-fit';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 
@@ -75,8 +74,8 @@ export function Slide({ children, title, eyebrow, className, style }: SlideProps
 }
 
 function DeckBrandMark() {
-	const brand = useStoryTheme()?.brand;
-	if (!brand || !showsBrandIdentity(brand)) {
+	const brand = useStoryBrand();
+	if (!brand) {
 		return null;
 	}
 	return (

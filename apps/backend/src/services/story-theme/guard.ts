@@ -1,4 +1,5 @@
 import {
+	DEFAULT_DARK_STORY_THEME,
 	DEFAULT_STORY_THEME,
 	isAllowedFontStylesheet,
 	MAX_CHART_SERIES_COLORS,
@@ -355,7 +356,21 @@ function keepBrandSeries(theme: StoryTheme, requested: string[], notes: string[]
 			`Added ${derived.length} chart colour${derived.length === 1 ? '' : 's'} derived from the accent, as the brand colours left too few distinct tints.`,
 		);
 	}
-	theme.charts.series = [...repaired, ...tints, ...derived];
+	theme.charts.series = padWithDefaults([...repaired, ...tints, ...derived], surface, notes);
+}
+
+/** The last resort when every candidate sat too close to a kept colour: nao's own palette is distinct by construction. */
+function padWithDefaults(series: string[], surface: string, notes: string[]): string[] {
+	const missing = DERIVED_SERIES_COUNT - series.length;
+	if (missing <= 0) {
+		return series;
+	}
+	const defaults = (isDarkSurface(surface) ? DEFAULT_DARK_STORY_THEME : DEFAULT_STORY_THEME).charts.series;
+	const added = defaults.filter((color) => !series.includes(color)).slice(0, missing);
+	notes.push(
+		`Added ${added.length} of nao's chart colour${added.length === 1 ? '' : 's'}, as the brand and its accent left too few distinct ones.`,
+	);
+	return [...series, ...added];
 }
 
 /** Takes candidates in order, each distinct from every colour kept so far, until the palette reaches six. */

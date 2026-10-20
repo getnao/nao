@@ -436,7 +436,11 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 			continue;
 		}
 		const hasContent = (el.textContent || '').trim().length > 20;
-		const score = Math.min(a, 200_000) / 4000 + (cs.boxShadow !== 'none' ? 80 : 0) + (hasContent ? 120 : 0);
+		const score =
+			Math.min(a, 200_000) / 4000 +
+			Math.min(radius, 24) * 10 +
+			(cs.boxShadow !== 'none' ? 80 : 0) +
+			(hasContent ? 120 : 0);
 		if (score > cardScore) {
 			cardScore = score;
 			card = el;
