@@ -7,7 +7,6 @@ import {
 	ManageShareFooter,
 	MemberPicker,
 	NotifyPeopleToggle,
-	ProjectSharingDisabledCallout,
 	ShareErrorDialog,
 	ShareLoadingDialog,
 	VisibilityPicker,
@@ -152,7 +151,6 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 						visibility={effectiveVisibility}
 						onChange={setVisibility}
 						canShareToProject={audience.canShareToProject}
-						itemLabel='chat'
 					/>
 					{isSmtpEnabled && (
 						<NotifyPeopleToggle checked={notify} onCheckedChange={setNotify} itemLabel='chat' />
@@ -282,9 +280,6 @@ function ManageShareDialog({
 
 				<div className='flex flex-col gap-4'>
 					<VisibilitySummary visibility={visibility} selectedUserIds={selectedUserIds} itemLabel='chat' />
-					{visibility === 'project' && !audience.canShareToProject && (
-						<ProjectSharingDisabledCallout itemLabel='chat' />
-					)}
 					{visibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}

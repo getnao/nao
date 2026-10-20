@@ -7,7 +7,6 @@ import {
 	ManageShareFooter,
 	MemberPicker,
 	NotifyPeopleToggle,
-	ProjectSharingDisabledCallout,
 	ShareLoadingDialog,
 	VisibilityPicker,
 	VisibilitySummary,
@@ -189,7 +188,6 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 						onChange={setVisibility}
 						specificLabel='People & groups'
 						canShareToProject={audience.canShareToProject}
-						itemLabel='story'
 					/>
 					{isSmtpEnabled && (
 						<NotifyPeopleToggle checked={notify} onCheckedChange={setNotify} itemLabel='story' />
@@ -345,9 +343,6 @@ function ManageShareDialog({
 						selectedGroupIds={selectedGroupIds}
 						itemLabel='story'
 					/>
-					{visibility === 'project' && !audience.canShareToProject && (
-						<ProjectSharingDisabledCallout itemLabel='story' />
-					)}
 					{visibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}

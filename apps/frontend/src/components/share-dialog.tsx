@@ -1,10 +1,9 @@
-import { Check, Globe, Link as LinkIcon, Loader2, Lock, SearchIcon, Unlink, Users } from 'lucide-react';
+import { Check, Globe, Link as LinkIcon, Loader2, SearchIcon, Unlink, Users } from 'lucide-react';
 
 import type { Visibility } from '@nao/shared/types';
 
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Callout } from '@/components/ui/callout';
 import {
 	Dialog,
 	DialogContent,
@@ -79,16 +78,14 @@ export function VisibilityPicker({
 	onChange,
 	specificLabel = 'Specific people',
 	canShareToProject = true,
-	itemLabel,
 }: {
 	visibility: Visibility;
 	onChange: (v: Visibility) => void;
 	specificLabel?: string;
 	canShareToProject?: boolean;
-	itemLabel: string;
 }) {
 	if (!canShareToProject) {
-		return <GroupOnlySharingNotice itemLabel={itemLabel} />;
+		return null;
 	}
 	return (
 		<div className='flex gap-3'>
@@ -107,32 +104,6 @@ export function VisibilityPicker({
 				onClick={() => onChange('specific')}
 			/>
 		</div>
-	);
-}
-
-function GroupOnlySharingNotice({ itemLabel }: { itemLabel: string }) {
-	return (
-		<div className='flex items-center gap-3 rounded-lg border bg-muted/40 p-3'>
-			<div className='flex size-8 shrink-0 items-center justify-center rounded-full bg-background'>
-				<Lock className='size-4 text-muted-foreground' />
-			</div>
-			<div className='min-w-0 flex-1'>
-				<p className='text-md font-medium'>Sharing is limited to your groups</p>
-				<p className='text-xs text-muted-foreground'>
-					Your admin turned off sharing with the entire project. Share this {itemLabel} with the groups you
-					belong to or their members.
-				</p>
-			</div>
-		</div>
-	);
-}
-
-export function ProjectSharingDisabledCallout({ itemLabel }: { itemLabel: string }) {
-	return (
-		<Callout variant='warning'>
-			Your admin has since turned off sharing with the entire project. Unshare this {itemLabel} and share it again
-			to limit it to your groups.
-		</Callout>
 	);
 }
 
