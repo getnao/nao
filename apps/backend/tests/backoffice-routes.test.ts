@@ -33,6 +33,7 @@ import { and, eq } from 'drizzle-orm';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { __reloadEnvForTesting } from '../src/env';
+import * as projectQueries from '../src/queries/project.queries';
 import { backofficeRoutes } from '../src/routes/backoffice';
 import { cleanupContextWorktree } from '../src/services/context-explorer-git.service';
 import { removeOrganizationMember } from '../src/services/membership.service';
@@ -324,16 +325,18 @@ describe('cloud backoffice routes', () => {
 		expect(cleanupContextWorktree).toHaveBeenCalledWith(PROJECT_ID, projectPath, ADMIN_ID);
 	});
 
-	it('removes lingering project memberships when the organization membership is already gone', async () => {
+	it('soft-deletes lingering project memberships when the organization membership is already gone', async () => {
 		await db.delete(s.orgMember).where(and(eq(s.orgMember.orgId, ORG_ID), eq(s.orgMember.userId, MEMBER_ID)));
 
 		await removeOrganizationMember(ORG_ID, MEMBER_ID, { ignoreMissing: true });
 
-		const remaining = await db
+		const [membership] = await db
 			.select()
 			.from(s.projectMember)
 			.where(and(eq(s.projectMember.projectId, PROJECT_ID), eq(s.projectMember.userId, MEMBER_ID)));
-		expect(remaining).toEqual([]);
+		expect(membership).toMatchObject({ isDeleted: true });
+		expect(membership?.deletedAt).toBeInstanceOf(Date);
+		expect(await projectQueries.getProjectMember(PROJECT_ID, MEMBER_ID)).toBeNull();
 		expect(cleanupContextWorktree).toHaveBeenCalledWith(PROJECT_ID, projectPath, MEMBER_ID);
 	});
 
