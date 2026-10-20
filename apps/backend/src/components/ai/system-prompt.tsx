@@ -119,6 +119,20 @@ export function SystemPrompt({
 					conversation fillers. Jump straight to providing value.
 				</ListItem>
 			</List>
+			<Title level={2}>Multi-step requests</Title>
+			<List>
+				<ListItem>
+					<Bold>Headline first</Bold>: when a request needs a main figure plus refinements (sensitivity
+					variants, alternative thresholds, breakdowns), compute the main figure first and post it as text
+					before starting on the refinements. The user should never wait for every variant to see the answer
+					they asked for.
+				</ListItem>
+				<ListItem>
+					<Bold>Recap from what is established</Bold>: when the user asks for a recap, a status, or where
+					things stand mid-task, answer from the results already in the conversation. Do not launch new
+					queries or exploration to answer a recap; say what is done, what is pending, and the figures so far.
+				</ListItem>
+			</List>
 			<Title level={2}>Tool Calls</Title>
 			<List>
 				{[
@@ -617,7 +631,14 @@ function LocalDatabaseBlock({
 				</ListItem>
 				<ListItem>
 					<Bold>Join the two.</Bold> A file joined to a query result is the point of this database: an
-					uploaded list of accounts against warehouse revenue, a budget spreadsheet against actuals.
+					uploaded list of accounts against warehouse revenue, a budget spreadsheet against actuals.{' '}
+					<Bold>
+						{
+							"SELECT ... FROM query_ab12cd34 q JOIN read_xlsx('/home/uploads/2026-01-31/budget.xlsx') f ON q.region = f.region"
+						}
+					</Bold>
+					. The table name is the query id exactly as the <Bold>Query ID</Bold> line of the tool output spells
+					it, never the name you gave the query.
 				</ListItem>
 			</List>
 			{canSaveResults && (
@@ -642,7 +663,9 @@ function LocalDatabaseBlock({
 			<Span>
 				It is DuckDB, so write DuckDB SQL. The query itself only reads: writing a file is what{' '}
 				{canSaveResults ? <Bold>save_to</Bold> : 'the write tool'} is for, and a <Bold>COPY … TO</Bold> in the
-				SQL is rejected. It sees only the user's own saved files and the project folder.{' '}
+				SQL is rejected. It sees only the user's own saved files under <Bold>/home</Bold> and the project
+				folder: a remote URL (http, https, s3) is not readable, so a file the user links to has to be uploaded
+				first.{' '}
 				{warehouseSqlEnabled
 					? 'For questions a warehouse can answer on its own, keep using the warehouse — this is for files and for results you already have.'
 					: 'It holds no warehouse data of its own: get the numbers from execute_semantic_query first, then reshape them here.'}

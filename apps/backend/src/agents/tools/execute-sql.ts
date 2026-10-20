@@ -223,7 +223,7 @@ function assertWarehouseSqlAllowed(databaseId: string | undefined, context: Tool
 
 const LOCAL_ONLY_DESCRIPTION = [
 	`Run DuckDB SQL in nao's local database ("${LOCAL_DATABASE_ID}", the only accepted database_id): the warehouse is only reachable through execute_semantic_query in this project.`,
-	'Every earlier query result, including semantic ones, is a table named after its query id, so post-process them here: joins, pivots, shares, deltas. It also reads CSV, JSON, Parquet and Excel files by their path.',
+	'Every earlier query result, including semantic ones, is a table named after its query id (the "Query ID" line of its tool output, e.g. query_ab12cd34), so post-process them here: joins, pivots, shares, deltas. It also reads CSV, JSON, Parquet and Excel files under /home and the project folder by their path; remote URLs are not readable.',
 	'To edit a previous local query in-place (keep the same query_id for charts/stories), pass query_id from an earlier execute_sql result.',
 ].join(' ');
 
