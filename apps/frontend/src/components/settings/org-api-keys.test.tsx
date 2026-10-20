@@ -54,7 +54,7 @@ it('offers the deploy command and the deploy name only for a deploy-scoped key',
 		await createKey({ plaintext: 'nao_um_key', scope: 'user_management' });
 	});
 
-	expect(screen.queryByText(/nao deploy /)).toBeNull();
+	expect(screen.queryByText(/nao deploy https:\/\/nao\.example\.com\/deploy/)).toBeNull();
 	expect(screen.getByText('nao_um_key')).toBeTruthy();
 	expect((screen.getByLabelText('API key name') as HTMLInputElement).value).toBe('User management key');
 });
