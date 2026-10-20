@@ -97,9 +97,8 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 		currentUserId,
 		undefined,
 		chatId,
-		audience.shareableMemberIds,
 	);
-	const groupPicker = useGroupPicker(search, undefined, audience.shareableGroupIds);
+	const groupPicker = useGroupPicker(search, undefined);
 	const { selectedGroupIds, reset: resetGroups } = groupPicker;
 	const effectiveVisibility: Visibility = audience.canShareToProject ? visibility : 'specific';
 
@@ -262,9 +261,8 @@ function ManageShareDialog({
 		currentUserId,
 		allowedUserIds,
 		chatId,
-		audience.shareableMemberIds,
 	);
-	const groupPicker = useGroupPicker(search, allowedGroupIds, audience.shareableGroupIds);
+	const groupPicker = useGroupPicker(search, allowedGroupIds);
 	const { selectedGroupIds, reset: resetGroups } = groupPicker;
 
 	const stableAllowedUserIds = useMemo(

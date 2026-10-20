@@ -1,37 +1,25 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/main';
-import { useProjectSharingPolicy } from '@/hooks/use-project-sharing-policy';
 
 export function useShareAudience() {
-	const policy = useProjectSharingPolicy();
-	if (policy.canShareToProject) {
-		return { canShareToProject: true, shareableMemberIds: undefined, shareableGroupIds: undefined };
-	}
+	const access = useQuery(trpc.userGroup.projectSharingAccess.queryOptions());
+	const canShareToProject = access.data?.canShareToProject ?? true;
 	return {
-		canShareToProject: false,
-		shareableMemberIds: policy.shareableMemberIds,
-		shareableGroupIds: policy.shareableGroupIds,
-		emptyMessage: 'No other members in your groups',
+		canShareToProject,
+		emptyMessage: canShareToProject ? undefined : 'No other members in your groups',
 	};
 }
 
-export function useMemberPicker(
-	currentUserId: string | undefined,
-	initialIds: string[] | undefined,
-	chatId: string,
-	shareableMemberIds?: Set<string>,
-) {
+export function useMemberPicker(currentUserId: string | undefined, initialIds: string[] | undefined, chatId: string) {
 	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(initialIds));
 	const [search, setSearch] = useState('');
 
 	const membersQuery = useQuery(trpc.project.getProjectMembersByChatId.queryOptions({ chatId }));
 
 	const otherMembers = useMemo(() => {
-		return (membersQuery.data ?? []).filter(
-			(m) => m.id !== currentUserId && (!shareableMemberIds || shareableMemberIds.has(m.id)),
-		);
-	}, [membersQuery.data, currentUserId, shareableMemberIds]);
+		return (membersQuery.data ?? []).filter((m) => m.id !== currentUserId);
+	}, [membersQuery.data, currentUserId]);
 
 	const filteredMembers = useMemo(() => {
 		if (!search.trim()) {
@@ -71,21 +59,19 @@ export function useMemberPicker(
 	};
 }
 
-export function useGroupPicker(search: string, initialIds: string[] | undefined, shareableGroupIds?: Set<string>) {
+export function useGroupPicker(search: string, initialIds: string[] | undefined) {
 	const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set(initialIds));
 
 	const groupsQuery = useQuery(trpc.storyShare.listShareableGroups.queryOptions());
 
 	const filteredGroups = useMemo(() => {
-		const groups = (groupsQuery.data ?? []).filter(
-			(group) => !shareableGroupIds || shareableGroupIds.has(group.id),
-		);
+		const groups = groupsQuery.data ?? [];
 		if (!search.trim()) {
 			return groups;
 		}
 		const q = search.toLowerCase();
 		return groups.filter((group) => group.name.toLowerCase().includes(q));
-	}, [groupsQuery.data, search, shareableGroupIds]);
+	}, [groupsQuery.data, search]);
 
 	const toggleGroup = useCallback((groupId: string) => {
 		setSelectedGroupIds((prev) => {

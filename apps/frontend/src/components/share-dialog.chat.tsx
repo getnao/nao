@@ -89,7 +89,6 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		currentUserId,
 		undefined,
 		chatId,
-		audience.shareableMemberIds,
 	);
 	const effectiveVisibility: Visibility = audience.canShareToProject ? visibility : 'specific';
 
@@ -218,7 +217,6 @@ function ManageShareDialog({
 		currentUserId,
 		allowedUserIds,
 		chatId,
-		audience.shareableMemberIds,
 	);
 
 	const stableAllowedUserIds = useMemo(

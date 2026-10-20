@@ -25,6 +25,7 @@ import type {
 	DocsContextAccess,
 	FilesContextAccess,
 	FileTreeAccess,
+	ProjectSharingPermission,
 	UserGroupFeatureDefinition,
 	UserGroupRowPolicies,
 	UserGroupSsoMappings,
@@ -33,8 +34,6 @@ import type { ToolCallDensity, UserRole } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
-import type { GroupProjectSharing } from '@/lib/project-sharing-policy';
-import type { ProjectWideSharesToRevoke } from '@/hooks/use-project-wide-share-revocation';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
@@ -51,20 +50,18 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
-import {
-	countSharesToRevoke,
-	NO_SHARES_TO_REVOKE,
-	useProjectWideShareRevocation,
-} from '@/hooks/use-project-wide-share-revocation';
-import { getSavedGroupProjectSharing, withGroupProjectSharing } from '@/lib/project-sharing-policy';
 import { trpc } from '@/main';
-import { projectSharingSettingsStore, useProjectSharingSettings } from '@/stores/project-sharing-settings';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
 
 interface ToolCallDensityPolicy {
 	defaultDensity: ToolCallDensity;
 	canChange: boolean;
+}
+
+interface ProjectWideShareRevocation {
+	chatCount: number;
+	storyCount: number;
 }
 
 export interface UserGroupEditorGroup {
@@ -74,6 +71,7 @@ export interface UserGroupEditorGroup {
 	isLocked?: false;
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	projectSharing: ProjectSharingPermission;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
@@ -143,11 +141,10 @@ export function UserGroupEditor({
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
 	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
-	const projectSharingSettings = useProjectSharingSettings();
-	const savedProjectSharing = getSavedGroupProjectSharing(projectSharingSettings, existingGroup);
-	const [projectSharing, setProjectSharing] = useState<GroupProjectSharing>(savedProjectSharing);
-	const shareRevocation = useProjectWideShareRevocation();
-	const [pendingShareRevocation, setPendingShareRevocation] = useState<ProjectWideSharesToRevoke | null>(null);
+	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
+		existingGroup?.projectSharing ?? 'inherit',
+	);
+	const [pendingShareRevocation, setPendingShareRevocation] = useState<ProjectWideShareRevocation | null>(null);
 	const [isRevokingShares, setIsRevokingShares] = useState(false);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
@@ -258,15 +255,15 @@ export function UserGroupEditor({
 				}
 			: tab,
 	);
-	const hasProjectSharingChanges = projectSharing !== savedProjectSharing;
+	const hasProjectSharingChanges = existingGroup !== null && projectSharing !== existingGroup.projectSharing;
 	const hasUnsavedChanges =
 		editorGroup === null ||
 		hasGroupBudgetChanges ||
-		hasProjectSharingChanges ||
 		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
 			toolCallDensityPolicy,
+			projectSharing,
 			databaseAccess,
 			docsAccess,
 			filesAccess,
@@ -278,6 +275,7 @@ export function UserGroupEditor({
 		setName(existingGroup?.name ?? '');
 		setFeatureGrants(existingGroup?.featureGrants ?? []);
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
+		setProjectSharing(existingGroup?.projectSharing ?? 'inherit');
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setFilesAccess(existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS);
@@ -298,6 +296,7 @@ export function UserGroupEditor({
 				name,
 				featureGrants,
 				toolCallDensityPolicy,
+				projectSharing,
 				databaseAccess,
 				docsAccess,
 				filesAccess,
@@ -315,6 +314,7 @@ export function UserGroupEditor({
 		featureGrants,
 		filesAccess,
 		name,
+		projectSharing,
 		resetForm,
 		rowPolicies,
 		ssoMappings,
@@ -324,10 +324,6 @@ export function UserGroupEditor({
 	useEffect(() => {
 		setGroupBudgetUsd(savedGroupBudgetUsd);
 	}, [existingGroup?.id, savedGroupBudgetUsd]);
-
-	useEffect(() => {
-		setProjectSharing(savedProjectSharing);
-	}, [existingGroup?.id, savedProjectSharing]);
 
 	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
@@ -352,20 +348,28 @@ export function UserGroupEditor({
 			onTabChange('security');
 			return;
 		}
-		const sharesToRevoke =
-			existingGroup && hasProjectSharingChanges
-				? shareRevocation.findSharesToRevoke(
-						withGroupProjectSharing(projectSharingSettings, existingGroup, projectSharing),
-					)
-				: NO_SHARES_TO_REVOKE;
-		if (countSharesToRevoke(sharesToRevoke) > 0) {
-			setPendingShareRevocation(sharesToRevoke);
-			return;
+		if (existingGroup && hasProjectSharingChanges) {
+			try {
+				const revocation = await queryClient.fetchQuery({
+					...trpc.userGroup.previewProjectSharingRevocation.queryOptions({
+						groupId: existingGroup.id,
+						projectSharing,
+					}),
+					staleTime: 0,
+				});
+				if (revocation.chatCount + revocation.storyCount > 0) {
+					setPendingShareRevocation(revocation);
+					return;
+				}
+			} catch (error) {
+				setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
+				return;
+			}
 		}
-		await saveGroup(NO_SHARES_TO_REVOKE);
+		await saveGroup();
 	};
 
-	const saveGroup = async (sharesToRevoke: ProjectWideSharesToRevoke) => {
+	const saveGroup = async (): Promise<boolean> => {
 		const budgetInput = hasGroupBudgetChanges ? { budgetLimitUsd: groupBudgetUsd } : {};
 		try {
 			if (existingGroup) {
@@ -374,6 +378,7 @@ export function UserGroupEditor({
 					...(existingGroup.isDefault ? {} : { name }),
 					featureGrants,
 					toolCallDensityPolicy,
+					projectSharing,
 					databaseAccess,
 					docsAccess,
 					filesAccess,
@@ -381,14 +386,13 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
-				projectSharingSettingsStore.setGroupProjectSharing(existingGroup, projectSharing);
-				await shareRevocation.revokeShares(sharesToRevoke);
 				await invalidateUserGroupQueries(queryClient);
 			} else {
 				const createdGroup = await createGroup.mutateAsync({
 					name,
 					featureGrants,
 					toolCallDensityPolicy,
+					projectSharing,
 					databaseAccess,
 					docsAccess,
 					filesAccess,
@@ -396,22 +400,23 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
-				projectSharingSettingsStore.setGroupProjectSharing(createdGroup, projectSharing);
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
 			}
 			setShowRowPolicyValidationErrors(false);
+			return true;
 		} catch (error) {
 			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
+			return false;
 		}
 	};
 
 	const handleConfirmShareRevocation = async () => {
-		if (!pendingShareRevocation) {
-			return;
-		}
 		setIsRevokingShares(true);
-		await saveGroup(pendingShareRevocation);
+		const saved = await saveGroup();
+		if (saved) {
+			await invalidateShareQueries(queryClient);
+		}
 		setIsRevokingShares(false);
 		setPendingShareRevocation(null);
 	};
@@ -439,7 +444,6 @@ export function UserGroupEditor({
 		}
 		resetForm();
 		setGroupBudgetUsd(savedGroupBudgetUsd);
-		setProjectSharing(savedProjectSharing);
 	};
 	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
 		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
@@ -474,6 +478,9 @@ export function UserGroupEditor({
 								featureGrants={featureGrants}
 								onFeatureGrantsChange={setFeatureGrants}
 								isDefaultGroup={existingGroup?.isDefault === true}
+								defaultAllowsProjectSharing={isProjectSharingAllowedByDefault(
+									userGroupOverview.data?.groups,
+								)}
 								projectSharing={projectSharing}
 								onProjectSharingChange={setProjectSharing}
 								toolCallDensityPolicy={toolCallDensityPolicy}
@@ -681,7 +688,7 @@ export function UserGroupEditor({
 				open={pendingShareRevocation !== null}
 				onOpenChange={(open) => !open && setPendingShareRevocation(null)}
 				title='Unshare content shared with everyone?'
-				description={describeShareRevocation(pendingShareRevocation ?? NO_SHARES_TO_REVOKE)}
+				description={describeShareRevocation(pendingShareRevocation ?? { chatCount: 0, storyCount: 0 })}
 				confirmLabel='Unshare and save'
 				onConfirm={handleConfirmShareRevocation}
 				isPending={isRevokingShares}
@@ -691,8 +698,8 @@ export function UserGroupEditor({
 	);
 }
 
-function describeShareRevocation({ chatShareIds, storyIds }: ProjectWideSharesToRevoke): string {
-	const items = [pluralize(chatShareIds.length, 'chat'), pluralize(storyIds.length, 'story', 'stories')]
+function describeShareRevocation({ chatCount, storyCount }: ProjectWideShareRevocation): string {
+	const items = [pluralize(chatCount, 'chat'), pluralize(storyCount, 'story', 'stories')]
 		.filter((item): item is string => item !== null)
 		.join(' and ');
 	return `Turning off sharing to the entire project unshares ${items} currently shared with all project members. Their owners can share them again with their groups.`;
@@ -703,6 +710,12 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 		return null;
 	}
 	return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function isProjectSharingAllowedByDefault(
+	groups: ReadonlyArray<{ isDefault: boolean; projectSharing?: ProjectSharingPermission }> | undefined,
+): boolean {
+	return groups?.find((group) => group.isDefault)?.projectSharing !== 'blocked';
 }
 
 function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
@@ -906,6 +919,7 @@ export function hasUserGroupEditorChanges(
 		name: string;
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy: ToolCallDensityPolicy;
+		projectSharing?: ProjectSharingPermission;
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
@@ -918,6 +932,7 @@ export function hasUserGroupEditorChanges(
 		!haveSameItems(values.featureGrants, group.featureGrants) ||
 		values.toolCallDensityPolicy.defaultDensity !== group.toolCallDensityPolicy.defaultDensity ||
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
+		(values.projectSharing ?? group.projectSharing) !== group.projectSharing ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
 		!haveSameFileTreeAccess(values.filesAccess ?? group.filesAccess, group.filesAccess) ||
@@ -938,6 +953,13 @@ export function invalidateUserGroupQueries(queryClient: QueryClient) {
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveMicrosoftEnvMappings.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.project.getDatabaseObjects.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: [['memberBudget']] }),
+	]);
+}
+
+function invalidateShareQueries(queryClient: QueryClient) {
+	return Promise.all([
+		queryClient.invalidateQueries({ queryKey: [['sharedChat']] }),
+		queryClient.invalidateQueries({ queryKey: [['storyShare']] }),
 	]);
 }
 
@@ -1000,6 +1022,7 @@ function UserGroupFeatures({
 	featureGrants,
 	onFeatureGrantsChange,
 	isDefaultGroup,
+	defaultAllowsProjectSharing,
 	projectSharing,
 	onProjectSharingChange,
 	toolCallDensityPolicy,
@@ -1008,8 +1031,9 @@ function UserGroupFeatures({
 	featureGrants: UserGroupFeature[];
 	onFeatureGrantsChange: (featureGrants: UserGroupFeature[]) => void;
 	isDefaultGroup: boolean;
-	projectSharing: GroupProjectSharing;
-	onProjectSharingChange: (value: GroupProjectSharing) => void;
+	defaultAllowsProjectSharing: boolean;
+	projectSharing: ProjectSharingPermission;
+	onProjectSharingChange: (value: ProjectSharingPermission) => void;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	onToolCallDensityPolicyChange: (policy: ToolCallDensityPolicy) => void;
 }) {
@@ -1042,6 +1066,7 @@ function UserGroupFeatures({
 
 			<UserGroupProjectSharing
 				isDefaultGroup={isDefaultGroup}
+				defaultAllowed={defaultAllowsProjectSharing}
 				value={projectSharing}
 				onChange={onProjectSharingChange}
 			/>

@@ -1,18 +1,23 @@
-import type { GroupProjectSharing } from '@/lib/project-sharing-policy';
+import type { ProjectSharingPermission } from '@nao/shared';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useProjectSharingSettings } from '@/stores/project-sharing-settings';
 
 interface UserGroupProjectSharingProps {
 	isDefaultGroup: boolean;
-	value: GroupProjectSharing;
-	onChange: (value: GroupProjectSharing) => void;
+	defaultAllowed: boolean;
+	value: ProjectSharingPermission;
+	onChange: (value: ProjectSharingPermission) => void;
 }
 
 const PERMISSION_ID = 'user-group-project-sharing';
 const PERMISSION_LABEL = 'Allow sharing to entire project';
 
-export function UserGroupProjectSharing({ isDefaultGroup, value, onChange }: UserGroupProjectSharingProps) {
+export function UserGroupProjectSharing({
+	isDefaultGroup,
+	defaultAllowed,
+	value,
+	onChange,
+}: UserGroupProjectSharingProps) {
 	return (
 		<div className='flex flex-col gap-3'>
 			<div>
@@ -28,20 +33,21 @@ export function UserGroupProjectSharing({ isDefaultGroup, value, onChange }: Use
 					onCheckedChange={(checked) => onChange(checked ? 'allowed' : 'blocked')}
 				/>
 			) : (
-				<GroupOverrideRow value={value} onChange={onChange} />
+				<GroupOverrideRow defaultAllowed={defaultAllowed} value={value} onChange={onChange} />
 			)}
 		</div>
 	);
 }
 
 function GroupOverrideRow({
+	defaultAllowed,
 	value,
 	onChange,
 }: {
-	value: GroupProjectSharing;
-	onChange: (value: GroupProjectSharing) => void;
+	defaultAllowed: boolean;
+	value: ProjectSharingPermission;
+	onChange: (value: ProjectSharingPermission) => void;
 }) {
-	const { defaultAllowed } = useProjectSharingSettings();
 	return (
 		<div className='flex items-center justify-between gap-4 rounded-lg border p-3'>
 			<div>
@@ -53,7 +59,7 @@ function GroupOverrideRow({
 					unshared.
 				</p>
 			</div>
-			<Select value={value} onValueChange={(nextValue) => onChange(nextValue as GroupProjectSharing)}>
+			<Select value={value} onValueChange={(nextValue) => onChange(nextValue as ProjectSharingPermission)}>
 				<SelectTrigger id={PERMISSION_ID} className='w-60 shrink-0'>
 					<SelectValue />
 				</SelectTrigger>
