@@ -690,6 +690,7 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'blocked',
 		});
 		expect(updated).toMatchObject({
 			name: 'Data Analysts',
@@ -698,6 +699,7 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'blocked',
 			databaseAccess: {
 				mode: 'restricted',
 				strict: false,
@@ -724,6 +726,7 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'blocked',
 		});
 		expect(storedUpdated.contextGrants).toEqual({
 			version: 5,

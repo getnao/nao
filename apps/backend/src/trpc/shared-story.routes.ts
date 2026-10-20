@@ -19,11 +19,17 @@ import { getCustomStoryState, setCustomStoryState } from '../services/custom-sto
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import {
+	assertCanShareToProject,
+	assertCanShareWith,
+	getShareAudience,
+	isShareableGroup,
+} from '../services/project-sharing.service';
+import {
 	assertShareableUserGroupIds,
 	filterShareableUserGroupIds,
 	listShareableUserGroups,
 } from '../services/shareable-user-groups.service';
-import { teardownStoryDelivery } from '../services/story-delivery.service';
+import { unshareStory } from '../services/shared-story.service';
 import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
@@ -123,11 +129,16 @@ export const sharedStoryRoutes = {
 			await assertShareableUserGroupIds(ctx.project.id, input.allowedGroupIds ?? []);
 
 			if (input.visibility === 'project') {
+				await assertCanShareToProject(ctx.project.id, ctx.user.id);
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
 					storyOwnerId,
 					projectId: ctx.project.id,
 				});
 			} else {
+				await assertCanShareWith(ctx.project.id, ctx.user.id, {
+					userIds: input.allowedUserIds,
+					groupIds: input.allowedGroupIds,
+				});
 				await storyFolderQueries.ensureStoryPrivate(story.id, {
 					storyOwnerId,
 					projectId: ctx.project.id,
@@ -501,7 +512,11 @@ export const sharedStoryRoutes = {
 		}),
 
 	listShareableGroups: projectProtectedProcedure.query(async ({ ctx }) => {
-		return listShareableUserGroups(ctx.project.id);
+		const [groups, audience] = await Promise.all([
+			listShareableUserGroups(ctx.project.id),
+			getShareAudience(ctx.project.id, ctx.user.id),
+		]);
+		return groups.filter((group) => isShareableGroup(audience, group.id));
 	}),
 
 	updateAccess: shareProcedure
@@ -519,6 +534,14 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 			await assertShareableUserGroupIds(shared.projectId, input.allowedGroupIds);
+			const [previousUserIds, previousGroupIds] = await Promise.all([
+				sharedStoryQueries.getSharedStoryAllowedUserIds(shared.id),
+				sharedStoryQueries.getSharedStoryAllowedGroupIds(shared.id),
+			]);
+			await assertCanShareWith(shared.projectId, ctx.user.id, {
+				userIds: input.allowedUserIds.filter((id) => !previousUserIds.includes(id)),
+				groupIds: input.allowedGroupIds.filter((id) => !previousGroupIds.includes(id)),
+			});
 
 			const previousRecipientIds = new Set(await sharedStoryQueries.getSharedStoryRecipientUserIds(shared.id));
 			await sharedStoryQueries.updateSharedStoryRecipients(shared.id, {
@@ -560,13 +583,7 @@ export const sharedStoryRoutes = {
 		if (ctx.resource.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
 		}
-		await sharedStoryQueries.deleteSharedStory(ctx.resource.id);
-		const storyOwnerId = (await storyQueries.getStoryOwnerId(ctx.resource.storyId)) ?? ctx.resource.userId;
-		await storyFolderQueries.ensureStoryPrivate(ctx.resource.storyId, {
-			storyOwnerId,
-			projectId: ctx.resource.projectId,
-		});
-		await teardownStoryDelivery(ctx.resource.storyId);
+		await unshareStory(ctx.resource);
 	}),
 
 	download: shareAccessProcedure

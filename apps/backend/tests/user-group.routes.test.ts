@@ -13,8 +13,12 @@ const mocks = vi.hoisted(() => ({
 	listEffectiveEntraUserGroupMappings: vi.fn(),
 	listEffectiveOidcUserGroupMappings: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
+	getShareAudience: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
+	listUserGroups: vi.fn(),
+	previewProjectWideShareRevocation: vi.fn(),
+	revokeUnauthorizedProjectWideShares: vi.fn(),
 	env: {} as Record<string, string | undefined>,
 	resolveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
@@ -49,6 +53,7 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
 	getProjectRowSecurity: mocks.getProjectRowSecurity,
+	listUserGroups: mocks.listUserGroups,
 	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	updateUserGroup: mocks.updateUserGroup,
@@ -64,6 +69,11 @@ vi.mock('../src/services/license.service', () => ({
 	},
 }));
 vi.mock('../src/services/member-budget.service', () => ({ setGroupBudget: mocks.setGroupBudget }));
+vi.mock('../src/services/project-sharing.service', () => ({
+	getShareAudience: mocks.getShareAudience,
+	previewProjectWideShareRevocation: mocks.previewProjectWideShareRevocation,
+	revokeUnauthorizedProjectWideShares: mocks.revokeUnauthorizedProjectWideShares,
+}));
 vi.mock('../src/services/sso-user-group-mapping.service', () => ({
 	listEffectiveOidcUserGroupMappings: mocks.listEffectiveOidcUserGroupMappings,
 	listEffectiveEntraUserGroupMappings: mocks.listEffectiveEntraUserGroupMappings,
@@ -120,6 +130,7 @@ describe('user group routes', () => {
 		});
 		mocks.createUserGroup.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
 		mocks.createUserGroupWithinLimit.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
+		mocks.listUserGroups.mockResolvedValue([{ id: 'group-id', projectSharing: 'inherit' }]);
 	});
 
 	it('allows unlicensed row-security table removals', async () => {
@@ -667,6 +678,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			'inherit',
 		);
 	});
 
@@ -688,6 +700,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			'inherit',
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -745,6 +758,7 @@ describe('user group routes', () => {
 			},
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			'inherit',
 		);
 	});
 
@@ -793,6 +807,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			'inherit',
 		);
 	});
 
@@ -817,6 +832,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			'inherit',
 		);
 	});
 
@@ -897,6 +913,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			'inherit',
 		);
 	});
 
@@ -945,6 +962,77 @@ describe('user group routes', () => {
 			},
 		});
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('saves the project sharing permission and unshares project-wide content when it changes', async () => {
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+			projectSharing: 'blocked',
+		});
+
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({ projectSharing: 'blocked' }),
+		);
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
+	});
+
+	it('keeps shares untouched when the project sharing permission is unchanged', async () => {
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+			projectSharing: 'inherit',
+		});
+
+		expect(mocks.updateUserGroup).toHaveBeenCalled();
+		expect(mocks.revokeUnauthorizedProjectWideShares).not.toHaveBeenCalled();
+	});
+
+	it('creates groups with their project sharing permission', async () => {
+		await createCaller().create({ name: 'Client A', projectSharing: 'blocked' });
+
+		expect(mocks.createUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'Client A',
+			[],
+			expect.anything(),
+			expect.anything(),
+			expect.anything(),
+			undefined,
+			undefined,
+			expect.anything(),
+			'blocked',
+		);
+	});
+
+	it('previews the shares unshared by a project sharing change for admins only', async () => {
+		mocks.previewProjectWideShareRevocation.mockResolvedValue({ chatCount: 2, storyCount: 1 });
+
+		await expect(
+			createCaller().previewProjectSharingRevocation({ groupId: 'group-id', projectSharing: 'blocked' }),
+		).resolves.toEqual({ chatCount: 2, storyCount: 1 });
+		expect(mocks.previewProjectWideShareRevocation).toHaveBeenCalledWith('project-id', 'group-id', 'blocked');
+
+		mocks.role = 'user';
+		await expect(
+			createCaller().previewProjectSharingRevocation({ groupId: 'group-id', projectSharing: 'blocked' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+	});
+
+	it('tells members whether they can share with the entire project', async () => {
+		mocks.role = 'user';
+		mocks.getShareAudience.mockResolvedValue({
+			canShareToProject: false,
+			groupIds: new Set(['client-a']),
+			memberIds: new Set(['user-id']),
+		});
+
+		await expect(createCaller().projectSharingAccess()).resolves.toEqual({ canShareToProject: false });
+		expect(mocks.getShareAudience).toHaveBeenCalledWith('project-id', 'user-id');
 	});
 
 	it('deletes groups and changes memberships without unlimited entitlement', async () => {

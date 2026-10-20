@@ -12,6 +12,7 @@ import {
 	normalizeProjectRowSecurity,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
+	PROJECT_SHARING_PERMISSIONS,
 	type ProjectRowSecurity,
 	ROW_SECURITY_COMBINATORS,
 	ROW_SECURITY_MAX_CONDITIONS,
@@ -35,6 +36,11 @@ import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setGroupBudget } from '../services/member-budget.service';
 import {
+	getShareAudience,
+	previewProjectWideShareRevocation,
+	revokeUnauthorizedProjectWideShares,
+} from '../services/project-sharing.service';
+import {
 	listEffectiveEntraUserGroupMappings,
 	listEffectiveOidcUserGroupMappings,
 } from '../services/sso-user-group-mapping.service';
@@ -55,6 +61,7 @@ const toolCallDensityPolicySchema = z.object({
 	defaultDensity: z.enum(TOOL_CALL_DENSITIES),
 	canChange: z.boolean(),
 });
+const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
 const contextNameSchema = z.string().trim().min(1).max(255);
 const databaseContextGrantSchema = z.discriminatedUnion('kind', [
 	z
@@ -208,6 +215,17 @@ export const userGroupRoutes = {
 		return getEffectiveUserGroupAccess(ctx.project.id, ctx.user.id);
 	}),
 
+	projectSharingAccess: projectProtectedProcedure.query(async ({ ctx }) => {
+		const audience = await getShareAudience(ctx.project.id, ctx.user.id);
+		return { canShareToProject: audience.canShareToProject };
+	}),
+
+	previewProjectSharingRevocation: adminProtectedProcedure
+		.input(z.object({ groupId: z.string().min(1), projectSharing: projectSharingSchema }))
+		.query(async ({ ctx, input }) => {
+			return previewProjectWideShareRevocation(ctx.project.id, input.groupId, input.projectSharing);
+		}),
+
 	effectiveAccessForUser: adminProtectedProcedure
 		.input(z.object({ userId: z.string().min(1) }))
 		.query(async ({ ctx, input }) => {
@@ -281,6 +299,7 @@ export const userGroupRoutes = {
 				name: groupNameSchema,
 				featureGrants: featureGrantsSchema.default([]),
 				toolCallDensityPolicy: toolCallDensityPolicySchema.default(DEFAULT_TOOL_CALL_DENSITY_POLICY),
+				projectSharing: projectSharingSchema.default('inherit'),
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
 				docsAccess: fileTreeAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
 				filesAccess: fileTreeAccessSchema.default(EMPTY_FILES_CONTEXT_ACCESS),
@@ -317,6 +336,7 @@ export const userGroupRoutes = {
 					input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
 					rowPolicies,
 					filesAccess,
+					input.projectSharing,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -331,6 +351,7 @@ export const userGroupRoutes = {
 				name: groupNameSchema.optional(),
 				featureGrants: featureGrantsSchema,
 				toolCallDensityPolicy: toolCallDensityPolicySchema,
+				projectSharing: projectSharingSchema.optional(),
 				databaseAccess: databaseAccessSchema.optional(),
 				docsAccess: fileTreeAccessSchema.optional(),
 				filesAccess: fileTreeAccessSchema.optional(),
@@ -358,11 +379,13 @@ export const userGroupRoutes = {
 				rowPolicies = validation.rowPolicies;
 				rowPoliciesRegistry = validation.registry;
 			}
+			const previousProjectSharing = await getSavedProjectSharing(ctx.project.id, input.groupId);
 			const group = await handleQuery(() =>
 				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
 					name: input.name,
 					featureGrants: unique(input.featureGrants),
 					toolCallDensityPolicy: input.toolCallDensityPolicy,
+					projectSharing: input.projectSharing,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
 					...(docsAccess === undefined ? {} : { docsAccess }),
 					...(filesAccess === undefined ? {} : { filesAccess }),
@@ -373,6 +396,9 @@ export const userGroupRoutes = {
 				}),
 			);
 			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
+			if (input.projectSharing !== undefined && input.projectSharing !== previousProjectSharing) {
+				await revokeUnauthorizedProjectWideShares(ctx.project.id);
+			}
 			return group;
 		}),
 
@@ -396,6 +422,11 @@ export const userGroupRoutes = {
 			);
 		}),
 };
+
+async function getSavedProjectSharing(projectId: string, groupId: string) {
+	const groups = await userGroupQueries.listUserGroups(projectId);
+	return groups.find((group) => group.id === groupId)?.projectSharing;
+}
 
 async function assertGroupBudgetEditable(budgetLimitUsd: number | null | undefined): Promise<void> {
 	if (budgetLimitUsd !== undefined) {

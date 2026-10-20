@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -5,6 +6,8 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	createSharedChat: vi.fn(),
 	notifySharedItem: vi.fn(),
+	assertCanShareToProject: vi.fn(),
+	assertCanShareWith: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -23,6 +26,10 @@ vi.mock('../src/queries/user.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/live-story', () => ({}));
 vi.mock('../src/services/notification.service', () => ({ notifySharedItem: mocks.notifySharedItem }));
+vi.mock('../src/services/project-sharing.service', () => ({
+	assertCanShareToProject: mocks.assertCanShareToProject,
+	assertCanShareWith: mocks.assertCanShareWith,
+}));
 vi.mock('../src/utils/analytics-event', () => ({}));
 vi.mock('../src/utils/story-download', () => ({}));
 
@@ -37,6 +44,8 @@ describe('sharedChat.create', () => {
 		mocks.getChatInfo.mockResolvedValue({ projectId: 'project-1', userId: 'owner-1', title: 'Private chat' });
 		mocks.createSharedChat.mockResolvedValue({ id: 'share-1' });
 		mocks.notifySharedItem.mockResolvedValue(undefined);
+		mocks.assertCanShareToProject.mockResolvedValue(undefined);
+		mocks.assertCanShareWith.mockResolvedValue(undefined);
 	});
 
 	it("refuses a member sharing another member's chat", async () => {
@@ -62,6 +71,33 @@ describe('sharedChat.create', () => {
 		await expect(createCaller('admin-1').sharedChat.create({ chatId: 'chat-1' })).resolves.toEqual({
 			id: 'share-1',
 		});
+	});
+
+	it('refuses to share with the entire project when the user group does not allow it', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.assertCanShareToProject.mockRejectedValue(new TRPCError({ code: 'FORBIDDEN', message: 'Not allowed.' }));
+
+		await expect(
+			createCaller('owner-1').sharedChat.create({ chatId: 'chat-1', visibility: 'project' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.assertCanShareToProject).toHaveBeenCalledWith('project-1', 'owner-1');
+		expect(mocks.createSharedChat).not.toHaveBeenCalled();
+	});
+
+	it('checks specific recipients against what the owner may share with', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.assertCanShareWith.mockRejectedValue(new TRPCError({ code: 'FORBIDDEN', message: 'Not allowed.' }));
+
+		await expect(
+			createCaller('owner-1').sharedChat.create({
+				chatId: 'chat-1',
+				visibility: 'specific',
+				allowedUserIds: ['outsider-1'],
+			}),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.assertCanShareWith).toHaveBeenCalledWith('project-1', 'owner-1', { userIds: ['outsider-1'] });
+		expect(mocks.assertCanShareToProject).not.toHaveBeenCalled();
+		expect(mocks.createSharedChat).not.toHaveBeenCalled();
 	});
 });
 
