@@ -1,17 +1,21 @@
 import { type ProjectSharingPermission, resolveProjectSharingPermission } from '@nao/shared';
-import type { UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
-import { unshareStory } from './shared-story.service';
+import type { UserWithRole } from '../types/project';
+import type { ShareableUserGroup } from './shareable-user-groups.service';
+import { unshareProjectWideStory } from './shared-story.service';
 import { listActiveUserGroups } from './user-group-availability.service';
 
-export type ShareAudience =
-	| { canShareToProject: true }
-	| { canShareToProject: false; groupIds: Set<string>; memberIds: Set<string> };
+/** Project members and custom user groups a user may share with. */
+export interface ShareAudience {
+	canShareToProject: boolean;
+	memberIds: Set<string>;
+	groupIds: Set<string>;
+}
 
 export interface ShareRecipients {
 	userIds?: string[];
@@ -24,16 +28,28 @@ export interface ProjectWideShareRevocation {
 }
 
 interface ProjectSharingState {
-	groups: Array<{ id: string; isDefault: boolean; projectSharing: ProjectSharingPermission }>;
-	users: Array<{ id: string; role: UserRole }>;
+	groups: Array<Pick<userGroupQueries.UserGroup, 'id' | 'name' | 'isDefault' | 'projectSharing'>>;
+	users: UserWithRole[];
 	memberships: Array<{ groupId: string; userId: string }>;
 }
 
-const UNRESTRICTED_SHARE_AUDIENCE: ShareAudience = { canShareToProject: true };
-
-/** Who the user may share with: everyone, or only their custom user groups and those groups' members. */
+/** Everyone in the project, or only the user's custom user groups and those groups' members. */
 export async function getShareAudience(projectId: string, userId: string): Promise<ShareAudience> {
 	return resolveShareAudience(await loadProjectSharingState(projectId), userId);
+}
+
+export async function listShareableMembers(projectId: string, userId: string): Promise<UserWithRole[]> {
+	const state = await loadProjectSharingState(projectId);
+	const audience = resolveShareAudience(state, userId);
+	return state.users.filter((user) => audience.memberIds.has(user.id));
+}
+
+export async function listShareableGroups(projectId: string, userId: string): Promise<ShareableUserGroup[]> {
+	const state = await loadProjectSharingState(projectId);
+	const audience = resolveShareAudience(state, userId);
+	return state.groups
+		.filter((group) => audience.groupIds.has(group.id))
+		.map((group) => ({ id: group.id, name: group.name, memberCount: getGroupMemberIds(state, group.id).size }));
 }
 
 export async function assertCanShareToProject(projectId: string, userId: string): Promise<void> {
@@ -65,23 +81,15 @@ export function assertAudienceIncludes(
 	audience: ShareAudience,
 	{ userIds = [], groupIds = [] }: ShareRecipients,
 ): void {
-	if (
-		!userIds.every((recipientId) => isShareableMember(audience, recipientId)) ||
-		!groupIds.every((groupId) => isShareableGroup(audience, groupId))
-	) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: 'You can only share with your user groups and their members.',
-		});
+	if (userIds.every((id) => audience.memberIds.has(id)) && groupIds.every((id) => audience.groupIds.has(id))) {
+		return;
 	}
-}
-
-export function isShareableMember(audience: ShareAudience, userId: string): boolean {
-	return audience.canShareToProject || audience.memberIds.has(userId);
-}
-
-export function isShareableGroup(audience: ShareAudience, groupId: string): boolean {
-	return audience.canShareToProject || audience.groupIds.has(groupId);
+	throw new TRPCError({
+		code: 'FORBIDDEN',
+		message: audience.canShareToProject
+			? 'Recipients must have access to this project.'
+			: 'You can only share with your user groups and their members.',
+	});
 }
 
 /** Counts the project-wide shares that would be unshared if the group's project sharing permission changed. */
@@ -101,7 +109,7 @@ export async function revokeUnauthorizedProjectWideShares(projectId: string): Pr
 	const { chatShareIds, storyShares } = await findUnauthorizedProjectWideShares(projectId, state);
 	await sharedChatQueries.deleteSharedChats(chatShareIds);
 	for (const storyShare of storyShares) {
-		await unshareStory(storyShare);
+		await unshareProjectWideStory(storyShare);
 	}
 }
 
@@ -125,14 +133,15 @@ async function loadProjectSharingState(projectId: string): Promise<ProjectSharin
 
 function resolveShareAudience(state: ProjectSharingState, userId: string): ShareAudience {
 	if (canUserShareToProject(state, userId)) {
-		return UNRESTRICTED_SHARE_AUDIENCE;
+		return {
+			canShareToProject: true,
+			memberIds: new Set(state.users.map((user) => user.id)),
+			groupIds: new Set(state.groups.filter((group) => !group.isDefault).map((group) => group.id)),
+		};
 	}
 	const groupIds = getUserGroupIds(state, userId);
-	const memberIds = new Set([
-		userId,
-		...state.memberships.filter((membership) => groupIds.has(membership.groupId)).map(({ userId }) => userId),
-	]);
-	return { canShareToProject: false, groupIds, memberIds };
+	const memberIds = new Set([userId, ...[...groupIds].flatMap((groupId) => [...getGroupMemberIds(state, groupId)])]);
+	return { canShareToProject: false, memberIds, groupIds };
 }
 
 /** Admins manage this permission, so they can always share with the entire project. */
@@ -169,5 +178,11 @@ function withGroupProjectSharing(
 function getUserGroupIds(state: ProjectSharingState, userId: string): Set<string> {
 	return new Set(
 		state.memberships.filter((membership) => membership.userId === userId).map(({ groupId }) => groupId),
+	);
+}
+
+function getGroupMemberIds(state: ProjectSharingState, groupId: string): Set<string> {
+	return new Set(
+		state.memberships.filter((membership) => membership.groupId === groupId).map(({ userId }) => userId),
 	);
 }

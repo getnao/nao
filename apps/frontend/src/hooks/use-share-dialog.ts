@@ -4,7 +4,7 @@ import { trpc } from '@/main';
 
 export function useShareAudience() {
 	const access = useQuery(trpc.userGroup.projectSharingAccess.queryOptions());
-	const canShareToProject = access.data?.canShareToProject ?? true;
+	const canShareToProject = access.data?.canShareToProject === true;
 	return {
 		canShareToProject,
 		emptyMessage: canShareToProject ? undefined : 'No other members in your groups',

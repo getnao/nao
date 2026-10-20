@@ -274,6 +274,15 @@ export async function deleteSharedStory(id: string): Promise<void> {
 	await db.delete(s.sharedStory).where(eq(s.sharedStory.id, id)).execute();
 }
 
+export async function deleteProjectWideSharedStory(id: string): Promise<boolean> {
+	const deleted = await db
+		.delete(s.sharedStory)
+		.where(and(eq(s.sharedStory.id, id), eq(s.sharedStory.visibility, 'project')))
+		.returning({ id: s.sharedStory.id })
+		.execute();
+	return deleted.length > 0;
+}
+
 export async function listProjectWideSharedStories(
 	projectId: string,
 	sharerIds: string[],

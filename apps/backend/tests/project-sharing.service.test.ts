@@ -10,6 +10,8 @@ import {
 	assertCanShareToProject,
 	assertCanShareWith,
 	getShareAudience,
+	listShareableGroups,
+	listShareableMembers,
 	previewProjectWideShareRevocation,
 	revokeUnauthorizedProjectWideShares,
 } from '../src/services/project-sharing.service';
@@ -50,6 +52,7 @@ const ALICE_ID = 'sharing-alice';
 const BOB_ID = 'sharing-bob';
 const CAROL_ID = 'sharing-carol';
 const DAVE_ID = 'sharing-dave';
+const OUTSIDER_ID = 'sharing-outsider';
 
 const MEMBERS = [
 	{ userId: ADMIN_ID, role: 'admin' as const },
@@ -59,11 +62,21 @@ const MEMBERS = [
 	{ userId: DAVE_ID, role: 'user' as const },
 ];
 
+const UNRESTRICTED_AUDIENCE = {
+	canShareToProject: true,
+	memberIds: new Set(MEMBERS.map(({ userId }) => userId)),
+	groupIds: new Set([CLIENT_A_ID, CLIENT_B_ID]),
+};
+
 describe('project sharing permission', () => {
 	beforeAll(async () => {
-		await db
-			.insert(s.user)
-			.values(MEMBERS.map(({ userId }) => ({ id: userId, name: userId, email: `${userId}@x.io` })));
+		await db.insert(s.user).values(
+			[...MEMBERS.map(({ userId }) => userId), OUTSIDER_ID].map((id) => ({
+				id,
+				name: id,
+				email: `${id}@x.io`,
+			})),
+		);
 		await db.insert(s.project).values({ id: PROJECT_ID, name: 'Sharing', type: 'local', path: '/tmp/sharing' });
 		await db.insert(s.projectMember).values(MEMBERS.map((member) => ({ projectId: PROJECT_ID, ...member })));
 		await db.insert(s.userGroup).values([
@@ -93,8 +106,17 @@ describe('project sharing permission', () => {
 
 	it('lets everyone share with the entire project by default', async () => {
 		for (const { userId } of MEMBERS) {
-			expect(await getShareAudience(PROJECT_ID, userId)).toEqual({ canShareToProject: true });
+			expect(await getShareAudience(PROJECT_ID, userId)).toEqual(UNRESTRICTED_AUDIENCE);
 		}
+	});
+
+	it('only lets unrestricted members share with users who have access to the project', async () => {
+		await expect(assertCanShareWith(PROJECT_ID, CAROL_ID, { userIds: [OUTSIDER_ID] })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect((await listShareableMembers(PROJECT_ID, CAROL_ID)).map((member) => member.id)).not.toContain(
+			OUTSIDER_ID,
+		);
 	});
 
 	it('limits members of a blocked group to their groups and those groups members', async () => {
@@ -102,10 +124,16 @@ describe('project sharing permission', () => {
 
 		expect(await getShareAudience(PROJECT_ID, ALICE_ID)).toEqual({
 			canShareToProject: false,
-			groupIds: new Set([CLIENT_A_ID]),
 			memberIds: new Set([ALICE_ID, BOB_ID]),
+			groupIds: new Set([CLIENT_A_ID]),
 		});
-		expect(await getShareAudience(PROJECT_ID, CAROL_ID)).toEqual({ canShareToProject: true });
+		expect(await getShareAudience(PROJECT_ID, CAROL_ID)).toEqual(UNRESTRICTED_AUDIENCE);
+		expect((await listShareableMembers(PROJECT_ID, ALICE_ID)).map((member) => member.id).sort()).toEqual(
+			[ALICE_ID, BOB_ID].sort(),
+		);
+		expect(await listShareableGroups(PROJECT_ID, ALICE_ID)).toEqual([
+			{ id: CLIENT_A_ID, name: 'Client A', memberCount: 2 },
+		]);
 		await expect(assertCanShareToProject(PROJECT_ID, ALICE_ID)).rejects.toMatchObject({ code: 'FORBIDDEN' });
 		await expect(
 			assertCanShareWith(PROJECT_ID, ALICE_ID, { userIds: [BOB_ID], groupIds: [CLIENT_A_ID] }),
@@ -122,12 +150,12 @@ describe('project sharing permission', () => {
 		await setProjectSharing(ALL_USERS_ID, 'blocked');
 		await setProjectSharing(CLIENT_B_ID, 'allowed');
 
-		expect(await getShareAudience(PROJECT_ID, CAROL_ID)).toEqual({ canShareToProject: true });
+		expect(await getShareAudience(PROJECT_ID, CAROL_ID)).toEqual(UNRESTRICTED_AUDIENCE);
 		expect(await getShareAudience(PROJECT_ID, ALICE_ID)).toMatchObject({ canShareToProject: false });
 		expect(await getShareAudience(PROJECT_ID, DAVE_ID)).toEqual({
 			canShareToProject: false,
-			groupIds: new Set(),
 			memberIds: new Set([DAVE_ID]),
+			groupIds: new Set(),
 		});
 	});
 
@@ -161,6 +189,22 @@ describe('project sharing permission', () => {
 			projectId: PROJECT_ID,
 		});
 		expect(mocks.teardownStoryDelivery).toHaveBeenCalledWith('alice-story');
+	});
+
+	it('keeps a story share that was limited to specific people after being listed for revocation', async () => {
+		await shareStory('alice-story', ALICE_ID);
+		await setProjectSharing(CLIENT_A_ID, 'blocked');
+		mocks.teardownStoryDelivery.mockImplementationOnce(async () => {
+			await db
+				.update(s.sharedStory)
+				.set({ visibility: 'specific' })
+				.where(eq(s.sharedStory.storyId, 'alice-story'));
+		});
+
+		await revokeUnauthorizedProjectWideShares(PROJECT_ID);
+
+		expect(await listSharedStoryIds()).toEqual(['alice-story']);
+		expect(mocks.ensureStoryPrivate).not.toHaveBeenCalled();
 	});
 });
 

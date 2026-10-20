@@ -43,7 +43,7 @@ import { MattermostConnectionError, validateMattermostConnection } from '../serv
 import { mcpService } from '../services/mcp';
 import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { getShareAudience, isShareableMember } from '../services/project-sharing.service';
+import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
@@ -934,11 +934,7 @@ export const projectRoutes = {
 			if (!role) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 			}
-			const [members, audience] = await Promise.all([
-				projectQueries.listUsersWithProjectAccess(projectId),
-				getShareAudience(projectId, ctx.user.id),
-			]);
-			return members.filter((member) => isShareableMember(audience, member.id));
+			return listShareableMembers(projectId, ctx.user.id);
 		}),
 
 	getKnownModels: publicProcedure.query(() => {

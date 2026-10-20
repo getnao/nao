@@ -379,7 +379,6 @@ export const userGroupRoutes = {
 				rowPolicies = validation.rowPolicies;
 				rowPoliciesRegistry = validation.registry;
 			}
-			const previousProjectSharing = await getSavedProjectSharing(ctx.project.id, input.groupId);
 			const group = await handleQuery(() =>
 				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
 					name: input.name,
@@ -396,15 +395,14 @@ export const userGroupRoutes = {
 				}),
 			);
 			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
-			if (input.projectSharing !== undefined && input.projectSharing !== previousProjectSharing) {
-				await revokeUnauthorizedProjectWideShares(ctx.project.id);
-			}
+			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			return group;
 		}),
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
 		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-		return handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+		await revokeUnauthorizedProjectWideShares(ctx.project.id);
 	}),
 
 	setMembership: adminProtectedProcedure
@@ -417,16 +415,12 @@ export const userGroupRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			return handleQuery(() =>
+			await handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
 			);
+			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 };
-
-async function getSavedProjectSharing(projectId: string, groupId: string) {
-	const groups = await userGroupQueries.listUserGroups(projectId);
-	return groups.find((group) => group.id === groupId)?.projectSharing;
-}
 
 async function assertGroupBudgetEditable(budgetLimitUsd: number | null | undefined): Promise<void> {
 	if (budgetLimitUsd !== undefined) {

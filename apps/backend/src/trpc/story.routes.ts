@@ -35,12 +35,11 @@ import {
 	assertAudienceIncludes,
 	assertAudienceIncludesProject,
 	getShareAudience,
-	isShareableGroup,
-	isShareableMember,
+	listShareableGroups,
 	type ShareAudience,
 } from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
-import { assertShareableUserGroupIds, listShareableUserGroups } from '../services/shareable-user-groups.service';
+import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import {
 	editCustomStoryBlock,
 	restoreCustomStoryVersion,
@@ -693,7 +692,7 @@ export const storyRoutes = {
 				projectQueries.listProjectMembersWithRoles(projectId),
 				getShareAudience(projectId, ctx.user.id),
 			]);
-			const members = projectMembers.filter((member) => isShareableMember(audience, member.id));
+			const members = projectMembers.filter((member) => audience.memberIds.has(member.id));
 			const toRecipient = (member: (typeof members)[number]) => ({
 				id: member.id,
 				name: member.name,
@@ -714,11 +713,7 @@ export const storyRoutes = {
 			if (!projectId) {
 				return [];
 			}
-			const [groups, audience] = await Promise.all([
-				listShareableUserGroups(projectId),
-				getShareAudience(projectId, ctx.user.id),
-			]);
-			return groups.filter((group) => isShareableGroup(audience, group.id));
+			return listShareableGroups(projectId, ctx.user.id);
 		}),
 
 	updateDelivery: chatOwnerProcedure
@@ -787,18 +782,25 @@ export const storyRoutes = {
 				await assertShareableUserGroupIds(projectId, input.recipientGroupIds);
 			}
 
-			const audience = projectId ? await getShareAudience(projectId, ctx.user.id) : null;
-			if (input.enabled && projectId && audience) {
-				await assertDeliveryWithinShareAudience(story.id, projectId, audience, input, existingDelivery);
-			}
-
-			if (input.enabled && projectId && audience?.canShareToProject) {
-				const sharedInfo = await sharedStoryQueries.getSharedStoryInfo(story.id, projectId);
-				if (!sharedInfo) {
-					await storyFolderQueries.moveStoryToFolder(story.id, null, {
-						storyOwnerId: ctx.user.id,
-						projectId,
-					});
+			if (input.enabled && projectId) {
+				const audience = await getShareAudience(projectId, ctx.user.id);
+				await assertDeliveryWithinShareAudience(
+					story.id,
+					projectId,
+					audience,
+					input,
+					existingDelivery?.enabled && existingDelivery.recipientMode === 'specific'
+						? existingDelivery
+						: null,
+				);
+				if (audience.canShareToProject) {
+					const sharedInfo = await sharedStoryQueries.getSharedStoryInfo(story.id, projectId);
+					if (!sharedInfo) {
+						await storyFolderQueries.moveStoryToFolder(story.id, null, {
+							storyOwnerId: ctx.user.id,
+							projectId,
+						});
+					}
 				}
 			}
 
@@ -1299,13 +1301,16 @@ async function grantSpecificShareAccess(storyId: string, projectId: string, user
 	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
 }
 
-/** Delivering to "all" reaches the whole project unless the story is already limited to specific people. */
+/**
+ * Delivering to "all" reaches the whole project unless the story is already limited to specific people.
+ * Recipients of the currently active specific delivery stay allowed so restricted owners can keep editing it.
+ */
 async function assertDeliveryWithinShareAudience(
 	storyId: string,
 	projectId: string,
 	audience: ShareAudience,
 	delivery: { recipientMode: RecipientMode; recipientUserIds: string[]; recipientGroupIds: string[] },
-	previousDelivery: { recipientUserIds: string[]; recipientGroupIds: string[] } | null,
+	activeSpecificDelivery: { recipientUserIds: string[]; recipientGroupIds: string[] } | null,
 ): Promise<void> {
 	if (audience.canShareToProject) {
 		return;
@@ -1318,8 +1323,8 @@ async function assertDeliveryWithinShareAudience(
 		return;
 	}
 	assertAudienceIncludes(audience, {
-		userIds: delivery.recipientUserIds.filter((id) => !previousDelivery?.recipientUserIds.includes(id)),
-		groupIds: delivery.recipientGroupIds.filter((id) => !previousDelivery?.recipientGroupIds.includes(id)),
+		userIds: delivery.recipientUserIds.filter((id) => !activeSpecificDelivery?.recipientUserIds.includes(id)),
+		groupIds: delivery.recipientGroupIds.filter((id) => !activeSpecificDelivery?.recipientGroupIds.includes(id)),
 	});
 }
 

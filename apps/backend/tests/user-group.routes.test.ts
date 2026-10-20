@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
 	getShareAudience: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
-	listUserGroups: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
 	revokeUnauthorizedProjectWideShares: vi.fn(),
 	env: {} as Record<string, string | undefined>,
@@ -53,7 +52,6 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
 	getProjectRowSecurity: mocks.getProjectRowSecurity,
-	listUserGroups: mocks.listUserGroups,
 	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	updateUserGroup: mocks.updateUserGroup,
@@ -130,7 +128,6 @@ describe('user group routes', () => {
 		});
 		mocks.createUserGroup.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
 		mocks.createUserGroupWithinLimit.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
-		mocks.listUserGroups.mockResolvedValue([{ id: 'group-id', projectSharing: 'inherit' }]);
 	});
 
 	it('allows unlicensed row-security table removals', async () => {
@@ -964,7 +961,7 @@ describe('user group routes', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
-	it('saves the project sharing permission and unshares project-wide content when it changes', async () => {
+	it('saves the project sharing permission and unshares project-wide content no longer allowed', async () => {
 		await createCaller().update({
 			groupId: 'group-id',
 			featureGrants: [],
@@ -980,16 +977,15 @@ describe('user group routes', () => {
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 
-	it('keeps shares untouched when the project sharing permission is unchanged', async () => {
-		await createCaller().update({
-			groupId: 'group-id',
-			featureGrants: [],
-			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
-			projectSharing: 'inherit',
-		});
+	it('unshares project-wide content no longer allowed after membership changes and group deletion', async () => {
+		await createCaller().setMembership({ groupId: 'group-id', userId: 'target-user-id', isMember: false });
+		expect(mocks.setUserGroupMembership).toHaveBeenCalled();
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 
-		expect(mocks.updateUserGroup).toHaveBeenCalled();
-		expect(mocks.revokeUnauthorizedProjectWideShares).not.toHaveBeenCalled();
+		mocks.revokeUnauthorizedProjectWideShares.mockClear();
+		await createCaller().delete({ groupId: 'group-id' });
+		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 
 	it('creates groups with their project sharing permission', async () => {
@@ -1027,8 +1023,8 @@ describe('user group routes', () => {
 		mocks.role = 'user';
 		mocks.getShareAudience.mockResolvedValue({
 			canShareToProject: false,
-			groupIds: new Set(['client-a']),
 			memberIds: new Set(['user-id']),
+			groupIds: new Set(['client-a']),
 		});
 
 		await expect(createCaller().projectSharingAccess()).resolves.toEqual({ canShareToProject: false });

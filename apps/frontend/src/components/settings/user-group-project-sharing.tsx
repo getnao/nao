@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 interface UserGroupProjectSharingProps {
 	isDefaultGroup: boolean;
-	defaultAllowed: boolean;
+	defaultAllowed: boolean | undefined;
 	value: ProjectSharingPermission;
 	onChange: (value: ProjectSharingPermission) => void;
 }
@@ -44,7 +44,7 @@ function GroupOverrideRow({
 	value,
 	onChange,
 }: {
-	defaultAllowed: boolean;
+	defaultAllowed: boolean | undefined;
 	value: ProjectSharingPermission;
 	onChange: (value: ProjectSharingPermission) => void;
 }) {
@@ -64,13 +64,18 @@ function GroupOverrideRow({
 					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
-					<SelectItem value='inherit'>
-						Use All Users default ({defaultAllowed ? 'allowed' : 'not allowed'})
-					</SelectItem>
+					<SelectItem value='inherit'>{describeInheritOption(defaultAllowed)}</SelectItem>
 					<SelectItem value='allowed'>Allowed</SelectItem>
 					<SelectItem value='blocked'>Not allowed</SelectItem>
 				</SelectContent>
 			</Select>
 		</div>
 	);
+}
+
+function describeInheritOption(defaultAllowed: boolean | undefined): string {
+	if (defaultAllowed === undefined) {
+		return 'Use All Users default';
+	}
+	return `Use All Users default (${defaultAllowed ? 'allowed' : 'not allowed'})`;
 }

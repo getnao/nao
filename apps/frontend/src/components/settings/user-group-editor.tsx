@@ -144,7 +144,8 @@ export function UserGroupEditor({
 	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
 		existingGroup?.projectSharing ?? 'inherit',
 	);
-	const [pendingShareRevocation, setPendingShareRevocation] = useState<ProjectWideShareRevocation | null>(null);
+	const [shareRevocation, setShareRevocation] = useState<ProjectWideShareRevocation | null>(null);
+	const [isShareRevocationOpen, setIsShareRevocationOpen] = useState(false);
 	const [isRevokingShares, setIsRevokingShares] = useState(false);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
@@ -358,7 +359,8 @@ export function UserGroupEditor({
 					staleTime: 0,
 				});
 				if (revocation.chatCount + revocation.storyCount > 0) {
-					setPendingShareRevocation(revocation);
+					setShareRevocation(revocation);
+					setIsShareRevocationOpen(true);
 					return;
 				}
 			} catch (error) {
@@ -418,7 +420,7 @@ export function UserGroupEditor({
 			await invalidateShareQueries(queryClient);
 		}
 		setIsRevokingShares(false);
-		setPendingShareRevocation(null);
+		setIsShareRevocationOpen(false);
 	};
 
 	const handleDelete = async () => {
@@ -685,10 +687,10 @@ export function UserGroupEditor({
 			/>
 
 			<ConfirmationDialog
-				open={pendingShareRevocation !== null}
-				onOpenChange={(open) => !open && setPendingShareRevocation(null)}
+				open={isShareRevocationOpen}
+				onOpenChange={setIsShareRevocationOpen}
 				title='Unshare content shared with everyone?'
-				description={describeShareRevocation(pendingShareRevocation ?? { chatCount: 0, storyCount: 0 })}
+				description={shareRevocation ? describeShareRevocation(shareRevocation) : ''}
 				confirmLabel='Unshare and save'
 				onConfirm={handleConfirmShareRevocation}
 				isPending={isRevokingShares}
@@ -714,8 +716,9 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 
 function isProjectSharingAllowedByDefault(
 	groups: ReadonlyArray<{ isDefault: boolean; projectSharing?: ProjectSharingPermission }> | undefined,
-): boolean {
-	return groups?.find((group) => group.isDefault)?.projectSharing !== 'blocked';
+): boolean | undefined {
+	const defaultGroup = groups?.find((group) => group.isDefault);
+	return defaultGroup ? defaultGroup.projectSharing !== 'blocked' : undefined;
 }
 
 function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
@@ -1031,7 +1034,7 @@ function UserGroupFeatures({
 	featureGrants: UserGroupFeature[];
 	onFeatureGrantsChange: (featureGrants: UserGroupFeature[]) => void;
 	isDefaultGroup: boolean;
-	defaultAllowsProjectSharing: boolean;
+	defaultAllowsProjectSharing: boolean | undefined;
 	projectSharing: ProjectSharingPermission;
 	onProjectSharingChange: (value: ProjectSharingPermission) => void;
 	toolCallDensityPolicy: ToolCallDensityPolicy;

@@ -18,17 +18,8 @@ import {
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
-import {
-	assertCanShareToProject,
-	assertCanShareWith,
-	getShareAudience,
-	isShareableGroup,
-} from '../services/project-sharing.service';
-import {
-	assertShareableUserGroupIds,
-	filterShareableUserGroupIds,
-	listShareableUserGroups,
-} from '../services/shareable-user-groups.service';
+import { assertCanShareToProject, assertCanShareWith, listShareableGroups } from '../services/project-sharing.service';
+import { assertShareableUserGroupIds, filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import { unshareStory } from '../services/shared-story.service';
 import {
 	assertStoryFiltersEnabled,
@@ -512,11 +503,7 @@ export const sharedStoryRoutes = {
 		}),
 
 	listShareableGroups: projectProtectedProcedure.query(async ({ ctx }) => {
-		const [groups, audience] = await Promise.all([
-			listShareableUserGroups(ctx.project.id),
-			getShareAudience(ctx.project.id, ctx.user.id),
-		]);
-		return groups.filter((group) => isShareableGroup(audience, group.id));
+		return listShareableGroups(ctx.project.id, ctx.user.id);
 	}),
 
 	updateAccess: shareProcedure
