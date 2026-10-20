@@ -22,7 +22,7 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
-import { useTrackLastAppLocation } from '@/hooks/use-last-app-location';
+import { resetLastAppLocation, useTrackLastAppLocation } from '@/hooks/use-last-app-location';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
@@ -115,7 +115,11 @@ export function Sidebar() {
 	const handleProjectChange = useCallback(
 		async (projectId: string) => {
 			const didSwitch = await switchProject(projectId);
-			if (didSwitch && isMobile) {
+			if (!didSwitch) {
+				return;
+			}
+			resetLastAppLocation();
+			if (isMobile) {
 				closeMobile();
 			}
 		},
