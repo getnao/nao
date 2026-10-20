@@ -282,7 +282,18 @@ describe('user group routes', () => {
 		await update(githubOnly);
 		await update({ mode: 'all' });
 		await createCaller().create({ name: 'Analysts' });
-		expect(mocks.updateUserGroup).toHaveBeenCalledTimes(2);
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			1,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ mcpAccess: githubOnly }),
+		);
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			2,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ mcpAccess: { mode: 'all' } }),
+		);
 		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledTimes(1);
 	});
 
