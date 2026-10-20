@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, KeyRound, Trash2 } from 'lucide-react';
 
+import type { ApiKeyScope } from '@nao/shared/api-key';
+
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
-
-type ApiKeyScope = 'deploy' | 'user_management';
 
 const DEFAULT_KEY_NAMES: Record<ApiKeyScope, string> = {
 	deploy: 'Deploy key',
@@ -180,8 +180,8 @@ export function DeployKeyGenerator({
 								</>
 							) : (
 								<>
-									Create an API key for the user management API: it can list, invite and remove users
-									and manage groups and roles, but cannot deploy.
+									Create an API key for the user management API: it can list, invite and remove users,
+									purge an account and its stories, and manage groups and roles, but cannot deploy.
 								</>
 							)}
 						</p>

@@ -26,6 +26,13 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 	cleanupContextWorktree: vi.fn(),
 }));
 
+const idp = vi.hoisted(() => ({ rolesManagedByIdp: false }));
+
+vi.mock('../src/services/sso-group-mapping.service', async (importOriginal) => {
+	const mod = await importOriginal<typeof import('../src/services/sso-group-mapping.service')>();
+	return { ...mod, isOrganizationRoleMappingActive: async () => idp.rolesManagedByIdp };
+});
+
 import { and, eq } from 'drizzle-orm';
 
 import s from '../src/db/abstractSchema';
@@ -38,6 +45,7 @@ const OTHER_ORG_ID = 'org-other';
 const ADMIN_ID = 'user-admin';
 const MEMBER_ID = 'user-member';
 const ACCEPTED_ID = 'user-accepted';
+const OTHER_MEMBER_ID = 'user-other-member';
 const PROJECT_ID = 'project-gehb';
 const SECOND_PROJECT_ID = 'project-gehb-docs';
 const OTHER_PROJECT_ID = 'project-other';
@@ -58,6 +66,7 @@ describe('user management API', () => {
 	});
 
 	beforeEach(async () => {
+		idp.rolesManagedByIdp = false;
 		await clearData();
 		await seedData();
 	});
@@ -69,13 +78,14 @@ describe('user management API', () => {
 
 	const get = (url: string, key?: string) =>
 		app.inject({ method: 'GET', url: `/api${url}`, headers: auth(key ?? USER_MANAGEMENT_KEY) });
-	const post = (url: string, payload: unknown) =>
-		app.inject({ method: 'POST', url: `/api${url}`, headers: auth(), payload });
-	const patch = (url: string, payload: unknown) =>
-		app.inject({ method: 'PATCH', url: `/api${url}`, headers: auth(), payload });
+	const post = (url: string, payload: unknown, key?: string) =>
+		app.inject({ method: 'POST', url: `/api${url}`, headers: auth(key ?? USER_MANAGEMENT_KEY), payload });
+	const patch = (url: string, payload: unknown, key?: string) =>
+		app.inject({ method: 'PATCH', url: `/api${url}`, headers: auth(key ?? USER_MANAGEMENT_KEY), payload });
 	const put = (url: string, payload?: unknown) =>
 		app.inject({ method: 'PUT', url: `/api${url}`, headers: auth(), ...(payload ? { payload } : {}) });
-	const del = (url: string) => app.inject({ method: 'DELETE', url: `/api${url}`, headers: auth() });
+	const del = (url: string, key?: string) =>
+		app.inject({ method: 'DELETE', url: `/api${url}`, headers: auth(key ?? USER_MANAGEMENT_KEY) });
 
 	it('rejects a missing, unknown or wrong-scope key', async () => {
 		const missing = await app.inject({ method: 'GET', url: '/api/user-management/users' });
@@ -97,7 +107,95 @@ describe('user management API', () => {
 	it('only reaches the organization that owns the key', async () => {
 		const otherOrg = await get('/user-management/users?search=member', OTHER_ORG_USER_MANAGEMENT_KEY);
 		expect(otherOrg.statusCode).toBe(200);
-		expect(otherOrg.json().items).toEqual([]);
+		expect(otherOrg.json().items.map((user: { email: string }) => user.email)).toEqual([
+			'other-member@example.com',
+		]);
+	});
+
+	it("does not mutate another organization's members through this key", async () => {
+		expect((await patch(`/user-management/users/${OTHER_MEMBER_ID}`, { role: 'admin' })).statusCode).toBe(404);
+		expect((await del(`/user-management/users/${OTHER_MEMBER_ID}`)).statusCode).toBe(404);
+		// ...and the other organization's key cannot reach this one either.
+		expect(
+			(await patch(`/user-management/users/${MEMBER_ID}`, { role: 'admin' }, OTHER_ORG_USER_MANAGEMENT_KEY))
+				.statusCode,
+		).toBe(404);
+
+		const [membership] = await db
+			.select()
+			.from(s.orgMember)
+			.where(and(eq(s.orgMember.orgId, OTHER_ORG_ID), eq(s.orgMember.userId, OTHER_MEMBER_ID)))
+			.execute();
+		expect(membership?.role).toBe('user');
+	});
+
+	it('rejects a group id from another organization on invite', async () => {
+		await db
+			.insert(s.userGroup)
+			.values({ id: 'group-other-org', projectId: OTHER_PROJECT_ID, name: 'Other Team' })
+			.execute();
+
+		const created = await post('/user-management/users', {
+			email: 'cross-tenant@example.com',
+			name: 'Cross Tenant',
+			groupIds: ['group-other-org'],
+		});
+		expect(created.statusCode).toBe(400);
+	});
+
+	it('refuses role changes while an identity provider manages roles', async () => {
+		idp.rolesManagedByIdp = true;
+
+		const invited = await post('/user-management/users', {
+			email: 'idp@example.com',
+			name: 'IdP User',
+			role: 'admin',
+		});
+		expect(invited.statusCode).toBe(403);
+		expect((await patch(`/user-management/users/${MEMBER_ID}`, { role: 'admin' })).statusCode).toBe(403);
+	});
+
+	it('keeps at least one admin when two removals race', async () => {
+		await db
+			.insert(s.user)
+			.values({
+				id: 'user-second-admin',
+				name: 'Second Admin',
+				email: 'second-admin@example.com',
+				emailVerified: true,
+			})
+			.execute();
+		await db.insert(s.orgMember).values({ orgId: ORG_ID, userId: 'user-second-admin', role: 'admin' }).execute();
+
+		const results = await Promise.all([
+			del(`/user-management/users/${ADMIN_ID}`),
+			del('/user-management/users/user-second-admin'),
+		]);
+
+		expect(results.map((result) => result.statusCode).sort()).toEqual([204, 400]);
+		const admins = await db
+			.select()
+			.from(s.orgMember)
+			.where(and(eq(s.orgMember.orgId, ORG_ID), eq(s.orgMember.role, 'admin')))
+			.execute();
+		expect(admins).toHaveLength(1);
+	});
+
+	it('keeps the last admin signed in when their removal is rejected', async () => {
+		await db
+			.insert(s.session)
+			.values({
+				id: 'session-admin',
+				token: 'token-admin',
+				userId: ADMIN_ID,
+				expiresAt: new Date(Date.now() + 60_000),
+			})
+			.execute();
+
+		expect((await del(`/user-management/users/${ADMIN_ID}`)).statusCode).toBe(400);
+
+		const [session] = await db.select().from(s.session).where(eq(s.session.id, 'session-admin')).execute();
+		expect(session).toBeDefined();
 	});
 
 	it('creates a user with a role, refuses a duplicate, and lists members', async () => {
@@ -190,6 +288,8 @@ describe('user management API', () => {
 				expiresAt: new Date(Date.now() + 86_400_000),
 			})
 			.execute();
+		// Another member's explicit project role: the revocation must not touch it.
+		await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: ADMIN_ID, role: 'admin' }).execute();
 
 		const removed = await del(`/user-management/users/${MEMBER_ID}`);
 		expect(removed.statusCode).toBe(204);
@@ -201,6 +301,14 @@ describe('user management API', () => {
 			.execute();
 		expect(membership).toHaveLength(0);
 		expect(await db.select().from(s.session).where(eq(s.session.userId, MEMBER_ID)).execute()).toHaveLength(0);
+		// Project roles are explicit grants; they must go with the organization membership — and only
+		// that member's rows may go, not every project role in the organization.
+		expect(
+			await db.select().from(s.projectMember).where(eq(s.projectMember.userId, MEMBER_ID)).execute(),
+		).toHaveLength(0);
+		expect(
+			await db.select().from(s.projectMember).where(eq(s.projectMember.userId, ADMIN_ID)).execute(),
+		).toHaveLength(1);
 		expect(await db.select().from(s.user).where(eq(s.user.id, MEMBER_ID)).execute()).toHaveLength(1);
 	});
 
@@ -343,6 +451,7 @@ async function seedData() {
 		{ id: ADMIN_ID, name: 'Admin User', email: 'admin@example.com', emailVerified: true },
 		{ id: MEMBER_ID, name: 'Member User', email: 'member@example.com', emailVerified: true },
 		{ id: ACCEPTED_ID, name: 'Accepted User', email: 'accepted@example.com', emailVerified: true },
+		{ id: OTHER_MEMBER_ID, name: 'Other Member', email: 'other-member@example.com', emailVerified: true },
 	]);
 	await db.insert(s.organization).values([
 		{ id: ORG_ID, name: 'GEHB', slug: 'gehb' },
@@ -352,6 +461,7 @@ async function seedData() {
 		{ orgId: ORG_ID, userId: ADMIN_ID, role: 'admin' },
 		{ orgId: ORG_ID, userId: MEMBER_ID, role: 'user' },
 		{ orgId: ORG_ID, userId: ACCEPTED_ID, role: 'user' },
+		{ orgId: OTHER_ORG_ID, userId: OTHER_MEMBER_ID, role: 'user' },
 	]);
 	await db.insert(s.project).values([
 		{

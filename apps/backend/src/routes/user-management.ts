@@ -13,6 +13,7 @@ import * as userGroupQueries from '../queries/user-group.queries';
 import { checkApiKey } from '../services/api-key.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { putOrganizationMember, putProjectMember, removeOrganizationMember } from '../services/membership.service';
+import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { addTeamMember } from '../services/team-member';
 import { assertUserGroupManageable, validateAssignableUserGroupIds } from '../services/user-group-availability.service';
 import { apiKeyRejection, type ApiKeyScope } from '../types/api-key';
@@ -21,6 +22,16 @@ import { buildUserAddedEmail } from '../utils/email-builders';
 import { HandlerError } from '../utils/error';
 
 const USER_MANAGEMENT_SCOPE: ApiKeyScope = 'user_management';
+
+/** Organization roles mapped from an identity provider are re-applied on every sign-in. */
+async function assertOrgRolesEditable(): Promise<void> {
+	if (await isOrganizationRoleMappingActive()) {
+		throw new HandlerError(
+			'FORBIDDEN',
+			'Organization roles are managed by your identity provider and cannot be changed here.',
+		);
+	}
+}
 
 const paginationSchema = z.object({
 	search: z.string().trim().optional(),
@@ -81,6 +92,7 @@ export const userManagementRoutes = async (app: App) => {
 		}
 		const created = await run(reply, async () => {
 			const org = requireOrg(request);
+			await assertOrgRolesEditable();
 			const groupIds = await requireGroupIdsInOrg(org.id, body.groupIds);
 			const existing = await userQueries.getUser({ email: body.email.toLowerCase() });
 			if (existing && (await orgQueries.getOrgMember(org.id, existing.id))) {
@@ -117,6 +129,7 @@ export const userManagementRoutes = async (app: App) => {
 		return run(reply, async () => {
 			const org = requireOrg(request);
 			await requireOrgMember(org.id, params.userId);
+			await assertOrgRolesEditable();
 			return putOrganizationMember(org.id, params.userId, body.role, { addIfMissing: false });
 		});
 	});
@@ -141,10 +154,9 @@ export const userManagementRoutes = async (app: App) => {
 			// An invitation nobody accepted is not an account at all — it IS the invitation, so the row
 			// goes with it (that is what cancels the temporary password already sitting in their inbox).
 			const deletesAccount = query.purge || (await userQueries.isPendingInvitation(params.userId));
-			// Sessions die before the membership row does: a failure mid-way then leaves a signed-out
-			// member (retryable), never a revoked member with a live session.
-			await userQueries.deleteUserSessions(params.userId);
-			await removeOrganizationMember(org.id, params.userId);
+			// Sessions die in the same transaction as the membership row: a failed removal cannot sign
+			// the member out, and a removed member cannot keep a live session.
+			await removeOrganizationMember(org.id, params.userId, { deleteSessions: true });
 			// purge stays opt-in: the cascade also takes the person's stories, which a membership sync
 			// has no business doing.
 			if (deletesAccount) {
