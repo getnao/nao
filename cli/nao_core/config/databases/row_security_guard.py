@@ -106,6 +106,7 @@ def enforce_row_security(
             if select is None:
                 raise _blocked("a protected table is not contained by a SELECT scope")
 
+            _alias_quoted_table_path(table_expression)
             if policy["access"] == "none":
                 condition: exp.Expression = exp.false()
             else:
@@ -239,6 +240,15 @@ def _every_comparison_branch_is_grounded(expression: exp.Expression) -> bool:
         expression,
         (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Is, exp.In, exp.Between),
     ) and any(expression.find_all(exp.Column))
+
+
+def _alias_quoted_table_path(table_expression: exp.Table) -> None:
+    """BigQuery gives no implicit alias to a single quoted path like `project.dataset.table`."""
+    if table_expression.args.get("alias") is not None or not table_expression.meta.get("quoted_table"):
+        return
+    table_name = table_expression.args.get("this")
+    if isinstance(table_name, exp.Identifier):
+        table_expression.set("alias", exp.TableAlias(this=table_name.copy()))
 
 
 def _table_qualifier(table_expression: exp.Table) -> exp.Identifier:

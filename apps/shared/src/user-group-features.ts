@@ -4,6 +4,10 @@ export const USER_GROUP_FEATURES = ['storyCreation', 'customStoryCreation', 'aut
 
 export type UserGroupFeature = (typeof USER_GROUP_FEATURES)[number];
 
+export const PROJECT_SHARING_PERMISSIONS = ['inherit', 'allowed', 'blocked'] as const;
+
+export type ProjectSharingPermission = (typeof PROJECT_SHARING_PERMISSIONS)[number];
+
 export interface ToolCallDensityPolicy {
 	defaultDensity: ToolCallDensity;
 	canChange: boolean;
@@ -12,6 +16,7 @@ export interface ToolCallDensityPolicy {
 export interface UserGroupConfig {
 	features: UserGroupFeature[];
 	toolCallDensity: ToolCallDensityPolicy;
+	projectSharing: ProjectSharingPermission;
 }
 
 export type StoredUserGroupConfig =
@@ -20,6 +25,7 @@ export type StoredUserGroupConfig =
 			version: 2;
 			features: UserGroupFeature[];
 			toolCallDensity: ToolCallDensityPolicy;
+			projectSharing?: ProjectSharingPermission;
 	  };
 
 export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
@@ -93,6 +99,20 @@ export function normalizeUserGroupFeatures(features: readonly string[]): UserGro
 	];
 }
 
+/** An explicit block on any of the user's groups wins over an explicit allow, which wins over the All Users default. */
+export function resolveProjectSharingPermission(
+	groups: ReadonlyArray<{ isDefault: boolean; projectSharing: ProjectSharingPermission }>,
+): boolean {
+	const overrides = groups.filter((group) => !group.isDefault).map((group) => group.projectSharing);
+	if (overrides.includes('blocked')) {
+		return false;
+	}
+	if (overrides.includes('allowed')) {
+		return true;
+	}
+	return !groups.some((group) => group.isDefault && group.projectSharing === 'blocked');
+}
+
 export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
 	if (Array.isArray(value)) {
 		const legacyFeatures = value.filter((feature): feature is string => typeof feature === 'string');
@@ -102,6 +122,7 @@ export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
 				defaultDensity: 'detailed',
 				canChange: legacyFeatures.includes('compact-mode'),
 			},
+			projectSharing: 'inherit',
 		};
 	}
 
@@ -109,6 +130,7 @@ export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
 		return {
 			features: [],
 			toolCallDensity: { defaultDensity: 'detailed', canChange: false },
+			projectSharing: 'inherit',
 		};
 	}
 
@@ -123,12 +145,14 @@ export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
 			defaultDensity: policy.defaultDensity === 'compact' ? 'compact' : 'detailed',
 			canChange: policy.canChange === true,
 		},
+		projectSharing: parseProjectSharingPermission(value.projectSharing),
 	};
 }
 
 export function serializeUserGroupConfig(
 	features: readonly string[],
 	toolCallDensity: ToolCallDensityPolicy,
+	projectSharing: ProjectSharingPermission = 'inherit',
 ): StoredUserGroupConfig {
 	return {
 		version: 2,
@@ -137,7 +161,14 @@ export function serializeUserGroupConfig(
 			defaultDensity: toolCallDensity.defaultDensity,
 			canChange: toolCallDensity.canChange,
 		},
+		projectSharing: parseProjectSharingPermission(projectSharing),
 	};
+}
+
+function parseProjectSharingPermission(value: unknown): ProjectSharingPermission {
+	return PROJECT_SHARING_PERMISSIONS.includes(value as ProjectSharingPermission)
+		? (value as ProjectSharingPermission)
+		: 'inherit';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -7,6 +7,7 @@ import type { DBStoryFolder } from '../db/abstractSchema';
 import { db } from '../db/db';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import { assertCanShareToProject } from '../services/project-sharing.service';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
 
 async function assertFolderInProject(
@@ -43,13 +44,16 @@ function assertCanPlaceInDestination(target: DBStoryFolder | null, userId: strin
 }
 
 function assertCanChangeFolderScope(folder: DBStoryFolder, target: DBStoryFolder | null, userId: string) {
-	const newVisibility = target ? target.visibility : 'public';
-	if (folder.visibility !== newVisibility && folder.ownerId !== userId) {
+	if (folder.visibility !== resolveDestinationVisibility(target) && folder.ownerId !== userId) {
 		throw new TRPCError({
 			code: 'FORBIDDEN',
 			message: "Only the owner can change a folder's visibility.",
 		});
 	}
+}
+
+function resolveDestinationVisibility(target: DBStoryFolder | null) {
+	return target ? target.visibility : 'public';
 }
 
 export const storyFolderRoutes = {
@@ -173,6 +177,9 @@ export const storyFolderRoutes = {
 			}
 			assertCanPlaceInDestination(target, ctx.user.id);
 			assertCanChangeFolderScope(folder, target, ctx.user.id);
+			if (folder.visibility === 'private' && resolveDestinationVisibility(target) === 'public') {
+				await assertCanShareToProject(ctx.project.id, ctx.user.id);
+			}
 			try {
 				await storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId);
 			} catch (err) {
@@ -210,6 +217,9 @@ export const storyFolderRoutes = {
 			}
 
 			assertCanPlaceInDestination(target, ctx.user.id);
+			if (resolveDestinationVisibility(target) === 'public') {
+				await assertCanShareToProject(ctx.project.id, ctx.user.id);
+			}
 			await storyFolderQueries.moveStoryToFolder(input.storyId, input.folderId, {
 				storyOwnerId,
 				projectId: ctx.project.id,

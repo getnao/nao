@@ -1,6 +1,6 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import type { StoryFormat } from '@nao/shared/types';
-import { aliasedTable, and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import { aliasedTable, and, count, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -272,6 +272,40 @@ export async function deleteSharedStoryRecipients(sharedStoryId: string): Promis
 
 export async function deleteSharedStory(id: string): Promise<void> {
 	await db.delete(s.sharedStory).where(eq(s.sharedStory.id, id)).execute();
+}
+
+export async function deleteProjectWideSharedStory(id: string): Promise<boolean> {
+	const deleted = await db
+		.delete(s.sharedStory)
+		.where(and(eq(s.sharedStory.id, id), eq(s.sharedStory.visibility, 'project')))
+		.returning({ id: s.sharedStory.id })
+		.execute();
+	return deleted.length > 0;
+}
+
+export async function listProjectWideSharedStories(
+	projectId: string,
+	sharerIds: string[],
+): Promise<Array<Pick<DBSharedStory, 'id' | 'storyId' | 'projectId' | 'userId'>>> {
+	if (sharerIds.length === 0) {
+		return [];
+	}
+	return db
+		.select({
+			id: s.sharedStory.id,
+			storyId: s.sharedStory.storyId,
+			projectId: s.sharedStory.projectId,
+			userId: s.sharedStory.userId,
+		})
+		.from(s.sharedStory)
+		.where(
+			and(
+				eq(s.sharedStory.projectId, projectId),
+				eq(s.sharedStory.visibility, 'project'),
+				inArray(s.sharedStory.userId, sharerIds),
+			),
+		)
+		.execute();
 }
 
 async function insertSharedStoryRecipients(

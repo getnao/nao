@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useShareAudience } from '@/hooks/use-share-dialog';
 import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -67,6 +68,8 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			enabled: open,
 		});
 		const isShared = shareQuery.data?.isShared === true;
+		const audience = useShareAudience();
+		const canDeliverToAll = audience.canShareToProject || shareQuery.data?.visibility === 'specific';
 
 		const [enabled, setEnabled] = useState(false);
 		const [timing, setTiming] = useState<DeliveryTiming>('after-refresh');
@@ -75,7 +78,8 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		const [nlInput, setNlInput] = useState('');
 		const [savedNlInput, setSavedNlInput] = useState('');
 		const [nlConvertFailed, setNlConvertFailed] = useState(false);
-		const [recipientMode, setRecipientMode] = useState<RecipientMode>('specific');
+		const [selectedRecipientMode, setRecipientMode] = useState<RecipientMode>('specific');
+		const recipientMode: RecipientMode = canDeliverToAll ? selectedRecipientMode : 'specific';
 		const [selected, setSelected] = useState<Set<string>>(new Set());
 		const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
 		const [emailEnabled, setEmailEnabled] = useState(true);
@@ -400,8 +404,9 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 
 						{!isShared && (
 							<div className='rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground'>
-								This story isn't shared yet. Scheduling delivery will share it with your project so
-								recipients can open it.
+								{audience.canShareToProject
+									? "This story isn't shared yet. Scheduling delivery will share it with your project so recipients can open it."
+									: "This story isn't shared yet. Scheduling delivery will share it with the selected recipients so they can open it."}
 							</div>
 						)}
 
@@ -416,9 +421,11 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-										<SelectItem value='all'>
-											{isShared ? 'Everyone with access' : 'All project members'}
-										</SelectItem>
+										{canDeliverToAll && (
+											<SelectItem value='all'>
+												{isShared ? 'Everyone with access' : 'All project members'}
+											</SelectItem>
+										)}
 										<SelectItem value='specific'>Specific members & groups</SelectItem>
 									</SelectContent>
 								</Select>
@@ -434,6 +441,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 									groups={filteredGroups}
 									selectedGroupIds={selectedGroups}
 									onToggleGroup={toggleGroup}
+									emptyMessage={audience.emptyMessage}
 								/>
 							)}
 						</div>
