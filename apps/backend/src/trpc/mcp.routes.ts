@@ -1,13 +1,18 @@
+import { isMcpServerGranted } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { claimMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
 import { setMcpServerEnabled, setMcpToolEnabled, setMcpToolsEnabled } from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
+import { resolveMcpSettingsAccess } from '../services/user-group-context-access.service';
 import { adminProtectedProcedure, canSendProcedure, projectProtectedProcedure, router } from './trpc';
 
 export const mcpRoutes = router({
-	getServers: projectProtectedProcedure.query(({ ctx }) => mcpService.getServersStatus(ctx.project.id, ctx.user.id)),
+	getServers: projectProtectedProcedure.query(async ({ ctx }) => {
+		const access = await resolveMcpSettingsAccess(ctx.project.id, ctx.user.id, ctx.userRole);
+		return mcpService.getServersStatus(ctx.project.id, ctx.user.id, access);
+	}),
 
 	getConfigError: projectProtectedProcedure.query(({ ctx }) => mcpService.getConfigError(ctx.project.id)),
 
@@ -17,11 +22,18 @@ export const mcpRoutes = router({
 	}),
 
 	discoverServer: canSendProcedure.input(z.object({ serverName: z.string() })).mutation(async ({ ctx, input }) => {
+		const access = await resolveMcpSettingsAccess(ctx.project.id, ctx.user.id, ctx.userRole);
+		if (!isMcpServerGranted(access, input.serverName)) {
+			throw new TRPCError({
+				code: 'FORBIDDEN',
+				message: 'This MCP server is not available for your user group.',
+			});
+		}
 		if (ctx.userRole !== 'admin') {
 			await claimFirstDiscovery(ctx.project.id, input.serverName, ctx.user.id);
 		}
 		await mcpService.discoverServer(ctx.project.id, input.serverName);
-		return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
+		return mcpService.getServersStatus(ctx.project.id, ctx.user.id, access);
 	}),
 
 	setServerEnabled: adminProtectedProcedure

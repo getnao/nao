@@ -2,14 +2,16 @@
 
 import {
 	ALL_DOCS_CONTEXT_ACCESS,
+	ALL_MCP_ACCESS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,6 +35,7 @@ const mocks = vi.hoisted(() => ({
 	useQuery: vi.fn(),
 	useMutation: vi.fn(),
 	invalidateQueries: vi.fn(),
+	fetchQuery: vi.fn(),
 	mutate: vi.fn(),
 	mutateAsync: vi.fn(),
 	navigate: vi.fn(),
@@ -43,7 +46,7 @@ vi.mock('@/hooks/use-license', () => ({ useLicenseFeatures: mocks.useLicenseFeat
 vi.mock('@/hooks/use-custom-stories-enabled', () => ({ useCustomStoriesEnabled: mocks.useCustomStoriesEnabled }));
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: mocks.useQuery,
-	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, fetchQuery: mocks.fetchQuery }),
 	useMutation: mocks.useMutation,
 }));
 vi.mock('@tanstack/react-router', () => ({
@@ -114,6 +117,9 @@ vi.mock('@/main', () => ({
 			updateRowSecurity: { mutationOptions: vi.fn() },
 			effectiveAccess: { queryKey: vi.fn(() => ['effective-access']) },
 			effectiveAccessForUser: { queryKey: vi.fn(() => ['effective-access-for-user']) },
+			previewProjectSharingRevocation: {
+				queryOptions: vi.fn((input: unknown) => ({ queryKey: ['preview-project-sharing-revocation', input] })),
+			},
 			effectiveOidcEnvMappings: {
 				queryOptions: vi.fn(() => ({ queryKey: ['effective-oidc-env-mappings'] })),
 				queryKey: vi.fn(() => ['effective-oidc-env-mappings']),
@@ -254,10 +260,12 @@ const allUsers = {
 	isDefault: true,
 	featureGrants: [],
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	projectSharing: 'inherit' as const,
 	showAllSettings: true,
 	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 	filesAccess: { mode: 'all' as const },
+	mcpAccess: ALL_MCP_ACCESS,
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 };
 const analysts = {
@@ -269,6 +277,7 @@ const analysts = {
 	databaseAccess: { ...EMPTY_DATABASE_CONTEXT_ACCESS, strict: false },
 	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+	mcpAccess: EMPTY_MCP_ACCESS,
 };
 const rowSecurityIdentity = {
 	databaseType: 'duckdb',
@@ -319,6 +328,7 @@ beforeEach(() => {
 	mocks.mutate.mockReset();
 	mocks.mutateAsync.mockReset();
 	mocks.invalidateQueries.mockReset();
+	mocks.fetchQuery.mockReset();
 	mocks.copyText.mockReset().mockResolvedValue(undefined);
 	Object.defineProperty(navigator, 'clipboard', {
 		configurable: true,
@@ -933,6 +943,7 @@ describe('UserGroupEditor', () => {
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
 			'Context',
+			'MCP',
 			'Security',
 			'Budget',
 			'Advanced settings',
@@ -941,6 +952,77 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
 		expect(screen.queryByText('Context permissions')).toBeNull();
 		expect(screen.queryByRole('navigation', { name: 'User group sections' })).toBeNull();
+	});
+
+	it('offers the All Users default as the inherited project sharing permission', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [{ ...allUsers, projectSharing: 'blocked' }, analysts] },
+		});
+		renderEditor();
+
+		expect(screen.getByRole('combobox', { name: 'Allow sharing to entire project' }).textContent).toContain(
+			'Use All Users default (not allowed)',
+		);
+	});
+
+	it('confirms before unsharing project-wide content when project sharing is turned off', async () => {
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 1, storyCount: 2 });
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		selectProjectSharing('Not allowed');
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(await screen.findByText(/unshares 1 chat and 2 stories/)).toBeTruthy();
+		expect(mocks.fetchQuery).toHaveBeenCalledWith(
+			expect.objectContaining({
+				queryKey: ['preview-project-sharing-revocation', { groupId: 'analysts', projectSharing: 'blocked' }],
+			}),
+		);
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Unshare and save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ groupId: 'analysts', projectSharing: 'blocked' }),
+			),
+		);
+		await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: [['sharedChat']] }));
+		expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: [['storyShare']] });
+	});
+
+	it('saves the project sharing permission directly when nothing would be unshared', async () => {
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0 });
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		selectProjectSharing('Allowed');
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ groupId: 'analysts', projectSharing: 'allowed' }),
+			),
+		);
+		expect(screen.queryByText(/Unshare content shared with everyone/)).toBeNull();
+	});
+
+	it('turns project sharing back on for All Users with a switch', async () => {
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0 });
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor('features', vi.fn(), { ...allUsers, projectSharing: 'blocked' });
+
+		fireEvent.click(screen.getByRole('switch', { name: 'Allow sharing to entire project' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ groupId: 'all-users', projectSharing: 'allowed' }),
+			),
+		);
 	});
 
 	it('reports editor tab changes to the route', () => {
@@ -2261,6 +2343,11 @@ function StatefulEditorHarness({ group, initialTab }: { group: UserGroupEditorGr
 			onDeleted={vi.fn()}
 		/>
 	);
+}
+
+function selectProjectSharing(optionName: string) {
+	fireEvent.keyDown(screen.getByRole('combobox', { name: 'Allow sharing to entire project' }), { key: 'Enter' });
+	fireEvent.click(screen.getByRole('option', { name: optionName }));
 }
 
 function renderEditor(

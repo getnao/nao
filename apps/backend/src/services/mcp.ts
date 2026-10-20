@@ -1,8 +1,15 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { McpOAuthClientConfig, McpServerConfig, McpServerStatus, McpToolSummary, McpTransport } from '@nao/shared';
-import { debounce } from '@nao/shared';
+import type {
+	McpAccess,
+	McpOAuthClientConfig,
+	McpServerConfig,
+	McpServerStatus,
+	McpToolSummary,
+	McpTransport,
+} from '@nao/shared';
+import { ALL_MCP_ACCESS, debounce, isMcpServerGranted, isMcpToolGranted } from '@nao/shared';
 import { mcpJsonSchema } from '@nao/shared';
 import type { ErrorObject, ValidateFunction } from 'ajv';
 import Ajv2020 from 'ajv/dist/2020';
@@ -207,11 +214,13 @@ export class McpService {
 		return this._configError;
 	}
 
-	/** Configured servers the agent is currently allowed to call (not disabled by admin). */
-	public async getEnabledServers(projectId: string): Promise<string[]> {
+	/** Configured servers the agent is currently allowed to call (not disabled by admin, granted by the user's groups). */
+	public async getEnabledServers(projectId: string, access: McpAccess = ALL_MCP_ACCESS): Promise<string[]> {
 		await this.initializeMcpState(projectId);
 		const disabled = new Set(await getDisabledMcpServers(projectId));
-		return this.getConfiguredServerNames().filter((name) => !disabled.has(name));
+		return this.getConfiguredServerNames().filter(
+			(name) => !disabled.has(name) && isMcpServerGranted(access, name),
+		);
 	}
 
 	/** The configured URL for an HTTP server, or null if not an HTTP server. */
@@ -231,16 +240,23 @@ export class McpService {
 		return config ? this._staticOAuthClient(server, config) : undefined;
 	}
 
-	public async getServersStatus(projectId: string, userId?: string): Promise<McpServerStatus[]> {
+	public async getServersStatus(
+		projectId: string,
+		userId?: string,
+		access: McpAccess = ALL_MCP_ACCESS,
+	): Promise<McpServerStatus[]> {
 		await this.initializeMcpState(projectId);
 		const disabled = await this._loadDisabled();
+		const grantedServers = Object.entries(this._mcpServers).filter(([name]) => isMcpServerGranted(access, name));
 
 		return Promise.all(
-			Object.entries(this._mcpServers).map(async ([name, config]) => {
+			grantedServers.map(async ([name, config]) => {
 				if (!this._isTransportAllowed(config)) {
 					return this._blockedServerStatus(name, config, disabled);
 				}
-				const tools = await this._serverToolSummaries(name, disabled);
+				const tools = (await this._serverToolSummaries(name, disabled)).filter((tool) =>
+					isMcpToolGranted(access, name, tool.name),
+				);
 				const discovered = this._discovered[name] !== undefined || existsSync(this._serverDir(name));
 				const oauth = await this._ensureOAuthFlag(name, config);
 				const oauthConnected = oauth && userId ? await hasMcpUserToken(userId, projectId, name) : false;
@@ -327,8 +343,13 @@ export class McpService {
 	 * connected the server yet the user's own OAuth token is used for discovery, so a project where
 	 * no admin ever connected still works. Throws `McpAuthRequiredError` when the user must connect.
 	 */
-	public async connectForUser(opts: { projectId: string; userId: string; server: string }): Promise<string[]> {
-		const { projectId, userId, server } = opts;
+	public async connectForUser(opts: {
+		projectId: string;
+		userId: string;
+		server: string;
+		access?: McpAccess;
+	}): Promise<string[]> {
+		const { projectId, userId, server, access = ALL_MCP_ACCESS } = opts;
 		await this.initializeMcpState(projectId);
 
 		const config = this._mcpServers[server];
@@ -337,6 +358,9 @@ export class McpService {
 			throw new Error(`MCP server "${server}" is not configured. Configured servers: ${configured}.`);
 		}
 		this._assertTransportAllowed(server, config);
+		if (!isMcpServerGranted(access, server)) {
+			throw new Error(`MCP server "${server}" is not available for your user group.`);
+		}
 		const disabled = await this._loadDisabled();
 		if (disabled.servers.has(server)) {
 			throw new Error(`MCP server "${server}" is disabled by the project admin.`);
@@ -352,7 +376,11 @@ export class McpService {
 			throw new Error(error);
 		}
 		return (this._discovered[server] ?? [])
-			.filter((tool) => !disabled.tools.has(this._toolKey(server, tool.name)))
+			.filter(
+				(tool) =>
+					!disabled.tools.has(this._toolKey(server, tool.name)) &&
+					isMcpToolGranted(access, server, tool.name),
+			)
 			.map((tool) => tool.name);
 	}
 
@@ -384,8 +412,9 @@ export class McpService {
 		tool: string;
 		args: Record<string, unknown>;
 		allowedServers?: string[] | null;
+		access?: McpAccess;
 	}): Promise<unknown> {
-		const { projectId, userId, server, tool, args, allowedServers } = opts;
+		const { projectId, userId, server, tool, args, allowedServers, access = ALL_MCP_ACCESS } = opts;
 		await this.initializeMcpState(projectId);
 
 		const config = this._mcpServers[server];
@@ -396,6 +425,12 @@ export class McpService {
 		this._assertTransportAllowed(server, config);
 		if (allowedServers && !allowedServers.includes(server)) {
 			throw new Error(`MCP server "${server}" is not available in this context.`);
+		}
+		if (!isMcpServerGranted(access, server)) {
+			throw new Error(`MCP server "${server}" is not available for your user group.`);
+		}
+		if (!isMcpToolGranted(access, server, tool)) {
+			throw new Error(`MCP tool "${tool}" on server "${server}" is not available for your user group.`);
 		}
 		const disabled = await this._loadDisabled();
 		if (disabled.servers.has(server)) {

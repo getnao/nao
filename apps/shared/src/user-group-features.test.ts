@@ -5,6 +5,7 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_CONFIG,
 	parseStoredUserGroupConfig,
+	resolveProjectSharingPermission,
 	serializeUserGroupConfig,
 	USER_GROUP_FEATURES,
 } from './user-group-features';
@@ -29,6 +30,7 @@ describe('user group configuration', () => {
 					defaultDensity: 'compact',
 					canChange: false,
 				},
+				'inherit',
 				true,
 			),
 		).toEqual({
@@ -38,9 +40,16 @@ describe('user group configuration', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 			showAllSettings: true,
 		});
 		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'customStoryCreation', 'automationCreation']);
+	});
+
+	it('serializes the project sharing permission', () => {
+		expect(serializeUserGroupConfig([], { defaultDensity: 'detailed', canChange: true }, 'blocked')).toMatchObject({
+			projectSharing: 'blocked',
+		});
 	});
 
 	it('reads canonical v2 configuration', () => {
@@ -52,6 +61,7 @@ describe('user group configuration', () => {
 					defaultDensity: 'compact',
 					canChange: true,
 				},
+				projectSharing: 'allowed',
 				showAllSettings: true,
 			}),
 		).toEqual({
@@ -60,6 +70,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'compact',
 				canChange: true,
 			},
+			projectSharing: 'allowed',
 			showAllSettings: true,
 		});
 	});
@@ -94,6 +105,17 @@ describe('user group configuration', () => {
 		expect(parseStoredUserGroupConfig(shown, false).showAllSettings).toBe(true);
 	});
 
+	it('inherits project sharing when the stored permission is missing or unknown', () => {
+		const toolCallDensity = { defaultDensity: 'detailed', canChange: true };
+		expect(parseStoredUserGroupConfig({ version: 2, features: [], toolCallDensity }).projectSharing).toBe(
+			'inherit',
+		);
+		expect(
+			parseStoredUserGroupConfig({ version: 2, features: [], toolCallDensity, projectSharing: 'everyone' })
+				.projectSharing,
+		).toBe('inherit');
+	});
+
 	it('maps legacy compact-mode to an unlocked detailed policy', () => {
 		expect(parseStoredUserGroupConfig(['story-creation', 'compact-mode'])).toEqual({
 			features: ['storyCreation'],
@@ -101,6 +123,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: true,
 			},
+			projectSharing: 'inherit',
 			showAllSettings: false,
 		});
 	});
@@ -112,6 +135,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 			showAllSettings: false,
 		});
 	});
@@ -128,6 +152,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 			showAllSettings: false,
 		});
 	});
@@ -139,6 +164,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 			showAllSettings: false,
 		});
 	});
@@ -159,5 +185,24 @@ describe('canRoleSeeAdvancedSettings', () => {
 		expect(canRoleSeeAdvancedSettings('viewer', true)).toBe(false);
 		expect(canRoleSeeAdvancedSettings(null, true)).toBe(false);
 		expect(canRoleSeeAdvancedSettings(undefined, true)).toBe(false);
+	});
+});
+
+describe('resolveProjectSharingPermission', () => {
+	const allUsers = (projectSharing: 'inherit' | 'allowed' | 'blocked') => ({ isDefault: true, projectSharing });
+	const group = (projectSharing: 'inherit' | 'allowed' | 'blocked') => ({ isDefault: false, projectSharing });
+
+	it('falls back to the All Users default when no group overrides it', () => {
+		expect(resolveProjectSharingPermission([allUsers('inherit'), group('inherit')])).toBe(true);
+		expect(resolveProjectSharingPermission([allUsers('allowed')])).toBe(true);
+		expect(resolveProjectSharingPermission([allUsers('blocked'), group('inherit')])).toBe(false);
+	});
+
+	it('lets an explicit allow override a restrictive default', () => {
+		expect(resolveProjectSharingPermission([allUsers('blocked'), group('allowed')])).toBe(true);
+	});
+
+	it('lets an explicit block win over any explicit allow', () => {
+		expect(resolveProjectSharingPermission([allUsers('allowed'), group('allowed'), group('blocked')])).toBe(false);
 	});
 });

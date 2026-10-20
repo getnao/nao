@@ -1,4 +1,4 @@
-import type { UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
+import type { McpAccess, UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
@@ -41,6 +41,8 @@ export interface ToolContext {
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	filesContextAccess: ResolvedFilesContextAccess;
+	/** MCP servers and tools the user's groups grant; spec files of other servers are hidden too. */
+	mcpAccess: McpAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	/**

@@ -182,3 +182,29 @@ export async function updateSharedChatAllowedUsers(shareId: string, userIds: str
 export async function deleteSharedChat(id: string): Promise<void> {
 	await db.delete(s.sharedChat).where(eq(s.sharedChat.id, id)).execute();
 }
+
+export async function listProjectWideSharedChatIds(projectId: string, ownerIds: string[]): Promise<string[]> {
+	if (ownerIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.select({ id: s.sharedChat.id })
+		.from(s.sharedChat)
+		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				eq(s.sharedChat.visibility, 'project'),
+				inArray(s.chat.userId, ownerIds),
+			),
+		)
+		.execute();
+	return rows.map((row) => row.id);
+}
+
+export async function deleteSharedChats(ids: string[]): Promise<void> {
+	if (ids.length === 0) {
+		return;
+	}
+	await db.delete(s.sharedChat).where(inArray(s.sharedChat.id, ids)).execute();
+}

@@ -89,6 +89,7 @@ function isUserGroupEditorTab(value: unknown): value is UserGroupEditorTab {
 	return (
 		value === 'features' ||
 		value === 'context' ||
+		value === 'mcp' ||
 		value === 'security' ||
 		value === 'budget' ||
 		value === 'advanced' ||

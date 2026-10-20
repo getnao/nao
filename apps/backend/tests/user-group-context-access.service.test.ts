@@ -26,6 +26,7 @@ import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../sr
 import {
 	expandDatabaseAccess,
 	isDatabaseObjectAllowed,
+	resolveMcpSettingsAccess,
 	resolveProjectContextAccess,
 	resolveWarehouseTableAccess,
 } from '../src/services/user-group-context-access.service';
@@ -71,6 +72,7 @@ describe('warehouse Context access', () => {
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] },
 			rowPolicies: [],
 		});
 	});
@@ -122,10 +124,20 @@ describe('warehouse Context access', () => {
 				access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			},
 			filesContextAccess: { enforced: true, access: ALL_FILES_CONTEXT_ACCESS },
+			mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
 		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
+	});
+
+	it('scopes MCP settings to the group grants except for admins', async () => {
+		await expect(resolveMcpSettingsAccess('project-1', 'user-1', 'user')).resolves.toEqual({
+			mode: 'restricted',
+			grants: [{ kind: 'server', server: 'github' }],
+		});
+		await expect(resolveMcpSettingsAccess('project-1', 'admin-1', 'admin')).resolves.toEqual({ mode: 'all' });
+		expect(resolveUserGroupAccess).toHaveBeenCalledTimes(1);
 	});
 
 	it('blocks every protected table when the row-security license is inactive', async () => {

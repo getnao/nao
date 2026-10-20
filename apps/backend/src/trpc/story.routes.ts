@@ -1,6 +1,6 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
 import { STORY_KIT_EDITABLE_BLOCKS } from '@nao/shared/story-app';
-import type { BulkStoryItem, NotificationChannel, StoryFormat, UserRole } from '@nao/shared/types';
+import type { BulkStoryItem, NotificationChannel, RecipientMode, StoryFormat, UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS, RECIPIENT_MODES } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -31,8 +31,15 @@ import {
 	notifyStoryRefreshFailed,
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
+import {
+	assertAudienceIncludes,
+	assertAudienceIncludesProject,
+	getShareAudience,
+	listShareableGroups,
+	type ShareAudience,
+} from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
-import { assertShareableUserGroupIds, listShareableUserGroups } from '../services/shareable-user-groups.service';
+import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import {
 	editCustomStoryBlock,
 	restoreCustomStoryVersion,
@@ -681,7 +688,11 @@ export const storyRoutes = {
 			}
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			const access = story ? await sharedStoryQueries.getStoryShareAccess(story.id, projectId) : null;
-			const members = await projectQueries.listProjectMembersWithRoles(projectId);
+			const [projectMembers, audience] = await Promise.all([
+				projectQueries.listProjectMembersWithRoles(projectId),
+				getShareAudience(projectId, ctx.user.id),
+			]);
+			const members = projectMembers.filter((member) => audience.memberIds.has(member.id));
 			const toRecipient = (member: (typeof members)[number]) => ({
 				id: member.id,
 				name: member.name,
@@ -697,12 +708,12 @@ export const storyRoutes = {
 
 	listDeliveryRecipientGroups: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (!projectId) {
 				return [];
 			}
-			return listShareableUserGroups(projectId);
+			return listShareableGroups(projectId, ctx.user.id);
 		}),
 
 	updateDelivery: chatOwnerProcedure
@@ -772,12 +783,24 @@ export const storyRoutes = {
 			}
 
 			if (input.enabled && projectId) {
-				const sharedInfo = await sharedStoryQueries.getSharedStoryInfo(story.id, projectId);
-				if (!sharedInfo) {
-					await storyFolderQueries.moveStoryToFolder(story.id, null, {
-						storyOwnerId: ctx.user.id,
-						projectId,
-					});
+				const audience = await getShareAudience(projectId, ctx.user.id);
+				await assertDeliveryWithinShareAudience(
+					story.id,
+					projectId,
+					audience,
+					input,
+					existingDelivery?.enabled && existingDelivery.recipientMode === 'specific'
+						? existingDelivery
+						: null,
+				);
+				if (audience.canShareToProject) {
+					const sharedInfo = await sharedStoryQueries.getSharedStoryInfo(story.id, projectId);
+					if (!sharedInfo) {
+						await storyFolderQueries.moveStoryToFolder(story.id, null, {
+							storyOwnerId: ctx.user.id,
+							projectId,
+						});
+					}
 				}
 			}
 
@@ -1276,6 +1299,33 @@ async function grantSpecificShareAccess(storyId: string, projectId: string, user
 	}
 	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
 	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
+}
+
+/**
+ * Delivering to "all" reaches the whole project unless the story is already limited to specific people.
+ * Recipients of the currently active specific delivery stay allowed so restricted owners can keep editing it.
+ */
+async function assertDeliveryWithinShareAudience(
+	storyId: string,
+	projectId: string,
+	audience: ShareAudience,
+	delivery: { recipientMode: RecipientMode; recipientUserIds: string[]; recipientGroupIds: string[] },
+	activeSpecificDelivery: { recipientUserIds: string[]; recipientGroupIds: string[] } | null,
+): Promise<void> {
+	if (audience.canShareToProject) {
+		return;
+	}
+	if (delivery.recipientMode === 'all') {
+		const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
+		if (access?.visibility !== 'specific') {
+			assertAudienceIncludesProject(audience);
+		}
+		return;
+	}
+	assertAudienceIncludes(audience, {
+		userIds: delivery.recipientUserIds.filter((id) => !activeSpecificDelivery?.recipientUserIds.includes(id)),
+		groupIds: delivery.recipientGroupIds.filter((id) => !activeSpecificDelivery?.recipientGroupIds.includes(id)),
+	});
 }
 
 async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {

@@ -345,7 +345,8 @@ const groupAdjacentStoryQueries = (parts: GroupedMessagePart[]): GroupedMessageP
 		const part = parts[index];
 		if (isStoryActivityPart(part)) {
 			const { run, end, hasStoryStatus, queryCount } = collectStoryActivityRun(parts, index);
-			if (hasStoryStatus && queryCount > 0) {
+			const storyStatusCount = run.filter(isStoryStatusPart).length;
+			if (hasStoryStatus && (queryCount > 0 || storyStatusCount > 1)) {
 				result.push({ type: 'story-query-group', parts: run });
 			} else {
 				result.push(...parts.slice(index, end));
