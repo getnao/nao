@@ -26,6 +26,7 @@ export const upsert = async (input: Omit<NewStoryDelivery, 'scheduledJobId'>): P
 				channels: input.channels,
 				recipientMode: input.recipientMode,
 				recipientUserIds: input.recipientUserIds,
+				recipientGroupIds: input.recipientGroupIds,
 				projectId: input.projectId,
 				updatedAt: new Date(),
 			},
@@ -46,7 +47,13 @@ export const setEnabled = async (storyId: string, enabled: boolean): Promise<voi
 export const disableAndResetRecipients = async (storyId: string): Promise<void> => {
 	await db
 		.update(s.storyDelivery)
-		.set({ enabled: false, recipientMode: 'all', recipientUserIds: [], updatedAt: new Date() })
+		.set({
+			enabled: false,
+			recipientMode: 'specific',
+			recipientUserIds: [],
+			recipientGroupIds: [],
+			updatedAt: new Date(),
+		})
 		.where(eq(s.storyDelivery.storyId, storyId))
 		.execute();
 };

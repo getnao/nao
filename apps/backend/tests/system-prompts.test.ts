@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
 
-import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../src/agents/system-prompts';
+import {
+	appendCloudExampleScope,
+	getSystemPromptOverride,
+	hasNaoPromptPlaceholder,
+	injectNaoPrompt,
+} from '../src/agents/system-prompts';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
@@ -58,6 +63,11 @@ describe('getSystemPromptOverride', () => {
 	it('supports a Mattermost-specific prompt override', () => {
 		setupPromptFiles({ 'system.md': 'Global override', 'mattermost.md': 'Mattermost override' });
 		expect(getSystemPromptOverride(ROOT, 'mattermost')).toBe('Mattermost override');
+	});
+
+	it('supports a Discord-specific prompt override', () => {
+		setupPromptFiles({ 'system.md': 'Global override', 'discord.md': 'Discord override' });
+		expect(getSystemPromptOverride(ROOT, 'discord')).toBe('Discord override');
 	});
 
 	it('falls back to system.md when no surface-specific file exists', () => {
@@ -122,5 +132,21 @@ describe('injectNaoPrompt', () => {
 
 	it('leaves content unchanged when there is no placeholder', () => {
 		expect(injectNaoPrompt('No placeholder here', 'DEFAULT')).toBe('No placeholder here');
+	});
+});
+
+describe('appendCloudExampleScope', () => {
+	it('adds the Jaffle Shop scope to the cloud example project', () => {
+		const result = appendCloudExampleScope('Base prompt', true, 'system-example-project');
+
+		expect(result).toContain('Base prompt');
+		expect(result).toContain('Only answer analytical questions about the Jaffle Shop database');
+		expect(result).toContain('Analyze files attached by the user');
+		expect(result).toContain('Respond naturally to greetings');
+	});
+
+	it('does not restrict local or regular cloud projects', () => {
+		expect(appendCloudExampleScope('Base prompt', false, 'system-example-project')).toBe('Base prompt');
+		expect(appendCloudExampleScope('Base prompt', true, 'regular-project')).toBe('Base prompt');
 	});
 });

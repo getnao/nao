@@ -34,6 +34,7 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	ask_nao: ['subAgentModeEnabled'],
 	get_nao_answer: ['subAgentModeEnabled'],
 	execute_sql: ['contextLayerModeEnabled'],
+	execute_semantic_query: ['contextLayerModeEnabled'],
 	grep: ['contextLayerModeEnabled'],
 	ls: ['contextLayerModeEnabled'],
 	create_story: ['contextLayerModeEnabled'],

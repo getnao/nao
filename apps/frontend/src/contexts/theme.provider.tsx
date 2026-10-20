@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { useMemoObject } from '@/hooks/useMemoObject';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -83,5 +84,7 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 		}
 	}, [theme]);
 
-	return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;
+	const value = useMemoObject({ theme, setTheme });
+
+	return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };

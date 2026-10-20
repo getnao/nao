@@ -10,6 +10,7 @@ from nao_core.semantic_layer import (
     MetricFlowSemanticLayer,
     SemanticLayerError,
     SemanticQuery,
+    SemanticQueryError,
     metricflow_dialect_for,
     runtime_manifest_path,
 )
@@ -89,16 +90,16 @@ def test_compiles_per_dialect(manifest_path: Path) -> None:
 def test_unknown_metric_reports_suggestions(manifest_path: Path) -> None:
     layer = MetricFlowSemanticLayer.load(manifest_path, "duckdb")
 
-    with pytest.raises(SemanticLayerError, match="revenue"):
+    with pytest.raises(SemanticQueryError, match="revenue"):
         layer.compile(SemanticQuery(metrics=["revenu"]))
 
 
 def test_rejects_empty_metrics_and_bad_dates(manifest_path: Path) -> None:
     layer = MetricFlowSemanticLayer.load(manifest_path, "duckdb")
 
-    with pytest.raises(SemanticLayerError, match="at least one metric"):
+    with pytest.raises(SemanticQueryError, match="at least one metric"):
         layer.compile(SemanticQuery(metrics=[]))
-    with pytest.raises(SemanticLayerError, match="start_time"):
+    with pytest.raises(SemanticQueryError, match="start_time"):
         layer.compile(SemanticQuery(metrics=["revenue"], start_time="yesterday-ish"))
 
 
@@ -121,8 +122,9 @@ def test_reuses_engine_until_manifest_changes(manifest_path: Path) -> None:
 
 
 def test_missing_manifest(tmp_path: Path) -> None:
-    with pytest.raises(SemanticLayerError, match="not found"):
+    with pytest.raises(SemanticLayerError, match="not found") as raised:
         MetricFlowSemanticLayer.load(tmp_path / "missing.json", "duckdb")
+    assert not isinstance(raised.value, SemanticQueryError)
 
 
 def test_dialect_mapping() -> None:

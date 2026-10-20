@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { getModelCapabilities, getModelParameterSpec, isAnthropicApiModel } from '../src/agents/provider-meta';
+import {
+	getModelCapabilities,
+	getModelParameterSpec,
+	isAnthropicApiModel,
+	PROVIDER_META,
+} from '../src/agents/provider-meta';
 import type { ParamControl } from '../src/types/llm';
+
+const BEDROCK_GPT6_IDS = [
+	'global.openai.gpt-6-astra',
+	'global.openai.gpt-6.1-sol',
+	'global.openai.gpt-6-sol',
+	'global.openai.gpt-6-luna',
+	'us.openai.gpt-6-astra',
+	'us.openai.gpt-6.1-sol',
+	'us.openai.gpt-6-sol',
+	'us.openai.gpt-6-luna',
+];
 
 describe('isAnthropicApiModel', () => {
 	it('matches all direct Anthropic models', () => {
@@ -98,6 +114,10 @@ describe('getModelCapabilities', () => {
 		expect(getModelCapabilities('qwen', 'qwen-custom')).toMatchObject({ thinking: 'budget', topK: false });
 		expect(getModelCapabilities('minimax', 'MiniMax-Custom')).toMatchObject({ thinking: 'none', sampling: true });
 		expect(getModelCapabilities('moonshot', 'kimi-custom')).toMatchObject({ thinking: 'adaptive', sampling: true });
+		expect(getModelCapabilities('meta', 'muse-spark-1.2')).toMatchObject({
+			thinking: 'adaptive',
+			effortOptions: ['off', 'minimal', 'low', 'medium', 'high'],
+		});
 		expect(getModelCapabilities('openaiCompatible', 'my-model')).toMatchObject({
 			thinking: 'adaptive',
 			sampling: true,
@@ -128,6 +148,43 @@ describe('getModelCapabilities', () => {
 });
 
 describe('getModelParameterSpec', () => {
+	it.each(BEDROCK_GPT6_IDS)('omits unsupported sampling controls for %s', (modelId) => {
+		const keys = getModelParameterSpec('bedrock', modelId).map((c) => c.key);
+
+		expect(keys).not.toContain('temperature');
+		expect(keys).not.toContain('topP');
+		expect(keys).not.toContain('serviceTier');
+		expect(keys).toContain('maxOutputTokens');
+	});
+
+	it('uses the verified Standard <=272K rates for Global and US GPT-6 models', () => {
+		const models = Object.fromEntries(PROVIDER_META.bedrock.models.map((model) => [model.id, model]));
+		const expected = {
+			'global.openai.gpt-6-astra': { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
+			'global.openai.gpt-6.1-sol': { inputNoCache: 2, inputCacheRead: 0.1, inputCacheWrite: 2.5, output: 10 },
+			'global.openai.gpt-6-sol': { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+			'global.openai.gpt-6-luna': {
+				inputNoCache: 0.1,
+				inputCacheRead: 0.01,
+				inputCacheWrite: 0.125,
+				output: 0.5,
+			},
+			'us.openai.gpt-6-astra': { inputNoCache: 11, inputCacheRead: 1.1, inputCacheWrite: 13.75, output: 55 },
+			'us.openai.gpt-6.1-sol': { inputNoCache: 2.2, inputCacheRead: 0.11, inputCacheWrite: 2.75, output: 11 },
+			'us.openai.gpt-6-sol': { inputNoCache: 2.2, inputCacheRead: 0.22, inputCacheWrite: 2.75, output: 11 },
+			'us.openai.gpt-6-luna': {
+				inputNoCache: 0.11,
+				inputCacheRead: 0.011,
+				inputCacheWrite: 0.1375,
+				output: 0.55,
+			},
+		};
+
+		for (const [id, costPerM] of Object.entries(expected)) {
+			expect(models[id]?.costPerM).toEqual(costPerM);
+		}
+	});
+
 	function controlByKey(controls: ParamControl[], key: string) {
 		return controls.find((c) => c.key === key);
 	}
@@ -389,5 +446,13 @@ describe('getModelParameterSpec', () => {
 		expect(controlByKey(mistral, 'temperature')).toMatchObject({ max: 1.5, placeholder: '0 – 1.5' });
 		expect(controlByKey(bedrockDeepseek, 'temperature')).toMatchObject({ max: 1 });
 		expect(controlByKey(gemini, 'temperature')).toMatchObject({ max: 2 });
+	});
+
+	it('keeps Top P above zero for Muse, which rejects 0', () => {
+		const muse = getModelParameterSpec('meta', 'muse-spark-1.3');
+		const gemini = getModelParameterSpec('google', 'gemini-3.1-pro-preview');
+
+		expect(controlByKey(muse, 'topP')).toMatchObject({ min: 0.05, placeholder: '0.05 – 1' });
+		expect(controlByKey(gemini, 'topP')).toMatchObject({ min: 0, placeholder: '0 – 1' });
 	});
 });

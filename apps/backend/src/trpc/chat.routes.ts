@@ -13,14 +13,18 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
+import { getQueryRowsPage, type QueryRowsPage } from '../services/query-rows.service';
 import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { canUserViewChatContent } from '../utils/chat-access';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { buildChatDownloadResponse } from '../utils/chat-download';
-import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
+import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
+const MAX_QUERY_ROWS_PAGE_SIZE = 1000;
 
 export const chatRoutes = {
 	get: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
@@ -43,10 +47,34 @@ export const chatRoutes = {
 		}
 
 		return {
-			...chat,
+			...withQueryResultPreviewsInChat(chat),
 			automationRun: (await automationQueries.getAutomationRunByChatId(input.chatId)) ?? undefined,
 		};
 	}),
+
+	getQueryRows: protectedProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				toolCallId: z.string(),
+				queryId: z.string(),
+				offset: z.number().int().min(0).default(0),
+				limit: z.number().int().positive().max(MAX_QUERY_ROWS_PAGE_SIZE).optional(),
+				sort: z.object({ column: z.string(), direction: z.enum(['asc', 'desc']) }).optional(),
+			}),
+		)
+		.query(async ({ input, ctx }): Promise<QueryRowsPage> => {
+			const projectId = await chatQueries.getActiveChatProjectId(input.chatId);
+			if (!projectId || !(await canUserViewChatContent(input.chatId, projectId, ctx.user.id))) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+
+			const page = await getQueryRowsPage(input);
+			if (!page) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Query ${input.queryId} not found.` });
+			}
+			return page;
+		}),
 
 	download: chatOwnerProcedure
 		.input(
@@ -93,7 +121,7 @@ export const chatRoutes = {
 			return response;
 		}),
 
-	listGrouped: projectProtectedProcedure
+	listGrouped: protectedProcedure
 		.input(
 			z.object({
 				groupBy: z.enum(CHAT_GROUP_BY_OPTIONS).default('none'),

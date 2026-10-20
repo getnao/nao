@@ -32,6 +32,7 @@ vi.mock('../src/db/db', async () => {
 const db = drizzle('./db.sqlite', { schema: sqliteSchema });
 
 async function cleanup() {
+	await db.delete(projectMember).where(eq(projectMember.projectId, 'system-example-project'));
 	await db.delete(projectMember).where(eq(projectMember.projectId, 'pau-proj'));
 	await db.delete(projectMember).where(eq(projectMember.projectId, 'pau-solo'));
 	await db.delete(orgMember).where(eq(orgMember.orgId, 'pau-org'));
@@ -174,6 +175,26 @@ describe('project accessible users', () => {
 		expect(userProjects[0]?.userRole).toBe('user');
 		expect(adminProjects).toHaveLength(1);
 		expect(adminProjects[0]?.userRole).toBe('admin');
+	});
+
+	it('excludes the system example from user project listings', async () => {
+		await db
+			.insert(project)
+			.values({
+				id: 'system-example-project',
+				orgId: null,
+				name: 'Jaffle Shop',
+				type: 'local',
+				path: '/tmp/jaffle-shop',
+			})
+			.onConflictDoNothing();
+		await db
+			.insert(projectMember)
+			.values({ projectId: 'system-example-project', userId: 'pau-direct', role: 'admin' });
+
+		const projects = await listUserProjectsWithRoles('pau-direct');
+
+		expect(projects.map(({ project }) => project.id)).toEqual(['pau-proj', 'pau-solo']);
 	});
 
 	it('returns inherited organization roles in organization project listings', async () => {

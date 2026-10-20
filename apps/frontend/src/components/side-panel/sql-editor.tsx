@@ -12,6 +12,7 @@ import type { editor } from 'monaco-editor';
 
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
+import { useQueryRowsSource, useServerPaginatedRows } from '@/hooks/use-query-rows';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { TableDisplay } from '@/components/tool-calls/display-table';
@@ -25,16 +26,30 @@ const RESULTS_MIN_HEIGHT = 240;
 const SQL_MIN_HEIGHT = 100;
 const SEPARATOR_HEIGHT = 12;
 const SQL_CONTENT_PADDING = 8;
+const RESULTS_PAGE_SIZE = 100;
 
-export const SidePanelContent = ({
-	input,
-	output,
-	editable = false,
-}: {
+interface SqlEditorProps {
 	input: executeSql.Input;
 	output: executeSql.Output;
+	toolCallId?: string;
 	editable?: boolean;
-}) => {
+}
+
+export const SidePanelContent = ({ input, output, toolCallId, editable = false }: SqlEditorProps) => {
+	return (
+		<div className='flex h-full min-h-0 flex-col bg-background'>
+			<SidePanelHeader title={input.name ?? input.sql_query} label={output.id} />
+			<SqlQueryEditor input={input} output={output} toolCallId={toolCallId} editable={editable} />
+		</div>
+	);
+};
+
+interface SqlQueryEditorProps extends SqlEditorProps {
+	onOutputChange?: (output: executeSql.Output) => void;
+}
+
+/** SQL editor with run / save & run actions and the result table underneath. */
+export function SqlQueryEditor({ input, output, toolCallId, editable = false, onOutputChange }: SqlQueryEditorProps) {
 	const queryClient = useQueryClient();
 	const monaco = useMonaco();
 	const editorTheme = useEditorTheme();
@@ -47,12 +62,20 @@ export const SidePanelContent = ({
 	const [savedSql, setSavedSql] = useState(input.sql_query);
 	const [previewOutput, setPreviewOutput] = useState<executeSql.Output>(output);
 	const [error, setError] = useState<string | null>(null);
+	const rowsSource = useQueryRowsSource(toolCallId, previewOutput);
+	const resultRows = useServerPaginatedRows(
+		rowsSource,
+		previewOutput.data as Record<string, unknown>[],
+		RESULTS_PAGE_SIZE,
+	);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 	const sqlPanelRef = usePanelRef();
 	const groupElementRef = useRef<HTMLDivElement>(null);
 	const sqlQueryRef = useRef(sqlQuery);
 	sqlQueryRef.current = sqlQuery;
+	const onOutputChangeRef = useRef(onOutputChange);
+	onOutputChangeRef.current = onOutputChange;
 
 	useEffect(() => {
 		if (!monaco) {
@@ -82,7 +105,7 @@ export const SidePanelContent = ({
 		setError(null);
 	}, [queryId]); // eslint-disable-line react-hooks/exhaustive-deps -- reset only when switching queries
 
-	const canEdit = Boolean(editable && queryId && agent && !agent.isReadonly);
+	const canEdit = Boolean(editable && queryId && !agent?.isReadonly);
 	const isDirty = sqlQuery !== savedSql;
 	const validationIssues = useMemo(() => (canEdit ? validateSqlFilterTemplate(sqlQuery) : []), [canEdit, sqlQuery]);
 
@@ -121,6 +144,7 @@ export const SidePanelContent = ({
 			onSuccess: (result) => {
 				setPreviewOutput(result);
 				setError(null);
+				onOutputChangeRef.current?.(result);
 			},
 			onError: (err) => setError(getMutationErrorMessage(err)),
 		});
@@ -137,6 +161,7 @@ export const SidePanelContent = ({
 				setSqlQuery(result.input.sql_query);
 				setSavedSql(result.input.sql_query);
 				setError(null);
+				onOutputChangeRef.current?.(result.output);
 
 				const applyUpdate = (messages: UIMessage[]) =>
 					applyExecuteSqlResultToMessages(messages, result.output.id, result.input, result.output);
@@ -151,6 +176,7 @@ export const SidePanelContent = ({
 					}
 				}
 
+				queryClient.removeQueries(trpc.chat.getQueryRows.pathFilter());
 				void queryClient.invalidateQueries(trpc.story.getQuerySql.pathFilter());
 				void queryClient.invalidateQueries(trpc.story.getFilteredQueryData.pathFilter());
 				void queryClient.invalidateQueries(trpc.storyShare.getQuerySql.pathFilter());
@@ -227,9 +253,7 @@ export const SidePanelContent = ({
 	);
 
 	return (
-		<div ref={rootRef} className='flex h-full min-h-0 flex-col bg-background'>
-			<SidePanelHeader title={input.name ?? input.sql_query} label={queryId} />
-
+		<div ref={rootRef} className='flex min-h-0 flex-1 flex-col bg-background'>
 			{canEdit && (
 				<div className='flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2'>
 					<div className='text-xs text-muted-foreground'>
@@ -316,18 +340,19 @@ export const SidePanelContent = ({
 
 				<ResizablePanel id='results' defaultSize={RESULTS_MIN_HEIGHT} minSize={RESULTS_MIN_HEIGHT}>
 					<TableDisplay
-						data={previewOutput.data as Record<string, unknown>[]}
+						data={resultRows.rows}
+						serverPagination={resultRows.serverPagination}
 						columns={previewOutput.columns}
 						className='h-full'
 						tableContainerClassName='flex-1 rounded-none border-0'
-						emptyLabel='No rows returned'
-						maxRowsBeforePagination={100}
+						emptyLabel={resultRows.isLoadingRows ? 'Loading rows...' : 'No rows returned'}
+						maxRowsBeforePagination={RESULTS_PAGE_SIZE}
 					/>
 				</ResizablePanel>
 			</ResizablePanelGroup>
 		</div>
 	);
-};
+}
 
 function SqlValidationBanner({ queryId, issues }: { queryId: string | undefined; issues: string[] }) {
 	const fixMessage = [

@@ -1,7 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouterState } from '@tanstack/react-router';
-import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { TextShimmer } from '../ui/text-shimmer';
 import { ChatError } from './chat-error';
 import { FollowUpSuggestions } from './follow-up-suggestions';
@@ -9,11 +8,13 @@ import { AssistantMessage } from './assistant-message';
 import { UserMessage } from './user-message';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MessageGroup } from '@/types/ai';
+import type { Chat } from '@/queries/use-chat-query';
 import {
 	groupMessages,
 	checkIsLastMessageStreaming,
 	getLastFollowUpSuggestionsToolCall,
 	checkIsSomeToolsExecuting,
+	isOnboardingContextRequestMessage,
 } from '@/lib/ai';
 import {
 	Conversation,
@@ -21,9 +22,10 @@ import {
 	ConversationEmptyState,
 	ConversationScrollButton,
 } from '@/components/ui/conversation';
-import { cn, isLast } from '@/lib/utils';
+import { areArraysShallowEqual, cn, isLast } from '@/lib/utils';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { useVisibleMessages } from '@/hooks/use-visible-messages';
 import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useChatQuery } from '@/queries/use-chat-query';
@@ -55,8 +57,7 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 	const chatId = useChatId();
 	const { isRunning } = useAgentContext();
 	const messages = useAgentMessages();
-	const chat = useChatQuery({ chatId });
-	const isAutomationRunning = chat.data?.automationRun?.status === 'running';
+	const { data: isAutomationRunning = false } = useChatQuery({ chatId, select: selectIsAutomationRunning });
 	const effectiveIsRunning = isRunning || isAutomationRunning;
 	const isAgentGenerating = effectiveIsRunning && checkIsLastMessageStreaming(messages);
 	const someToolsExectuting = effectiveIsRunning && checkIsSomeToolsExecuting(messages);
@@ -67,10 +68,11 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
 	});
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
-	const visibleMessages = useMemo(
-		() => filterSupersededExecuteSqlParts(messages.filter((m) => !m.isForked)),
+	const displayableMessages = useMemo(
+		() => messages.filter((message) => !isOnboardingContextRequestMessage(message)),
 		[messages],
 	);
+	const visibleMessages = useVisibleMessages(displayableMessages);
 	const messageGroups = useMemo(() => groupMessages(visibleMessages), [visibleMessages]);
 	const lastMessageId = visibleMessages.at(-1)?.id;
 
@@ -112,6 +114,30 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 	);
 });
 
+function selectIsAutomationRunning(chat: Chat): boolean {
+	return chat.automationRun?.status === 'running';
+}
+
+interface MessageGroupProps {
+	userMessage: UIMessage | null;
+	assistantMessages: UIMessage[];
+	showLoader: boolean;
+	lastMessageId: string | undefined;
+	isRunning: boolean;
+	storyIntroMessageId: string | undefined;
+}
+
+function areMessageGroupPropsEqual(previous: MessageGroupProps, next: MessageGroupProps): boolean {
+	return (
+		previous.userMessage === next.userMessage &&
+		areArraysShallowEqual(previous.assistantMessages, next.assistantMessages) &&
+		previous.showLoader === next.showLoader &&
+		previous.lastMessageId === next.lastMessageId &&
+		previous.isRunning === next.isRunning &&
+		previous.storyIntroMessageId === next.storyIntroMessageId
+	);
+}
+
 const MessageGroup = memo(
 	({
 		userMessage,
@@ -120,14 +146,7 @@ const MessageGroup = memo(
 		lastMessageId,
 		isRunning,
 		storyIntroMessageId,
-	}: {
-		userMessage: UIMessage | null;
-		assistantMessages: UIMessage[];
-		showLoader: boolean;
-		lastMessageId: string | undefined;
-		isRunning: boolean;
-		storyIntroMessageId: string | undefined;
-	}) => {
+	}: MessageGroupProps) => {
 		const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 		return (
 			<div className='flex flex-col gap-4 group/message'>
@@ -146,6 +165,7 @@ const MessageGroup = memo(
 			</div>
 		);
 	},
+	areMessageGroupPropsEqual,
 );
 
 const MessageBlock = memo(

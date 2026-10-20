@@ -14,10 +14,12 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as EmbedRouteImport } from './routes/embed'
+import { Route as DiscordLinkRouteImport } from './routes/discord-link'
 import { Route as ConsentRouteImport } from './routes/consent'
 import { Route as CliLoginRouteImport } from './routes/cli-login'
 import { Route as SidebarLayoutRouteImport } from './routes/_sidebar-layout'
 import { Route as SidebarLayoutSettingsRouteImport } from './routes/_sidebar-layout.settings'
+import { Route as SidebarLayoutOnboardingRouteImport } from './routes/_sidebar-layout.onboarding'
 import { Route as SidebarLayoutChatLayoutRouteImport } from './routes/_sidebar-layout._chat-layout'
 import { Route as SidebarLayoutStoriesIndexRouteImport } from './routes/_sidebar-layout.stories.index'
 import { Route as SidebarLayoutSettingsIndexRouteImport } from './routes/_sidebar-layout.settings.index'
@@ -60,6 +62,7 @@ import { Route as SidebarLayoutSettingsProjectMcpEndpointRouteImport } from './r
 import { Route as SidebarLayoutSettingsProjectMcpRouteImport } from './routes/_sidebar-layout.settings.project.mcp'
 import { Route as SidebarLayoutSettingsProjectMattermostRouteImport } from './routes/_sidebar-layout.settings.project.mattermost'
 import { Route as SidebarLayoutSettingsProjectIntegrationsRouteImport } from './routes/_sidebar-layout.settings.project.integrations'
+import { Route as SidebarLayoutSettingsProjectDiscordRouteImport } from './routes/_sidebar-layout.settings.project.discord'
 import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
 import { Route as SidebarLayoutSettingsOrganizationMembersRouteImport } from './routes/_sidebar-layout.settings.organization.members'
@@ -99,6 +102,11 @@ const EmbedRoute = EmbedRouteImport.update({
   path: '/embed',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DiscordLinkRoute = DiscordLinkRouteImport.update({
+  id: '/discord-link',
+  path: '/discord-link',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ConsentRoute = ConsentRouteImport.update({
   id: '/consent',
   path: '/consent',
@@ -116,6 +124,11 @@ const SidebarLayoutRoute = SidebarLayoutRouteImport.update({
 const SidebarLayoutSettingsRoute = SidebarLayoutSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => SidebarLayoutRoute,
+} as any)
+const SidebarLayoutOnboardingRoute = SidebarLayoutOnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => SidebarLayoutRoute,
 } as any)
 const SidebarLayoutChatLayoutRoute = SidebarLayoutChatLayoutRouteImport.update({
@@ -364,6 +377,12 @@ const SidebarLayoutSettingsProjectIntegrationsRoute =
     path: '/integrations',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectDiscordRoute =
+  SidebarLayoutSettingsProjectDiscordRouteImport.update({
+    id: '/discord',
+    path: '/discord',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectBudgetsRoute =
   SidebarLayoutSettingsProjectBudgetsRouteImport.update({
     id: '/budgets',
@@ -447,11 +466,13 @@ export interface FileRoutesByFullPath {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/cli-login': typeof CliLoginRoute
   '/consent': typeof ConsentRoute
+  '/discord-link': typeof DiscordLinkRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/onboarding': typeof SidebarLayoutOnboardingRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
@@ -481,6 +502,7 @@ export interface FileRoutesByFullPath {
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
   '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
@@ -511,11 +533,13 @@ export interface FileRoutesByTo {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/cli-login': typeof CliLoginRoute
   '/consent': typeof ConsentRoute
+  '/discord-link': typeof DiscordLinkRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/onboarding': typeof SidebarLayoutOnboardingRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
@@ -542,6 +566,7 @@ export interface FileRoutesByTo {
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
@@ -571,12 +596,14 @@ export interface FileRoutesById {
   '/_sidebar-layout': typeof SidebarLayoutRouteWithChildren
   '/cli-login': typeof CliLoginRoute
   '/consent': typeof ConsentRoute
+  '/discord-link': typeof DiscordLinkRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
+  '/_sidebar-layout/onboarding': typeof SidebarLayoutOnboardingRoute
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/_sidebar-layout/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
@@ -607,6 +634,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/_sidebar-layout/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/_sidebar-layout/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
   '/_sidebar-layout/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/_sidebar-layout/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
@@ -639,11 +667,13 @@ export interface FileRouteTypes {
     | '/'
     | '/cli-login'
     | '/consent'
+    | '/discord-link'
     | '/embed'
     | '/forgot-password'
     | '/login'
     | '/reset-password'
     | '/signup'
+    | '/onboarding'
     | '/settings'
     | '/$chatId'
     | '/automations/$automationId'
@@ -673,6 +703,7 @@ export interface FileRouteTypes {
     | '/settings/organization/members'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/discord'
     | '/settings/project/integrations'
     | '/settings/project/mattermost'
     | '/settings/project/mcp'
@@ -703,11 +734,13 @@ export interface FileRouteTypes {
     | '/'
     | '/cli-login'
     | '/consent'
+    | '/discord-link'
     | '/embed'
     | '/forgot-password'
     | '/login'
     | '/reset-password'
     | '/signup'
+    | '/onboarding'
     | '/$chatId'
     | '/automations/$automationId'
     | '/settings/account'
@@ -734,6 +767,7 @@ export interface FileRouteTypes {
     | '/settings/organization/members'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/discord'
     | '/settings/project/mattermost'
     | '/settings/project/mcp'
     | '/settings/project/mcp-endpoint'
@@ -762,12 +796,14 @@ export interface FileRouteTypes {
     | '/_sidebar-layout'
     | '/cli-login'
     | '/consent'
+    | '/discord-link'
     | '/embed'
     | '/forgot-password'
     | '/login'
     | '/reset-password'
     | '/signup'
     | '/_sidebar-layout/_chat-layout'
+    | '/_sidebar-layout/onboarding'
     | '/_sidebar-layout/settings'
     | '/_sidebar-layout/_chat-layout/$chatId'
     | '/_sidebar-layout/automations/$automationId'
@@ -798,6 +834,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/organization/members'
     | '/_sidebar-layout/settings/project/agent'
     | '/_sidebar-layout/settings/project/budgets'
+    | '/_sidebar-layout/settings/project/discord'
     | '/_sidebar-layout/settings/project/integrations'
     | '/_sidebar-layout/settings/project/mattermost'
     | '/_sidebar-layout/settings/project/mcp'
@@ -829,6 +866,7 @@ export interface RootRouteChildren {
   SidebarLayoutRoute: typeof SidebarLayoutRouteWithChildren
   CliLoginRoute: typeof CliLoginRoute
   ConsentRoute: typeof ConsentRoute
+  DiscordLinkRoute: typeof DiscordLinkRoute
   EmbedRoute: typeof EmbedRouteWithChildren
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
@@ -873,6 +911,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EmbedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/discord-link': {
+      id: '/discord-link'
+      path: '/discord-link'
+      fullPath: '/discord-link'
+      preLoaderRoute: typeof DiscordLinkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/consent': {
       id: '/consent'
       path: '/consent'
@@ -899,6 +944,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SidebarLayoutSettingsRouteImport
+      parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/onboarding': {
+      id: '/_sidebar-layout/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof SidebarLayoutOnboardingRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/_chat-layout': {
@@ -1195,6 +1247,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/discord': {
+      id: '/_sidebar-layout/settings/project/discord'
+      path: '/discord'
+      fullPath: '/settings/project/discord'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectDiscordRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/budgets': {
       id: '/_sidebar-layout/settings/project/budgets'
       path: '/budgets'
@@ -1371,6 +1430,7 @@ const SidebarLayoutSettingsProjectUserGroupsRouteWithChildren =
 interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectAgentRoute: typeof SidebarLayoutSettingsProjectAgentRoute
   SidebarLayoutSettingsProjectBudgetsRoute: typeof SidebarLayoutSettingsProjectBudgetsRoute
+  SidebarLayoutSettingsProjectDiscordRoute: typeof SidebarLayoutSettingsProjectDiscordRoute
   SidebarLayoutSettingsProjectIntegrationsRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
   SidebarLayoutSettingsProjectMattermostRoute: typeof SidebarLayoutSettingsProjectMattermostRoute
   SidebarLayoutSettingsProjectMcpRoute: typeof SidebarLayoutSettingsProjectMcpRoute
@@ -1392,6 +1452,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectAgentRoute,
     SidebarLayoutSettingsProjectBudgetsRoute:
       SidebarLayoutSettingsProjectBudgetsRoute,
+    SidebarLayoutSettingsProjectDiscordRoute:
+      SidebarLayoutSettingsProjectDiscordRoute,
     SidebarLayoutSettingsProjectIntegrationsRoute:
       SidebarLayoutSettingsProjectIntegrationsRouteWithChildren,
     SidebarLayoutSettingsProjectMattermostRoute:
@@ -1489,6 +1551,7 @@ const SidebarLayoutSettingsRouteWithChildren =
 
 interface SidebarLayoutRouteChildren {
   SidebarLayoutChatLayoutRoute: typeof SidebarLayoutChatLayoutRouteWithChildren
+  SidebarLayoutOnboardingRoute: typeof SidebarLayoutOnboardingRoute
   SidebarLayoutSettingsRoute: typeof SidebarLayoutSettingsRouteWithChildren
   SidebarLayoutAutomationsAutomationIdRoute: typeof SidebarLayoutAutomationsAutomationIdRoute
   SidebarLayoutSharedChatShareIdRoute: typeof SidebarLayoutSharedChatShareIdRoute
@@ -1502,6 +1565,7 @@ interface SidebarLayoutRouteChildren {
 
 const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
   SidebarLayoutChatLayoutRoute: SidebarLayoutChatLayoutRouteWithChildren,
+  SidebarLayoutOnboardingRoute: SidebarLayoutOnboardingRoute,
   SidebarLayoutSettingsRoute: SidebarLayoutSettingsRouteWithChildren,
   SidebarLayoutAutomationsAutomationIdRoute:
     SidebarLayoutAutomationsAutomationIdRoute,
@@ -1539,6 +1603,7 @@ const rootRouteChildren: RootRouteChildren = {
   SidebarLayoutRoute: SidebarLayoutRouteWithChildren,
   CliLoginRoute: CliLoginRoute,
   ConsentRoute: ConsentRoute,
+  DiscordLinkRoute: DiscordLinkRoute,
   EmbedRoute: EmbedRouteWithChildren,
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,

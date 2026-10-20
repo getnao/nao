@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
+import type { UIMessage } from '@nao/backend/chat';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/main';
 import { useChatId } from '@/hooks/use-chat-id';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 
 const RADIUS = 8;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
@@ -107,8 +108,7 @@ export function ContextWindowRingView({
 export function ContextWindowRing({ className }: { className?: string }) {
 	const chatId = useChatId();
 	const { selectedModel, isRunning } = useAgentContext();
-	const messages = useAgentMessages();
-	const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
+	const hasAssistantMessage = useAgentMessagesSelector(hasSomeAssistantMessage);
 
 	const contextUsage = useQuery(
 		trpc.chat.getContextUsage.queryOptions(
@@ -135,6 +135,10 @@ export function ContextWindowRing({ className }: { className?: string }) {
 			className={className}
 		/>
 	);
+}
+
+function hasSomeAssistantMessage(messages: UIMessage[]): boolean {
+	return messages.some((message) => message.role === 'assistant');
 }
 
 export function ReplayContextWindowRing({ chatId, className }: { chatId: string; className?: string }) {

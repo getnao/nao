@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { configDefaults, defineConfig } from 'vitest/config';
@@ -18,6 +19,17 @@ const sharedSqliteTestFiles = [
 ];
 
 export default defineConfig({
+	plugins: [
+		{
+			name: 'raw-markdown',
+			enforce: 'pre',
+			load(id) {
+				if (id.endsWith('.md')) {
+					return `export default ${JSON.stringify(readFileSync(id, 'utf8'))}`;
+				}
+			},
+		},
+	],
 	resolve: {
 		alias: {
 			'bun:sqlite': fileURLToPath(new URL('./tests/stubs/bun-sqlite.ts', import.meta.url)),

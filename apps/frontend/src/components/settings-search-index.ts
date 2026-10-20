@@ -364,6 +364,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'minimax',
 			'moonshot',
 			'kimi',
+			'meta',
+			'muse',
 			'requesty',
 			'llm',
 			'model',
@@ -931,6 +933,38 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Accounts link by email; use login <code> if Mattermost hides email addresses.',
 		keywords: ['link', 'login', 'mattermost', 'email'],
 	},
+	{
+		page: '/settings/project/integrations/discord',
+		pageLabel: 'Integrations & MCP',
+		section: 'Discord',
+		title: 'Discord Integration',
+		description: 'Connect a Discord application so nao answers in your server.',
+		keywords: ['discord bot', 'bot token', 'application id', 'public key', 'messaging'],
+	},
+	{
+		page: '/settings/project/integrations/discord',
+		pageLabel: 'Integrations & MCP',
+		section: 'Discord',
+		title: 'Add to your server',
+		description: 'Invite the Discord bot to a server you manage.',
+		keywords: ['discord', 'invite', 'add bot', 'server', 'oauth'],
+	},
+	{
+		page: '/settings/project/integrations/discord',
+		pageLabel: 'Integrations & MCP',
+		section: 'Discord',
+		title: 'Interactions Endpoint URL',
+		description: 'Register this URL in your Discord application to enable the Stop button.',
+		keywords: ['discord', 'interactions', 'endpoint', 'webhook', 'url', 'stop'],
+	},
+	{
+		page: '/settings/project/integrations/discord',
+		pageLabel: 'Integrations & MCP',
+		section: 'Discord',
+		title: 'Link manually',
+		description: 'The bot sends a connect link by direct message; send login <code> if your DMs are closed.',
+		keywords: ['link', 'login', 'discord', 'email', 'connect', 'direct message'],
+	},
 
 	{
 		page: '/settings/project/integrations/whatsapp',
@@ -1052,6 +1086,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review', 'search conversations', 'find chat'],
 		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/usage',
+		pageLabel: 'Chats replay',
+		title: 'Expand replay',
+		description:
+			'Hide the usage charts and chart-only filters so the chats replay takes the full height of the page.',
+		keywords: ['enlarge', 'full height', 'collapse charts', 'hide charts', 'maximize', 'bigger table'],
+		adminOnly: true,
 	},
 
 	// ── Context Recommendations ──────────────────────────────

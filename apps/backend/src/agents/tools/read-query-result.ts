@@ -6,6 +6,7 @@ import { getQueryResult } from '../../services/query-result.service';
 import { createTool } from '../../utils/tools';
 
 const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
 
 export default createTool<readQueryResult.Input, readQueryResult.Output>({
 	description:
@@ -20,7 +21,8 @@ export default createTool<readQueryResult.Input, readQueryResult.Output>({
 			);
 		}
 
-		const data = stored.data.slice(offset, offset + limit);
+		const effectiveLimit = Math.min(limit, MAX_LIMIT);
+		const data = stored.data.slice(offset, offset + effectiveLimit);
 
 		return {
 			_version: '1' as const,
@@ -29,7 +31,7 @@ export default createTool<readQueryResult.Input, readQueryResult.Output>({
 			data,
 			row_count: stored.data.length,
 			offset,
-			limit,
+			limit: effectiveLimit,
 		};
 	},
 	toModelOutput: ({ output }) => renderToModelOutput(ReadQueryResultOutput({ output }), output),

@@ -31,8 +31,6 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { posthog, PostHogEvent } from './posthog';
-
 const UPDATE_INTERVAL_MS = 200;
 
 class TelegramService {
@@ -153,7 +151,7 @@ class TelegramService {
 				return;
 			}
 			await assertProjectCloudBillingAccess(this._projectId);
-			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
+			ctx.convMessage = await ctx.thread.post(`✨ ${await getAppName()} is answering...`);
 			await this._saveOrUpdateUserMessage(ctx);
 
 			const [chat] = await chatQueries.getChat(ctx.chatId);
@@ -277,15 +275,6 @@ class TelegramService {
 		const appName = await getAppName();
 		const card = await ctx.thread.post(createTelegramCompletionCard(chatUrl, { appName }));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
-
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this._projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'telegram',
-			domain_host: new URL(this._redirectUrl).host,
-		});
 	}
 
 	private async _createAgentStream(
@@ -298,7 +287,11 @@ class TelegramService {
 			{ billingAccessVerifiedProjectId: this._projectId, supportsCustomCharts: false },
 		);
 		ctx.modelId = agent.getModelId();
-		return agent.stream(chat.messages, { provider: 'telegram', timezone: ctx.timezone });
+		return agent.stream(chat.messages, {
+			provider: 'telegram',
+			timezone: ctx.timezone,
+			tracking: { source: 'telegram', isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
+		});
 	}
 
 	private async _readStreamAndUpdateMessage(

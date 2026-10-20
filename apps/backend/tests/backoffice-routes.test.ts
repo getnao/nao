@@ -54,6 +54,10 @@ describe('cloud backoffice routes', () => {
 		originalEnv = { ...process.env };
 		process.env.NAO_MODE = 'cloud';
 		process.env.NAO_BACKOFFICE_API_KEY = API_KEY;
+		process.env.CLOUD_GITHUB_PROJECT_ORG = 'test-org';
+		process.env.CLOUD_GITHUB_PROJECT_APP_ID = '123';
+		process.env.CLOUD_GITHUB_PROJECT_INSTALLATION_ID = '456';
+		process.env.CLOUD_GITHUB_PROJECT_PRIVATE_KEY = 'test-private-key';
 		__reloadEnvForTesting();
 		projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-backoffice-test-'));
 		await fs.writeFile(
@@ -217,6 +221,40 @@ describe('cloud backoffice routes', () => {
 		expect(JSON.stringify(user.json())).not.toContain(SECRET);
 	});
 
+	it('serves organization billing state and the billing overview', async () => {
+		const organizations = await get('/organizations');
+		expect(organizations.json().items[0].billing).toMatchObject({
+			state: 'trialing',
+			status: 'trialing',
+			interval: 'monthly',
+			hasAccess: true,
+			hasDefaultPaymentMethod: true,
+			stripeCustomerId: 'cus_test',
+		});
+
+		const billing = await get(`/organizations/${ORG_ID}/billing`);
+		expect(billing.statusCode).toBe(200);
+		expect(billing.json()).toMatchObject({
+			billing: { state: 'trialing', stripeSubscriptionId: 'sub_test' },
+			stripe: null,
+			stripeError: null,
+		});
+
+		const overview = await get('/billing');
+		expect(overview.statusCode).toBe(200);
+		expect(overview.json()).toMatchObject({
+			billingEnabled: false,
+			stripeMode: null,
+			revenue: null,
+			organizations: [{ id: ORG_ID, billing: { state: 'trialing' } }],
+			events: [{ id: 'evt_test', type: 'customer.subscription.created', orgId: ORG_ID }],
+		});
+
+		await db.delete(s.organizationBilling);
+		const bypassed = await request('PATCH', `/organizations/${ORG_ID}`, { bypassBilling: true });
+		expect(bypassed.json().billing).toMatchObject({ state: 'bypassed', status: null, hasAccess: true });
+	});
+
 	it('updates organizations, users, and memberships', async () => {
 		const renamedOrg = await request('PATCH', `/organizations/${ORG_ID}`, { name: 'Renamed Organization' });
 		expect(renamedOrg.statusCode).toBe(200);
@@ -321,6 +359,8 @@ async function clearData() {
 	await db.delete(s.projectMember);
 	await db.delete(s.orgMember);
 	await db.delete(s.project);
+	await db.delete(s.stripeWebhookEvent);
+	await db.delete(s.organizationBilling);
 	await db.delete(s.organization);
 	await db.delete(s.user);
 }
@@ -345,6 +385,22 @@ async function seedData(projectPath: string) {
 		googleClientId: 'GOOGLE_CLIENT_ID_DO_NOT_LEAK',
 		googleClientSecret: 'GOOGLE_CLIENT_SECRET_DO_NOT_LEAK',
 		googleAuthDomains: 'example.com',
+	});
+	await db.insert(s.organizationBilling).values({
+		orgId: ORG_ID,
+		billingPlan: 'cloud_monthly_v2',
+		billingStatus: 'trialing',
+		trialStartedAt: now,
+		trialEndsAt: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1_000),
+		stripeCustomerId: 'cus_test',
+		stripeSubscriptionId: 'sub_test',
+		hasDefaultPaymentMethod: true,
+	});
+	await db.insert(s.stripeWebhookEvent).values({
+		id: 'evt_test',
+		type: 'customer.subscription.created',
+		stripeObjectId: 'sub_test',
+		livemode: false,
 	});
 	await db.insert(s.orgMember).values([
 		{ orgId: ORG_ID, userId: ADMIN_ID, role: 'admin' },

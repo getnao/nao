@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { normalizeCitationMarkers } from '@nao/shared';
 import { type LlmSelectedModel, STORY_FORMATS } from '@nao/shared/types';
 import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
@@ -592,7 +593,7 @@ export function extractFinalText(message: UIMessage | null): string {
 	}
 	return message.parts
 		.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
-		.map((p) => p.text)
+		.map((p) => normalizeCitationMarkers(p.text))
 		.join('\n\n');
 }
 

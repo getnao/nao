@@ -2,7 +2,7 @@ import { areStructurallyEqual } from './ai';
 import type { executeSemanticQuery, executeSql } from '@nao/shared/tools';
 import type { UIMessage, UIMessagePart, UIToolPart } from '@nao/backend/chat';
 
-export type SourceQuery = { input?: executeSql.Input; output: executeSql.Output };
+export type SourceQuery = { input?: executeSql.Input; output: executeSql.Output; toolCallId?: string };
 const sourceQueryIndex = new WeakMap<UIMessage[], Map<string, SourceQuery>>();
 
 /**
@@ -31,11 +31,15 @@ export function findLatestExecuteSqlInMessages(messages: UIMessage[], queryId: s
 function toSourceQuery(part: UIMessagePart): SourceQuery | null {
 	if (part.type === 'tool-execute_sql') {
 		const toolPart = part as UIToolPart<'execute_sql'>;
-		return toolPart.output ? { input: toolPart.input, output: toolPart.output } : null;
+		return toolPart.output
+			? { input: toolPart.input, output: toolPart.output, toolCallId: toolPart.toolCallId }
+			: null;
 	}
 	if (part.type === 'tool-execute_semantic_query') {
 		const toolPart = part as UIToolPart<'execute_semantic_query'>;
-		return toolPart.output ? semanticQueryAsSql(toolPart.input, toolPart.output) : null;
+		return toolPart.output
+			? { ...semanticQueryAsSql(toolPart.input, toolPart.output), toolCallId: toolPart.toolCallId }
+			: null;
 	}
 	return null;
 }
@@ -59,6 +63,7 @@ export function areSourceQueriesEqual(left: SourceQuery | null, right: SourceQue
 	}
 	return (
 		left.output.id === right.output.id &&
+		left.toolCallId === right.toolCallId &&
 		left.output.revision === right.output.revision &&
 		areStructurallyEqual(left.input, right.input)
 	);

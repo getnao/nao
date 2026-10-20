@@ -158,6 +158,7 @@ export const LLM_PROVIDERS = [
 	'qwen',
 	'minimax',
 	'moonshot',
+	'meta',
 	'openaiCompatible',
 ] as const;
 
@@ -175,6 +176,7 @@ export const providerLabels: Record<LlmProviderKind, string> = {
 	qwen: 'Qwen',
 	minimax: 'MiniMax',
 	moonshot: 'Moonshot',
+	meta: 'Meta',
 	openaiCompatible: 'OpenAI Compatible',
 };
 
@@ -457,6 +459,7 @@ export interface GroupedChatItem {
 	projectId: string;
 	title: string;
 	isStarred: boolean;
+	isOnboarding: boolean;
 	createdAt: number;
 	updatedAt: number;
 	kind: 'own' | 'shared';
@@ -491,6 +494,9 @@ export type EmbedTokenPayload = {
 };
 
 export type StoryPanelDisplayMode = 'grid' | 'lines';
+
+export const RECIPIENT_MODES = ['all', 'specific'] as const;
+export type RecipientMode = (typeof RECIPIENT_MODES)[number];
 
 export const REPO_PROVIDERS = ['github', 'gitlab'] as const;
 export const BULK_ITEMS_LIMIT = 100;

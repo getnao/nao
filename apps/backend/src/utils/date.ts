@@ -129,6 +129,7 @@ export function fillMissingDates(
 				teamsMessageCount: 0,
 				telegramMessageCount: 0,
 				mattermostMessageCount: 0,
+				discordMessageCount: 0,
 				whatsappMessageCount: 0,
 				adminMessageCount: 0,
 				mcpMessageCount: 0,

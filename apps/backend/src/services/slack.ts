@@ -33,6 +33,7 @@ import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
 import { buildUserAddedEmail } from '../utils/email-builders';
+import { claimOnce } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import {
 	buildSlackCardNotificationText,
@@ -66,12 +67,13 @@ import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService, defaultAgentToolsExcluding } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
 import { readUserFileBytes } from './storage/user-files';
 import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
+/** Matches the Slack adapter's redelivery window: opt-in Delayed Events retry hourly for up to 24 hours. */
+const SLACK_MESSAGE_CLAIM_LEASE_MS = 24 * 60 * 60_000;
 
 const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
 const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;
@@ -594,6 +596,9 @@ export class ProjectSlackBot {
 		userMessage: Message,
 		options: { fetchUnseenMessages: boolean },
 	): Promise<void> {
+		if (!(await this._claimMessage(thread, userMessage))) {
+			return;
+		}
 		userMessage.text = userMessage.text.replace(SLACK_MENTION_REGEX, '').trim();
 
 		const ctx: ConversationContext = {
@@ -623,7 +628,7 @@ export class ProjectSlackBot {
 
 		try {
 			this._getSlackStreamState(ctx).messageTs = await this._postSlackCard(ctx, [
-				createTextBlock('✨ nao is answering...'),
+				createTextBlock(`✨ ${await getAppName()} is answering...`),
 				createStopButtonActions(),
 			]);
 			await this._saveOrUpdateUserMessage(ctx, options.fetchUnseenMessages);
@@ -647,6 +652,15 @@ export class ProjectSlackBot {
 				this._activeStreamsByThread.delete(ctx.thread.id);
 			}
 		}
+	}
+
+	/**
+	 * Slack delivers a mention as both a `message` and an `app_mention` event, and with several
+	 * pods they can land on different instances, so only the first instance to claim it answers.
+	 */
+	private _claimMessage(thread: Thread, message: Message): Promise<boolean> {
+		const { channelId } = parseSlackThreadId(thread.id);
+		return claimOnce(`slack-message:${channelId}:${message.id}`, SLACK_MESSAGE_CLAIM_LEASE_MS);
 	}
 
 	private async _editConversationCard(
@@ -1209,15 +1223,6 @@ export class ProjectSlackBot {
 			createCompletionCard(chatUrl, { hiddenTables, appName }).children,
 		);
 		this._lastCompletionCard.set(ctx.thread.id, { channelId, messageTs, chatUrl, hiddenTables });
-
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this.projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'slack',
-			domain_host: new URL(this._redirectUrl).host,
-		});
 	}
 
 	private async _createAgentStream(
@@ -1239,7 +1244,11 @@ export class ProjectSlackBot {
 		ctx.modelId = agent.getModelId();
 		return {
 			agent,
-			stream: agent.stream(chat.messages, { provider: 'slack', timezone: ctx.timezone }),
+			stream: agent.stream(chat.messages, {
+				provider: 'slack',
+				timezone: ctx.timezone,
+				tracking: { source: 'slack', isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
+			}),
 		};
 	}
 

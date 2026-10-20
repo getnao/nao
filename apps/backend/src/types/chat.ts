@@ -29,6 +29,7 @@ export interface UIChat {
 	projectId: string;
 	title: string;
 	isStarred: boolean;
+	isOnboarding?: boolean;
 	createdAt: number;
 	updatedAt: number;
 	messages: UIMessage[];
@@ -60,11 +61,13 @@ export const MESSAGE_SOURCES = [
 	'teams',
 	'telegram',
 	'mattermost',
+	'discord',
 	'whatsapp',
 	'web',
 	'mcp',
 	'contextRecommendations',
 	'admin',
+	'onboarding',
 ] as const;
 
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
@@ -210,4 +213,5 @@ export const AgentRequestSchema = z.object({
 	timezone: z.string().optional(),
 	/** When true, the message runs in admin mode: it queries nao's own usage database instead of the warehouse. */
 	adminMode: z.boolean().optional(),
+	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
 });

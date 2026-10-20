@@ -34,6 +34,7 @@ import { assertProjectCloudBillingAccess } from './cloud-billing-access.service'
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
 import { executeWarehouseSql } from './warehouse-sql.service';
+
 const MAX_RENDERED_ROWS = 60;
 
 interface StoryRefreshTarget {

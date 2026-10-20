@@ -1,20 +1,25 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
+import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
+import type { Chat } from '@/queries/use-chat-query';
 import { NEW_CHAT_ID } from '@/lib/ai';
 import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
-import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { ChatAccessError } from '@/components/chat-access-error';
+import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
+import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
+import { findWarehouseJobId, isOnboardingComplete, useOnboardingProgress } from '@/components/onboarding-progress';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
+import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +32,7 @@ import { useChatQuery } from '@/queries/use-chat-query';
 import { useHeight } from '@/hooks/use-height';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ShareChatDialog } from '@/components/share-dialog.chat';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
@@ -68,7 +74,7 @@ function ChatPage() {
 	const { role, canViewChatReplay } = usePermissions();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const showAutomationLinks = role !== undefined && role !== 'viewer' && config.data?.betaAutomationsEnabled === true;
-	const chat = useChatQuery({ chatId });
+	const chat = useChatQuery({ chatId, select: selectChatHeader });
 	const title = chat.data?.title;
 
 	const isForbidden = chat.isError && isForbiddenError(chat.error);
@@ -92,11 +98,27 @@ function ChatPage() {
 		enabled: !!chat.data && !shouldShowChatError,
 	});
 	const isShared = !!shareQuery.data?.shareId;
+	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const onboardingProgress = useOnboardingProgress();
+	const onboardingWarehouseJobId = useAgentMessagesSelector(findWarehouseJobId);
+	const onboardingWarehouseJob = useWarehouseProvisioningJob(onboardingWarehouseJobId);
+	const showTrialOnboardingBanner =
+		config.data?.naoMode === 'cloud' &&
+		currentProject.isSuccess &&
+		currentProject.data === null &&
+		!chat.data?.isOnboarding;
+	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
+	const onboardingComplete = isOnboardingComplete(
+		currentProject.data != null,
+		onboardingProgress,
+		onboardingWarehouseJob.data?.status === 'ready',
+	);
 
 	const containerRef = useRef<HTMLDivElement>(null);
+	const chatColumnRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const inputAreaRef = useRef<HTMLDivElement>(null);
 	const inputAreaHeight = useHeight(inputAreaRef);
@@ -150,7 +172,6 @@ function ChatPage() {
 		}
 		return <ChatAccessError error={chat.error} onRetry={() => chat.refetch()} chatId={chatId} />;
 	}
-
 	return (
 		<SidePanelProvider
 			isVisible={sidePanel.isVisible}
@@ -166,12 +187,18 @@ function ChatPage() {
 			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div
+						ref={chatColumnRef}
 						className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'
 						style={{ '--chat-input-height': `${inputAreaHeight}px` } as React.CSSProperties}
 					>
-						<MobileHeader chatId={chatId} title={title} automationId={automationId} />
+						<MobileHeader
+							chatId={chatId}
+							title={title}
+							automationId={automationId}
+							showExampleProjectInfo={isExampleChat && !chat.data?.isOnboarding}
+						/>
 
-						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-10 max-md:hidden'>
+						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-20 max-md:hidden'>
 							<div className='min-w-0 max-w-[60%] flex flex-row gap-4'>
 								{title && (
 									<EditableChatTitle
@@ -223,6 +250,7 @@ function ChatPage() {
 								)}
 							</div>
 							<div className='flex items-center justify-end gap-2'>
+								{isExampleChat && !chat.data?.isOnboarding && <ExampleProjectInfoCard compact />}
 								<Button
 									variant='ghost'
 									size='icon-sm'
@@ -253,7 +281,12 @@ function ChatPage() {
 										</>
 									)}
 								</Button>
-								<StoryOpenButton variant='outline' />
+								<ChatArtifactsMenu
+									key={chatId}
+									chatId={chatId}
+									chatColumnRef={chatColumnRef}
+									panelClassName='right-0 mt-2'
+								/>
 							</div>
 						</div>
 
@@ -278,7 +311,32 @@ function ChatPage() {
 								ref={inputAreaRef}
 								className='pointer-events-auto bg-gradient-to-t from-background via-background via-70% to-transparent'
 							>
-								<ChatInput />
+								{showTrialOnboardingBanner && <TrialOnboardingBanner />}
+								{chat.data?.isOnboarding ? (
+									onboardingComplete ? (
+										<div className='flex flex-col items-center gap-2 pb-4'>
+											<p className='text-center text-sm font-medium text-violet'>
+												Project setup successful!
+											</p>
+											<Button
+												asChild
+												className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
+											>
+												<Link to='/'>
+													Start chatting
+													<ArrowRight className='size-4' />
+												</Link>
+											</Button>
+											<p className='text-center text-sm text-muted-foreground'>
+												This onboarding conversation is complete.
+											</p>
+										</div>
+									) : (
+										<ChatInput variant='onboarding' />
+									)
+								) : (
+									<ChatInput />
+								)}
 							</div>
 						</div>
 					</div>
@@ -305,6 +363,48 @@ function ChatPage() {
 			/>
 		</SidePanelProvider>
 	);
+}
+
+function TrialOnboardingBanner() {
+	const logoSrc = useIsDarkMode() ? '/dark-card-logo.svg' : '/light-card-logo.svg';
+
+	return (
+		<div className='mx-auto w-full max-w-3xl px-3'>
+			<div className='relative mb-2 flex flex-col items-stretch gap-3 overflow-hidden rounded-xl border border-violet/20 bg-background px-4 py-3 shadow-xs sm:flex-row sm:items-center'>
+				<img
+					src={logoSrc}
+					alt=''
+					aria-hidden
+					className='pointer-events-none absolute left-1/2 top-1/2 w-full -translate-x-1/2 -translate-y-1/2 scale-150 select-none'
+				/>
+				<div className='relative z-10 min-w-0 flex-1'>
+					<span className='block text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
+						Guided setup
+					</span>
+					<p className='mt-0.5 text-sm font-semibold text-foreground'>Ready to use your own data?</p>
+					<p className='mt-0.5 text-xs text-muted-foreground'>
+						Set up your project with the help of our onboarding agent
+					</p>
+				</div>
+				<Button asChild size='sm' className='relative z-10 shrink-0 self-start rounded-full sm:self-center'>
+					<Link to='/onboarding'>
+						Start setup
+						<ArrowRight className='size-3.5' />
+					</Link>
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+function selectChatHeader(chat: Chat) {
+	return {
+		title: chat.title,
+		projectId: chat.projectId,
+		isOnboarding: chat.isOnboarding,
+		forkMetadata: chat.forkMetadata,
+		automationRun: chat.automationRun,
+	};
 }
 
 function findLatestStorySlug(messages: UIMessage[]): string | undefined {

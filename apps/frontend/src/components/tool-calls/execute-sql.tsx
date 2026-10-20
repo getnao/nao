@@ -12,6 +12,7 @@ import type { ColumnConditionalFormats } from '@nao/shared/conditional-formattin
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useLoadAllQueryRows, useQueryRowsSource } from '@/hooks/use-query-rows';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
 import { trpc } from '@/main';
@@ -30,12 +31,14 @@ export const ExecuteSqlToolCall = ({
 	const chatId = agent?.chatId;
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && output?.id && input?.sql_query);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+	const rowsSource = useQueryRowsSource(toolCallId, output);
+	const loadAllRows = useLoadAllQueryRows(rowsSource);
 
 	const openEditor = (editable: boolean) => {
 		if (state === 'input-streaming' || !output || !input) {
 			return;
 		}
-		openSidePanel(<SidePanelContent input={input} output={output} editable={editable} />);
+		openSidePanel(<SidePanelContent input={input} output={output} toolCallId={toolCallId} editable={editable} />);
 	};
 
 	const handleExport = (format: DataExportFormat) => {
@@ -91,6 +94,7 @@ export const ExecuteSqlToolCall = ({
 							columns: output.columns,
 							data: output.data as Record<string, unknown>[],
 							filename: input?.name || 'query',
+							loadAllRows,
 							onExport: handleExport,
 						},
 					},
@@ -121,7 +125,7 @@ export const ExecuteSqlToolCall = ({
 				<SqlQueryDisplay query={input.sql_query} />
 			) : output ? (
 				<>
-					<SqlResultDisplay output={output} conditionalFormats={conditionalFormats} />
+					<SqlResultDisplay output={output} rowsSource={rowsSource} conditionalFormats={conditionalFormats} />
 					<TableFormatEditDialog
 						open={isFormatOpen}
 						onOpenChange={setIsFormatOpen}

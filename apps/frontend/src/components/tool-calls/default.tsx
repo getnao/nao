@@ -10,12 +10,13 @@ export const DefaultToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const canExpand = !!toolPart.errorText || !!toolPart.output;
 	const { isSettled } = useToolCallContext();
 	const toolName = getToolName(toolPart);
+	const title = toolName;
 
 	const statusIcon = isSettled ? undefined : <Spinner className='size-3 opacity-50' />;
 
 	return (
 		<Expandable
-			title={toolName}
+			title={title}
 			expanded={isExpanded}
 			onExpandedChange={setIsExpanded}
 			disabled={!canExpand}

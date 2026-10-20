@@ -24,7 +24,6 @@ import {
 } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { formatRgb } from 'culori';
-import maplibregl from 'maplibre-gl';
 import { memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { DataDrivenPropertyValueSpecification } from 'maplibre-gl';
 import type { Ref } from 'react';
@@ -41,6 +40,7 @@ import type {
 import { getMapStyle, isMapStyleDark, MAP_STYLE_LIGHT, resolveStyleUrl, useMapStyle } from '@/hooks/use-map-style';
 import { getActiveProjectId } from '@/lib/active-project';
 import { resolveCssVariableColor } from '@/lib/css-color';
+import { maplibregl } from '@/lib/maplibre';
 import { trpc } from '@/main';
 
 const POINTS_SOURCE_ID = 'query-points';
@@ -410,7 +410,11 @@ function applyChoroplethPaint(map: maplibregl.Map, domain: NumericDomain | null)
 	if (!map.getLayer(REGIONS_FILL_ID)) {
 		return;
 	}
-	map.setPaintProperty(REGIONS_FILL_ID, 'fill-opacity', choroplethOpacityExpression(domain));
+	map.setPaintProperty(
+		REGIONS_FILL_ID,
+		'fill-opacity',
+		choroplethOpacityExpression(domain) as DataDrivenPropertyValueSpecification<number>,
+	);
 }
 
 function pointRadiusExpression(config: displayMap.Input): DataDrivenPropertyValueSpecification<number> {

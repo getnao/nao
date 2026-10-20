@@ -26,6 +26,7 @@ export async function resolveProjectContextAccess(
 	projectId: string,
 	userId: string,
 	projectFolder: string,
+	options: { projectAccessAlreadyAuthorized?: boolean } = {},
 ): Promise<{
 	warehouseTableAccess: WarehouseTableAccess;
 	warehouseRowSecurity: WarehouseRowSecurity;
@@ -34,7 +35,7 @@ export async function resolveProjectContextAccess(
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 }> {
-	if (!(await getUserRoleInProject(projectId, userId))) {
+	if (!options.projectAccessAlreadyAuthorized && !(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}
 

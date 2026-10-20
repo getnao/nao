@@ -10,36 +10,32 @@ import {
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { usePanelRef } from 'react-resizable-panels';
 
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
+import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '../ui/resizable';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import type { ChartType } from '@nao/shared/chart-types';
+import { ChartEditorDataPanel, ChartEditorDataRail } from './chart-editor-data-panel';
+import { ChartEditorPreview } from './chart-editor-preview';
+import { ChartEditorQueryPane } from './chart-editor-query-pane';
+import { ChartTypePicker, chartTypeLabel } from './chart-type-picker';
+import type { ColumnValueKind } from '@/lib/chart-selection-summary';
+import type { SourceQuery } from '@/lib/execute-sql-messages';
 import type { LucideIcon } from 'lucide-react';
+import type { executeSql } from '@nao/shared/tools';
+import type { ChartType } from '@nao/shared/chart-types';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+import { acceptNumericKind, useColumnDropTarget, useDraggedColumnKind } from '@/hooks/use-column-drag';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 import { resolveCssVariableColorHex } from '@/lib/css-color';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
-
-const CHART_TYPE_OPTIONS: { value: ChartType; label: string }[] = [
-	{ value: 'bar', label: 'Bar' },
-	{ value: 'stacked_bar', label: 'Stacked bar' },
-	{ value: 'horizontal_bar', label: 'Horizontal bar' },
-	{ value: 'line', label: 'Line' },
-	{ value: 'area', label: 'Area' },
-	{ value: 'stacked_area', label: 'Stacked area' },
-	{ value: 'mixed', label: 'Mixed' },
-	{ value: 'pie', label: 'Pie' },
-	{ value: 'donut', label: 'Donut' },
-	{ value: 'kpi_card', label: 'KPI card' },
-	{ value: 'scatter', label: 'Scatter' },
-	{ value: 'radar', label: 'Radar' },
-];
+import { summarizeChartSelection } from '@/lib/chart-selection-summary';
+import { useAgentContext, useAgentMessages, useOptionalAgentContext } from '@/contexts/agent.provider';
 
 const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'; label: string }[] = [
 	{ value: 'auto', label: 'Auto' },
@@ -113,32 +109,169 @@ function remapOpenIndexesAfterRemoval(openIndexes: Set<number>, removedIndex: nu
 	return next;
 }
 
-interface ChartConfigEditDialogProps extends Omit<ChartConfigEditFormProps, 'onCancel' | 'onSaved'> {
+interface ChartConfigEditDialogProps extends Omit<
+	ChartConfigEditFormProps,
+	'id' | 'onCancel' | 'onSaved' | 'onDraftChange' | 'className' | 'showActions'
+> {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	description?: string;
+	sourceQuery?: SourceQuery | null;
+	initialView?: ChartEditorView;
 }
 
-/** Presentational edit dialog for `display_chart` configuration. */
+export type ChartEditorView = 'chart' | 'query';
+
+type QueryEditorState = 'unopened' | 'open' | 'hidden';
+
+const EMPTY_ROWS: Record<string, unknown>[] = [];
+
+const DATA_PANEL_DEFAULT_WIDTH = 256;
+const DATA_PANEL_MIN_WIDTH = 200;
+const DATA_PANEL_MAX_WIDTH = 480;
+const DATA_PANEL_COLLAPSED_WIDTH = 44;
+const FORM_PANEL_DEFAULT_WIDTH = 416;
+const FORM_PANEL_MIN_WIDTH = 320;
+const FORM_PANEL_MAX_WIDTH = 720;
+const CHART_PANEL_MIN_WIDTH = 320;
+const PANEL_OVERFLOW_HIDDEN = { overflow: 'hidden' } as const;
+
+/**
+ * Chart editor dialog: the query result columns on the left, the configuration form in the
+ * middle and the chart space on the right. Editing the SQL swaps the form and chart space for
+ * the query editor.
+ */
 export function ChartConfigEditDialog({
 	open,
 	onOpenChange,
 	description = 'Tweak the chart parameters.',
+	sourceQuery,
+	initialView = 'chart',
 	...form
 }: ChartConfigEditDialogProps) {
+	const formId = useId();
+	const agent = useOptionalAgentContext();
+	const [draft, setDraft] = useState<EditableChartInput>(form.config);
+	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
+	const [editedOutput, setEditedOutput] = useState<executeSql.Output | null>(null);
+	const [queryEditorState, setQueryEditorState] = useState<QueryEditorState>('unopened');
+	const data = useMemo(
+		() => (editedOutput?.data as Record<string, unknown>[] | undefined) ?? form.data ?? EMPTY_ROWS,
+		[editedOutput, form.data],
+	);
+	const columns = editedOutput?.columns ?? form.availableColumns;
+	const summary = useMemo(() => summarizeChartSelection(draft, data, paletteHexes), [draft, data, paletteHexes]);
+	const unsupportedNumberFormat = findUnsupportedNumberFormat(draft.series, form.enforceExportSafeFormats ?? true);
+	const editableQuery = sourceQuery && isEditableSourceQuery(sourceQuery) ? sourceQuery : null;
+	const canEditQuery = Boolean(editableQuery && !agent?.isReadonly && !agent?.isRunning);
+	const dataPanelRef = usePanelRef();
+	const [isDataPanelCollapsed, setIsDataPanelCollapsed] = useState(false);
+	const openQueryEditor = canEditQuery ? () => setQueryEditorState('open') : undefined;
+	const isEditingQuery = canEditQuery && queryEditorState === 'open';
+
+	useEffect(() => {
+		if (open) {
+			setPaletteHexes(form.palette ?? resolveChartPaletteHexes());
+			setEditedOutput(null);
+			setQueryEditorState(initialView === 'query' ? 'open' : 'unopened');
+			setIsDataPanelCollapsed(false);
+		}
+	}, [open, form.palette, initialView]);
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
-				<DialogHeader>
+			<DialogContent className='flex h-[min(92vh,60rem)] w-[min(96vw,100rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[100rem]'>
+				<DialogHeader className='shrink-0 border-b px-6 py-4'>
 					<DialogTitle>Edit chart</DialogTitle>
 					<DialogDescription className='text-sm text-muted-foreground font-medium'>
 						{description}
 					</DialogDescription>
 				</DialogHeader>
-				<ChartConfigEditForm
-					{...form}
+				<ResizablePanelGroup orientation='horizontal' className='min-h-0 flex-1'>
+					<ResizablePanel
+						id='data'
+						panelRef={dataPanelRef}
+						defaultSize={DATA_PANEL_DEFAULT_WIDTH}
+						minSize={DATA_PANEL_MIN_WIDTH}
+						maxSize={DATA_PANEL_MAX_WIDTH}
+						collapsible
+						collapsedSize={DATA_PANEL_COLLAPSED_WIDTH}
+						onResize={() => setIsDataPanelCollapsed(dataPanelRef.current?.isCollapsed() ?? false)}
+						className='flex flex-col'
+						style={PANEL_OVERFLOW_HIDDEN}
+					>
+						{isDataPanelCollapsed ? (
+							<ChartEditorDataRail
+								onExpand={() => dataPanelRef.current?.expand()}
+								onEditQuery={openQueryEditor}
+								isEditingQuery={isEditingQuery}
+								dialect={editableQuery?.output.dialect}
+							/>
+						) : (
+							<ChartEditorDataPanel
+								className='flex h-full'
+								columns={columns}
+								data={data}
+								summary={summary}
+								onCollapse={() => dataPanelRef.current?.collapse()}
+								onEditQuery={openQueryEditor}
+								isEditingQuery={isEditingQuery}
+								dialect={editableQuery?.output.dialect}
+							/>
+						)}
+					</ResizablePanel>
+					<ResizableSeparator />
+					<ResizablePanel id='workspace' className='flex flex-col' style={PANEL_OVERFLOW_HIDDEN}>
+						{canEditQuery && editableQuery && queryEditorState !== 'unopened' && (
+							<ChartEditorQueryPane
+								className={cn(queryEditorState === 'hidden' && 'hidden')}
+								input={editableQuery.input}
+								output={editableQuery.output}
+								toolCallId={editableQuery.toolCallId}
+								onOutputChange={setEditedOutput}
+								onClose={() => setQueryEditorState('hidden')}
+							/>
+						)}
+						<div className={cn('flex min-h-0 flex-1', isEditingQuery && 'hidden')}>
+							<ResizablePanelGroup orientation='horizontal' className='min-h-0 flex-1'>
+								<ResizablePanel
+									id='form'
+									defaultSize={FORM_PANEL_DEFAULT_WIDTH}
+									minSize={FORM_PANEL_MIN_WIDTH}
+									maxSize={FORM_PANEL_MAX_WIDTH}
+									className='select-none'
+								>
+									<ChartConfigEditForm
+										{...form}
+										availableColumns={columns}
+										data={data}
+										id={formId}
+										className='p-6'
+										showActions={false}
+										onDraftChange={setDraft}
+										onCancel={() => onOpenChange(false)}
+										onSaved={() => onOpenChange(false)}
+									/>
+								</ResizablePanel>
+								<ResizableSeparator />
+								<ResizablePanel
+									id='chart'
+									minSize={CHART_PANEL_MIN_WIDTH}
+									className='flex flex-col'
+									style={PANEL_OVERFLOW_HIDDEN}
+								>
+									<ChartEditorPreview draft={draft} data={data} columns={columns} summary={summary} />
+								</ResizablePanel>
+							</ResizablePanelGroup>
+						</div>
+					</ResizablePanel>
+				</ResizablePanelGroup>
+				<ChartConfigEditActions
+					formId={formId}
+					className='shrink-0 border-t px-6 py-3'
+					isSaving={form.isSaving ?? false}
+					canSave={!unsupportedNumberFormat}
 					onCancel={() => onOpenChange(false)}
-					onSaved={() => onOpenChange(false)}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -151,10 +284,14 @@ interface ChartConfigEditFormProps {
 	onSave: (next: EditableChartInput) => Promise<void>;
 	onCancel: () => void;
 	onSaved: () => void;
+	onDraftChange?: (draft: EditableChartInput) => void;
 	isSaving?: boolean;
 	data?: Record<string, unknown>[];
 	palette?: string[];
 	enforceExportSafeFormats?: boolean;
+	id?: string;
+	className?: string;
+	showActions?: boolean;
 }
 
 /** The chart editing fields and their validation, for a dialog or any other container. */
@@ -164,10 +301,14 @@ export function ChartConfigEditForm({
 	onSave,
 	onCancel,
 	onSaved,
+	onDraftChange,
 	isSaving = false,
 	data,
 	palette,
 	enforceExportSafeFormats = true,
+	id,
+	className,
+	showActions = true,
 }: ChartConfigEditFormProps) {
 	const [draft, setDraft] = useState<EditableChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
@@ -187,12 +328,7 @@ export function ChartConfigEditForm({
 		isStackedChartType(draft.chart_type) && (!isHorizontalBar || isPercentNormalized || draft.series.length >= 2);
 	const canEnableNormalize = !isHorizontalBar || draft.series.length >= 2;
 	const unsupportedNumberFormat = useMemo(
-		() =>
-			enforceExportSafeFormats
-				? draft.series
-						.map((series) => series.value_format?.d3_format)
-						.find((format) => Boolean(format) && !isExportSafeNumberFormat(format as string))
-				: undefined,
+		() => findUnsupportedNumberFormat(draft.series, enforceExportSafeFormats),
 		[draft.series, enforceExportSafeFormats],
 	);
 	const canShowComparisonPill = useMemo(
@@ -202,6 +338,8 @@ export function ChartConfigEditForm({
 	const isCombo = chartTypeSupportsComboSeries(draft.chart_type);
 	const hasRightAxis = isCombo && displayChart.hasRightAxisSeries(draft.series);
 	const hasLeftAxis = !isCombo || draft.series.some((s) => s.y_axis !== 'right');
+	const draggedColumnKind = useDraggedColumnKind();
+	const isDraggingSeriesColumn = draggedColumnKind !== null && acceptNumericKind(draggedColumnKind);
 
 	useEffect(() => {
 		setDraft(config);
@@ -213,6 +351,10 @@ export function ChartConfigEditForm({
 		setError(null);
 		setOpenValueFormatIndexes(new Set());
 	}, [config, palette]);
+
+	useEffect(() => {
+		onDraftChange?.(draft);
+	}, [draft, onDraftChange]);
 
 	const xAxisOptions = useMemo(() => {
 		if (availableColumns.length === 0) {
@@ -299,11 +441,15 @@ export function ChartConfigEditForm({
 		setOpenValueFormatIndexes((previous) => remapOpenIndexesAfterRemoval(previous, index));
 	};
 
-	const addSeries = () => {
+	const addSeries = (column?: string) => {
 		const used = new Set(draft.series.map((s) => s.data_key));
+		if (column && (column === draft.x_axis_key || used.has(column))) {
+			return;
+		}
 		const selectableColumns = getSelectableColumns(availableColumns);
-		const fallback = selectableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? selectableColumns[0];
-		if (!fallback) {
+		const nextColumn =
+			column ?? selectableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? selectableColumns[0];
+		if (!nextColumn) {
 			setError('No columns are available to add as a series.');
 			return;
 		}
@@ -311,7 +457,7 @@ export function ChartConfigEditForm({
 		setError(null);
 		setDraft((prev) => ({
 			...prev,
-			series: [...prev.series, { data_key: fallback }],
+			series: [...prev.series, { data_key: nextColumn }],
 		}));
 	};
 
@@ -340,7 +486,7 @@ export function ChartConfigEditForm({
 	};
 
 	return (
-		<form onSubmit={handleSubmit} className='flex flex-col gap-4'>
+		<form id={id} onSubmit={handleSubmit} className={cn('flex flex-col gap-4', className)}>
 			<div className='grid gap-2'>
 				<label htmlFor='chart-title' className='text-sm font-semibold text-foreground'>
 					Title
@@ -355,12 +501,16 @@ export function ChartConfigEditForm({
 			</div>
 
 			<div className='grid gap-2'>
-				<span className='text-sm font-semibold text-foreground'>Chart type</span>
-				<Select
+				<div className='flex items-baseline justify-between gap-2'>
+					<span className='text-sm font-semibold text-foreground'>Chart type</span>
+					<span className='text-xs text-muted-foreground'>
+						{chartTypeLabel(baseChartType(draft.chart_type))}
+					</span>
+				</div>
+				<ChartTypePicker
 					value={baseChartType(draft.chart_type)}
-					onValueChange={(value) =>
+					onValueChange={(nextBase) =>
 						setDraft((prev) => {
-							const nextBase = value as ChartType;
 							const keepPercent =
 								isPercentStackedChartType(prev.chart_type) && isStackedChartType(nextBase);
 							return {
@@ -369,18 +519,7 @@ export function ChartConfigEditForm({
 							};
 						})
 					}
-				>
-					<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-						{CHART_TYPE_OPTIONS.map((option) => (
-							<SelectItem key={option.value} value={option.value}>
-								{option.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				/>
 			</div>
 
 			{showNormalizeToggle && (
@@ -421,6 +560,7 @@ export function ChartConfigEditForm({
 								value={draft.x_axis_key ?? ''}
 								columns={xAxisOptions}
 								onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
+								draggedColumnKind={draggedColumnKind}
 							/>
 						</div>
 						{supportsAxisLabels && (
@@ -474,7 +614,7 @@ export function ChartConfigEditForm({
 						size='sm'
 						variant='outline'
 						className='rounded-full text-xs'
-						onClick={addSeries}
+						onClick={() => addSeries()}
 					>
 						<Plus className='size-3.5' /> Add series
 					</Button>
@@ -495,6 +635,8 @@ export function ChartConfigEditForm({
 									value={series.data_key}
 									columns={availableColumns.length > 0 ? availableColumns : [series.data_key]}
 									onChange={(value) => updateSeriesAt(index, { data_key: value })}
+									draggedColumnKind={draggedColumnKind}
+									acceptsKind={acceptNumericKind}
 								/>
 								<Input
 									value={series.label ?? ''}
@@ -584,6 +726,7 @@ export function ChartConfigEditForm({
 							</fieldset>
 						);
 					})}
+					{isDraggingSeriesColumn && <SeriesDropZone onDrop={addSeries} />}
 				</div>
 			</div>
 
@@ -707,21 +850,38 @@ export function ChartConfigEditForm({
 				<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
 			)}
 
-			<DialogFooter>
-				<Button type='button' variant='ghost' className='rounded-full border' onClick={onCancel}>
-					Cancel
-				</Button>
-				<Button
-					variant='primary-gradient'
-					type='submit'
-					className='rounded-full'
-					isLoading={isSaving}
-					disabled={isSaving || Boolean(unsupportedNumberFormat)}
-				>
-					Save
-				</Button>
-			</DialogFooter>
+			{showActions && (
+				<ChartConfigEditActions isSaving={isSaving} canSave={!unsupportedNumberFormat} onCancel={onCancel} />
+			)}
 		</form>
+	);
+}
+
+interface ChartConfigEditActionsProps {
+	isSaving: boolean;
+	canSave: boolean;
+	onCancel: () => void;
+	formId?: string;
+	className?: string;
+}
+
+function ChartConfigEditActions({ isSaving, canSave, onCancel, formId, className }: ChartConfigEditActionsProps) {
+	return (
+		<DialogFooter className={className}>
+			<Button type='button' variant='ghost' className='rounded-full border' onClick={onCancel}>
+				Cancel
+			</Button>
+			<Button
+				variant='primary-gradient'
+				type='submit'
+				form={formId}
+				className='rounded-full'
+				isLoading={isSaving}
+				disabled={isSaving || !canSave}
+			>
+				Save
+			</Button>
+		</DialogFooter>
 	);
 }
 
@@ -732,6 +892,7 @@ interface DisplayChartEditDialogProps {
 	config: EditableChartInput;
 	availableColumns: string[];
 	data?: Record<string, unknown>[];
+	sourceQuery?: SourceQuery;
 }
 
 /** Edit dialog bound to a `tool-display_chart` message part: persists through `chart.updateConfig`. */
@@ -742,6 +903,7 @@ export function DisplayChartEditDialog({
 	config,
 	availableColumns,
 	data,
+	sourceQuery,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
 	const { setMessages } = useAgentContext();
@@ -776,6 +938,7 @@ export function DisplayChartEditDialog({
 			onSave={handleSave}
 			isSaving={updateMutation.isPending}
 			description='Tweak the chart parameters. Changes are saved to the chat.'
+			sourceQuery={sourceQuery}
 		/>
 	);
 }
@@ -784,24 +947,52 @@ interface ColumnSelectProps {
 	value: string;
 	columns: string[];
 	onChange: (value: string) => void;
+	draggedColumnKind: ColumnValueKind | null;
+	acceptsKind?: (kind: ColumnValueKind) => boolean;
 }
 
-function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
+function ColumnSelect({ value, columns, onChange, draggedColumnKind, acceptsKind }: ColumnSelectProps) {
+	const { isOver, dropTargetProps } = useColumnDropTarget({ onDrop: onChange, acceptsKind });
+	const isDropCandidate = draggedColumnKind !== null && (acceptsKind?.(draggedColumnKind) ?? true);
 	const columnsWithValues = getSelectableColumns(columns);
 	const items = value && !columnsWithValues.includes(value) ? [value, ...columnsWithValues] : columnsWithValues;
 	return (
-		<Select value={value} onValueChange={onChange} disabled={items.length === 0}>
-			<SelectTrigger className='w-full text-sm bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-				<SelectValue placeholder='Select column' />
-			</SelectTrigger>
-			<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-				{items.map((column) => (
-					<SelectItem key={column} value={column}>
-						{column}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
+		<div
+			{...dropTargetProps}
+			className={cn(
+				'rounded-md',
+				isDropCandidate && 'outline-2 outline-offset-2 outline-primary/40 outline-dashed',
+				isOver && 'outline-primary outline-solid',
+			)}
+		>
+			<Select value={value} onValueChange={onChange} disabled={items.length === 0}>
+				<SelectTrigger className='w-full text-sm bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+					<SelectValue placeholder='Select column' />
+				</SelectTrigger>
+				<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+					{items.map((column) => (
+						<SelectItem key={column} value={column}>
+							{column}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
+
+function SeriesDropZone({ onDrop }: { onDrop: (column: string) => void }) {
+	const { isOver, dropTargetProps } = useColumnDropTarget({ onDrop, acceptsKind: acceptNumericKind });
+	return (
+		<div
+			{...dropTargetProps}
+			className={cn(
+				'flex h-10 items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 text-xs text-muted-foreground transition-colors',
+				isOver && 'border-primary bg-accent text-foreground',
+			)}
+		>
+			<Plus className='size-3.5' /> Drop to add a series
+		</div>
 	);
 }
 
@@ -1134,6 +1325,25 @@ const UNSUPPORTED_NUMBER_FORMAT_MESSAGE =
  * static story export formatter. Exposing only these in the editor keeps both paths consistent.
  */
 const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~?s$/];
+
+type EditableSourceQuery = SourceQuery & { input: executeSql.Input };
+
+/** Semantic queries are read as their compiled SQL, which the backend refuses to edit. */
+function isEditableSourceQuery(sourceQuery: SourceQuery): sourceQuery is EditableSourceQuery {
+	return Boolean(sourceQuery.input && sourceQuery.output.id) && !('compiled_sql' in sourceQuery.output);
+}
+
+function findUnsupportedNumberFormat(
+	series: displayChart.SeriesConfig[],
+	enforceExportSafeFormats: boolean,
+): string | undefined {
+	if (!enforceExportSafeFormats) {
+		return undefined;
+	}
+	return series
+		.map((entry) => entry.value_format?.d3_format)
+		.find((format): format is string => format !== undefined && !isExportSafeNumberFormat(format));
+}
 
 function isExportSafeNumberFormat(format: string): boolean {
 	return format === '' || EXPORT_SAFE_NUMBER_FORMATS.some((pattern) => pattern.test(format));

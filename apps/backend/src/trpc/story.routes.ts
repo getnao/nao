@@ -1,7 +1,7 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
 import { STORY_KIT_EDITABLE_BLOCKS } from '@nao/shared/story-app';
 import type { BulkStoryItem, NotificationChannel, StoryFormat, UserRole } from '@nao/shared/types';
-import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS, RECIPIENT_MODES } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -24,6 +24,7 @@ import {
 	getCustomStoryVersion,
 } from '../services/custom-story';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '../services/example-project';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -31,6 +32,7 @@ import {
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
+import { assertShareableUserGroupIds, listShareableUserGroups } from '../services/shareable-user-groups.service';
 import {
 	editCustomStoryBlock,
 	restoreCustomStoryVersion,
@@ -48,6 +50,7 @@ import {
 	getStoryFilterOptions,
 	getStoryQuerySql,
 } from '../services/story-filters';
+import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -81,7 +84,7 @@ const chatStoryProcedure = chatOwnerProcedure.use(async ({ ctx, getRawInput, nex
 	if (!projectId) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 	}
-	if (!(await projectQueries.getUserRoleInProject(projectId, ctx.user.id))) {
+	if (!(await canAccessStoryProject(projectId, ctx.user.id))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
 	return next({ ctx: { projectId } });
@@ -95,7 +98,7 @@ const storyOwnerProjectProcedure = storyOwnerProcedure.use(async ({ ctx, getRawI
 	if (!projectId) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
-	if (!(await projectQueries.getUserRoleInProject(projectId, ctx.user.id))) {
+	if (!(await canAccessStoryProject(projectId, ctx.user.id))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
 	return next();
@@ -665,12 +668,13 @@ export const storyRoutes = {
 				channels: delivery?.channels ?? (['email'] as NotificationChannel[]),
 				recipientMode: delivery?.recipientMode ?? 'specific',
 				recipientUserIds: delivery?.recipientUserIds ?? [],
+				recipientGroupIds: delivery?.recipientGroupIds ?? [],
 			};
 		}),
 
 	listDeliveryRecipients: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (!projectId) {
 				return [];
@@ -685,10 +689,20 @@ export const storyRoutes = {
 			});
 
 			if (access?.visibility === 'specific' && access.recipientUserIds.length > 0) {
-				const allowed = new Set(access.recipientUserIds);
+				const allowed = new Set([...access.recipientUserIds, ctx.user.id]);
 				return members.filter((member) => allowed.has(member.id)).map(toRecipient);
 			}
 			return members.map(toRecipient);
+		}),
+
+	listDeliveryRecipientGroups: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				return [];
+			}
+			return listShareableUserGroups(projectId);
 		}),
 
 	updateDelivery: chatOwnerProcedure
@@ -700,8 +714,9 @@ export const storyRoutes = {
 				cron: z.string().nullable(),
 				scheduleDescription: z.string().nullable(),
 				channels: z.array(z.enum(NOTIFICATION_CHANNELS)).min(1),
-				recipientMode: z.enum(['all', 'specific']),
+				recipientMode: z.enum(RECIPIENT_MODES),
 				recipientUserIds: z.array(z.string()),
+				recipientGroupIds: z.array(z.string()).default([]),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
@@ -716,11 +731,23 @@ export const storyRoutes = {
 				});
 			}
 			const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-			assertValidDeliverySchedule(input.enabled, input.cron, input.recipientMode, input.recipientUserIds);
+			assertValidDeliverySchedule(
+				input.enabled,
+				input.cron,
+				input.recipientMode,
+				input.recipientUserIds,
+				input.recipientGroupIds,
+			);
 
 			const existingDelivery = await storyDeliveryQueries.getByStoryId(story.id);
 			const previousRecipientIds = new Set(
-				existingDelivery?.recipientMode === 'specific' ? existingDelivery.recipientUserIds : [],
+				existingDelivery?.recipientMode === 'specific' && projectId
+					? await resolveSpecificRecipientUserIds(
+							projectId,
+							existingDelivery.recipientUserIds,
+							existingDelivery.recipientGroupIds,
+						)
+					: [],
 			);
 
 			if (input.recipientMode === 'specific' && input.recipientUserIds.length > 0) {
@@ -736,6 +763,12 @@ export const storyRoutes = {
 						message: 'Recipients must have access to this project.',
 					});
 				}
+			}
+			if (input.recipientMode === 'specific' && input.recipientGroupIds.length > 0) {
+				if (!projectId) {
+					throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Story has no project.' });
+				}
+				await assertShareableUserGroupIds(projectId, input.recipientGroupIds);
 			}
 
 			if (input.enabled && projectId) {
@@ -757,15 +790,24 @@ export const storyRoutes = {
 				channels: input.channels,
 				recipientMode: input.recipientMode,
 				recipientUserIds: input.recipientUserIds,
+				recipientGroupIds: input.recipientMode === 'specific' ? input.recipientGroupIds : [],
 				createdBy: ctx.user.id,
 			});
 			await syncStoryDeliveryJob(story.id, input.enabled, input.cron);
 
 			if (input.enabled && input.recipientMode === 'specific' && projectId) {
-				const addedUserIds = input.recipientUserIds.filter(
-					(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
-				);
-				await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds).catch((error) => {
+				const bestEffortNotify = async () => {
+					const recipientIds = await resolveSpecificRecipientUserIds(
+						projectId,
+						input.recipientUserIds,
+						input.recipientGroupIds,
+					);
+					const addedUserIds = recipientIds.filter(
+						(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
+					);
+					await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds);
+				};
+				await bestEffortNotify().catch((error) => {
 					logger.error(`Failed to notify story subscribers: ${String(error)}`, {
 						source: 'system',
 						projectId,
@@ -1092,8 +1134,8 @@ export const storyRoutes = {
 };
 
 async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<void> {
-	const userRole = projectId ? await projectQueries.getUserRoleInProject(projectId, userId) : null;
-	if (!userRole || !(await storyQueries.canUserAccessStory(storyId, userId))) {
+	const hasProjectAccess = projectId ? await canAccessStoryProject(projectId, userId) : false;
+	if (!hasProjectAccess || !(await storyQueries.canUserAccessStory(storyId, userId))) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
 }
@@ -1113,8 +1155,7 @@ async function filterStoriesByProjectAccess(
 	explicitProjectId?: string,
 ) {
 	if (explicitProjectId) {
-		const userRole = await projectQueries.getUserRoleInProject(explicitProjectId, userId);
-		if (!userRole) {
+		if (!(await canAccessStoryProject(explicitProjectId, userId))) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 		}
 		return stories;
@@ -1128,13 +1169,19 @@ async function filterStoriesByProjectAccess(
 	const projectAccess = await Promise.all(
 		projectIds.map(async (projectId) => ({
 			projectId,
-			hasAccess: Boolean(await projectQueries.getUserRoleInProject(projectId, userId)),
+			hasAccess: await canAccessStoryProject(projectId, userId),
 		})),
 	);
 	const accessibleProjectIds = new Set(
 		projectAccess.filter(({ hasAccess }) => hasAccess).map(({ projectId }) => projectId),
 	);
 	return stories.filter((story) => story.projectId !== null && accessibleProjectIds.has(story.projectId));
+}
+
+async function canAccessStoryProject(projectId: string, userId: string): Promise<boolean> {
+	return (
+		projectId === SYSTEM_EXAMPLE_PROJECT_ID || Boolean(await projectQueries.getUserRoleInProject(projectId, userId))
+	);
 }
 
 /**
