@@ -245,6 +245,8 @@ export const orgMember = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ORG_ROLES }).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
+		isDeleted: boolean('is_deleted').default(false).notNull(),
+		deletedAt: timestamp('deleted_at'),
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
 );
@@ -562,6 +564,8 @@ export const projectMember = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: USER_ROLES }).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
+		isDeleted: boolean('is_deleted').default(false).notNull(),
+		deletedAt: timestamp('deleted_at'),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
 );
