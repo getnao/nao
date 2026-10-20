@@ -14,6 +14,9 @@ export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
 	compiledBySemanticLayer?: boolean;
+	/** The SQL as the model wrote it (filter templates included), set for results produced in the current run. */
+	sqlQuery?: string;
+	databaseId?: string;
 }
 
 export interface GeneratedArtifacts {

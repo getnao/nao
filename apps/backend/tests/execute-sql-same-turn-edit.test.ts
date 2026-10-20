@@ -46,7 +46,11 @@ describe('execute_sql in-place edit of a query created in the current turn', () 
 
 		expect(getExecuteSqlPartByQueryIdInChat).toHaveBeenCalledWith('chat-1', created.id);
 		expect(edited.id).toBe(created.id);
-		expect(context.queryResults.get(created.id)).toEqual({ columns: ['n'], data: [{ n: 1 }] });
+		expect(context.queryResults.get(created.id)).toEqual({
+			columns: ['n'],
+			data: [{ n: 1 }],
+			sqlQuery: 'SELECT 2 AS n',
+		});
 		expect(updateExecuteSqlPart).not.toHaveBeenCalled();
 	});
 

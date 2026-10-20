@@ -19,6 +19,12 @@ import { containsBlockedPassthroughCall, detectQueryRowLimit, isReadOnlySqlQuery
 import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
+type SameTurnQueryOptions = {
+	queryId?: `query_${string}`;
+	/** The SQL as written by the model, kept so same-turn story validation can read it before the part is persisted. */
+	sqlQuery: string;
+};
+
 type ExecuteQueryOptions = {
 	/** SQL compiled by the semantic layer may reach the warehouse even when hand-written SQL may not. */
 	compiledBySemanticLayer?: boolean;
@@ -65,12 +71,15 @@ export async function executeQuery(
 	}
 
 	if (context.adminMode) {
-		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
+		return withTemplateWarnings(
+			await executeAppDbQuery(effectiveSql, context, { queryId: query_id, sqlQuery: sql_query }),
+			templateWarnings,
+		);
 	}
 
 	if (database_id === LOCAL_DATABASE_ID) {
 		return withTemplateWarnings(
-			await executeLocalQuery(effectiveSql, context, query_id, save_to),
+			await executeLocalQuery(effectiveSql, context, { queryId: query_id, sqlQuery: sql_query, saveTo: save_to }),
 			templateWarnings,
 		);
 	}
@@ -90,6 +99,8 @@ export async function executeQuery(
 	context.queryResults.set(id, {
 		columns: data.columns,
 		data: data.data,
+		sqlQuery: sql_query,
+		...(database_id && { databaseId: database_id }),
 		...(options.compiledBySemanticLayer && { compiledBySemanticLayer: true }),
 	});
 
@@ -108,18 +119,17 @@ export async function executeQuery(
 
 /** Files and earlier results, in nao's own DuckDB. No warehouse is involved. */
 async function executeLocalQuery(
-	sqlQuery: string,
+	effectiveSql: string,
 	context: ToolContext,
-	queryId?: `query_${string}`,
-	saveTo?: executeSql.SaveTo,
+	{ queryId, sqlQuery, saveTo }: SameTurnQueryOptions & { saveTo?: executeSql.SaveTo },
 ): Promise<executeSql.Output> {
 	const {
 		result: { columns, data },
 		savedFile,
-	} = await runQueryOnLocalFiles(sqlQuery, context, saveTo);
+	} = await runQueryOnLocalFiles(effectiveSql, context, saveTo);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
-	context.queryResults.set(id, { columns, data });
-	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	context.queryResults.set(id, { columns, data, sqlQuery, databaseId: LOCAL_DATABASE_ID });
+	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
 	return {
 		_version: '1',
@@ -134,14 +144,14 @@ async function executeLocalQuery(
 }
 
 async function executeAppDbQuery(
-	sqlQuery: string,
+	effectiveSql: string,
 	context: ToolContext,
-	queryId?: `query_${string}`,
+	{ queryId, sqlQuery }: SameTurnQueryOptions,
 ): Promise<executeSql.Output> {
-	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
+	const { columns, rows } = await queryAppDb(context.projectId, effectiveSql);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
-	context.queryResults.set(id, { columns, data: rows });
-	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	context.queryResults.set(id, { columns, data: rows, sqlQuery });
+	const appliedLimit = detectQueryRowLimit(effectiveSql);
 	return {
 		_version: '1',
 		data: rows,
