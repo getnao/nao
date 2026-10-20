@@ -37,6 +37,9 @@ class DatabaseSyncState:
     tables_synced: int = 0
     """Count of tables synced"""
 
+    render_errors: int = 0
+    """Count of context files whose template failed to render"""
+
     def add_table(self, schema: str, table: str, columns: list[dict[str, Any]] | None = None) -> None:
         """Record that a table was synced.
 

@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, cast
 import questionary
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from nao_core.config.databases.context import DEFAULT_PREVIEW_MAX_VALUE_LENGTH
+
 if TYPE_CHECKING:
     import pandas as pd
     from ibis import BaseBackend
@@ -123,6 +125,15 @@ class DatabaseConfig(BaseModel, ABC):
             "Glob patterns for columns to exclude. Patterns are matched against the "
             "fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', "
             "'analytics.events.*_id'). Empty means no columns are excluded."
+        ),
+    )
+    preview_max_value_length: int = Field(
+        default=DEFAULT_PREVIEW_MAX_VALUE_LENGTH,
+        ge=0,
+        description=(
+            "Maximum length of a single value in preview rows. Longer values are truncated "
+            "in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the "
+            "generated docs or the ai_summary prompt. 0 disables truncation."
         ),
     )
     templates: list[DatabaseTemplate] = Field(
@@ -314,7 +325,13 @@ class DatabaseConfig(BaseModel, ABC):
         """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
         from nao_core.config.databases.context import DatabaseContext
 
-        return DatabaseContext(conn, schema, table_name, exclude_columns=self.exclude_columns)
+        return DatabaseContext(
+            conn,
+            schema,
+            table_name,
+            exclude_columns=self.exclude_columns,
+            preview_max_value_length=self.preview_max_value_length,
+        )
 
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""

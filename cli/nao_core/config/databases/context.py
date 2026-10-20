@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ibis import BaseBackend
+
+DEFAULT_PREVIEW_MAX_VALUE_LENGTH = 1000
+
+
+def truncate_middle_with_length(text: str, max_length: int) -> str:
+    """Keep the head and tail of ``text`` and note the original length in the middle."""
+    marker = f"…[truncated, {len(text)} chars]…"
+    keep = max(max_length - len(marker), 0)
+    head = (keep + 1) // 2
+    tail = keep // 2
+    return text[:head] + marker + (text[-tail:] if tail else "")
 
 
 class DatabaseContext:
@@ -26,11 +38,13 @@ class DatabaseContext:
         schema: str,
         table_name: str,
         exclude_columns: list[str] | None = None,
+        preview_max_value_length: int = DEFAULT_PREVIEW_MAX_VALUE_LENGTH,
     ):
         self._conn = conn
         self._schema = schema
         self._table_name = table_name
         self._exclude_columns = list(exclude_columns) if exclude_columns else []
+        self._preview_max_value_length = preview_max_value_length
         self._table_ref = None
         self._columns_cache: list[dict[str, Any]] | None = None
         self._columns_load_failed = False
@@ -45,6 +59,10 @@ class DatabaseContext:
         context implementation without changing per-database constructors.
         """
         self._exclude_columns = list(patterns) if patterns else []
+
+    def set_preview_max_value_length(self, max_length: int) -> None:
+        """Set the per-value length cap applied to preview rows (0 disables it)."""
+        self._preview_max_value_length = max_length
 
     def _is_column_excluded(self, column_name: str) -> bool:
         """Return True when the column should be hidden based on ``exclude_columns``.
@@ -118,8 +136,23 @@ class DatabaseContext:
             for key, val in row_dict.items():
                 if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
                     row_dict[key] = str(val)
-            rows.append(self._filter_excluded_row(row_dict))
+            rows.append(self._prepare_preview_row(row_dict))
         return rows
+
+    def _prepare_preview_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Apply ``exclude_columns`` and the per-value length cap to a raw preview row."""
+        filtered = self._filter_excluded_row(row)
+        return {key: self._cap_preview_value(val) for key, val in filtered.items()}
+
+    def _cap_preview_value(self, value: Any) -> Any:
+        """Truncate oversized string or JSON values so one blob column cannot bloat the docs."""
+        max_length = self._preview_max_value_length
+        if max_length <= 0 or not isinstance(value, (str, list, dict)):
+            return value
+        text = value if isinstance(value, str) else json.dumps(value, default=str, ensure_ascii=False)
+        if len(text) <= max_length:
+            return value
+        return truncate_middle_with_length(text, max_length)
 
     def _filter_excluded_row(self, row: dict[str, Any]) -> dict[str, Any]:
         """Drop keys from a preview row that match an ``exclude_columns`` pattern."""

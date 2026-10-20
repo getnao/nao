@@ -212,7 +212,7 @@ class StarRocksDatabaseContext(DatabaseContext):
             for key, value in record.items():
                 if value is not None and not isinstance(value, (str, int, float, bool, list, dict)):
                     record[key] = str(value)
-            out.append(self._filter_excluded_row(record))
+            out.append(self._prepare_preview_row(record))
         return out
 
     def _build_profiling_query(self, col: dict) -> str:

@@ -110,3 +110,41 @@ def test_neither_template_due_skips_profiling_compute(tmp_path):
 
     context.profiling.assert_not_called()
     engine.render.assert_not_called()
+
+
+def test_failed_render_keeps_previous_file(tmp_path):
+    config, _, engine, _ = create_sync_setup(
+        ProfilingRefreshPolicy.ALWAYS,
+        ProfilingRefreshPolicy.ALWAYS,
+    )
+    output_path = table_path(tmp_path)
+    output_path.mkdir(parents=True)
+    summary_file = output_path / "ai_summary.md"
+    summary_file.write_text("previous summary")
+    engine.render.side_effect = _fail_ai_summary
+
+    run_sync(config, engine, tmp_path)
+
+    assert summary_file.read_text() == "previous summary"
+    assert (output_path / "profiling.md").read_text() == with_generated_marker("rendered profiling.md")
+
+
+def test_failed_render_writes_placeholder_without_error_dump(tmp_path):
+    config, _, engine, _ = create_sync_setup(
+        ProfilingRefreshPolicy.ALWAYS,
+        ProfilingRefreshPolicy.ALWAYS,
+    )
+    engine.render.side_effect = _fail_ai_summary
+
+    run_sync(config, engine, tmp_path)
+
+    content = (table_path(tmp_path) / "ai_summary.md").read_text()
+    assert "ai_summary not generated: prompt is too long" in content
+    assert "Error generating content" not in content
+    assert "stack trace details" not in content
+
+
+def _fail_ai_summary(template_name, **_kwargs):
+    if "ai_summary" in template_name:
+        raise RuntimeError("prompt is too long: 1109582 tokens > 1000000 maximum\nstack trace details")
+    return f"rendered {Path(template_name).stem}"
