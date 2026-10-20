@@ -1,0 +1,101 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+	describeModelInput,
+	MODEL_INPUT_LISTED_MAX,
+	pickRequestedModel,
+	type ProjectAvailableModel,
+	RequestedModelError,
+} from '../../src/utils/llm';
+
+const available: ProjectAvailableModel[] = [
+	{ provider: 'mistral', modelId: 'mistral-medium-latest', name: 'Mistral Medium', baseUrl: null },
+	{ provider: 'mistral', modelId: 'mistral-large-4', name: 'Mistral Large 4', baseUrl: null },
+	{ provider: 'anthropic', modelId: 'claude-opus-5-5', name: 'Claude Opus 5.5', baseUrl: null },
+	{ provider: 'openai', modelId: 'shared-id', name: 'Shared (OpenAI)', baseUrl: null },
+	{ provider: 'custom', modelId: 'shared-id', name: 'Shared (custom)', baseUrl: 'https://llm.example' },
+	{ provider: 'openrouter', modelId: 'mistralai/mistral-large', name: 'Mistral Large (OpenRouter)', baseUrl: null },
+	{ provider: 'openaiCompatible/prod', modelId: 'org/served-id', name: 'Served (prod)', baseUrl: 'https://p' },
+	{ provider: 'openaiCompatible/lab', modelId: 'org/served-id', name: 'Served (lab)', baseUrl: 'https://l' },
+];
+
+describe('pickRequestedModel', () => {
+	it('matches a bare model id regardless of case', () => {
+		expect(pickRequestedModel(available, 'Mistral-Large-4')).toEqual({
+			provider: 'mistral',
+			modelId: 'mistral-large-4',
+		});
+	});
+
+	it('matches the display name', () => {
+		expect(pickRequestedModel(available, 'claude opus 5.5')).toEqual({
+			provider: 'anthropic',
+			modelId: 'claude-opus-5-5',
+		});
+	});
+
+	it('accepts a provider-qualified id when several providers serve the same id', () => {
+		expect(pickRequestedModel(available, 'custom/shared-id')).toEqual({ provider: 'custom', modelId: 'shared-id' });
+	});
+
+	it('refuses an ambiguous bare id and lists the qualified candidates', () => {
+		expect(() => pickRequestedModel(available, 'shared-id')).toThrow(RequestedModelError);
+		expect(() => pickRequestedModel(available, 'shared-id')).toThrow('openai/shared-id, custom/shared-id');
+	});
+
+	it('prefers an exact id containing a slash over the provider/model split', () => {
+		expect(pickRequestedModel(available, 'mistralai/mistral-large')).toEqual({
+			provider: 'openrouter',
+			modelId: 'mistralai/mistral-large',
+		});
+	});
+
+	it('qualifies a named provider whose id and model id both contain a slash', () => {
+		expect(pickRequestedModel(available, 'openaiCompatible/lab/org/served-id')).toEqual({
+			provider: 'openaiCompatible/lab',
+			modelId: 'org/served-id',
+		});
+		expect(() => pickRequestedModel(available, 'org/served-id')).toThrow(
+			'openaiCompatible/prod/org/served-id, openaiCompatible/lab/org/served-id',
+		);
+	});
+
+	it('rejects unknown and empty models with the list of available ones', () => {
+		expect(() => pickRequestedModel(available, 'gpt-99')).toThrow(
+			'Unknown model "gpt-99". Available models: mistral/',
+		);
+		expect(() => pickRequestedModel(available, '  ')).toThrow('`model` must not be empty.');
+	});
+});
+
+describe('describeModelInput', () => {
+	it('lists the models the way pickRequestedModel resolves them and marks the default', () => {
+		const text = describeModelInput(available, { provider: 'mistral', modelId: 'mistral-large-4' });
+
+		expect(text).toContain('`mistral-medium-latest`, `mistral-large-4` (default), `claude-opus-5-5`');
+		expect(text).toContain('`openai/shared-id`, `custom/shared-id`');
+		expect(text).toContain('`mistralai/mistral-large`');
+		expect(text).not.toContain('and ');
+	});
+
+	it('caps the list and says how many models are left out', () => {
+		const many: ProjectAvailableModel[] = Array.from({ length: MODEL_INPUT_LISTED_MAX + 3 }, (_, i) => ({
+			provider: 'openai',
+			modelId: `model-${i}`,
+			name: `Model ${i}`,
+			baseUrl: null,
+		}));
+
+		const text = describeModelInput(many, null);
+
+		expect(text).toContain(`\`model-${MODEL_INPUT_LISTED_MAX - 1}\` and 3 more.`);
+		expect(text).not.toContain(`model-${MODEL_INPUT_LISTED_MAX}\``);
+		expect(text).not.toContain('(default)');
+	});
+
+	it('says so when the project has no model, and lists nothing when the catalog is unknown', () => {
+		expect(describeModelInput([], null)).toContain('No model is configured on this project.');
+		expect(describeModelInput(null, null)).not.toContain('Available models');
+		expect(describeModelInput(null, null)).toContain('Omit to use the default');
+	});
+});

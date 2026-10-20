@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,37 +18,64 @@ from nao_core.commands.chat import (
 from nao_core.config.base import NaoConfig, NaoConfigError
 from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 
-# Tests for try_load with exit_on_error=False (default, silent mode)
-
-
 SERVER_PORT = 8080
 TIMEOUT = 1
 
-
-def test_try_load_returns_none_when_file_not_found(tmp_path: Path):
-    cfg = NaoConfig.try_load(tmp_path)
-    assert cfg is None
-
-
-def test_try_load_returns_none_when_invalid_yaml(tmp_path: Path):
-    invalid_yaml = tmp_path / "nao_config.yaml"
-    invalid_yaml.write_text("project_name: [invalid yaml")  # Invalid YAML syntax
-
-    cfg = NaoConfig.try_load(tmp_path)
-    assert cfg is None
+INVALID_YAML = "project_name: [invalid yaml"
+MISSING_PROJECT_NAME = "databases: []"
+NGROK_URL = "https://abc123.ngrok-free.app"
 
 
-def test_try_load_returns_none_when_validation_error(tmp_path: Path):
-    invalid_config = tmp_path / "nao_config.yaml"
-    invalid_config.write_text("databases: []")  # Missing required project_name
+@pytest.fixture
+def chat_mocks(mock_chat_dependencies):
+    """Patch everything `chat()` spawns or prints, with servers that start and exit immediately."""
+    _, bin_dir = mock_chat_dependencies
+    process = MagicMock()
+    process.stdout = iter([])
+    process.wait.return_value = 0
+    with (
+        patch("nao_core.commands.chat.console") as console,
+        patch("nao_core.commands.chat.get_server_binary_path", return_value=bin_dir / "nao-chat-server"),
+        patch("nao_core.commands.chat.get_fastapi_main_path", return_value=bin_dir / "fastapi" / "main.py"),
+        patch("nao_core.commands.chat.subprocess.Popen", return_value=process) as popen,
+        patch("nao_core.commands.chat.wait_for_server", return_value=True) as wait_for_server,
+        patch("nao_core.commands.chat.webbrowser.open") as open_browser,
+    ):
+        yield SimpleNamespace(
+            console=console,
+            popen=popen,
+            process=process,
+            wait_for_server=wait_for_server,
+            open_browser=open_browser,
+        )
+
+
+@pytest.fixture
+def ngrok_mocks():
+    with (
+        patch("nao_core.commands.chat.start_ngrok_tunnel", return_value=NGROK_URL) as start_ngrok,
+        patch("nao_core.commands.chat.stop_ngrok") as stop_ngrok,
+    ):
+        yield SimpleNamespace(start=start_ngrok, stop=stop_ngrok)
+
+
+# Tests for try_load with exit_on_error=False (default, silent mode)
+
+
+@pytest.mark.parametrize(
+    "config_content",
+    [None, INVALID_YAML, MISSING_PROJECT_NAME],
+    ids=["file_not_found", "invalid_yaml", "validation_error"],
+)
+def test_try_load_returns_none_on_error(tmp_path: Path, config_content: str | None):
+    _write_config(tmp_path, config_content)
 
     cfg = NaoConfig.try_load(tmp_path)
     assert cfg is None
 
 
 def test_try_load_returns_config_when_valid(tmp_path: Path):
-    valid_yaml = tmp_path / "nao_config.yaml"
-    valid_yaml.write_text("project_name: test-project")
+    _write_config(tmp_path, "project_name: test-project")
 
     cfg = NaoConfig.try_load(tmp_path)
 
@@ -69,9 +97,16 @@ def test_try_load_exits_on_file_not_found(tmp_path: Path):
         mock_console.print.assert_any_call("[bold red]✗[/bold red] No nao_config.yaml found in current directory")
 
 
-def test_try_load_exits_on_invalid_yaml(tmp_path: Path):
-    invalid_yaml = tmp_path / "nao_config.yaml"
-    invalid_yaml.write_text("project_name: [invalid yaml")
+@pytest.mark.parametrize(
+    ("config_content", "expected_fragments"),
+    [
+        (INVALID_YAML, ["Failed to load nao_config.yaml", "Invalid YAML syntax"]),
+        (MISSING_PROJECT_NAME, ["Failed to load nao_config.yaml"]),
+    ],
+    ids=["invalid_yaml", "validation_error"],
+)
+def test_try_load_exits_on_invalid_config(tmp_path: Path, config_content: str, expected_fragments: list[str]):
+    _write_config(tmp_path, config_content)
 
     with patch("nao_core.config.base.Console") as mock_console_cls:
         mock_console = mock_console_cls.return_value
@@ -81,53 +116,29 @@ def test_try_load_exits_on_invalid_yaml(tmp_path: Path):
         assert exc_info.value.code == 1
         assert mock_console.print.call_count == 1
         call_args = str(mock_console.print.call_args)
-        assert "Failed to load nao_config.yaml" in call_args
-        assert "Invalid YAML syntax" in call_args
-
-
-def test_try_load_exits_on_validation_error(tmp_path: Path):
-    invalid_config = tmp_path / "nao_config.yaml"
-    invalid_config.write_text("databases: []")  # Missing required project_name
-
-    with patch("nao_core.config.base.Console") as mock_console_cls:
-        mock_console = mock_console_cls.return_value
-        with pytest.raises(SystemExit) as exc_info:
-            NaoConfig.try_load(tmp_path, exit_on_error=True)
-
-        assert exc_info.value.code == 1
-        assert mock_console.print.call_count == 1
-        call_args = str(mock_console.print.call_args)
-        assert "Failed to load nao_config.yaml" in call_args
+        for fragment in expected_fragments:
+            assert fragment in call_args
 
 
 # Tests for try_load with raise_on_error=True
 
 
-def test_try_load_raises_on_file_not_found(tmp_path: Path):
-    with pytest.raises(NaoConfigError) as exc_info:
-        NaoConfig.try_load(tmp_path, raise_on_error=True)
-
-    assert "No nao_config.yaml found" in str(exc_info.value)
-
-
-def test_try_load_raises_on_invalid_yaml(tmp_path: Path):
-    invalid_yaml = tmp_path / "nao_config.yaml"
-    invalid_yaml.write_text("project_name: [invalid yaml")
-
-    with pytest.raises(NaoConfigError) as exc_info:
-        NaoConfig.try_load(tmp_path, raise_on_error=True)
-
-    assert "Invalid YAML syntax" in str(exc_info.value)
-
-
-def test_try_load_raises_on_validation_error(tmp_path: Path):
-    invalid_config = tmp_path / "nao_config.yaml"
-    invalid_config.write_text("databases: []")  # Missing required project_name
+@pytest.mark.parametrize(
+    ("config_content", "expected_message"),
+    [
+        (None, "No nao_config.yaml found"),
+        (INVALID_YAML, "Invalid YAML syntax"),
+        (MISSING_PROJECT_NAME, "Failed to load nao_config.yaml"),
+    ],
+    ids=["file_not_found", "invalid_yaml", "validation_error"],
+)
+def test_try_load_raises_on_error(tmp_path: Path, config_content: str | None, expected_message: str):
+    _write_config(tmp_path, config_content)
 
     with pytest.raises(NaoConfigError) as exc_info:
         NaoConfig.try_load(tmp_path, raise_on_error=True)
 
-    assert "Failed to load nao_config.yaml" in str(exc_info.value)
+    assert expected_message in str(exc_info.value)
 
 
 # Integration test for chat command
@@ -296,256 +307,70 @@ class TestChatCommand:
     without needing the built server binary.
     """
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_starts_both_servers(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,  # Mocked so we don't actually spawn processes
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_chat_dependencies,
-    ):
+    def test_chat_starts_both_servers(self, chat_mocks):
         """Verify that chat() starts both FastAPI and chat servers."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True  # Pretend servers started OK
-
-        # Mock a process that exits immediately (empty stdout ends the loop)
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_process.wait.return_value = 0
-        mock_popen.return_value = mock_process
-
         chat()
 
         # Popen called twice: once for FastAPI, once for chat server
-        assert mock_popen.call_count == 2
-        mock_webbrowser.assert_called_once()
-        assert "localhost" in str(mock_webbrowser.call_args)
+        assert chat_mocks.popen.call_count == 2
+        chat_mocks.open_browser.assert_called_once()
+        assert "localhost" in str(chat_mocks.open_browser.call_args)
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_sets_environment_variables(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_chat_dependencies,
-    ):
+    def test_chat_sets_environment_variables(self, chat_mocks):
         """Verify that chat() sets required environment variables."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_popen.return_value = mock_process
-
         chat()
 
-        chat_server_call = mock_popen.call_args_list[1]
-        env = chat_server_call.kwargs.get("env", {})
-
+        env = _chat_server_env(chat_mocks)
         assert "NAO_DEFAULT_PROJECT_PATH" in env
         assert "BETTER_AUTH_SECRET" in env
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_passes_fastapi_port_to_both_servers(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_chat_dependencies,
-    ):
+    def test_chat_passes_fastapi_port_to_both_servers(self, chat_mocks):
         """Verify --fastapi-port binds FastAPI and points the chat server at it."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_popen.return_value = mock_process
-
         chat(fastapi_port=9005)
 
-        fastapi_env = mock_popen.call_args_list[0].kwargs["env"]
-        chat_server_env = mock_popen.call_args_list[1].kwargs["env"]
+        fastapi_env = chat_mocks.popen.call_args_list[0].kwargs["env"]
+        chat_server_env = chat_mocks.popen.call_args_list[1].kwargs["env"]
         assert fastapi_env["PORT"] == "9005"
         assert chat_server_env["FASTAPI_PORT"] == "9005"
-        mock_wait_for_server.assert_any_call(9005)
+        chat_mocks.wait_for_server.assert_any_call(9005)
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_handles_keyboard_interrupt(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_chat_dependencies,
-    ):
+    def test_chat_handles_keyboard_interrupt(self, chat_mocks):
         """Verify graceful shutdown on Ctrl+C."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-
-        mock_process = MagicMock()
-        mock_process.stdout.__iter__ = MagicMock(side_effect=KeyboardInterrupt)
-        mock_popen.return_value = mock_process
+        _interrupt_server_output(chat_mocks.process)
 
         with pytest.raises(SystemExit) as exc_info:
             chat()
 
         assert exc_info.value.code == 0
-        mock_process.terminate.assert_called()
+        chat_mocks.process.terminate.assert_called()
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_handles_server_crash(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_chat_dependencies,
-    ):
+    def test_chat_handles_server_crash(self, chat_mocks):
         """Verify error handling when server startup fails."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_popen.side_effect = OSError("Permission denied")
+        chat_mocks.popen.side_effect = OSError("Permission denied")
 
         with pytest.raises(SystemExit) as exc_info:
             chat()
 
         assert exc_info.value.code == 1
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_waits_for_servers_before_opening_browser(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_chat_dependencies,
-    ):
+    def test_chat_waits_for_servers_before_opening_browser(self, chat_mocks):
         """Verify browser opens only after servers are ready."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_popen.return_value = mock_process
-
         chat()
 
-        assert mock_wait_for_server.call_count == 2
-        mock_webbrowser.assert_called_once()
+        assert chat_mocks.wait_for_server.call_count == 2
+        chat_mocks.open_browser.assert_called_once()
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_continues_even_if_server_slow_to_start(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_chat_dependencies,
-    ):
+    def test_chat_continues_even_if_server_slow_to_start(self, chat_mocks):
         """Verify chat warns user when server is slow to start."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = False  # Server timeout
-
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_popen.return_value = mock_process
+        chat_mocks.wait_for_server.return_value = False
 
         chat()
 
-        mock_webbrowser.assert_not_called()
-        calls = [str(c) for c in mock_console.print.call_args_list]
+        chat_mocks.open_browser.assert_not_called()
+        calls = [str(c) for c in chat_mocks.console.print.call_args_list]
         assert any("taking longer than expected" in c for c in calls)
 
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_chat_sets_llm_api_key_from_config(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        tmp_path: Path,
-        create_config,
-        clean_env,
-    ):
+    def test_chat_sets_llm_api_key_from_config(self, chat_mocks, create_config):
         """Verify LLM API key from config is passed to server env."""
         create_config("""\
 project_name: test-project
@@ -554,27 +379,9 @@ llm:
   api_key: sk-test-key-12345
 """)
 
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        (bin_dir / "nao-chat-server").touch()
-        fastapi_dir = bin_dir / "fastapi"
-        fastapi_dir.mkdir()
-        (fastapi_dir / "main.py").touch()
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_popen.return_value = mock_process
-
         chat()
 
-        # Second Popen call is the chat server
-        chat_server_call = mock_popen.call_args_list[1]
-        env = chat_server_call.kwargs.get("env", {})
-        assert env.get("OPENAI_API_KEY") == "sk-test-key-12345"
+        assert _chat_server_env(chat_mocks).get("OPENAI_API_KEY") == "sk-test-key-12345"
 
 
 class TestBuildLlmEnv:
@@ -666,117 +473,39 @@ class TestStopNgrok:
 
 
 class TestChatWithNgrok:
-    @patch("nao_core.commands.chat.stop_ngrok")
-    @patch("nao_core.commands.chat.start_ngrok_tunnel")
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_ngrok_sets_better_auth_url(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_start_ngrok,
-        mock_stop_ngrok,
-        mock_chat_dependencies,
-    ):
+    def test_ngrok_sets_better_auth_url(self, chat_mocks, ngrok_mocks):
         """Verify --ngrok sets BETTER_AUTH_URL to the ngrok tunnel URL."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-        mock_start_ngrok.return_value = "https://abc123.ngrok-free.app"
-
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_process.wait.return_value = 0
-        mock_popen.return_value = mock_process
-
         chat(ngrok=True)
 
-        mock_start_ngrok.assert_called_once_with(5005)
-        chat_server_call = mock_popen.call_args_list[1]
-        env = chat_server_call.kwargs.get("env", {})
-        assert env.get("BETTER_AUTH_URL") == "https://abc123.ngrok-free.app"
+        ngrok_mocks.start.assert_called_once_with(5005)
+        assert _chat_server_env(chat_mocks).get("BETTER_AUTH_URL") == NGROK_URL
 
-    @patch("nao_core.commands.chat.stop_ngrok")
-    @patch("nao_core.commands.chat.start_ngrok_tunnel")
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_ngrok_opens_browser_with_ngrok_url(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_start_ngrok,
-        mock_stop_ngrok,
-        mock_chat_dependencies,
-    ):
+    def test_ngrok_opens_browser_with_ngrok_url(self, chat_mocks, ngrok_mocks):
         """Verify browser opens with the ngrok URL when --ngrok is used."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-        mock_start_ngrok.return_value = "https://abc123.ngrok-free.app"
-
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_process.wait.return_value = 0
-        mock_popen.return_value = mock_process
-
         chat(ngrok=True)
 
-        mock_webbrowser.assert_called_once_with("https://abc123.ngrok-free.app")
+        chat_mocks.open_browser.assert_called_once_with(NGROK_URL)
 
-    @patch("nao_core.commands.chat.stop_ngrok")
-    @patch("nao_core.commands.chat.start_ngrok_tunnel")
-    @patch("nao_core.commands.chat.webbrowser.open")
-    @patch("nao_core.commands.chat.wait_for_server")
-    @patch("nao_core.commands.chat.subprocess.Popen")
-    @patch("nao_core.commands.chat.get_fastapi_main_path")
-    @patch("nao_core.commands.chat.get_server_binary_path")
-    @patch("nao_core.commands.chat.console")
-    def test_ngrok_shutdown_on_keyboard_interrupt(
-        self,
-        mock_console,
-        mock_binary_path,
-        mock_fastapi_path,
-        mock_popen,
-        mock_wait_for_server,
-        mock_webbrowser,
-        mock_start_ngrok,
-        mock_stop_ngrok,
-        mock_chat_dependencies,
-    ):
+    def test_ngrok_shutdown_on_keyboard_interrupt(self, chat_mocks, ngrok_mocks):
         """Verify ngrok tunnel is closed on Ctrl+C."""
-        tmp_path, bin_dir = mock_chat_dependencies
-
-        mock_binary_path.return_value = bin_dir / "nao-chat-server"
-        mock_fastapi_path.return_value = bin_dir / "fastapi" / "main.py"
-        mock_wait_for_server.return_value = True
-        mock_start_ngrok.return_value = "https://abc123.ngrok-free.app"
-
-        mock_process = MagicMock()
-        mock_process.stdout.__iter__ = MagicMock(side_effect=KeyboardInterrupt)
-        mock_popen.return_value = mock_process
+        _interrupt_server_output(chat_mocks.process)
 
         with pytest.raises(SystemExit) as exc_info:
             chat(ngrok=True)
 
         assert exc_info.value.code == 0
-        mock_stop_ngrok.assert_called_once()
+        ngrok_mocks.stop.assert_called_once()
+
+
+def _write_config(project_path: Path, content: str | None) -> None:
+    if content is not None:
+        (project_path / "nao_config.yaml").write_text(content)
+
+
+def _chat_server_env(chat_mocks) -> dict:
+    return chat_mocks.popen.call_args_list[1].kwargs.get("env", {})
+
+
+def _interrupt_server_output(process: MagicMock) -> None:
+    process.stdout = MagicMock()
+    process.stdout.__iter__ = MagicMock(side_effect=KeyboardInterrupt)

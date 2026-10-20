@@ -1,0 +1,115 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+	getStoryByChatAndSlug: vi.fn(),
+	getLatestVersionByChatAndSlug: vi.fn(),
+	createStoryVersion: vi.fn(),
+}));
+
+vi.mock('../../src/db/db', () => ({ db: {} }));
+vi.mock('../../src/queries/story.queries', () => ({
+	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
+	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
+	createStoryVersion: mocks.createStoryVersion,
+}));
+vi.mock('../../src/queries/chart-image', () => ({
+	getDisplayChartTableFormatsForChat: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../../src/queries/story-folder.queries', () => ({
+	saveStoryInPrivateRoot: vi.fn(),
+}));
+vi.mock('../../src/services/story-template-validation', () => ({
+	getStoryTemplateWarnings: vi.fn().mockResolvedValue([]),
+}));
+
+import storyTool from '../../src/agents/tools/story';
+import { env } from '../../src/env';
+import { resolveStoryMode } from '../../src/services/agent';
+import { resolveAgentUserGroupAccess } from '../../src/services/user-group-feature-access.service';
+import { createToolContext, executeTool } from '../helpers/tool-context';
+
+describe('agent user group feature tools', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('suppresses stale Story-mode mentions while restricted', () => {
+		const mentions = [{ id: '__story__', label: 'Story mode', trigger: '#' }];
+		const restrictedAccess = resolveAgentUserGroupAccess([], { story: {} });
+		const allowedAccess = resolveAgentUserGroupAccess(['storyCreation'], { story: {} });
+
+		expect(resolveStoryMode(mentions, restrictedAccess)).toBeNull();
+		expect(resolveStoryMode(mentions, allowedAccess)).toBe('classic');
+	});
+
+	it('picks the custom story mode only when the instance and the user group allow it', () => {
+		const custom = { id: '__custom_story__', label: 'Custom story mode', trigger: '#' };
+		const classic = { id: '__story__', label: 'Story mode', trigger: '#' };
+		const access = resolveAgentUserGroupAccess(['storyCreation', 'customStoryCreation'], { story: {} });
+		const withoutCustom = resolveAgentUserGroupAccess(['storyCreation'], { story: {} });
+
+		const initial = env.BETA_CUSTOM_STORIES_ENABLED;
+		try {
+			env.BETA_CUSTOM_STORIES_ENABLED = true;
+			expect(resolveStoryMode([custom], access)).toBe('custom');
+			expect(resolveStoryMode([classic, custom], access)).toBe('custom');
+			expect(resolveStoryMode([custom], withoutCustom)).toBeNull();
+			expect(resolveStoryMode([classic, custom], withoutCustom)).toBe('classic');
+
+			env.BETA_CUSTOM_STORIES_ENABLED = false;
+			expect(resolveStoryMode([custom], access)).toBeNull();
+			expect(resolveStoryMode([classic, custom], access)).toBe('classic');
+		} finally {
+			env.BETA_CUSTOM_STORIES_ENABLED = initial;
+		}
+	});
+
+	it('rejects restricted Story creation before accessing persistence', async () => {
+		const output = await executeRestrictedStory({
+			action: 'create',
+			id: 'new-story',
+			title: 'New Story',
+			code: '# New',
+		});
+
+		expect(output).toMatchObject({
+			success: false,
+			id: 'new-story',
+			error: 'Story creation is unavailable for this user in this project.',
+		});
+		expect(mocks.getStoryByChatAndSlug).not.toHaveBeenCalled();
+		expect(mocks.createStoryVersion).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{
+			action: 'update' as const,
+			input: { search: 'Old', replace: 'Updated' },
+			expectedCode: '# Updated',
+		},
+		{
+			action: 'replace' as const,
+			input: { code: '# Replaced' },
+			expectedCode: '# Replaced',
+		},
+	])('allows restricted users to run Story $action', async ({ action, input, expectedCode }) => {
+		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', slug: 'existing-story', format: 'classic' });
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '# Old',
+			version: 1,
+			title: 'Existing Story',
+		});
+		mocks.createStoryVersion.mockImplementation(async (values) => ({ ...values, version: 2 }));
+
+		const output = await executeRestrictedStory({ action, id: 'existing-story', ...input });
+
+		expect(output).toMatchObject({ success: true, code: expectedCode, version: 2 });
+		expect(mocks.createStoryVersion).toHaveBeenCalledWith(
+			expect.objectContaining({ action, slug: 'existing-story', code: expectedCode }),
+		);
+	});
+});
+
+function executeRestrictedStory(input: Parameters<NonNullable<typeof storyTool.execute>>[0]) {
+	return executeTool(storyTool, input, createToolContext({ userGroupFeatures: [] }));
+}

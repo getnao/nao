@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 
 import duckdb
 import pytest
@@ -11,6 +12,11 @@ from nao_core.config.databases.row_security_guard import (
     enforce_row_security,
     validate_row_security_predicate,
 )
+
+ORDERS = ("main", "orders")
+USERS_IN_EU_POLICY: dict[tuple[str, str], RowSecurityPolicy] = {
+    ("main", "users"): {"access": "predicate", "constraint_columns": ["region"], "predicate": "region = 'eu'"}
+}
 
 
 class FakeConnection:
@@ -41,59 +47,25 @@ class FakeDatabaseConfig:
         return list(conn.schemas)
 
 
-def policy(
-    predicate: str = "tenant_id = 7",
-) -> dict[tuple[str, str], RowSecurityPolicy]:
-    return {
-        ("main", "orders"): {
-            "access": "predicate",
-            "constraint_columns": ["tenant_id", "region"],
-            "predicate": predicate,
-        }
-    }
-
-
 def test_injects_predicate_with_table_alias():
-    sql = enforce_row_security(
-        "SELECT o.id FROM orders AS o WHERE o.active = TRUE",
-        FakeDatabaseConfig(),
-        policy(),
-    )
+    sql = secure("SELECT o.id FROM orders AS o WHERE o.active = TRUE", policy())
 
     assert "o.active = TRUE AND o.tenant_id = 7" in sql
 
 
 def test_filters_each_sensitive_table_in_join():
-    policies: dict[tuple[str, str], RowSecurityPolicy] = {
-        **policy(),
-        ("main", "users"): {
-            "access": "predicate",
-            "constraint_columns": ["region"],
-            "predicate": "region IN ('eu', 'us')",
-        },
-    }
+    policies = {**policy(), ("main", "users"): predicate_policy(["region"], "region IN ('eu', 'us')")}
 
-    sql = enforce_row_security(
-        "SELECT * FROM orders o JOIN users u ON o.user_id = u.id",
-        FakeDatabaseConfig(),
-        policies,
-    )
+    sql = secure("SELECT * FROM orders o JOIN users u ON o.user_id = u.id", policies)
 
     assert "o.tenant_id = 7" in sql
     assert "u.region IN ('eu', 'us')" in sql
 
 
 def test_preserves_left_join_rows_by_filtering_the_nullable_side_in_on():
-    sql = enforce_row_security(
+    sql = secure(
         "SELECT * FROM orders o LEFT JOIN users u ON o.user_id = u.id WHERE o.active = TRUE",
-        FakeDatabaseConfig(),
-        {
-            ("main", "users"): {
-                "access": "predicate",
-                "constraint_columns": ["region"],
-                "predicate": "region = 'eu'",
-            }
-        },
+        USERS_IN_EU_POLICY,
     )
 
     assert "LEFT JOIN users AS u ON o.user_id = u.id AND u.region = 'eu'" in sql
@@ -101,20 +73,12 @@ def test_preserves_left_join_rows_by_filtering_the_nullable_side_in_on():
 
 
 def test_preserves_outer_join_using_by_prefiltering_the_nullable_side():
-    left_sql = enforce_row_security(
+    left_sql = secure(
         "SELECT o.id, u.region FROM orders o LEFT JOIN users u USING (user_id) ORDER BY o.id",
-        FakeDatabaseConfig(),
-        {
-            ("main", "users"): {
-                "access": "predicate",
-                "constraint_columns": ["region"],
-                "predicate": "region = 'eu'",
-            }
-        },
+        USERS_IN_EU_POLICY,
     )
-    right_sql = enforce_row_security(
+    right_sql = secure(
         "SELECT o.id, u.region FROM orders o RIGHT JOIN users u USING (user_id) ORDER BY u.user_id",
-        FakeDatabaseConfig(),
         policy(),
     )
 
@@ -132,29 +96,17 @@ def test_preserves_outer_join_using_by_prefiltering_the_nullable_side():
 
 
 def test_preserves_right_join_rows_by_filtering_the_nullable_side_in_on():
-    sql = enforce_row_security(
-        "SELECT * FROM orders o RIGHT JOIN users u ON o.user_id = u.id",
-        FakeDatabaseConfig(),
-        policy(),
-    )
+    sql = secure("SELECT * FROM orders o RIGHT JOIN users u ON o.user_id = u.id", policy())
 
     assert "RIGHT JOIN users AS u ON o.user_id = u.id AND o.tenant_id = 7" in sql
     assert "WHERE o.tenant_id" not in sql
 
 
 def test_preserves_full_join_rows_by_prefiltering_each_protected_source():
-    sql = enforce_row_security(
+    sql = secure(
         'SELECT * FROM main.orders AS "Order Source" FULL OUTER JOIN main.users AS "User Source" '
         'ON "Order Source".user_id = "User Source".id',
-        FakeDatabaseConfig(),
-        {
-            **policy(),
-            ("main", "users"): {
-                "access": "predicate",
-                "constraint_columns": ["region"],
-                "predicate": "region = 'eu'",
-            },
-        },
+        {**policy(), **USERS_IN_EU_POLICY},
     )
 
     assert '(SELECT * FROM main.orders AS "Order Source" WHERE "Order Source".tenant_id = 7) AS "Order Source"' in sql
@@ -163,38 +115,18 @@ def test_preserves_full_join_rows_by_prefiltering_each_protected_source():
 
 def test_rejects_qualified_full_join_table_without_explicit_alias():
     with pytest.raises(RowSecurityGuardError, match="require an explicit alias"):
-        enforce_row_security(
-            "SELECT * FROM main.orders FULL OUTER JOIN users ON main.orders.user_id = users.id",
-            FakeDatabaseConfig(),
-            policy(),
-        )
+        secure("SELECT * FROM main.orders FULL OUTER JOIN users ON main.orders.user_id = users.id", policy())
 
 
 def test_filters_nested_query_and_cte_base_table():
-    sql = enforce_row_security(
-        "WITH scoped AS (SELECT * FROM orders o) SELECT * FROM scoped",
-        FakeDatabaseConfig(),
-        policy(),
-    )
+    sql = secure("WITH scoped AS (SELECT * FROM orders o) SELECT * FROM scoped", policy())
 
     assert "WHERE o.tenant_id = 7" in sql
     assert sql.count("tenant_id") == 1
 
 
 def test_no_policy_state_denies_all_rows():
-    policies: dict[tuple[str, str], RowSecurityPolicy] = {
-        ("main", "orders"): {
-            "access": "none",
-            "constraint_columns": ["tenant_id"],
-            "predicate": None,
-        }
-    }
-
-    sql = enforce_row_security(
-        "SELECT * FROM orders",
-        FakeDatabaseConfig(),
-        policies,
-    )
+    sql = secure("SELECT * FROM orders", {ORDERS: tenant_policy("none")})
 
     assert "WHERE FALSE" in sql
 
@@ -202,7 +134,7 @@ def test_no_policy_state_denies_all_rows():
 def test_blocked_policy_raises_with_reason():
     reason = "Enterprise license is inactive."
     policies: dict[tuple[str, str], RowSecurityPolicy] = {
-        ("main", "orders"): {
+        ORDERS: {
             "access": "blocked",
             "constraint_columns": ["tenant_id"],
             "reason": reason,
@@ -210,58 +142,25 @@ def test_blocked_policy_raises_with_reason():
     }
 
     with pytest.raises(RowSecurityGuardError, match=re.escape(reason)):
-        enforce_row_security("SELECT * FROM orders", FakeDatabaseConfig(), policies)
+        secure("SELECT * FROM orders", policies)
 
 
 def test_full_access_does_not_add_filter():
-    policies: dict[tuple[str, str], RowSecurityPolicy] = {
-        ("main", "orders"): {
-            "access": "full",
-            "constraint_columns": ["tenant_id"],
-            "predicate": None,
-        }
-    }
-
-    assert (
-        enforce_row_security(
-            "SELECT * FROM orders",
-            FakeDatabaseConfig(),
-            policies,
-        )
-        == "SELECT * FROM orders"
-    )
+    assert secure("SELECT * FROM orders", {ORDERS: tenant_policy("full")}) == "SELECT * FROM orders"
 
 
 def test_applies_unique_case_insensitive_policy_match():
-    config = FakeDatabaseConfig()
-    config.connection.schemas = {"public": ["orders"]}
-    policies: dict[tuple[str, str], RowSecurityPolicy] = {
-        ("Public", "Orders"): {
-            "access": "predicate",
-            "constraint_columns": ["tenant_id"],
-            "predicate": "tenant_id = 7",
-        }
-    }
+    policies = {("Public", "Orders"): predicate_policy(["tenant_id"], "tenant_id = 7")}
 
-    sql = enforce_row_security("SELECT * FROM public.orders", config, policies)
+    sql = enforce_row_security("SELECT * FROM public.orders", public_orders_config(), policies)
 
     assert "WHERE orders.tenant_id = 7" in sql
 
 
 def test_rejects_ambiguous_case_insensitive_policy_matches():
-    config = FakeDatabaseConfig()
-    config.connection.schemas = {"public": ["orders"]}
-    policies: dict[tuple[str, str], RowSecurityPolicy] = {
-        ("Public", "Orders"): {
-            "access": "predicate",
-            "constraint_columns": ["tenant_id"],
-            "predicate": "tenant_id = 7",
-        },
-        ("PUBLIC", "ORDERS"): {
-            "access": "none",
-            "constraint_columns": ["tenant_id"],
-            "predicate": None,
-        },
+    policies = {
+        ("Public", "Orders"): predicate_policy(["tenant_id"], "tenant_id = 7"),
+        ("PUBLIC", "ORDERS"): tenant_policy("none"),
     }
 
     reason = (
@@ -269,7 +168,7 @@ def test_rejects_ambiguous_case_insensitive_policy_matches():
         "multiple row-security policies match 'public.orders' case-insensitively"
     )
     with pytest.raises(RowSecurityGuardError, match=re.escape(reason)):
-        enforce_row_security("SELECT * FROM public.orders", config, policies)
+        enforce_row_security("SELECT * FROM public.orders", public_orders_config(), policies)
 
 
 @pytest.mark.parametrize(
@@ -288,11 +187,7 @@ def test_rejects_ambiguous_case_insensitive_policy_matches():
 )
 def test_rejects_unsafe_predicates(predicate: str):
     with pytest.raises(RowSecurityGuardError):
-        enforce_row_security(
-            "SELECT * FROM orders",
-            FakeDatabaseConfig(),
-            policy(predicate),
-        )
+        secure("SELECT * FROM orders", policy(predicate))
 
 
 @pytest.mark.parametrize(
@@ -305,29 +200,17 @@ def test_rejects_unsafe_predicates(predicate: str):
 )
 def test_rejects_comparison_branches_not_grounded_in_constraint_columns(predicate: str):
     with pytest.raises(RowSecurityGuardError, match="every row predicate comparison"):
-        enforce_row_security(
-            "SELECT * FROM orders",
-            FakeDatabaseConfig(),
-            policy(predicate),
-        )
+        secure("SELECT * FROM orders", policy(predicate))
 
 
 def test_allows_each_and_or_branch_to_reference_constraint_columns():
-    sql = enforce_row_security(
-        "SELECT * FROM orders",
-        FakeDatabaseConfig(),
-        policy("tenant_id = 1 OR (region = 'eu' AND tenant_id > 10)"),
-    )
+    sql = secure("SELECT * FROM orders", policy("tenant_id = 1 OR (region = 'eu' AND tenant_id > 10)"))
 
     assert "tenant_id = 1 OR (orders.region = 'eu' AND orders.tenant_id > 10)" in sql
 
 
 def test_preserves_quoted_alias_metadata_when_qualifying_predicates():
-    sql = enforce_row_security(
-        'SELECT * FROM orders AS "Case Sensitive"',
-        FakeDatabaseConfig(),
-        policy(),
-    )
+    sql = secure('SELECT * FROM orders AS "Case Sensitive"', policy())
 
     assert '"Case Sensitive".tenant_id = 7' in sql
 
@@ -407,3 +290,25 @@ def test_rejects_unsupported_dialect():
 
     with pytest.raises(RowSecurityGuardError, match="not supported"):
         enforce_row_security("SELECT * FROM orders", config, policy())
+
+
+def secure(sql: str, policies: dict[tuple[str, str], RowSecurityPolicy]) -> str:
+    return enforce_row_security(sql, FakeDatabaseConfig(), policies)
+
+
+def policy(predicate: str = "tenant_id = 7") -> dict[tuple[str, str], RowSecurityPolicy]:
+    return {ORDERS: predicate_policy(["tenant_id", "region"], predicate)}
+
+
+def predicate_policy(constraint_columns: list[str], predicate: str) -> RowSecurityPolicy:
+    return {"access": "predicate", "constraint_columns": constraint_columns, "predicate": predicate}
+
+
+def tenant_policy(access: Literal["none", "full"]) -> RowSecurityPolicy:
+    return {"access": access, "constraint_columns": ["tenant_id"], "predicate": None}
+
+
+def public_orders_config() -> FakeDatabaseConfig:
+    config = FakeDatabaseConfig()
+    config.connection.schemas = {"public": ["orders"]}
+    return config

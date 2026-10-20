@@ -9,7 +9,7 @@ The test suite is skipped entirely when BIGQUERY_PROJECT_ID is not set.
 
 import json
 import os
-from pathlib import Path
+from contextlib import contextmanager
 from typing import Any
 
 import ibis
@@ -19,7 +19,14 @@ from google.oauth2 import service_account
 
 from nao_core.config.databases.bigquery import BigQueryConfig
 
-from .base import BaseSyncIntegrationTests, SyncTestSpec
+from .base import (
+    ORDERS_PROFILING_ROWS,
+    USERS_PROFILING_ROWS,
+    BaseSyncIntegrationTests,
+    SyncTestSpec,
+    dml_statements,
+    with_column_types,
+)
 
 BIGQUERY_PROJECT_ID = os.environ.get("BIGQUERY_PROJECT_ID")
 
@@ -74,21 +81,11 @@ def temp_datasets():
         another_dataset.location = "US"
         bq_client.create_dataset(another_dataset)
 
-        # Read and execute SQL script
-        sql_file = Path(__file__).parent / "dml" / "bigquery.sql"
-        sql_template = sql_file.read_text()
-
-        # Inject dataset names into SQL
-        sql_content = sql_template.format(
-            public_dataset=public_dataset_id,
-            another_dataset=another_dataset_id,
+        statements = dml_statements(
+            "bigquery.sql", public_dataset=public_dataset_id, another_dataset=another_dataset_id
         )
-
-        # Execute SQL statements using ibis
-        for statement in sql_content.split(";"):
-            statement = statement.strip()
-            if statement:
-                conn.raw_sql(statement)
+        for statement in statements:
+            conn.raw_sql(statement)
 
         yield {"public": public_dataset_id, "another": another_dataset_id}
 
@@ -135,98 +132,12 @@ def spec(db_config, temp_datasets):
             "- amount (FLOAT64 NOT NULL)",
         ),
         users_table_description="Registered user accounts",
-        users_preview_rows=[
-            {"id": 1, "name": "Alice", "email": "alice@example.com", "active": True},
-            {"id": 2, "name": "Bob", "email": None, "active": False},
-            {"id": 3, "name": "Charlie", "email": "charlie@example.com", "active": True},
-        ],
-        orders_preview_rows=[
-            {"id": 1, "user_id": 1, "amount": 99.99},
-            {"id": 2, "user_id": 1, "amount": 24.5},
-        ],
-        users_profiling_rows=[
-            {
-                "column": "id",
-                "type": "INT64",
-                "total_count": 3,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 3,
-                "min": 1,
-                "max": 3,
-                "mean": 2.0,
-                "stddev": 0.8165,
-            },
-            {
-                "column": "name",
-                "type": "STRING",
-                "total_count": 3,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 3,
-                "top_values": [
-                    {"value": "Alice", "count": 1},
-                    {"value": "Bob", "count": 1},
-                    {"value": "Charlie", "count": 1},
-                ],
-            },
-            {
-                "column": "email",
-                "type": "STRING",
-                "total_count": 3,
-                "null_count": 1,
-                "null_percentage": 33.33,
-                "distinct_count": 2,
-                "top_values": [
-                    {"value": "alice@example.com", "count": 1},
-                    {"value": "charlie@example.com", "count": 1},
-                ],
-            },
-            {
-                "column": "active",
-                "type": "BOOL",
-                "total_count": 3,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 2,
-                "top_values": [{"value": True, "count": 2}, {"value": False, "count": 1}],
-            },
-        ],
-        orders_profiling_rows=[
-            {
-                "column": "id",
-                "type": "INT64",
-                "total_count": 2,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 2,
-                "min": 1,
-                "max": 2,
-                "mean": 1.5,
-                "stddev": 0.5,
-            },
-            {
-                "column": "user_id",
-                "type": "INT64",
-                "total_count": 2,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 1,
-                "top_values": [{"value": 1, "count": 2}],
-            },
-            {
-                "column": "amount",
-                "type": "FLOAT64",
-                "total_count": 2,
-                "null_count": 0,
-                "null_percentage": 0.0,
-                "distinct_count": 2,
-                "min": 24.5,
-                "max": 99.99,
-                "mean": 62.245,
-                "stddev": 37.745,
-            },
-        ],
+        users_profiling_rows=with_column_types(
+            USERS_PROFILING_ROWS, {"id": "INT64", "name": "STRING", "email": "STRING", "active": "BOOL"}
+        ),
+        orders_profiling_rows=with_column_types(
+            ORDERS_PROFILING_ROWS, {"id": "INT64", "user_id": "INT64", "amount": "FLOAT64"}
+        ),
         sort_rows=True,
         schema_field="dataset_id",
         another_schema=temp_datasets["another"],
@@ -242,49 +153,38 @@ class TestBigQueryPartitionFilter:
     """Verify preview and row_count work on tables that require a partition filter."""
 
     def test_preview_returns_rows_on_partition_required_table(self, db_config, temp_datasets):
-        conn = db_config.connect()
-        try:
-            ctx = db_config.create_context(conn, temp_datasets["public"], "events")
+        with _table_context(db_config, temp_datasets["public"], "events") as ctx:
             rows = ctx.preview()
             assert len(rows) == 2
             assert all(r["event_date"] == "2026-01-15" for r in rows)
-        finally:
-            conn.disconnect()
 
     def test_row_count_returns_total_on_partition_required_table(self, db_config, temp_datasets):
-        conn = db_config.connect()
-        try:
-            ctx = db_config.create_context(conn, temp_datasets["public"], "events")
+        with _table_context(db_config, temp_datasets["public"], "events") as ctx:
             assert ctx.row_count() == 2
-        finally:
-            conn.disconnect()
 
     def test_custom_partition_filter_overrides_auto_detection(self, db_config, temp_datasets):
         config = db_config.model_copy(update={"partition_filters": {"events": "event_date = DATE('2026-01-15')"}})
-        conn = config.connect()
-        try:
-            ctx = config.create_context(conn, temp_datasets["public"], "events")
+        with _table_context(config, temp_datasets["public"], "events") as ctx:
             rows = ctx.preview()
             assert len(rows) == 2
-        finally:
-            conn.disconnect()
 
     def test_is_partitioned_and_requires_filter_flags_are_set(self, db_config, temp_datasets):
-        conn = db_config.connect()
-        try:
-            ctx = db_config.create_context(conn, temp_datasets["public"], "events")
+        with _table_context(db_config, temp_datasets["public"], "events") as ctx:
             assert ctx.is_partitioned() is True
             assert ctx.requires_partition_filter() is True
             assert ctx.active_partition_filter() is not None
-        finally:
-            conn.disconnect()
 
     def test_non_partitioned_table_flags_are_false(self, db_config, temp_datasets):
-        conn = db_config.connect()
-        try:
-            ctx = db_config.create_context(conn, temp_datasets["public"], "users")
+        with _table_context(db_config, temp_datasets["public"], "users") as ctx:
             assert ctx.is_partitioned() is False
             assert ctx.requires_partition_filter() is False
             assert ctx.active_partition_filter() is None
-        finally:
-            conn.disconnect()
+
+
+@contextmanager
+def _table_context(config, dataset, table):
+    conn = config.connect()
+    try:
+        yield config.create_context(conn, dataset, table)
+    finally:
+        conn.disconnect()

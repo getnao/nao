@@ -15,6 +15,133 @@ from rich.progress import Progress
 
 from nao_core.commands.sync.providers.databases.provider import sync_database
 
+DML_DIR = Path(__file__).parent / "dml"
+
+USERS_PREVIEW_ROWS = [
+    {"id": 1, "name": "Alice", "email": "alice@example.com", "active": True},
+    {"id": 2, "name": "Bob", "email": None, "active": False},
+    {"id": 3, "name": "Charlie", "email": "charlie@example.com", "active": True},
+]
+
+ORDERS_PREVIEW_ROWS = [
+    {"id": 1, "user_id": 1, "amount": 99.99},
+    {"id": 2, "user_id": 1, "amount": 24.5},
+]
+
+USERS_PROFILING_ROWS = [
+    {
+        "column": "id",
+        "type": "int32",
+        "total_count": 3,
+        "null_count": 0,
+        "null_percentage": 0.0,
+        "distinct_count": 3,
+        "min": 1,
+        "max": 3,
+        "mean": 2.0,
+        "stddev": 0.8165,
+    },
+    {
+        "column": "name",
+        "type": "string",
+        "total_count": 3,
+        "null_count": 0,
+        "null_percentage": 0.0,
+        "distinct_count": 3,
+        "top_values": [
+            {"value": "Alice", "count": 1},
+            {"value": "Bob", "count": 1},
+            {"value": "Charlie", "count": 1},
+        ],
+    },
+    {
+        "column": "email",
+        "type": "string",
+        "total_count": 3,
+        "null_count": 1,
+        "null_percentage": 33.33,
+        "distinct_count": 2,
+        "top_values": [
+            {"value": "alice@example.com", "count": 1},
+            {"value": "charlie@example.com", "count": 1},
+        ],
+    },
+    {
+        "column": "active",
+        "type": "boolean",
+        "total_count": 3,
+        "null_count": 0,
+        "null_percentage": 0.0,
+        "distinct_count": 2,
+        "top_values": [{"value": True, "count": 2}, {"value": False, "count": 1}],
+    },
+]
+
+ORDERS_PROFILING_ROWS = [
+    {
+        "column": "id",
+        "type": "int32",
+        "total_count": 2,
+        "null_count": 0,
+        "null_percentage": 0.0,
+        "distinct_count": 2,
+        "min": 1,
+        "max": 2,
+        "mean": 1.5,
+        "stddev": 0.5,
+    },
+    {
+        "column": "user_id",
+        "type": "int32",
+        "total_count": 2,
+        "null_count": 0,
+        "null_percentage": 0.0,
+        "distinct_count": 1,
+        "top_values": [{"value": 1, "count": 2}],
+    },
+    {
+        "column": "amount",
+        "type": "float64",
+        "total_count": 2,
+        "null_count": 0,
+        "null_percentage": 0.0,
+        "distinct_count": 2,
+        "min": 24.5,
+        "max": 99.99,
+        "mean": 62.245,
+        "stddev": 37.745,
+    },
+]
+
+INTEGER_ACTIVE_PROFILE = {
+    "column": "active",
+    "total_count": 3,
+    "null_count": 0,
+    "null_percentage": 0.0,
+    "distinct_count": 2,
+    "min": 0,
+    "max": 1,
+    "mean": 0.6667,
+    "stddev": 0.4714,
+}
+
+
+def with_column_types(rows: list[dict], column_types: dict[str, str]) -> list[dict]:
+    return [{**row, "type": column_types.get(row["column"], row["type"])} for row in rows]
+
+
+def with_integer_active(rows: list[dict], active_type: str) -> list[dict]:
+    """Profiles for engines that store the `active` flag as a 0/1 integer."""
+    return [{**INTEGER_ACTIVE_PROFILE, "type": active_type} if row["column"] == "active" else row for row in rows]
+
+
+def dml_statements(filename: str, **placeholders: object) -> list[str]:
+    """Statements of a DML script; only formatted when placeholders are given, as scripts may contain braces."""
+    sql = (DML_DIR / filename).read_text()
+    if placeholders:
+        sql = sql.format(**placeholders)
+    return [statement.strip() for statement in sql.split(";") if statement.strip()]
+
 
 @dataclass(frozen=True)
 class SyncTestSpec:
@@ -36,12 +163,12 @@ class SyncTestSpec:
     orders_table_description: str | None = None
 
     # Expected preview rows (sorted by row_id_key when sort_rows is True)
-    users_preview_rows: list[dict] = field(default_factory=list)
-    orders_preview_rows: list[dict] = field(default_factory=list)
+    users_preview_rows: list[dict] = field(default_factory=USERS_PREVIEW_ROWS.copy)
+    orders_preview_rows: list[dict] = field(default_factory=ORDERS_PREVIEW_ROWS.copy)
 
     # Expected profiling rows (sorted by column when sort_rows is True)
-    users_profiling_rows: list[dict] = field(default_factory=list)
-    orders_profiling_rows: list[dict] = field(default_factory=list)
+    users_profiling_rows: list[dict] = field(default_factory=USERS_PROFILING_ROWS.copy)
+    orders_profiling_rows: list[dict] = field(default_factory=ORDERS_PROFILING_ROWS.copy)
 
     sort_rows: bool = False
     row_id_key: str = "id"
@@ -76,12 +203,15 @@ class BaseSyncIntegrationTests:
     (typically via module-level fixtures in each test file).
     """
 
+    EXPECTED_TABLE_FILES = ["annotations.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
+
     # ── helpers ──────────────────────────────────────────────────────
 
     def _base_path(self, output: Path, config, spec: SyncTestSpec) -> Path:
-        return (
-            output / f"type={spec.db_type}" / f"database={config.get_database_name()}" / f"schema={spec.primary_schema}"
-        )
+        return self._schema_path(output, config, spec, spec.primary_schema)
+
+    def _schema_path(self, output: Path, config, spec: SyncTestSpec, schema: str) -> Path:
+        return output / f"type={spec.db_type}" / f"database={config.get_database_name()}" / f"schema={schema}"
 
     def _read_table_file(self, output, config, spec, table, filename):
         return (self._base_path(output, config, spec) / f"table={table}" / filename).read_text()
@@ -102,18 +232,11 @@ class BaseSyncIntegrationTests:
             table_dir = base / f"table={table}"
             assert table_dir.is_dir()
             files = sorted(f.name for f in table_dir.iterdir())
-            expected_files = ["annotations.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
-            assert files == sorted(expected_files)
+            assert files == sorted(self.EXPECTED_TABLE_FILES)
 
         # "another" schema was NOT synced (only when provider has one)
         if spec.another_schema:
-            another_dir = (
-                output
-                / f"type={spec.db_type}"
-                / f"database={config.get_database_name()}"
-                / f"schema={spec.another_schema}"
-            )
-            assert not another_dir.exists()
+            assert not self._schema_path(output, config, spec, spec.another_schema).exists()
 
     # ── columns.md ───────────────────────────────────────────────────
 
@@ -357,27 +480,25 @@ class BaseSyncIntegrationTests:
         with Progress(transient=True) as progress:
             state = sync_database(config, output, progress)
 
-        db_name = config.get_database_name()
+        expected_files = sorted(self.EXPECTED_TABLE_FILES)
 
         # Primary schema tables
-        primary_base = output / f"type={spec.db_type}" / f"database={db_name}" / f"schema={spec.primary_schema}"
+        primary_base = self._base_path(output, config, spec)
         assert primary_base.is_dir()
         assert (primary_base / f"table={spec.users_table}").is_dir()
         assert (primary_base / f"table={spec.orders_table}").is_dir()
 
-        expected_files = ["annotations.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
-
         for table in (spec.users_table, spec.orders_table):
             files = sorted(f.name for f in (primary_base / f"table={table}").iterdir())
-            assert files == sorted(expected_files)
+            assert files == expected_files
 
         # Another schema
-        another_base = output / f"type={spec.db_type}" / f"database={db_name}" / f"schema={spec.another_schema}"
+        another_base = self._schema_path(output, config, spec, spec.another_schema)
         assert another_base.is_dir()
         assert (another_base / f"table={spec.another_table}").is_dir()
 
         files = sorted(f.name for f in (another_base / f"table={spec.another_table}").iterdir())
-        assert files == sorted(expected_files)
+        assert files == expected_files
 
         # State
         assert state.schemas_synced == 2

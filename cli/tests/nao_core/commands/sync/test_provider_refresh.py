@@ -46,8 +46,12 @@ def create_sync_setup(profiling_policy, summary_policy):
     return config, context, engine, profiling_data
 
 
-def table_path(tmp_path):
-    return tmp_path / "type=duckdb" / "database=analytics" / "schema=main" / "table=orders"
+def write_table_docs(tmp_path, docs):
+    output_path = tmp_path / "type=duckdb" / "database=analytics" / "schema=main" / "table=orders"
+    output_path.mkdir(parents=True)
+    for name, content in docs.items():
+        (output_path / name).write_text(content)
+    return output_path
 
 
 def run_sync(config, engine, tmp_path):
@@ -82,10 +86,8 @@ def test_ai_summary_refresh_does_not_rewrite_frozen_profiling(tmp_path):
         ProfilingRefreshPolicy.ONCE,
         ProfilingRefreshPolicy.ALWAYS,
     )
-    output_path = table_path(tmp_path)
-    output_path.mkdir(parents=True)
+    output_path = write_table_docs(tmp_path, {"profiling.md": "frozen profiling"})
     profiling_file = output_path / "profiling.md"
-    profiling_file.write_text("frozen profiling")
 
     run_sync(config, engine, tmp_path)
 
@@ -101,10 +103,7 @@ def test_neither_template_due_skips_profiling_compute(tmp_path):
         ProfilingRefreshPolicy.ONCE,
         ProfilingRefreshPolicy.ONCE,
     )
-    output_path = table_path(tmp_path)
-    output_path.mkdir(parents=True)
-    (output_path / "profiling.md").write_text("frozen profiling")
-    (output_path / "ai_summary.md").write_text("frozen summary")
+    write_table_docs(tmp_path, {"profiling.md": "frozen profiling", "ai_summary.md": "frozen summary"})
 
     run_sync(config, engine, tmp_path)
 

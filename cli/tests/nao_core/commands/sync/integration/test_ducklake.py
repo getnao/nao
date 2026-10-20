@@ -94,22 +94,6 @@ def test_check_connection_succeeds(seeded: None) -> None:
     assert ok, message
 
 
-def test_local_filesystem_access_is_denied(seeded: None) -> None:
-    """The whole point of the lockdown: no reading arbitrary server files.
-
-    Before the fix, `ducklake` connections skipped DuckDB's external-access
-    lockdown entirely (loading the ducklake extension requires it to be off at
-    load time), which let a SELECT read any file on the server. The connection
-    now runs the lockdown after the ATTACH instead of never running it at all.
-    """
-    conn = _lake_config().connect()
-    try:
-        with pytest.raises(Exception, match="Permission Error|disabled by configuration"):
-            conn.raw_sql("SELECT count(*) FROM read_csv_auto('/etc/passwd', header=false)").fetchall()  # type: ignore[union-attr]
-    finally:
-        conn.disconnect()
-
-
 def test_reads_the_lake_while_denying_the_local_filesystem(seeded: None) -> None:
     """Guards the fix that replaced an empty allowlist: an empty
     `allowed_directories` blocks DuckLake from reopening its own Parquet files,
@@ -235,24 +219,7 @@ def test_sees_committed_writes_under_the_lockdown(seeded: None) -> None:
 
 def test_file_catalog_lock_produces_an_actionable_error(tmp_path) -> None:
     """A file-based catalog allows one connection; nao must say so clearly."""
-    catalog = tmp_path / "catalog.ducklake"
-    data_path = tmp_path / "data"
-    data_path.mkdir()
-
-    config: DuckLakeConfig = parse_database_config(  # type: ignore[invalid-assignment]
-        {
-            "type": "ducklake",
-            "name": "filelake",
-            "catalog": {"type": "duckdb", "path": str(catalog)},
-            "data_path": f"{data_path}/",
-        }
-    )
-
-    seeder = _writable_connection(config)
-    try:
-        seeder.raw_sql('CREATE OR REPLACE TABLE "filelake".main.t AS SELECT 1 AS id')
-    finally:
-        seeder.disconnect()
+    config = _seeded_file_lake(tmp_path)
 
     holder = _writable_connection(config)
     try:
@@ -270,24 +237,9 @@ def test_file_catalog_lock_across_processes(tmp_path) -> None:
     import sys
     import textwrap
 
+    config = _seeded_file_lake(tmp_path)
     catalog = tmp_path / "catalog.ducklake"
     data_path = tmp_path / "data"
-    data_path.mkdir()
-
-    config: DuckLakeConfig = parse_database_config(  # type: ignore[invalid-assignment]
-        {
-            "type": "ducklake",
-            "name": "filelake",
-            "catalog": {"type": "duckdb", "path": str(catalog)},
-            "data_path": f"{data_path}/",
-        }
-    )
-
-    seeder = _writable_connection(config)
-    try:
-        seeder.raw_sql('CREATE OR REPLACE TABLE "filelake".main.t AS SELECT 1 AS id')
-    finally:
-        seeder.disconnect()
 
     holder_script = textwrap.dedent(
         f"""
@@ -314,3 +266,25 @@ def test_file_catalog_lock_across_processes(tmp_path) -> None:
     finally:
         holder.kill()
         holder.wait(timeout=10)
+
+
+def _seeded_file_lake(tmp_path) -> DuckLakeConfig:
+    """A DuckLake on a file-based catalog under `tmp_path`, holding one table."""
+    data_path = tmp_path / "data"
+    data_path.mkdir()
+
+    config: DuckLakeConfig = parse_database_config(  # type: ignore[invalid-assignment]
+        {
+            "type": "ducklake",
+            "name": "filelake",
+            "catalog": {"type": "duckdb", "path": str(tmp_path / "catalog.ducklake")},
+            "data_path": f"{data_path}/",
+        }
+    )
+
+    seeder = _writable_connection(config)
+    try:
+        seeder.raw_sql('CREATE OR REPLACE TABLE "filelake".main.t AS SELECT 1 AS id')
+    finally:
+        seeder.disconnect()
+    return config

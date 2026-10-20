@@ -8,6 +8,8 @@ import pytest
 
 from nao_core.config import secrets
 
+SECRET_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-secret-AbCdEf"
+
 # ---------------------------------------------------------------------------
 # env resolver
 # ---------------------------------------------------------------------------
@@ -106,28 +108,24 @@ def test_process_secrets_handles_mixed_missing_and_present_env_vars():
 # ---------------------------------------------------------------------------
 
 
-def test_split_aws_identifier_simple_form():
-    assert secrets._split_aws_identifier("name/field") == ("name", "field")
+@pytest.mark.parametrize(
+    ("identifier", "expected"),
+    [
+        pytest.param("name/field", ("name", "field"), id="simple_form"),
+        pytest.param(f"{SECRET_ARN}/password", (SECRET_ARN, "password"), id="arn_form"),
+        pytest.param("name/cred.user", ("name", "cred.user"), id="preserves_dot_path_after_slash"),
+    ],
+)
+def test_split_aws_identifier(identifier, expected):
+    assert secrets._split_aws_identifier(identifier) == expected
 
 
-def test_split_aws_identifier_arn_form():
-    arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-secret-AbCdEf"
-    assert secrets._split_aws_identifier(f"{arn}/password") == (arn, "password")
-
-
-def test_split_aws_identifier_preserves_dot_path_after_slash():
-    # The slash separates secret_name from glom path; dots inside the path stay intact.
-    assert secrets._split_aws_identifier("name/cred.user") == ("name", "cred.user")
-
-
-def test_split_aws_identifier_rejects_missing_slash():
+@pytest.mark.parametrize(
+    "identifier", [pytest.param("no_slash", id="missing_slash"), pytest.param("name/", id="empty_parts")]
+)
+def test_split_aws_identifier_rejects_malformed_identifiers(identifier):
     with pytest.raises(ValueError, match="secret_name/field"):
-        secrets._split_aws_identifier("no_slash")
-
-
-def test_split_aws_identifier_rejects_empty_parts():
-    with pytest.raises(ValueError, match="secret_name/field"):
-        secrets._split_aws_identifier("name/")
+        secrets._split_aws_identifier(identifier)
 
 
 def test_aws_region_from_arn():
@@ -153,14 +151,12 @@ def test_split_k8s_identifier_defaults_to_pod_namespace(monkeypatch):
     assert secrets._split_k8s_identifier("foo/bar") == ("my-ns", "foo", "bar")
 
 
-def test_split_k8s_identifier_rejects_bad_format():
+@pytest.mark.parametrize(
+    "identifier", [pytest.param("only_one", id="bad_format"), pytest.param("a/b/c/d", id="too_many_parts")]
+)
+def test_split_k8s_identifier_rejects_malformed_identifiers(identifier):
     with pytest.raises(ValueError, match="namespace/secret/field"):
-        secrets._split_k8s_identifier("only_one")
-
-
-def test_split_k8s_identifier_rejects_too_many_parts():
-    with pytest.raises(ValueError, match="namespace/secret/field"):
-        secrets._split_k8s_identifier("a/b/c/d")
+        secrets._split_k8s_identifier(identifier)
 
 
 def test_pod_namespace_falls_back_to_default(monkeypatch):
@@ -207,49 +203,33 @@ def _install_fake_boto3(monkeypatch, secret_string: str | None) -> _AwsMocks:
     )
 
 
-def test_resolve_aws_returns_field_from_json_payload(monkeypatch):
-    _install_fake_boto3(monkeypatch, '{"username": "u", "password": "p"}')
-    assert secrets.resolve_aws("my_secret/password") == "p"
+@pytest.mark.parametrize(
+    ("secret_string", "identifier", "expected"),
+    [
+        pytest.param('{"username": "u", "password": "p"}', "my_secret/password", "p", id="field_from_json_payload"),
+        pytest.param('{"port": 5432, "cred": {"user": "potato"}}', "my_secret/cred.user", "potato", id="nested_field"),
+        pytest.param('{"port": 5432}', "my_secret/port", "5432", id="scalar_int_as_string"),
+    ],
+)
+def test_resolve_aws_returns_the_requested_field(monkeypatch, secret_string, identifier, expected):
+    _install_fake_boto3(monkeypatch, secret_string)
+    assert secrets.resolve_aws(identifier) == expected
 
 
-def test_resolve_aws_extracts_nested_field_via_glom(monkeypatch):
-    _install_fake_boto3(monkeypatch, '{"port": 5432, "cred": {"user": "potato"}}')
-    assert secrets.resolve_aws("my_secret/cred.user") == "potato"
-
-
-def test_resolve_aws_returns_scalar_int_as_string(monkeypatch):
-    _install_fake_boto3(monkeypatch, '{"port": 5432}')
-    assert secrets.resolve_aws("my_secret/port") == "5432"
-
-
-def test_resolve_aws_rejects_nested_object_as_value(monkeypatch):
-    _install_fake_boto3(monkeypatch, '{"cred": {"user": "x"}}')
-    with pytest.raises(ValueError, match="must be a scalar"):
-        secrets.resolve_aws("my_secret/cred")
-
-
-def test_resolve_aws_raises_when_payload_is_not_json(monkeypatch):
-    _install_fake_boto3(monkeypatch, "not-json")
-    with pytest.raises(ValueError, match="not valid JSON"):
-        secrets.resolve_aws("my_secret/password")
-
-
-def test_resolve_aws_raises_when_payload_is_not_an_object(monkeypatch):
-    _install_fake_boto3(monkeypatch, '"a string"')
-    with pytest.raises(ValueError, match="not a JSON object"):
-        secrets.resolve_aws("my_secret/password")
-
-
-def test_resolve_aws_raises_when_field_is_missing(monkeypatch):
-    _install_fake_boto3(monkeypatch, '{"username": "u"}')
-    with pytest.raises(ValueError, match="has no field 'password'"):
-        secrets.resolve_aws("my_secret/password")
-
-
-def test_resolve_aws_raises_when_secret_string_is_empty(monkeypatch):
-    _install_fake_boto3(monkeypatch, None)
-    with pytest.raises(ValueError, match="no SecretString payload"):
-        secrets.resolve_aws("my_secret/password")
+@pytest.mark.parametrize(
+    ("secret_string", "identifier", "error"),
+    [
+        pytest.param('{"cred": {"user": "x"}}', "my_secret/cred", "must be a scalar", id="nested_object_value"),
+        pytest.param("not-json", "my_secret/password", "not valid JSON", id="payload_not_json"),
+        pytest.param('"a string"', "my_secret/password", "not a JSON object", id="payload_not_an_object"),
+        pytest.param('{"username": "u"}', "my_secret/password", "has no field 'password'", id="field_missing"),
+        pytest.param(None, "my_secret/password", "no SecretString payload", id="secret_string_empty"),
+    ],
+)
+def test_resolve_aws_rejects_unusable_payloads(monkeypatch, secret_string, identifier, error):
+    _install_fake_boto3(monkeypatch, secret_string)
+    with pytest.raises(ValueError, match=error):
+        secrets.resolve_aws(identifier)
 
 
 def test_resolve_aws_wraps_botocore_errors_as_value_error(monkeypatch):
@@ -334,8 +314,7 @@ def _install_fake_kubernetes(monkeypatch, data: dict[str, str] | None) -> _K8sMo
 
 
 def test_resolve_k8s_returns_base64_decoded_field(monkeypatch):
-    encoded = base64.b64encode(b"super-secret").decode()
-    _install_fake_kubernetes(monkeypatch, {"password": encoded})
+    _install_fake_kubernetes(monkeypatch, {"password": _base64("super-secret")})
 
     assert secrets.resolve_k8s("default/db/password") == "super-secret"
 
@@ -348,8 +327,7 @@ def test_resolve_k8s_raises_when_field_missing(monkeypatch):
 
 
 def test_resolve_k8s_uses_pod_namespace_when_omitted(monkeypatch):
-    encoded = base64.b64encode(b"v").decode()
-    mocks = _install_fake_kubernetes(monkeypatch, {"f": encoded})
+    mocks = _install_fake_kubernetes(monkeypatch, {"f": _base64("v")})
     monkeypatch.setattr(secrets, "_pod_namespace", lambda: "my-ns")
 
     secrets.resolve_k8s("db/f")
@@ -357,12 +335,14 @@ def test_resolve_k8s_uses_pod_namespace_when_omitted(monkeypatch):
 
 
 def test_resolve_k8s_caches_repeated_requests_to_same_secret(monkeypatch):
-    encoded_user = base64.b64encode(b"u").decode()
-    encoded_pw = base64.b64encode(b"p").decode()
-    mocks = _install_fake_kubernetes(monkeypatch, {"user": encoded_user, "password": encoded_pw})
+    mocks = _install_fake_kubernetes(monkeypatch, {"user": _base64("u"), "password": _base64("p")})
     cache: secrets.SecretCache = {}
 
     assert secrets.resolve_k8s("default/db/user", cache=cache) == "u"
     assert secrets.resolve_k8s("default/db/password", cache=cache) == "p"
 
     mocks.v1.read_namespaced_secret.assert_called_once_with(name="db", namespace="default")
+
+
+def _base64(value: str) -> str:
+    return base64.b64encode(value.encode()).decode()

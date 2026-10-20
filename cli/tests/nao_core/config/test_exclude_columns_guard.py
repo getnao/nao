@@ -7,6 +7,9 @@ from nao_core.config.databases.exclude_columns_guard import (
     enforce_exclude_columns,
 )
 
+STAR_INCLUDES_EMAIL = r"SELECT \* would include excluded column\(s\): main\.users\.email"
+HIVE_ANALYTICS_SCHEMAS = {"hive1.analytics": {"orders": ["id", "email"]}}
+
 
 class FakeSchema:
     def __init__(self, names: list[str]):
@@ -40,14 +43,14 @@ class FakeConnection:
 
 
 class FakeDatabaseConfig:
-    type = "duckdb"
-
     def __init__(
         self,
         exclude_columns: list[str],
         schemas: dict[str, dict[str, list[str]]] | None = None,
         database_name: str = "local",
+        database_type: str = "duckdb",
     ):
+        self.type = database_type
         self.exclude_columns = exclude_columns
         self.schemas = schemas or {
             "main": {
@@ -101,10 +104,7 @@ def test_explicit_excluded_column_outside_select_is_blocked(sql: str):
 def test_select_star_with_excluded_column_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(
-        ExcludeColumnsGuardError,
-        match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
-    ):
+    with pytest.raises(ExcludeColumnsGuardError, match=STAR_INCLUDES_EMAIL):
         enforce_exclude_columns("SELECT * FROM users", config)
 
 
@@ -120,10 +120,7 @@ def test_qualified_star_already_excluding_column_is_unchanged():
 def test_cte_star_with_excluded_column_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(
-        ExcludeColumnsGuardError,
-        match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
-    ):
+    with pytest.raises(ExcludeColumnsGuardError, match=STAR_INCLUDES_EMAIL):
         enforce_exclude_columns(
             "WITH selected_users AS (SELECT * FROM users) SELECT * FROM selected_users",
             config,
@@ -169,7 +166,7 @@ def test_matching_catalog_resolves_local_schema():
 def test_multi_part_database_name_resolves_catalog_schema():
     config = FakeDatabaseConfig(
         ["*.email"],
-        schemas={"hive1.analytics": {"orders": ["id", "email"]}},
+        schemas=HIVE_ANALYTICS_SCHEMAS,
         database_name="hive1.analytics",
     )
     safe_sql = "SELECT id FROM hive1.analytics.orders"
@@ -183,7 +180,7 @@ def test_multi_part_database_name_resolves_catalog_schema():
 def test_multi_part_database_name_blocks_different_catalog():
     config = FakeDatabaseConfig(
         ["*.email"],
-        schemas={"hive1.analytics": {"orders": ["id", "email"]}},
+        schemas=HIVE_ANALYTICS_SCHEMAS,
         database_name="hive1.analytics",
     )
 
@@ -196,8 +193,8 @@ def test_starrocks_default_catalog_resolves_from_live_schemas():
         ["*.email"],
         schemas={"default_catalog.analytics": {"users": ["id", "email"]}},
         database_name="analytics",
+        database_type="starrocks",
     )
-    config.type = "starrocks"
 
     assert enforce_exclude_columns("SELECT id FROM default_catalog.analytics.users", config) == (
         "SELECT id FROM default_catalog.analytics.users"
@@ -216,8 +213,8 @@ def test_starrocks_catalog_case_variant_with_duplicate_candidates_is_allowed():
             "default_catalog.reporting": {"reports": ["id"]},
         },
         database_name="default_catalog.analytics",
+        database_type="starrocks",
     )
-    config.type = "starrocks"
     sql = "SELECT id FROM DEFAULT_CATALOG.analytics.users"
 
     assert enforce_exclude_columns(sql, config) == sql

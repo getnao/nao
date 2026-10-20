@@ -60,6 +60,14 @@ def run_sync_with_mocks(db_config, engine, tmp_path, progress):
     return state, mock_console
 
 
+def _single_error_line(mock_console) -> str:
+    """The one `✗` line printed among the connection, schema, progress and summary lines."""
+    all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
+    assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"
+    return error_lines[0]
+
+
 class TestSyncDatabaseErrorLogging:
     """Test suite for error logging during database sync operations."""
 
@@ -73,15 +81,7 @@ class TestSyncDatabaseErrorLogging:
 
         _, mock_console = run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
 
-        # Verify console was called with error
-        mock_console.print.assert_called()
-        # console.print is called multiple times (connection, schemas, progress, error, summary).
-        # The error line with [bold red]✗[/bold red] is not the last call,
-        # so we search call_args_list instead of call_args (which only returns the last call).
-        all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
-        error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
-        assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"
-        error_msg = error_lines[0]
+        error_msg = _single_error_line(mock_console)
         assert "preview" in error_msg
         assert "test_schema.test_table" in error_msg
         assert "Database connection failed!" in error_msg
@@ -115,12 +115,7 @@ class TestSyncDatabaseErrorLogging:
 
         _, mock_console = run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
 
-        # Verify console was called with error
-        mock_console.print.assert_called()
-        all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
-        error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
-        assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"
-        error_msg = error_lines[0]
+        error_msg = _single_error_line(mock_console)
         assert "columns" in error_msg
         assert "public.users" in error_msg
         assert "Column metadata not available" in error_msg
@@ -133,59 +128,19 @@ class TestSyncDatabaseErrorLogging:
         content = columns_file.read_text()
         assert "Error generating content" in content
 
-    def test_sync_database_error_message_format(self, tmp_path, mock_progress):
-        """Test that error messages contain all expected parts."""
-        db_config = create_mock_db_config(
-            name="prod_db",
-            db_type="snowflake",
-            database_name="PRODUCTION",
-            schemas=["ANALYTICS"],
-            tables=["CUSTOMERS"],
-        )
-        engine = create_mock_engine(
-            templates=["databases/columns.md.j2"],
-            render_behavior=Exception("Test error message"),
-        )
-
-        _, mock_console = run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
-
-        # Verify error message contains all expected parts
-        mock_console.print.assert_called()
-        all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
-        error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
-        assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"
-        error_msg = error_lines[0]
-
-        # Should have accessor name
-        assert "columns" in error_msg
-        # Should have schema.table identifier
-        assert "ANALYTICS.CUSTOMERS" in error_msg
-        # Should have the actual error message
-        assert "Test error message" in error_msg
-
 
 class TestSyncDatabaseConnectionCleanup:
     """Test that database connections are always closed after sync."""
 
-    def test_connection_closed_after_successful_sync(self, tmp_path, mock_progress):
+    @pytest.mark.parametrize(
+        "render_behavior",
+        [lambda *a, **kw: "# test", RuntimeError("Render failed")],
+        ids=["successful_sync", "template_error"],
+    )
+    def test_connection_closed_after_rendering(self, tmp_path, mock_progress, render_behavior):
         db_config = create_mock_db_config()
         mock_conn = db_config.connect.return_value
-        engine = create_mock_engine(
-            templates=["databases/columns.md.j2"],
-            render_behavior=lambda *a, **kw: "# test",
-        )
-
-        run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
-
-        mock_conn.disconnect.assert_called_once()
-
-    def test_connection_closed_after_template_error(self, tmp_path, mock_progress):
-        db_config = create_mock_db_config()
-        mock_conn = db_config.connect.return_value
-        engine = create_mock_engine(
-            templates=["databases/columns.md.j2"],
-            render_behavior=RuntimeError("Render failed"),
-        )
+        engine = create_mock_engine(templates=["databases/columns.md.j2"], render_behavior=render_behavior)
 
         run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
 

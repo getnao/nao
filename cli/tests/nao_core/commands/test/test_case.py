@@ -1,0 +1,75 @@
+import pytest
+
+from nao_core.commands.test.assertions import ToolCallAssertion
+from nao_core.commands.test.case import InvalidTestFileError, discover_tests
+from nao_core.commands.test.case import TestCase as NaoTestCase
+
+
+def test_discover_tests_is_recursive(tmp_path):
+    (tmp_path / "tests" / "revenue").mkdir(parents=True)
+    (tmp_path / "tests" / "revenue" / "mrr.yml").write_text("prompt: how much mrr\n")
+    (tmp_path / "tests" / "ops" / "sla").mkdir(parents=True)
+    (tmp_path / "tests" / "ops" / "sla" / "uptime.yaml").write_text("prompt: uptime\n")
+
+    cases = discover_tests(tmp_path)
+
+    names = {c.name for c in cases}
+    assert names == {"mrr", "uptime"}
+
+
+@pytest.mark.parametrize(
+    ("database_line", "expected_database"),
+    [("database: bigquery-prod\n", "bigquery-prod"), ("", None)],
+    ids=["reads_the_database_field", "leaves_database_unset_when_absent"],
+)
+def test_from_yaml_database(tmp_path, database_line, expected_database):
+    test_file = tmp_path / "revenue.yml"
+    test_file.write_text(f"prompt: total revenue\nsql: select 1\n{database_line}")
+
+    case = NaoTestCase.from_yaml(test_file)
+
+    assert case.database == expected_database
+
+
+def test_discover_tests_ignores_outputs_dir(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "real.yml").write_text("prompt: real\n")
+    (tmp_path / "tests" / "outputs").mkdir()
+    (tmp_path / "tests" / "outputs" / "results.yml").write_text("prompt: not a test\n")
+
+    cases = discover_tests(tmp_path)
+
+    assert {c.name for c in cases} == {"real"}
+
+
+def test_from_yaml_parses_assertions(tmp_path):
+    test_file = tmp_path / "ambiguous.yml"
+    test_file.write_text("prompt: revenue?\nassertions:\n  - type: tool_call\n    tool: clarification\n")
+
+    case = NaoTestCase.from_yaml(test_file)
+
+    assert case.sql is None
+    assert case.assertions == [ToolCallAssertion(tool="clarification")]
+
+
+def test_discover_tests_fails_when_a_test_has_malformed_assertions(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "valid.yml").write_text("prompt: fine\n")
+    (tmp_path / "tests" / "broken.yml").write_text(
+        "prompt: revenue?\nassertions:\n  - type: tool_call\n    tol: clarification\n"
+    )
+
+    with pytest.raises(InvalidTestFileError, match="broken.yml"):
+        discover_tests(tmp_path)
+
+
+def test_discover_tests_reports_every_broken_test_file(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "first.yml").write_text("prompt: p\nassertions: not-a-list\n")
+    (tmp_path / "tests" / "second.yml").write_text("sql: select 1\n")
+
+    with pytest.raises(InvalidTestFileError) as excinfo:
+        discover_tests(tmp_path)
+
+    assert "first.yml" in str(excinfo.value)
+    assert "second.yml" in str(excinfo.value)

@@ -8,10 +8,12 @@ from nao_core.config import NaoConfig
 from nao_core.config.semantic_layer import SemanticLayerConfig
 
 FIXTURE_MANIFEST = Path(__file__).parent / "semantic_manifest.json"
+MANIFEST_PATH = "dbt/target/semantic_manifest.json"
+SEMANTIC_LAYER = SemanticLayerConfig(manifest_path=MANIFEST_PATH)
 
 
 def _project_with_manifest(tmp_path: Path) -> Path:
-    manifest = tmp_path / "dbt" / "target" / "semantic_manifest.json"
+    manifest = tmp_path / MANIFEST_PATH
     manifest.parent.mkdir(parents=True)
     shutil.copy(FIXTURE_MANIFEST, manifest)
     return tmp_path
@@ -27,17 +29,16 @@ def test_provider_only_syncs_when_configured() -> None:
 
 def test_sync_writes_manifest_copy_and_docs(tmp_path: Path) -> None:
     project = _project_with_manifest(tmp_path)
-    semantic_layer = SemanticLayerConfig(manifest_path="dbt/target/semantic_manifest.json")
     output = project / "semantics"
     (output / "metrics").mkdir(parents=True)
     (output / "metrics" / "stale_metric.md").write_text("old")
     (output / "my_notes.md").write_text("keep me")
 
-    result = SemanticLayerSyncProvider().sync([semantic_layer], output, project_path=project)
+    result = SemanticLayerSyncProvider().sync([SEMANTIC_LAYER], output, project_path=project)
 
     assert result.success
     assert result.items_synced == 3
-    assert (project / ".meta" / "semantic_layer" / "semantic_manifest.json").read_text() == FIXTURE_MANIFEST.read_text()
+    assert _synced_manifest(project).read_text() == FIXTURE_MANIFEST.read_text()
     assert sorted(path.name for path in (output / "metrics").iterdir()) == [
         "average_order_value.md",
         "orders.md",
@@ -70,15 +71,14 @@ def test_sync_writes_manifest_copy_and_docs(tmp_path: Path) -> None:
 
 def test_sync_keeps_last_good_manifest_when_source_is_broken(tmp_path: Path) -> None:
     project = _project_with_manifest(tmp_path)
-    semantic_layer = SemanticLayerConfig(manifest_path="dbt/target/semantic_manifest.json")
     output = project / "semantics"
-    SemanticLayerSyncProvider().sync([semantic_layer], output, project_path=project)
-    (project / "dbt" / "target" / "semantic_manifest.json").write_text("{ not json")
+    SemanticLayerSyncProvider().sync([SEMANTIC_LAYER], output, project_path=project)
+    (project / MANIFEST_PATH).write_text("{ not json")
 
-    result = SemanticLayerSyncProvider().sync([semantic_layer], output, project_path=project)
+    result = SemanticLayerSyncProvider().sync([SEMANTIC_LAYER], output, project_path=project)
 
     assert not result.success
-    assert (project / ".meta" / "semantic_layer" / "semantic_manifest.json").read_text() == FIXTURE_MANIFEST.read_text()
+    assert _synced_manifest(project).read_text() == FIXTURE_MANIFEST.read_text()
 
 
 def test_sync_reports_missing_manifest(tmp_path: Path) -> None:
@@ -89,3 +89,7 @@ def test_sync_reports_missing_manifest(tmp_path: Path) -> None:
     assert not result.success
     assert result.error is not None
     assert "not found" in result.error
+
+
+def _synced_manifest(project: Path) -> Path:
+    return project / ".meta" / "semantic_layer" / "semantic_manifest.json"

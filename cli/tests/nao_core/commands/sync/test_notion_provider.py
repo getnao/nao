@@ -88,17 +88,14 @@ def test_retrieve_page_reports_a_database_as_not_a_page():
     assert retrieve_page(client, "some-id") is None
 
 
-def test_retrieve_page_raises_when_a_page_is_not_shared():
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [(APIErrorCode.ObjectNotFound, 404), (APIErrorCode.RateLimited, 429)],
+    ids=["page_not_shared", "rate_limited"],
+)
+def test_retrieve_page_raises_on_api_error(code, status):
     client = MagicMock()
-    client.pages.retrieve.side_effect = api_error(APIErrorCode.ObjectNotFound, 404)
-
-    with pytest.raises(APIResponseError):
-        retrieve_page(client, "some-id")
-
-
-def test_retrieve_page_raises_when_rate_limited():
-    client = MagicMock()
-    client.pages.retrieve.side_effect = api_error(APIErrorCode.RateLimited, 429)
+    client.pages.retrieve.side_effect = api_error(code, status)
 
     with pytest.raises(APIResponseError):
         retrieve_page(client, "some-id")

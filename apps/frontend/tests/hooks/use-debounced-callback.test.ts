@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
 
 describe('useDebouncedCallback', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
 	afterEach(() => {
 		vi.useRealTimers();
 	});
 
 	it('invokes once with the latest arguments after rapid calls', () => {
-		vi.useFakeTimers();
 		const callback = vi.fn();
 		const { result } = renderHook(() => useDebouncedCallback(callback, 120));
 
@@ -29,7 +32,6 @@ describe('useDebouncedCallback', () => {
 	});
 
 	it('clears a pending callback on unmount', () => {
-		vi.useFakeTimers();
 		const callback = vi.fn();
 		const { result, unmount } = renderHook(() => useDebouncedCallback(callback, 120));
 

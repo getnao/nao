@@ -1,6 +1,7 @@
 """Unit tests for the init command."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,9 +12,10 @@ from nao_core.commands.init import (
     ProjectExistsError,
     _build_no_tty_config,
     create_empty_structure,
+    init,
     setup_project_name,
 )
-from nao_core.config import NaoConfigError
+from nao_core.config import NaoConfig, NaoConfigError
 from nao_core.config.exceptions import InitError
 
 
@@ -153,14 +155,6 @@ class TestCreateEmptyStructure:
         assert Path(".naoignore") in file_paths
         assert Path("tests/test_example.yml") in file_paths
 
-    def test_creates_nested_folders(self, tmp_path: Path):
-        """Creates nested folder structures like agent/tools."""
-        create_empty_structure(tmp_path)
-
-        assert (tmp_path / "agent").exists()
-        assert (tmp_path / "agent" / "tools").exists()
-        assert (tmp_path / "agent" / "mcps").exists()
-
     def test_idempotent_on_existing_folders(self, tmp_path: Path):
         """Does not fail if folders already exist."""
         # Create structure once
@@ -251,12 +245,7 @@ class TestSetupProjectName:
         """Can re-initialize an existing project with config."""
         monkeypatch.chdir(tmp_path)
 
-        # Create existing config file
-        (tmp_path / "nao_config.yaml").write_text("project_name: existing\n")
-
-        mock_config = MagicMock()
-        mock_config.project_name = "existing"
-        mock_try_load.return_value = mock_config
+        mock_config = _existing_config(tmp_path, mock_try_load)
         mock_confirm.return_value = True
 
         name, path, existing, created = setup_project_name()
@@ -272,11 +261,7 @@ class TestSetupProjectName:
         """Raises InitError when user declines re-initialization."""
         monkeypatch.chdir(tmp_path)
 
-        (tmp_path / "nao_config.yaml").write_text("project_name: existing\n")
-
-        mock_config = MagicMock()
-        mock_config.project_name = "existing"
-        mock_try_load.return_value = mock_config
+        _existing_config(tmp_path, mock_try_load)
         mock_confirm.return_value = False
 
         with pytest.raises(InitError) as exc_info:
@@ -308,7 +293,6 @@ class TestNaoConfigPromptDatabases:
     @patch("nao_core.config.base.ask_confirm")
     def test_returns_empty_list_when_user_skips(self, mock_confirm):
         """Returns empty list when user chooses not to set up databases."""
-        from nao_core.config import NaoConfig
 
         mock_confirm.return_value = False
 
@@ -321,7 +305,6 @@ class TestNaoConfigPromptDatabases:
     @patch("nao_core.config.databases.duckdb.DuckDBConfig.promptConfig")
     def test_adds_duckdb_database(self, mock_prompt_config, mock_select, mock_confirm):
         """Adds DuckDB database when selected."""
-        from nao_core.config import NaoConfig
 
         mock_config = MagicMock()
         mock_config.name = "test-db"
@@ -342,7 +325,6 @@ class TestNaoConfigPromptDatabases:
     @patch("nao_core.config.databases.motherduck.MotherDuckConfig.promptConfig")
     def test_adds_motherduck_database(self, mock_prompt_config, mock_select, mock_confirm):
         """Adds MotherDuck database when selected."""
-        from nao_core.config import NaoConfig
         from nao_core.config.databases.motherduck import MotherDuckConfig
 
         mock_config = MotherDuckConfig(name="md-analytics", database="my_db", token="tok")
@@ -371,7 +353,6 @@ class TestNaoConfigPromptRepos:
     @patch("nao_core.config.base.ask_confirm")
     def test_returns_empty_list_when_user_skips(self, mock_confirm):
         """Returns empty list when user chooses not to set up repos."""
-        from nao_core.config import NaoConfig
 
         mock_confirm.return_value = False
 
@@ -383,7 +364,6 @@ class TestNaoConfigPromptRepos:
     @patch("nao_core.config.repos.base.RepoConfig.promptConfig")
     def test_adds_repository(self, mock_prompt_config, mock_confirm):
         """Adds repository when configured."""
-        from nao_core.config import NaoConfig
         from nao_core.config.repos import RepoConfig
 
         mock_repo = RepoConfig(name="my-repo", url="https://github.com/org/repo.git")
@@ -406,7 +386,6 @@ class TestNaoConfigPromptLLM:
     @patch("nao_core.config.base.ask_confirm")
     def test_returns_none_when_user_skips(self, mock_confirm):
         """Returns None when user chooses not to set up LLM."""
-        from nao_core.config import NaoConfig
 
         mock_confirm.return_value = False
 
@@ -418,7 +397,7 @@ class TestNaoConfigPromptLLM:
     @patch("nao_core.config.llm.LLMConfig.promptConfig")
     def test_creates_llm_config(self, mock_prompt_config, mock_confirm):
         """Creates LLM config when configured."""
-        from nao_core.config import LLMConfig, LLMProvider, NaoConfig, ProviderConfig
+        from nao_core.config import LLMConfig, LLMProvider, ProviderConfig
 
         mock_llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test-key")])
         mock_prompt_config.return_value = mock_llm
@@ -471,97 +450,46 @@ class TestSlackConfig:
 class TestInitCommand:
     """Tests for the main init command."""
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_creates_config_file(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    @pytest.fixture
+    def init_mocks(self):
+        with (
+            patch("nao_core.commands.init.UI") as ui,
+            patch("nao_core.commands.init.setup_project_name") as setup_project_name,
+            patch("nao_core.commands.init.NaoConfig.promptConfig") as prompt_config,
+        ):
+            yield SimpleNamespace(ui=ui, setup_project_name=setup_project_name, prompt_config=prompt_config)
+
+    def test_init_creates_config_file(self, init_mocks, tmp_path: Path):
         """Init command creates nao_config.yaml file."""
-        from nao_core.commands.init import init
-        from nao_core.config import NaoConfig
-
-        project_path = tmp_path / "test-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("test-project", project_path, None, True)
-        mock_prompt_config.return_value = NaoConfig(
-            project_name="test-project",
-            databases=[],
-            repos=[],
-            llm=None,
-            slack=None,
-        )
+        project_path = _new_project(init_mocks, tmp_path, "test-project")
+        init_mocks.prompt_config.return_value = NaoConfig(project_name="test-project")
 
         init()
 
         config_file = project_path / "nao_config.yaml"
         assert config_file.exists()
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_shows_updated_message_for_existing_config(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    def test_init_shows_updated_message_for_existing_config(self, init_mocks, tmp_path: Path):
         """Init command shows 'Updated project' when updating existing config."""
-        from nao_core.commands.init import init
-        from nao_core.config import NaoConfig
-
-        project_path = tmp_path / "existing-project"
-        project_path.mkdir()
-
         existing_config = NaoConfig(project_name="existing-project")
-        mock_setup_project_name.return_value = ("existing-project", project_path, existing_config, False)
-        mock_prompt_config.return_value = NaoConfig(
-            project_name="existing-project",
-            databases=[],
-            repos=[],
-            llm=None,
-            slack=None,
-        )
+        _new_project(init_mocks, tmp_path, "existing-project", existing=existing_config, created=False)
+        init_mocks.prompt_config.return_value = NaoConfig(project_name="existing-project")
 
         init()
 
         # Should print "Updated project" for existing config
-        calls = [str(c) for c in mock_ui.success.call_args_list]
+        calls = [str(c) for c in init_mocks.ui.success.call_args_list]
         assert any("Updated project" in c for c in calls)
 
     @patch("nao_core.commands.debug.debug")
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_runs_debug_when_config_has_databases(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        mock_debug,
-        tmp_path: Path,
-    ):
+    def test_init_runs_debug_when_config_has_databases(self, mock_debug, init_mocks, tmp_path: Path):
         """Init command runs debug when config has databases."""
-        from nao_core.commands.init import init
-        from nao_core.config import NaoConfig
         from nao_core.config.databases.duckdb import DuckDBConfig
 
-        project_path = tmp_path / "test-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("test-project", project_path, None, True)
-        mock_prompt_config.return_value = NaoConfig(
+        _new_project(init_mocks, tmp_path, "test-project")
+        init_mocks.prompt_config.return_value = NaoConfig(
             project_name="test-project",
             databases=[DuckDBConfig(name="test-db", path=":memory:")],
-            repos=[],
-            llm=None,
-            slack=None,
         )
 
         with patch("nao_core.deps.get_missing_extras", return_value=[]):
@@ -572,26 +500,16 @@ class TestInitCommand:
     @patch("nao_core.commands.init._install_with_progress")
     @patch("nao_core.deps.get_missing_extras")
     @patch("nao_core.commands.init.ask_confirm")
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
     def test_init_always_installs_missing_dependencies(
         self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
         mock_confirm,
         mock_get_missing_extras,
         mock_install,
+        init_mocks,
         tmp_path: Path,
     ):
-        from nao_core.commands.init import init
-        from nao_core.config import NaoConfig
-
-        project_path = tmp_path / "test-project"
-        project_path.mkdir()
-        mock_setup_project_name.return_value = ("test-project", project_path, None, True)
-        mock_prompt_config.return_value = NaoConfig(project_name="test-project")
+        _new_project(init_mocks, tmp_path, "test-project")
+        init_mocks.prompt_config.return_value = NaoConfig(project_name="test-project")
         mock_get_missing_extras.return_value = ["openai"]
         mock_install.return_value = True
 
@@ -601,31 +519,14 @@ class TestInitCommand:
         mock_confirm.assert_not_called()
 
     @patch("nao_core.commands.debug.debug")
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_runs_debug_when_config_has_llm(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        mock_debug,
-        tmp_path: Path,
-    ):
+    def test_init_runs_debug_when_config_has_llm(self, mock_debug, init_mocks, tmp_path: Path):
         """Init command runs debug when config has LLM."""
-        from nao_core.commands.init import init
-        from nao_core.config import LLMConfig, LLMProvider, NaoConfig, ProviderConfig
+        from nao_core.config import LLMConfig, LLMProvider, ProviderConfig
 
-        project_path = tmp_path / "test-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("test-project", project_path, None, True)
-        mock_prompt_config.return_value = NaoConfig(
+        _new_project(init_mocks, tmp_path, "test-project")
+        init_mocks.prompt_config.return_value = NaoConfig(
             project_name="test-project",
-            databases=[],
-            repos=[],
             llm=LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")]),
-            slack=None,
         )
 
         with patch("nao_core.deps.get_missing_extras", return_value=[]):
@@ -633,31 +534,10 @@ class TestInitCommand:
 
         mock_debug.assert_called_once()
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_creates_folder_structure(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    def test_init_creates_folder_structure(self, init_mocks, tmp_path: Path):
         """Init command creates project folder structure."""
-        from nao_core.commands.init import init
-        from nao_core.config import NaoConfig
-
-        project_path = tmp_path / "test-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("test-project", project_path, None, True)
-        mock_prompt_config.return_value = NaoConfig(
-            project_name="test-project",
-            databases=[],
-            repos=[],
-            llm=None,
-            slack=None,
-        )
+        project_path = _new_project(init_mocks, tmp_path, "test-project")
+        init_mocks.prompt_config.return_value = NaoConfig(project_name="test-project")
 
         init()
 
@@ -665,120 +545,54 @@ class TestInitCommand:
         assert not (project_path / "queries").exists()
         assert (project_path / "RULES.md").exists()
 
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_handles_init_error(self, mock_ui, mock_setup_project_name):
+    def test_init_handles_init_error(self, init_mocks):
         """Init command prints error and exits non-zero on InitError."""
-        from nao_core.commands.init import init
-
-        mock_setup_project_name.side_effect = EmptyProjectNameError()
+        init_mocks.setup_project_name.side_effect = EmptyProjectNameError()
 
         with pytest.raises(SystemExit) as exc_info:
             init()
 
         assert exc_info.value.code == 1
-        mock_ui.error.assert_called()
-        calls = [str(c) for c in mock_ui.error.call_args_list]
+        init_mocks.ui.error.assert_called()
+        calls = [str(c) for c in init_mocks.ui.error.call_args_list]
         assert any("cannot be empty" in c for c in calls)
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_cleans_up_folder_on_keyboard_interrupt(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    def test_init_cleans_up_folder_on_keyboard_interrupt(self, init_mocks, tmp_path: Path):
         """Empty folder is removed when prompts are interrupted with Ctrl+C."""
-        from nao_core.commands.init import init
-
-        project_path = tmp_path / "interrupted-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("interrupted-project", project_path, None, True)
-        mock_prompt_config.side_effect = KeyboardInterrupt
+        project_path = _new_project(init_mocks, tmp_path, "interrupted-project")
+        init_mocks.prompt_config.side_effect = KeyboardInterrupt
 
         with pytest.raises(KeyboardInterrupt):
             init()
 
         assert not project_path.exists()
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_cleans_up_folder_on_unexpected_error(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    def test_init_cleans_up_folder_on_unexpected_error(self, init_mocks, tmp_path: Path):
         """Empty folder is removed when an unexpected exception aborts init."""
-        from nao_core.commands.init import init
-
-        project_path = tmp_path / "broken-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("broken-project", project_path, None, True)
-        mock_prompt_config.side_effect = RuntimeError("boom")
+        project_path = _new_project(init_mocks, tmp_path, "broken-project")
+        init_mocks.prompt_config.side_effect = RuntimeError("boom")
 
         with pytest.raises(RuntimeError):
             init()
 
         assert not project_path.exists()
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_cleans_up_folder_on_init_error_after_creation(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    def test_init_cleans_up_folder_on_init_error_after_creation(self, init_mocks, tmp_path: Path):
         """Empty folder is removed when an InitError is raised after creation."""
-        from nao_core.commands.init import init
-        from nao_core.config.exceptions import InitError
-
-        project_path = tmp_path / "init-error-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("init-error-project", project_path, None, True)
-        mock_prompt_config.side_effect = InitError("config prompts failed")
+        project_path = _new_project(init_mocks, tmp_path, "init-error-project")
+        init_mocks.prompt_config.side_effect = InitError("config prompts failed")
 
         with pytest.raises(SystemExit):
             init()
 
         assert not project_path.exists()
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_preserves_existing_folder_on_abort(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    def test_init_preserves_existing_folder_on_abort(self, init_mocks, tmp_path: Path):
         """A pre-existing folder (force=True / reinit) is not deleted on abort."""
-        from nao_core.commands.init import init
-
-        project_path = tmp_path / "preexisting-project"
-        project_path.mkdir()
+        project_path = _new_project(init_mocks, tmp_path, "preexisting-project", created=False)
         sentinel_file = project_path / "keep-me.txt"
         sentinel_file.write_text("important user data")
-
-        mock_setup_project_name.return_value = (
-            "preexisting-project",
-            project_path,
-            None,
-            False,
-        )
-        mock_prompt_config.side_effect = KeyboardInterrupt
+        init_mocks.prompt_config.side_effect = KeyboardInterrupt
 
         with pytest.raises(KeyboardInterrupt):
             init()
@@ -786,35 +600,14 @@ class TestInitCommand:
         assert project_path.exists()
         assert sentinel_file.read_text() == "important user data"
 
-    @patch("nao_core.commands.init.NaoConfig.promptConfig")
-    @patch("nao_core.commands.init.setup_project_name")
-    @patch("nao_core.commands.init.UI")
-    def test_init_does_not_clean_up_after_structure_created(
-        self,
-        mock_ui,
-        mock_setup_project_name,
-        mock_prompt_config,
-        tmp_path: Path,
-    ):
+    def test_init_does_not_clean_up_after_structure_created(self, init_mocks, tmp_path: Path):
         """Folder is preserved when failure happens after create_empty_structure.
 
         Anything that fails post-setup (e.g. dep install, debug) must not blow
         away a successfully initialized project.
         """
-        from nao_core.commands.init import init
-        from nao_core.config import NaoConfig
-
-        project_path = tmp_path / "done-project"
-        project_path.mkdir()
-
-        mock_setup_project_name.return_value = ("done-project", project_path, None, True)
-        mock_prompt_config.return_value = NaoConfig(
-            project_name="done-project",
-            databases=[],
-            repos=[],
-            llm=None,
-            slack=None,
-        )
+        project_path = _new_project(init_mocks, tmp_path, "done-project")
+        init_mocks.prompt_config.return_value = NaoConfig(project_name="done-project")
 
         with patch("nao_core.deps.get_missing_extras", side_effect=RuntimeError("late failure")):
             with pytest.raises(RuntimeError):
@@ -864,11 +657,7 @@ class TestSetupProjectNameNoTty:
     ):
         """In no-tty mode with existing config, skips the update confirmation prompt."""
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "nao_config.yaml").write_text("project_name: existing\n")
-
-        mock_config = MagicMock()
-        mock_config.project_name = "existing"
-        mock_try_load.return_value = mock_config
+        mock_config = _existing_config(tmp_path, mock_try_load)
 
         name, path, existing, created = setup_project_name(no_tty=True)
 
@@ -898,7 +687,6 @@ class TestBuildNoTtyConfig:
 
     def test_returns_existing_config_when_present(self):
         """Reuses existing config without modification."""
-        from nao_core.config import NaoConfig
 
         existing = NaoConfig(project_name="kept-as-is")
         result = _build_no_tty_config("ignored-name", existing)
@@ -934,7 +722,6 @@ class TestInitCommandNoTty:
         monkeypatch,
     ):
         """`--yes` skips the interactive promptConfig flow entirely."""
-        from nao_core.commands.init import init
 
         project_dir = tmp_path / "no-tty-project"
         project_dir.mkdir()
@@ -958,7 +745,6 @@ class TestInitCommandNoTty:
         monkeypatch,
     ):
         """`--yes --name foo` creates a subfolder named foo with a minimal config."""
-        from nao_core.commands.init import init
 
         monkeypatch.chdir(tmp_path)
 
@@ -981,7 +767,6 @@ class TestInitCommandNoTty:
         monkeypatch,
     ):
         """`--yes` reuses an existing nao_config.yaml without prompting to update."""
-        from nao_core.commands.init import init
 
         project_dir = tmp_path / "pre-written"
         project_dir.mkdir()
@@ -1011,8 +796,6 @@ class TestInitCommandNoTty:
         monkeypatch,
     ):
         """`--yes` keeps a pre-written MotherDuck database entry loadable."""
-        from nao_core.commands.init import init
-        from nao_core.config import NaoConfig
         from nao_core.config.databases.motherduck import MotherDuckConfig
 
         project_dir = tmp_path / "pre-written-md"
@@ -1046,3 +829,19 @@ databases:
         assert db.database == "my_db"
         assert db.token == "init-token"
         assert db.connection_path() == "md:my_db?motherduck_token=init-token"
+
+
+def _new_project(init_mocks, tmp_path: Path, name: str, existing=None, created: bool = True) -> Path:
+    """Make `setup_project_name` hand back a `name` project folder under `tmp_path`."""
+    project_path = tmp_path / name
+    project_path.mkdir()
+    init_mocks.setup_project_name.return_value = (name, project_path, existing, created)
+    return project_path
+
+
+def _existing_config(project_path: Path, mock_try_load) -> MagicMock:
+    (project_path / "nao_config.yaml").write_text("project_name: existing\n")
+    mock_config = MagicMock()
+    mock_config.project_name = "existing"
+    mock_try_load.return_value = mock_config
+    return mock_config
