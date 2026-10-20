@@ -192,16 +192,16 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	return (
 		<>
 			<SettingsCard
-				title='Custom story theme'
+				title='Story theme'
 				description={
 					isReadOnly
-						? 'Colours, fonts, blocks, tables and charts applied to every custom story in this project, in a light and a dark variant that follow nao’s colour scheme. Only admins can change this.'
-						: 'Colours, fonts, blocks, tables and charts applied to every custom story in this project, in a light and a dark variant that follow nao’s colour scheme.'
+						? 'Colours, fonts, blocks, tables and charts applied to every story in this project, in a light and a dark variant that follow nao’s colour scheme. Only admins can change this.'
+						: 'Colours, fonts, blocks, tables and charts applied to every story in this project, in a light and a dark variant that follow nao’s colour scheme.'
 				}
 			>
 				<SettingsControlRow
 					id='story-theme-enabled'
-					label='Apply to custom stories'
+					label='Apply to stories'
 					description={
 						saved
 							? 'Turn off to fall back to the classic nao look without losing the saved theme.'

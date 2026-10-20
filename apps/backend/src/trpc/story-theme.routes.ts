@@ -42,7 +42,7 @@ const pdfInputSchema = z.object({
 
 function assertCustomStoriesEnabled() {
 	if (!env.BETA_CUSTOM_STORIES_ENABLED) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'Custom stories theming is disabled on this instance.' });
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Story theming is disabled on this instance.' });
 	}
 }
 

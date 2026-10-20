@@ -91,7 +91,7 @@ const kpiTag = (key: string, label: string) =>
 
 const PREVIEW_TITLE = 'Revenue overview';
 const PREVIEW_DESCRIPTION =
-	'The same header, headings, prose, KPI tiles, filters, charts and tables a custom story is built from, rendered in this theme.';
+	'The same header, headings, prose, KPI tiles, filters, charts and tables a story is built from, rendered in this theme.';
 const PREVIEW_TABS = ['Overview', 'Regions', 'Products'].map((title) => ({ title }));
 const PREVIEW_FILTERS: ParsedFilterBlock[] = [
 	{
