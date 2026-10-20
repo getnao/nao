@@ -77,6 +77,8 @@ export function deriveStoryThemeVariant(theme: StoryTheme, mode: StoryThemeMode)
 	const sunken = separateSurface(flipSurface(theme.surfaces.sunken, targets.sunken), page, MIN_SURFACE_STEP);
 	const isFlat = contrastRatio(theme.block.background, theme.surfaces.page) < FLAT_BLOCK_STEP;
 	const blockBackground = isFlat ? page : flipSurface(theme.block.background, targets.block);
+	const blockVanishes =
+		!isFlat && theme.block.borderWidth === 0 && contrastRatio(blockBackground, page) < MIN_SURFACE_STEP;
 	const line = desaturate(shiftLightness(blockBackground, LINE_STEP[mode]));
 	const accent = keepAccentVisible(theme.accent.color, page);
 
@@ -93,6 +95,7 @@ export function deriveStoryThemeVariant(theme: StoryTheme, mode: StoryThemeMode)
 			...theme.block,
 			background: blockBackground,
 			borderColor: line,
+			borderWidth: blockVanishes ? 1 : theme.block.borderWidth,
 		},
 		table: {
 			...theme.table,

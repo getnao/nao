@@ -2,6 +2,7 @@ import { MIN_CHART_SERIES_COLORS, STORY_HEADER_STYLES, STORY_KPI_STYLES } from '
 import { isDarkSurface, relativeLuminance } from '@nao/shared/story-theme-contrast';
 import {
 	DEFAULT_STORY_TYPOGRAPHY,
+	ROLE_LIMITS,
 	STORY_ROLE_FONTS,
 	STORY_TEXT_CASES,
 	STORY_TEXT_ROLES,
@@ -63,9 +64,9 @@ export function parseTypography(spec: string): StoryTypography {
 	return typography;
 }
 
+/** Tracking and size ranges never overlap, so a lone number is placed by its magnitude rather than its position. */
 function parseTextRole(words: string, fallback: StoryTextRoleStyle): StoryTextRoleStyle {
 	const role = { ...fallback };
-	const numbers: number[] = [];
 	for (const word of words
 		.toLowerCase()
 		.split(/[\s,]+/)
@@ -80,13 +81,13 @@ function parseTextRole(words: string, fallback: StoryTextRoleStyle): StoryTextRo
 			const value = parseFloat(word);
 			if (Number.isInteger(value) && value >= 100) {
 				role.weight = value;
+			} else if (word.endsWith('em') || value < ROLE_LIMITS.size.min) {
+				role.tracking = value;
 			} else {
-				numbers.push(value);
+				role.size = value;
 			}
 		}
 	}
-	role.tracking = numbers[0] ?? role.tracking;
-	role.size = numbers[1] ?? role.size;
 	return role;
 }
 

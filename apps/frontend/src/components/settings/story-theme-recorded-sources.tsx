@@ -87,7 +87,10 @@ function RecordedSource({ source, instructions }: { source: StoryThemeSourceReco
 				<Icon className='size-4 text-muted-foreground' />
 			</span>
 			<div className='min-w-0 flex-1 py-1'>
-				<p className={cn(source.kind === 'instructions' ? 'whitespace-pre-wrap' : 'truncate')} title={text}>
+				<p
+					className={cn(source.kind === 'instructions' ? 'whitespace-pre-wrap break-words' : 'truncate')}
+					title={text}
+				>
 					{text}
 				</p>
 				<p className='truncate text-xs text-muted-foreground'>

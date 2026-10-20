@@ -1,10 +1,13 @@
 import { joinClassNames } from '@nao/shared/class-names';
 import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+import { StoryBrandMark } from '@nao/shared/story-brand-mark';
+import { showsBrandIdentity } from '@nao/shared/story-theme';
 import { ChevronLeftIcon, ChevronRightIcon, MaximizeIcon, MinimizeIcon } from 'lucide-react';
 import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isPrintMode } from '../story-host';
 import { useFrameRelativeStoryStyles } from './frame-styles';
+import { useStoryTheme } from './hooks';
 import { fitScale, useStageSize } from './stage-fit';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 
@@ -71,6 +74,18 @@ export function Slide({ children, title, eyebrow, className, style }: SlideProps
 	);
 }
 
+function DeckBrandMark() {
+	const brand = useStoryTheme()?.brand;
+	if (!brand || !showsBrandIdentity(brand)) {
+		return null;
+	}
+	return (
+		<div className='nao-slides__brand'>
+			<StoryBrandMark brand={brand} />
+		</div>
+	);
+}
+
 function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 	const [index, setIndex] = useState(0);
 	const lastIndex = Math.max(slides.length - 1, 0);
@@ -87,6 +102,7 @@ function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 			className={joinClassNames('nao-slides', fullscreen.active && 'nao-slides--fullscreen', className)}
 		>
 			<div className='nao-slides__top'>
+				<DeckBrandMark />
 				{(title || eyebrow) && (
 					<header className='nao-slides__header'>
 						{eyebrow && <div className='nao-slides__eyebrow'>{eyebrow}</div>}

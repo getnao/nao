@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Moon, Sun } from 'lucide-react';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { sameThemePair } from '@nao/shared/story-theme';
 import type { StoryThemeMode, StoryThemePair } from '@nao/shared/story-theme';
 import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
@@ -64,6 +65,16 @@ export function useStoryThemeEditor(): StoryThemeEditorState {
 		throw new Error('useStoryThemeEditor must be used within StoryThemeEditorProvider');
 	}
 	return context;
+}
+
+export function generationToSave(
+	pending: PendingGeneration | null,
+	theme: StoryThemePair,
+): StoryThemeGeneration | null {
+	if (!pending) {
+		return null;
+	}
+	return { ...pending.record, editedByHand: !sameThemePair(pending.theme, theme) };
 }
 
 export function useInvalidateStoryTheme(): () => Promise<void> {

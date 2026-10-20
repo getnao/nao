@@ -94,7 +94,8 @@ export function StoryThemeInspiration({
 	const onError = (mutationError: { message: string }) => setError(mutationError.message);
 	const generateTheme = useMutation({ ...trpc.storyTheme.generate.mutationOptions(), onError });
 	const sourceLocked = disabled || running;
-	const hasSource = Boolean(url.trim() || image || zip || pdf || instructions.trim() || readsWhiteLabel);
+	const logoInput = logoSource(logo);
+	const hasSource = Boolean(url.trim() || image || zip || pdf || instructions.trim() || readsWhiteLabel || logoInput);
 	const canGenerate = hasSource && !sourceLocked;
 
 	const generate = () => {
@@ -104,7 +105,7 @@ export function StoryThemeInspiration({
 		const trimmed = url.trim();
 		const trimmedInstructions = instructions.trim();
 		const normalized = trimmed ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`) : undefined;
-		if (!normalized && !image && !zip && !pdf && !trimmedInstructions && !readsWhiteLabel) {
+		if (!normalized && !image && !zip && !pdf && !trimmedInstructions && !readsWhiteLabel && !logoInput) {
 			return;
 		}
 		setRunning(true);
@@ -121,7 +122,7 @@ export function StoryThemeInspiration({
 								}
 							: undefined,
 						zip: zip ? { data: zip.data, fileName: toSourceFileName(zip.name, 'brand.zip') } : undefined,
-						logo: logoSource(logo),
+						logo: logoInput,
 						pdfs,
 						instructions: trimmedInstructions || undefined,
 						useWhiteLabel: readsWhiteLabel,
@@ -136,6 +137,7 @@ export function StoryThemeInspiration({
 									zip,
 									trimmedInstructions,
 									readsWhiteLabel ? whiteLabel : null,
+									Boolean(logoInput),
 								),
 								result,
 							);
@@ -200,6 +202,7 @@ export function StoryThemeInspiration({
 								zip,
 								instructions,
 								readsWhiteLabel ? whiteLabel : null,
+								Boolean(logoInput),
 							)}
 						/>
 					</div>
@@ -707,6 +710,7 @@ function sourceLabel(
 	zip: PickedFile | null,
 	instructions: string,
 	whiteLabel: WhiteLabelSourceInfo | null,
+	hasLogo: boolean,
 ): string {
 	const parts = [
 		url ? displaySourceLabel(url) : null,
@@ -715,6 +719,7 @@ function sourceLabel(
 		zip?.name ?? null,
 		instructions ? 'instructions' : null,
 		whiteLabel ? whiteLabelSourceLabel(whiteLabel) : null,
+		hasLogo ? 'the logo' : null,
 	].filter((part): part is string => Boolean(part));
 	return joinWithAnd(parts);
 }
@@ -726,8 +731,9 @@ function pendingLabel(
 	zip: PickedFile | null,
 	instructions: string,
 	whiteLabel: WhiteLabelSourceInfo | null,
+	hasLogo: boolean,
 ): string {
-	const count = [url.trim(), image, pdf, zip, instructions.trim(), whiteLabel].filter(Boolean).length;
+	const count = [url.trim(), image, pdf, zip, instructions.trim(), whiteLabel, hasLogo].filter(Boolean).length;
 	if (count > 1) {
 		return 'Reading your sources…';
 	}
@@ -748,6 +754,9 @@ function pendingLabel(
 	}
 	if (whiteLabel) {
 		return `Reading ${whiteLabelSourceLabel(whiteLabel)}…`;
+	}
+	if (hasLogo) {
+		return 'Reading the logo…';
 	}
 	return 'Generating theme…';
 }

@@ -339,30 +339,50 @@ function keepBrandSeries(theme: StoryTheme, requested: string[], notes: string[]
 	if (changed.length) {
 		notes.push(`Brand chart colours that vanished into the blocks were deepened: ${changed.join(', ')}.`);
 	}
-	const topUp = topUpFromBrand(repaired, surface);
-	if (topUp.length > 0) {
+	const tints = topUpFromBrand(repaired, brandTints(repaired, surface), surface);
+	const derived = topUpFromBrand(
+		[...repaired, ...tints],
+		deriveSeriesFromAccent(theme.accent.color, DERIVED_SERIES_COUNT, surface),
+		surface,
+	);
+	if (tints.length > 0) {
 		notes.push(
-			`Kept the ${repaired.length} brand chart colours in order and added ${topUp.length} tints of them for charts with many series.`,
+			`Kept the ${repaired.length} brand chart colours in order and added ${tints.length} tints of them for charts with many series.`,
 		);
 	}
-	theme.charts.series = [...repaired, ...topUp];
+	if (derived.length > 0) {
+		notes.push(
+			`Added ${derived.length} chart colour${derived.length === 1 ? '' : 's'} derived from the accent, as the brand colours left too few distinct tints.`,
+		);
+	}
+	theme.charts.series = [...repaired, ...tints, ...derived];
 }
 
-function topUpFromBrand(series: string[], surface: string): string[] {
+/** Takes candidates in order, each distinct from every colour kept so far, until the palette reaches six. */
+function topUpFromBrand(series: string[], candidates: string[], surface: string): string[] {
 	const missing = DERIVED_SERIES_COUNT - series.length;
-	const chromatic = series.filter((color) => hexToOklch(color).c >= MIN_TINT_SOURCE_CHROMA);
-	const sources = chromatic.length > 0 ? chromatic : series;
-	const tints: string[] = [];
-	for (let index = 0; tints.length < missing && index < sources.length * 2; index++) {
-		const source = sources[index % sources.length];
-		const step = index < sources.length ? TINT_STEP : -TINT_STEP;
-		const tint = shiftLightness(source, blendsInto(shiftLightness(source, step), surface) ? -step : step);
-		const isDistinct = [...series, ...tints].every((kept) => deltaE(kept, tint) >= MIN_TINT_DELTA);
-		if (isDistinct && !blendsInto(tint, surface)) {
-			tints.push(tint);
+	const added: string[] = [];
+	for (const candidate of candidates) {
+		if (added.length >= missing) {
+			break;
+		}
+		const isDistinct = [...series, ...added].every((kept) => deltaE(kept, candidate) >= MIN_TINT_DELTA);
+		if (isDistinct && !blendsInto(candidate, surface)) {
+			added.push(candidate);
 		}
 	}
-	return tints;
+	return added;
+}
+
+/** A lighter and then a darker tint of each saturated brand colour, stepping the other way where one would vanish. */
+function brandTints(series: string[], surface: string): string[] {
+	const chromatic = series.filter((color) => hexToOklch(color).c >= MIN_TINT_SOURCE_CHROMA);
+	const sources = chromatic.length > 0 ? chromatic : series;
+	return [TINT_STEP, -TINT_STEP].flatMap((step) =>
+		sources.map((source) =>
+			shiftLightness(source, blendsInto(shiftLightness(source, step), surface) ? -step : step),
+		),
+	);
 }
 
 /**

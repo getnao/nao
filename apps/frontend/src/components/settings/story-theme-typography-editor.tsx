@@ -1,6 +1,6 @@
 import { ROLE_LIMITS, STORY_TEXT_ROLE_LABELS, STORY_TEXT_ROLES } from '@nao/shared/story-theme-typography';
 import { Italic } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { StoryTextRole, StoryTextRoleStyle, StoryTypography } from '@nao/shared/story-theme-typography';
 import type { StoryTheme } from '@nao/shared/story-theme';
 import type { CSSProperties } from 'react';
@@ -20,6 +20,7 @@ const CASE_OPTIONS = [
 	{ value: 'capitalize', label: 'Capitalize' },
 	{ value: 'lowercase', label: 'lowercase' },
 ] as const;
+const SAMPLE_FONT_SIZE = 15;
 const GRID_CLASS = 'grid grid-cols-[minmax(0,1fr)_6.5rem_5rem_7.5rem_2.25rem_4.5rem_4.5rem] items-center gap-2';
 
 interface StoryThemeTypographyEditorProps {
@@ -69,7 +70,7 @@ function TypographyRow({ role, style, theme, onChange }: TypographyRowProps) {
 	return (
 		<div className={cn(GRID_CLASS, 'min-w-[44rem] border-t pt-2')}>
 			<div className='min-w-0'>
-				<p className='truncate text-[15px] leading-tight' style={sampleStyle(style, theme)} title={description}>
+				<p className='truncate leading-tight' style={sampleStyle(style, theme)} title={description}>
 					{sample}
 				</p>
 				<p className='truncate text-xs text-muted-foreground'>{label}</p>
@@ -124,6 +125,7 @@ function TypographyRow({ role, style, theme, onChange }: TypographyRowProps) {
 
 function sampleStyle(style: StoryTextRoleStyle, theme: StoryTheme): CSSProperties {
 	return {
+		fontSize: `${SAMPLE_FONT_SIZE * style.size}px`,
 		fontFamily: style.font === 'heading' ? theme.text.headingFont : theme.text.bodyFont,
 		fontWeight: style.weight,
 		fontStyle: style.italic ? 'italic' : 'normal',
@@ -174,11 +176,7 @@ interface CompactNumberProps {
 }
 
 function CompactNumber({ label, value, onChange, min, max, step }: CompactNumberProps) {
-	const [draft, setDraft] = useState(String(value));
-
-	useEffect(() => {
-		setDraft(String(value));
-	}, [value]);
+	const [draft, setDraft] = useState<string | null>(null);
 
 	const commit = (raw: string) => {
 		setDraft(raw);
@@ -191,12 +189,13 @@ function CompactNumber({ label, value, onChange, min, max, step }: CompactNumber
 	return (
 		<Input
 			type='number'
-			value={draft}
+			value={draft ?? String(value)}
 			min={min}
 			max={max}
 			step={step}
+			onFocus={() => setDraft(String(value))}
 			onChange={(event) => commit(event.target.value)}
-			onBlur={() => setDraft(String(value))}
+			onBlur={() => setDraft(null)}
 			className='w-full px-2'
 			aria-label={label}
 		/>

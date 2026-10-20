@@ -48,7 +48,7 @@ const MUDDY_ARC = [58, 138] as const;
 const MIN_HUE_GAP = 22;
 const SAME_HUE_GAP = 12;
 const MIN_ACCENT_TEXT_CONTRAST = 3;
-const MAX_ACCENT_TEXT_STEPS = 10;
+const MAX_ACCENT_TEXT_STEPS = 20;
 const ACCENT_TEXT_STEP = 0.05;
 const MIN_FILL_DELTA = 8;
 const REPAIRED_BRAND_SERIES_CONTRAST = 2;
@@ -174,21 +174,28 @@ export function snapSeries(series: string[], surface: string, pinned = 0): strin
 	return out;
 }
 
+/** A colour that vanishes only moves away from the surface; a near-duplicate may move either way, so swatches pinned at black or white still separate. */
 export function repairBrandSeries(series: string[], surface: string): string[] {
 	const away = isDarkSurface(surface) ? 1 : -1;
 	const repaired: string[] = [];
 	for (const color of series) {
-		let candidate = color;
 		const vanishes = blendsInto(color, surface);
 		const needsRepair = (hex: string) =>
 			(vanishes && contrastRatio(hex, surface) < REPAIRED_BRAND_SERIES_CONTRAST) ||
 			repaired.some((kept) => deltaE(kept, hex) < MIN_BRAND_SERIES_DELTA);
-		for (let step = 0; step < MAX_BRAND_SERIES_STEPS && needsRepair(candidate); step++) {
-			candidate = shiftLightness(candidate, away * BRAND_SERIES_STEP);
-		}
-		repaired.push(candidate);
+		const directions = vanishes ? [away] : [away, -away];
+		const candidates = directions.map((direction) => stepLightnessWhile(color, direction, needsRepair));
+		repaired.push(candidates.find((hex) => !needsRepair(hex) && !blendsInto(hex, surface)) ?? candidates[0]);
 	}
 	return repaired;
+}
+
+function stepLightnessWhile(color: string, direction: number, needsRepair: (hex: string) => boolean): string {
+	let candidate = color;
+	for (let step = 0; step < MAX_BRAND_SERIES_STEPS && needsRepair(candidate); step++) {
+		candidate = shiftLightness(candidate, direction * BRAND_SERIES_STEP);
+	}
+	return candidate;
 }
 
 /**
@@ -263,13 +270,14 @@ export function separateSurface(surface: string, from: string, minRatio = 1.06):
 	return out;
 }
 
+/** Holds the hue while it can; a mid-tone surface no shade of it clears falls back to plain black or white. */
 export function legibleOn(color: string, surface: string, minRatio = MIN_ACCENT_TEXT_CONTRAST): string {
 	const direction = isDarkSurface(surface) ? 1 : -1;
 	let legible = color;
 	for (let step = 0; step < MAX_ACCENT_TEXT_STEPS && contrastRatio(legible, surface) < minRatio; step++) {
 		legible = shiftLightness(legible, direction * ACCENT_TEXT_STEP);
 	}
-	return legible;
+	return contrastRatio(legible, surface) >= minRatio ? legible : readableInkFor(surface, ['#ffffff', '#000000']);
 }
 
 export function blendsInto(color: string, surface: string): boolean {

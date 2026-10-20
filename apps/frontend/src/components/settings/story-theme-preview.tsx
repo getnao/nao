@@ -12,6 +12,7 @@ import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import {
+	generationToSave,
 	STORY_THEME_MODE_OPTIONS,
 	useInvalidateStoryTheme,
 	useStoryThemeEditor,
@@ -138,11 +139,11 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	return (
 		<StoryThemeProvider theme={theme}>
 			<div className='min-h-full bg-background text-foreground'>
-				<PreviewBrandHeader theme={theme} />
+				<PreviewBrandHeader brand={theme.brand} />
 				<div className='mx-auto flex max-w-5xl flex-col gap-4 p-4 md:p-8'>
-					<div className='nao-brand-header__heading'>
+					<div className='flex flex-col gap-2'>
 						<h1>{PREVIEW_TITLE}</h1>
-						<p>{PREVIEW_DESCRIPTION}</p>
+						<p className='max-w-[720px] opacity-80'>{PREVIEW_DESCRIPTION}</p>
 					</div>
 					<PreviewFilterBar />
 					<SegmentList
@@ -165,12 +166,15 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	);
 }
 
-function PreviewBrandHeader({ theme }: { theme: StoryTheme }) {
-	const { brand } = theme;
+function PreviewBrandHeader({ brand }: { brand: StoryTheme['brand'] }) {
 	const [activeTab, setActiveTab] = useState(0);
+	const isBand = brand.header === 'band';
 	return (
 		<header className='flex flex-col'>
-			<div className='bg-card'>
+			<div
+				className={isBand ? undefined : 'bg-card'}
+				style={{ background: isBand ? 'var(--story-header-bg)' : undefined, color: 'var(--story-header-fg)' }}
+			>
 				<div className='nao-brand-header__bar mx-auto w-full max-w-5xl px-4 py-3 md:px-8'>
 					{showsBrandIdentity(brand) ? <StoryBrandMark brand={brand} /> : <span />}
 				</div>
@@ -225,7 +229,8 @@ export function StoryThemePreviewPanel() {
 	const isViewingLatest = currentIndex === latestIndex;
 	const previewTheme = theme ? current.theme[mode] : null;
 	const currentVersion = currentIndex + 1;
-	const currentGeneration = current.kind === 'pending' ? pendingGeneration?.record : current.generation;
+	const pendingRecord = theme ? generationToSave(pendingGeneration, theme) : null;
+	const currentGeneration = current.kind === 'pending' ? pendingRecord : current.generation;
 	const currentSources = currentGeneration ? describeStoryThemeSources(currentGeneration.sources) : null;
 
 	useEffect(() => {
@@ -245,8 +250,8 @@ export function StoryThemePreviewPanel() {
 
 	const versionEntries = slots.map((slot, index) => ({
 		label: slotLabel(slot, index + 1),
-		date: slotDate(slot, pendingGeneration?.record),
-		generation: slot.kind === 'pending' ? (pendingGeneration?.record ?? null) : slot.generation,
+		date: slotDate(slot, pendingRecord),
+		generation: slot.kind === 'pending' ? pendingRecord : slot.generation,
 	}));
 
 	const selectVersion = (index: number) => setViewingVersionIndex(index >= latestIndex ? null : index);
@@ -352,7 +357,7 @@ function buildPreviewSlots(
 	return saved;
 }
 
-function slotDate(slot: PreviewSlot, pending: StoryThemeGeneration | undefined): Date | null {
+function slotDate(slot: PreviewSlot, pending: StoryThemeGeneration | null): Date | null {
 	if (slot.kind === 'saved') {
 		return slot.createdAt;
 	}

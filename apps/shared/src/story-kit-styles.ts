@@ -37,6 +37,8 @@ export const KIT_STYLES = `
 
 .nao-slides{display:flex;flex-direction:column;gap:12px;height:100vh;padding:16px;box-sizing:border-box;background:var(--story-stage)}
 .nao-slides__top{display:flex;align-items:flex-start;gap:16px}
+.nao-slides__brand{display:flex;align-items:center;flex:none;min-height:28px}
+.nao-slides__brand .nao-brand-header__logo{height:24px;max-width:180px}
 .nao-slides__header{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
 .nao-slides__eyebrow,.nao-slide__eyebrow{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--story-accent-text,var(--primary))}
 .nao-slides__title{margin:0;font-family:var(--font-heading);font-size:clamp(28px,4vw,48px);line-height:1.05;letter-spacing:-.04em;color:var(--foreground)}
@@ -52,6 +54,7 @@ export const KIT_STYLES = `
 .nao-slide{container:${STORY_FRAME_CONTAINER} / size;position:relative;display:flex;flex-direction:column;gap:24px;width:${STORY_SLIDE_SIZE.width}px;height:${STORY_SLIDE_SIZE.height}px;padding:48px 56px;overflow:hidden;box-sizing:border-box;color:var(--foreground);background:radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent), transparent 40%),color-mix(in srgb, var(--background) 94%, var(--foreground) 3%)}
 .nao-slides__viewport>.nao-slide{transform:scale(var(--nao-slide-scale));transform-origin:top left;will-change:transform}
 .nao-slide__heading{display:flex;flex-direction:column;gap:8px;flex:none}
+html:has(.nao-slides) .nao-brand-header{display:none}
 .nao-slide__title{margin:0;max-width:980px;font-family:var(--font-heading);font-size:52px;line-height:1;letter-spacing:-.04em;color:var(--foreground)}
 .nao-slide .nao-block{min-height:0;max-height:100%}
 .nao-slide .nao-block__body{display:flex;flex-direction:column;min-height:0}
@@ -59,7 +62,7 @@ export const KIT_STYLES = `
 .nao-slides--fullscreen{position:fixed;inset:0;z-index:50;gap:0;padding:0;background:transparent}
 .nao-slides--fullscreen::backdrop{background:transparent}
 html:has(.nao-slides--fullscreen) body{background:transparent}
-.nao-slides--fullscreen .nao-slides__header{display:none}
+.nao-slides--fullscreen .nao-slides__header,.nao-slides--fullscreen .nao-slides__brand{display:none}
 .nao-slides--fullscreen .nao-slides__viewport{border:0}
 .nao-slides--fullscreen .nao-slides__toolbar{position:absolute;top:0;right:0;z-index:1;padding:20px 24px;transition:opacity .25s ease}
 .nao-slides--fullscreen[data-idle]{cursor:none}

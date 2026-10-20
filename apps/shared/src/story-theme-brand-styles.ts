@@ -122,7 +122,7 @@ const BRAND_RULES: [string[], string][] = [
 	],
 	[
 		['.nao-brand-header'],
-		'display:flex;flex-direction:column;gap:20px;padding:var(--story-header-padding,4px 0 20px);color:var(--story-header-fg,var(--foreground));background:var(--story-header-bg,transparent);border-bottom:var(--story-header-rule,0);border-radius:var(--story-header-radius,0)',
+		'padding:var(--story-header-padding,4px 0 20px);color:var(--story-header-fg,var(--foreground));background:var(--story-header-bg,transparent);border-bottom:var(--story-header-rule,0);border-radius:var(--story-header-radius,0)',
 	],
 	[
 		['.nao-brand-header__bar'],
@@ -135,9 +135,6 @@ const BRAND_RULES: [string[], string][] = [
 	],
 	[['.nao-brand-header__name'], 'line-height:1'],
 	[['.nao-brand-header__meta'], 'display:flex;flex-wrap:wrap;align-items:center;gap:8px'],
-	[['.nao-brand-header__heading'], 'display:flex;flex-direction:column;gap:8px'],
-	[['.nao-brand-header__heading :is(h1,p)'], 'margin:0;color:inherit'],
-	[['.nao-brand-header__heading p'], 'max-width:720px;opacity:.8'],
 ];
 
 function roleDeclarations(role: StoryTextRole, size: string | null): string {

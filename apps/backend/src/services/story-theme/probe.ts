@@ -429,9 +429,10 @@ function pageProbe(allowedFontHosts: string[]): RawProbe {
 			continue;
 		}
 		const radius = px(cs.borderTopLeftRadius) ?? 0;
-		const height = el.getBoundingClientRect().height;
-		const isPill = radius >= height / 2 && height < 96;
-		if (isPill) {
+		const rect = el.getBoundingClientRect();
+		const isPill = radius >= rect.height / 2 && rect.height < 96;
+		const isFullBleedBand = rect.width >= document.documentElement.clientWidth * 0.9;
+		if (isPill || isFullBleedBand) {
 			continue;
 		}
 		const hasContent = (el.textContent || '').trim().length > 20;

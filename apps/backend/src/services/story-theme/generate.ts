@@ -34,6 +34,7 @@ import {
 	type DesignSignals,
 	DesignSourceError,
 	mergeSignals,
+	normalizeColor,
 	SourceRefusedError,
 } from './signals';
 import { bareHost, extractSignalsFromUrl, type UrlSignals } from './url';
@@ -113,7 +114,7 @@ export async function generateStoryThemePairFromSources(
 ): Promise<GeneratePairResult> {
 	const whiteLabel = input.useWhiteLabel === false ? null : await readWhiteLabelBrand();
 	const uploadedLogo = input.logo
-		? toStoryLogo(Buffer.from(input.logo.data).toString('base64'), input.logo.mediaType)
+		? await toStoryLogo(Buffer.from(input.logo.data).toString('base64'), input.logo.mediaType)
 		: null;
 	const generated = await generateStoryThemeFromSources(scope, input, whiteLabel, uploadedLogo);
 	const result = applyUploadedLogo(applyWhiteLabelIdentity(generated, whiteLabel), uploadedLogo);
@@ -171,7 +172,7 @@ function applyWhiteLabelIdentity(result: GenerateResult, whiteLabel: WhiteLabelB
 	return {
 		...result,
 		theme: { ...result.theme, brand: defaultIdentityHeader(brand) },
-		notes: [...result.notes, describeWhiteLabelUse(whiteLabel)],
+		notes: [...result.notes, ...describeWhiteLabelUse(whiteLabel)],
 	};
 }
 
@@ -194,13 +195,14 @@ function defaultIdentityHeader(brand: StoryTheme['brand']): StoryTheme['brand'] 
 	return normalizeBrandHeader(preferred);
 }
 
-function describeWhiteLabelUse(whiteLabel: WhiteLabelBrand): string {
+function describeWhiteLabelUse(whiteLabel: WhiteLabelBrand): string[] {
 	const used = [
 		whiteLabel.appName ? `the name ${whiteLabel.appName}` : null,
 		whiteLabel.brandColor ? `the primary colour ${whiteLabel.brandColor}` : null,
 		whiteLabel.logo ? 'the logo' : null,
 	].filter(Boolean);
-	return `White-label branding was read as a source: ${used.join(', ')}.`;
+	const note = `White-label branding was read as a source: ${used.join(', ')}.`;
+	return whiteLabel.skippedLogoNote ? [note, whiteLabel.skippedLogoNote] : [note];
 }
 
 function describeSources(input: StoryThemeSourceInput, whiteLabel: WhiteLabelBrand | null): StoryThemeSourceRecord[] {
@@ -389,6 +391,7 @@ export async function generateStoryTheme(
 		return applyGuards(proposal, guardContext(signals, warnings, brief));
 	}
 	const modelFailure = warnings.at(-1);
+	warnings.push(...describeUnappliedGuidance(brief));
 	const grounded = await groundInImages(signals, images, warnings);
 	return { ...applyGuards(fallbackProposal(grounded), guardContext(grounded, warnings)), alert: modelFailure };
 }
@@ -415,7 +418,7 @@ export async function generateStoryThemeFromImages(
 		consequence: 'its colours were sampled directly',
 	});
 	if (sample && proposal) {
-		const snapped = await snapToImage(proposal, images[0], warnings);
+		const snapped = await snapToImage(proposal, images[0], warnings, brief);
 		return applyGuards(snapped, {
 			...guardContext(sample.signals, warnings, brief),
 			brandCandidates: declaredCandidates(brief),
@@ -424,6 +427,7 @@ export async function generateStoryThemeFromImages(
 	}
 	if (sample) {
 		const modelFailure = warnings.at(-1);
+		warnings.push(...describeUnappliedGuidance(brief));
 		const sampled = applyGuards(fallbackProposal(sample.signals), {
 			...guardContext(sample.signals, warnings),
 			measuredSeries: chromaticColors(sample.signals.brandCandidates),
@@ -436,11 +440,21 @@ export async function generateStoryThemeFromImages(
 	throw new DesignSourceError(pixelSamplingUnavailable(sampleError));
 }
 
-/** Exact pixels beat the model's estimate for the fills it names: accent and chart colours. */
-async function snapToImage(proposal: ThemeProposal, image: SourceImage, warnings: string[]): Promise<ThemeProposal> {
+/** Exact pixels beat the model's estimate for the fills it names (accent and chart colours), but never a colour the admin declared. */
+async function snapToImage(
+	proposal: ThemeProposal,
+	image: SourceImage,
+	warnings: string[],
+	brief: Brief,
+): Promise<ThemeProposal> {
 	try {
 		const named = [proposal.accent, ...proposal.series];
-		const snapped = await snapToImageColors(image, named);
+		const declared = declaredColors(brief);
+		const snappable = named.filter((color) => !declared.has(normalizeColor(color) ?? color));
+		const snappedByColor = new Map(
+			(await snapToImageColors(image, snappable)).map((snapped, index) => [snappable[index], snapped]),
+		);
+		const snapped = named.map((color) => snappedByColor.get(color) ?? color);
 		const [accent, ...series] = snapped;
 		const moved = named.filter((color, index) => color !== snapped[index]);
 		if (moved.length > 0) {
@@ -553,6 +567,20 @@ function declaredCandidates(brief?: Brief): BrandCandidate[] {
 	const declaredPrimary = brief?.whiteLabel?.brandColor;
 	return declaredPrimary
 		? [{ color: declaredPrimary, chroma: chromaOf(declaredPrimary), sources: ['white-label'] }]
+		: [];
+}
+
+function declaredColors(brief: Brief): Set<string> {
+	const written = brief.instructions?.match(/#(?:[0-9a-f]{6}|[0-9a-f]{3})\b/gi) ?? [];
+	const declared = [...written, brief.whiteLabel?.brandColor ?? ''].map(normalizeColor);
+	return new Set(declared.filter((hex): hex is string => hex !== null));
+}
+
+function describeUnappliedGuidance(brief: Brief): string[] {
+	return brief.instructions
+		? [
+				'The admin guidance needs the model to be read, so this theme does not follow it. Generate again once the model is available.',
+			]
 		: [];
 }
 
@@ -699,10 +727,11 @@ const SYSTEM_PROMPT = [
 	'  With admin guidance, give exactly six colours that follow it.',
 	'- brandName: the brand name as its wordmark spells it, letter case included: a wordmark set in capitals is',
 	'  written in capitals (HEX, CHANEL), a lowercase one in lowercase (perk). Empty when you cannot tell.',
-	'- header: how a story opens. "band" when the brand opens pages with a coloured hero band (headerBackground is',
-	'  that colour), "logo" for a logo on the page above a rule, "name" for the brand name on the page above a',
-	'  rule when there is no logo, "none" when there is no identity to show.',
-	'- headerBackground: the hero band colour, empty unless header is "band".',
+	'- header: how the brand identity sits at the top of a story, apart from its title. "band" when the brand sets',
+	'  its logo on a coloured bar (headerBackground is that colour), "logo" for a logo on the page above a rule,',
+	'  "name" for the brand name on the page above a rule when there is no logo, "none" when there is no identity',
+	'  to show.',
+	'- headerBackground: the colour of the bar behind the logo, empty unless header is "band".',
 	'- nameBesideLogo: true when the brand sets its name next to a symbol (a lockup), or the admin asks for it;',
 	'  false when the logo is a wordmark that already spells the name.',
 	'- rationale: one sentence naming the major colours and which source won for the accent and the radius.',
@@ -774,7 +803,7 @@ function withBrief(prompt: string, { instructions, whiteLabel, recall, uploadedL
 		);
 	}
 	if (whiteLabel) {
-		sections.push('', renderWhiteLabelBrand(whiteLabel));
+		sections.push('', renderWhiteLabelBrand(whiteLabel, { logoAttached: !uploadedLogo }));
 	}
 	if (instructions) {
 		sections.push(

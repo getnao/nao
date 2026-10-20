@@ -54,10 +54,15 @@ export async function extractSignalsFromUrl(rawUrl: string): Promise<UrlSignals>
 
 	try {
 		const fallback = await staticSignals(url);
-		fallback.warnings.unshift(
+		fallback.signals.warnings.unshift(
 			`The page could not be rendered (${renderFailure}), so only its stylesheets were read. Design systems defined at runtime are missed.`,
 		);
-		return { signals: fallback, screenshot: null, renderFailure };
+		return {
+			signals: fallback.signals,
+			screenshot: null,
+			redirectedTo: otherSite(url, fallback.finalUrl),
+			renderFailure,
+		};
 	} catch (staticError) {
 		if (refused) {
 			throw new SourceRefusedError(renderFailure);
@@ -164,7 +169,7 @@ export function signalsFromProbe(probe: ProbeResult, url: string): DesignSignals
 	};
 }
 
-async function staticSignals(url: URL): Promise<DesignSignals> {
+async function staticSignals(url: URL): Promise<{ signals: DesignSignals; finalUrl: string }> {
 	const page = await safeFetchWithUrl(url.toString(), {
 		allowHttp: true,
 		maxBytes: MAX_HTML_BYTES,
@@ -203,7 +208,7 @@ async function staticSignals(url: URL): Promise<DesignSignals> {
 	if (signals.fontFamilies.length === 0) {
 		warnings.push('No font families are declared in CSS; typography keeps the nao defaults.');
 	}
-	return { ...signals, warnings };
+	return { signals: { ...signals, warnings }, finalUrl: page.url };
 }
 
 function fetchText(href: string, maxBytes: number): Promise<string> {

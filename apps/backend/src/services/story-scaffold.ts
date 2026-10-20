@@ -26,10 +26,14 @@ function starterApp(title: string): string {
 export default function App() {
   return (
     <main className="page">
-      <BrandHeader
-        title="${jsxAttribute(title)}"
-        description={<Narrative id="summary">One sentence on what this story answers.</Narrative>}
-      />
+      <BrandHeader />
+
+      <header className="intro">
+        <h1>${jsxText(title)}</h1>
+        <p>
+          <Narrative id="summary">One sentence on what this story answers.</Narrative>
+        </p>
+      </header>
 
       <section className="grid grid--3">
         <KpiCard title="Headline metric" queryId="REPLACE_ME" />
@@ -58,6 +62,18 @@ const STARTER_STYLES = `.page {
   gap: 16px;
 }
 
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intro p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--muted-foreground);
+}
+
 .grid {
   display: grid;
   gap: 16px;
@@ -79,6 +95,11 @@ const STARTER_STYLES = `.page {
 }
 `;
 
-function jsxAttribute(value: string): string {
-	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+function jsxText(value: string): string {
+	return value
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('{', '&#123;')
+		.replaceAll('}', '&#125;');
 }

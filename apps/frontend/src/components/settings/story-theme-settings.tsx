@@ -18,11 +18,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 
-import type { PendingGeneration } from '@/components/settings/story-theme-editor-context';
 import type { InspirationOutcome } from '@/components/settings/story-theme-inspiration';
 import type { ViewedThemeVersion } from '@/components/settings/story-theme-recorded-sources';
 import { StoryThemeTypographyEditor } from '@/components/settings/story-theme-typography-editor';
 import {
+	generationToSave,
 	STORY_THEME_MODE_OPTIONS,
 	useInvalidateStoryTheme,
 	useStoryThemeEditor,
@@ -104,7 +104,9 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 		setViewingVersionIndex,
 	} = useStoryThemeEditor();
 	const versionsQuery = useQuery(trpc.storyTheme.listVersions.queryOptions());
-	const viewedVersion = viewedVersionAt(versionsQuery.data?.versions ?? [], viewingVersionIndex);
+	const versions = versionsQuery.data?.versions ?? [];
+	const viewedVersion = viewedVersionAt(versions, viewingVersionIndex);
+	const viewedTheme = viewedThemeAt(versions, viewingVersionIndex);
 	const [error, setError] = useState<string | null>(null);
 	const [inspiration, setInspiration] = useState<InspirationOutcome | null>(null);
 	const openPreview = usePreviewPanel();
@@ -153,7 +155,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	const isDirty = !sameThemePair(theme, baseline);
 	const isDefault = sameThemePair(theme, DEFAULT_STORY_THEME_PAIR);
 	const controlsDisabled = isReadOnly || isPending;
-	const variant = theme[mode];
+	const variant = (viewedTheme ?? theme)[mode];
 
 	const validate = (): StoryThemePair | null => {
 		const result = storyThemePairSchema.safeParse(theme);
@@ -162,7 +164,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 			return null;
 		}
 		setError(null);
-		return result.data;
+		return mapPairBrand(result.data, normalizeBrandHeader);
 	};
 
 	const update = <Group extends keyof StoryTheme>(group: Group, patch: Partial<StoryTheme[Group]>) =>
@@ -256,7 +258,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 								variant='outline'
 								className='rounded-full'
 								onClick={deriveFromOther}
-								disabled={controlsDisabled}
+								disabled={controlsDisabled || viewedTheme !== null}
 							>
 								Derive
 							</Button>
@@ -265,7 +267,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				)}
 			</SettingsCard>
 
-			<LockedFieldset disabled={controlsDisabled}>
+			<LockedFieldset disabled={controlsDisabled || viewedTheme !== null}>
 				<SettingsCard
 					title='Brand header'
 					description='How every story opens: the logo or brand name, bare on the page or in a coloured band.'
@@ -591,6 +593,17 @@ function viewedVersionAt(
 	return { label: `Theme ${viewingVersionIndex + 1}`, generation: versions[viewingVersionIndex].generation };
 }
 
+/** An earlier version is shown read-only: editing starts from the draft, or from the version once restored. */
+function viewedThemeAt(
+	versions: { theme: StoryThemePair }[],
+	viewingVersionIndex: number | null,
+): StoryThemePair | null {
+	if (viewingVersionIndex === null || viewingVersionIndex >= versions.length) {
+		return null;
+	}
+	return mapPairBrand(versions[viewingVersionIndex].theme, normalizeBrandHeader);
+}
+
 function headerLayoutOf(brand: StoryTheme['brand']): HeaderLayout {
 	const normalized = normalizeBrandHeader(brand);
 	if (normalized.header === 'none' || normalized.header === 'name') {
@@ -620,7 +633,7 @@ function defaultBrandHeaderPatch(
 		return { ...patch, header: 'name' as const, showName: false };
 	}
 	if (brand.showName && !hasName && hasLogo) {
-		return { ...patch, header: 'logo' as const, showName: false };
+		return { ...patch, header: brand.header === 'band' ? ('band' as const) : ('logo' as const), showName: false };
 	}
 	if (brand.showName && hasName && !hasLogo) {
 		return { ...patch, header: 'name' as const, showName: false };
@@ -651,13 +664,6 @@ function keepLogo(generated: StoryThemePair, logo: string | null): StoryThemePai
 		return generated;
 	}
 	return mapPairBrand(generated, (brand) => ({ ...brand, logo }));
-}
-
-function generationToSave(pending: PendingGeneration | null, theme: StoryThemePair): StoryThemeGeneration | null {
-	if (!pending) {
-		return null;
-	}
-	return { ...pending.record, editedByHand: !sameThemePair(pending.theme, theme) };
 }
 
 function usePreviewPanel() {

@@ -82,20 +82,31 @@ export async function sampleImage(image: { data: Uint8Array; mediaType: string }
 	return { signals, ground };
 }
 
+/** A repeated colour snaps like its first occurrence; distinct colours never collapse onto the same painted one. */
 export async function snapToImageColors(image: { data: Uint8Array }, colors: string[]): Promise<string[]> {
 	const painted = await paintedColors(image);
-	const snapped: string[] = [];
+	const snappedByColor = new Map<string, string>();
+	const taken = new Set<string>();
 	for (const color of colors) {
-		const nearest = nearestPainted(color, painted);
-		snapped.push(nearest && !snapped.includes(nearest) ? nearest : color);
+		if (snappedByColor.has(color)) {
+			continue;
+		}
+		const nearest = nearestPainted(color, painted, taken);
+		if (nearest) {
+			taken.add(nearest);
+		}
+		snappedByColor.set(color, nearest ?? color);
 	}
-	return snapped;
+	return colors.map((color) => snappedByColor.get(color) ?? color);
 }
 
-function nearestPainted(color: string, painted: string[]): string | null {
+function nearestPainted(color: string, painted: string[], taken: Set<string>): string | null {
 	let nearest: string | null = null;
 	let nearestDelta = SNAP_MAX_DELTA;
 	for (const candidate of painted) {
+		if (taken.has(candidate)) {
+			continue;
+		}
 		const delta = deltaE(candidate, color);
 		if (delta <= nearestDelta) {
 			nearest = candidate;

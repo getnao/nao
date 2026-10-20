@@ -90,17 +90,20 @@ export type StoryTextRoleStyle = StoryTypography[StoryTextRole];
 
 export const DEFAULT_STORY_TYPOGRAPHY: StoryTypography = ROLE_DEFAULTS;
 
+const legacyTextSchema = z.looseObject({
+	headingTracking: z.number(),
+	typography: z.never().optional(),
+});
+
 export function seedTypographyFromLegacy(raw: unknown): unknown {
-	if (raw === null || typeof raw !== 'object' || 'typography' in raw) {
+	const legacy = legacyTextSchema.safeParse(raw);
+	if (!legacy.success) {
 		return raw;
 	}
-	const { headingTracking } = raw as { headingTracking?: unknown };
-	if (typeof headingTracking !== 'number') {
-		return raw;
-	}
+	const tracking = { tracking: legacy.data.headingTracking };
 	return {
-		...raw,
-		typography: { display: { tracking: headingTracking }, heading: { tracking: headingTracking } },
+		...legacy.data,
+		typography: { display: tracking, heading: tracking, subheading: tracking, figure: tracking },
 	};
 }
 

@@ -38,19 +38,27 @@ export function storyKitGuideItems(): ReactElement[] {
 			row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the
 			same rule display_chart's conditional_formats takes) to colour cells.
 		</ListItem>,
+		<ListItem key='title'>
+			Title a story with your own <Bold>{'<h1>'}</Bold> and, if useful, a short lead <Bold>{'<p>'}</Bold>: they
+			already take the brand's title and body voice.
+		</ListItem>,
 		<ListItem key='brand'>
-			Open every story that is not a deck with <Bold>{'<BrandHeader title="..." description="...">'}</Bold>: it
-			shows the brand logo or wordmark in the theme's header style (bare, above a rule, or in a coloured band) and
-			renders only the title when the theme has no brand. Its children sit on the logo row: a period, a status or
-			filter chips. Style filters and toggles as <Bold>{'className="nao-chip"'}</Bold> with{' '}
-			<Bold>aria-pressed</Bold> on the active one (group them in <Bold>nao-chips</Bold>) and actions as{' '}
-			<Bold>nao-button</Bold> (or <Bold>nao-button nao-button--outline</Bold>): they take the brand's button shape
-			and colours. Give small labels <Bold>nao-label</Bold> to follow the brand's casing.
+			When the story should carry the brand identity, such as an app or a dashboard, put{' '}
+			<Bold>{'<BrandHeader />'}</Bold> at the top, above your title: it shows the logo or wordmark in the theme's
+			header style (bare, above a rule, or in a coloured band) and renders nothing when the theme has no brand.
+			Its children sit on the logo row: a period, a status or filter chips. Never put it in a deck.
+		</ListItem>,
+		<ListItem key='controls'>
+			Style filters and toggles as <Bold>{'className="nao-chip"'}</Bold> with <Bold>aria-pressed</Bold> on the
+			active one (group them in <Bold>nao-chips</Bold>) and actions as <Bold>nao-button</Bold> (or{' '}
+			<Bold>nao-button nao-button--outline</Bold>): they take the brand's button shape and colours. Give small
+			labels <Bold>nao-label</Bold> to follow the brand's casing.
 		</ListItem>,
 		<ListItem key='slides'>
 			For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
 			<Bold>{'<Slide>'}</Bold> per slide (16:9): it provides the navigation and prints one slide per PDF page.
-			Both take <Bold>eyebrow</Bold> and <Bold>title</Bold> props; a Slide is already padded.
+			Both take <Bold>eyebrow</Bold> and <Bold>title</Bold> props; a Slide is already padded, and the deck shows
+			the brand logo in its top bar.
 		</ListItem>,
 		<ListItem key='canvas'>
 			Only when the user asks for a fixed size or fixed proportions (given dimensions, a poster, a wall display),
@@ -95,10 +103,10 @@ export function storyKitGuideItems(): ReactElement[] {
 		<ListItem key='state-rules'>
 			Saved state works like localStorage: every change is saved as it happens, so when viewers should explore
 			before keeping something, hold the draft in useState and save it on their own action. Keep transient UI
-			(hover, an open menu) in useState and never save query rows or secrets. Use stable literal keys and small
-			JSON values (up to {MAX_STORY_STATE_VALUE_BYTES / 1024} KB; {MAX_STORY_STATE_KEYS} personal keys per viewer
-			and {MAX_STORY_STATE_KEYS} shared keys); a saved value may predate your latest version, so check its shape
-			and fall back to the initial value. In an HTML story, use{' '}
+			(hover, an open menu) and growing logs such as undo history in useState and never save query rows or
+			secrets. Use stable literal keys and small JSON values (up to {MAX_STORY_STATE_VALUE_BYTES / 1024} KB;{' '}
+			{MAX_STORY_STATE_KEYS} personal keys per viewer and {MAX_STORY_STATE_KEYS} shared keys); a saved value may
+			predate your latest version, so check its shape and fall back to the initial value. In an HTML story, use{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.state.get(key)`}</Bold> and{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.state.set(key, value)`}</Bold> for personal state, and the same methods on{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.sharedState`}</Bold> for shared state.

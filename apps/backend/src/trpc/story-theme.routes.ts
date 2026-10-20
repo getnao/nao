@@ -201,8 +201,12 @@ function decodeBase64(data: string, maxBytes: number, label: string): Uint8Array
 	if (bytes.byteLength > maxBytes) {
 		throw new TRPCError({
 			code: 'PAYLOAD_TOO_LARGE',
-			message: `${label} too large (${Math.round(bytes.byteLength / 1024 / 1024)}MB). Max ${maxBytes / 1024 / 1024}MB.`,
+			message: `${label} too large (${formatMegabytes(bytes.byteLength)}). Max ${formatMegabytes(maxBytes)}.`,
 		});
 	}
 	return new Uint8Array(bytes);
+}
+
+function formatMegabytes(bytes: number): string {
+	return `${Number((bytes / 1024 / 1024).toFixed(1))}MB`;
 }
