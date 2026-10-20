@@ -634,7 +634,7 @@ function LocalDatabaseBlock({
 					uploaded list of accounts against warehouse revenue, a budget spreadsheet against actuals.{' '}
 					<Bold>
 						{
-							"SELECT ... FROM query_ab12cd34 q JOIN read_xlsx('/home/uploads/2026-01-31/budget.xlsx') f ON q.region = f.region"
+							"SELECT q.region, q.revenue, f.budget FROM query_ab12cd34 AS q JOIN read_xlsx('/home/uploads/2026-01-31/budget.xlsx', sheet = 'FY26') AS f ON q.region = f.region"
 						}
 					</Bold>
 					. The table name is the query id exactly as the <Bold>Query ID</Bold> line of the tool output spells
