@@ -20,14 +20,19 @@ import {
 
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
-import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
+import {
+	appendCloudExampleScope,
+	getSystemPromptOverride,
+	hasNaoPromptPlaceholder,
+	injectNaoPrompt,
+} from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
@@ -714,12 +719,15 @@ export class AgentManager {
 
 	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
 		const override = getSystemPromptOverride(this._toolContext.projectFolder, provider);
+		let systemPrompt: string;
 		if (override && !hasNaoPromptPlaceholder(override)) {
-			return override;
+			systemPrompt = override;
+		} else {
+			const defaultPrompt = await this._buildDefaultSystemPrompt(provider, timezone, chatUrl);
+			systemPrompt = override ? injectNaoPrompt(override, defaultPrompt) : defaultPrompt;
 		}
 
-		const defaultPrompt = await this._buildDefaultSystemPrompt(provider, timezone, chatUrl);
-		return override ? injectNaoPrompt(override, defaultPrompt) : defaultPrompt;
+		return appendCloudExampleScope(systemPrompt, isCloud, this.chat.projectId);
 	}
 
 	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
