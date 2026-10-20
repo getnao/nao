@@ -12,7 +12,15 @@ export async function addProjectMemberWithUserGroups(
 	const uniqueGroupIds = [...new Set(groupIds)];
 	if (dbConfig.dialect === Dialect.Sqlite) {
 		return db.transaction((transaction) => {
-			const [createdMember] = transaction.insert(s.projectMember).values(member).returning().all();
+			const [createdMember] = transaction
+				.insert(s.projectMember)
+				.values(member)
+				.onConflictDoUpdate({
+					target: [s.projectMember.projectId, s.projectMember.userId],
+					set: { role: member.role, isDeleted: false, deletedAt: null },
+				})
+				.returning()
+				.all();
 			transaction
 				.insert(s.userGroupMember)
 				.values(
