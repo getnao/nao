@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/utils/llm', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/utils/llm')>()),
+	getProjectAvailableModels: vi
+		.fn()
+		.mockResolvedValue([
+			{ provider: 'mistral', modelId: 'mistral-large-4', name: 'Mistral Large 4', baseUrl: null },
+		]),
+	resolveDefaultChatModel: vi.fn().mockResolvedValue({ provider: 'mistral', modelId: 'mistral-large-4' }),
+}));
 
 import { registerAssetTools } from '../src/mcp/tools/asset-tools';
 import { registerContextLayerTools } from '../src/mcp/tools/context-layer';
@@ -50,10 +59,10 @@ describe('MCP Story creation permission', () => {
 		expect([...server.tools.keys()]).toContain('create_story');
 	});
 
-	it('does not promise Story creation through ask_nao when denied', () => {
+	it('does not promise Story creation through ask_nao when denied', async () => {
 		const server = new FakeMcpServer();
 
-		registerSubAgentTools(server as never, createContext(false));
+		await registerSubAgentTools(server as never, createContext(false));
 
 		const description = server.tools.get('ask_nao')?.description;
 		expect(description).toContain('New Story creation is unavailable');
@@ -61,12 +70,12 @@ describe('MCP Story creation permission', () => {
 		expect(description).not.toContain('wants a story created');
 	});
 
-	it('tells the client about custom stories only when the user can author them', () => {
+	it('tells the client about custom stories only when the user can author them', async () => {
 		const withCustomStories = new FakeMcpServer();
 		const withoutCustomStories = new FakeMcpServer();
 
-		registerSubAgentTools(withCustomStories as never, createContext(true, true));
-		registerSubAgentTools(withoutCustomStories as never, createContext(true, false));
+		await registerSubAgentTools(withCustomStories as never, createContext(true, true));
+		await registerSubAgentTools(withoutCustomStories as never, createContext(true, false));
 
 		expect(withCustomStories.tools.get('ask_nao')?.description).toContain('CUSTOM STORIES');
 		expect(withoutCustomStories.tools.get('ask_nao')?.description).not.toContain('CUSTOM STORIES');

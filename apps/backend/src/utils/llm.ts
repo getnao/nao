@@ -395,6 +395,47 @@ export function pickRequestedModel(available: ProjectAvailableModel[], requested
 	);
 }
 
+/** Models listed in the `ask_nao` `model` description; the rest are only reachable by name. */
+export const MODEL_INPUT_LISTED_MAX = 20;
+
+/**
+ * The `model` input description of `ask_nao`, with the project's available models so an MCP
+ * caller picks one without a failed round trip. Models are written the way `pickRequestedModel`
+ * resolves them: the bare id, or `provider/model-id` when several providers serve the same id.
+ * The default is the model a call without `model` runs on. `available` is null when the catalog
+ * could not be read, in which case the description carries no list.
+ */
+export function describeModelInput(
+	available: ProjectAvailableModel[] | null,
+	defaultModel: LlmSelectedModel | null,
+): string {
+	if (available === null) {
+		return `${MODEL_INPUT_INTRO} ${MODEL_INPUT_OMIT}`;
+	}
+	const isDefault = (m: ProjectAvailableModel): boolean =>
+		defaultModel !== null && m.provider === defaultModel.provider && m.modelId === defaultModel.modelId;
+	const sharedIds = new Set(
+		available.filter((m, i) => available.some((o, j) => j !== i && o.modelId === m.modelId)).map((m) => m.modelId),
+	);
+	const label = (m: ProjectAvailableModel): string =>
+		`\`${sharedIds.has(m.modelId) ? `${m.provider}/${m.modelId}` : m.modelId}\`${isDefault(m) ? ' (default)' : ''}`;
+
+	const listed = available.slice(0, MODEL_INPUT_LISTED_MAX).map(label);
+	const hidden = available.length - listed.length;
+	const catalog =
+		listed.length === 0
+			? 'No model is configured on this project.'
+			: `Available models: ${listed.join(', ')}${hidden > 0 ? ` and ${hidden} more` : ''}.`;
+
+	return `${MODEL_INPUT_INTRO} ${catalog} ${MODEL_INPUT_OMIT}`;
+}
+
+const MODEL_INPUT_INTRO =
+	'Model to run the sub-agent with, as listed in the project model picker (e.g. `mistral-large-4`), ' +
+	'or `provider/model-id` when several providers serve the same id.';
+const MODEL_INPUT_OMIT =
+	'Omit to use the default: the model pinned in the MCP settings, else the project default chat model.';
+
 /** `pickRequestedModel` against the project's current model catalog. */
 export async function resolveRequestedModel(projectId: string, requested: string): Promise<LlmSelectedModel> {
 	return pickRequestedModel(await getProjectAvailableModels(projectId), requested);

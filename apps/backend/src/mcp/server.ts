@@ -33,7 +33,7 @@ export async function createMcpServer(
 	const ctx = { userId, projectId, settings, chartDataMode, storyCreationEnabled, customStoryCreationEnabled };
 
 	if (settings.subAgentModeEnabled) {
-		registerSubAgentTools(server, ctx);
+		await registerSubAgentTools(server, ctx);
 	}
 	if (settings.contextLayerModeEnabled) {
 		const project = await getProjectById(projectId);

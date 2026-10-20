@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { pickRequestedModel, type ProjectAvailableModel, RequestedModelError } from '../src/utils/llm';
+import {
+	describeModelInput,
+	MODEL_INPUT_LISTED_MAX,
+	pickRequestedModel,
+	type ProjectAvailableModel,
+	RequestedModelError,
+} from '../src/utils/llm';
 
 const available: ProjectAvailableModel[] = [
 	{ provider: 'mistral', modelId: 'mistral-medium-latest', name: 'Mistral Medium', baseUrl: null },
@@ -59,5 +65,37 @@ describe('pickRequestedModel', () => {
 			'Unknown model "gpt-99". Available models: mistral/',
 		);
 		expect(() => pickRequestedModel(available, '  ')).toThrow('`model` must not be empty.');
+	});
+});
+
+describe('describeModelInput', () => {
+	it('lists the models the way pickRequestedModel resolves them and marks the default', () => {
+		const text = describeModelInput(available, { provider: 'mistral', modelId: 'mistral-large-4' });
+
+		expect(text).toContain('`mistral-medium-latest`, `mistral-large-4` (default), `claude-opus-5-5`');
+		expect(text).toContain('`openai/shared-id`, `custom/shared-id`');
+		expect(text).toContain('`mistralai/mistral-large`');
+		expect(text).not.toContain('and ');
+	});
+
+	it('caps the list and says how many models are left out', () => {
+		const many: ProjectAvailableModel[] = Array.from({ length: MODEL_INPUT_LISTED_MAX + 3 }, (_, i) => ({
+			provider: 'openai',
+			modelId: `model-${i}`,
+			name: `Model ${i}`,
+			baseUrl: null,
+		}));
+
+		const text = describeModelInput(many, null);
+
+		expect(text).toContain(`\`model-${MODEL_INPUT_LISTED_MAX - 1}\` and 3 more.`);
+		expect(text).not.toContain(`model-${MODEL_INPUT_LISTED_MAX}\``);
+		expect(text).not.toContain('(default)');
+	});
+
+	it('says so when the project has no model, and lists nothing when the catalog is unknown', () => {
+		expect(describeModelInput([], null)).toContain('No model is configured on this project.');
+		expect(describeModelInput(null, null)).not.toContain('Available models');
+		expect(describeModelInput(null, null)).toContain('Omit to use the default');
 	});
 });

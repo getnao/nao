@@ -11,7 +11,14 @@ import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
-import { RequestedModelError, resolvePinnedModel, resolveRequestedModel } from '../../utils/llm';
+import {
+	describeModelInput,
+	getProjectAvailableModels,
+	RequestedModelError,
+	resolveDefaultChatModel,
+	resolvePinnedModel,
+	resolveRequestedModel,
+} from '../../utils/llm';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
 import { chatUrl, storyUrl } from '../urls';
@@ -112,8 +119,9 @@ const ASK_NAO_MODEL_SCHEMA = z
 		'Model that ran the sub-agent, as `provider/model-id`. Absent when the run is no longer tracked in memory and no assistant message recorded it.',
 	);
 
-export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
+export async function registerSubAgentTools(server: McpServer, ctx: McpContext): Promise<void> {
 	const askNaoDescription = buildAskNaoDescription(ctx);
+	const modelDescription = await describeAvailableModels(ctx);
 
 	registerMcpTool(server, ctx, {
 		name: 'ask_nao',
@@ -134,14 +142,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 						'Reuse only when the new question clearly builds on the same topic. ' +
 						'If the topic shifts or the prior reply was a refusal, omit it.',
 				),
-			model: z
-				.string()
-				.optional()
-				.describe(
-					'Model to run the sub-agent with, as listed in the project model picker (e.g. `mistral-large-4`), ' +
-						'or `provider/model-id` when several providers serve the same id. Omit to use the model pinned ' +
-						'in the MCP settings, else the project default chat model.',
-				),
+			model: z.string().optional().describe(modelDescription),
 		},
 		outputSchema: {
 			status: z
@@ -230,6 +231,25 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			return resolveAnswerPayload(chatId, ctx);
 		},
 	});
+}
+
+/**
+ * The `model` input description with the project's catalog as it stands when the MCP session
+ * starts, and the model a call without `model` runs on. Both are read again on every call.
+ */
+async function describeAvailableModels(ctx: McpContext): Promise<string> {
+	try {
+		const [available, pinned] = await Promise.all([
+			getProjectAvailableModels(ctx.projectId),
+			resolveSubAgentModel(ctx),
+		]);
+		const defaultModel = pinned ?? (await resolveDefaultChatModel(ctx.projectId));
+		return describeModelInput(available, defaultModel);
+	} catch (error) {
+		// The catalog is a convenience for the caller; a failed lookup must not keep `ask_nao` from registering.
+		console.warn('[mcp] could not list the project models for ask_nao:', error);
+		return describeModelInput(null, null);
+	}
 }
 
 /**
