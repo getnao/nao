@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectRowSecurity: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
+	listUserGroups: vi.fn(),
 	env: {} as Record<string, string | undefined>,
 	resolveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
@@ -49,6 +50,7 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
 	getProjectRowSecurity: mocks.getProjectRowSecurity,
+	listUserGroups: mocks.listUserGroups,
 	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	updateUserGroup: mocks.updateUserGroup,
@@ -256,6 +258,32 @@ describe('user group routes', () => {
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('rejects unlicensed MCP restrictions but lets admins keep or lift them', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		const githubOnly = { mode: 'restricted' as const, grants: [{ kind: 'server' as const, server: 'github' }] };
+		mocks.listUserGroups.mockResolvedValue([{ id: 'group-id', mcpAccess: githubOnly }]);
+		const update = (mcpAccess: typeof githubOnly | { mode: 'all' }) =>
+			createCaller().update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+				mcpAccess,
+			});
+
+		await expect(createCaller().create({ name: 'Analysts', mcpAccess: githubOnly })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(update(EMPTY_MCP_ACCESS as typeof githubOnly)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+
+		await update(githubOnly);
+		await update({ mode: 'all' });
+		await createCaller().create({ name: 'Analysts' });
+		expect(mocks.updateUserGroup).toHaveBeenCalledTimes(2);
+		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledTimes(1);
 	});
 
 	it('allows group edits after a registry update prunes removed-table policies', async () => {

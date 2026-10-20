@@ -7,6 +7,7 @@ import {
 	EMPTY_MCP_ACCESS,
 	FREE_CUSTOM_USER_GROUP_LIMIT,
 	isMicrosoftEntraGroupId,
+	type McpAccess,
 	normalizeDatabaseContextAccess,
 	normalizeFileTreeAccess,
 	normalizeFileTreePath,
@@ -306,6 +307,7 @@ export const userGroupRoutes = {
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
 			const mcpAccess = normalizeMcpAccess(input.mcpAccess);
+			await assertMcpAccessChangeAllowed(mcpAccess, () => EMPTY_MCP_ACCESS);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed();
@@ -362,6 +364,11 @@ export const userGroupRoutes = {
 			const filesAccess =
 				input.filesAccess === undefined ? undefined : normalizeFileTreeAccess(input.filesAccess);
 			const mcpAccess = input.mcpAccess === undefined ? undefined : normalizeMcpAccess(input.mcpAccess);
+			if (mcpAccess !== undefined) {
+				await assertMcpAccessChangeAllowed(mcpAccess, () =>
+					getCurrentGroupMcpAccess(ctx.project.id, input.groupId),
+				);
+			}
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 			if (input.rowPolicies !== undefined) {
@@ -433,6 +440,31 @@ async function assertRowSecurityLicensed(): Promise<void> {
 	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Row-level security requires an Enterprise license.' });
 	}
+}
+
+/** Without the license an admin may still lift MCP restrictions, so a lapsed license never locks a group in. */
+async function assertMcpAccessChangeAllowed(
+	mcpAccess: McpAccess,
+	getCurrentMcpAccess: () => McpAccess | Promise<McpAccess>,
+): Promise<void> {
+	if (mcpAccess.mode === 'all') {
+		return;
+	}
+	const currentMcpAccess = normalizeMcpAccess(await getCurrentMcpAccess());
+	if (JSON.stringify(currentMcpAccess) === JSON.stringify(mcpAccess)) {
+		return;
+	}
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity))) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Restricting MCP servers per group requires an Enterprise license.',
+		});
+	}
+}
+
+async function getCurrentGroupMcpAccess(projectId: string, groupId: string): Promise<McpAccess> {
+	const groups = await userGroupQueries.listUserGroups(projectId);
+	return groups.find((group) => group.id === groupId)?.mcpAccess ?? EMPTY_MCP_ACCESS;
 }
 
 async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: ProjectRowSecurity): Promise<void> {

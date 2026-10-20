@@ -229,25 +229,13 @@ export function UserGroupEditor({
 		oidcConfigurationState === 'loading' ||
 		microsoftConfigurationState === 'loading';
 	const hasSsoTab = hasConfiguredSsoProvider;
+	const mcpTabUnavailable = !licenseFeatures.isLoading && !hasRowLevelSecurity;
+	const lockedTabs = new Set<UserGroupEditorTab>([
+		...(memberBudgetTabUnavailable ? (['budget'] as const) : []),
+		...(mcpTabUnavailable ? (['mcp'] as const) : []),
+	]);
 	const tabs = (hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs).map((tab) =>
-		tab.id === 'budget'
-			? {
-					...tab,
-					label: memberBudgetTabUnavailable ? (
-						<span className='flex items-center gap-1.5'>
-							Budget
-							<span
-								aria-hidden='true'
-								className='inline-flex size-5 items-center justify-center rounded-full bg-primary/10 text-primary'
-							>
-								<Lock className='size-3' />
-							</span>
-						</span>
-					) : (
-						tab.label
-					),
-				}
-			: tab,
+		lockedTabs.has(tab.id) ? { ...tab, label: <LockedTabLabel label={tab.label} /> } : tab,
 	);
 	const hasUnsavedChanges =
 		editorGroup === null ||
@@ -454,7 +442,11 @@ export function UserGroupEditor({
 							</div>
 						)}
 						{activeTab === 'mcp' && (
-							<UserGroupMcpAccess mcpAccess={mcpAccess} onMcpAccessChange={setMcpAccess} />
+							<UserGroupMcpAccess
+								mcpAccess={mcpAccess}
+								isLicensed={hasRowLevelSecurity}
+								onMcpAccessChange={setMcpAccess}
+							/>
 						)}
 						{activeTab === 'security' && (
 							<div className='min-h-64'>
@@ -640,6 +632,20 @@ export function UserGroupEditor({
 				preventCloseWhilePending
 			/>
 		</>
+	);
+}
+
+function LockedTabLabel({ label }: { label: TabBarItem<UserGroupEditorTab>['label'] }) {
+	return (
+		<span className='flex items-center gap-1.5'>
+			{label}
+			<span
+				aria-hidden='true'
+				className='inline-flex size-5 items-center justify-center rounded-full bg-primary/10 text-primary'
+			>
+				<Lock className='size-3' />
+			</span>
+		</span>
 	);
 }
 

@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { useId, useState } from 'react';
 import type { McpAccess, McpServerStatus } from '@nao/shared';
 
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { UserGroupContextModeSelector } from '@/components/settings/user-group-context-mode-selector';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import { trpc } from '@/main';
 
 interface UserGroupMcpAccessProps {
 	mcpAccess: McpAccess;
+	isLicensed: boolean;
 	onMcpAccessChange: (access: McpAccess) => void;
 }
 
@@ -21,25 +23,29 @@ const SELECTED_ROW_CLASS = 'bg-primary/10 text-primary hover:bg-primary/15';
 const PARTIAL_CHECKBOX_CLASS =
 	'data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none';
 
-export function UserGroupMcpAccess({ mcpAccess, onMcpAccessChange }: UserGroupMcpAccessProps) {
+export function UserGroupMcpAccess({ mcpAccess, isLicensed, onMcpAccessChange }: UserGroupMcpAccessProps) {
 	const servers = useQuery(trpc.mcp.getServers.queryOptions());
 	const configuredServers = servers.data ?? [];
 	const unconfiguredServers = getUnconfiguredMcpGrantServers(mcpAccess, configuredServers);
 	const grantedServerCount = configuredServers.filter((server) => isMcpServerGranted(mcpAccess, server.name)).length;
+	const readOnly = !isLicensed || mcpAccess.mode === 'all';
 
 	return (
 		<div className='flex flex-col gap-4'>
-			<p className='text-sm text-muted-foreground'>
-				Choose which MCP servers and tools this group can use in chats, Slack, and automations. Access from
-				groups is combined.
-			</p>
+			<div className='flex items-start justify-between gap-3'>
+				<p className='text-sm text-muted-foreground'>
+					Choose which MCP servers and tools this group can use in chats, Slack, and automations. Access from
+					groups is combined.
+				</p>
+				{!isLicensed && <UpgradeToEnterprise />}
+			</div>
 			<UserGroupContextModeSelector
 				mode={mcpAccess.mode}
 				everythingDescription='All current and future MCP servers and tools.'
-				specificDescription='Choose servers and tools.'
+				specificDescription={isLicensed ? 'Choose servers and tools.' : 'Requires an Enterprise license.'}
 				onEverything={() => onMcpAccessChange({ mode: 'all' })}
 				onSpecific={() => {
-					if (mcpAccess.mode === 'all') {
+					if (isLicensed && mcpAccess.mode === 'all') {
 						onMcpAccessChange({ mode: 'restricted', grants: [] });
 					}
 				}}
@@ -64,6 +70,7 @@ export function UserGroupMcpAccess({ mcpAccess, onMcpAccessChange }: UserGroupMc
 									key={server.name}
 									server={server}
 									access={mcpAccess}
+									readOnly={readOnly}
 									onChange={onMcpAccessChange}
 								/>
 							))}
@@ -71,6 +78,7 @@ export function UserGroupMcpAccess({ mcpAccess, onMcpAccessChange }: UserGroupMc
 								<UnconfiguredServerRow
 									key={serverName}
 									serverName={serverName}
+									readOnly={readOnly}
 									onRemove={() =>
 										onMcpAccessChange(toggleMcpServerGrant(mcpAccess, serverName, false))
 									}
@@ -87,10 +95,12 @@ export function UserGroupMcpAccess({ mcpAccess, onMcpAccessChange }: UserGroupMc
 function McpServerRow({
 	server,
 	access,
+	readOnly,
 	onChange,
 }: {
 	server: McpServerStatus;
 	access: McpAccess;
+	readOnly: boolean;
 	onChange: (access: McpAccess) => void;
 }) {
 	const [open, setOpen] = useState(false);
@@ -118,7 +128,7 @@ function McpServerRow({
 				<Checkbox
 					checked={partial ? 'indeterminate' : fullyGranted}
 					aria-label={`${server.name} server access`}
-					disabled={inherited}
+					disabled={readOnly}
 					className={cn('disabled:cursor-default', PARTIAL_CHECKBOX_CLASS)}
 					onCheckedChange={(checked) => onChange(toggleMcpServerGrant(access, server.name, checked === true))}
 				/>
@@ -144,6 +154,7 @@ function McpServerRow({
 							description={tool.description}
 							disabledInProject={server.enabled && !tool.enabled}
 							access={access}
+							readOnly={readOnly}
 							onSelectedChange={(selected) =>
 								onChange(toggleMcpToolGrant(access, server.name, tool.name, selected, toolNames))
 							}
@@ -161,6 +172,7 @@ function McpToolRow({
 	description,
 	disabledInProject,
 	access,
+	readOnly,
 	onSelectedChange,
 }: {
 	serverName: string;
@@ -168,6 +180,7 @@ function McpToolRow({
 	description?: string;
 	disabledInProject: boolean;
 	access: McpAccess;
+	readOnly: boolean;
 	onSelectedChange: (selected: boolean) => void;
 }) {
 	const selected = isMcpToolGranted(access, serverName, toolName);
@@ -178,7 +191,7 @@ function McpToolRow({
 				<Checkbox
 					checked={selected}
 					aria-label={`${toolName} tool access`}
-					disabled={access.mode === 'all'}
+					disabled={readOnly}
 					className='disabled:cursor-default'
 					onCheckedChange={(checked) => onSelectedChange(checked === true)}
 				/>
@@ -189,10 +202,24 @@ function McpToolRow({
 	);
 }
 
-function UnconfiguredServerRow({ serverName, onRemove }: { serverName: string; onRemove: () => void }) {
+function UnconfiguredServerRow({
+	serverName,
+	readOnly,
+	onRemove,
+}: {
+	serverName: string;
+	readOnly: boolean;
+	onRemove: () => void;
+}) {
 	return (
 		<li className={cn(ROW_CLASS, 'pl-7')}>
-			<Checkbox checked aria-label={`${serverName} server access`} onCheckedChange={onRemove} />
+			<Checkbox
+				checked
+				aria-label={`${serverName} server access`}
+				disabled={readOnly}
+				className='disabled:cursor-default'
+				onCheckedChange={onRemove}
+			/>
 			<span className='min-w-0 flex-1 truncate font-medium text-muted-foreground' title={serverName}>
 				{serverName}
 			</span>
