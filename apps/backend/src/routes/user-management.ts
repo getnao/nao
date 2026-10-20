@@ -143,17 +143,17 @@ export const userManagementRoutes = async (app: App) => {
 		const removed = await run(reply, async () => {
 			const org = requireOrg(request);
 			await requireOrgMember(org.id, params.userId);
-			// The account is global, so purging it from one organization would also drop every other
-			// organization's membership. Reach for revoke without purge instead.
-			if (query.purge && (await orgQueries.listUserOrgMemberships(params.userId)).length > 1) {
+			// An invitation nobody accepted is not an account at all — it IS the invitation, so the row
+			// goes with it (that is what cancels the temporary password already sitting in their inbox).
+			const deletesAccount = query.purge || (await userQueries.isPendingInvitation(params.userId));
+			// The account is global, so deleting it from one organization also drops every other
+			// organization's access — including project-only grants. Reach for revoke instead.
+			if (deletesAccount && !(await userQueries.isUserConfinedToOrganization(params.userId, org.id))) {
 				throw new HandlerError(
 					'CONFLICT',
 					'This user belongs to another organization: revoke without purge to keep the account.',
 				);
 			}
-			// An invitation nobody accepted is not an account at all — it IS the invitation, so the row
-			// goes with it (that is what cancels the temporary password already sitting in their inbox).
-			const deletesAccount = query.purge || (await userQueries.isPendingInvitation(params.userId));
 			// Sessions die in the same transaction as the membership row: a failed removal cannot sign
 			// the member out, and a removed member cannot keep a live session.
 			await removeOrganizationMember(org.id, params.userId, { deleteSessions: true });

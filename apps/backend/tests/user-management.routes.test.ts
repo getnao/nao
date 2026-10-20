@@ -364,6 +364,17 @@ describe('user management API', () => {
 		expect(await selectOrgMember(MEMBER_ID)).toHaveLength(0);
 	});
 
+	it('refuses to purge an account that only holds a project role in another organization', async () => {
+		await db
+			.insert(s.projectMember)
+			.values({ projectId: OTHER_PROJECT_ID, userId: MEMBER_ID, role: 'viewer' })
+			.execute();
+
+		expect((await del(`/user-management/users/${MEMBER_ID}?purge=true`)).statusCode).toBe(409);
+		expect(await db.select().from(s.user).where(eq(s.user.id, MEMBER_ID)).execute()).toHaveLength(1);
+		expect(await selectOrgMember(MEMBER_ID)).toHaveLength(1);
+	});
+
 	it('manages groups and their members', async () => {
 		const created = await post(`/user-management/projects/${PROJECT_ID}/groups`, { name: 'GEHB Members' });
 		expect(created.statusCode).toBe(201);
