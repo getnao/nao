@@ -42,6 +42,13 @@ export const releaseLock = async (key: string, owner: string): Promise<void> => 
 		.execute();
 };
 
+export const deleteExpiredLocks = async (): Promise<void> => {
+	await db
+		.delete(s.keyedLock)
+		.where(sql`${s.keyedLock.expiresAt} < ${databaseNow}`)
+		.execute();
+};
+
 function leaseExpiry(leaseMs: number) {
 	if (isPostgres) {
 		return sql`${databaseNow} + make_interval(secs => ${leaseMs} / 1000.0)`;

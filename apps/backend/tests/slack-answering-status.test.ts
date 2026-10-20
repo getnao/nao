@@ -37,6 +37,7 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 vi.mock('../src/services/team-member', () => ({
 	ensureMessagingProviderUser: slackHarness.ensureMessagingProviderUser,
 }));
+vi.mock('../src/utils/keyed-lock', () => ({ claimOnce: vi.fn().mockResolvedValue(true) }));
 
 const config: SlackConfig = {
 	projectId: 'project-1',

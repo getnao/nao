@@ -16,6 +16,26 @@ export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promi
 	return withDatabaseLock(key, fn);
 }
 
+/**
+ * Claims `key` across every backend instance sharing the database. Only the first caller gets
+ * `true`; later callers get `false` until the lease expires. The claim is never released.
+ */
+export async function claimOnce(key: string, leaseMs: number): Promise<boolean> {
+	const claimed = await keyedLockQueries.tryAcquireLock(key, crypto.randomUUID(), leaseMs);
+	if (claimed) {
+		await deleteExpiredLocksSafely();
+	}
+	return claimed;
+}
+
+async function deleteExpiredLocksSafely(): Promise<void> {
+	try {
+		await keyedLockQueries.deleteExpiredLocks();
+	} catch (error) {
+		logger.warn('Failed to delete expired keyed locks.', { source: 'system', context: serializeError(error) });
+	}
+}
+
 function withInMemoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	const previous = inMemoryLocks.get(key) ?? Promise.resolve();
 	const current = previous.catch(() => undefined).then(fn);
