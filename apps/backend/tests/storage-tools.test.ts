@@ -40,6 +40,7 @@ const context = () =>
 		warehouseRowSecurity: { enforced: false },
 		docsContextAccess,
 		filesContextAccess,
+		mcpAccess: { mode: 'all' },
 		userGroupFeatures: [],
 		userRulesGroupAccess,
 	}) as unknown as ToolContext;

@@ -6,12 +6,14 @@ import { isProjectContextPathAllowed } from '../src/services/project-context-pat
 const unrestrictedWarehouse = { enforced: false as const };
 const unenforcedDocs = { enforced: false as const };
 const unenforcedFiles = { enforced: false as const };
+const allMcpAccess = { mode: 'all' as const };
 
 function filesContext(access: FilesContextAccess) {
 	return {
 		warehouseTableAccess: unrestrictedWarehouse,
 		docsContextAccess: unenforcedDocs,
 		filesContextAccess: { enforced: true as const, access },
+		mcpAccess: allMcpAccess,
 	};
 }
 
@@ -21,6 +23,7 @@ describe('project context path access', () => {
 			warehouseTableAccess: unrestrictedWarehouse,
 			docsContextAccess: unenforcedDocs,
 			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
 		};
 		expect(isProjectContextPathAllowed(context, '/RULES.md', '/RULES.md', 'file')).toBe(true);
 		expect(isProjectContextPathAllowed(context, '/docs/anything.md', '/docs/anything.md', 'file')).toBe(true);
@@ -35,6 +38,7 @@ describe('project context path access', () => {
 				access: { mode: 'restricted' as const, grants: [{ kind: 'file' as const, path: 'legal/terms.md' }] },
 			},
 			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
 		};
 		expect(isProjectContextPathAllowed(context, '/docs', '/docs', 'directory')).toBe(true);
 		expect(isProjectContextPathAllowed(context, '/docs/legal', '/docs/legal', 'directory')).toBe(true);
@@ -50,6 +54,7 @@ describe('project context path access', () => {
 			warehouseTableAccess: unrestrictedWarehouse,
 			docsContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
 			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
 		};
 		expect(isProjectContextPathAllowed(context, '/docs/link.md', '/RULES.md', 'file')).toBe(false);
 		expect(isProjectContextPathAllowed(context, '/alias.md', '/docs/real.md', 'file')).toBe(false);
@@ -61,6 +66,7 @@ describe('project context path access', () => {
 			warehouseTableAccess: unrestrictedWarehouse,
 			docsContextAccess: unenforcedDocs,
 			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
 		};
 		expect(isProjectContextPathAllowed(context, '/notes\u0000.md', '/notes\u0000.md', 'file')).toBe(false);
 		expect(isProjectContextPathAllowed(context, '/notes\\private.md', '/notes\\private.md', 'file')).toBe(false);
@@ -72,6 +78,7 @@ describe('project context path access', () => {
 			warehouseTableAccess: unrestrictedWarehouse,
 			docsContextAccess: { enforced: false as const },
 			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
 		};
 		expect(isProjectContextPathAllowed(context, '/nao_config.yaml', '/nao_config.yaml', 'file')).toBe(false);
 		expect(isProjectContextPathAllowed(context, 'nao_config.yaml', '/nao_config.yaml', 'file')).toBe(false);
@@ -96,6 +103,7 @@ describe('project context path access', () => {
 				access: { mode: 'restricted' as const, grants: [{ kind: 'folder' as const, path: 'docs' }] },
 			},
 			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
 		};
 		expect(isProjectContextPathAllowed(context, '/docs/docs/nested.md', '/docs/docs/nested.md', 'file')).toBe(true);
 		expect(isProjectContextPathAllowed(context, '/docs/other.md', '/docs/other.md', 'file')).toBe(false);
@@ -110,6 +118,7 @@ describe('project context path access', () => {
 			},
 			docsContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
 			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
 		};
 		expect(
 			isProjectContextPathAllowed(
@@ -185,6 +194,7 @@ describe('project file access', () => {
 			warehouseTableAccess: unrestrictedWarehouse,
 			docsContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
 			filesContextAccess: { enforced: true as const, access: { mode: 'restricted' as const, grants: [] } },
+			mcpAccess: allMcpAccess,
 		};
 		expect(
 			isProjectContextPathAllowed(docsOnly, '/docs/handbook/leave.md', '/docs/handbook/leave.md', 'file'),
@@ -195,6 +205,7 @@ describe('project file access', () => {
 			warehouseTableAccess: unrestrictedWarehouse,
 			docsContextAccess: { enforced: true as const, access: { mode: 'restricted' as const, grants: [] } },
 			filesContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
+			mcpAccess: allMcpAccess,
 		};
 		expect(isProjectContextPathAllowed(filesOnly, '/RULES.md', '/RULES.md', 'file')).toBe(true);
 		expect(
@@ -223,5 +234,55 @@ describe('project file access', () => {
 		expect(isProjectContextPathAllowed(context, '/models/orders.sql', '/secrets.env', 'file')).toBe(false);
 		expect(isProjectContextPathAllowed(context, '/RULES.md', '/docs/real.md', 'file')).toBe(false);
 		expect(isProjectContextPathAllowed(context, '/models/orders.sql', '/models/orders.sql', 'file')).toBe(true);
+	});
+
+	it('hides mcp.json from every user while keeping the tool specs reachable', () => {
+		const context = {
+			warehouseTableAccess: unrestrictedWarehouse,
+			docsContextAccess: unenforcedDocs,
+			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
+		};
+		const allowed = (requested: string, canonical = requested) =>
+			isProjectContextPathAllowed(context, requested, canonical, 'file');
+
+		expect(allowed('/agent/mcps/mcp.json')).toBe(false);
+		expect(allowed('/Agent/MCPS/MCP.json')).toBe(false);
+		expect(allowed('/agent/./mcps/mcp.json', '/agent/mcps/mcp.json')).toBe(false);
+		expect(allowed('/notes/servers.json', '/agent/mcps/mcp.json')).toBe(false);
+		expect(allowed('/agent/mcps/github/search.json')).toBe(true);
+		expect(isProjectContextPathAllowed(context, '/agent/mcps', '/agent/mcps', 'directory')).toBe(true);
+	});
+
+	it('hides the MCP tool specs that the user groups do not grant', () => {
+		const context = {
+			warehouseTableAccess: unrestrictedWarehouse,
+			docsContextAccess: unenforcedDocs,
+			filesContextAccess: unenforcedFiles,
+			mcpAccess: {
+				mode: 'restricted' as const,
+				grants: [
+					{ kind: 'server' as const, server: 'linear' },
+					{ kind: 'tool' as const, server: 'github', tool: 'list/issues' },
+				],
+			},
+		};
+		const allowed = (virtualPath: string, kind: 'file' | 'directory' = 'file') =>
+			isProjectContextPathAllowed(context, virtualPath, virtualPath, kind);
+
+		expect(allowed('/agent/mcps', 'directory')).toBe(true);
+		expect(allowed('/agent/mcps/mcp.json')).toBe(false);
+		expect(allowed('/agent/mcps/linear', 'directory')).toBe(true);
+		expect(allowed('/agent/mcps/linear/search.json')).toBe(true);
+		expect(allowed('/agent/mcps/github', 'directory')).toBe(true);
+		expect(allowed('/agent/mcps/github/list%2Fissues.json')).toBe(true);
+		expect(allowed('/agent/mcps/github/create_issue.json')).toBe(false);
+		expect(allowed('/agent/mcps/github/nested', 'directory')).toBe(false);
+		expect(allowed('/agent/mcps/notion', 'directory')).toBe(false);
+		expect(allowed('/agent/mcps/notion/search.json')).toBe(false);
+		expect(allowed('/Agent/MCPS/notion/search.json')).toBe(false);
+		expect(isProjectContextPathAllowed(context, '/models/x.json', '/agent/mcps/notion/search.json', 'file')).toBe(
+			false,
+		);
 	});
 });

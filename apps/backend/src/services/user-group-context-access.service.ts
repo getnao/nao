@@ -1,9 +1,12 @@
 import {
+	ALL_MCP_ACCESS,
 	type FileTreeAccess,
+	type McpAccess,
 	type ProjectRowSecurity,
 	resolveWarehouseRowSecurity,
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
+	type UserRole,
 	type WarehouseRowSecurity,
 } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
@@ -32,6 +35,7 @@ export async function resolveProjectContextAccess(
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	filesContextAccess: ResolvedFilesContextAccess;
+	mcpAccess: McpAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 }> {
@@ -50,9 +54,22 @@ export async function resolveProjectContextAccess(
 		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed),
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
 		filesContextAccess: { enforced: true, access: effectiveAccess.filesAccess },
+		mcpAccess: effectiveAccess.mcpAccess,
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 	};
+}
+
+/** Admins configure and connect every MCP server, so their settings are never narrowed by their own groups. */
+export async function resolveMcpSettingsAccess(
+	projectId: string,
+	userId: string,
+	role: UserRole | null,
+): Promise<McpAccess> {
+	if (role === 'admin') {
+		return ALL_MCP_ACCESS;
+	}
+	return (await resolveAvailableUserGroupAccess(projectId, userId)).mcpAccess;
 }
 
 export async function resolveWarehouseTableAccess(

@@ -2,10 +2,12 @@
 
 import {
 	ALL_DOCS_CONTEXT_ACCESS,
+	ALL_MCP_ACCESS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
@@ -257,6 +259,7 @@ const allUsers = {
 	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 	filesAccess: { mode: 'all' as const },
+	mcpAccess: ALL_MCP_ACCESS,
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 };
 const analysts = {
@@ -267,6 +270,7 @@ const analysts = {
 	databaseAccess: { ...EMPTY_DATABASE_CONTEXT_ACCESS, strict: false },
 	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+	mcpAccess: EMPTY_MCP_ACCESS,
 };
 const rowSecurityIdentity = {
 	databaseType: 'duckdb',
@@ -931,6 +935,7 @@ describe('UserGroupEditor', () => {
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
 			'Context',
+			'MCP',
 			'Security',
 			'Budget',
 		]);

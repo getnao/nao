@@ -161,13 +161,13 @@ function McpOAuthConnect({ server, onConnected }: { server: McpServerStatus; onC
 	};
 
 	if (server.oauthConnected) {
-		return <Badge className='bg-green-500/10 text-green-600'>OAuth connected</Badge>;
+		return null;
 	}
 
 	return (
 		<div className='flex flex-col gap-1'>
 			<Button variant='secondary' size='sm' onClick={handleConnect} disabled={connecting} isLoading={connecting}>
-				Connect
+				Connect your account
 			</Button>
 			{error && (
 				<span className='max-w-xs whitespace-normal break-words text-xs text-red-500' title={error}>
@@ -178,15 +178,23 @@ function McpOAuthConnect({ server, onConnected }: { server: McpServerStatus; onC
 	);
 }
 
+const OAUTH_EXPLANATION =
+	'Each user signs in with their own account, and the agent acts with their permissions. The first sign-in discovers the tools; users who have not connected are asked to in chat.';
+
 const isWaitingForConnection = (server: McpServerStatus): boolean =>
 	!!server.error && /connection required/i.test(server.error);
 
 const connectionLabel = (server: McpServerStatus): { label: string; className: string } => {
-	if (isWaitingForConnection(server)) {
-		return { label: 'Waiting for connection', className: 'text-orange-500' };
-	}
-	if (server.error) {
+	if (server.error && !isWaitingForConnection(server)) {
 		return { label: 'Error', className: 'text-red-700' };
+	}
+	if (server.oauth) {
+		return server.oauthConnected
+			? { label: 'OAuth working', className: 'text-green-700' }
+			: { label: 'Sign-in required', className: 'text-orange-500' };
+	}
+	if (isWaitingForConnection(server)) {
+		return { label: 'Sign-in required', className: 'text-orange-500' };
 	}
 	if (server.connectionOk) {
 		return { label: 'Connected', className: 'text-green-700' };
@@ -304,6 +312,11 @@ export function McpSettings({ isAdmin }: Props) {
 											<div className='flex items-center gap-2'>
 												<McpServerIcon server={server.name} className='size-4' />
 												{server.name}
+												{server.oauth && (
+													<Badge variant='secondary' title={OAUTH_EXPLANATION}>
+														OAuth
+													</Badge>
+												)}
 											</div>
 										</TableCell>
 										<TableCell>
@@ -376,17 +389,23 @@ export function McpSettings({ isAdmin }: Props) {
 										<TableRow>
 											<TableCell colSpan={6} className='bg-muted/50 whitespace-normal'>
 												<div className='py-2 flex flex-col gap-3'>
-													{server.error && (
-														<div
-															className={
-																isWaitingForConnection(server)
-																	? 'text-sm text-orange-500'
-																	: 'text-sm text-red-500'
-															}
-														>
-															{server.error}
+													{server.oauth && (
+														<div className='text-sm text-muted-foreground'>
+															{OAUTH_EXPLANATION}
 														</div>
 													)}
+													{server.error &&
+														!(server.oauth && isWaitingForConnection(server)) && (
+															<div
+																className={
+																	isWaitingForConnection(server)
+																		? 'text-sm text-orange-500'
+																		: 'text-sm text-red-500'
+																}
+															>
+																{server.error}
+															</div>
+														)}
 													<div className='text-xs text-muted-foreground'>
 														Specs:{' '}
 														<code className='bg-muted px-1 py-0.5 rounded'>

@@ -106,6 +106,7 @@ export const createMcpCallTool = (allowedServers: string[] | null) =>
 					tool,
 					args: args ?? {},
 					allowedServers,
+					access: context.mcpAccess,
 				});
 			} catch (error) {
 				if (error instanceof McpAuthRequiredError) {

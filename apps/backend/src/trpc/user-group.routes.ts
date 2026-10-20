@@ -4,11 +4,13 @@ import {
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
 	FREE_CUSTOM_USER_GROUP_LIMIT,
 	isMicrosoftEntraGroupId,
 	normalizeDatabaseContextAccess,
 	normalizeFileTreeAccess,
 	normalizeFileTreePath,
+	normalizeMcpAccess,
 	normalizeProjectRowSecurity,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
@@ -98,6 +100,14 @@ const fileTreeGrantSchema = z.discriminatedUnion('kind', [
 const fileTreeAccessSchema = z.discriminatedUnion('mode', [
 	z.object({ mode: z.literal('all') }).strict(),
 	z.object({ mode: z.literal('restricted'), grants: z.array(fileTreeGrantSchema).max(10_000) }).strict(),
+]);
+const mcpGrantSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('server'), server: contextNameSchema }).strict(),
+	z.object({ kind: z.literal('tool'), server: contextNameSchema, tool: contextNameSchema }).strict(),
+]);
+const mcpAccessSchema = z.discriminatedUnion('mode', [
+	z.object({ mode: z.literal('all') }).strict(),
+	z.object({ mode: z.literal('restricted'), grants: z.array(mcpGrantSchema).max(10_000) }).strict(),
 ]);
 const ssoIdentifierSchema = z.string().trim().min(1).max(255);
 const ssoMappingsSchema = z
@@ -284,6 +294,7 @@ export const userGroupRoutes = {
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
 				docsAccess: fileTreeAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
 				filesAccess: fileTreeAccessSchema.default(EMPTY_FILES_CONTEXT_ACCESS),
+				mcpAccess: mcpAccessSchema.default(EMPTY_MCP_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
@@ -294,6 +305,7 @@ export const userGroupRoutes = {
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
+			const mcpAccess = normalizeMcpAccess(input.mcpAccess);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed();
@@ -317,6 +329,7 @@ export const userGroupRoutes = {
 					input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
 					rowPolicies,
 					filesAccess,
+					mcpAccess,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -334,6 +347,7 @@ export const userGroupRoutes = {
 				databaseAccess: databaseAccessSchema.optional(),
 				docsAccess: fileTreeAccessSchema.optional(),
 				filesAccess: fileTreeAccessSchema.optional(),
+				mcpAccess: mcpAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
@@ -347,6 +361,7 @@ export const userGroupRoutes = {
 			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess =
 				input.filesAccess === undefined ? undefined : normalizeFileTreeAccess(input.filesAccess);
+			const mcpAccess = input.mcpAccess === undefined ? undefined : normalizeMcpAccess(input.mcpAccess);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 			if (input.rowPolicies !== undefined) {
@@ -366,6 +381,7 @@ export const userGroupRoutes = {
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
 					...(docsAccess === undefined ? {} : { docsAccess }),
 					...(filesAccess === undefined ? {} : { filesAccess }),
+					...(mcpAccess === undefined ? {} : { mcpAccess }),
 					...(input.ssoMappings === undefined
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),

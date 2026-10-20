@@ -150,6 +150,7 @@ function context(groupNames: string[] | null): ToolContext {
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: false },
 		filesContextAccess: { enforced: false },
+		mcpAccess: { mode: 'all' },
 		userRulesGroupAccess: groupNames === null ? { enforced: false } : { enforced: true, groupNames },
 	} as ToolContext;
 }

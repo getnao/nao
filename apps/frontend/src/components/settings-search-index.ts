@@ -1008,7 +1008,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Manage Groups',
 		search: { tab: 'groups' },
 		title: 'Manage Groups',
-		description: 'Configure which features, database tables, docs, and budget each group can use.',
+		description: 'Configure which features, database tables, docs, MCP servers, and budget each group can use.',
 		keywords: [
 			'groups',
 			'permissions',
@@ -1017,6 +1017,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'schemas',
 			'tables',
 			'docs',
+			'mcp',
+			'mcp servers',
+			'mcp tools',
 			'stories',
 			'custom stories',
 			'automations',

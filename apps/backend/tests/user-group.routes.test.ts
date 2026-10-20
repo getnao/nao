@@ -1,4 +1,4 @@
-import { EMPTY_FILES_CONTEXT_ACCESS } from '@nao/shared';
+import { EMPTY_FILES_CONTEXT_ACCESS, EMPTY_MCP_ACCESS } from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -667,6 +667,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			EMPTY_MCP_ACCESS,
 		);
 	});
 
@@ -688,6 +689,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			EMPTY_MCP_ACCESS,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -745,6 +747,7 @@ describe('user group routes', () => {
 			},
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			EMPTY_MCP_ACCESS,
 		);
 	});
 
@@ -793,6 +796,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			EMPTY_MCP_ACCESS,
 		);
 	});
 
@@ -817,6 +821,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			EMPTY_MCP_ACCESS,
 		);
 	});
 
@@ -897,6 +902,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			EMPTY_MCP_ACCESS,
 		);
 	});
 

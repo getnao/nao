@@ -119,6 +119,7 @@ describe('execute_semantic_query exposure', () => {
 			queryResults: new Map(),
 			envVars: {},
 			filesContextAccess: { enforced: false },
+			mcpAccess: { mode: 'all' },
 		} as unknown as import('../src/types/tools').ToolContext;
 		const run = (databaseId?: string) => executeQuery({ sql_query: 'SELECT 1', database_id: databaseId }, context);
 

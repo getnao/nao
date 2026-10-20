@@ -172,6 +172,7 @@ const STORY_MODE_INSTRUCTIONS = {
 export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
 	getTools(agentSettings, webTools ?? {}, {
 		customBoundaries,
+		mcpAccess: toolContext.mcpAccess,
 		semanticLayerMode: toolContext.semanticLayerMode,
 		customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 	});
@@ -183,6 +184,7 @@ export const defaultAgentToolsExcluding =
 		getTools(agentSettings, webTools ?? {}, {
 			excludeBuiltinTools,
 			customBoundaries,
+			mcpAccess: toolContext.mcpAccess,
 			semanticLayerMode: toolContext.semanticLayerMode,
 			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 		});
@@ -290,6 +292,7 @@ async function _buildContextBase(opts: {
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
 		docsContextAccess: contextAccess.docsContextAccess,
 		filesContextAccess: contextAccess.filesContextAccess,
+		mcpAccess: contextAccess.mcpAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		azureAccessToken,
@@ -743,7 +746,7 @@ export class AgentManager {
 			: [];
 		const toolNames = Object.keys(this._agentTools);
 		const [mcpServers, sandboxSecrets] = await Promise.all([
-			mcpService.getEnabledServers(this.chat.projectId),
+			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
 				: Promise.resolve([]),

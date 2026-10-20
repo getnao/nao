@@ -2,6 +2,7 @@ import {
 	ALL_DATABASE_CONTEXT_ACCESS,
 	ALL_DOCS_CONTEXT_ACCESS,
 	ALL_FILES_CONTEXT_ACCESS,
+	ALL_MCP_ACCESS,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_NAME,
@@ -468,11 +469,12 @@ const defaultUserGroupValues = (projectId: string) => ({
 	name: DEFAULT_USER_GROUP_NAME,
 	isDefault: true,
 	featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY),
-	contextGrants: serializeUserGroupContextAccess(
-		ALL_DATABASE_CONTEXT_ACCESS,
-		ALL_DOCS_CONTEXT_ACCESS,
-		ALL_FILES_CONTEXT_ACCESS,
-	),
+	contextGrants: serializeUserGroupContextAccess({
+		databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
+		docsAccess: ALL_DOCS_CONTEXT_ACCESS,
+		filesAccess: ALL_FILES_CONTEXT_ACCESS,
+		mcpAccess: ALL_MCP_ACCESS,
+	}),
 });
 
 export const getEnvVars = async (projectId: string): Promise<Record<string, string>> => {

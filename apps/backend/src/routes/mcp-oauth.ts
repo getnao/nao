@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { UserRole } from '@nao/shared';
+import { isMcpServerGranted, type UserRole } from '@nao/shared';
 import type { FastifyReply } from 'fastify';
 
 import type { App } from '../app';
@@ -10,6 +10,7 @@ import { claimMcpDiscoveryUser, setMcpDiscoveryUser } from '../queries/mcp-oauth
 import * as projectQueries from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
 import { buildAuthorizationRedirect, completeAuthorization } from '../services/mcp-oauth';
+import { resolveMcpSettingsAccess } from '../services/user-group-context-access.service';
 import { logger } from '../utils/logger';
 import { convertHeaders } from '../utils/utils';
 
@@ -140,6 +141,16 @@ export const mcpOAuthRoutes = async (app: App) => {
 		const project = await projectQueries.getProjectByUserId(session.user.id, projectId ?? null);
 		if (!project) {
 			return sendConnectError(reply.status(400), server, returnTo, 'No project configured.');
+		}
+
+		const role = await projectQueries.getUserRoleInProject(project.id, session.user.id);
+		if (!isMcpServerGranted(await resolveMcpSettingsAccess(project.id, session.user.id, role), server)) {
+			return sendConnectError(
+				reply.status(403),
+				server,
+				returnTo,
+				`MCP server "${server}" is not available for your user group.`,
+			);
 		}
 
 		const serverUrl = await mcpService.getServerUrl(project.id, server);

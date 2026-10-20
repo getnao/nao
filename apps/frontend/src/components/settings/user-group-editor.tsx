@@ -3,6 +3,7 @@ import {
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
@@ -11,6 +12,7 @@ import {
 	filterUserGroupRowPoliciesByDatabaseContext,
 	normalizeDatabaseContextAccess,
 	normalizeFileTreeAccess,
+	normalizeMcpAccess,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
@@ -25,6 +27,7 @@ import type {
 	DocsContextAccess,
 	FilesContextAccess,
 	FileTreeAccess,
+	McpAccess,
 	UserGroupFeatureDefinition,
 	UserGroupRowPolicies,
 	UserGroupSsoMappings,
@@ -37,6 +40,7 @@ import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-s
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { UserGroupMcpAccess } from '@/components/settings/user-group-mcp-access';
 import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
@@ -67,11 +71,12 @@ export interface UserGroupEditorGroup {
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
+	mcpAccess: McpAccess;
 	ssoMappings: UserGroupSsoMappings;
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'budget' | 'sso';
+export type UserGroupEditorTab = 'features' | 'context' | 'mcp' | 'security' | 'budget' | 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -85,6 +90,7 @@ interface UserGroupEditorProps {
 const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
+	{ id: 'mcp', label: 'MCP' },
 	{ id: 'security', label: 'Security' },
 	{ id: 'budget', label: 'Budget' },
 ];
@@ -129,6 +135,7 @@ export function UserGroupEditor({
 	const [filesAccess, setFilesAccess] = useState<FilesContextAccess>(
 		existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS,
 	);
+	const [mcpAccess, setMcpAccess] = useState<McpAccess>(existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS);
 	const [ssoMappings, setSsoMappings] = useState<UserGroupSsoMappings>(
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
@@ -252,6 +259,7 @@ export function UserGroupEditor({
 			databaseAccess,
 			docsAccess,
 			filesAccess,
+			mcpAccess,
 			ssoMappings,
 			rowPolicies,
 		});
@@ -263,6 +271,7 @@ export function UserGroupEditor({
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setFilesAccess(existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS);
+		setMcpAccess(existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setRowPolicies(existingRowPolicies);
 		setFormError(null);
@@ -283,6 +292,7 @@ export function UserGroupEditor({
 				databaseAccess,
 				docsAccess,
 				filesAccess,
+				mcpAccess,
 				ssoMappings,
 				rowPolicies,
 			});
@@ -296,6 +306,7 @@ export function UserGroupEditor({
 		editorGroup,
 		featureGrants,
 		filesAccess,
+		mcpAccess,
 		name,
 		resetForm,
 		rowPolicies,
@@ -341,6 +352,7 @@ export function UserGroupEditor({
 					databaseAccess,
 					docsAccess,
 					filesAccess,
+					mcpAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
@@ -354,6 +366,7 @@ export function UserGroupEditor({
 					databaseAccess,
 					docsAccess,
 					filesAccess,
+					mcpAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
@@ -439,6 +452,9 @@ export function UserGroupEditor({
 								/>
 								<ConditionalRulesHelp groupName={name} />
 							</div>
+						)}
+						{activeTab === 'mcp' && (
+							<UserGroupMcpAccess mcpAccess={mcpAccess} onMcpAccessChange={setMcpAccess} />
 						)}
 						{activeTab === 'security' && (
 							<div className='min-h-64'>
@@ -831,6 +847,7 @@ export function hasUserGroupEditorChanges(
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
+		mcpAccess?: McpAccess;
 		ssoMappings?: UserGroupSsoMappings;
 		rowPolicies?: UserGroupRowPolicies;
 	},
@@ -843,6 +860,7 @@ export function hasUserGroupEditorChanges(
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
 		!haveSameFileTreeAccess(values.filesAccess ?? group.filesAccess, group.filesAccess) ||
+		!haveSameMcpAccess(values.mcpAccess ?? group.mcpAccess, group.mcpAccess) ||
 		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
 		!haveSameRowPolicies(
 			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
@@ -1005,6 +1023,10 @@ function haveSameDatabaseAccess(left: DatabaseContextAccess, right: DatabaseCont
 
 function haveSameFileTreeAccess(left: FileTreeAccess, right: FileTreeAccess): boolean {
 	return JSON.stringify(normalizeFileTreeAccess(left)) === JSON.stringify(normalizeFileTreeAccess(right));
+}
+
+function haveSameMcpAccess(left: McpAccess, right: McpAccess): boolean {
+	return JSON.stringify(normalizeMcpAccess(left)) === JSON.stringify(normalizeMcpAccess(right));
 }
 
 function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMappings): boolean {

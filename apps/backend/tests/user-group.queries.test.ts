@@ -115,10 +115,11 @@ describe('user group queries', () => {
 				},
 			},
 			contextGrants: {
-				version: 5,
+				version: 6,
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: ALL_FILES_CONTEXT_ACCESS,
+				mcpAccess: { mode: 'all' },
 			},
 		});
 
@@ -726,7 +727,7 @@ describe('user group queries', () => {
 			},
 		});
 		expect(storedUpdated.contextGrants).toEqual({
-			version: 5,
+			version: 6,
 			databaseAccess: {
 				mode: 'restricted',
 				strict: false,
@@ -743,6 +744,7 @@ describe('user group queries', () => {
 			},
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'restricted', grants: [] },
 		});
 
 		await updateUserGroup(PROJECT_ID, group.id, {
@@ -1012,6 +1014,40 @@ describe('user group queries', () => {
 		]);
 	});
 
+	it('unions MCP grants and lets a whole-server grant absorb tool grants', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: [],
+			mcpAccess: { mode: 'restricted', grants: [{ kind: 'tool', server: 'github', tool: 'list_issues' }] },
+		});
+		const clientA = await createUserGroup(PROJECT_ID, 'Client A', []);
+		await updateUserGroup(PROJECT_ID, clientA.id, {
+			featureGrants: [],
+			mcpAccess: {
+				mode: 'restricted',
+				grants: [
+					{ kind: 'server', server: 'github' },
+					{ kind: 'tool', server: 'linear', tool: 'search' },
+				],
+			},
+		});
+
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).mcpAccess).toEqual({
+			mode: 'restricted',
+			grants: [{ kind: 'tool', server: 'github', tool: 'list_issues' }],
+		});
+
+		await setUserGroupMembership(PROJECT_ID, clientA.id, DIRECT_USER_ID, true);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).mcpAccess).toEqual({
+			mode: 'restricted',
+			grants: [
+				{ kind: 'server', server: 'github' },
+				{ kind: 'tool', server: 'linear', tool: 'search' },
+			],
+		});
+	});
+
 	it('excludes suspended groups from every effective access field without changing stored data', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
 		const defaultGroup = overview.groups[0];
@@ -1020,6 +1056,7 @@ describe('user group queries', () => {
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
+			mcpAccess: { mode: 'restricted', grants: [] },
 		});
 		const activeGroups = await Promise.all(
 			['First', 'Second', 'Third'].map((name) =>
@@ -1032,6 +1069,10 @@ describe('user group queries', () => {
 			['automationCreation'],
 			{ defaultDensity: 'compact', canChange: true },
 			{ mode: 'all', strict: false },
+			{ mode: 'all' },
+			undefined,
+			undefined,
+			undefined,
 			{ mode: 'all' },
 		);
 		for (const group of [...activeGroups, suspendedGroup]) {
@@ -1046,6 +1087,7 @@ describe('user group queries', () => {
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'restricted', grants: [] },
 			rowPolicies: [
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
@@ -1065,6 +1107,7 @@ describe('user group queries', () => {
 			databaseAccess: { mode: 'all' },
 			docsAccess: { mode: 'all' },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'all' },
 		});
 	});
 
