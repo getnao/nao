@@ -138,11 +138,11 @@ export function DeployKeyGenerator({
 		}),
 	);
 	const deployCommand = useMemo(() => {
-		if (!deployUrl || !latestPlaintextKey || latestKeyScope !== 'deploy') {
+		if (!deployUrl || latestKeyScope !== 'deploy') {
 			return null;
 		}
 
-		return `nao deploy ${deployUrl} --api-key ${latestPlaintextKey}`;
+		return `nao deploy ${deployUrl} --api-key ${latestPlaintextKey ?? '<your-api-key>'}`;
 	}, [deployUrl, latestPlaintextKey, latestKeyScope]);
 
 	const handleCreate = async () => {
