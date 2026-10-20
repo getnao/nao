@@ -32,18 +32,35 @@ export const getOrgMember = async (orgId: string, userId: string): Promise<DBOrg
 	const [member] = await db
 		.select()
 		.from(s.orgMember)
-		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId), eq(s.orgMember.isDeleted, false)))
 		.execute();
 	return member ?? null;
 };
 
+/** Reactivates a soft-deleted membership rather than failing on the (orgId, userId) primary key. */
 export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> => {
-	const [created] = await db.insert(s.orgMember).values(member).returning().execute();
+	const [created] = await db
+		.insert(s.orgMember)
+		.values(member)
+		.onConflictDoUpdate({
+			target: [s.orgMember.orgId, s.orgMember.userId],
+			set: { role: member.role, isDeleted: false, deletedAt: null },
+		})
+		.returning()
+		.execute();
 	return created;
 };
 
 export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void> => {
-	await db.insert(s.orgMember).values(member).onConflictDoNothing().execute();
+	await db
+		.insert(s.orgMember)
+		.values(member)
+		.onConflictDoUpdate({
+			target: [s.orgMember.orgId, s.orgMember.userId],
+			set: { role: member.role, isDeleted: false, deletedAt: null },
+			setWhere: eq(s.orgMember.isDeleted, true),
+		})
+		.execute();
 };
 
 type UserOrgMembership = DBOrgMember & { organization: DBOrganization };
@@ -68,7 +85,7 @@ export const listUserOrgMemberships = async (userId: string) => {
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
-		.where(eq(s.orgMember.userId, userId))
+		.where(and(eq(s.orgMember.userId, userId), eq(s.orgMember.isDeleted, false)))
 		.orderBy(asc(s.organization.name), asc(s.organization.id))
 		.execute();
 };
@@ -80,14 +97,19 @@ const findUserOrgMembership = async (userId: string, organizationId?: string): P
 			userId: s.orgMember.userId,
 			role: s.orgMember.role,
 			createdAt: s.orgMember.createdAt,
+			isDeleted: s.orgMember.isDeleted,
+			deletedAt: s.orgMember.deletedAt,
 			organization: s.organization,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
 		.where(
-			organizationId
-				? and(eq(s.orgMember.userId, userId), eq(s.orgMember.orgId, organizationId))
-				: eq(s.orgMember.userId, userId),
+			and(
+				eq(s.orgMember.isDeleted, false),
+				organizationId
+					? and(eq(s.orgMember.userId, userId), eq(s.orgMember.orgId, organizationId))
+					: eq(s.orgMember.userId, userId),
+			),
 		)
 		.orderBy(asc(s.orgMember.createdAt))
 		.limit(1)
@@ -105,12 +127,14 @@ export const getUserOrgMembershipByProject = async (
 			userId: s.orgMember.userId,
 			role: s.orgMember.role,
 			createdAt: s.orgMember.createdAt,
+			isDeleted: s.orgMember.isDeleted,
+			deletedAt: s.orgMember.deletedAt,
 			organization: s.organization,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
 		.innerJoin(s.project, eq(s.project.orgId, s.organization.id))
-		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId)))
+		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId), eq(s.orgMember.isDeleted, false)))
 		.limit(1)
 		.execute();
 	return result ?? null;
@@ -190,7 +214,7 @@ export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<
 		.select({ email: s.user.email })
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
-		.where(and(eq(s.orgMember.orgId, orgId), eq(s.user.emailVerified, true)))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.user.emailVerified, true), eq(s.orgMember.isDeleted, false)))
 		.execute();
 
 	const domains = new Set<string>();
@@ -332,17 +356,21 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
 
 	await db.transaction(async (tx) => {
 		const existingOrgMember = await tx.query.orgMember.findFirst({
-			where: and(eq(s.orgMember.orgId, org.id), eq(s.orgMember.userId, userId)),
+			where: and(eq(s.orgMember.orgId, org.id), eq(s.orgMember.userId, userId), eq(s.orgMember.isDeleted, false)),
 		});
 		if (!existingOrgMember) {
-			await tx.insert(s.orgMember).values({ orgId: org.id, userId, role }).execute();
+			await addOrgMemberIfMissing({ orgId: org.id, userId, role });
 		}
 
 		const existingProjectMember = await tx.query.projectMember.findFirst({
-			where: and(eq(s.projectMember.projectId, project.id), eq(s.projectMember.userId, userId)),
+			where: and(
+				eq(s.projectMember.projectId, project.id),
+				eq(s.projectMember.userId, userId),
+				eq(s.projectMember.isDeleted, false),
+			),
 		});
 		if (!existingProjectMember) {
-			await tx.insert(s.projectMember).values({ projectId: project.id, userId, role }).execute();
+			await projectQueries.addProjectMember({ projectId: project.id, userId, role }, tx);
 		}
 	});
 };
@@ -440,13 +468,13 @@ export const countOrgUsers = async (orgId: string): Promise<number> => {
 		db
 			.select({ userId: s.orgMember.userId })
 			.from(s.orgMember)
-			.where(eq(s.orgMember.orgId, orgId))
+			.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.isDeleted, false)))
 			.unionAll(
 				db
 					.select({ userId: s.projectMember.userId })
 					.from(s.projectMember)
 					.innerJoin(s.project, eq(s.projectMember.projectId, s.project.id))
-					.where(eq(s.project.orgId, orgId)),
+					.where(and(eq(s.project.orgId, orgId), eq(s.projectMember.isDeleted, false))),
 			),
 	);
 
@@ -469,7 +497,7 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
-		.where(eq(s.orgMember.orgId, orgId))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.isDeleted, false)))
 		.execute();
 	return rows;
 };
@@ -485,8 +513,22 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 			updatedAt: s.project.updatedAt,
 		})
 		.from(s.project)
-		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
+		.leftJoin(
+			s.projectMember,
+			and(
+				eq(s.projectMember.projectId, s.project.id),
+				eq(s.projectMember.userId, userId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
+		.leftJoin(
+			s.orgMember,
+			and(
+				eq(s.orgMember.orgId, s.project.orgId),
+				eq(s.orgMember.userId, userId),
+				eq(s.orgMember.isDeleted, false),
+			),
+		)
 		.where(eq(s.project.orgId, orgId))
 		.orderBy(asc(s.project.name))
 		.execute();
@@ -505,8 +547,22 @@ export const listOrgProjectsForContextCleanup = async (
 			role: sql<UserRole | null>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
 		})
 		.from(s.project)
-		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
+		.leftJoin(
+			s.projectMember,
+			and(
+				eq(s.projectMember.projectId, s.project.id),
+				eq(s.projectMember.userId, userId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
+		.leftJoin(
+			s.orgMember,
+			and(
+				eq(s.orgMember.orgId, s.project.orgId),
+				eq(s.orgMember.userId, userId),
+				eq(s.orgMember.isDeleted, false),
+			),
+		)
 		.where(eq(s.project.orgId, orgId))
 		.execute();
 };
@@ -515,14 +571,15 @@ export const updateOrgMemberRole = async (orgId: string, userId: string, role: O
 	await db
 		.update(s.orgMember)
 		.set({ role })
-		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId), eq(s.orgMember.isDeleted, false)))
 		.execute();
 };
 
 export const removeOrgMember = async (orgId: string, userId: string): Promise<void> => {
 	await db
-		.delete(s.orgMember)
-		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+		.update(s.orgMember)
+		.set({ isDeleted: true, deletedAt: new Date() })
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId), eq(s.orgMember.isDeleted, false)))
 		.execute();
 };
 
@@ -538,7 +595,7 @@ export const countOrgAdmins = async (orgId: string): Promise<number> => {
 	const [result] = await db
 		.select({ count: count() })
 		.from(s.orgMember)
-		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.role, 'admin')))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.role, 'admin'), eq(s.orgMember.isDeleted, false)))
 		.execute();
 	return result?.count ?? 0;
 };
