@@ -1166,6 +1166,8 @@ export const storyBundle = pgTable('story_bundle', {
 	bundle: text('bundle'),
 	pageShell: text('page_shell'),
 	bundleError: text('bundle_error'),
+	thumbnail: text('thumbnail'),
+	thumbnailTheme: text('thumbnail_theme'),
 	builtAt: timestamp('built_at').defaultNow().notNull(),
 });
 

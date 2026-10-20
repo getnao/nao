@@ -1,5 +1,6 @@
 import type { StoryKitBlockChange, StoryKitBlockRef } from '@nao/shared/story-app';
 
+import type { DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
 import * as storyQueries from '../queries/story.queries';
 import type { StoryFileInput } from '../queries/story-file.queries';
@@ -8,6 +9,7 @@ import { formatStoryFile } from '../utils/story-file-format';
 import { isViewableStoryFile, normalizeStoryFilePath } from '../utils/story-file-path';
 import { applyKitBlockChange, matchesKitBlock, parseKitSource } from '../utils/story-kit-jsx';
 import { CustomStoryNotFoundError } from './custom-story';
+import { queueCustomStoryThumbnail } from './custom-story-thumbnail';
 import { buildStoryApp } from './story-app-build';
 
 interface StoryBlockEditInput {
@@ -61,7 +63,7 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 		throw new StoryBlockEditError(`This edit would break the story: ${build.errors[0]}`);
 	}
 
-	const version = await commitEdit(async (tx) => {
+	const version = await commitEdit(story.id, async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
@@ -93,7 +95,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 		return { success: false, buildErrors: build.errors };
 	}
 
-	const version = await commitEdit(async (tx) => {
+	const version = await commitEdit(story.id, async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
@@ -130,7 +132,7 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 		throw new StoryBlockEditError('This version did not build, so it cannot be restored.');
 	}
 
-	const version = await commitEdit(async (tx) => {
+	const version = await commitEdit(story.id, async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 		}
@@ -150,9 +152,14 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 }
 
 /** Each edit creates the version right after the one it started from, so a concurrent edit loses on the unique constraint. */
-async function commitEdit<T>(run: (tx: DBTransaction) => Promise<T>): Promise<T> {
+async function commitEdit(
+	storyId: string,
+	run: (tx: DBTransaction) => Promise<DBStoryVersion>,
+): Promise<DBStoryVersion> {
 	try {
-		return await db.transaction(run);
+		const version = await db.transaction(run);
+		queueCustomStoryThumbnail(storyId, version.id);
+		return version;
 	} catch (error) {
 		if (isVersionConflict(error)) {
 			throw new StoryBlockEditError(NEWER_VERSION_MESSAGE);

@@ -14,6 +14,7 @@ import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/st
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useIsStoryRefreshing } from '@/hooks/use-is-story-refreshing';
@@ -131,6 +132,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 		latestQueryData: (story?.queryData as QueryDataMap | null | undefined) ?? null,
 		sharedStoryId: storyId,
 	});
+	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 
 	return (
 		<SidePanelProvider
@@ -169,10 +171,12 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 							<StoryPageBody
 								editor={editor}
 								queryData={queryData}
+								theme={storyTheme}
 								preview={
 									<SharedStoryContent
 										code={editor.code}
 										queryData={queryData}
+										theme={storyTheme}
 										storyId={storyId}
 										cacheSchedule={story.cacheSchedule}
 										isDataPending={isQueryDataPending}
@@ -271,6 +275,7 @@ function SharedStoryViewerHeader({
 function SharedStoryContent({
 	code,
 	queryData,
+	theme,
 	storyId,
 	cacheSchedule,
 	isDataPending,
@@ -278,6 +283,7 @@ function SharedStoryContent({
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
+	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
 	storyId: string;
 	cacheSchedule?: string | null;
 	isDataPending: boolean;
@@ -369,6 +375,7 @@ function SharedStoryContent({
 				code={code}
 				baselineQueryData={queryData}
 				filterApi={filterApi}
+				theme={theme}
 				renderChart={renderChart}
 				renderTable={renderTable}
 				renderMap={renderMap}

@@ -9,6 +9,7 @@ import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
@@ -98,6 +99,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	);
 
 	const canEditCharts = !story.archivedAt;
+	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
@@ -159,6 +161,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 			<StoryPageBody
 				editor={editor}
 				queryData={queryData}
+				theme={storyTheme}
 				preview={
 					<SelectionProvider key={storySlug}>
 						<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
@@ -168,6 +171,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 							<PreviewContent
 								code={editor.code}
 								queryData={queryData}
+								theme={storyTheme}
 								chatId={chatId}
 								storySlug={storySlug}
 								cacheSchedule={story.cacheSchedule}
@@ -249,6 +253,7 @@ function renderWithChartEditProvider(
 function PreviewContent({
 	code,
 	queryData,
+	theme,
 	chatId,
 	storySlug,
 	cacheSchedule,
@@ -258,6 +263,7 @@ function PreviewContent({
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
+	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
 	chatId: string;
 	storySlug: string;
 	cacheSchedule?: string | null;
@@ -353,6 +359,7 @@ function PreviewContent({
 			code={code}
 			baselineQueryData={queryData}
 			filterApi={filterApi}
+			theme={theme}
 			renderChart={renderChart}
 			renderTable={renderTable}
 			renderMap={renderMap}

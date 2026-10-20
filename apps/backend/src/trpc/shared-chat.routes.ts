@@ -8,6 +8,7 @@ import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
 import { logActivity } from '../services/activity';
+import { getActiveThemeForProject } from '../services/custom-story';
 import { getStoryQueryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import { assertCanShareToProject, assertCanShareWith } from '../services/project-sharing.service';
@@ -231,8 +232,18 @@ export const sharedChatRoutes = {
 				},
 			});
 
-			const displaySettings = await projectQueries.getDisplaySettings(share.projectId);
+			const [displaySettings, theme] = await Promise.all([
+				projectQueries.getDisplaySettings(share.projectId),
+				getActiveThemeForProject(share.projectId),
+			]);
 
-			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				version.title,
+				code,
+				queryData,
+				displaySettings.dateFormat,
+				theme,
+			);
 		}),
 };

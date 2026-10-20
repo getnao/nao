@@ -1,4 +1,5 @@
 import * as projectQueries from '../queries/project.queries';
+import { getActiveThemeForProject } from '../services/custom-story';
 import type { EmailAttachment } from '../types/email';
 import { logger } from './logger';
 import { buildStoryDownloadFile, type QueryDataMap } from './story-download';
@@ -11,8 +12,11 @@ export async function buildStoryPdfAttachment(
 	projectId: string,
 ): Promise<EmailAttachment[]> {
 	try {
-		const displaySettings = await projectQueries.getDisplaySettings(projectId);
-		const file = await buildStoryDownloadFile('pdf', title, code, queryData, displaySettings?.dateFormat);
+		const [displaySettings, theme] = await Promise.all([
+			projectQueries.getDisplaySettings(projectId),
+			getActiveThemeForProject(projectId),
+		]);
+		const file = await buildStoryDownloadFile('pdf', title, code, queryData, displaySettings?.dateFormat, theme);
 		return [{ filename: file.filename, content: file.buffer, contentType: file.mimeType }];
 	} catch (error) {
 		logger.error(`Failed to build story PDF attachment: ${String(error)}`, { source: 'system', projectId });
@@ -27,8 +31,11 @@ export async function buildStoryEmailHtml(
 	projectId: string,
 ): Promise<StoryEmailHtml | undefined> {
 	try {
-		const displaySettings = await projectQueries.getDisplaySettings(projectId);
-		return await generateStoryEmailHtml({ title, code }, queryData, displaySettings?.dateFormat);
+		const [displaySettings, theme] = await Promise.all([
+			projectQueries.getDisplaySettings(projectId),
+			getActiveThemeForProject(projectId),
+		]);
+		return await generateStoryEmailHtml({ title, code }, queryData, displaySettings?.dateFormat, undefined, theme);
 	} catch (error) {
 		logger.error(`Failed to build story email HTML: ${String(error)}`, { source: 'system', projectId });
 		return undefined;

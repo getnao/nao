@@ -1,4 +1,9 @@
-import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from './story-app';
+import {
+	STORY_FRAME_CONTAINER,
+	STORY_PRINT_CANVAS_ATTRIBUTE,
+	STORY_PRINT_SLIDES_ATTRIBUTE,
+	STORY_SLIDE_SIZE,
+} from './story-app';
 
 /** Loaded by the frame document before the story's own CSS, so `app.css` overrides it and hand-rolled */
 export const KIT_STYLES = `
@@ -43,7 +48,7 @@ export const KIT_STYLES = `
 .nao-slides__control:disabled{opacity:.35;cursor:default}
 .nao-slides__stage{display:flex;flex:1;align-items:center;justify-content:center;min-height:0}
 .nao-slides__viewport{position:relative;flex:none;overflow:hidden;border:1px solid var(--border);box-sizing:content-box}
-.nao-slide{position:relative;display:flex;flex-direction:column;gap:24px;width:${STORY_SLIDE_SIZE.width}px;height:${STORY_SLIDE_SIZE.height}px;padding:48px 56px;overflow:hidden;box-sizing:border-box;color:var(--foreground);background:radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent), transparent 40%),color-mix(in srgb, var(--background) 94%, var(--foreground) 3%)}
+.nao-slide{container:${STORY_FRAME_CONTAINER} / size;position:relative;display:flex;flex-direction:column;gap:24px;width:${STORY_SLIDE_SIZE.width}px;height:${STORY_SLIDE_SIZE.height}px;padding:48px 56px;overflow:hidden;box-sizing:border-box;color:var(--foreground);background:radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent), transparent 40%),color-mix(in srgb, var(--background) 94%, var(--foreground) 3%)}
 .nao-slides__viewport>.nao-slide{transform:scale(var(--nao-slide-scale));transform-origin:top left;will-change:transform}
 .nao-slide__heading{display:flex;flex-direction:column;gap:8px;flex:none}
 .nao-slide__title{margin:0;max-width:980px;font-family:var(--font-heading);font-size:52px;line-height:1;letter-spacing:-.04em;color:var(--foreground)}
@@ -62,6 +67,12 @@ html:has(.nao-slides--fullscreen) body{background:transparent}
 .nao-slides--fullscreen .nao-slides__toolbar>.nao-slides__control:hover:not(:disabled){background:color-mix(in srgb, var(--muted-foreground) 14%, var(--story-stage));color:var(--foreground)}
 .nao-slides--fullscreen .nao-slides__pager .nao-slides__control{background:transparent;border:0}
 .nao-slides--fullscreen .nao-slides__pager .nao-slides__control:hover:not(:disabled){background:color-mix(in srgb, var(--muted-foreground) 14%, transparent)}
+.nao-canvas{display:flex;align-items:flex-start;justify-content:center;height:100vh;overflow:hidden;box-sizing:border-box}
+.nao-canvas__viewport{position:relative;flex:none;overflow:hidden;box-sizing:content-box}
+.nao-canvas__surface{container:${STORY_FRAME_CONTAINER} / size;position:relative;overflow:hidden;box-sizing:border-box;background:var(--background);transform:scale(var(--nao-canvas-scale));transform-origin:top left}
+.nao-canvas--print{display:block;height:auto;overflow:visible}
+.nao-canvas--print .nao-canvas__surface{transform:none;break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+html[${STORY_PRINT_CANVAS_ATTRIBUTE}] #root{display:none}
 .nao-slides--print{display:block;height:auto;padding:0;background:none}
 .nao-slides--print .nao-slide{break-after:page;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .nao-slides--print .nao-slide:last-child{break-after:auto}

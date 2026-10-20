@@ -6,6 +6,7 @@ import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { formatStoryFiles } from '../utils/story-file-format';
 import { normalizeStoryFilePath } from '../utils/story-file-path';
+import { queueCustomStoryThumbnail } from './custom-story-thumbnail';
 import { buildStoryApp } from './story-app-build';
 import { scaffoldCustomStoryFiles } from './story-scaffold';
 
@@ -80,5 +81,6 @@ export async function publishCustomStoryDraft(
 		}
 		return cut;
 	});
+	queueCustomStoryThumbnail(story.id, version.id);
 	return { ok: true, version: version.version, files: files.map((file) => file.path) };
 }

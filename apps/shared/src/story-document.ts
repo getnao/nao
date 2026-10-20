@@ -1,5 +1,10 @@
 import type { StoryApp, StoryExportData } from './story-app';
-import { STORY_DOCUMENT_SLOTS, STORY_HOST_MODULE, STORY_STANDALONE_RUNTIME_GLOBAL } from './story-app';
+import {
+	STORY_DOCUMENT_SLOTS,
+	STORY_HOST_MODULE,
+	STORY_STANDALONE_RUNTIME_GLOBAL,
+	STORY_STYLE_ATTRIBUTE,
+} from './story-app';
 import { KIT_STYLES } from './story-kit-styles';
 import { storyMapTileCspSources } from './story-map-tiles';
 import type { StoryTheme } from './story-theme';
@@ -154,7 +159,7 @@ export function storyStylesheets(theme: StoryTheme, styles: string[]): string {
 	const fontLinks = theme.text.fontStylesheets.map(
 		(href) => `<link rel="stylesheet" href="${escapeAttribute(href)}">`,
 	);
-	const storyStyles = styles.map((css) => `<style>${escapeStyle(css)}</style>`);
+	const storyStyles = styles.map((css) => `<style ${STORY_STYLE_ATTRIBUTE}>${escapeStyle(css)}</style>`);
 	return [
 		...fontLinks,
 		`<style id="${STORY_THEME_STYLE_ID}">${escapeStyle(storyThemeStyles(theme))}</style>`,

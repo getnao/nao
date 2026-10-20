@@ -48,6 +48,7 @@ vi.mock('@/components/story-page-header', () => ({
 		onOpenChat ? <button onClick={onOpenChat}>Discuss story</button> : null,
 }));
 vi.mock('@/components/story-tabbed-content', () => ({ StoryTabbedContent: () => null }));
+vi.mock('@/components/story-theme-provider', () => ({ useStoryThemeForCurrentMode: () => null }));
 vi.mock('@/components/ui/spinner', () => ({ Spinner: () => <div>Loading story</div> }));
 vi.mock('@/contexts/side-panel', () => ({
 	SidePanelProvider: ({ children }: { children: React.ReactNode }) => children,

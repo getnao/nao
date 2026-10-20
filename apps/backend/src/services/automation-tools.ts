@@ -14,6 +14,7 @@ import type { ToolContext } from '../types/tools';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse, type QueryDataMap } from '../utils/story-download';
 import { createTool } from '../utils/tools';
+import { getActiveThemeForProject } from './custom-story';
 import { emailService } from './email';
 import {
 	createGithubAutomationTools,
@@ -288,7 +289,7 @@ async function buildGeneratedArtifactAttachments(
 	const dateFormat = displaySettings.dateFormat ?? null;
 	const chartAttachments = await buildChartImageAttachments(context, dateFormat);
 	const mapAttachments = await buildMapImageAttachments(projectId, context);
-	const storyAttachments = await buildStoryPdfAttachments(context, dateFormat);
+	const storyAttachments = await buildStoryPdfAttachments(projectId, context, dateFormat);
 	return [...chartAttachments, ...mapAttachments, ...storyAttachments];
 }
 
@@ -354,10 +355,15 @@ async function buildChartImageAttachments(
 }
 
 async function buildStoryPdfAttachments(
+	projectId: string,
 	context: ToolContext,
 	dateFormat: DateFormatSettings | null,
 ): Promise<GeneratedArtifactAttachment[]> {
 	const stories = uniqueStories(context.generatedArtifacts.stories);
+	if (stories.length === 0) {
+		return [];
+	}
+	const theme = await getActiveThemeForProject(projectId);
 
 	return Promise.all(
 		stories.map(async (story) => {
@@ -367,7 +373,7 @@ async function buildStoryPdfAttachments(
 			}
 
 			const queryData = await getStoryQueryData(context, latest.code);
-			const pdf = await buildDownloadResponse('pdf', latest.title, latest.code, queryData, dateFormat);
+			const pdf = await buildDownloadResponse('pdf', latest.title, latest.code, queryData, dateFormat, theme);
 			return {
 				kind: 'story',
 				title: latest.title,

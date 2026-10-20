@@ -1,4 +1,4 @@
-import { buildStoryChartBlock, buildStoryMapBlock, buildStoryTableBlock } from '@nao/shared';
+import { buildStoryChartBlock, buildStoryFilterBlock, buildStoryMapBlock, buildStoryTableBlock } from '@nao/shared';
 import { describe, expect, it } from 'vitest';
 
 import { extractStorySummary } from '../src/utils/story-summary';
@@ -22,6 +22,7 @@ More details
 				type: 'chart',
 				chartType: 'bar',
 				title: 'Revenue',
+				colors: ['var(--chart-1)'],
 			},
 			{ type: 'text', content: 'Details' },
 			{ type: 'text', content: 'More details' },
@@ -55,7 +56,18 @@ Body text
 		});
 
 		expect(extractStorySummary(chart).segments).toEqual([
-			{ type: 'chart', chartType: 'kpi_card', title: 'Top "hero" products', kpiCount: 2 },
+			{
+				type: 'chart',
+				chartType: 'kpi_card',
+				title: 'Top "hero" products',
+				kpiCount: 2,
+				queryId: 'q',
+				series: [
+					{ dataKey: 'ltv', label: "Customer's LTV" },
+					{ dataKey: 'orders', label: 'Orders' },
+				],
+				colors: ['var(--chart-1)', 'var(--chart-2)'],
+			},
 		]);
 	});
 
@@ -72,6 +84,75 @@ Body text
 		expect(extractStorySummary(`${table}\n\n${map}`).segments).toEqual([
 			{ type: 'table', title: 'Orders "late"' },
 			{ type: 'map', mapType: 'points', title: "Stores' reach" },
+		]);
+	});
+
+	it('keeps wrapped grid columns as grid children', () => {
+		const map = buildStoryMapBlock({
+			query_id: 'q',
+			map_type: 'points',
+			latitude_key: 'lat',
+			longitude_key: 'lng',
+			title: 'Map',
+		});
+		const chart = buildStoryChartBlock({
+			query_id: 'q',
+			chart_type: 'bar',
+			x_axis_key: 'status',
+			series: [{ data_key: 'count', label: 'Count' }],
+			title: 'Status',
+		});
+
+		const summary = extractStorySummary(`<grid widths="1,1">
+<div style="grid-column: span 1">${map}</div>
+<div style="grid-column: span 1">${chart}</div>
+</grid>`);
+
+		expect(summary.segments).toEqual([
+			{
+				type: 'grid',
+				cols: 2,
+				widths: [1, 1],
+				children: [
+					{ type: 'map', mapType: 'points', title: 'Map' },
+					{
+						type: 'chart',
+						chartType: 'bar',
+						title: 'Status',
+						colors: ['var(--chart-1)'],
+					},
+				],
+			},
+		]);
+	});
+
+	it('drops filters and grids without previewable children', () => {
+		const filter = buildStoryFilterBlock({ id: 'region', column: 'region', type: 'select', options: ['EU', 'US'] });
+
+		const summary = extractStorySummary(`${filter}
+<grid widths="1,1">
+<div style="grid-column: span 1">${filter}</div>
+</grid>
+Closing note`);
+
+		expect(summary.segments).toEqual([{ type: 'text', content: 'Closing note' }]);
+	});
+
+	it('skips malformed series entries instead of failing the summary', () => {
+		const summary = extractStorySummary(
+			`<chart query_id="q" chart_type="kpi_card" series='[null, {"data_key":"revenue"}]' title="Revenue" />`,
+		);
+
+		expect(summary.segments).toEqual([
+			{
+				type: 'chart',
+				chartType: 'kpi_card',
+				title: 'Revenue',
+				kpiCount: 1,
+				queryId: 'q',
+				series: [{ dataKey: 'revenue' }],
+				colors: ['var(--chart-1)'],
+			},
 		]);
 	});
 

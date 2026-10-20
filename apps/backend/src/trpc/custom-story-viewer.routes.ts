@@ -8,6 +8,8 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import {
+	getActiveThemeForProject,
+	getActiveThemeForStory,
 	getCustomStoryFile,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
@@ -22,6 +24,7 @@ import {
 	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
 } from '../utils/custom-story-trpc';
+import { themeFontStylesheets } from '../utils/story-headless-page';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { protectedProcedure } from './trpc';
 
@@ -50,6 +53,8 @@ export const customStoryViewerRoutes = {
 		const story = await storyQueries.getStoryByChatAndSlug(ctx.viewer.chatId, input.storySlug);
 		return { format: story?.format ?? null };
 	}),
+
+	getTheme: viewerProcedure.query(({ ctx }) => getActiveThemeForProject(ctx.viewer.projectId)),
 
 	getVersion: viewerProcedure.input(z.object({ versionNumber })).query(async ({ ctx, input }) => {
 		try {
@@ -148,7 +153,8 @@ export const customStoryViewerRoutes = {
 				},
 			});
 
-			return buildStorySnapshotDownload(input.format, version.title, input.html);
+			const fontStylesheets = themeFontStylesheets(await getActiveThemeForStory(version.storyId));
+			return buildStorySnapshotDownload(input.format, version.title, input.html, fontStylesheets);
 		}),
 };
 

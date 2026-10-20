@@ -1,4 +1,4 @@
-import { bucketPieData, buildChart, defaultColorFor, labelize, resolveDataKey, sortByDateKey } from '@nao/shared';
+import { bucketPieData, buildChart, labelize, resolveDataKey, sortByDateKey } from '@nao/shared';
 import { isBuiltinChartType } from '@nao/shared/chart-types';
 import type { DateFormatSettings } from '@nao/shared/date';
 import { displayChart } from '@nao/shared/tools';
@@ -12,6 +12,7 @@ import {
 	svgToPng,
 	VERTICAL_LEGEND_WIDTH,
 } from '../utils/generate-chart';
+import { DEFAULT_EXPORT_PALETTE, exportSeriesColor, type StoryExportPalette } from '../utils/story-export-palette';
 
 export interface RenderChartInput {
 	config: Pick<
@@ -37,15 +38,17 @@ export interface RenderChartInput {
 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
 	includeLegend?: boolean;
 	dateFormat?: DateFormatSettings | null;
+	palette?: StoryExportPalette;
 }
 
 export function generateChartImage(input: RenderChartInput): Buffer {
 	const svg = renderChartToSvg(input);
-	return svgToPng(svg);
+	return svgToPng(svg, 2, (input.palette ?? DEFAULT_EXPORT_PALETTE).cssVariables);
 }
 
 export function renderChartToSvg(input: RenderChartInput): string {
 	const { config, data, dateFormat } = input;
+	const palette = input.palette ?? DEFAULT_EXPORT_PALETTE;
 	if (!isBuiltinChartType(config.chart_type)) {
 		throw new Error(`Custom chart "${config.chart_type}" cannot be rendered on the server.`);
 	}
@@ -63,7 +66,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 
 	const colorFor = (key: string, index: number) => {
 		const matched = series.find((s) => s.data_key === key);
-		return matched?.color || defaultColorFor(key, index);
+		return matched?.color || exportSeriesColor(palette, index);
 	};
 
 	const labelFormatter = (value: string) => labelize(value, dateFormat);
@@ -77,7 +80,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	let legend: LegendEntry[] = [];
 	if (includeLegend) {
 		legend = isPie
-			? buildPieLegendEntries(chartData, xAxisKey, dateFormat)
+			? buildPieLegendEntries(chartData, xAxisKey, palette, dateFormat)
 			: series.map((s, i) => ({
 					label: s.label || labelize(s.data_key, dateFormat),
 					color: colorFor(s.data_key, i),
@@ -103,7 +106,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		margin,
 		title: config.title,
 		maxXAxisTicks: Math.floor(chartWidth / maxLabelWidth),
-		backgroundColor: '#ffffff',
+		backgroundColor: palette.page,
+		chartStyle: { barRadius: palette.barRadius },
 		yAxisMin: config.y_axis_min,
 		yAxisMax: config.y_axis_max,
 		comparisonMode: config.comparison_mode,
@@ -121,11 +125,12 @@ export function renderChartToSvg(input: RenderChartInput): string {
 function buildPieLegendEntries(
 	bucketedRows: Record<string, unknown>[],
 	categoryKey: string,
+	palette: StoryExportPalette,
 	dateFormat?: DateFormatSettings | null,
 ): LegendEntry[] {
 	return bucketedRows.map((row, i) => {
 		const category = String(row[categoryKey]);
-		return { label: labelize(category, dateFormat), color: defaultColorFor(category, i) };
+		return { label: labelize(category, dateFormat), color: exportSeriesColor(palette, i) };
 	});
 }
 

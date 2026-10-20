@@ -42,6 +42,7 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 vi.mock('../src/queries/story.queries', () => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getStoryOwnerId: mocks.getStoryOwnerId,
+	getStoryProjectId: vi.fn(async () => null),
 }));
 vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
