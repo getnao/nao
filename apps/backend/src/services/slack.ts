@@ -72,7 +72,8 @@ import { readUserFileBytes } from './storage/user-files';
 import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
-const SLACK_MESSAGE_CLAIM_LEASE_MS = 10 * 60_000;
+/** Matches the Slack adapter's redelivery window: opt-in Delayed Events retry hourly for up to 24 hours. */
+const SLACK_MESSAGE_CLAIM_LEASE_MS = 24 * 60 * 60_000;
 
 const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
 const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;

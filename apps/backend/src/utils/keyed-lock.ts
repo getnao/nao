@@ -6,8 +6,10 @@ const LOCK_LEASE_MS = 2 * 60_000;
 const LOCK_RENEW_INTERVAL_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
 const MAX_WAIT_MS = 2 * 60_000;
+const EXPIRED_LOCKS_CLEANUP_INTERVAL_MS = 60 * 60_000;
 
 const inMemoryLocks = new Map<string, Promise<unknown>>();
+let lastExpiredLocksCleanupAt = 0;
 
 export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	if (dbConfig.dialect !== Dialect.Postgres) {
@@ -23,9 +25,17 @@ export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promi
 export async function claimOnce(key: string, leaseMs: number): Promise<boolean> {
 	const claimed = await keyedLockQueries.tryAcquireLock(key, crypto.randomUUID(), leaseMs);
 	if (claimed) {
-		await deleteExpiredLocksSafely();
+		scheduleExpiredLocksCleanup();
 	}
 	return claimed;
+}
+
+function scheduleExpiredLocksCleanup(): void {
+	if (Date.now() - lastExpiredLocksCleanupAt < EXPIRED_LOCKS_CLEANUP_INTERVAL_MS) {
+		return;
+	}
+	lastExpiredLocksCleanupAt = Date.now();
+	void deleteExpiredLocksSafely();
 }
 
 async function deleteExpiredLocksSafely(): Promise<void> {
