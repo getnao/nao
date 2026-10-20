@@ -2,7 +2,7 @@ import type { MemberStatus, UserRole } from '@nao/shared/types';
 import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
 import { env } from '../env';
 import { OrgRole } from '../types/organization';
 import * as projectQueries from './project.queries';
@@ -51,8 +51,8 @@ export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> =
 	return created;
 };
 
-export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void> => {
-	await db
+export const addOrgMemberIfMissing = async (member: NewOrgMember, executor: DBExecutor = db): Promise<void> => {
+	await executor
 		.insert(s.orgMember)
 		.values(member)
 		.onConflictDoUpdate({
@@ -359,7 +359,7 @@ export const addUserToDefaultProjectIfExists = async (userId: string): Promise<v
 			where: and(eq(s.orgMember.orgId, org.id), eq(s.orgMember.userId, userId), eq(s.orgMember.isDeleted, false)),
 		});
 		if (!existingOrgMember) {
-			await addOrgMemberIfMissing({ orgId: org.id, userId, role });
+			await addOrgMemberIfMissing({ orgId: org.id, userId, role }, tx);
 		}
 
 		const existingProjectMember = await tx.query.projectMember.findFirst({
