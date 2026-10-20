@@ -72,7 +72,7 @@ import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
-import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
+import { buildCredentialPreviews, getProcessEnvSourcedVarNames, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
 	assertCanManageUserAccount,
@@ -1302,6 +1302,7 @@ export const projectRoutes = {
 		return {
 			required: requiredVars,
 			values: storedVars,
+			setFromProcessEnv: getProcessEnvSourcedVarNames(requiredVars, storedVars),
 		};
 	}),
 
