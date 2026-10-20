@@ -33,10 +33,12 @@ import type { ToolCallDensity, UserRole } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
+import type { GroupProjectSharing } from '@/lib/project-sharing-policy';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { UserGroupProjectSharing } from '@/components/settings/user-group-project-sharing';
 import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
@@ -48,7 +50,9 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
+import { getSavedGroupProjectSharing } from '@/lib/project-sharing-policy';
 import { trpc } from '@/main';
+import { projectSharingSettingsStore, useProjectSharingSettings } from '@/stores/project-sharing-settings';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
 
@@ -133,6 +137,9 @@ export function UserGroupEditor({
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
 	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
+	const projectSharingSettings = useProjectSharingSettings();
+	const savedProjectSharing = getSavedGroupProjectSharing(projectSharingSettings, existingGroup);
+	const [projectSharing, setProjectSharing] = useState<GroupProjectSharing>(savedProjectSharing);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
@@ -242,9 +249,11 @@ export function UserGroupEditor({
 				}
 			: tab,
 	);
+	const hasProjectSharingChanges = projectSharing !== savedProjectSharing;
 	const hasUnsavedChanges =
 		editorGroup === null ||
 		hasGroupBudgetChanges ||
+		hasProjectSharingChanges ||
 		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
@@ -308,6 +317,10 @@ export function UserGroupEditor({
 	}, [existingGroup?.id, savedGroupBudgetUsd]);
 
 	useEffect(() => {
+		setProjectSharing(savedProjectSharing);
+	}, [existingGroup?.id, savedProjectSharing]);
+
+	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
 			onTabChange('features');
 		}
@@ -345,6 +358,7 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
+				projectSharingSettingsStore.setGroupProjectSharing(existingGroup, projectSharing);
 				await invalidateUserGroupQueries(queryClient);
 			} else {
 				const createdGroup = await createGroup.mutateAsync({
@@ -358,6 +372,7 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
+				projectSharingSettingsStore.setGroupProjectSharing(createdGroup, projectSharing);
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
 			}
@@ -390,6 +405,7 @@ export function UserGroupEditor({
 		}
 		resetForm();
 		setGroupBudgetUsd(savedGroupBudgetUsd);
+		setProjectSharing(savedProjectSharing);
 	};
 	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
 		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
@@ -423,6 +439,9 @@ export function UserGroupEditor({
 							<UserGroupFeatures
 								featureGrants={featureGrants}
 								onFeatureGrantsChange={setFeatureGrants}
+								isDefaultGroup={existingGroup?.isDefault === true}
+								projectSharing={projectSharing}
+								onProjectSharingChange={setProjectSharing}
 								toolCallDensityPolicy={toolCallDensityPolicy}
 								onToolCallDensityPolicyChange={setToolCallDensityPolicy}
 							/>
@@ -921,11 +940,17 @@ function buildGroupBudgetMembers(
 function UserGroupFeatures({
 	featureGrants,
 	onFeatureGrantsChange,
+	isDefaultGroup,
+	projectSharing,
+	onProjectSharingChange,
 	toolCallDensityPolicy,
 	onToolCallDensityPolicyChange,
 }: {
 	featureGrants: UserGroupFeature[];
 	onFeatureGrantsChange: (featureGrants: UserGroupFeature[]) => void;
+	isDefaultGroup: boolean;
+	projectSharing: GroupProjectSharing;
+	onProjectSharingChange: (value: GroupProjectSharing) => void;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	onToolCallDensityPolicyChange: (policy: ToolCallDensityPolicy) => void;
 }) {
@@ -955,6 +980,12 @@ function UserGroupFeatures({
 					))}
 				</div>
 			</div>
+
+			<UserGroupProjectSharing
+				isDefaultGroup={isDefaultGroup}
+				value={projectSharing}
+				onChange={onProjectSharingChange}
+			/>
 
 			<div className='flex flex-col gap-3 border-t pt-5'>
 				<div>
