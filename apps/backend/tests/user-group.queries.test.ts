@@ -724,6 +724,7 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			showAllSettings: false,
 		});
 		expect(storedUpdated.contextGrants).toEqual({
 			version: 5,
@@ -1043,6 +1044,7 @@ describe('user group queries', () => {
 			groupNames: ['All Users', 'First', 'Second', 'Third'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			showAllSettings: true,
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
@@ -1251,6 +1253,29 @@ describe('user group queries', () => {
 		await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation']);
 
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual(['automationCreation']);
+	});
+
+	it('shows all settings through All Users until it is turned off', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		expect(overview.groups[0].showAllSettings).toBe(true);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
+
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
+	});
+
+	it('follows the current group memberships when granting all settings', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: [], showAllSettings: true });
+
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
 	});
 
 	it('resolves effective names from All Users, manual, and SSO memberships within the project', async () => {

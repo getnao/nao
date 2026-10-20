@@ -74,6 +74,7 @@ import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
+	advancedSettingsProtectedProcedure,
 	assertCanManageUserAccount,
 	contextAdminProtectedProcedure,
 	projectProtectedProcedure,
@@ -478,7 +479,7 @@ export const projectRoutes = {
 		return { success: true };
 	}),
 
-	getTeamsConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getTeamsConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '' };
 		}
@@ -548,7 +549,7 @@ export const projectRoutes = {
 		return { success: true };
 	}),
 
-	getTelegramConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getTelegramConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '' };
 		}
@@ -609,7 +610,7 @@ export const projectRoutes = {
 		return { success: true };
 	}),
 
-	getMattermostConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getMattermostConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '', connected: false };
 		}
@@ -705,7 +706,7 @@ export const projectRoutes = {
 		return { success: true };
 	}),
 
-	getDiscordConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getDiscordConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '', connected: false, webhookUrl: '' };
 		}
@@ -819,7 +820,7 @@ export const projectRoutes = {
 		return await userQueries.regenerateMessagingProviderCode(ctx.user.id);
 	}),
 
-	getWhatsappConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getWhatsappConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '' };
 		}
@@ -911,14 +912,14 @@ export const projectRoutes = {
 			return { success: true };
 		}),
 
-	listAllUsersWithRoles: projectProtectedProcedure.query(async ({ ctx }) => {
+	listAllUsersWithRoles: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return [];
 		}
 		return projectQueries.listProjectMembersWithRoles(ctx.project.id);
 	}),
 
-	listUsersWithAccess: projectProtectedProcedure.query(async ({ ctx }) => {
+	listUsersWithAccess: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		return projectQueries.listUsersWithProjectAccessDetails(ctx.project.id);
 	}),
 

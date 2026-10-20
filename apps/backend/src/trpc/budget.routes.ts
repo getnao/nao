@@ -11,7 +11,7 @@ import {
 	getUnpricedModels,
 } from '../utils/budget';
 import { getProjectConfigLlm } from '../utils/llm';
-import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
+import { adminProtectedProcedure, advancedSettingsProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const budgetRoutes = {
 	getProvidersCostSupport: projectProtectedProcedure.query(async ({ ctx }) => {
@@ -22,12 +22,12 @@ export const budgetRoutes = {
 		return getUnpricedModels(ctx.project.id);
 	}),
 
-	getBudgets: projectProtectedProcedure.query(async ({ ctx }) => {
+	getBudgets: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		await budgetQueries.advanceStaleBudgetPeriods(ctx.project.id);
 		return getEffectiveProviderBudgets(ctx.project.id);
 	}),
 
-	getProviderCosts: projectProtectedProcedure.query(async ({ ctx }) => {
+	getProviderCosts: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		const budgets = await getEffectiveProviderBudgets(ctx.project.id);
 		return budgetQueries.getProviderPeriodCosts(ctx.project.id, budgets);
 	}),

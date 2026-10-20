@@ -254,6 +254,7 @@ const allUsers = {
 	isDefault: true,
 	featureGrants: [],
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	showAllSettings: true,
 	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 	filesAccess: { mode: 'all' as const },
@@ -264,6 +265,7 @@ const analysts = {
 	id: 'analysts',
 	name: 'Analysts',
 	isDefault: false,
+	showAllSettings: false,
 	databaseAccess: { ...EMPTY_DATABASE_CONTEXT_ACCESS, strict: false },
 	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
@@ -1662,6 +1664,21 @@ describe('UserGroupEditor', () => {
 				databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			}),
 		);
+	});
+
+	it('tracks, restores, and saves the settings visibility', () => {
+		renderEditor('advanced');
+		const showAllSettings = () => screen.getByRole('switch', { name: 'Show all settings to users' });
+
+		fireEvent.click(showAllSettings());
+		expect(showAllSettings().getAttribute('aria-checked')).toBe('true');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(showAllSettings().getAttribute('aria-checked')).toBe('false');
+
+		fireEvent.click(showAllSettings());
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ showAllSettings: true }));
 	});
 
 	it.each([

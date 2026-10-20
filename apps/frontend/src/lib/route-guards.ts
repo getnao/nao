@@ -1,21 +1,18 @@
 import { redirect } from '@tanstack/react-router';
 
-import {
-	ACCOUNT_SETTINGS_PATH,
-	canSeeAdvancedSettings,
-	readAdvancedSettingsAccessStore,
-} from '@/lib/advanced-settings-access';
-import { authClient } from '@/lib/auth-client';
 import { queryClient, trpc } from '@/main';
 
 export async function requireAdvancedSettingsAccess(pathname: string) {
-	if (pathname.startsWith(ACCOUNT_SETTINGS_PATH)) {
+	if (pathname.startsWith('/settings/account')) {
 		return;
 	}
 	const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
-	const session = await authClient.getSession();
-	if (!canSeeAdvancedSettings(readAdvancedSettingsAccessStore(), project?.userRole, session.data?.user.id)) {
-		throw redirect({ to: ACCOUNT_SETTINGS_PATH });
+	if (!project) {
+		return;
+	}
+	const access = await queryClient.ensureQueryData(trpc.userGroup.effectiveAccess.queryOptions());
+	if (!access.canSeeAdvancedSettings) {
+		throw redirect({ to: '/settings/account' });
 	}
 }
 

@@ -205,19 +205,20 @@ const userGroupRowPoliciesSchema = z
 
 export const userGroupRoutes = {
 	effectiveAccess: projectProtectedProcedure.query(async ({ ctx }) => {
-		return getEffectiveUserGroupAccess(ctx.project.id, ctx.user.id);
+		return getEffectiveUserGroupAccess(ctx.project.id, ctx.user.id, ctx.userRole);
 	}),
 
 	effectiveAccessForUser: adminProtectedProcedure
 		.input(z.object({ userId: z.string().min(1) }))
 		.query(async ({ ctx, input }) => {
-			if (!(await projectQueries.getUserRoleInProject(ctx.project.id, input.userId))) {
+			const role = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
+			if (!role) {
 				throw new TRPCError({
 					code: 'NOT_FOUND',
 					message: 'This user does not have access to the project.',
 				});
 			}
-			return getEffectiveUserGroupAccessForUserDetail(ctx.project.id, input.userId);
+			return getEffectiveUserGroupAccessForUserDetail(ctx.project.id, input.userId, role);
 		}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -281,6 +282,7 @@ export const userGroupRoutes = {
 				name: groupNameSchema,
 				featureGrants: featureGrantsSchema.default([]),
 				toolCallDensityPolicy: toolCallDensityPolicySchema.default(DEFAULT_TOOL_CALL_DENSITY_POLICY),
+				showAllSettings: z.boolean().default(false),
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
 				docsAccess: fileTreeAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
 				filesAccess: fileTreeAccessSchema.default(EMPTY_FILES_CONTEXT_ACCESS),
@@ -317,6 +319,7 @@ export const userGroupRoutes = {
 					input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
 					rowPolicies,
 					filesAccess,
+					input.showAllSettings,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -331,6 +334,7 @@ export const userGroupRoutes = {
 				name: groupNameSchema.optional(),
 				featureGrants: featureGrantsSchema,
 				toolCallDensityPolicy: toolCallDensityPolicySchema,
+				showAllSettings: z.boolean().optional(),
 				databaseAccess: databaseAccessSchema.optional(),
 				docsAccess: fileTreeAccessSchema.optional(),
 				filesAccess: fileTreeAccessSchema.optional(),
@@ -363,6 +367,7 @@ export const userGroupRoutes = {
 					name: input.name,
 					featureGrants: unique(input.featureGrants),
 					toolCallDensityPolicy: input.toolCallDensityPolicy,
+					showAllSettings: input.showAllSettings,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
 					...(docsAccess === undefined ? {} : { docsAccess }),
 					...(filesAccess === undefined ? {} : { filesAccess }),

@@ -49,11 +49,6 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
-import {
-	getGroupShowsAllSettings,
-	saveGroupAdvancedSettingsAccess,
-	useAdvancedSettingsAccessStore,
-} from '@/lib/advanced-settings-access';
 import { trpc } from '@/main';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
@@ -70,6 +65,7 @@ export interface UserGroupEditorGroup {
 	isLocked?: false;
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	showAllSettings: boolean;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
@@ -127,6 +123,7 @@ export function UserGroupEditor({
 	const [toolCallDensityPolicy, setToolCallDensityPolicy] = useState<ToolCallDensityPolicy>(
 		existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	);
+	const [showAllSettings, setShowAllSettings] = useState(existingGroup?.showAllSettings ?? false);
 	const [databaseAccess, setDatabaseAccess] = useState<DatabaseContextAccess>(
 		existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS,
 	);
@@ -166,16 +163,8 @@ export function UserGroupEditor({
 		: null;
 	const [groupBudgetUsd, setGroupBudgetUsd] = useState<number | null>(savedGroupBudgetUsd);
 	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
-	const advancedSettingsAccess = useAdvancedSettingsAccessStore();
-	const savedShowAllSettings = existingGroup
-		? getGroupShowsAllSettings(advancedSettingsAccess, existingGroup)
-		: false;
-	const [showAllSettings, setShowAllSettings] = useState(savedShowAllSettings);
-	const hasShowAllSettingsChanges = showAllSettings !== savedShowAllSettings;
 	const defaultGroup = userGroupOverview.data?.groups.find((candidate) => candidate.isDefault);
-	const allUsersGroup = defaultGroup
-		? { id: defaultGroup.id, showAllSettings: getGroupShowsAllSettings(advancedSettingsAccess, defaultGroup) }
-		: null;
+	const allUsersGroup = defaultGroup && !defaultGroup.isLocked ? defaultGroup : null;
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
 	const rowSecurityRegistry =
@@ -262,11 +251,11 @@ export function UserGroupEditor({
 	const hasUnsavedChanges =
 		editorGroup === null ||
 		hasGroupBudgetChanges ||
-		hasShowAllSettingsChanges ||
 		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
 			toolCallDensityPolicy,
+			showAllSettings,
 			databaseAccess,
 			docsAccess,
 			filesAccess,
@@ -278,6 +267,7 @@ export function UserGroupEditor({
 		setName(existingGroup?.name ?? '');
 		setFeatureGrants(existingGroup?.featureGrants ?? []);
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
+		setShowAllSettings(existingGroup?.showAllSettings ?? false);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setFilesAccess(existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS);
@@ -298,6 +288,7 @@ export function UserGroupEditor({
 				name,
 				featureGrants,
 				toolCallDensityPolicy,
+				showAllSettings,
 				databaseAccess,
 				docsAccess,
 				filesAccess,
@@ -317,6 +308,7 @@ export function UserGroupEditor({
 		name,
 		resetForm,
 		rowPolicies,
+		showAllSettings,
 		ssoMappings,
 		toolCallDensityPolicy,
 	]);
@@ -324,10 +316,6 @@ export function UserGroupEditor({
 	useEffect(() => {
 		setGroupBudgetUsd(savedGroupBudgetUsd);
 	}, [existingGroup?.id, savedGroupBudgetUsd]);
-
-	useEffect(() => {
-		setShowAllSettings(savedShowAllSettings);
-	}, [existingGroup?.id, savedShowAllSettings]);
 
 	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
@@ -360,6 +348,7 @@ export function UserGroupEditor({
 					...(existingGroup.isDefault ? {} : { name }),
 					featureGrants,
 					toolCallDensityPolicy,
+					showAllSettings,
 					databaseAccess,
 					docsAccess,
 					filesAccess,
@@ -367,13 +356,13 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
-				persistAdvancedSettingsAccess(existingGroup.id, existingGroup.isDefault);
 				await invalidateUserGroupQueries(queryClient);
 			} else {
 				const createdGroup = await createGroup.mutateAsync({
 					name,
 					featureGrants,
 					toolCallDensityPolicy,
+					showAllSettings,
 					databaseAccess,
 					docsAccess,
 					filesAccess,
@@ -381,7 +370,6 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
-				persistAdvancedSettingsAccess(createdGroup.id, false);
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
 			}
@@ -389,16 +377,6 @@ export function UserGroupEditor({
 		} catch (error) {
 			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
 		}
-	};
-
-	const persistAdvancedSettingsAccess = (groupId: string, isDefault: boolean) => {
-		saveGroupAdvancedSettingsAccess(groupId, {
-			showAllSettings,
-			isDefault,
-			memberIds: (userGroupOverview.data?.memberships ?? [])
-				.filter((membership) => membership.groupId === groupId)
-				.map((membership) => membership.userId),
-		});
 	};
 
 	const handleDelete = async () => {
@@ -424,7 +402,6 @@ export function UserGroupEditor({
 		}
 		resetForm();
 		setGroupBudgetUsd(savedGroupBudgetUsd);
-		setShowAllSettings(savedShowAllSettings);
 	};
 	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
 		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
@@ -871,6 +848,7 @@ export function hasUserGroupEditorChanges(
 		name: string;
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy: ToolCallDensityPolicy;
+		showAllSettings?: boolean;
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
@@ -883,6 +861,7 @@ export function hasUserGroupEditorChanges(
 		!haveSameItems(values.featureGrants, group.featureGrants) ||
 		values.toolCallDensityPolicy.defaultDensity !== group.toolCallDensityPolicy.defaultDensity ||
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
+		(values.showAllSettings ?? group.showAllSettings) !== group.showAllSettings ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
 		!haveSameFileTreeAccess(values.filesAccess ?? group.filesAccess, group.filesAccess) ||

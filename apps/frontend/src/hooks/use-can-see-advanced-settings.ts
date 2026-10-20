@@ -1,10 +1,15 @@
-import { canSeeAdvancedSettings, useAdvancedSettingsAccessStore } from '@/lib/advanced-settings-access';
-import { useSession } from '@/lib/auth-client';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useQuery } from '@tanstack/react-query';
+
+import { trpc } from '@/main';
 
 export function useCanSeeAdvancedSettings(): boolean {
-	const { role } = usePermissions();
-	const { data: session } = useSession();
-	const store = useAdvancedSettingsAccessStore();
-	return canSeeAdvancedSettings(store, role, session?.user.id);
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const effectiveAccess = useQuery({
+		...trpc.userGroup.effectiveAccess.queryOptions(),
+		enabled: Boolean(project.data),
+	});
+	if (project.isSuccess && !project.data) {
+		return true;
+	}
+	return effectiveAccess.data?.canSeeAdvancedSettings === true;
 }

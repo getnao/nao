@@ -34,7 +34,8 @@ export function UserGroupAdvancedSettings({
 			<div>
 				<h3 className='text-sm font-medium'>Settings visibility</h3>
 				<p className='text-xs text-muted-foreground'>
-					Members can always chat with data. Choose whether they also see project and organization settings.
+					Choose whether members with the User role see project and organization settings, or only their
+					account.
 				</p>
 			</div>
 			<UserGroupSwitchRow
@@ -58,7 +59,7 @@ function AccessSummary({ rows, showAllSettings }: { rows: AccessSummaryRow[]; sh
 	return (
 		<section className='flex flex-col gap-3'>
 			<div className='flex items-center justify-between gap-3'>
-				<h3 className='text-sm font-medium'>What members see</h3>
+				<h3 className='text-sm font-medium'>What members with the User role see</h3>
 				<span
 					className={cn(
 						'rounded-full px-2 py-0.5 text-xs font-medium',
@@ -84,8 +85,8 @@ function AccessSummary({ rows, showAllSettings }: { rows: AccessSummaryRow[]; sh
 				))}
 			</ul>
 			<p className='text-xs text-muted-foreground'>
-				Admins and context admins always keep their settings. Hidden pages redirect to Account and their API
-				requests are denied.
+				Admins and context admins always keep their settings, and viewers only see their account. Hidden pages
+				redirect to Account.
 			</p>
 		</section>
 	);

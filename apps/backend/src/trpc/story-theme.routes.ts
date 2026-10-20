@@ -12,7 +12,7 @@ import { env } from '../env';
 import * as storyThemeQueries from '../queries/story-theme.queries';
 import { generateStoryThemePairFromSources } from '../services/story-theme/generate';
 import { DesignSourceError } from '../services/story-theme/signals';
-import { cloudBillingAdminProcedure, projectProtectedProcedure } from './trpc';
+import { advancedSettingsProtectedProcedure, cloudBillingAdminProcedure, projectProtectedProcedure } from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
 const base64Length = (bytes: number): number => 4 * Math.ceil(bytes / 3);
@@ -40,7 +40,7 @@ function assertCustomStoriesEnabled() {
 	}
 }
 
-const storyThemeReadProcedure = projectProtectedProcedure.use(async ({ next }) => {
+const storyThemeReadProcedure = advancedSettingsProtectedProcedure.use(async ({ next }) => {
 	assertCustomStoriesEnabled();
 	return next();
 });

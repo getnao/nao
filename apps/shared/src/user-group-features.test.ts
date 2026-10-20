@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	canRoleSeeAdvancedSettings,
+	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_CONFIG,
 	parseStoredUserGroupConfig,
 	serializeUserGroupConfig,
@@ -21,10 +23,14 @@ describe('user group configuration', () => {
 
 	it('serializes canonical v2 configuration without compact-mode', () => {
 		expect(
-			serializeUserGroupConfig(['storyCreation', 'automationCreation', 'compact-mode'], {
-				defaultDensity: 'compact',
-				canChange: false,
-			}),
+			serializeUserGroupConfig(
+				['storyCreation', 'automationCreation', 'compact-mode'],
+				{
+					defaultDensity: 'compact',
+					canChange: false,
+				},
+				true,
+			),
 		).toEqual({
 			version: 2,
 			features: ['storyCreation', 'automationCreation'],
@@ -32,6 +38,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			showAllSettings: true,
 		});
 		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'customStoryCreation', 'automationCreation']);
 	});
@@ -45,6 +52,7 @@ describe('user group configuration', () => {
 					defaultDensity: 'compact',
 					canChange: true,
 				},
+				showAllSettings: true,
 			}),
 		).toEqual({
 			features: ['storyCreation', 'automationCreation'],
@@ -52,7 +60,38 @@ describe('user group configuration', () => {
 				defaultDensity: 'compact',
 				canChange: true,
 			},
+			showAllSettings: true,
 		});
+	});
+
+	it('shows all settings to All Users and hides them for custom groups until configured', () => {
+		const storedBeforeSettingExisted = {
+			version: 2,
+			features: [],
+			toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+		};
+
+		expect(parseStoredUserGroupConfig(storedBeforeSettingExisted, true).showAllSettings).toBe(true);
+		expect(parseStoredUserGroupConfig(storedBeforeSettingExisted, false).showAllSettings).toBe(false);
+		expect(parseStoredUserGroupConfig(['story-creation'], true).showAllSettings).toBe(true);
+	});
+
+	it('keeps the saved settings visibility over the group default', () => {
+		const hidden = {
+			version: 2,
+			features: [],
+			toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+			showAllSettings: false,
+		};
+		const shown = {
+			version: 2,
+			features: [],
+			toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+			showAllSettings: true,
+		};
+
+		expect(parseStoredUserGroupConfig(hidden, true).showAllSettings).toBe(false);
+		expect(parseStoredUserGroupConfig(shown, false).showAllSettings).toBe(true);
 	});
 
 	it('maps legacy compact-mode to an unlocked detailed policy', () => {
@@ -62,6 +101,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: true,
 			},
+			showAllSettings: false,
 		});
 	});
 
@@ -72,6 +112,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			showAllSettings: false,
 		});
 	});
 
@@ -87,6 +128,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			showAllSettings: false,
 		});
 	});
 
@@ -97,6 +139,25 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			showAllSettings: false,
 		});
+	});
+});
+
+describe('canRoleSeeAdvancedSettings', () => {
+	it('follows the groups only for the User role', () => {
+		expect(canRoleSeeAdvancedSettings('user', true)).toBe(true);
+		expect(canRoleSeeAdvancedSettings('user', false)).toBe(false);
+	});
+
+	it('always shows advanced settings to admins and context admins', () => {
+		expect(canRoleSeeAdvancedSettings('admin', false)).toBe(true);
+		expect(canRoleSeeAdvancedSettings('context_admin', false)).toBe(true);
+	});
+
+	it('never shows advanced settings to viewers or users without a role', () => {
+		expect(canRoleSeeAdvancedSettings('viewer', true)).toBe(false);
+		expect(canRoleSeeAdvancedSettings(null, true)).toBe(false);
+		expect(canRoleSeeAdvancedSettings(undefined, true)).toBe(false);
 	});
 });

@@ -1,4 +1,4 @@
-import type { ToolCallDensity } from './types';
+import type { ToolCallDensity, UserRole } from './types';
 
 export const USER_GROUP_FEATURES = ['storyCreation', 'customStoryCreation', 'automationCreation'] as const;
 
@@ -12,6 +12,7 @@ export interface ToolCallDensityPolicy {
 export interface UserGroupConfig {
 	features: UserGroupFeature[];
 	toolCallDensity: ToolCallDensityPolicy;
+	showAllSettings: boolean;
 }
 
 export type StoredUserGroupConfig =
@@ -20,6 +21,7 @@ export type StoredUserGroupConfig =
 			version: 2;
 			features: UserGroupFeature[];
 			toolCallDensity: ToolCallDensityPolicy;
+			showAllSettings?: boolean;
 	  };
 
 export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
@@ -93,7 +95,24 @@ export function normalizeUserGroupFeatures(features: readonly string[]): UserGro
 	];
 }
 
-export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
+/**
+ * Advanced settings are every settings page beyond the user's own account. Only the User role depends
+ * on its groups: admins and context admins always see them, viewers never do.
+ */
+export function canRoleSeeAdvancedSettings(role: UserRole | null | undefined, groupsShowAllSettings: boolean): boolean {
+	switch (role) {
+		case 'admin':
+		case 'context_admin':
+			return true;
+		case 'user':
+			return groupsShowAllSettings;
+		default:
+			return false;
+	}
+}
+
+/** Groups saved before the setting existed keep the previous behavior: All Users shows every settings page. */
+export function parseStoredUserGroupConfig(value: unknown, isDefault = false): UserGroupConfig {
 	if (Array.isArray(value)) {
 		const legacyFeatures = value.filter((feature): feature is string => typeof feature === 'string');
 		return {
@@ -102,6 +121,7 @@ export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
 				defaultDensity: 'detailed',
 				canChange: legacyFeatures.includes('compact-mode'),
 			},
+			showAllSettings: isDefault,
 		};
 	}
 
@@ -109,6 +129,7 @@ export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
 		return {
 			features: [],
 			toolCallDensity: { defaultDensity: 'detailed', canChange: false },
+			showAllSettings: isDefault,
 		};
 	}
 
@@ -123,12 +144,14 @@ export function parseStoredUserGroupConfig(value: unknown): UserGroupConfig {
 			defaultDensity: policy.defaultDensity === 'compact' ? 'compact' : 'detailed',
 			canChange: policy.canChange === true,
 		},
+		showAllSettings: typeof value.showAllSettings === 'boolean' ? value.showAllSettings : isDefault,
 	};
 }
 
 export function serializeUserGroupConfig(
 	features: readonly string[],
 	toolCallDensity: ToolCallDensityPolicy,
+	showAllSettings: boolean,
 ): StoredUserGroupConfig {
 	return {
 		version: 2,
@@ -137,6 +160,7 @@ export function serializeUserGroupConfig(
 			defaultDensity: toolCallDensity.defaultDensity,
 			canChange: toolCallDensity.canChange,
 		},
+		showAllSettings,
 	};
 }
 

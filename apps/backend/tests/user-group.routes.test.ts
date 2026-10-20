@@ -667,6 +667,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			false,
 		);
 	});
 
@@ -688,6 +689,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			false,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -745,6 +747,7 @@ describe('user group routes', () => {
 			},
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			false,
 		);
 	});
 
@@ -793,6 +796,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			false,
 		);
 	});
 
@@ -817,6 +821,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			false,
 		);
 	});
 
@@ -897,6 +902,7 @@ describe('user group routes', () => {
 			undefined,
 			undefined,
 			EMPTY_FILES_CONTEXT_ACCESS,
+			false,
 		);
 	});
 
@@ -1073,6 +1079,7 @@ describe('user group routes', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			canSeeAdvancedSettings: false,
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 		});
@@ -1090,6 +1097,7 @@ describe('user group routes', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			canSeeAdvancedSettings: false,
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 			rowPolicies: [{ version: 1, policies: [] }],
@@ -1136,6 +1144,7 @@ describe('user group routes', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			canSeeAdvancedSettings: false,
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 		});
