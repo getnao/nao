@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	DEFAULT_USER_GROUP_CONFIG,
 	parseStoredUserGroupConfig,
+	resolveProjectSharingPermission,
 	serializeUserGroupConfig,
 	USER_GROUP_FEATURES,
 } from './user-group-features';
@@ -32,8 +33,15 @@ describe('user group configuration', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 		});
 		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'customStoryCreation', 'automationCreation']);
+	});
+
+	it('serializes the project sharing permission', () => {
+		expect(serializeUserGroupConfig([], { defaultDensity: 'detailed', canChange: true }, 'blocked')).toMatchObject({
+			projectSharing: 'blocked',
+		});
 	});
 
 	it('reads canonical v2 configuration', () => {
@@ -45,6 +53,7 @@ describe('user group configuration', () => {
 					defaultDensity: 'compact',
 					canChange: true,
 				},
+				projectSharing: 'allowed',
 			}),
 		).toEqual({
 			features: ['storyCreation', 'automationCreation'],
@@ -52,7 +61,19 @@ describe('user group configuration', () => {
 				defaultDensity: 'compact',
 				canChange: true,
 			},
+			projectSharing: 'allowed',
 		});
+	});
+
+	it('inherits project sharing when the stored permission is missing or unknown', () => {
+		const toolCallDensity = { defaultDensity: 'detailed', canChange: true };
+		expect(parseStoredUserGroupConfig({ version: 2, features: [], toolCallDensity }).projectSharing).toBe(
+			'inherit',
+		);
+		expect(
+			parseStoredUserGroupConfig({ version: 2, features: [], toolCallDensity, projectSharing: 'everyone' })
+				.projectSharing,
+		).toBe('inherit');
 	});
 
 	it('maps legacy compact-mode to an unlocked detailed policy', () => {
@@ -62,6 +83,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: true,
 			},
+			projectSharing: 'inherit',
 		});
 	});
 
@@ -72,6 +94,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 		});
 	});
 
@@ -87,6 +110,7 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 		});
 	});
 
@@ -97,6 +121,26 @@ describe('user group configuration', () => {
 				defaultDensity: 'detailed',
 				canChange: false,
 			},
+			projectSharing: 'inherit',
 		});
+	});
+});
+
+describe('resolveProjectSharingPermission', () => {
+	const allUsers = (projectSharing: 'inherit' | 'allowed' | 'blocked') => ({ isDefault: true, projectSharing });
+	const group = (projectSharing: 'inherit' | 'allowed' | 'blocked') => ({ isDefault: false, projectSharing });
+
+	it('falls back to the All Users default when no group overrides it', () => {
+		expect(resolveProjectSharingPermission([allUsers('inherit'), group('inherit')])).toBe(true);
+		expect(resolveProjectSharingPermission([allUsers('allowed')])).toBe(true);
+		expect(resolveProjectSharingPermission([allUsers('blocked'), group('inherit')])).toBe(false);
+	});
+
+	it('lets an explicit allow override a restrictive default', () => {
+		expect(resolveProjectSharingPermission([allUsers('blocked'), group('allowed')])).toBe(true);
+	});
+
+	it('lets an explicit block win over any explicit allow', () => {
+		expect(resolveProjectSharingPermission([allUsers('allowed'), group('allowed'), group('blocked')])).toBe(false);
 	});
 });
