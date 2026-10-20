@@ -34,6 +34,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
+import { UserGroupAdvancedSettings } from '@/components/settings/user-group-advanced-settings';
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
@@ -48,6 +49,11 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
+import {
+	getGroupShowsAllSettings,
+	saveGroupAdvancedSettingsAccess,
+	useAdvancedSettingsAccessStore,
+} from '@/lib/advanced-settings-access';
 import { trpc } from '@/main';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
@@ -71,7 +77,7 @@ export interface UserGroupEditorGroup {
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'budget' | 'sso';
+export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'budget' | 'advanced' | 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -87,6 +93,7 @@ const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
 	{ id: 'budget', label: 'Budget' },
+	{ id: 'advanced', label: 'Advanced settings' },
 ];
 
 const defaultProjectRoleOptions: readonly UserRole[] = [...USER_ROLES.filter((role) => role !== 'admin'), 'admin'];
@@ -159,6 +166,16 @@ export function UserGroupEditor({
 		: null;
 	const [groupBudgetUsd, setGroupBudgetUsd] = useState<number | null>(savedGroupBudgetUsd);
 	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
+	const advancedSettingsAccess = useAdvancedSettingsAccessStore();
+	const savedShowAllSettings = existingGroup
+		? getGroupShowsAllSettings(advancedSettingsAccess, existingGroup)
+		: false;
+	const [showAllSettings, setShowAllSettings] = useState(savedShowAllSettings);
+	const hasShowAllSettingsChanges = showAllSettings !== savedShowAllSettings;
+	const defaultGroup = userGroupOverview.data?.groups.find((candidate) => candidate.isDefault);
+	const allUsersGroup = defaultGroup
+		? { id: defaultGroup.id, showAllSettings: getGroupShowsAllSettings(advancedSettingsAccess, defaultGroup) }
+		: null;
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
 	const rowSecurityRegistry =
@@ -245,6 +262,7 @@ export function UserGroupEditor({
 	const hasUnsavedChanges =
 		editorGroup === null ||
 		hasGroupBudgetChanges ||
+		hasShowAllSettingsChanges ||
 		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
@@ -308,6 +326,10 @@ export function UserGroupEditor({
 	}, [existingGroup?.id, savedGroupBudgetUsd]);
 
 	useEffect(() => {
+		setShowAllSettings(savedShowAllSettings);
+	}, [existingGroup?.id, savedShowAllSettings]);
+
+	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
 			onTabChange('features');
 		}
@@ -345,6 +367,7 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
+				persistAdvancedSettingsAccess(existingGroup.id, existingGroup.isDefault);
 				await invalidateUserGroupQueries(queryClient);
 			} else {
 				const createdGroup = await createGroup.mutateAsync({
@@ -358,6 +381,7 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
+				persistAdvancedSettingsAccess(createdGroup.id, false);
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
 			}
@@ -365,6 +389,16 @@ export function UserGroupEditor({
 		} catch (error) {
 			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
 		}
+	};
+
+	const persistAdvancedSettingsAccess = (groupId: string, isDefault: boolean) => {
+		saveGroupAdvancedSettingsAccess(groupId, {
+			showAllSettings,
+			isDefault,
+			memberIds: (userGroupOverview.data?.memberships ?? [])
+				.filter((membership) => membership.groupId === groupId)
+				.map((membership) => membership.userId),
+		});
 	};
 
 	const handleDelete = async () => {
@@ -390,6 +424,7 @@ export function UserGroupEditor({
 		}
 		resetForm();
 		setGroupBudgetUsd(savedGroupBudgetUsd);
+		setShowAllSettings(savedShowAllSettings);
 	};
 	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
 		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
@@ -474,6 +509,14 @@ export function UserGroupEditor({
 								members={groupBudgetMembers}
 								groups={memberBudgetOverview.data?.groups ?? []}
 								onLimitChange={setGroupBudgetUsd}
+							/>
+						)}
+						{activeTab === 'advanced' && (
+							<UserGroupAdvancedSettings
+								showAllSettings={showAllSettings}
+								onShowAllSettingsChange={setShowAllSettings}
+								isDefaultGroup={existingGroup?.isDefault === true}
+								allUsersGroup={allUsersGroup}
 							/>
 						)}
 						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (

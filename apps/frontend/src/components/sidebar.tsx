@@ -39,6 +39,7 @@ import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings';
 import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
 import { useSession } from '@/lib/auth-client';
 
@@ -56,6 +57,7 @@ export function Sidebar() {
 	const branding = useBranding();
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
+	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const showAutomations = !isViewer && betaAutomationsEnabled;
@@ -262,6 +264,7 @@ export function Sidebar() {
 			{isInSettings ? (
 				<SidebarSettingsNav
 					isCollapsed={effectiveIsCollapsed}
+					canSeeAdvancedSettings={canSeeAdvancedSettings}
 					isAdmin={isAdmin}
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}

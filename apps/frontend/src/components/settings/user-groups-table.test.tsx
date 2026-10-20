@@ -933,6 +933,7 @@ describe('UserGroupEditor', () => {
 			'Context',
 			'Security',
 			'Budget',
+			'Advanced settings',
 		]);
 		expect(screen.getByRole('tab', { name: 'Features' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
