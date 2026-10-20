@@ -14,7 +14,7 @@ vi.mock('@/main', () => ({
 	trpc: {
 		apiKey: {
 			list: { queryOptions: () => ({ queryKey: ['api-key-list'] }) },
-			create: { mutationOptions: (options: unknown) => options },
+			create: { mutationOptions: (options: unknown) => ({ ...(options as object), __create: true }) },
 			revoke: { mutationOptions: (options: unknown) => options },
 		},
 	},
@@ -30,8 +30,13 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 type CreatedKey = { plaintext: string; scope: string };
+type CreateMutation = { onSuccess: (result: CreatedKey) => Promise<void> };
+// The parent's revoke mutation is created before the generator's create mutation, so tag the
+// create options rather than relying on call order.
 const createKey = (key: CreatedKey) =>
-	(mocks.mutations[0] as { onSuccess: (result: CreatedKey) => Promise<void> }).onSuccess(key);
+	(mocks.mutations.find((mutation) => (mutation as { __create?: boolean }).__create) as CreateMutation).onSuccess(
+		key,
+	);
 
 afterEach(() => {
 	mocks.mutations.length = 0;
