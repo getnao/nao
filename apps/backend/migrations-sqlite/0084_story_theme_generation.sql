@@ -1,0 +1,1 @@
+ALTER TABLE `project_story_theme` ADD `generation` text;

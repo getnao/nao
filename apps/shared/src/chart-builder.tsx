@@ -115,8 +115,10 @@ const VALUE_AXIS_MAX_WIDTH = 120;
 const VALUE_AXIS_CHARACTER_WIDTH = 7;
 const VALUE_AXIS_PADDING = 12;
 const HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH = 60;
-const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH = 180;
-const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 24;
+const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 18;
+const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH =
+	HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING;
+const HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP = 2;
 const HORIZONTAL_BAR_SIZE = 10;
 const HORIZONTAL_BAR_MAX_SIZE = 28;
 const HORIZONTAL_BAR_CATEGORY_GAP = '20%';
@@ -739,10 +741,10 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 				<YAxis
 					type='category'
 					dataKey={xAxisKey}
-					tick={AXIS_TICK}
+					tick={createHorizontalBarCategoryTick(tickFormatter)}
 					tickLine={false}
 					axisLine={false}
-					minTickGap={12}
+					minTickGap={HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP}
 					interval={xAxisInterval ?? 'preserveStartEnd'}
 					width={categoryAxisWidth}
 					tickFormatter={tickFormatter}
@@ -867,6 +869,35 @@ interface HorizontalBarValueLabel {
 	text: string;
 	x: number;
 	y: number;
+}
+
+interface HorizontalBarCategoryTickProps {
+	x?: number | string;
+	y?: number | string;
+	fill?: string;
+	textAnchor?: React.SVGProps<SVGTextElement>['textAnchor'];
+	payload?: { value?: unknown };
+}
+
+/** Recharts' default tick wraps labels containing spaces onto several lines; categories stay on one line. */
+function createHorizontalBarCategoryTick(tickFormatter: (value: string) => string) {
+	function HorizontalBarCategoryTick({ x, y, fill, textAnchor, payload }: HorizontalBarCategoryTickProps) {
+		return (
+			<text
+				x={x}
+				y={y}
+				dy='0.355em'
+				fill={fill}
+				textAnchor={textAnchor}
+				fontSize={AXIS_TICK.fontSize}
+				fontFamily={AXIS_TICK.fontFamily}
+				className='recharts-text recharts-cartesian-axis-tick-value'
+			>
+				{tickFormatter(String(payload?.value ?? ''))}
+			</text>
+		);
+	}
+	return HorizontalBarCategoryTick;
 }
 
 function createHorizontalBarValueLabelsLayer(valueFormatter: (value: number) => string, valueLabelWidth: number) {
@@ -1689,6 +1720,7 @@ function renderChartTitle(title: string) {
 			key='chart-title'
 			component={({ width = 0 }: { width?: number }) => (
 				<text
+					className='nao-chart-title'
 					x={width / 2}
 					y={16}
 					textAnchor='middle'

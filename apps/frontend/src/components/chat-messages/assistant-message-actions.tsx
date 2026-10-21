@@ -242,9 +242,17 @@ interface FeedbackDialogProps {
 	onSubmit: (explanation?: string) => void;
 	isPending: boolean;
 	vote: FeedbackVote;
+	subject?: string;
 }
 
-export function FeedbackDialog({ open, onOpenChange, onSubmit, isPending, vote }: FeedbackDialogProps) {
+export function FeedbackDialog({
+	open,
+	onOpenChange,
+	onSubmit,
+	isPending,
+	vote,
+	subject = 'response',
+}: FeedbackDialogProps) {
 	const [explanation, setExplanation] = useState('');
 	const isPositive = vote === 'up';
 
@@ -275,8 +283,8 @@ export function FeedbackDialog({ open, onOpenChange, onSubmit, isPending, vote }
 					<DialogTitle>{isPositive ? 'What went well?' : 'What went wrong?'}</DialogTitle>
 					<DialogDescription className='text-sm text-muted-foreground font-medium'>
 						{isPositive
-							? 'Help us improve by explaining what worked well with this response.'
-							: 'Help us improve by explaining what was wrong with this response.'}
+							? `Help us improve by explaining what worked well with this ${subject}.`
+							: `Help us improve by explaining what was wrong with this ${subject}.`}
 					</DialogDescription>
 				</DialogHeader>
 

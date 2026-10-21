@@ -285,7 +285,7 @@ function getNotificationPresentation(
 			const isPositive = payload.vote === 'up';
 			return {
 				Icon: isPositive ? ThumbsUp : ThumbsDown,
-				title: payload.chatTitle ?? notification.title,
+				title: payload.storyTitle ?? payload.chatTitle ?? notification.title,
 				description: (
 					<p>
 						<span className='font-semibold'>{payload.submitterName}</span> left{' '}

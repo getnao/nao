@@ -6,7 +6,16 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runScopedAppDbQuery } from '../src/db/readonly-app-db';
 import * as sqliteSchema from '../src/db/sqlite-schema';
-import { chat, chatMessage, messagePart, organization, project, user } from '../src/db/sqlite-schema';
+import {
+	chat,
+	chatMessage,
+	messagePart,
+	organization,
+	project,
+	story,
+	storyFeedback,
+	user,
+} from '../src/db/sqlite-schema';
 
 const db = drizzle('./db.sqlite', { schema: sqliteSchema });
 
@@ -18,9 +27,14 @@ const CHAT_IDS = ['ro-chat-a', 'ro-chat-b'];
 const MESSAGE_IDS = ['ro-msg-a', 'ro-msg-b'];
 const PART_IDS = ['ro-part-a', 'ro-part-b'];
 const PART_A_TIME = new Date('2024-06-23T08:15:00Z');
+const REVIEWER_ID = 'ro-test-reviewer';
+const STORY_IDS = ['ro-story-a', 'ro-story-b'];
 
 async function cleanup() {
 	// Child -> parent so the cleanup works even without cascading FKs.
+	await db.delete(storyFeedback).where(inArray(storyFeedback.storyId, STORY_IDS));
+	await db.delete(story).where(inArray(story.id, STORY_IDS));
+	await db.delete(user).where(eq(user.id, REVIEWER_ID));
 	await db.delete(messagePart).where(inArray(messagePart.id, PART_IDS));
 	await db.delete(chatMessage).where(inArray(chatMessage.id, MESSAGE_IDS));
 	await db.delete(chat).where(inArray(chat.id, CHAT_IDS));
@@ -78,6 +92,36 @@ describe('runScopedAppDbQuery', () => {
 
 	it('does not expose PII columns (email is not on the view)', async () => {
 		await expect(runScopedAppDbQuery(PROJECT_A, 'SELECT email FROM v_messages')).rejects.toThrow();
+	});
+
+	it('exposes story feedback scoped to the story project, with the owner and the reviewer', async () => {
+		await db.insert(user).values({ id: REVIEWER_ID, name: 'Reviewer', email: 'reviewer@example.com' });
+		await db.insert(story).values([
+			{ id: 'ro-story-a', chatId: 'ro-chat-a', slug: 'a', title: 'Chat story' },
+			{ id: 'ro-story-b', projectId: PROJECT_B, userId: USER_ID, slug: 'b', title: 'Standalone story' },
+		]);
+		await db.insert(storyFeedback).values([
+			{ storyId: 'ro-story-a', userId: REVIEWER_ID, vote: 'down', explanation: 'Wrong totals' },
+			{ storyId: 'ro-story-b', userId: REVIEWER_ID, vote: 'up' },
+		]);
+
+		const projectA = await runScopedAppDbQuery(
+			PROJECT_A,
+			'SELECT story_id, story_title, story_owner_name, user_name, vote, explanation FROM v_story_feedback',
+		);
+		const projectB = await runScopedAppDbQuery(PROJECT_B, 'SELECT story_id, vote FROM v_story_feedback');
+
+		expect(projectA.rows).toEqual([
+			{
+				story_id: 'ro-story-a',
+				story_title: 'Chat story',
+				story_owner_name: 'RO',
+				user_name: 'Reviewer',
+				vote: 'down',
+				explanation: 'Wrong totals',
+			},
+		]);
+		expect(projectB.rows).toEqual([{ story_id: 'ro-story-b', vote: 'up' }]);
 	});
 
 	it('blocks writes to the underlying tables', async () => {

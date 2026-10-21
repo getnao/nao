@@ -18,7 +18,7 @@ export function scaffoldCustomStoryFiles(title: string, files: StoryFileInput[])
 }
 
 function starterApp(title: string): string {
-	return `import { BarChart, DataTable, KpiCard, LineChart, Narrative } from "@nao/story-kit";
+	return `import { BarChart, BrandHeader, DataTable, KpiCard, LineChart, Narrative } from "@nao/story-kit";
 
 // Starter layout, nothing here is wired to data yet: replace every REPLACE_ME with the id
 // of a query you ran with execute_sql in this chat, rename the titles, add format/xKey/series
@@ -26,7 +26,9 @@ function starterApp(title: string): string {
 export default function App() {
   return (
     <main className="page">
-      <header className="page__header">
+      <BrandHeader />
+
+      <header className="intro">
         <h1>${jsxText(title)}</h1>
         <p>
           <Narrative id="summary">One sentence on what this story answers.</Narrative>
@@ -60,13 +62,15 @@ const STARTER_STYLES = `.page {
   gap: 16px;
 }
 
-.page__header h1 {
-  font-size: calc(var(--story-body-size) * var(--story-heading-scale) * 1.6);
-  line-height: 1.2;
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.page__header p {
-  margin: 4px 0 0;
+.intro p {
+  margin: 0;
+  max-width: 720px;
   color: var(--muted-foreground);
 }
 
@@ -92,5 +96,10 @@ const STARTER_STYLES = `.page {
 `;
 
 function jsxText(value: string): string {
-	return value.replaceAll(/[{}<>&]/g, (char) => `{${JSON.stringify(char)}}`);
+	return value
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('{', '&#123;')
+		.replaceAll('}', '&#125;');
 }

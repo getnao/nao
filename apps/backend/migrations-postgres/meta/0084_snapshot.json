@@ -1,5 +1,5 @@
 {
-  "id": "37cafa31-8a62-408e-bfba-ab98ebb5a336",
+  "id": "9fff5918-38af-43db-8e2a-3eee26a67e00",
   "prevId": "71a6d634-0641-4c49-8f1f-26c8d65055b6",
   "version": "7",
   "dialect": "postgresql",
@@ -5356,19 +5356,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "is_deleted": {
-          "name": "is_deleted",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6180,19 +6167,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "is_deleted": {
-          "name": "is_deleted",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6640,6 +6614,12 @@
         },
         "theme": {
           "name": "theme",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "generation": {
+          "name": "generation",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

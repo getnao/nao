@@ -54,6 +54,7 @@ export type FeedbackNotificationPayload = {
 	vote: 'up' | 'down';
 	submitterName: string;
 	chatTitle: string | null;
+	storyTitle?: string;
 	explanation: string | null;
 };
 
@@ -433,7 +434,15 @@ export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const sa
 /** A file taken out of permanent storage is recorded under its own extension. */
 export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
 
-export const ANALYTICS_EVENT_TYPES = ['page_view', 'download', 'fork', 'favorite', 'refresh', 'view_duration'] as const;
+export const ANALYTICS_EVENT_TYPES = [
+	'page_view',
+	'download',
+	'fork',
+	'favorite',
+	'feedback',
+	'refresh',
+	'view_duration',
+] as const;
 export const ANALYTICS_ASSET_TYPES = ['chat', 'story'] as const;
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number];
@@ -444,6 +453,7 @@ export type AnalyticsEventMetadata =
 	| { type: 'download'; format: AnalyticsDownloadFormat; queryId?: string; versionNumber?: number; title?: string }
 	| { type: 'fork'; resultId: string; scope: 'full' | 'selection'; versionNumber?: number }
 	| { type: 'favorite'; favorited: boolean }
+	| { type: 'feedback'; vote: 'up' | 'down'; explanation?: string }
 	| { type: 'refresh'; trigger: 'manual' | 'scheduled'; queriesRefreshed?: number }
 	| { type: 'view_duration'; durationMs: number; startedAt: number; versionNumber?: number };
 
