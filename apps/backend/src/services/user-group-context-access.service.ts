@@ -46,7 +46,7 @@ export async function resolveProjectContextAccess(
 	const [effectiveAccess, catalog, rowSecurityLicensed, rowSecurity] = await Promise.all([
 		resolveAvailableUserGroupAccess(projectId, userId),
 		Promise.resolve().then(() => getDatabaseContextCatalog(projectFolder)),
-		hasFeature(LICENSE_FEATURES.rowLevelSecurity),
+		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
 		getProjectRowSecurity(projectId),
 	]);
 	return {

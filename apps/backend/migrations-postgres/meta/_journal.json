@@ -582,6 +582,13 @@
       "when": 1792482052113,
       "tag": "0082_add_story_bundle_thumbnail",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792583257419,
+      "tag": "0083_organization_license",
+      "breakpoints": true
     }
   ]
 }

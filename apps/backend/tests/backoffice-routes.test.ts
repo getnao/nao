@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import Fastify, { type FastifyInstance } from 'fastify';
+import { exportSPKI, generateKeyPair, SignJWT } from 'jose';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', async () => {
@@ -35,6 +36,7 @@ import { db } from '../src/db/db';
 import { __reloadEnvForTesting } from '../src/env';
 import { backofficeRoutes } from '../src/routes/backoffice';
 import { cleanupContextWorktree } from '../src/services/context-explorer-git.service';
+import { __setBundledPublicKeyForTesting } from '../src/services/license-public-key';
 import { removeOrganizationMember } from '../src/services/membership.service';
 
 const API_KEY = 'backoffice-test-key-at-least-32-characters';
@@ -255,6 +257,34 @@ describe('cloud backoffice routes', () => {
 		expect(bypassed.json().billing).toMatchObject({ state: 'bypassed', status: null, hasAccess: true });
 	});
 
+	it('stores a verified organization license without ever returning the token', async () => {
+		const { privateKey, publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
+		__setBundledPublicKeyForTesting(await exportSPKI(publicKey));
+		try {
+			const forOtherOrganization = await signOrganizationLicense(privateKey, 'org-other');
+			const rejected = await request('PATCH', `/organizations/${ORG_ID}`, { license: forOtherOrganization });
+			expect(rejected.statusCode).toBe(400);
+
+			const malformed = await request('PATCH', `/organizations/${ORG_ID}`, { license: 'not-a-license' });
+			expect(malformed.statusCode).toBe(400);
+
+			const token = await signOrganizationLicense(privateKey, ORG_ID);
+			const licensed = await request('PATCH', `/organizations/${ORG_ID}`, { license: token });
+			expect(licensed.statusCode).toBe(200);
+			expect(licensed.json().license).toMatchObject({
+				status: 'active',
+				companyName: 'Acme Corp',
+				features: ['user-groups'],
+			});
+			expect(licensed.body).not.toContain(token);
+
+			const removed = await request('PATCH', `/organizations/${ORG_ID}`, { license: null });
+			expect(removed.json().license).toBeNull();
+		} finally {
+			__setBundledPublicKeyForTesting(null);
+		}
+	});
+
 	it('updates organizations, users, and memberships', async () => {
 		const renamedOrg = await request('PATCH', `/organizations/${ORG_ID}`, { name: 'Renamed Organization' });
 		expect(renamedOrg.statusCode).toBe(200);
@@ -264,6 +294,7 @@ describe('cloud backoffice routes', () => {
 		const bypassedOrg = await request('PATCH', `/organizations/${ORG_ID}`, { bypassBilling: true });
 		expect(bypassedOrg.statusCode).toBe(200);
 		expect(bypassedOrg.json().bypassBilling).toBe(true);
+		expect(bypassedOrg.json().license).toBeNull();
 
 		const updatedUser = await request('PATCH', `/users/${MEMBER_ID}`, {
 			name: 'Renamed Member',
@@ -504,4 +535,20 @@ async function seedData(projectPath: string) {
 		createdAt: now,
 		updatedAt: now,
 	});
+}
+
+async function signOrganizationLicense(privateKey: CryptoKey, orgId: string): Promise<string> {
+	const now = Math.floor(Date.now() / 1000);
+	return new SignJWT({
+		subscriptionId: 'sub-1',
+		companyName: 'Acme Corp',
+		isOffline: true,
+		features: ['user-groups'],
+		orgId,
+	})
+		.setProtectedHeader({ alg: 'EdDSA' })
+		.setIssuer('getnao')
+		.setIssuedAt(now)
+		.setExpirationTime(now + 3600)
+		.sign(privateKey);
 }

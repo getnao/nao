@@ -15,16 +15,20 @@ import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { extractConfiguredDatabases, extractRequiredEnvVars } from '../utils/nao-config';
 import { toBillingSummary } from './backoffice-billing.service';
+import { isLicenseExpired, verifyOrganizationLicense } from './license.service';
 import * as membershipService from './membership.service';
 
 export async function listOrganizations(input: SearchPaginationInput) {
 	const page = await backofficeQueries.listOrganizations(input);
 	return {
 		...page,
-		items: page.items.map(({ billing, ...organization }) => ({
-			...organization,
-			billing: toBillingSummary(organization.bypassBilling, billing),
-		})),
+		items: await Promise.all(
+			page.items.map(async ({ billing, license, ...organization }) => ({
+				...organization,
+				license: await toOrganizationLicenseSummary(organization.id, license),
+				billing: toBillingSummary(organization.bypassBilling, billing),
+			})),
+		),
 	};
 }
 
@@ -36,16 +40,25 @@ export async function getOrganizationDetail(orgId: string) {
 		backofficeQueries.getOrganizationApiKeys(orgId),
 		statsQueries.getOrganizationStats(orgId),
 	]);
-	return { organization: toOrganizationSummary(organization), members, projects, apiKeys, stats };
+	return { organization: await toOrganizationSummary(organization), members, projects, apiKeys, stats };
 }
 
-export async function updateOrganization(orgId: string, values: { name?: string; bypassBilling?: boolean }) {
+export async function updateOrganization(
+	orgId: string,
+	values: { name?: string; bypassBilling?: boolean; license?: string | null },
+) {
 	await requireOrganization(orgId);
+	if (values.license) {
+		await assertActiveOrganizationLicense(orgId, values.license);
+	}
 	if (values.name !== undefined) {
 		await orgQueries.updateOrganizationName(orgId, values.name);
 	}
 	if (values.bypassBilling !== undefined) {
 		await orgQueries.updateOrganizationBypassBilling(orgId, values.bypassBilling);
+	}
+	if (values.license !== undefined) {
+		await orgQueries.updateOrganizationLicense(orgId, values.license);
 	}
 	return toOrganizationSummary(await requireOrganization(orgId));
 }
@@ -191,7 +204,35 @@ function isDirectory(directoryPath: string): boolean {
 	}
 }
 
-function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOrganization>>) {
+async function assertActiveOrganizationLicense(orgId: string, token: string): Promise<void> {
+	const license = await verifyOrganizationLicense(orgId, token);
+	if (!license) {
+		throw new HandlerError('BAD_REQUEST', 'This license is invalid or was issued for another organization.');
+	}
+	if (isLicenseExpired(license)) {
+		throw new HandlerError('BAD_REQUEST', 'This license has expired.');
+	}
+}
+
+/** Describes the stored license without ever returning the token, which would let anyone replay it. */
+async function toOrganizationLicenseSummary(orgId: string, token: string | null) {
+	if (!token) {
+		return null;
+	}
+	const license = await verifyOrganizationLicense(orgId, token);
+	if (!license) {
+		return { status: 'invalid' as const };
+	}
+	return {
+		status: isLicenseExpired(license) ? ('expired' as const) : ('active' as const),
+		companyName: license.companyName,
+		subscriptionId: license.subscriptionId,
+		expiresAt: license.expiresAt,
+		features: license.features,
+	};
+}
+
+async function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOrganization>>) {
 	return {
 		id: organization.id,
 		name: organization.name,
@@ -202,6 +243,7 @@ function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOr
 			.filter(Boolean),
 		hasGoogleSso: isSet(organization.googleClientId) && isSet(organization.googleClientSecret),
 		bypassBilling: organization.bypassBilling,
+		license: await toOrganizationLicenseSummary(organization.id, organization.license),
 		billing: toBillingSummary(organization.bypassBilling, organization.billing),
 		createdAt: organization.createdAt,
 		updatedAt: organization.updatedAt,

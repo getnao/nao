@@ -323,22 +323,22 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertGroupBudgetEditable(input.budgetLimitUsd);
+			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
 			const mcpAccess = normalizeMcpAccess(input.mcpAccess);
-			await assertMcpAccessChangeAllowed(mcpAccess, () => EMPTY_MCP_ACCESS);
+			await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () => EMPTY_MCP_ACCESS);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			if (input.rowPolicies !== undefined) {
-				await assertRowSecurityLicensed();
+				await assertRowSecurityLicensed(ctx.project.id);
 				const validation = await validateGroupRowPolicies(
 					ctx.project.id,
 					normalizeUserGroupRowPolicies(input.rowPolicies),
 				);
 				rowPolicies = validation.rowPolicies;
 			}
-			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups))
+			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
 				? userGroupQueries.createUserGroup
 				: userGroupQueries.createUserGroupWithinLimit.bind(null, FREE_CUSTOM_USER_GROUP_LIMIT);
 			const group = await handleQuery(() => {
@@ -382,7 +382,7 @@ export const userGroupRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			await assertGroupBudgetEditable(input.budgetLimitUsd);
+			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
@@ -390,14 +390,14 @@ export const userGroupRoutes = {
 				input.filesAccess === undefined ? undefined : normalizeFileTreeAccess(input.filesAccess);
 			const mcpAccess = input.mcpAccess === undefined ? undefined : normalizeMcpAccess(input.mcpAccess);
 			if (mcpAccess !== undefined) {
-				await assertMcpAccessChangeAllowed(mcpAccess, () =>
+				await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () =>
 					getCurrentGroupMcpAccess(ctx.project.id, input.groupId),
 				);
 			}
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 			if (input.rowPolicies !== undefined) {
-				await assertRowSecurityLicensed();
+				await assertRowSecurityLicensed(ctx.project.id);
 				const validation = await validateGroupRowPolicies(
 					ctx.project.id,
 					normalizeUserGroupRowPolicies(input.rowPolicies),
@@ -450,9 +450,9 @@ export const userGroupRoutes = {
 		}),
 };
 
-async function assertGroupBudgetEditable(budgetLimitUsd: number | null | undefined): Promise<void> {
+async function assertGroupBudgetEditable(projectId: string, budgetLimitUsd: number | null | undefined): Promise<void> {
 	if (budgetLimitUsd !== undefined) {
-		await assertMemberBudgetLicensed();
+		await assertMemberBudgetLicensed(projectId);
 	}
 }
 
@@ -466,14 +466,15 @@ async function saveGroupBudget(
 	}
 }
 
-async function assertRowSecurityLicensed(): Promise<void> {
-	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity))) {
+async function assertRowSecurityLicensed(projectId: string): Promise<void> {
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Row-level security requires an Enterprise license.' });
 	}
 }
 
 /** Without the license an admin may still lift MCP restrictions, so a lapsed license never locks a group in. */
 async function assertMcpAccessChangeAllowed(
+	projectId: string,
 	mcpAccess: McpAccess,
 	getCurrentMcpAccess: () => McpAccess | Promise<McpAccess>,
 ): Promise<void> {
@@ -484,7 +485,7 @@ async function assertMcpAccessChangeAllowed(
 	if (JSON.stringify(currentMcpAccess) === JSON.stringify(mcpAccess)) {
 		return;
 	}
-	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity))) {
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }))) {
 		throw new TRPCError({
 			code: 'FORBIDDEN',
 			message: 'Restricting MCP servers per group requires an Enterprise license.',
@@ -498,7 +499,7 @@ async function getCurrentGroupMcpAccess(projectId: string, groupId: string): Pro
 }
 
 async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: ProjectRowSecurity): Promise<void> {
-	if (await hasFeature(LICENSE_FEATURES.rowLevelSecurity)) {
+	if (await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId })) {
 		return;
 	}
 	const current = normalizeProjectRowSecurity(await userGroupQueries.getProjectRowSecurity(projectId));

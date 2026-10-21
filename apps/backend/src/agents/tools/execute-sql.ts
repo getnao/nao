@@ -75,7 +75,7 @@ export async function executeQuery(
 		);
 	}
 
-	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.projectId, context.agentSettings);
 	const data = await executeWarehouseSql(effectiveSql, {
 		projectFolder: context.projectFolder,
 		databaseId: database_id,

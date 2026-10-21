@@ -87,7 +87,7 @@ describe('warehouse Context access', () => {
 		});
 		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
-		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
 	});
 
 	it('rejects revoked principals before resolving group access', async () => {
@@ -128,7 +128,7 @@ describe('warehouse Context access', () => {
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
-		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
 	});
 
 	it('scopes MCP settings to the group grants except for admins', async () => {

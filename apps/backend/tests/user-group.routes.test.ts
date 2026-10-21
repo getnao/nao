@@ -699,7 +699,7 @@ describe('user group routes', () => {
 			},
 		});
 
-		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups');
+		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups', { projectId: 'project-id' });
 		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
 		expect(mocks.createUserGroup).toHaveBeenCalledWith(
 			'project-id',

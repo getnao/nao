@@ -273,7 +273,7 @@ async function resolveBudgetUsages(
 		!!userId &&
 		!!budget.perUserLimitUsd &&
 		budget.perUserLimitUsd > 0 &&
-		(await hasFeature(LICENSE_FEATURES.userBudget));
+		(await hasFeature(LICENSE_FEATURES.userBudget, { projectId }));
 
 	const periodStart = getCurrentPeriodStart(budget.period);
 	if (!hasProjectLimit && !hasUserLimit) {
