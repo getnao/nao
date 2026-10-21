@@ -86,7 +86,7 @@ export function LiveBadge({ iconOnly = false }: { iconOnly?: boolean }) {
 		<SimpleTooltip content='Live story'>
 			<span className='inline-flex items-center text-primary gap-1'>
 				<Activity className='size-3' />
-				{!iconOnly && <span className='text-[11px] font-medium truncate'>Live</span>}
+				<span className={iconOnly ? 'sr-only' : 'text-[11px] font-medium truncate'}>Live</span>
 			</span>
 		</SimpleTooltip>
 	);
