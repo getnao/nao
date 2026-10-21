@@ -7,6 +7,7 @@ import type { DBStoryFolder } from '../db/abstractSchema';
 import { db } from '../db/db';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import { agentService } from '../services/agent';
 import { assertCanShareToProject } from '../services/project-sharing.service';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
 
@@ -54,6 +55,16 @@ function assertCanChangeFolderScope(folder: DBStoryFolder, target: DBStoryFolder
 
 function resolveDestinationVisibility(target: DBStoryFolder | null) {
 	return target ? target.visibility : 'public';
+}
+
+async function assertStoryNotBeingEdited(storyId: string) {
+	const story = await storyQueries.getStoryById(storyId);
+	if (story?.chatId && agentService.get(story.chatId)) {
+		throw new TRPCError({
+			code: 'CONFLICT',
+			message: 'The agent is working on this story. Move it once it is done.',
+		});
+	}
 }
 
 export const storyFolderRoutes = {
@@ -209,6 +220,8 @@ export const storyFolderRoutes = {
 			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the owner or an admin can move this story.' });
 			}
+
+			await assertStoryNotBeingEdited(input.storyId);
 
 			let target: DBStoryFolder | null = null;
 			if (input.folderId) {

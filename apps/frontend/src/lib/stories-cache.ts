@@ -21,6 +21,11 @@ export function invalidateStoryArchiveCaches(queryClient: QueryClient): void {
 	void queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey() });
 }
 
+export function invalidateStoryPlacementCaches(queryClient: QueryClient): void {
+	invalidateStoriesCaches(queryClient);
+	void queryClient.invalidateQueries({ queryKey: trpc.storyShare.getSharedStoryInfo.queryKey() });
+}
+
 export function invalidateStoryTitleCaches(queryClient: QueryClient): void {
 	invalidateStoriesCaches(queryClient);
 	void queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey() });

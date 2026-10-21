@@ -50,7 +50,7 @@ import {
 	STORIES_DISPLAY_KEY,
 	writeStoredSort,
 } from '@/lib/stories-page';
-import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
+import { invalidateStoryArchiveCaches, invalidateStoryPlacementCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 import { selectedStoryReferencesStore, storyDragOverNewChatStore } from '@/stores/story-references';
@@ -427,23 +427,13 @@ function StoriesPage() {
 					queryClient.setQueryData(trpc.storyFolder.listItems.queryKey(), ctx.previous);
 				}
 			},
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-			},
+			onSettled: () => invalidateStoryPlacementCaches(queryClient),
 		}),
 	);
 
 	const moveFolderMutation = useMutation(
 		trpc.storyFolder.move.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-			},
+			onSuccess: () => invalidateStoryPlacementCaches(queryClient),
 		}),
 	);
 

@@ -6,6 +6,7 @@ import type { FolderItem } from '@/lib/stories-page';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FolderTreeSelect, getTargetVisibility } from '@/components/stories-folder-tree-select';
+import { invalidateStoryPlacementCaches } from '@/lib/stories-cache';
 import { trpc } from '@/main';
 
 type PickerTarget =
@@ -31,10 +32,7 @@ export function FolderPickerDialog({
 	const moveStoryMutation = useMutation(
 		trpc.storyFolder.moveStory.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
+				invalidateStoryPlacementCaches(queryClient);
 				onOpenChange(false);
 			},
 		}),
@@ -43,10 +41,7 @@ export function FolderPickerDialog({
 	const moveFolderMutation = useMutation(
 		trpc.storyFolder.move.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
+				invalidateStoryPlacementCaches(queryClient);
 				onOpenChange(false);
 			},
 		}),

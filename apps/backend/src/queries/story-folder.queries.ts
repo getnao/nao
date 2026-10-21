@@ -355,7 +355,7 @@ export async function ensureStoryPrivate(
 			return;
 		}
 		const privateFolderId = await ensurePrivateRoot(options.storyOwnerId, options.projectId, tx);
-		await moveStoryToFolder(storyId, privateFolderId, options, tx);
+		await placeStoryInFolder(storyId, privateFolderId, options, tx);
 	}, writeTransactionConfig);
 }
 
@@ -363,7 +363,16 @@ export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
-	executor: DBExecutor = db,
+): Promise<void> {
+	await db.transaction((tx) => placeStoryInFolder(storyId, folderId, options, tx), writeTransactionConfig);
+}
+
+/** Folder placement and share visibility must change together, otherwise a story can sit in a public folder unshared. */
+async function placeStoryInFolder(
+	storyId: string,
+	folderId: string | null,
+	options: { storyOwnerId: string; projectId: string },
+	executor: DBExecutor,
 ): Promise<void> {
 	await executor.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
 
