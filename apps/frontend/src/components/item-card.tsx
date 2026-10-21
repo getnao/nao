@@ -55,7 +55,7 @@ export function CardsGrid({ displayMode, children }: { displayMode: StoryPanelDi
 export function GridCardFooter({ title, subtitle }: { title: string; subtitle: ReactNode }) {
 	return (
 		<div className='flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
-			<span className='block text-xs font-medium truncate mb-2'>{title}</span>
+			<span className='block text-xs font-medium truncate mb-1'>{title}</span>
 			<span className='flex items-center text-[10px] font-medium text-muted-foreground/60 truncate'>
 				{subtitle}
 			</span>
