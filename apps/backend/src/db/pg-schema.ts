@@ -1841,6 +1841,26 @@ export const storyFolderItem = pgTable(
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
 );
 
+export const storyFeedback = pgTable(
+	'story_feedback',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		vote: text('vote', { enum: ['up', 'down'] }).notNull(),
+		explanation: text('explanation'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.userId] }), index('story_feedback_userId_idx').on(t.userId)],
+);
+
 export const analyticsEvent = pgTable(
 	'analytics_event',
 	{

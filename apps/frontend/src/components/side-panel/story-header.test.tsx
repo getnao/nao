@@ -18,6 +18,7 @@ vi.mock('@tanstack/react-query', () => ({
 	useQuery: (options: { queryKey?: string[] }) => {
 		return options.queryKey?.[0] === 'favorites' ? favoritesQuery : { data: undefined };
 	},
+	useMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/components/editable-story-title', () => ({
@@ -52,6 +53,14 @@ vi.mock('@/main', () => ({
 		story: {
 			listStories: {
 				queryOptions: () => ({ queryKey: ['stories'] }),
+			},
+		},
+		feedback: {
+			getStoryFeedback: {
+				queryOptions: () => ({ queryKey: ['storyFeedback'] }),
+			},
+			submitStoryFeedback: {
+				mutationOptions: () => ({}),
 			},
 		},
 	},

@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 
-import s, { MessageFeedback, NewMessageFeedback } from '../db/abstractSchema';
+import s, { MessageFeedback, NewMessageFeedback, NewStoryFeedback, StoryFeedback } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { FeedbackWithDetails } from '../types/message-feedback';
@@ -65,4 +65,30 @@ export const listRecentFeedbacks = async (projectId: string, limit = 10): Promis
 		.execute();
 
 	return rows;
+};
+
+export const upsertStoryFeedback = async (feedback: NewStoryFeedback): Promise<StoryFeedback> => {
+	const [result] = await db
+		.insert(s.storyFeedback)
+		.values(feedback)
+		.onConflictDoUpdate({
+			target: [s.storyFeedback.storyId, s.storyFeedback.userId],
+			set: {
+				vote: feedback.vote,
+				explanation: feedback.explanation ?? null,
+			},
+		})
+		.returning()
+		.execute();
+	return result;
+};
+
+export const getUserStoryFeedback = async (storyId: string, userId: string): Promise<StoryFeedback | null> => {
+	const [result] = await db
+		.select()
+		.from(s.storyFeedback)
+		.where(and(eq(s.storyFeedback.storyId, storyId), eq(s.storyFeedback.userId, userId)))
+		.limit(1)
+		.execute();
+	return result ?? null;
 };

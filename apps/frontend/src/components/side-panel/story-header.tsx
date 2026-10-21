@@ -23,7 +23,12 @@ import type { CustomStoryViewModeControls } from '@/components/custom-story/cust
 import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
-import { ShareButton, StoryFavoriteMenuItem, StoryFavoritedButton } from '@/components/story-header-actions';
+import {
+	ShareButton,
+	StoryFavoriteMenuItem,
+	StoryFavoritedButton,
+	StoryFeedbackButtons,
+} from '@/components/story-header-actions';
 import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { Button } from '@/components/ui/button';
@@ -294,6 +299,7 @@ export const StoryHeader = memo(function StoryHeader({
 	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
 	const canFavorite = !isReadonlyMode && !!storyId;
 
+	const feedbackButtons = canFavorite && <StoryFeedbackButtons storyId={storyId} />;
 	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
 
 	const actionButtons = showActionsMenu && (
@@ -339,6 +345,7 @@ export const StoryHeader = memo(function StoryHeader({
 						<div className='flex-1' />
 						{viewModeToggle}
 						{liveControls}
+						{feedbackButtons}
 						{favoritedButton}
 						{shareButton}
 						{replayAnalyticsButton}
@@ -366,6 +373,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{versionNav}
 					{viewModeToggle}
 					{liveControls}
+					{feedbackButtons}
 					{favoritedButton}
 					{shareButton}
 					{replayAnalyticsButton}
