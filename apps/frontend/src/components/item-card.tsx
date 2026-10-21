@@ -81,12 +81,12 @@ export function NoResults({ query }: { query: string }) {
 	);
 }
 
-export function LiveBadge() {
+export function LiveBadge({ iconOnly = false }: { iconOnly?: boolean }) {
 	return (
 		<SimpleTooltip content='Live story'>
 			<span className='inline-flex items-center text-primary gap-1'>
 				<Activity className='size-3' />
-				<span className='text-[11px] font-medium truncate'>Live</span>
+				{!iconOnly && <span className='text-[11px] font-medium truncate'>Live</span>}
 			</span>
 		</SimpleTooltip>
 	);

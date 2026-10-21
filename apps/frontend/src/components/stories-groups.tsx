@@ -627,7 +627,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 
 function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }) {
 	const certified = item.isCertified ? <CertifiedBadge certifiedByName={item.certifiedByName} /> : null;
-	const live = item.isLive ? <LiveBadge /> : null;
+	const live = item.isLive ? <LiveBadge iconOnly={mode === 'grid'} /> : null;
 	const sharing = item.sharing ? (
 		<SharingBadge
 			visibility={item.sharing.visibility}
@@ -637,15 +637,14 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 	) : null;
 
 	if (mode === 'grid') {
-		const showPrivate = item.isInPrivateContext && item.sharing?.visibility !== 'specific';
-		if (!live && !sharing && !showPrivate) {
+		const isSharedWithSpecific = item.sharing?.visibility === 'specific';
+		if (!live && !isSharedWithSpecific) {
 			return null;
 		}
 		return (
 			<div className='flex items-center gap-2 shrink-0'>
 				{live}
-				{showPrivate && <PrivateBadge />}
-				{sharing}
+				{isSharedWithSpecific && sharing}
 			</div>
 		);
 	}
