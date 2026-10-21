@@ -46,6 +46,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export type AutomationFeedRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -723,7 +724,7 @@ function ExpandableText({ text }: { text: string }) {
 						: undefined
 				}
 			>
-				<Streamdown>{stripAssistantTags(text)}</Streamdown>
+				<Streamdown linkSafety={markdownLinkSafety}>{stripAssistantTags(text)}</Streamdown>
 			</div>
 			{(isClamped || isExpanded) && (
 				<button

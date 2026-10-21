@@ -9,6 +9,7 @@ import { StreamingMarkdown } from '@/components/chat-messages/streaming-markdown
 import { FileChip } from '@/components/file-chip';
 import { isStoredFilePath } from '@/lib/attachments';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 const CLOBBER_PREFIX = 'user-content-';
 const SETTLED_COMPONENTS = {
@@ -36,6 +37,7 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 
 	return (
 		<Streamdown
+			linkSafety={markdownLinkSafety}
 			className='assistant-markdown'
 			plugins={markdownPlugins}
 			allowedTags={ALLOWED_TAGS}

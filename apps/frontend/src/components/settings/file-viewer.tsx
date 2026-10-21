@@ -35,6 +35,7 @@ import { isMac } from '@/lib/platform';
 import { isForbiddenError } from '@/lib/trpc-error';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export { isRootRulesPath } from '@nao/shared/rules-template';
 
@@ -524,7 +525,12 @@ function MarkdownPreview({
 					) : error ? (
 						<ErrorMessage message={error} />
 					) : (
-						<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
+						<Streamdown
+							linkSafety={markdownLinkSafety}
+							mode='static'
+							controls={false}
+							plugins={markdownPlugins}
+						>
 							{parsedMarkdown.body}
 						</Streamdown>
 					)}

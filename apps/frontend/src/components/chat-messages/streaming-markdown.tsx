@@ -9,6 +9,7 @@ import {
 	updateIncrementalMarkdownBlocks,
 } from '@/lib/incremental-markdown-blocks';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 interface StreamingMarkdownProps {
 	components?: Components;
@@ -32,6 +33,7 @@ export const StreamingMarkdown = memo(({ components, text, transform }: Streamin
 			))}
 			{transformedTail.length > 0 && (
 				<Streamdown
+					linkSafety={markdownLinkSafety}
 					className='assistant-markdown'
 					components={components}
 					isAnimating
@@ -47,7 +49,13 @@ export const StreamingMarkdown = memo(({ components, text, transform }: Streamin
 
 const StreamingMarkdownBlock = memo(({ components, text }: { components?: Components; text: string }) => {
 	return (
-		<Streamdown className='assistant-markdown' components={components} mode='static' plugins={markdownPlugins}>
+		<Streamdown
+			linkSafety={markdownLinkSafety}
+			className='assistant-markdown'
+			components={components}
+			mode='static'
+			plugins={markdownPlugins}
+		>
 			{text}
 		</Streamdown>
 	);
