@@ -22,41 +22,41 @@ import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const memberBudgetRoutes = {
 	getOverview: adminProtectedProcedure.query(async ({ ctx }) => {
-		await assertMemberBudgetLicensed();
+		await assertMemberBudgetLicensed(ctx.project.id);
 		return getMemberBudgetOverview(ctx.project.id);
 	}),
 
 	getSpend: adminProtectedProcedure.input(memberBudgetPeriodInputSchema).query(async ({ ctx, input }) => {
-		await assertMemberBudgetLicensed();
+		await assertMemberBudgetLicensed(ctx.project.id);
 		return getMemberSpendForPeriod(ctx.project.id, input.period);
 	}),
 
 	getSettings: adminProtectedProcedure.query(async ({ ctx }) => {
-		await assertMemberBudgetLicensed();
+		await assertMemberBudgetLicensed(ctx.project.id);
 		return getMemberBudgetSettings(ctx.project.id);
 	}),
 
 	getMine: projectProtectedProcedure.query(async ({ ctx }) => {
-		await assertMemberBudgetLicensed();
+		await assertMemberBudgetLicensed(ctx.project.id);
 		return getMemberBudget(ctx.project.id, ctx.user.id);
 	}),
 
 	getForMember: adminProtectedProcedure
 		.input(z.object({ userId: z.string().min(1) }))
 		.query(async ({ ctx, input }) => {
-			await assertMemberBudgetLicensed();
+			await assertMemberBudgetLicensed(ctx.project.id);
 			await assertProjectMember(ctx.project.id, input.userId);
 			return getMemberBudget(ctx.project.id, input.userId);
 		}),
 
 	setPersonalBudget: adminProtectedProcedure.input(setPersonalBudgetInputSchema).mutation(async ({ ctx, input }) => {
-		await assertMemberBudgetLicensed();
+		await assertMemberBudgetLicensed(ctx.project.id);
 		await assertProjectMember(ctx.project.id, input.userId);
 		await setPersonalBudget(ctx.project.id, input);
 	}),
 
 	setBudgets: adminProtectedProcedure.input(setMemberBudgetsInputSchema).mutation(async ({ ctx, input }) => {
-		await assertMemberBudgetLicensed();
+		await assertMemberBudgetLicensed(ctx.project.id);
 		await saveMemberBudgets(ctx.project.id, input);
 		return getMemberBudgetOverview(ctx.project.id);
 	}),

@@ -14,7 +14,7 @@ import type { ToolContext } from '../types/tools';
 import { isContextPathAllowed } from './context-access';
 import type { ResolvedFileTreeAccess } from './user-group-context-access.service';
 
-type ProjectPathKind = 'file' | 'directory';
+export type ProjectPathKind = 'file' | 'directory';
 type ProjectPath = { kind: 'root' | 'docs' | 'files' | 'database'; relativePath: string } | { kind: 'invalid' };
 
 type ProjectPathAccessContext = Pick<

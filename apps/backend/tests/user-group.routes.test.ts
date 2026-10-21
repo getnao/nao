@@ -1,4 +1,4 @@
-import { EMPTY_FILES_CONTEXT_ACCESS, EMPTY_MCP_ACCESS } from '@nao/shared';
+import { EMPTY_FILES_CONTEXT_ACCESS, EMPTY_MCP_ACCESS, MAX_PRELOADED_SKILLS } from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -699,7 +699,7 @@ describe('user group routes', () => {
 			},
 		});
 
-		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups');
+		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups', { projectId: 'project-id' });
 		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
 		expect(mocks.createUserGroup).toHaveBeenCalledWith(
 			'project-id',
@@ -717,6 +717,7 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
 		);
 	});
 
@@ -741,6 +742,7 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -801,6 +803,7 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
 		);
 	});
 
@@ -852,6 +855,7 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
 		);
 	});
 
@@ -879,6 +883,7 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
 		);
 	});
 
@@ -962,6 +967,7 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
 		);
 	});
 
@@ -1039,6 +1045,30 @@ describe('user group routes', () => {
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 
+	it('creates and updates groups with their trimmed preloaded skills', async () => {
+		await createCaller().create({ name: 'Finance', preloadedSkills: [' revenue-recognition '] });
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+			preloadedSkills: [' churn '],
+		});
+
+		expect(mocks.createUserGroup.mock.calls[0].at(-1)).toEqual(['revenue-recognition']);
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({ preloadedSkills: ['churn'] }),
+		);
+	});
+
+	it('rejects more preloaded skills than the limit', async () => {
+		const preloadedSkills = Array.from({ length: MAX_PRELOADED_SKILLS + 1 }, (_, index) => `skill-${index}`);
+
+		await expect(createCaller().create({ name: 'Finance', preloadedSkills })).rejects.toThrow();
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+	});
+
 	it('creates groups with their project sharing permission', async () => {
 		await createCaller().create({ name: 'Client A', projectSharing: 'blocked' });
 
@@ -1055,6 +1085,7 @@ describe('user group routes', () => {
 			'blocked',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
 		);
 	});
 

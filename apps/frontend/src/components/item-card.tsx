@@ -55,7 +55,7 @@ export function CardsGrid({ displayMode, children }: { displayMode: StoryPanelDi
 export function GridCardFooter({ title, subtitle }: { title: string; subtitle: ReactNode }) {
 	return (
 		<div className='flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
-			<span className='block text-xs font-medium truncate mb-2'>{title}</span>
+			<span className='block text-xs font-medium truncate mb-1'>{title}</span>
 			<span className='flex items-center text-[10px] font-medium text-muted-foreground/60 truncate'>
 				{subtitle}
 			</span>
@@ -81,12 +81,12 @@ export function NoResults({ query }: { query: string }) {
 	);
 }
 
-export function LiveBadge() {
+export function LiveBadge({ iconOnly = false }: { iconOnly?: boolean }) {
 	return (
 		<SimpleTooltip content='Live story'>
 			<span className='inline-flex items-center text-primary gap-1'>
 				<Activity className='size-3' />
-				<span className='text-[11px] font-medium truncate'>Live</span>
+				<span className={iconOnly ? 'sr-only' : 'text-[11px] font-medium truncate'}>Live</span>
 			</span>
 		</SimpleTooltip>
 	);
@@ -95,7 +95,7 @@ export function LiveBadge() {
 export function CertifiedBadge({ certifiedByName }: { certifiedByName?: string | null }) {
 	return (
 		<SimpleTooltip content={certifiedByName ? `Certified by ${certifiedByName}` : 'Certified by an admin'}>
-			<span className='inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300'>
+			<span className='inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 shadow-xs dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'>
 				<ShieldCheck className='size-3' />
 				<span className='text-[11px] font-medium truncate'>Certified</span>
 			</span>

@@ -3,9 +3,9 @@
 import { TRPCError } from '@trpc/server';
 
 import { env } from '../env';
-import { getLicense, hasFeature, LICENSE_FEATURES, type LicenseFeature } from '../services/license.service';
+import { getFeatureAvailability, getLicense, isLicenseExpired, type LicenseScope } from '../services/license.service';
 import type { LicenseStatus } from '../types/license';
-import { advancedSettingsProtectedProcedure, protectedProcedure } from './trpc';
+import { advancedSettingsProtectedProcedure, protectedProcedure, resolveOrganizationMembership } from './trpc';
 
 export const licenseRoutes = {
 	getStatus: protectedProcedure.query(async () => {
@@ -17,7 +17,7 @@ export const licenseRoutes = {
 			return { status, tokenProvided };
 		}
 
-		const status: LicenseStatus = license.expiresAt.getTime() <= Date.now() ? 'expired' : 'active';
+		const status: LicenseStatus = isLicenseExpired(license) ? 'expired' : 'active';
 		return { status, tokenProvided };
 	}),
 
@@ -35,9 +35,28 @@ export const licenseRoutes = {
 		};
 	}),
 
-	getFeatures: protectedProcedure.query(async () => {
-		const features = Object.values(LICENSE_FEATURES);
-		const entries = await Promise.all(features.map(async (f) => [f, await hasFeature(f)] as const));
-		return Object.fromEntries(entries) as Record<LicenseFeature, boolean>;
+	getFeatures: protectedProcedure.query(async ({ ctx }) => {
+		const scope = await resolveSelectedOrganizationScope(
+			ctx.user.id,
+			ctx.selectedProjectId,
+			ctx.selectedOrganizationId,
+		);
+		return getFeatureAvailability(scope);
 	}),
 };
+
+async function resolveSelectedOrganizationScope(
+	userId: string,
+	selectedProjectId: string | null,
+	selectedOrganizationId: string | null,
+): Promise<LicenseScope | undefined> {
+	try {
+		const membership = await resolveOrganizationMembership(userId, selectedProjectId, selectedOrganizationId);
+		return { orgId: membership.organization.id };
+	} catch (error) {
+		if (error instanceof TRPCError && error.code === 'NOT_FOUND') {
+			return undefined;
+		}
+		throw error;
+	}
+}

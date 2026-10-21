@@ -262,6 +262,7 @@ const allUsers = {
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	projectSharing: 'inherit' as const,
 	showAllSettings: true,
+	preloadedSkills: [] as string[],
 	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 	filesAccess: { mode: 'all' as const },
@@ -944,6 +945,7 @@ describe('UserGroupEditor', () => {
 			'Features',
 			'Context',
 			'MCP',
+			'Skills',
 			'Security',
 			'Budget',
 			'Advanced settings',
@@ -1929,6 +1931,15 @@ describe('UserGroupEditor', () => {
 				featureGrants: group.featureGrants,
 				toolCallDensityPolicy: { ...group.toolCallDensityPolicy, canChange: false },
 				databaseAccess: group.databaseAccess,
+			}),
+		).toBe(true);
+		expect(
+			hasUserGroupEditorChanges(group, {
+				name: group.name,
+				featureGrants: group.featureGrants,
+				toolCallDensityPolicy: group.toolCallDensityPolicy,
+				databaseAccess: group.databaseAccess,
+				preloadedSkills: ['revenue'],
 			}),
 		).toBe(true);
 	});

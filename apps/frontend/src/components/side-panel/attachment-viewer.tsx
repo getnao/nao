@@ -15,6 +15,7 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useAttachmentDownload } from '@/hooks/use-attachment-download';
 import { loadAttachmentPreview, MAX_PREVIEW_ROWS, MAX_TABULAR_PREVIEW_SIZE_MB } from '@/lib/attachment-preview';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
 
@@ -137,7 +138,12 @@ function SheetsPreview({ sheets }: { sheets: AttachmentSheet[] }) {
 function MarkdownPreview({ content }: { content: string }) {
 	return (
 		<div className='min-h-0 flex-1 overflow-auto px-8 py-6'>
-			<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+			<Streamdown
+				linkSafety={markdownLinkSafety}
+				mode='static'
+				plugins={markdownPlugins}
+				components={markdownComponents}
+			>
 				{content}
 			</Streamdown>
 		</div>

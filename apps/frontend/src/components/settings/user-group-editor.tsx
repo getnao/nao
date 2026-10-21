@@ -43,6 +43,7 @@ import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
 import { UserGroupMcpAccess } from '@/components/settings/user-group-mcp-access';
+import { UserGroupPreloadedSkills } from '@/components/settings/user-group-preloaded-skills';
 import { UserGroupProjectSharing } from '@/components/settings/user-group-project-sharing';
 import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
@@ -78,6 +79,7 @@ export interface UserGroupEditorGroup {
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	projectSharing: ProjectSharingPermission;
 	showAllSettings: boolean;
+	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
@@ -86,7 +88,7 @@ export interface UserGroupEditorGroup {
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'mcp' | 'security' | 'budget' | 'advanced' | 'sso';
+export type UserGroupEditorTab = 'features' | 'context' | 'mcp' | 'skills' | 'security' | 'budget' | 'advanced' | 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -101,6 +103,7 @@ const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'mcp', label: 'MCP' },
+	{ id: 'skills', label: 'Skills' },
 	{ id: 'security', label: 'Security' },
 	{ id: 'budget', label: 'Budget' },
 	{ id: 'advanced', label: 'Advanced settings' },
@@ -155,6 +158,7 @@ export function UserGroupEditor({
 	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
 		existingGroup?.projectSharing ?? 'inherit',
 	);
+	const [preloadedSkills, setPreloadedSkills] = useState<string[]>(existingGroup?.preloadedSkills ?? []);
 	const [shareRevocation, setShareRevocation] = useState<ProjectWideShareRevocation | null>(null);
 	const [isShareRevocationOpen, setIsShareRevocationOpen] = useState(false);
 	const [isRevokingShares, setIsRevokingShares] = useState(false);
@@ -267,6 +271,7 @@ export function UserGroupEditor({
 			toolCallDensityPolicy,
 			projectSharing,
 			showAllSettings,
+			preloadedSkills,
 			databaseAccess,
 			docsAccess,
 			filesAccess,
@@ -281,6 +286,7 @@ export function UserGroupEditor({
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
 		setProjectSharing(existingGroup?.projectSharing ?? 'inherit');
 		setShowAllSettings(existingGroup?.showAllSettings ?? false);
+		setPreloadedSkills(existingGroup?.preloadedSkills ?? []);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setFilesAccess(existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS);
@@ -304,6 +310,7 @@ export function UserGroupEditor({
 				toolCallDensityPolicy,
 				projectSharing,
 				showAllSettings,
+				preloadedSkills,
 				databaseAccess,
 				docsAccess,
 				filesAccess,
@@ -323,6 +330,7 @@ export function UserGroupEditor({
 		filesAccess,
 		mcpAccess,
 		name,
+		preloadedSkills,
 		projectSharing,
 		resetForm,
 		rowPolicies,
@@ -391,6 +399,7 @@ export function UserGroupEditor({
 					toolCallDensityPolicy,
 					projectSharing,
 					showAllSettings,
+					preloadedSkills,
 					databaseAccess,
 					docsAccess,
 					filesAccess,
@@ -407,6 +416,7 @@ export function UserGroupEditor({
 					toolCallDensityPolicy,
 					projectSharing,
 					showAllSettings,
+					preloadedSkills,
 					databaseAccess,
 					docsAccess,
 					filesAccess,
@@ -520,6 +530,14 @@ export function UserGroupEditor({
 								mcpAccess={mcpAccess}
 								isLicensed={hasRowLevelSecurity}
 								onMcpAccessChange={setMcpAccess}
+							/>
+						)}
+						{activeTab === 'skills' && (
+							<UserGroupPreloadedSkills
+								isDefaultGroup={existingGroup?.isDefault === true}
+								preloadedSkills={preloadedSkills}
+								inheritedSkills={getDefaultGroupPreloadedSkills(userGroupOverview.data?.groups)}
+								onPreloadedSkillsChange={setPreloadedSkills}
 							/>
 						)}
 						{activeTab === 'security' && (
@@ -763,6 +781,12 @@ function isProjectSharingAllowedByDefault(
 	return defaultGroup ? defaultGroup.projectSharing !== 'blocked' : undefined;
 }
 
+function getDefaultGroupPreloadedSkills(
+	groups: ReadonlyArray<{ isDefault: boolean; preloadedSkills?: string[] }> | undefined,
+): string[] {
+	return groups?.find((group) => group.isDefault)?.preloadedSkills ?? [];
+}
+
 function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
 	return (
 		<div className='flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2'>
@@ -966,6 +990,7 @@ export function hasUserGroupEditorChanges(
 		toolCallDensityPolicy: ToolCallDensityPolicy;
 		projectSharing?: ProjectSharingPermission;
 		showAllSettings?: boolean;
+		preloadedSkills?: string[];
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
@@ -981,6 +1006,7 @@ export function hasUserGroupEditorChanges(
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
 		(values.projectSharing ?? group.projectSharing) !== group.projectSharing ||
 		(values.showAllSettings ?? group.showAllSettings) !== group.showAllSettings ||
+		!haveSameOrderedItems(values.preloadedSkills ?? group.preloadedSkills, group.preloadedSkills) ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
 		!haveSameFileTreeAccess(values.filesAccess ?? group.filesAccess, group.filesAccess) ||
@@ -1159,6 +1185,10 @@ function haveSameItems<T>(left: T[], right: T[]): boolean {
 	const leftItems = new Set(left);
 	const rightItems = new Set(right);
 	return leftItems.size === rightItems.size && [...leftItems].every((item) => rightItems.has(item));
+}
+
+function haveSameOrderedItems<T>(left: readonly T[], right: readonly T[]): boolean {
+	return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
 function haveSameDatabaseAccess(left: DatabaseContextAccess, right: DatabaseContextAccess): boolean {

@@ -54,7 +54,7 @@ describe('execute_sql excluded-column enforcement', () => {
 
 			await executeQuery({ sql_query: 'SELECT 1' }, createContext(storedSetting));
 
-			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns);
+			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns, { projectId: 'project-1' });
 			const [, init] = fetch.mock.calls[0] as [string, RequestInit];
 			expect(JSON.parse(String(init.body))).toMatchObject({
 				enforce_excluded_columns: expected,

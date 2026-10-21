@@ -1,5 +1,5 @@
 {
-  "id": "ded5f466-7874-4976-b81b-9f65813468e9",
+  "id": "71a6d634-0641-4c49-8f1f-26c8d65055b6",
   "prevId": "6b864db7-c70e-41b4-886d-4173028e05f2",
   "version": "7",
   "dialect": "postgresql",
@@ -5356,19 +5356,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "is_deleted": {
-          "name": "is_deleted",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -5476,6 +5463,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "license": {
+          "name": "license",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -6174,19 +6167,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "is_deleted": {
-          "name": "is_deleted",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {

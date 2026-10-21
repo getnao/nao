@@ -729,6 +729,7 @@ describe('user group queries', () => {
 			},
 			projectSharing: 'blocked',
 			showAllSettings: false,
+			preloadedSkills: [],
 		});
 		expect(storedUpdated.contextGrants).toEqual({
 			version: 6,
@@ -1100,6 +1101,7 @@ describe('user group queries', () => {
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
 			],
+			preloadedSkills: [],
 		});
 
 		expect(await listUserGroupMemberships(PROJECT_ID)).toContainEqual({
@@ -1171,6 +1173,29 @@ describe('user group queries', () => {
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 		});
+	});
+
+	it('preloads the All Users skills first, then the skills of the groups the user belongs to', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: defaultGroup.featureGrants,
+			preloadedSkills: ['glossary'],
+		});
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			preloadedSkills: ['revenue', 'glossary'],
+		});
+		const finance = await createUserGroup(PROJECT_ID, 'Finance');
+		await updateUserGroup(PROJECT_ID, finance.id, { featureGrants: [], preloadedSkills: ['revenue-recognition'] });
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+
+		const access = await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+
+		expect(access.preloadedSkills).toEqual(['glossary', 'revenue']);
+		const financeGroup = (await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.id === finance.id);
+		expect(financeGroup?.preloadedSkills).toEqual(['revenue-recognition']);
 	});
 
 	it('uses null defaults and fails malformed stored access closed', async () => {

@@ -5,6 +5,7 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_CONFIG,
 	parseStoredUserGroupConfig,
+	resolvePreloadedSkills,
 	resolveProjectSharingPermission,
 	serializeUserGroupConfig,
 	USER_GROUP_FEATURES,
@@ -42,6 +43,7 @@ describe('user group configuration', () => {
 			},
 			projectSharing: 'inherit',
 			showAllSettings: true,
+			preloadedSkills: [],
 		});
 		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'customStoryCreation', 'automationCreation']);
 	});
@@ -50,6 +52,32 @@ describe('user group configuration', () => {
 		expect(serializeUserGroupConfig([], { defaultDensity: 'detailed', canChange: true }, 'blocked')).toMatchObject({
 			projectSharing: 'blocked',
 		});
+	});
+
+	it('serializes trimmed, deduplicated preloaded skills', () => {
+		expect(
+			serializeUserGroupConfig([], DEFAULT_TOOL_CALL_DENSITY_POLICY, 'inherit', false, [
+				' revenue ',
+				'churn',
+				'revenue',
+				'',
+			]),
+		).toMatchObject({ preloadedSkills: ['revenue', 'churn'] });
+	});
+
+	it('reads preloaded skills and ignores invalid entries', () => {
+		expect(
+			parseStoredUserGroupConfig({
+				version: 2,
+				features: [],
+				toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+				preloadedSkills: ['revenue', 42, ' churn '],
+			}).preloadedSkills,
+		).toEqual(['revenue', 'churn']);
+		expect(
+			parseStoredUserGroupConfig({ version: 2, features: [], toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY })
+				.preloadedSkills,
+		).toEqual([]);
 	});
 
 	it('reads canonical v2 configuration', () => {
@@ -72,6 +100,7 @@ describe('user group configuration', () => {
 			},
 			projectSharing: 'allowed',
 			showAllSettings: true,
+			preloadedSkills: [],
 		});
 	});
 
@@ -125,6 +154,7 @@ describe('user group configuration', () => {
 			},
 			projectSharing: 'inherit',
 			showAllSettings: false,
+			preloadedSkills: [],
 		});
 	});
 
@@ -137,6 +167,7 @@ describe('user group configuration', () => {
 			},
 			projectSharing: 'inherit',
 			showAllSettings: false,
+			preloadedSkills: [],
 		});
 	});
 
@@ -154,6 +185,7 @@ describe('user group configuration', () => {
 			},
 			projectSharing: 'inherit',
 			showAllSettings: false,
+			preloadedSkills: [],
 		});
 	});
 
@@ -166,6 +198,7 @@ describe('user group configuration', () => {
 			},
 			projectSharing: 'inherit',
 			showAllSettings: false,
+			preloadedSkills: [],
 		});
 	});
 });
@@ -185,6 +218,18 @@ describe('canRoleSeeAdvancedSettings', () => {
 		expect(canRoleSeeAdvancedSettings('viewer', true)).toBe(false);
 		expect(canRoleSeeAdvancedSettings(null, true)).toBe(false);
 		expect(canRoleSeeAdvancedSettings(undefined, true)).toBe(false);
+	});
+});
+
+describe('resolvePreloadedSkills', () => {
+	it('puts All Users first, then the other groups by name, without duplicates', () => {
+		expect(
+			resolvePreloadedSkills([
+				{ isDefault: false, name: 'Sales', preloadedSkills: ['pipeline', 'revenue'] },
+				{ isDefault: false, name: 'Finance', preloadedSkills: ['revenue-recognition'] },
+				{ isDefault: true, name: 'All Users', preloadedSkills: ['revenue'] },
+			]),
+		).toEqual(['revenue', 'revenue-recognition', 'pipeline']);
 	});
 });
 

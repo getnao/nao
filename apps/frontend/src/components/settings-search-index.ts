@@ -1047,6 +1047,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/user-groups',
 		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'Preloaded skills',
+		description: 'Load project skills in full at the start of every chat for the members of a group.',
+		keywords: ['skill', 'skills', 'agent/skills', 'preload', 'auto-load', 'load_skill', 'playbook', 'groups'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
 		section: 'Security',
 		search: { tab: 'security' },
 		title: 'Row-level security',

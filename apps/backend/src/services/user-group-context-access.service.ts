@@ -38,6 +38,7 @@ export async function resolveProjectContextAccess(
 	mcpAccess: McpAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
+	preloadedSkillNames: string[];
 }> {
 	if (!options.projectAccessAlreadyAuthorized && !(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
@@ -46,7 +47,7 @@ export async function resolveProjectContextAccess(
 	const [effectiveAccess, catalog, rowSecurityLicensed, rowSecurity] = await Promise.all([
 		resolveAvailableUserGroupAccess(projectId, userId),
 		Promise.resolve().then(() => getDatabaseContextCatalog(projectFolder)),
-		hasFeature(LICENSE_FEATURES.rowLevelSecurity),
+		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
 		getProjectRowSecurity(projectId),
 	]);
 	return {
@@ -57,6 +58,7 @@ export async function resolveProjectContextAccess(
 		mcpAccess: effectiveAccess.mcpAccess,
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
+		preloadedSkillNames: effectiveAccess.preloadedSkills,
 	};
 }
 

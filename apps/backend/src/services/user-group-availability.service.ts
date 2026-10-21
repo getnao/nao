@@ -27,7 +27,7 @@ export interface AvailableUserGroupOverview {
 
 export async function getAvailableUserGroupOverview(projectId: string): Promise<AvailableUserGroupOverview> {
 	const overview = await userGroupQueries.getUserGroupOverview(projectId);
-	const groups = await applyCurrentUserGroupAvailability(overview.groups);
+	const groups = await applyCurrentUserGroupAvailability(projectId, overview.groups);
 	const activeGroupIds = getActiveUserGroupIds(groups);
 
 	return {
@@ -69,9 +69,10 @@ export async function validateAssignableUserGroupIds(projectId: string, groupIds
 }
 
 export async function applyCurrentUserGroupAvailability(
+	projectId: string,
 	groups: userGroupQueries.UserGroup[],
 ): Promise<AvailableUserGroup[]> {
-	if (await hasFeature(LICENSE_FEATURES.userGroups)) {
+	if (await hasFeature(LICENSE_FEATURES.userGroups, { projectId })) {
 		return groups.map((group) => ({ ...group, isLocked: false }));
 	}
 
@@ -102,7 +103,7 @@ export async function applyCurrentUserGroupAvailability(
 }
 
 async function listUserGroupsWithAvailability(projectId: string): Promise<AvailableUserGroup[]> {
-	return applyCurrentUserGroupAvailability(await userGroupQueries.listUserGroups(projectId));
+	return applyCurrentUserGroupAvailability(projectId, await userGroupQueries.listUserGroups(projectId));
 }
 
 function getActiveUserGroupIds(groups: AvailableUserGroup[]): Set<string> {

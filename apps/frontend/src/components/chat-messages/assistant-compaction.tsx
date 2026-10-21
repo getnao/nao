@@ -5,6 +5,7 @@ import { ErrorMessage } from '../ui/error-message';
 import { TextShimmer } from '../ui/text-shimmer';
 import type { CompactionPart } from '@nao/backend/chat';
 import { Expandable } from '@/components/ui/expandable';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export const AssistantCompaction = memo(({ part }: { part?: CompactionPart }) => {
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -23,7 +24,9 @@ export const AssistantCompaction = memo(({ part }: { part?: CompactionPart }) =>
 						{part.error ? (
 							<ErrorMessage message={part.error} />
 						) : (
-							<Streamdown mode='static'>{part.summary}</Streamdown>
+							<Streamdown linkSafety={markdownLinkSafety} mode='static'>
+								{part.summary}
+							</Streamdown>
 						)}
 					</ConversationContent>
 				</Conversation>

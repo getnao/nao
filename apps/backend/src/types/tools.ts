@@ -45,6 +45,8 @@ export interface ToolContext {
 	mcpAccess: McpAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
+	/** Project skills the user's groups load in full into the system prompt. */
+	preloadedSkillNames?: string[];
 	/**
 	 * Database federation access token. Populated by the EE Microsoft/Azure AD
 	 * integration when the user signs in via Microsoft; always null in the

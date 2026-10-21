@@ -45,6 +45,14 @@ describe('license.service', () => {
 		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
 	});
 
+	it('refuses an organization license as the instance license', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile({ ...DEFAULT_CLAIMS, orgId: 'org-1' });
+		setLicenseEnv({ licensePath, publicKeyPem });
+
+		expect(await getLicense()).toBeNull();
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
+	});
+
 	it('returns null when license file does not exist', async () => {
 		setLicenseEnv({ licensePath: '/tmp/nao-license-that-does-not-exist' });
 		expect(await getLicense()).toBeNull();
@@ -344,6 +352,7 @@ interface LicenseClaims {
 	companyName: string;
 	isOffline?: boolean;
 	features: string[];
+	orgId?: string;
 }
 
 async function createSignedLicenseFile(
@@ -359,6 +368,7 @@ async function createSignedLicenseFile(
 		companyName: claims.companyName,
 		isOffline: Boolean(claims.isOffline),
 		features: claims.features,
+		...(claims.orgId ? { orgId: claims.orgId } : {}),
 	})
 		.setProtectedHeader({ alg: 'EdDSA' })
 		.setIssuer('getnao')

@@ -11,6 +11,7 @@ import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { renderProjectTextForAgent } from '../../services/agent-visible-project-file.service';
 import { toReadableText } from '../../services/file-text';
 import { assertProjectContextPathAllowed } from '../../services/project-context-path-access.service';
+import { toProjectPathError } from '../../services/project-path-error.service';
 import { readUserFile } from '../../services/storage/user-files';
 import { readStoryMountFile } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
@@ -47,7 +48,7 @@ const readAnywhere = (filePath: string, context: ToolContext): Promise<string> =
 
 const readProjectFile = async (filePath: string, context: ToolContext): Promise<string> => {
 	const allowedFile = resolveAllowedProjectPath(filePath, context);
-	const handle = await fs.open(allowedFile.realPath, projectReadFlags());
+	const handle = await openProjectFile(allowedFile.realPath, filePath, context);
 
 	try {
 		const openedStats = await handle.stat({ bigint: true });
@@ -67,6 +68,14 @@ const readProjectFile = async (filePath: string, context: ToolContext): Promise<
 		await handle.close();
 	}
 };
+
+async function openProjectFile(realPath: string, filePath: string, context: ToolContext): Promise<FileHandle> {
+	try {
+		return await fs.open(realPath, projectReadFlags());
+	} catch (error) {
+		throw toProjectPathError(error, filePath, 'file', context);
+	}
+}
 
 type AllowedProjectPath = { projectRoot: string; realPath: string };
 type ValidatedProjectPath = { realPath: string; virtualPath: string };

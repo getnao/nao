@@ -109,7 +109,7 @@ function SharedItemLine({ item, icon }: { item: SharedItem; icon: ReactNode }) {
 		<>
 			{icon}
 			<span className='text-sm font-medium truncate'>{item.title}</span>
-			<SharedItemBadges item={item} />
+			<SharedItemBadges item={item} mode='lines' />
 			<span className='ml-auto text-xs text-muted-foreground whitespace-nowrap'>
 				{`${item.authorName} · ${formatRelativeDate(item.createdAt)}`}
 			</span>
@@ -127,22 +127,23 @@ function SharedItemGrid({ item, thumbnail }: { item: SharedItem; thumbnail: Reac
 						title={item.title}
 						subtitle={<AuthorDateLabel author={item.authorName} createdAt={item.createdAt} />}
 					/>
-					<SharedItemBadges item={item} />
+					<SharedItemBadges item={item} mode='grid' />
 				</div>
 			</div>
 		</>
 	);
 }
 
-function SharedItemBadges({ item }: { item: SharedItem }) {
-	if (!item.isLive && !item.visibility) {
+function SharedItemBadges({ item, mode }: { item: SharedItem; mode: 'grid' | 'lines' }) {
+	const showSharing = mode === 'grid' ? item.visibility === 'specific' : !!item.visibility;
+	if (!item.isLive && !showSharing) {
 		return null;
 	}
 
 	return (
 		<div className='flex items-center gap-2 shrink-0'>
-			{item.isLive && <LiveBadge />}
-			{item.visibility && (
+			{item.isLive && <LiveBadge iconOnly={mode === 'grid'} />}
+			{showSharing && item.visibility && (
 				<SharingBadge
 					visibility={item.visibility}
 					sharedWithCount={item.sharedWithCount}

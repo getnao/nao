@@ -20,6 +20,7 @@ import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 import { markdownPlugins } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
 
@@ -38,7 +39,12 @@ function renderColumnContent(
 	switch (segment.type) {
 		case 'markdown':
 			return (
-				<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+				<Streamdown
+					linkSafety={markdownLinkSafety}
+					mode='static'
+					plugins={markdownPlugins}
+					components={markdownComponents}
+				>
 					{segment.content}
 				</Streamdown>
 			);

@@ -1,4 +1,4 @@
-import type { ToolCallDensity, UserRole } from './types';
+import { MAX_PRELOADED_SKILLS, type ToolCallDensity, type UserRole } from './types';
 
 export const USER_GROUP_FEATURES = ['storyCreation', 'customStoryCreation', 'automationCreation'] as const;
 
@@ -18,6 +18,7 @@ export interface UserGroupConfig {
 	toolCallDensity: ToolCallDensityPolicy;
 	showAllSettings: boolean;
 	projectSharing: ProjectSharingPermission;
+	preloadedSkills: string[];
 }
 
 export type StoredUserGroupConfig =
@@ -28,6 +29,7 @@ export type StoredUserGroupConfig =
 			toolCallDensity: ToolCallDensityPolicy;
 			showAllSettings?: boolean;
 			projectSharing?: ProjectSharingPermission;
+			preloadedSkills?: string[];
 	  };
 
 export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
@@ -131,6 +133,28 @@ export function resolveProjectSharingPermission(
 	return !groups.some((group) => group.isDefault && group.projectSharing === 'blocked');
 }
 
+/**
+ * All Users' skills come first, then each other group's in name order, without duplicates.
+ * The limit applies to the merged list, so the group editor counts All Users' skills against it;
+ * a member of several custom groups can still have the last groups' picks skipped once the limit is reached.
+ */
+export function resolvePreloadedSkills(
+	groups: ReadonlyArray<{ isDefault: boolean; name: string; preloadedSkills: readonly string[] }>,
+): string[] {
+	const orderedGroups = [...groups].sort(
+		(left, right) => Number(right.isDefault) - Number(left.isDefault) || left.name.localeCompare(right.name),
+	);
+	return normalizePreloadedSkills(orderedGroups.flatMap((group) => group.preloadedSkills));
+}
+
+export function normalizePreloadedSkills(skillNames: readonly unknown[]): string[] {
+	const names = skillNames
+		.filter((name): name is string => typeof name === 'string')
+		.map((name) => name.trim())
+		.filter((name) => name.length > 0);
+	return [...new Set(names)].slice(0, MAX_PRELOADED_SKILLS);
+}
+
 /** Groups saved before the setting existed keep the previous behavior: All Users shows every settings page. */
 export function parseStoredUserGroupConfig(value: unknown, isDefault = false): UserGroupConfig {
 	if (Array.isArray(value)) {
@@ -143,6 +167,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			},
 			projectSharing: 'inherit',
 			showAllSettings: isDefault,
+			preloadedSkills: [],
 		};
 	}
 
@@ -152,6 +177,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			toolCallDensity: { defaultDensity: 'detailed', canChange: false },
 			projectSharing: 'inherit',
 			showAllSettings: isDefault,
+			preloadedSkills: [],
 		};
 	}
 
@@ -168,6 +194,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 		},
 		projectSharing: parseProjectSharingPermission(value.projectSharing),
 		showAllSettings: typeof value.showAllSettings === 'boolean' ? value.showAllSettings : isDefault,
+		preloadedSkills: Array.isArray(value.preloadedSkills) ? normalizePreloadedSkills(value.preloadedSkills) : [],
 	};
 }
 
@@ -176,6 +203,7 @@ export function serializeUserGroupConfig(
 	toolCallDensity: ToolCallDensityPolicy,
 	projectSharing: ProjectSharingPermission = 'inherit',
 	showAllSettings = false,
+	preloadedSkills: readonly string[] = [],
 ): StoredUserGroupConfig {
 	return {
 		version: 2,
@@ -186,6 +214,7 @@ export function serializeUserGroupConfig(
 		},
 		projectSharing: parseProjectSharingPermission(projectSharing),
 		showAllSettings,
+		preloadedSkills: normalizePreloadedSkills(preloadedSkills),
 	};
 }
 

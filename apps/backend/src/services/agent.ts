@@ -295,6 +295,7 @@ async function _buildContextBase(opts: {
 		mcpAccess: contextAccess.mcpAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
+		preloadedSkillNames: contextAccess.preloadedSkillNames,
 		azureAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -370,6 +371,7 @@ export class AgentService {
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
+			safeInitializeSkills(chat.projectId),
 		]);
 		const toolContext = await this._getToolContext({
 			projectId: chat.projectId,
@@ -741,6 +743,10 @@ export class AgentManager {
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
 		const repoNames = repos.map((repo) => repo.name);
 		const skills = skillService.getSkills(this.chat.projectId);
+		const preloadedSkills = skillService.getPreloadedSkills(
+			this.chat.projectId,
+			this._toolContext.preloadedSkillNames,
+		);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
@@ -758,6 +764,7 @@ export class AgentManager {
 				connections,
 				configuredDatabases,
 				skills,
+				preloadedSkills,
 				customCharts,
 				mcpServers,
 				sandboxSecrets,
@@ -1182,6 +1189,15 @@ function describeCitation({ start, end, text, storySlug, block }: CitationData):
 	const title = block.title ? ` "${block.title}"` : '';
 	const query = block.queryId ? `, reading ${block.queryId}` : '';
 	return `[The user is referring to the ${block.kind} block${title}${query} of the custom story "${storySlug}". Apply their request to that block in the story's source and publish again.]`;
+}
+
+/** Messaging and automation entry points may be the first to reach a project after a restart. */
+async function safeInitializeSkills(projectId: string): Promise<void> {
+	try {
+		await skillService.initializeSkills(projectId);
+	} catch (error) {
+		logger.warn(`Failed to initialize skills for project ${projectId}: ${String(error)}`, { source: 'agent' });
+	}
 }
 
 // Singleton instance of the agent service
