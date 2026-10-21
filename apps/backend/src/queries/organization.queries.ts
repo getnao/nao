@@ -519,13 +519,6 @@ export const updateOrgMemberRole = async (orgId: string, userId: string, role: O
 		.execute();
 };
 
-export const removeOrgMember = async (orgId: string, userId: string): Promise<void> => {
-	await db
-		.delete(s.orgMember)
-		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
-		.execute();
-};
-
 export const removeOrgMemberFromProjects = async (orgId: string, userId: string): Promise<void> => {
 	const projects = await db.select({ id: s.project.id }).from(s.project).where(eq(s.project.orgId, orgId)).execute();
 
