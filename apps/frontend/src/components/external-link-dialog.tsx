@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Check, Copy, ExternalLink } from 'lucide-react';
+import { Check, Copy, ExternalLink, X } from 'lucide-react';
 import type { LinkSafetyConfig, LinkSafetyModalProps } from 'streamdown';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 
 /** Streamdown link handling: same-origin links open directly, external ones ask for confirmation first. */
 export const markdownLinkSafety: LinkSafetyConfig = {
@@ -13,12 +14,12 @@ export const markdownLinkSafety: LinkSafetyConfig = {
 };
 
 export function ExternalLinkDialog({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProps) {
-	const [copied, setCopied] = useState(false);
+	const { isCopied, copy } = useCopyToClipboard();
+	const [isCopyFailed, setIsCopyFailed] = useState(false);
 
-	const handleCopy = async () => {
-		await navigator.clipboard.writeText(url);
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
+	const handleCopy = () => {
+		setIsCopyFailed(false);
+		copy(url).catch(() => setIsCopyFailed(true));
 	};
 
 	const handleOpen = () => {
@@ -43,8 +44,7 @@ export function ExternalLinkDialog({ isOpen, onClose, onConfirm, url }: LinkSafe
 				</div>
 				<div className='flex justify-end gap-2'>
 					<Button variant='outline' className='rounded-full border' onClick={handleCopy}>
-						{copied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
-						{copied ? 'Copied' : 'Copy link'}
+						<CopyButtonContent isCopied={isCopied} isCopyFailed={isCopyFailed} />
 					</Button>
 					<Button className='rounded-full' onClick={handleOpen}>
 						<ExternalLink className='size-3.5' />
@@ -53,6 +53,31 @@ export function ExternalLinkDialog({ isOpen, onClose, onConfirm, url }: LinkSafe
 				</div>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function CopyButtonContent({ isCopied, isCopyFailed }: { isCopied: boolean; isCopyFailed: boolean }) {
+	if (isCopyFailed) {
+		return (
+			<>
+				<X className='size-3.5' />
+				Copy failed
+			</>
+		);
+	}
+	if (isCopied) {
+		return (
+			<>
+				<Check className='size-3.5' />
+				Copied
+			</>
+		);
+	}
+	return (
+		<>
+			<Copy className='size-3.5' />
+			Copy link
+		</>
 	);
 }
 
