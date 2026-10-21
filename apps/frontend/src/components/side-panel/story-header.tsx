@@ -299,7 +299,7 @@ export const StoryHeader = memo(function StoryHeader({
 	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
 	const canFavorite = !isReadonlyMode && !!storyId;
 
-	const feedbackButtons = canFavorite && <StoryFeedbackButtons storyId={storyId} />;
+	const feedbackButtons = storyId ? <StoryFeedbackButtons storyId={storyId} /> : null;
 	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
 
 	const actionButtons = showActionsMenu && (

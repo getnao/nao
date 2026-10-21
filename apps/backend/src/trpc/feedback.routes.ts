@@ -82,7 +82,7 @@ export const feedbackRoutes = {
 			z.object({
 				storyId: z.string(),
 				vote: feedbackVoteSchema,
-				explanation: z.string().optional(),
+				explanation: z.string().max(2000).optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }): Promise<StoryFeedback> => {

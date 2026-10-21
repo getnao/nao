@@ -76,6 +76,7 @@ export const upsertStoryFeedback = async (feedback: NewStoryFeedback): Promise<S
 			set: {
 				vote: feedback.vote,
 				explanation: feedback.explanation ?? null,
+				updatedAt: new Date(),
 			},
 		})
 		.returning()
