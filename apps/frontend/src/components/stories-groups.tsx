@@ -158,6 +158,7 @@ export function StoryCard({
 				<CertifiedBadge certifiedByName={item.certifiedByName} />
 			</div>
 		);
+		const hasPersistentTopIcons = item.isCertified || (!selectionActive && (item.isPinned || item.isFavorited));
 
 		return (
 			<>
@@ -182,7 +183,7 @@ export function StoryCard({
 							<StoryThumbnail summary={item.summary} theme={storyTheme} queryData={item.kpiPreviewData} />
 						)}
 					</div>
-					<div className={GRID_HOVER_ACTION_GRADIENT_CLASS} />
+					<div className={cn(GRID_HOVER_ACTION_GRADIENT_CLASS, hasPersistentTopIcons && 'opacity-100')} />
 
 					{!selectionActive && (
 						<Link
