@@ -267,6 +267,7 @@ describe('cloud backoffice routes', () => {
 
 			const malformed = await request('PATCH', `/organizations/${ORG_ID}`, { license: 'not-a-license' });
 			expect(malformed.statusCode).toBe(400);
+			expect((await get(`/organizations/${ORG_ID}`)).json().organization.license).toBeNull();
 
 			const token = await signOrganizationLicense(privateKey, ORG_ID);
 			const licensed = await request('PATCH', `/organizations/${ORG_ID}`, { license: token });

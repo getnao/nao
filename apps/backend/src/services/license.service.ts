@@ -60,15 +60,15 @@ export function getLicense(): Promise<NaoLicense | null> {
  * honour the signed license a cloud organization stores, bound to it by its `orgId` claim.
  */
 export async function hasFeature(feature: LicenseFeature, scope?: LicenseScope): Promise<boolean> {
-	if (await hasInstanceFeature(feature)) {
-		return true;
-	}
-	return scope !== undefined && isCloud && hasOrganizationFeature(feature, scope);
+	return isFeatureLicensed(feature, await findActiveOrganizationLicense(scope));
 }
 
 export async function getFeatureAvailability(scope?: LicenseScope): Promise<Record<LicenseFeature, boolean>> {
+	const organizationLicense = await findActiveOrganizationLicense(scope);
 	const features = Object.values(LICENSE_FEATURES);
-	const entries = await Promise.all(features.map(async (feature) => [feature, await hasFeature(feature, scope)]));
+	const entries = await Promise.all(
+		features.map(async (feature) => [feature, await isFeatureLicensed(feature, organizationLicense)]),
+	);
 	return Object.fromEntries(entries) as Record<LicenseFeature, boolean>;
 }
 
@@ -252,14 +252,21 @@ async function hasInstanceFeature(feature: LicenseFeature): Promise<boolean> {
 	return license.features.includes(feature);
 }
 
+async function isFeatureLicensed(feature: LicenseFeature, organizationLicense: NaoLicense | null): Promise<boolean> {
+	return (await hasInstanceFeature(feature)) || (organizationLicense?.features.includes(feature) ?? false);
+}
+
 /** Organization licenses have no online check yet, so their expiry is a hard cutoff without grace. */
-async function hasOrganizationFeature(feature: LicenseFeature, scope: LicenseScope): Promise<boolean> {
+async function findActiveOrganizationLicense(scope: LicenseScope | undefined): Promise<NaoLicense | null> {
+	if (scope === undefined || !isCloud) {
+		return null;
+	}
 	const organization = await findOrganizationLicenseToken(scope);
 	if (!organization?.license) {
-		return false;
+		return null;
 	}
 	const license = await verifyOrganizationLicense(organization.orgId, organization.license);
-	return license !== null && !isLicenseExpired(license) && license.features.includes(feature);
+	return license && !isLicenseExpired(license) ? license : null;
 }
 
 function findOrganizationLicenseToken(scope: LicenseScope): Promise<OrganizationLicenseToken | null> {

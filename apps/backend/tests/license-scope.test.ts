@@ -59,7 +59,7 @@ describe('organization licenses', () => {
 
 	it('resolves the organization license of a project', async () => {
 		const license = await signLicense({ orgId: 'org-1', features: ['*'] });
-		mocks.getProjectOrganizationLicenseToken.mockResolvedValue({ orgId: 'org-1', license });
+		mocks.getProjectOrganizationLicenseToken.mockResolvedValueOnce({ orgId: 'org-1', license });
 
 		await expect(hasFeature(LICENSE_FEATURES.userGroups, { projectId: 'project-1' })).resolves.toBe(true);
 		expect(mocks.getProjectOrganizationLicenseToken).toHaveBeenCalledWith('project-1');
@@ -114,6 +114,7 @@ describe('organization licenses', () => {
 
 		expect(Object.values(availability).every(Boolean)).toBe(true);
 		expect(Object.keys(availability)).toEqual(Object.values(LICENSE_FEATURES));
+		expect(mocks.getOrganizationLicenseToken).toHaveBeenCalledTimes(1);
 	});
 });
 
