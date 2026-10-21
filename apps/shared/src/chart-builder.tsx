@@ -117,6 +117,7 @@ const VALUE_AXIS_PADDING = 12;
 const HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH = 60;
 const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH = 180;
 const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 24;
+const HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP = 2;
 const HORIZONTAL_BAR_SIZE = 10;
 const HORIZONTAL_BAR_MAX_SIZE = 28;
 const HORIZONTAL_BAR_CATEGORY_GAP = '20%';
@@ -742,7 +743,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 					tick={AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
-					minTickGap={12}
+					minTickGap={HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP}
 					interval={xAxisInterval ?? 'preserveStartEnd'}
 					width={categoryAxisWidth}
 					tickFormatter={tickFormatter}
