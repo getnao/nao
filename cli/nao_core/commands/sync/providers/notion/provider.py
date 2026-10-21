@@ -273,14 +273,29 @@ def fetch_as_markdown(url: str, api_key: str) -> tuple[str, str, str]:
         title, table = get_database_as_markdown(client, object_id, extract_view_id(url))
         return object_id, title, table
 
-    from notion2md.exporter.block import StringExporter
-
     title = extract_page_title(page, object_id)
-    markdown = StringExporter(block_id=object_id, token=api_key).export()
+    markdown = export_page_as_markdown(object_id, api_key)
     markdown = strip_images(markdown)
     markdown = inject_child_databases(client, object_id, markdown)
 
     return object_id, title, markdown
+
+
+def export_page_as_markdown(object_id: str, api_key: str) -> str:
+    """Export page blocks without dropping content whose optional icon is null."""
+    from notion2md.convertor.block import BlockConvertor
+    from notion2md.exporter.block import StringExporter
+
+    class NotionBlockConvertor(BlockConvertor):
+        def collect_info(self, payload: dict[str, Any]) -> dict[str, Any]:
+            icon = payload.get("icon")
+            if "icon" in payload and (not isinstance(icon, dict) or not isinstance(icon.get("emoji"), str)):
+                payload = {**payload, "icon": {"emoji": ""}}
+            return cast(dict[str, Any], super().collect_info(payload))
+
+    exporter = StringExporter(block_id=object_id, token=api_key)
+    exporter._block_convertor = NotionBlockConvertor(exporter.config, exporter._client, exporter.io)
+    return cast(str, exporter.export())
 
 
 def retrieve_page(client: Any, object_id: str) -> dict[str, Any] | None:

@@ -11,6 +11,7 @@ from notion_client.errors import APIErrorCode, APIResponseError
 from nao_core.commands.sync.providers.notion.database import DatabaseExportError
 from nao_core.commands.sync.providers.notion.provider import (
     NotionSyncProvider,
+    export_page_as_markdown,
     extract_notion_id,
     extract_page_title,
     extract_view_id,
@@ -130,6 +131,36 @@ def test_extract_page_title_falls_back_to_the_id_when_the_title_is_empty():
     page = {"properties": {"Topic": {"type": "title", "title": []}}}
 
     assert extract_page_title(page, "35e5f0e8a00080c69a81ef456a2b174b") == "35e5f0e8a00080c69a81ef456a2b174b"
+
+
+@patch("notion2md.exporter.block.StringExporter.get_blocks")
+def test_export_page_keeps_paragraphs_with_null_icons(mock_get_blocks):
+    mock_get_blocks.return_value = [
+        {
+            "type": "paragraph",
+            "paragraph": {
+                "icon": None,
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "plain_text": "Visible text",
+                        "href": None,
+                        "annotations": {
+                            "bold": False,
+                            "italic": False,
+                            "strikethrough": False,
+                            "underline": False,
+                            "code": False,
+                            "color": "default",
+                        },
+                    }
+                ],
+            },
+            "has_children": False,
+        }
+    ]
+
+    assert export_page_as_markdown("page-id", "secret") == "Visible text\n\n"
 
 
 @pytest.mark.parametrize(
