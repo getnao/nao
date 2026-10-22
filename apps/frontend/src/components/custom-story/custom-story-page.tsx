@@ -7,6 +7,7 @@ import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/
 
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import type { ReferencedChatsControls } from '@/components/referenced-chats-menu';
 import {
 	CustomStoryBlockEditDialog,
 	CustomStoryTableFormatDialog,
@@ -91,7 +92,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 			<StoryPageHeader
 				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
 				authorName={authorName}
-				onOpenChat={handleOpenChat}
+				referencedChats={{ storyId, canStartChat: !story.isArchived, canFork: !story.isArchived }}
 				live={{
 					isLive: live.isLive,
 					cachedAt: content?.cachedAt,
@@ -192,8 +193,7 @@ interface SharedCustomStoryPageProps {
 	authorName: string;
 	isLive: boolean;
 	canRefresh: boolean;
-	onOpenChat?: () => void;
-	isOpeningChat?: boolean;
+	referencedChats?: ReferencedChatsControls;
 }
 
 /** A custom story opened from a share link: data comes through the share, limited to the queries the story uses. */
@@ -203,8 +203,7 @@ export function SharedCustomStoryPage({
 	authorName,
 	isLive,
 	canRefresh,
-	onOpenChat,
-	isOpeningChat,
+	referencedChats,
 }: SharedCustomStoryPageProps) {
 	const queryClient = useQueryClient();
 	const contentQuery = useQuery(trpc.storyShare.getCustomVersion.queryOptions({ storyId }));
@@ -242,9 +241,7 @@ export function SharedCustomStoryPage({
 			<StoryPageHeader
 				title={content?.title ?? title}
 				authorName={authorName}
-				openChatLabel='Discuss story'
-				onOpenChat={onOpenChat}
-				isOpeningChat={isOpeningChat}
+				referencedChats={referencedChats}
 				live={
 					isLive
 						? {

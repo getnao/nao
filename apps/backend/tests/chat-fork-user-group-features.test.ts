@@ -2,15 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	createCustomStory: vi.fn(),
 	createForkedChat: vi.fn(),
+	deleteChat: vi.fn(),
 	createStoryVersion: vi.fn(),
 	getChatMessages: vi.fn(),
+	getLatestSqlQueryDataByIds: vi.fn(),
+	getLatestVersionByStoryId: vi.fn(),
+	getReferenceableStory: vi.fn(),
 	getStoryByIdForUser: vi.fn(),
+	getStoryDataCacheByStoryId: vi.fn(),
+	getStoryProjectId: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getSharedChatInfo: vi.fn(),
 	getSharedStoryByStoryId: vi.fn(),
+	listVersionFiles: vi.fn(),
+	publishCustomStoryDraft: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
 	saveStoryInPrivateRoot: vi.fn(),
+	seedDraftFiles: vi.fn(),
 	upsertMessage: vi.fn(),
 }));
 
@@ -18,6 +28,7 @@ vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/queries/chat.queries', () => ({
 	createForkedChat: mocks.createForkedChat,
+	deleteChat: mocks.deleteChat,
 	getChatMessages: mocks.getChatMessages,
 	upsertMessage: mocks.upsertMessage,
 }));
@@ -35,11 +46,28 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
 }));
 vi.mock('../src/queries/story.queries', () => ({
+	createCustomStory: mocks.createCustomStory,
 	createStoryVersion: mocks.createStoryVersion,
+	getLatestVersionByStoryId: mocks.getLatestVersionByStoryId,
 	getStoryByIdForUser: mocks.getStoryByIdForUser,
+	getStoryDataCacheByStoryId: mocks.getStoryDataCacheByStoryId,
+	getStoryProjectId: mocks.getStoryProjectId,
 }));
 vi.mock('../src/queries/story-folder.queries', () => ({
 	saveStoryInPrivateRoot: mocks.saveStoryInPrivateRoot,
+}));
+vi.mock('../src/queries/story-reference.queries', () => ({
+	getReferenceableStory: mocks.getReferenceableStory,
+}));
+vi.mock('../src/queries/story-file.queries', () => ({
+	listVersionFiles: mocks.listVersionFiles,
+	seedDraftFiles: mocks.seedDraftFiles,
+}));
+vi.mock('../src/queries/execute-sql.queries', () => ({
+	getLatestSqlQueryDataByIds: mocks.getLatestSqlQueryDataByIds,
+}));
+vi.mock('../src/services/custom-story-authoring', () => ({
+	publishCustomStoryDraft: mocks.publishCustomStoryDraft,
 }));
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
@@ -279,6 +307,157 @@ describe('chat fork Story creation permission', () => {
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 });
+
+describe('fork of any accessible Story', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+		});
+		mocks.createForkedChat.mockResolvedValue({ id: 'fork-chat-id' });
+		mocks.createStoryVersion.mockResolvedValue({ storyId: 'fork-story-id', version: 1 });
+		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({});
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({}));
+		mocks.getStoryProjectId.mockResolvedValue('project-id');
+	});
+
+	it('forks the Story in its own project, whatever project is active', async () => {
+		mocks.getStoryProjectId.mockResolvedValue('other-project-id');
+
+		await createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' });
+
+		expect(mocks.getReferenceableStory).toHaveBeenCalledWith('owner-id', 'other-project-id', 'story-id');
+		expect(mocks.createForkedChat).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'other-project-id', userId: 'owner-id' }),
+			expect.anything(),
+		);
+	});
+
+	it('forks an unshared Story owned by the user without checking the creation grant', async () => {
+		await expect(createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' })).resolves.toEqual({
+			chatId: 'fork-chat-id',
+		});
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.getSharedStoryByStoryId).not.toHaveBeenCalled();
+		expect(mocks.createStoryVersion).toHaveBeenCalledWith(
+			expect.objectContaining({
+				chatId: 'fork-chat-id',
+				slug: 'story',
+				code: '# Story\n<table query_id="query_a" />',
+			}),
+		);
+		expect(mocks.getLatestSqlQueryDataByIds).toHaveBeenCalledWith('source-chat-id', new Set(['query_a']));
+		expect(mocks.saveStoryInPrivateRoot).toHaveBeenCalledWith('owner-id', 'project-id', 'fork-story-id');
+	});
+
+	it("denies a fork of someone else's Story without the creation grant", async () => {
+		await expect(createCaller().chatFork.forkStory({ storyId: 'story-id' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Story creation is not enabled for your user group.',
+		});
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
+	it("allows a fork of someone else's Story with the creation grant", async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['storyCreation'],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+		});
+
+		await expect(createCaller().chatFork.forkStory({ storyId: 'story-id' })).resolves.toEqual({
+			chatId: 'fork-chat-id',
+		});
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.createStoryVersion).toHaveBeenCalled();
+		expect(mocks.saveStoryInPrivateRoot).toHaveBeenCalledWith('user-id', 'project-id', 'fork-story-id');
+	});
+
+	it('rejects a Story the user cannot see', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(null);
+
+		await expect(createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' })).rejects.toMatchObject({
+			code: 'NOT_FOUND',
+		});
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
+	it('seeds the fork of a standalone Story with its cached query data', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ chatId: null }));
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+			queryData: {
+				query_a: { columns: ['value'], data: [{ value: 1 }] },
+				query_unused: { columns: ['value'], data: [{ value: 2 }] },
+			},
+		});
+
+		await createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' });
+
+		expect(mocks.getLatestSqlQueryDataByIds).not.toHaveBeenCalled();
+		const seededMessages = JSON.stringify(mocks.createForkedChat.mock.calls[0][1]);
+		expect(seededMessages).toContain('query_a');
+		expect(seededMessages).not.toContain('query_unused');
+	});
+
+	it('copies the files of a custom Story and publishes them', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
+		mocks.getLatestVersionByStoryId.mockResolvedValue({ id: 'version-id' });
+		mocks.listVersionFiles.mockResolvedValue([
+			{ path: 'app.jsx', content: 'useQuery("query_b")', storyVersionId: 'version-id' },
+		]);
+		mocks.createCustomStory.mockResolvedValue({ id: 'fork-story-id' });
+		mocks.publishCustomStoryDraft.mockResolvedValue({ ok: true, version: 1, files: ['app.jsx'] });
+
+		await createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' });
+
+		expect(mocks.createStoryVersion).not.toHaveBeenCalled();
+		expect(mocks.seedDraftFiles).toHaveBeenCalledWith('fork-story-id', [
+			{ path: 'app.jsx', content: 'useQuery("query_b")' },
+		]);
+		expect(mocks.getLatestSqlQueryDataByIds).toHaveBeenCalledWith('source-chat-id', new Set(['query_b']));
+		expect(mocks.publishCustomStoryDraft).toHaveBeenCalledWith(
+			{ id: 'fork-story-id' },
+			{ userId: 'owner-id', projectId: 'project-id' },
+			'assistant',
+		);
+	});
+
+	it('deletes the forked chat when the copy of a custom Story does not build', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
+		mocks.getLatestVersionByStoryId.mockResolvedValue({ id: 'version-id' });
+		mocks.listVersionFiles.mockResolvedValue([
+			{ path: 'app.jsx', content: 'broken', storyVersionId: 'version-id' },
+		]);
+		mocks.createCustomStory.mockResolvedValue({ id: 'fork-story-id' });
+		mocks.publishCustomStoryDraft.mockResolvedValue({ ok: false });
+
+		await expect(createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' })).rejects.toThrow(
+			'does not build',
+		);
+		expect(mocks.deleteChat).toHaveBeenCalledWith('fork-chat-id');
+	});
+});
+
+function createReferenceableStory(overrides: Record<string, unknown>) {
+	return {
+		storyId: 'story-id',
+		chatId: 'source-chat-id',
+		chatTitle: 'Source chat',
+		slug: 'story',
+		title: 'Story',
+		format: 'classic',
+		authorName: 'Owner',
+		ownerId: 'owner-id',
+		isPinned: false,
+		isCertified: false,
+		isSharedWithMe: false,
+		updatedAt: new Date(),
+		versionId: 'version-id',
+		version: 3,
+		code: '# Story\n<table query_id="query_a" />',
+		...overrides,
+	};
+}
 
 function createCaller(userId = 'user-id') {
 	return testRouter.createCaller({

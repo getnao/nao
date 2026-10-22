@@ -6,11 +6,12 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import * as storyFolderQueries from '../queries/story-folder.queries';
+import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { compactionService } from '../services/compaction';
+import { forkStoryIntoChat } from '../services/story-fork';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
+import { buildQueryDataMessages, pinStoryMessageToChat } from '../utils/chat-message-story';
 import { canSendProcedure, cloudBillingMiddleware, projectProtectedProcedure, protectedProcedure } from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
@@ -20,7 +21,7 @@ const forkSourceSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('story'), storyId: z.string() }),
 ]);
 const forkInputSchema = z.object({ source: forkSourceSchema, selection: selectionSchema.optional() });
-const openStandaloneInputSchema = z.object({ storyId: z.string() });
+const storyIdInputSchema = z.object({ storyId: z.string() });
 
 const resolvedForkProcedure = canSendProcedure.input(forkInputSchema).use(async ({ ctx, input, next }) => {
 	const source =
@@ -38,8 +39,28 @@ const cloudBillingForkProcedure = resolvedForkProcedure.use(
 	}>(({ source }) => ({ projectId: source.share.projectId })),
 );
 
+/** The story is forked in its own project, whatever project is active, like the fork of a share. */
+const resolvedStoryForkProcedure = protectedProcedure.input(storyIdInputSchema).use(async ({ ctx, input, next }) => {
+	const projectId = await storyQueries.getStoryProjectId(input.storyId);
+	const story = projectId
+		? await storyReferenceQueries.getReferenceableStory(ctx.user.id, projectId, input.storyId)
+		: null;
+	if (!projectId || !story) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	const userRole = await projectQueries.getUserRoleInProject(projectId, ctx.user.id);
+	if (userRole !== 'admin' && userRole !== 'user' && userRole !== 'context_admin') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
+	}
+	return next({ ctx: { story, projectId } });
+});
+
+const storyForkProcedure = resolvedStoryForkProcedure.use(
+	cloudBillingMiddleware<{ projectId: string }>(({ projectId }) => ({ projectId })),
+);
+
 const resolvedStandaloneStoryProcedure = projectProtectedProcedure
-	.input(openStandaloneInputSchema)
+	.input(storyIdInputSchema)
 	.use(async ({ ctx, input, next }) => {
 		const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
 		if (!story || story.projectId !== ctx.project.id) {
@@ -66,6 +87,16 @@ export const chatForkRoutes = {
 			return forkSharedChat(ctx.source.share, input.selection, ctx.user.id);
 		}
 		return forkSharedStoryItem(ctx.source.share, input.selection, ctx.user.id);
+	}),
+
+	forkStory: storyForkProcedure.mutation(async ({ ctx }): Promise<{ chatId: string }> => {
+		const { story, projectId, user } = ctx;
+		if (story.ownerId !== user.id) {
+			await assertUserGroupFeatureForTrpc(projectId, user.id, 'storyCreation');
+		}
+		const { chatId } = await forkStoryIntoChat(story, { userId: user.id, projectId });
+		logStoryFork({ ...story, projectId }, user.id, chatId, 'full');
+		return { chatId };
 	}),
 
 	openStandalone: openStandaloneProcedure.mutation(async ({ ctx }): Promise<{ chatId: string }> => {
@@ -159,11 +190,14 @@ async function forkSharedStoryItem(
 		await assertUserGroupFeatureForTrpc(projectId, userId, 'storyCreation');
 	}
 
-	const forkMetadata: ForkMetadata = selection
-		? buildSelectionMetadata('story_selection', share.storyId, share.title, share.authorName, selection)
-		: { type: 'story', id: share.storyId, title: share.title, authorName: share.authorName };
-
 	if (selection) {
+		const forkMetadata = buildSelectionMetadata(
+			'story_selection',
+			share.storyId,
+			share.title,
+			share.authorName,
+			selection,
+		);
 		const [rawMessages, queryData] = await Promise.all([
 			chatQueries.getChatMessages(share.chatId!),
 			sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code),
@@ -181,35 +215,30 @@ async function forkSharedStoryItem(
 			messages,
 		);
 
-		logStoryFork(share, userId, chat.id, 'selection');
+		logStoryFork({ ...share, sharedStoryId: share.id }, userId, chat.id, 'selection');
 		return { chatId: chat.id };
 	}
 
-	const queryData = await sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code);
-	const messages = buildQueryDataMessages(queryData);
-
-	const chat = await chatQueries.createForkedChat({ projectId, userId, title: share.title, forkMetadata }, messages);
-
-	await createStoryInFork(chat.id, share.slug, share.title, share.code, { userId, projectId });
-	logStoryFork(share, userId, chat.id, 'full');
-	return { chatId: chat.id };
+	const { chatId } = await forkStoryIntoChat(share, { userId, projectId });
+	logStoryFork({ ...share, sharedStoryId: share.id }, userId, chatId, 'full');
+	return { chatId };
 }
 
 function logStoryFork(
-	share: { projectId: string; storyId: string; chatId: string | null; id: string; version: number },
+	story: { projectId: string; storyId: string; chatId: string | null; sharedStoryId?: string; version: number },
 	userId: string,
 	resultChatId: string,
 	scope: 'full' | 'selection',
 ): void {
 	logAnalyticsEvent({
-		projectId: share.projectId,
+		projectId: story.projectId,
 		type: 'fork',
 		assetType: 'story',
 		actorUserId: userId,
-		storyId: share.storyId,
-		chatId: share.chatId,
-		sharedStoryId: share.id,
-		metadata: { type: 'fork', resultId: resultChatId, scope, versionNumber: share.version },
+		storyId: story.storyId,
+		chatId: story.chatId,
+		sharedStoryId: story.sharedStoryId,
+		metadata: { type: 'fork', resultId: resultChatId, scope, versionNumber: story.version },
 	});
 }
 
@@ -277,39 +306,6 @@ function buildSelectionContextMessage(sourceTitle: string, selection: SelectionI
 			},
 		],
 	};
-}
-
-function buildQueryDataMessages(
-	queryData: Record<string, { data: unknown[]; columns: string[] }> | null,
-): Array<Omit<UIMessage, 'id'>> {
-	const parts = buildQueryDataParts(queryData);
-	if (parts.length === 0) {
-		return [];
-	}
-	return [{ role: 'assistant', isForked: true, parts }];
-}
-
-async function createStoryInFork(
-	chatId: string,
-	slug: string,
-	title: string,
-	code: string,
-	context?: { userId: string; projectId: string },
-): Promise<void> {
-	const version = await storyQueries.createStoryVersion({
-		chatId,
-		slug,
-		title,
-		code,
-		action: 'create',
-		source: 'assistant',
-	});
-
-	await pinStoryMessageToChat({ chatId, slug, title, code, version: version.version });
-
-	if (context) {
-		await storyFolderQueries.saveStoryInPrivateRoot(context.userId, context.projectId, version.storyId);
-	}
 }
 
 function buildStoryContextMessage(slug: string, title: string, code: string): Omit<UIMessage, 'id'> {

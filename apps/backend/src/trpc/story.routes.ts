@@ -242,6 +242,16 @@ export const storyRoutes = {
 		};
 	}),
 
+	listReferencingChats: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const story = await storyQueries.getStoryById(input.storyId);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		await assertCanOpenStory(story.id, await storyQueries.getStoryProjectId(story.id), ctx.user.id);
+		const chats = await storyReferenceQueries.listReferencingChats(ctx.user.id, story.id, story.chatId);
+		return { storySlug: story.slug, chats };
+	}),
+
 	getIdByChatAndSlug: protectedProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input, ctx }) => {

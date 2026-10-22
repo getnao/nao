@@ -84,10 +84,6 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		[navigate, chatId, storySlug],
 	);
 
-	const handleOpenChat = useCallback(() => {
-		navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: storySlug } });
-	}, [navigate, chatId, storySlug]);
-
 	const unarchiveMutation = useMutation(
 		trpc.story.unarchive.mutationOptions({
 			onSuccess: () => {
@@ -98,14 +94,15 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		}),
 	);
 
-	const canEditCharts = !story.archivedAt;
+	const isArchived = Boolean(story.archivedAt);
+	const canEditCharts = !isArchived;
 	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
 			<StoryPageHeader
 				title={story.title}
-				onOpenChat={handleOpenChat}
+				referencedChats={{ storyId, canStartChat: !isArchived, canFork: !isArchived }}
 				live={{
 					isLive,
 					cachedAt: story.cachedAt,

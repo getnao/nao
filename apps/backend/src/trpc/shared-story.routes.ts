@@ -233,6 +233,7 @@ export const sharedStoryRoutes = {
 			userRole: ctx.userRole,
 			canRefresh,
 			canFork,
+			isArchived: Boolean(storyRow?.archivedAt),
 		};
 	}),
 
