@@ -73,6 +73,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const maxLabelWidth = estimateMaxLabelWidth(data, xAxisKey, dateFormat);
 
 	const isPie = chartType === 'pie' || chartType === 'donut';
+	const isHorizontalBar = chartType === 'horizontal_bar' || chartType === 'horizontal_bar_100';
+	const plotHeight = height - (margin.top ?? 0) - (margin.bottom ?? 0);
 
 	const orderedData = config.x_axis_type === 'date' ? sortByDateKey(data, xAxisKey) : data;
 	const chartData = isPie ? bucketPieData(orderedData, xAxisKey, series[0]?.data_key ?? '') : orderedData;
@@ -105,7 +107,9 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		showDataLabels: config.show_data_labels,
 		margin,
 		title: config.title,
-		maxXAxisTicks: Math.floor(chartWidth / maxLabelWidth),
+		maxXAxisTicks: isHorizontalBar
+			? Math.floor(plotHeight / HORIZONTAL_BAR_LABEL_ROW_PX)
+			: Math.floor(chartWidth / maxLabelWidth),
 		backgroundColor: palette.page,
 		chartStyle: { barRadius: palette.barRadius },
 		yAxisMin: config.y_axis_min,
@@ -137,6 +141,7 @@ function buildPieLegendEntries(
 const CHAR_WIDTH_PX = 7;
 const TICK_PADDING_PX = 16;
 const MIN_TICK_WIDTH_PX = 40;
+const HORIZONTAL_BAR_LABEL_ROW_PX = 18;
 
 function estimateMaxLabelWidth(
 	data: Record<string, unknown>[],
