@@ -42,10 +42,12 @@ import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
+const VIEW_COUNT_FORMAT = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+
 export function StoriesNoResults({ query }: { query: string }) {
 	return (
 		<p className='text-muted-foreground text-sm py-12 text-center'>
-			No stories matching &ldquo;{query.trim()}&rdquo;
+			{query.trim() ? <>No stories matching &ldquo;{query.trim()}&rdquo;</> : 'No stories match these filters'}
 		</p>
 	);
 }
@@ -285,6 +287,9 @@ export function StoryCard({
 						</div>
 						<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{item.author}
+						</div>
+						<div className='hidden lg:block w-16 shrink-0 pl-1.5 text-xs text-muted-foreground tabular-nums truncate'>
+							{VIEW_COUNT_FORMAT.format(item.viewCount)}
 						</div>
 						<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{formatRelativeDate(item.createdAt)}

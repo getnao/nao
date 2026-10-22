@@ -90,6 +90,11 @@ export const analyticsEventRoutes = {
 			return rows;
 		}),
 
+	/** Aggregated page view counts per story, without viewer identities, used to sort the stories library. */
+	storyViewCounts: projectProtectedProcedure.query(async ({ ctx }) => {
+		return analyticsEventQueries.countStoryViewsByProject(ctx.project.id);
+	}),
+
 	/** Exports made in the browser, which the server never sees: table exports and saved files. */
 	logChatDownload: projectProtectedProcedure
 		.input(

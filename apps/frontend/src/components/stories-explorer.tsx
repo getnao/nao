@@ -1,8 +1,8 @@
 import { Fragment } from 'react';
 import { FolderPlus } from 'lucide-react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
-import type { ExplorerEntry, FolderItem, StoriesScope, StoryItem } from '@/lib/stories-page';
-import { isSystemFolder } from '@/lib/stories-page';
+import type { ExplorerEntry, FolderItem, StoriesFilters, StoryItem } from '@/lib/stories-page';
+import { countActiveFilters, DEFAULT_FILTERS, isSystemFolder } from '@/lib/stories-page';
 import { FolderCard } from '@/components/stories-folder-card';
 import {
 	CertifiedStoriesEmptyState,
@@ -19,7 +19,7 @@ export function StoriesExplorer({
 	entries,
 	displayMode,
 	showArchived,
-	scope = 'all',
+	filters = DEFAULT_FILTERS,
 	searchQuery,
 	currentFolderId,
 	currentUserName,
@@ -39,7 +39,7 @@ export function StoriesExplorer({
 	entries: ExplorerEntry[];
 	displayMode: StoryPanelDisplayMode;
 	showArchived: boolean;
-	scope?: StoriesScope;
+	filters?: StoriesFilters;
 	searchQuery: string;
 	currentFolderId: string | null;
 	currentUserName: string;
@@ -58,17 +58,19 @@ export function StoriesExplorer({
 }) {
 	const { isViewer } = usePermissions();
 	const isInSharedWithMe = currentFolderId === '__shared_with_me__';
-	const isCertifiedScope = scope === 'certified';
-	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe && !isCertifiedScope;
+	const hasSearch = searchQuery.trim() !== '';
+	const activeFilterCount = countActiveFilters(filters);
+	const isShowingResults = hasSearch || activeFilterCount > 0;
+	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe && !isShowingResults;
 	const moveToFolderHandler = isViewer || isInSharedWithMe ? undefined : onMoveToFolder;
 	const selectionActive = selectionMode || selectedStoryIds.size + selectedFolderIds.size > 0;
 
 	if (entries.length === 0) {
-		if (searchQuery.trim()) {
-			return <StoriesNoResults query={searchQuery} />;
-		}
-		if (isCertifiedScope) {
+		if (!hasSearch && !showArchived && activeFilterCount === 1 && filters.certifiedOnly) {
 			return <CertifiedStoriesEmptyState />;
+		}
+		if (isShowingResults) {
+			return <StoriesNoResults query={searchQuery} />;
 		}
 		if (!showArchived) {
 			return (
@@ -138,43 +140,60 @@ export function StoriesExplorer({
 	}
 
 	return (
-		<div className='flex flex-col gap-4'>
-			<div className={GRID_CLASS}>
-				{folders.map((entry) => (
-					<FolderCard
-						key={`f-${entry.folder.id}`}
-						folder={entry.folder}
-						displayMode='grid'
-						currentUserName={currentUserName}
-						onModify={onModifyFolder}
-						onMove={onMoveFolder}
-						onDelete={onDeleteFolder}
-						onArchive={onArchiveFolder}
-						onRestore={onRestoreFolder}
-						selected={selectedFolderIds.has(entry.folder.id)}
-						selectionActive={selectionActive}
-						onToggleSelect={onToggleFolder}
-					/>
-				))}
-				{canCreateFolder && <NewFolderCard onClick={onNewFolder} />}
-			</div>
+		<div className='flex flex-col gap-8'>
+			{(folders.length > 0 || canCreateFolder) && (
+				<section>
+					<SectionLabel label='Folders' count={folders.length} />
+					<div className={GRID_CLASS}>
+						{folders.map((entry) => (
+							<FolderCard
+								key={`f-${entry.folder.id}`}
+								folder={entry.folder}
+								displayMode='grid'
+								currentUserName={currentUserName}
+								onModify={onModifyFolder}
+								onMove={onMoveFolder}
+								onDelete={onDeleteFolder}
+								onArchive={onArchiveFolder}
+								onRestore={onRestoreFolder}
+								selected={selectedFolderIds.has(entry.folder.id)}
+								selectionActive={selectionActive}
+								onToggleSelect={onToggleFolder}
+							/>
+						))}
+						{canCreateFolder && <NewFolderCard onClick={onNewFolder} />}
+					</div>
+				</section>
+			)}
 			{stories.length > 0 && (
-				<div className={GRID_CLASS}>
-					{stories.map((entry) => (
-						<StoryCard
-							key={`s-${entry.story.storyId}`}
-							item={entry.story}
-							displayMode='grid'
-							showArchived={showArchived}
-							onMoveToFolder={moveToFolderHandler}
-							selected={selectedStoryIds.has(entry.story.storyId)}
-							selectionActive={selectionActive}
-							onToggleSelect={onToggleStory}
-						/>
-					))}
-				</div>
+				<section>
+					<SectionLabel label={isShowingResults ? 'Results' : 'Stories'} count={stories.length} />
+					<div className={GRID_CLASS}>
+						{stories.map((entry) => (
+							<StoryCard
+								key={`s-${entry.story.storyId}`}
+								item={entry.story}
+								displayMode='grid'
+								showArchived={showArchived}
+								onMoveToFolder={moveToFolderHandler}
+								selected={selectedStoryIds.has(entry.story.storyId)}
+								selectionActive={selectionActive}
+								onToggleSelect={onToggleStory}
+							/>
+						))}
+					</div>
+				</section>
 			)}
 		</div>
+	);
+}
+
+function SectionLabel({ label, count }: { label: string; count: number }) {
+	return (
+		<h2 className='flex items-baseline gap-1.5 mb-3 text-sm font-medium text-muted-foreground'>
+			{label}
+			{count > 0 && <span className='text-xs text-muted-foreground/60 tabular-nums'>{count}</span>}
+		</h2>
 	);
 }
 

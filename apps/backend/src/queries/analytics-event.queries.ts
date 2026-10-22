@@ -1,5 +1,5 @@
 import type { AnalyticsAssetType, AnalyticsEventType } from '@nao/shared/types';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNotNull, or, sql } from 'drizzle-orm';
 
 import type { DBAnalyticsEvent, NewAnalyticsEvent } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -86,4 +86,28 @@ export const listEventsForAsset = async (input: {
 		.execute();
 
 	return rows.map((r) => ({ event: r.event, actorName: r.actorName }));
+};
+
+export const countStoryViewsByProject = async (projectId: string): Promise<Record<string, number>> => {
+	const rows = await db
+		.select({ storyId: s.analyticsEvent.storyId, views: count() })
+		.from(s.analyticsEvent)
+		.where(
+			and(
+				eq(s.analyticsEvent.projectId, projectId),
+				eq(s.analyticsEvent.type, 'page_view'),
+				eq(s.analyticsEvent.assetType, 'story'),
+				isNotNull(s.analyticsEvent.storyId),
+			),
+		)
+		.groupBy(s.analyticsEvent.storyId)
+		.execute();
+
+	const viewsByStoryId: Record<string, number> = {};
+	for (const row of rows) {
+		if (row.storyId) {
+			viewsByStoryId[row.storyId] = Number(row.views);
+		}
+	}
+	return viewsByStoryId;
 };
