@@ -284,5 +284,8 @@ function DateRangeStep({ step, message }: { step: 1 | 2; message: string }) {
 
 function initialSelection(value: DateRange | undefined): DateRangeSelection {
 	const isComplete = Boolean(value?.from && value.to);
-	return { range: value, activeField: isComplete ? null : 'start' };
+	if (isComplete) {
+		return { range: value, activeField: null };
+	}
+	return { range: value, activeField: value?.from ? 'end' : 'start' };
 }
