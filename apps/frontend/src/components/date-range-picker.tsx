@@ -4,6 +4,7 @@ import { isSameDay, startOfDay } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
 import type { DateRangeField, DateRangePreset, DateRangeSelection } from '@/lib/date-range';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -33,15 +34,17 @@ export function DateRangePicker({
 	placeholder?: string;
 	className?: string;
 }) {
+	const isMobile = useIsMobile();
+	const numberOfMonths = isMobile ? 1 : 2;
 	const [isOpen, setIsOpen] = useState(false);
 	const [selection, setSelection] = useState<DateRangeSelection>(() => initialSelection(value));
-	const [month, setMonth] = useState<Date>(() => getInitialMonth(value));
+	const [month, setMonth] = useState<Date>(() => getInitialMonth(value, numberOfMonths));
 	const [hoveredDay, setHoveredDay] = useState<Date | undefined>();
 
 	const handleOpenChange = (open: boolean) => {
 		if (open) {
 			setSelection(initialSelection(value));
-			setMonth(getInitialMonth(value));
+			setMonth(getInitialMonth(value, numberOfMonths));
 			setHoveredDay(undefined);
 		}
 		setIsOpen(open);
@@ -49,8 +52,8 @@ export function DateRangePicker({
 
 	const handlePresetSelect = (preset: DateRangePreset) => {
 		const range = preset.getRange(startOfDay(new Date()));
-		setSelection({ range, activeField: null });
-		setMonth(getInitialMonth(range));
+		setSelection({ range, activeField: null, presetId: preset.id });
+		setMonth(getInitialMonth(range, numberOfMonths));
 	};
 
 	const handleFieldFocus = (field: DateRangeField) => {
@@ -90,8 +93,8 @@ export function DateRangePicker({
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent className='w-auto overflow-hidden p-0' align='start'>
-				<div className='flex'>
-					<DateRangePresetList selectedRange={draftRange} onSelect={handlePresetSelect} />
+				<div className='flex flex-col md:flex-row'>
+					<DateRangePresetList selection={selection} onSelect={handlePresetSelect} />
 					<div className='flex flex-col'>
 						<DateRangeFields
 							range={draftRange}
@@ -106,7 +109,7 @@ export function DateRangePicker({
 							onDayMouseLeave={() => setHoveredDay(undefined)}
 							month={month}
 							onMonthChange={setMonth}
-							numberOfMonths={2}
+							numberOfMonths={numberOfMonths}
 							showOutsideDays={false}
 							classNames={{ today: TODAY_CLASS_NAME }}
 							modifiers={{ preview: previewRange ?? [] }}
@@ -149,21 +152,21 @@ function DateRangeTriggerLabel({ value, placeholder }: { value: DateRange | unde
 }
 
 function DateRangePresetList({
-	selectedRange,
+	selection,
 	onSelect,
 }: {
-	selectedRange: DateRange | undefined;
+	selection: DateRangeSelection;
 	onSelect: (preset: DateRangePreset) => void;
 }) {
-	const selectedPreset = findMatchingPreset(selectedRange);
+	const selectedPresetId = selection.presetId ?? findMatchingPreset(selection.range)?.id;
 
 	return (
-		<div className='flex w-44 flex-col gap-0.5 border-r bg-muted/30 p-2'>
-			<span className='px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase'>
+		<div className='grid grid-cols-2 gap-0.5 border-b bg-muted/30 p-2 md:flex md:w-44 md:flex-col md:border-r md:border-b-0'>
+			<span className='col-span-2 px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase'>
 				Quick select
 			</span>
 			{DATE_RANGE_PRESETS.map((preset) => {
-				const isSelected = selectedPreset?.id === preset.id;
+				const isSelected = selectedPresetId === preset.id;
 				return (
 					<button
 						key={preset.id}
@@ -194,14 +197,14 @@ function DateRangeFields({
 }) {
 	return (
 		<div className='flex items-end gap-2 border-b px-3 pt-3 pb-3'>
-			<DateRangeField
+			<DateRangeFieldButton
 				label='Start date'
 				date={range?.from}
 				isActive={activeField === 'start'}
 				onClick={() => onFieldFocus('start')}
 			/>
 			<ArrowRight className='mb-2.5 size-4 shrink-0 text-muted-foreground' />
-			<DateRangeField
+			<DateRangeFieldButton
 				label='End date'
 				date={range?.to}
 				isActive={activeField === 'end'}
@@ -212,7 +215,7 @@ function DateRangeFields({
 	);
 }
 
-function DateRangeField({
+function DateRangeFieldButton({
 	label,
 	date,
 	isActive,
@@ -225,6 +228,8 @@ function DateRangeField({
 	isDisabled?: boolean;
 	onClick: () => void;
 }) {
+	const dateLabel = date ? formatRangeDate(date) : 'Select date';
+
 	return (
 		<div className='flex flex-1 flex-col gap-1'>
 			<span className='text-xs font-medium text-muted-foreground'>{label}</span>
@@ -232,7 +237,7 @@ function DateRangeField({
 				type='button'
 				disabled={isDisabled}
 				onClick={onClick}
-				aria-label={label}
+				aria-label={`${label}: ${dateLabel}`}
 				aria-pressed={isActive}
 				className={cn(
 					'flex h-9 items-center rounded-md border bg-background px-3 text-left text-sm transition-colors hover:border-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border',
@@ -240,7 +245,7 @@ function DateRangeField({
 					!date && 'text-muted-foreground',
 				)}
 			>
-				{date ? formatRangeDate(date) : 'Select date'}
+				{dateLabel}
 			</button>
 		</div>
 	);

@@ -28,6 +28,7 @@ export type DateRangePreset = {
 export type DateRangeSelection = {
 	range: DateRange | undefined;
 	activeField: DateRangeField | null;
+	presetId?: string;
 };
 
 export const DATE_RANGE_PRESETS: DateRangePreset[] = [
@@ -119,7 +120,11 @@ export function formatShortRange(range: DateRange): string {
 	return `${fromLabel} – ${format(range.to, 'MMM d, yyyy')}`;
 }
 
-export function getInitialMonth(range: DateRange | undefined, today: Date = startOfDay(new Date())): Date {
+export function getInitialMonth(
+	range: DateRange | undefined,
+	numberOfMonths: number,
+	today: Date = startOfDay(new Date()),
+): Date {
 	const lastVisibleDay = range?.to ?? range?.from ?? today;
-	return startOfMonth(subMonths(lastVisibleDay, 1));
+	return startOfMonth(subMonths(lastVisibleDay, numberOfMonths - 1));
 }
