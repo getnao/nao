@@ -652,6 +652,15 @@ code.dollar:before {
 	row-gap: calc(var(--spacing) * 0.25);
 }
 
+.mention-menu .mention-menu-item-has-children {
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-areas: 'icon label chevron';
+}
+
+.mention-menu .mention-menu-chevron {
+	grid-area: chevron;
+}
+
 .mention-menu .mention-menu-item-icon {
 	grid-area: icon;
 }

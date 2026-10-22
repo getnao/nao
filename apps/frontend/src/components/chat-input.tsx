@@ -5,6 +5,7 @@ import {
 	Plus,
 	PencilRuler,
 	Database,
+	Library,
 	Paperclip,
 	AlertTriangle,
 	Shield,
@@ -14,9 +15,18 @@ import {
 	MessageCircleOff,
 } from 'lucide-react';
 import { ALLOWED_IMAGE_MEDIA_TYPES, ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
+import { story } from '@nao/shared/tools';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
-import { ChatPrompt, DATABASE_MENTION_TRIGGER, useStoryMentionOptions } from './chat-input-prompt';
+import {
+	ChatPrompt,
+	DATABASE_MENTION_TRIGGER,
+	openMentionMenuAtEnd,
+	openReferenceMenuAtEnd,
+	SKILL_MENTION_TRIGGER,
+	useStoryMentionOptions,
+	useStoryReferenceOptions,
+} from './chat-input-prompt';
 import { ChatInputModelSelect } from './chat-input-model-select';
 import { ChatInputMessageQueue } from './chat-input-message-queue';
 import { ChatInputAttachmentPreview } from './chat-input-attachment-preview';
@@ -50,6 +60,7 @@ import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billin
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
+import { STORIES_ROOT_ID, TABLES_ROOT_ID } from '@/lib/reference-mention-menu';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
@@ -117,7 +128,7 @@ function ChatInputBase({
 	promptRef,
 	className,
 	variant = 'default',
-	placeholder = 'Ask anything about your data...',
+	placeholder,
 	initialText,
 	onCancel,
 	onSubmitMessage,
@@ -140,6 +151,7 @@ function ChatInputBase({
 	const { canChatWithNaoData } = usePermissions();
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
+	const { options: storyReferenceOptions } = useStoryReferenceOptions({ excludeCurrentChat: true });
 	const chatId = useChatId();
 	const storyBeforeAgentSend = useStoryBeforeAgentSend();
 
@@ -169,12 +181,6 @@ function ChatInputBase({
 		maxDocumentSizeMb: uploadLimits.data?.maxFileSizeMb ?? 0,
 	});
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
-	const effectivePlaceholder =
-		isRunning && allowQueueing
-			? 'Add a follow-up...'
-			: variant === 'onboarding'
-				? 'Tell me where you are starting from...'
-				: placeholder;
 
 	const agentSettings = useQuery({
 		...trpc.project.getAgentSettings.queryOptions(),
@@ -415,6 +421,17 @@ function ChatInputBase({
 	const databaseObjects = useQuery({ ...trpc.project.getDatabaseObjects.queryOptions(), enabled: hasProject });
 	const hasSkills = hasProject && Boolean(skills.data?.length);
 	const hasDatabases = hasProject && Boolean(databaseObjects.data?.length);
+	const shortcutPlaceholder = buildShortcutPlaceholder({
+		hasContext: hasDatabases || storyReferenceOptions.length > 0,
+		hasSkills,
+		hasStoryMode: storyMentionOptions.length > 0,
+	});
+	const effectivePlaceholder =
+		isRunning && allowQueueing
+			? 'Add a follow-up...'
+			: variant === 'onboarding'
+				? 'Tell me where you are starting from...'
+				: (placeholder ?? shortcutPlaceholder);
 
 	const handleEditQueuedMessage = useCallback(
 		(text: string) => {
@@ -425,13 +442,23 @@ function ChatInputBase({
 		[promptRef],
 	);
 
-	const openSkillsMenu = useCallback(() => {
-		promptRef.current?.insertText('/');
-	}, [promptRef]);
+	const openMentionMenu = useCallback(
+		(trigger: string) => {
+			if (promptRef.current) {
+				openMentionMenuAtEnd(promptRef.current, trigger);
+			}
+		},
+		[promptRef],
+	);
 
-	const openDatabaseMenu = useCallback(() => {
-		promptRef.current?.insertText(DATABASE_MENTION_TRIGGER);
-	}, [promptRef]);
+	const openReferenceMenu = useCallback(
+		(rootId: string) => {
+			if (promptRef.current) {
+				openReferenceMenuAtEnd(promptRef.current, rootId);
+			}
+		},
+		[promptRef],
+	);
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
@@ -510,6 +537,7 @@ function ChatInputBase({
 							{mode !== 'onboarding' && (
 								<ChatInputPlusMenu
 									hasDatabases={hasDatabases}
+									hasStoryReferences={storyReferenceOptions.length > 0}
 									hasSkills={hasSkills}
 									storyMentions={storyMentionOptions}
 									canChatWithNaoData={canChatWithNaoData}
@@ -521,8 +549,8 @@ function ChatInputBase({
 									onAddStory={(mention) => {
 										promptRef.current?.appendMention({ id: mention.id, label: mention.label }, '#');
 									}}
-									onOpenSkills={openSkillsMenu}
-									onOpenDatabase={openDatabaseMenu}
+									onOpenMentionMenu={openMentionMenu}
+									onOpenReferenceMenu={openReferenceMenu}
 									onFocusPrompt={() => promptRef.current?.focus()}
 								/>
 							)}
@@ -837,6 +865,7 @@ function ManagedCreditsBanner({
 
 function ChatInputPlusMenu({
 	hasDatabases,
+	hasStoryReferences,
 	hasSkills,
 	storyMentions,
 	canChatWithNaoData,
@@ -845,11 +874,12 @@ function ChatInputPlusMenu({
 	onSelectAdminMode,
 	onAddAttachment,
 	onAddStory,
-	onOpenSkills,
-	onOpenDatabase,
+	onOpenMentionMenu,
+	onOpenReferenceMenu,
 	onFocusPrompt,
 }: {
 	hasDatabases: boolean;
+	hasStoryReferences: boolean;
 	hasSkills: boolean;
 	storyMentions: MentionOption[];
 	canChatWithNaoData: boolean;
@@ -859,10 +889,27 @@ function ChatInputPlusMenu({
 	onSelectAdminMode: () => void;
 	onAddAttachment: () => void;
 	onAddStory: (mention: MentionOption) => void;
-	onOpenSkills: () => void;
-	onOpenDatabase: () => void;
+	onOpenMentionMenu: (trigger: string) => void;
+	onOpenReferenceMenu: (rootId: string) => void;
 	onFocusPrompt: () => void;
 }) {
+	const pendingMentionMenuRef = useRef<(() => void) | null>(null);
+
+	/** The menu takes focus back while closing, so the mention menu is opened once the prompt has it again. */
+	const deferMentionMenu = (openMentionMenu: () => void) => {
+		pendingMentionMenuRef.current = openMentionMenu;
+	};
+
+	const restorePromptFocus = () => {
+		const openPendingMentionMenu = pendingMentionMenuRef.current;
+		pendingMentionMenuRef.current = null;
+		if (openPendingMentionMenu) {
+			openPendingMentionMenu();
+		} else {
+			onFocusPrompt();
+		}
+	};
+
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -881,7 +928,7 @@ function ChatInputPlusMenu({
 				className='min-w-44'
 				onCloseAutoFocus={(e) => {
 					e.preventDefault();
-					requestAnimationFrame(onFocusPrompt);
+					requestAnimationFrame(restorePromptFocus);
 				}}
 			>
 				<DropdownMenuItem onSelect={onAddAttachment}>
@@ -889,9 +936,15 @@ function ChatInputPlusMenu({
 					<span>Attach file</span>
 				</DropdownMenuItem>
 				{hasDatabases && (
-					<DropdownMenuItem onSelect={onOpenDatabase}>
+					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenReferenceMenu(TABLES_ROOT_ID))}>
 						<Database className='size-4' />
 						<span>Database tables</span>
+					</DropdownMenuItem>
+				)}
+				{hasStoryReferences && (
+					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenReferenceMenu(STORIES_ROOT_ID))}>
+						<Library className='size-4' />
+						<span>Reference stories</span>
 					</DropdownMenuItem>
 				)}
 				{storyMentions.map((mention) => (
@@ -901,7 +954,7 @@ function ChatInputPlusMenu({
 					</DropdownMenuItem>
 				))}
 				{hasSkills && (
-					<DropdownMenuItem onSelect={onOpenSkills}>
+					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenMentionMenu(SKILL_MENTION_TRIGGER))}>
 						<PencilRuler className='size-4' />
 						<span>Skills</span>
 					</DropdownMenuItem>
@@ -923,6 +976,24 @@ function ChatInputPlusMenu({
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
+}
+
+function buildShortcutPlaceholder({
+	hasContext,
+	hasSkills,
+	hasStoryMode,
+}: {
+	hasContext: boolean;
+	hasSkills: boolean;
+	hasStoryMode: boolean;
+}): string {
+	const shortcuts = [
+		hasContext && `${DATABASE_MENTION_TRIGGER} context`,
+		hasSkills && `${SKILL_MENTION_TRIGGER} skills`,
+		hasStoryMode && `${story.MENTION_TRIGGER} story mode`,
+	].filter(Boolean);
+	const base = 'Ask anything about your data';
+	return shortcuts.length > 0 ? `${base}, ${shortcuts.join(', ')}` : `${base}...`;
 }
 
 function RecordingTimer() {
