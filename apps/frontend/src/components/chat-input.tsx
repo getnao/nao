@@ -1,7 +1,17 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, PencilRuler, Database, Paperclip, AlertTriangle, Shield, Check } from 'lucide-react';
+import {
+	Plus,
+	PencilRuler,
+	Database,
+	Paperclip,
+	AlertTriangle,
+	Shield,
+	Check,
+	WalletCards,
+	KeyRound,
+} from 'lucide-react';
 import { ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
@@ -32,6 +42,7 @@ import { parseBudgetError, parseManagedCreditsError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useModelSelection } from '@/hooks/use-model-selection';
+import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
@@ -175,9 +186,7 @@ function ChatInputBase({
 		!!parseBudgetError(error) ||
 		budgetStatus.data?.level === 'exceeded' ||
 		(selectedModel?.provider === 'nao' && !!parseManagedCreditsError(error)) ||
-		(selectedModel?.provider === 'nao' &&
-			managedCredit.data?.balanceMicroUsd !== undefined &&
-			managedCredit.data.balanceMicroUsd <= 0);
+		(selectedModel?.provider === 'nao' && managedCredit.data?.hasCredits === false);
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -672,7 +681,7 @@ function ChatInputOnboardingBadge() {
 
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
-	const { isAdmin } = usePermissions();
+	const { isAdmin, isOrgAdmin } = usePermissions();
 	const selectedProvider = selectedModel?.provider;
 	const prevProviderRef = useRef(selectedProvider);
 
@@ -697,47 +706,82 @@ function BudgetBanner() {
 	});
 
 	const managedError = parseManagedCreditsError(error);
-	const balanceMicroUsd = managedCredit.data?.balanceMicroUsd;
-	const managedExhausted =
-		isManaged && (managedError !== null || (balanceMicroUsd !== undefined && balanceMicroUsd <= 0));
+	const managedExhausted = isManaged && (managedError !== null || managedCredit.data?.hasCredits === false);
 	const budgetError = parseBudgetError(error);
 	const budgetLevel = budgetError ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
 	const budgetMessage = budgetError ?? (budgetLevel !== 'ok' ? budgetStatus.data?.message : null);
-	const managedMessage =
-		managedError ??
-		(managedExhausted
-			? 'Your organization has no nao-managed AI credits available. Existing projects, chats, and data remain available.'
-			: null);
-	const message = isManaged ? managedMessage : budgetMessage;
 
-	if (!message) {
+	if (managedExhausted) {
+		return (
+			<ManagedCreditsBanner
+				canAddProviderKey={isAdmin}
+				creditOrganizationId={isOrgAdmin ? managedCredit.data?.organization?.id : undefined}
+			/>
+		);
+	}
+
+	if (!budgetMessage) {
 		return null;
 	}
 
-	const isExceeded = managedExhausted || budgetLevel === 'exceeded';
+	const isExceeded = budgetLevel === 'exceeded';
 
 	return (
 		<div className='mb-2 flex items-start gap-2.5 rounded-2xl border border-input/50 bg-muted/50 px-3 py-2.5 text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-200'>
 			<AlertTriangle className={cn('size-4 shrink-0 mt-0.5', isExceeded ? 'text-red-500' : 'text-amber-500')} />
-			<p className='flex-1 min-w-0'>
-				{message}
-				{managedExhausted &&
-					(isAdmin ? (
-						<>
-							{' '}
-							<Link
-								to='/settings/project/agent'
-								search={{ tab: 'models' }}
-								className='font-medium text-primary underline underline-offset-2 hover:text-primary/80'
+			<p className='flex-1 min-w-0'>{budgetMessage}</p>
+		</div>
+	);
+}
+
+function ManagedCreditsBanner({
+	canAddProviderKey,
+	creditOrganizationId,
+}: {
+	canAddProviderKey: boolean;
+	creditOrganizationId: string | undefined;
+}) {
+	const openOrganizationBilling = useOpenOrganizationBilling();
+	const canAddCredits = Boolean(creditOrganizationId);
+	const canManageAccess = canAddProviderKey || canAddCredits;
+
+	return (
+		<div className='relative mb-3 overflow-hidden rounded-2xl border border-primary/20 bg-primary/5 p-4 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200'>
+			<div className='pointer-events-none absolute -right-12 -top-16 size-40 rounded-full bg-primary-muted/20 blur-3xl' />
+			<div className='relative min-w-0'>
+				<p className='font-semibold text-foreground'>
+					{canManageAccess
+						? 'Your nao credits have been used'
+						: 'Your organization’s nao credits have been used'}
+				</p>
+				<p className='mt-1 text-sm leading-relaxed text-muted-foreground'>
+					{canManageAccess
+						? 'Keep chatting by adding nao credits or connecting your own AI provider. Your projects, chats, and data are safe.'
+						: 'Your work is safe. Reach out to your organization admin to add nao credits or connect an AI provider, then pick up where you left off.'}
+				</p>
+				{canManageAccess && (
+					<div className='mt-3 flex flex-wrap gap-2'>
+						{creditOrganizationId && (
+							<Button
+								size='sm'
+								variant='primary-gradient'
+								onClick={() => void openOrganizationBilling(creditOrganizationId)}
 							>
-								Add a provider key
-							</Link>{' '}
-							to continue.
-						</>
-					) : (
-						' Ask a project admin to add a provider key to continue.'
-					))}
-			</p>
+								<WalletCards />
+								Add nao credits
+							</Button>
+						)}
+						{canAddProviderKey && (
+							<Button asChild size='sm' variant='outline' className='border-primary/20 bg-background/80'>
+								<Link to='/settings/project/agent' search={{ tab: 'models' }}>
+									<KeyRound />
+									Add your API key
+								</Link>
+							</Button>
+						)}
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

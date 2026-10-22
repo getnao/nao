@@ -51,6 +51,8 @@ describe('cloud billing environment', () => {
 			'STRIPE_CLOUD_PRODUCT_ID',
 			'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
 			'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+			'STRIPE_CREDIT_PRODUCT_ID',
+			'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
 		]) {
 			expect(result.stderr).toContain(`${variable} is required when cloud billing is enabled`);
 		}
@@ -72,6 +74,8 @@ describe('cloud billing environment', () => {
 			STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
 			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'nao_cloud_monthly_v2',
 			STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'yearly_sub',
+			STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
+			STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
 			STRIPE_SECRET_KEY: 'sk_test_sandbox',
 			STRIPE_WEBHOOK_SECRET: 'whsec_sandbox',
 		});

@@ -42,13 +42,14 @@ describe('validateUsageSearch', () => {
 	});
 
 	it('accepts only supported tabs', () => {
-		expect(validateUsageSearch({ tab: 'wallet' }).tab).toBe('wallet');
+		expect(validateUsageSearch({ tab: 'managed-ai' }).tab).toBe('managed-ai');
+		expect(validateUsageSearch({ tab: 'wallet' }).tab).toBeUndefined();
 		expect(validateUsageSearch({ tab: 'replay' }).tab).toBeUndefined();
 		expect(validateUsageSearch({ tab: 'other' }).tab).toBeUndefined();
 	});
 
 	it('does not persist the selected tab with project filters', () => {
-		saveUsageFilters({ ...DEFAULT_USAGE_SEARCH, tab: 'wallet', provider: 'openai' });
+		saveUsageFilters({ ...DEFAULT_USAGE_SEARCH, tab: 'managed-ai', provider: 'openai' });
 
 		expect(validateUsageSearchWithStoredFilters({})).toMatchObject({
 			tab: undefined,
@@ -60,21 +61,21 @@ describe('validateUsageSearch', () => {
 		expect(
 			getAvailableUsageTabs({
 				canViewUsage: true,
-				canViewWallet: true,
+				canViewManagedAi: true,
 				canViewChatReplay: true,
 			}),
-		).toEqual(['usage', 'wallet']);
+		).toEqual(['usage', 'managed-ai']);
 		expect(
 			getAvailableUsageTabs({
 				canViewUsage: false,
-				canViewWallet: true,
+				canViewManagedAi: true,
 				canViewChatReplay: false,
 			}),
-		).toEqual(['wallet']);
+		).toEqual(['managed-ai']);
 		expect(
 			getAvailableUsageTabs({
 				canViewUsage: false,
-				canViewWallet: false,
+				canViewManagedAi: false,
 				canViewChatReplay: true,
 			}),
 		).toEqual(['usage']);

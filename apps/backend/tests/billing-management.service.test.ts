@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	assertAccess: vi.fn(),
 	getOrganizationWithBilling: vi.fn(),
 	attachCustomer: vi.fn(),
 	reconcileCustomer: vi.fn(),
 	createCheckout: vi.fn(),
+	createCreditTopUpCheckout: vi.fn(),
 	createCustomer: vi.fn(),
 	createPaymentMethod: vi.fn(),
 	createPortal: vi.fn(),
@@ -27,9 +29,14 @@ vi.mock('../src/services/billing-reconciliation.service', () => ({
 	reconcileCloudBillingCustomer: mocks.reconcileCustomer,
 }));
 
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertOrganizationCloudBillingAccess: mocks.assertAccess,
+}));
+
 vi.mock('../src/services/stripe.service', () => ({
 	CloudInitialCheckoutUnavailableError: class extends Error {},
 	createCloudCheckoutSession: mocks.createCheckout,
+	createCreditTopUpCheckoutSession: mocks.createCreditTopUpCheckout,
 	createCloudCustomer: mocks.createCustomer,
 	createCloudPaymentMethodSession: mocks.createPaymentMethod,
 	createCloudPortalSession: mocks.createPortal,
@@ -39,7 +46,10 @@ vi.mock('../src/services/stripe.service', () => ({
 	resumeCloudSubscription: mocks.resumeSubscription,
 }));
 
-import { getCloudBillingOrganizationForAdmin } from '../src/services/billing-management.service';
+import {
+	createCreditTopUpCheckoutForAdmin,
+	getCloudBillingOrganizationForAdmin,
+} from '../src/services/billing-management.service';
 
 const adminInput = { userId: 'user-id', organizationId: 'org-id' };
 
@@ -65,6 +75,35 @@ describe('billing management organization loading', () => {
 
 		await expect(getCloudBillingOrganizationForAdmin(adminInput)).rejects.toMatchObject({
 			codeMessage: 'NOT_FOUND',
+		});
+	});
+
+	it('allows credit top-ups after Cloud entitlement expires', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue({
+			id: 'org-id',
+			name: 'Organization',
+			billing: {
+				orgId: 'org-id',
+				billingStatus: 'canceled',
+				stripeCustomerId: 'cus_cloud',
+			},
+		});
+		mocks.assertAccess.mockRejectedValue(new Error('Cloud billing access is restricted'));
+		mocks.createCreditTopUpCheckout.mockResolvedValue('https://checkout.stripe.com/credits');
+
+		await expect(
+			createCreditTopUpCheckoutForAdmin({
+				...adminInput,
+				creditAmountCents: 2_000,
+				requestId: 'request-id',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/credits');
+		expect(mocks.createCreditTopUpCheckout).toHaveBeenCalledWith({
+			creditAmountCents: 2_000,
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			initiatingUserId: 'user-id',
+			requestId: 'request-id',
 		});
 	});
 });

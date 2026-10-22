@@ -4,7 +4,6 @@ import { providerKind, providerLabel, providerLabels, providerName } from '@nao/
 import { Link } from '@tanstack/react-router';
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
 import type { LlmProvider } from '@nao/shared/types';
-import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Button } from '@/components/ui/button';
 
 interface ProviderCardProps {
@@ -86,8 +85,8 @@ export function ProviderCard({
 						<div className='flex items-center gap-2 text-xs text-muted-foreground'>
 							{status && linkStatusToWallet ? (
 								<Link
-									to='/settings/usage'
-									search={{ ...DEFAULT_USAGE_SEARCH, tab: 'wallet' }}
+									to='/settings/organization/billing'
+									search={{ checkout: undefined, portal: undefined, creditCheckout: undefined }}
 									className='hover:text-foreground hover:underline'
 								>
 									{status}

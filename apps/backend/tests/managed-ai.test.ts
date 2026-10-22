@@ -26,7 +26,14 @@ import { listProjectChats } from '../src/queries/project.queries';
 import * as creditWalletService from '../src/services/credit-wallet.service';
 import { ManagedCreditsExhaustedError } from '../src/utils/error';
 
-const { issueCreditGrant, recordManagedAiUsageAndChargeWallet, reserveManagedAiCredits } = creditWalletService;
+const {
+	issueCreditGrant,
+	issueCreditPurchase,
+	recordManagedAiUsageAndChargeWallet,
+	releaseStaleManagedAiCreditReservations,
+	reserveManagedAiCredits,
+	setCreditPurchaseMovement,
+} = creditWalletService;
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -506,6 +513,94 @@ describe('managed AI usage and organization credits', () => {
 		const after = await getCreditSummary(ORG_ID);
 
 		expect(before.balanceMicroUsd - after.balanceMicroUsd).toBe(100);
+	});
+
+	it('credits a Stripe purchase once and preserves suppressed movement targets', async () => {
+		const checkoutSessionId = `cs_${crypto.randomUUID()}`;
+		const paymentIntentId = `pi_${crypto.randomUUID()}`;
+		const purchase = {
+			checkoutSessionId,
+			paymentIntentId,
+			invoiceId: 'in_purchase',
+			orgId: POOL_ORG_ID,
+			initiatingUserId: MANAGED_USER_ID,
+			creditAmountCents: 2_000,
+			platformFeeCents: 100,
+			walletAmountMicroUsd: 20_000_000,
+			taxAmountCents: 0,
+			totalAmountCents: 2_100,
+		};
+		const before = await getCreditSummary(POOL_ORG_ID);
+
+		expect(await issueCreditPurchase(purchase)).toBe(true);
+		expect(await issueCreditPurchase(purchase)).toBe(false);
+		expect((await getCreditSummary(POOL_ORG_ID)).balanceMicroUsd - before.balanceMicroUsd).toBe(20_000_000);
+
+		expect(
+			await setCreditPurchaseMovement({
+				paymentIntentId,
+				movementGroupId: 'dispute:dp_purchase',
+				targetDeltaMicroUsd: -20_000_000,
+				idempotencyKey: 'dispute:dp_purchase:needs_response',
+				externalReference: 'dp_purchase',
+				entryType: 'adjustment',
+			}),
+		).toBe(true);
+		expect(
+			await setCreditPurchaseMovement({
+				paymentIntentId,
+				movementGroupId: 'refund:ch_purchase',
+				targetDeltaMicroUsd: -10_000_000,
+				idempotencyKey: 'refund:ch_purchase:1050',
+				externalReference: 'ch_purchase',
+				entryType: 'refund',
+			}),
+		).toBe(true);
+		expect((await getCreditSummary(POOL_ORG_ID)).balanceMicroUsd).toBe(before.balanceMicroUsd);
+
+		expect(
+			await setCreditPurchaseMovement({
+				paymentIntentId,
+				movementGroupId: 'dispute:dp_purchase',
+				targetDeltaMicroUsd: 0,
+				idempotencyKey: 'dispute:dp_purchase:won',
+				externalReference: 'dp_purchase',
+				entryType: 'adjustment',
+			}),
+		).toBe(true);
+		expect((await getCreditSummary(POOL_ORG_ID)).balanceMicroUsd).toBe(before.balanceMicroUsd + 10_000_000);
+	});
+
+	it('releases a stale reservation once and prevents late settlement', async () => {
+		const operationId = crypto.randomUUID();
+		const before = await getCreditSummary(ORG_ID);
+		await reserveManagedAiCredits(ORG_ID, operationId, 100);
+		await db
+			.update(s.creditLedger)
+			.set({ createdAt: new Date('2000-01-01T00:00:00.000Z') })
+			.where(eq(s.creditLedger.idempotencyKey, operationId));
+
+		const cutoff = new Date('2001-01-01T00:00:00.000Z');
+		expect(await releaseStaleManagedAiCreditReservations(cutoff)).toBe(1);
+		expect(await releaseStaleManagedAiCreditReservations(cutoff)).toBe(0);
+		expect((await getCreditSummary(ORG_ID)).balanceMicroUsd).toBe(before.balanceMicroUsd);
+		await expect(
+			recordManagedAiUsageAndChargeWallet(
+				{
+					operationId,
+					runId: crypto.randomUUID(),
+					userId: MANAGED_USER_ID,
+					orgId: ORG_ID,
+					category: 'chat',
+					llmProvider: 'nao',
+					llmModelId: 'gpt-5.6-luna',
+					status: 'completed',
+					costSource: 'price_book',
+					completedAt: new Date(),
+				},
+				100,
+			),
+		).rejects.toThrow('has no credit reservation');
 	});
 
 	it('scopes usage to the organization, and to the user when one is given', async () => {

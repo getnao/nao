@@ -1,6 +1,37 @@
 import { describe, expect, it } from 'vitest';
 
-import { isTerminalBillingStatus, isTrialAvailable } from './billing';
+import {
+	calculateCreditTopUp,
+	CREDIT_TOP_UP_MAX_CENTS,
+	CREDIT_TOP_UP_MIN_CENTS,
+	isTerminalBillingStatus,
+	isTrialAvailable,
+} from './billing';
+
+describe('credit top-up pricing', () => {
+	it.each([
+		[2_000, 100, 2_100, 20_000_000],
+		[2_001, 101, 2_102, 20_010_000],
+		[50_000, 2_500, 52_500, 500_000_000],
+	])(
+		'calculates a separately rounded 5%% platform fee for %i cents',
+		(creditAmountCents, platformFeeCents, totalAmountCents, walletAmountMicroUsd) => {
+			expect(calculateCreditTopUp(creditAmountCents)).toEqual({
+				creditAmountCents,
+				platformFeeCents,
+				totalAmountCents,
+				walletAmountMicroUsd,
+			});
+		},
+	);
+
+	it.each([CREDIT_TOP_UP_MIN_CENTS - 1, CREDIT_TOP_UP_MAX_CENTS + 1, 2_000.5])(
+		'rejects invalid amount %s',
+		(amount) => {
+			expect(() => calculateCreditTopUp(amount)).toThrow(RangeError);
+		},
+	);
+});
 
 describe('billing state', () => {
 	it.each([

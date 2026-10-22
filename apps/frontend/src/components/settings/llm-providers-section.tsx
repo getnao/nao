@@ -21,7 +21,11 @@ const managedModelIds = PROVIDER_META.nao.models.map((model) => model.id);
 
 export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditOpened }: LlmProvidersSectionProps) {
 	const { isOrgAdmin } = usePermissions();
-	const managedCreditSummary = useQuery(trpc.account.getCreditSummary.queryOptions());
+	const managedCreditStatus = useQuery(trpc.account.getManagedCreditStatus.queryOptions());
+	const managedCreditSummary = useQuery({
+		...trpc.account.getCreditSummary.queryOptions(),
+		enabled: isOrgAdmin,
+	});
 	const {
 		projectConfigs,
 		configProviders,
@@ -73,11 +77,17 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 
 	return (
 		<div className='grid gap-4'>
-			{managedCreditSummary.data?.enabled && (
+			{managedCreditStatus.data?.enabled && (
 				<ProviderCard
 					provider='nao'
 					enabledModels={managedModelIds}
-					status={`Remaining credits: $${(managedCreditSummary.data.balanceMicroUsd / 1_000_000).toFixed(2)} of $${(managedCreditSummary.data.lifetimeCreditedMicroUsd / 1_000_000).toFixed(2)}.`}
+					status={
+						managedCreditSummary.data
+							? `Remaining credits: $${(managedCreditSummary.data.balanceMicroUsd / 1_000_000).toFixed(2)} of $${(managedCreditSummary.data.lifetimeCreditedMicroUsd / 1_000_000).toFixed(2)}.`
+							: managedCreditStatus.data.hasCredits
+								? 'Credits available.'
+								: 'No credits remaining.'
+					}
 					linkStatusToWallet={isOrgAdmin}
 					badges={['MANAGED']}
 					isAdmin={isAdmin}

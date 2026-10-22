@@ -14,9 +14,12 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
+	/** Hidden unless the current project role can view usage analytics. */
+	requiresUsageAccess?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
 	cloudBillingOnly?: boolean;
+	cloudBillingDisabledOnly?: boolean;
 	betaSubagentsOnly?: boolean;
 }
 
@@ -30,14 +33,33 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['name', 'email', 'sign out', 'logout', 'avatar'],
 	},
 	{
-		page: '/settings/usage',
-		pageLabel: 'Usage, Costs & Wallet',
-		section: 'Organization wallet',
-		search: { tab: 'wallet' },
-		title: 'Wallet and managed AI charges',
-		description: "View your organization's nao credit balance, wallet history, managed usage, tokens, and costs.",
-		keywords: ['wallet', 'gift', 'ledger', 'billing', 'tokens', 'cost', 'model usage', 'organization credits'],
+		page: '/settings/organization/billing',
+		pageLabel: 'Billing & Credits',
+		section: 'Organization credits',
+		title: 'Balance',
+		description: "View your organization's nao credit balance, refill the wallet, and review credit history.",
+		keywords: ['wallet', 'gift', 'ledger', 'billing', 'refill', 'top up', 'organization credits'],
 		orgAdminOnly: true,
+		cloudBillingOnly: true,
+	},
+	{
+		page: '/settings/credits-wallet',
+		pageLabel: 'Organization credits',
+		title: 'Balance',
+		description: "View your organization's nao credit balance and review credit history.",
+		keywords: ['wallet', 'gift', 'ledger', 'credit history', 'organization credits'],
+		orgAdminOnly: true,
+		cloudOnly: true,
+		cloudBillingDisabledOnly: true,
+	},
+	{
+		page: '/settings/usage',
+		pageLabel: 'Usage & Costs',
+		section: 'nao AI',
+		search: { tab: 'managed-ai' },
+		title: 'nao AI usage',
+		description: 'Review your model calls, tokens, and nao credit charges.',
+		keywords: ['managed ai', 'model usage', 'tokens', 'cost', 'charges', 'nao credits'],
 		cloudOnly: true,
 	},
 	{
@@ -105,8 +127,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
-		title: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
+		title: 'Billing & Credits',
 		description: 'Review the nao Cloud plan, pricing, trial, and billing availability.',
 		keywords: ['subscription', 'price', 'plan', 'payment', 'invoice', 'trial', 'stripe'],
 		orgAdminOnly: true,
@@ -114,7 +136,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Current plan',
 		title: 'Subscription status',
 		description: 'Review whether the organization plan is active, paused, past due, or canceled.',
@@ -124,7 +146,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Invoices',
 		title: 'Invoices',
 		description: 'View and download organization billing invoices.',
@@ -134,7 +156,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Billing setup',
 		title: 'Subscribe to nao Cloud',
 		description: 'Subscribe during or after the organization’s 14-day nao Cloud trial.',
@@ -1076,37 +1098,37 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
-	// ── Usage, Costs & Wallet ─────────────────────────────────
+	// ── Usage & Costs ──────────────────────────────────────────
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, Costs & Wallet',
+		pageLabel: 'Usage & Costs',
 		search: { tab: 'usage' },
 		title: 'Messages',
-		description: 'How many messages have been sent across all chats?',
+		description: 'How many messages have you sent?',
 		keywords: ['usage', 'analytics', 'statistics'],
-		adminOnly: true,
+		requiresUsageAccess: true,
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, Costs & Wallet',
+		pageLabel: 'Usage & Costs',
 		search: { tab: 'usage' },
 		title: 'Tokens',
-		description: 'Tokens used across all chats.',
+		description: 'Tokens used by your chats.',
 		keywords: ['token usage', 'input tokens', 'output tokens'],
-		adminOnly: true,
+		requiresUsageAccess: true,
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, Costs & Wallet',
+		pageLabel: 'Usage & Costs',
 		search: { tab: 'usage' },
 		title: 'Cost',
 		description: 'Estimated cost in USD based on token usage and model pricing.',
 		keywords: ['price', 'billing', 'expense', 'spending'],
-		adminOnly: true,
+		requiresUsageAccess: true,
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, Costs & Wallet',
+		pageLabel: 'Usage & Costs',
 		search: { tab: 'usage' },
 		title: 'Split per user',
 		description: 'Break down messages, tokens and cost per user instead of per source or token category.',
@@ -1115,7 +1137,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, Costs & Wallet',
+		pageLabel: 'Usage & Costs',
 		search: { tab: 'usage' },
 		title: 'Feedbacks',
 		description: 'Feedbacks users have given to the agent during their sessions.',
