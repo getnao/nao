@@ -4,7 +4,7 @@ import type { ErrorInfo, ReactNode } from 'react';
 
 interface Props {
 	toolName: string;
-	/** Advancing this retries a render that threw. */
+	/** Changing this retries a render that threw, so a new call never inherits the old failure. */
 	resetKey: string;
 	children: ReactNode;
 }

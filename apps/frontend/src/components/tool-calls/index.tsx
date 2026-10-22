@@ -102,7 +102,7 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 				isSettled: isMessageSettled || isToolSettled(toolPart),
 			}}
 		>
-			<ToolCallErrorBoundary toolName={toolName} resetKey={toolPart.state}>
+			<ToolCallErrorBoundary toolName={toolName} resetKey={`${toolPart.toolCallId}:${toolPart.state}`}>
 				{Rendered}
 			</ToolCallErrorBoundary>
 		</ToolCallProvider>
