@@ -6,11 +6,18 @@
  */
 
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ToolCallErrorBoundary } from './tool-call-error-boundary';
 
-afterEach(cleanup);
+beforeEach(() => {
+	vi.spyOn(console, 'error').mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+});
 
 describe('ToolCallErrorBoundary', () => {
 	const Throwing = () => {
@@ -18,8 +25,6 @@ describe('ToolCallErrorBoundary', () => {
 	};
 
 	it('contains a renderer crash instead of letting it escape', () => {
-		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-
 		expect(() =>
 			render(
 				<ToolCallErrorBoundary toolName='clarification' resetKey='output-available'>
@@ -28,8 +33,24 @@ describe('ToolCallErrorBoundary', () => {
 			),
 		).not.toThrow();
 		expect(screen.getByText(/could not be displayed/)).toBeDefined();
+	});
 
-		consoleError.mockRestore();
+	it('retries the render when the call identity changes', () => {
+		const { rerender } = render(
+			<ToolCallErrorBoundary toolName='clarification' resetKey='call-a:output-available'>
+				<Throwing />
+			</ToolCallErrorBoundary>,
+		);
+		expect(screen.getByText(/could not be displayed/)).toBeDefined();
+
+		rerender(
+			<ToolCallErrorBoundary toolName='clarification' resetKey='call-b:output-available'>
+				<p>a different call</p>
+			</ToolCallErrorBoundary>,
+		);
+
+		expect(screen.getByText('a different call')).toBeDefined();
+		expect(screen.queryByText(/could not be displayed/)).toBeNull();
 	});
 
 	it('renders its children when nothing throws', () => {

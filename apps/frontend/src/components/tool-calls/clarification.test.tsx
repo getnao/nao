@@ -55,8 +55,9 @@ describe('ClarificationToolCall', () => {
 	});
 
 	it('renders nothing when question is not a string', () => {
-		expect(() => renderClarification({ question: { text: 'Which one?' }, options: ['DuckDB'] })).not.toThrow();
-		expect(screen.queryByRole('button')).toBeNull();
+		const { container } = renderClarification({ question: { text: 'Which one?' }, options: ['DuckDB'] });
+
+		expect(container.innerHTML).toBe('');
 	});
 
 	it('drops option entries that are not usable strings', () => {
