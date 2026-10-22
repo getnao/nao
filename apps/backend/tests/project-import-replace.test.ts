@@ -5,12 +5,14 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	createProject: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	recordOrganizationSetupCandidate: vi.fn(),
 	touchProjectUpdatedAt: vi.fn(),
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
+	createProject: mocks.createProject,
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	touchProjectUpdatedAt: mocks.touchProjectUpdatedAt,
 }));
@@ -22,7 +24,44 @@ vi.mock('../src/services/credit-grant.service', () => ({
 }));
 
 import type { DBProject } from '../src/db/abstractSchema';
-import { replaceExistingProject } from '../src/utils/project-import.utils';
+import { env } from '../src/env';
+import { createNewProject, replaceExistingProject } from '../src/utils/project-import.utils';
+
+describe('createNewProject', () => {
+	let originalProjectsDir: string;
+	let root: string;
+	let sourceDir: string;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		originalProjectsDir = env.NAO_PROJECTS_DIR;
+		root = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-import-'));
+		env.NAO_PROJECTS_DIR = path.join(root, 'projects');
+		sourceDir = path.join(root, 'source');
+		fs.mkdirSync(sourceDir);
+		fs.writeFileSync(path.join(sourceDir, 'RULES.md'), 'imported');
+	});
+
+	afterEach(() => {
+		env.NAO_PROJECTS_DIR = originalProjectsDir;
+		fs.rmSync(root, { recursive: true, force: true });
+	});
+
+	it('removes the imported directory when project creation fails', async () => {
+		mocks.createProject.mockRejectedValue(new Error('Failed to create project'));
+
+		await expect(
+			createNewProject({
+				sourceDir,
+				projectName: 'Sales',
+				orgId: 'org-id',
+				projectId: 'project-id',
+			}),
+		).rejects.toThrow('Failed to create project');
+
+		expect(fs.existsSync(path.join(env.NAO_PROJECTS_DIR, 'project-id'))).toBe(false);
+	});
+});
 
 describe('replaceExistingProject', () => {
 	let root: string;

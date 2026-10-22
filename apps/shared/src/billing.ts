@@ -47,13 +47,15 @@ export function calculateCreditTopUp(creditAmountCents: number): {
 	};
 }
 
+export const CLOUD_BILLING_TRIAL_DAYS = 14;
+
 export const CLOUD_BILLING_PLANS = {
 	monthly: {
 		key: 'cloud_monthly_v2',
 		name: 'nao Cloud',
 		interval: 'month',
 		intervalCount: 1,
-		trialDays: 14,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
 		userLimit: null,
 	},
 	yearly: {
@@ -61,7 +63,7 @@ export const CLOUD_BILLING_PLANS = {
 		name: 'nao Cloud',
 		interval: 'year',
 		intervalCount: 1,
-		trialDays: 14,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
 		userLimit: null,
 	},
 } as const;

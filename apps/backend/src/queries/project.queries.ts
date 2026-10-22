@@ -21,9 +21,12 @@ import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectM
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { env, isCloud } from '../env';
+import { env, isCloud, isCloudBillingEnabled } from '../env';
+import { CLOUD_TRIAL_PROVISIONING_JOB_NAME } from '../types/billing';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+import { startOrganizationTrial } from './billing.queries';
+import { enqueueOnceJob } from './scheduled-job.queries';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 import { userMemberStatus } from './user.queries';
 
@@ -57,6 +60,16 @@ export const getProjectByOrgAndName = async (orgId: string, name: string): Promi
 	return project ?? null;
 };
 
+export const organizationHasProjects = async (orgId: string): Promise<boolean> => {
+	const [project] = await db
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.limit(1)
+		.execute();
+	return Boolean(project);
+};
+
 export const touchProjectUpdatedAt = async (projectId: string): Promise<void> => {
 	await db.update(s.project).set({ updatedAt: new Date() }).where(eq(s.project.id, projectId)).execute();
 };
@@ -74,13 +87,17 @@ export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: 
 	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
-export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> => {
+export const createProject = async (
+	project: NewProject,
+	transaction?: DBTransaction,
+	actingUserId?: string,
+): Promise<DBProject> => {
 	if (isCloud && !project.orgId) {
 		throw new Error('Cloud projects must belong to an organization.');
 	}
 	return transaction
-		? createProjectWithDefaultGroup(project, transaction)
-		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
+		? createProjectWithDefaultGroup(project, transaction, actingUserId)
+		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx, actingUserId));
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {
@@ -446,23 +463,97 @@ type Lockable<Query> = { for(strength: 'update'): Query };
 const createProjectWithDefaultGroup = (
 	project: NewProject,
 	transaction: DBTransaction,
-): DBProject | Promise<DBProject> => {
-	if (dbConfig.dialect === Dialect.Postgres) {
-		return createPostgresProjectWithDefaultGroup(project, transaction);
-	}
+	actingUserId?: string,
+): DBProject | Promise<DBProject> =>
+	dbConfig.dialect === Dialect.Postgres
+		? createPostgresProjectWithDefaultGroup(project, transaction, actingUserId)
+		: createSqliteProjectWithDefaultGroup(project, transaction, actingUserId);
+
+function createSqliteProjectWithDefaultGroup(
+	project: NewProject,
+	transaction: DBTransaction,
+	actingUserId?: string,
+): DBProject {
+	const shouldStartTrial = shouldStartSqliteOrganizationTrial(project.orgId, transaction);
 	const [created] = transaction.insert(s.project).values(project).returning().all();
 	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
+	if (shouldStartTrial && created.orgId) {
+		const started = startOrganizationTrial(created.orgId, new Date(), transaction) as boolean;
+		if (started) {
+			enqueueOnceJob(cloudTrialProvisioningJob(created.orgId, actingUserId), transaction);
+		}
+	}
 	return created;
-};
+}
+
+function shouldStartSqliteOrganizationTrial(orgId: string | null | undefined, executor: DBExecutor): boolean {
+	if (!orgId || !isCloudBillingEnabled()) {
+		return false;
+	}
+	const [organization] = executor
+		.select({ bypassBilling: s.organization.bypassBilling })
+		.from(s.organization)
+		.where(eq(s.organization.id, orgId))
+		.limit(1)
+		.all();
+	if (!organization || organization.bypassBilling) {
+		return false;
+	}
+	const [existingProject] = executor
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.limit(1)
+		.all();
+	return !existingProject;
+}
+
+async function shouldStartPostgresOrganizationTrial(
+	orgId: string | null | undefined,
+	executor: DBExecutor,
+): Promise<boolean> {
+	if (!orgId || !isCloudBillingEnabled()) {
+		return false;
+	}
+	const [organization] = await executor
+		.select({ bypassBilling: s.organization.bypassBilling })
+		.from(s.organization)
+		.where(eq(s.organization.id, orgId))
+		.limit(1)
+		.execute();
+	if (!organization || organization.bypassBilling) {
+		return false;
+	}
+	const [existingProject] = await executor
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.limit(1)
+		.execute();
+	return !existingProject;
+}
 
 const createPostgresProjectWithDefaultGroup = async (
 	project: NewProject,
 	transaction: DBTransaction,
+	actingUserId?: string,
 ): Promise<DBProject> => {
+	const shouldStartTrial = await shouldStartPostgresOrganizationTrial(project.orgId, transaction);
 	const [created] = await transaction.insert(s.project).values(project).returning().execute();
 	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
+	if (shouldStartTrial && created.orgId) {
+		if (await startOrganizationTrial(created.orgId, new Date(), transaction)) {
+			await enqueueOnceJob(cloudTrialProvisioningJob(created.orgId, actingUserId), transaction);
+		}
+	}
 	return created;
 };
+
+const cloudTrialProvisioningJob = (organizationId: string, actingUserId?: string) => ({
+	name: CLOUD_TRIAL_PROVISIONING_JOB_NAME,
+	payload: { organizationId, ...(actingUserId ? { actingUserId } : {}) },
+	uniqueKey: `billing-cloud-provision-trial:${organizationId}`,
+});
 
 const defaultUserGroupValues = (projectId: string) => ({
 	projectId,

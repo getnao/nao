@@ -18,6 +18,23 @@ export const getOrganizationBySlug = async (slug: string): Promise<DBOrganizatio
 	return org ?? null;
 };
 
+export const getEarliestOrganizationAdmin = async (
+	orgId: string,
+): Promise<{ id: string; email: string; name: string } | null> => {
+	const [admin] = await db
+		.select({ id: s.user.id, email: s.user.email, name: s.user.name })
+		.from(s.orgMember)
+		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.role, 'admin')))
+		.orderBy(asc(s.orgMember.createdAt), asc(s.orgMember.userId))
+		.limit(1)
+		.execute();
+	if (!admin?.email.trim()) {
+		return null;
+	}
+	return { ...admin, email: admin.email.trim() };
+};
+
 export const getFirstOrganization = async (): Promise<DBOrganization | null> => {
 	const [org] = await db.select().from(s.organization).limit(1).execute();
 	return org ?? null;

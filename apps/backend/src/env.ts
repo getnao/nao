@@ -275,6 +275,14 @@ const baseRawEnvSchema = z.object({
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 	STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: z
 		.string()
 		.optional()
@@ -473,6 +481,8 @@ const envSchema = rawEnvSchema
 				'STRIPE_SECRET_KEY',
 				'STRIPE_WEBHOOK_SECRET',
 				'STRIPE_CLOUD_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
 				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
 				'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
 				'STRIPE_CREDIT_PRODUCT_ID',

@@ -127,7 +127,7 @@ async function loadOrganizationStripeDetail(billing: DBOrganizationBilling, stri
 }
 
 async function loadSubscriptionPlan(billing: DBOrganizationBilling) {
-	if (!billing.stripePriceId || !billing.stripeSubscriptionId) {
+	if (!billing.billingPlan || !billing.stripePriceId || !billing.stripeSubscriptionId) {
 		return null;
 	}
 	const currency = await stripeService.getCloudSubscriptionCurrency(billing.stripeSubscriptionId);

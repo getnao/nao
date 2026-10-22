@@ -35,13 +35,28 @@ export async function getCreditGrant(
 	grantType: CreditGrantType,
 	subjectId: string,
 ): Promise<{ orgId: string | null } | null> {
-	const idempotencyKey =
-		grantType === 'organization_setup' ? `organization-setup:v0:${subjectId}` : `user-join:v0:${subjectId}`;
 	const [grant] = await db
 		.select({ orgId: s.creditWallet.orgId })
 		.from(s.creditLedger)
 		.innerJoin(s.creditWallet, eq(s.creditLedger.walletId, s.creditWallet.id))
-		.where(eq(s.creditLedger.idempotencyKey, idempotencyKey))
+		.where(eq(s.creditLedger.idempotencyKey, creditGrantIdempotencyKey(grantType, subjectId)))
+		.limit(1);
+	return grant ?? null;
+}
+
+export async function getOrganizationSetupCreditGrant(
+	orgId: string,
+): Promise<{ id: string; amountMicroUsd: number } | null> {
+	const [grant] = await db
+		.select({ id: s.creditLedger.id, amountMicroUsd: s.creditLedger.deltaMicroUsd })
+		.from(s.creditLedger)
+		.innerJoin(s.creditWallet, eq(s.creditLedger.walletId, s.creditWallet.id))
+		.where(
+			and(
+				eq(s.creditWallet.orgId, orgId),
+				eq(s.creditLedger.idempotencyKey, creditGrantIdempotencyKey('organization_setup', orgId)),
+			),
+		)
 		.limit(1);
 	return grant ?? null;
 }
@@ -81,7 +96,7 @@ export async function listCreditLedger(
 		.from(s.creditLedger)
 		.innerJoin(s.creditWallet, eq(s.creditLedger.walletId, s.creditWallet.id))
 		.leftJoin(s.managedAiUsage, eq(s.creditLedger.usageId, s.managedAiUsage.id))
-		.where(eq(s.creditWallet.orgId, orgId))
+		.where(and(eq(s.creditWallet.orgId, orgId), ne(s.creditLedger.entryType, 'reservation')))
 		.groupBy(groupId)
 		.having(
 			input.cursor
@@ -108,6 +123,7 @@ export async function listCreditLedger(
 					.where(
 						and(
 							eq(s.creditWallet.orgId, orgId),
+							ne(s.creditLedger.entryType, 'reservation'),
 							inArray(
 								groupId,
 								page.map((group) => group.id),
@@ -160,6 +176,10 @@ export interface CreditLedgerGroup {
 	entries: (typeof s.creditLedger.$inferSelect)[];
 	grantedForUserName: string | null;
 	usageUserName: string | null;
+}
+
+function creditGrantIdempotencyKey(grantType: CreditGrantType, subjectId: string): string {
+	return grantType === 'organization_setup' ? `organization-setup:v0:${subjectId}` : `user-join:v0:${subjectId}`;
 }
 
 function getGrantedForUserId(entry: typeof s.creditLedger.$inferSelect): string | null {

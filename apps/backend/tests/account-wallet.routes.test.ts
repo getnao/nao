@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
 
 const mocks = vi.hoisted(() => ({
 	getCreditSummary: vi.fn(),
+	getOrganizationSetupCreditGrant: vi.fn(),
 	listCreditLedger: vi.fn(),
 	listManagedAiUsage: vi.fn(),
 }));
@@ -22,6 +23,7 @@ vi.mock('../src/queries/account.queries', () => ({}));
 
 vi.mock('../src/queries/credit-wallet.queries', () => ({
 	getCreditSummary: mocks.getCreditSummary,
+	getOrganizationSetupCreditGrant: mocks.getOrganizationSetupCreditGrant,
 	listCreditLedger: mocks.listCreditLedger,
 }));
 
@@ -57,6 +59,10 @@ describe('account wallet activity authorization', () => {
 			lifetimeCreditedMicroUsd: 25_000_000,
 			lifetimeDebitedMicroUsd: 5_000_000,
 		});
+		mocks.getOrganizationSetupCreditGrant.mockResolvedValue({
+			id: 'setup-grant-id',
+			amountMicroUsd: 20_000_000,
+		});
 		mocks.listCreditLedger.mockResolvedValue({ groups: [], nextCursor: null });
 		mocks.listManagedAiUsage.mockResolvedValue({ runs: [], nextCursor: null });
 	});
@@ -70,11 +76,15 @@ describe('account wallet activity authorization', () => {
 		await expect(caller().account.listCreditLedger({ limit: 10 })).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
+		await expect(caller().account.getOrganizationSetupCreditGrant()).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
 		await expect(caller().account.listManagedAiUsage({ limit: 10 })).resolves.toEqual({
 			runs: [],
 			nextCursor: null,
 		});
 		expect(mocks.getCreditSummary).not.toHaveBeenCalled();
+		expect(mocks.getOrganizationSetupCreditGrant).not.toHaveBeenCalled();
 		expect(mocks.listCreditLedger).not.toHaveBeenCalled();
 		expect(mocks.listManagedAiUsage).toHaveBeenCalledWith(
 			{ orgId: 'org-id', userId: 'user-id' },
@@ -85,6 +95,10 @@ describe('account wallet activity authorization', () => {
 	it('returns organization-wide activity to organization admins', async () => {
 		await expect(caller().account.getCreditSummary()).resolves.toMatchObject({
 			balanceMicroUsd: 20_000_000,
+		});
+		await expect(caller().account.getOrganizationSetupCreditGrant()).resolves.toEqual({
+			id: 'setup-grant-id',
+			amountMicroUsd: 20_000_000,
 		});
 		await expect(caller().account.listCreditLedger({ limit: 10 })).resolves.toEqual({
 			groups: [],

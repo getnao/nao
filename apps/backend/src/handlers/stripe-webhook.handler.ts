@@ -8,6 +8,7 @@ import { setCreditPurchaseMovement } from '../services/credit-wallet.service';
 import type { JobHandler } from '../services/scheduler.service';
 import {
 	findCloudSubscription,
+	findManagedCloudSubscription,
 	getCloudCheckoutSubscription,
 	getStripeCharge,
 	getStripeCheckoutSession,
@@ -279,7 +280,7 @@ async function processDispute(stripeDisputeId: string): Promise<void> {
 }
 
 async function processSubscription(stripeSubscriptionId: string): Promise<void> {
-	const subscription = await findCloudSubscription(stripeSubscriptionId);
+	const subscription = await findManagedCloudSubscription(stripeSubscriptionId);
 	if (!subscription) {
 		return;
 	}

@@ -31,7 +31,11 @@ vi.mock('../src/db/db', async () => {
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getCreditGrant, getCreditSummary } from '../src/queries/credit-wallet.queries';
+import {
+	getCreditGrant,
+	getCreditSummary,
+	getOrganizationSetupCreditGrant,
+} from '../src/queries/credit-wallet.queries';
 import * as projectQueries from '../src/queries/project.queries';
 import * as userQueries from '../src/queries/user.queries';
 import {
@@ -87,6 +91,9 @@ describe('automatic credit grants', () => {
 			lifetimeDebitedMicroUsd: 0,
 		});
 		expect(await getCreditGrant('organization_setup', 'setup-org')).toEqual({ orgId: 'setup-org' });
+		expect(await getOrganizationSetupCreditGrant('setup-org')).toMatchObject({
+			amountMicroUsd: 20_000_000,
+		});
 	});
 
 	it('recognizes warehouse credentials when reconciling an organization grant', async () => {

@@ -66,11 +66,13 @@ export async function createNewProject({
 	projectName,
 	orgId,
 	projectId = crypto.randomUUID(),
+	actingUserId,
 }: {
 	sourceDir: string;
 	projectName: string;
 	orgId: string;
 	projectId?: string;
+	actingUserId?: string;
 }) {
 	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
 
@@ -84,13 +86,23 @@ export async function createNewProject({
 		});
 	}
 
-	const project = await projectQueries.createProject({
-		id: projectId,
-		name: projectName,
-		type: 'local',
-		path: projectDir,
-		orgId,
-	});
+	let project: DBProject;
+	try {
+		project = await projectQueries.createProject(
+			{
+				id: projectId,
+				name: projectName,
+				type: 'local',
+				path: projectDir,
+				orgId,
+			},
+			undefined,
+			actingUserId,
+		);
+	} catch (err) {
+		fs.rmSync(projectDir, { recursive: true, force: true });
+		throw err;
+	}
 
 	await ensureContextRecommendationsScheduleForNewProject(project.id);
 	await recordOrganizationSetupCandidate(project.id);

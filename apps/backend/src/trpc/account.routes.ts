@@ -55,6 +55,9 @@ export const accountRoutes = {
 		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
 		return { ...summary, enabled: isManagedAiEnabled() };
 	}),
+	getOrganizationSetupCreditGrant: walletAdminProcedure.query(({ ctx }) =>
+		creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId),
+	),
 	listCreditLedger: walletAdminProcedure.input(creditLedgerPaginationInput).query(({ ctx, input }) => {
 		return creditWalletQueries.listCreditLedger(ctx.membership.orgId, input);
 	}),

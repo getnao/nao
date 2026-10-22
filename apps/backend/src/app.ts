@@ -13,6 +13,10 @@ import { env, isCloud, isCloudBillingEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
+	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
+	cloudTrialProvisioningHandler,
+} from './handlers/cloud-trial-provisioning.handler';
+import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
 } from './handlers/context-branch-cleanup.handler';
@@ -491,6 +495,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		// Process accepted webhooks in the background so Stripe receives an immediate response.
 		registerJob(STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler);
 		registerJob(BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler);
+		registerJob(CLOUD_TRIAL_PROVISIONING_JOB_NAME, cloudTrialProvisioningHandler);
 		await ensureRecurring({
 			name: BILLING_LIFECYCLE_JOB_NAME,
 			cron: '0 * * * *',

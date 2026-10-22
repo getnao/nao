@@ -502,17 +502,19 @@ describe('managed AI usage and organization credits', () => {
 		};
 		const before = await getCreditSummary(ORG_ID);
 		await reserveManagedAiCredits(ORG_ID, operationId, 100);
-		const pendingReservation = (await listCreditLedger(ORG_ID, { limit: 100 })).groups.find(
+		const hiddenReservation = (await listCreditLedger(ORG_ID, { limit: 100 })).groups.find(
 			(group) => group.entries[0]?.idempotencyKey === operationId,
 		);
-		expect(pendingReservation?.entries).toEqual([
-			expect.objectContaining({ entryType: 'reservation', deltaMicroUsd: -100 }),
-		]);
+		expect(hiddenReservation).toBeUndefined();
 		await recordManagedAiUsageAndChargeWallet(input, 100);
 		await recordManagedAiUsageAndChargeWallet(input, 100);
 		const after = await getCreditSummary(ORG_ID);
+		const settledUsage = (await listCreditLedger(ORG_ID, { limit: 100 })).groups.find(
+			(group) => group.entries[0]?.idempotencyKey === operationId,
+		);
 
 		expect(before.balanceMicroUsd - after.balanceMicroUsd).toBe(100);
+		expect(settledUsage?.entries).toEqual([expect.objectContaining({ entryType: 'usage', deltaMicroUsd: -100 })]);
 	});
 
 	it('credits a Stripe purchase once and preserves suppressed movement targets', async () => {
