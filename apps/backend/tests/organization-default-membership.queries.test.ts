@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
 	const insertBuilder = {
 		execute: vi.fn(),
 		onConflictDoNothing: vi.fn(),
+		onConflictDoUpdate: vi.fn(),
 		values: vi.fn(),
 	};
 
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => {
 	}
 	insertBuilder.values.mockReturnValue(insertBuilder);
 	insertBuilder.onConflictDoNothing.mockReturnValue(insertBuilder);
+	insertBuilder.onConflictDoUpdate.mockReturnValue(insertBuilder);
 
 	return {
 		db: {
@@ -59,6 +61,7 @@ beforeEach(() => {
 	mocks.db.select.mockClear();
 	mocks.insertBuilder.execute.mockReset().mockResolvedValue([]);
 	mocks.insertBuilder.onConflictDoNothing.mockClear();
+	mocks.insertBuilder.onConflictDoUpdate.mockClear();
 	mocks.insertBuilder.values.mockClear();
 	mocks.selectBuilder.execute.mockReset();
 });
@@ -74,7 +77,7 @@ describe('addUserToDefaultOrganizationIfExists', () => {
 			userId: 'user-1',
 			role: 'viewer',
 		});
-		expect(mocks.insertBuilder.onConflictDoNothing).toHaveBeenCalledOnce();
+		expect(mocks.insertBuilder.onConflictDoUpdate).toHaveBeenCalledOnce();
 	});
 
 	it('leaves an existing organization membership unchanged', async () => {

@@ -16,6 +16,7 @@ export async function listUsers(input: SearchPaginationInput) {
 			count: count().as('user_project_count'),
 		})
 		.from(s.projectMember)
+		.where(eq(s.projectMember.isDeleted, false))
 		.groupBy(s.projectMember.userId)
 		.as('user_project_counts');
 	const [users, totalRows] = await Promise.all([
@@ -100,7 +101,7 @@ export async function getUserProjects(userId: string) {
 		.from(s.projectMember)
 		.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
 		.leftJoin(s.organization, eq(s.organization.id, s.project.orgId))
-		.where(eq(s.projectMember.userId, userId))
+		.where(and(eq(s.projectMember.userId, userId), eq(s.projectMember.isDeleted, false)))
 		.orderBy(asc(s.project.name))
 		.execute()
 		.then((rows) =>
@@ -179,7 +180,7 @@ async function getOrganizationMemberships(userIds: string[], ordered = false) {
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.organization.id, s.orgMember.orgId))
-		.where(inArray(s.orgMember.userId, userIds));
+		.where(and(inArray(s.orgMember.userId, userIds), eq(s.orgMember.isDeleted, false)));
 	return ordered ? query.orderBy(asc(s.organization.name)).execute() : query.execute();
 }
 

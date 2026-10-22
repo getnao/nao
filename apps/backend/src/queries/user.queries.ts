@@ -66,7 +66,13 @@ export const isUserConfinedToOrganization = async (userId: string, orgId: string
 	const [foreignOrgMembership] = await db
 		.select({ orgId: s.orgMember.orgId })
 		.from(s.orgMember)
-		.where(and(eq(s.orgMember.userId, userId), orgId === null ? undefined : ne(s.orgMember.orgId, orgId)))
+		.where(
+			and(
+				eq(s.orgMember.userId, userId),
+				eq(s.orgMember.isDeleted, false),
+				orgId === null ? undefined : ne(s.orgMember.orgId, orgId),
+			),
+		)
 		.limit(1)
 		.execute();
 	if (foreignOrgMembership) {
@@ -79,7 +85,7 @@ export const isUserConfinedToOrganization = async (userId: string, orgId: string
 		.select({ projectId: s.projectMember.projectId })
 		.from(s.projectMember)
 		.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
-		.where(and(eq(s.projectMember.userId, userId), outsideOrganization))
+		.where(and(eq(s.projectMember.userId, userId), eq(s.projectMember.isDeleted, false), outsideOrganization))
 		.limit(1)
 		.execute();
 	return !foreignProjectMembership;

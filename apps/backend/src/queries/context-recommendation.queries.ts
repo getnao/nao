@@ -479,7 +479,13 @@ async function getFirstDirectProjectAdminUserId(projectId: string): Promise<stri
 	const [admin] = await db
 		.select({ userId: s.projectMember.userId })
 		.from(s.projectMember)
-		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.role, 'admin')))
+		.where(
+			and(
+				eq(s.projectMember.projectId, projectId),
+				eq(s.projectMember.role, 'admin'),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
 		.orderBy(asc(s.projectMember.createdAt))
 		.limit(1)
 		.execute();
@@ -491,10 +497,21 @@ async function getFirstInheritedOrgAdminUserId(projectId: string): Promise<strin
 	const [admin] = await db
 		.select({ userId: s.orgMember.userId })
 		.from(s.project)
-		.innerJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.role, 'admin')))
+		.innerJoin(
+			s.orgMember,
+			and(
+				eq(s.orgMember.orgId, s.project.orgId),
+				eq(s.orgMember.role, 'admin'),
+				eq(s.orgMember.isDeleted, false),
+			),
+		)
 		.leftJoin(
 			s.projectMember,
-			and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, s.orgMember.userId)),
+			and(
+				eq(s.projectMember.projectId, s.project.id),
+				eq(s.projectMember.userId, s.orgMember.userId),
+				eq(s.projectMember.isDeleted, false),
+			),
 		)
 		.where(and(eq(s.project.id, projectId), isNull(s.projectMember.userId)))
 		.orderBy(asc(s.orgMember.createdAt))

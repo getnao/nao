@@ -91,23 +91,45 @@ export const getProjectMember = async (projectId: string, userId: string): Promi
 	const [member] = await db
 		.select()
 		.from(s.projectMember)
-		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.userId, userId)))
+		.where(
+			and(
+				eq(s.projectMember.projectId, projectId),
+				eq(s.projectMember.userId, userId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
 		.execute();
 	return member ?? null;
 };
 
+/** Reactivates a soft-deleted membership rather than failing on the (projectId, userId) primary key. */
 export const addProjectMember = async (
 	member: NewProjectMember,
 	executor: DBExecutor = db,
 ): Promise<DBProjectMember> => {
-	const [created] = await executor.insert(s.projectMember).values(member).returning().execute();
+	const [created] = await executor
+		.insert(s.projectMember)
+		.values(member)
+		.onConflictDoUpdate({
+			target: [s.projectMember.projectId, s.projectMember.userId],
+			set: { role: member.role, isDeleted: false, deletedAt: null },
+		})
+		.returning()
+		.execute();
 	return created;
 };
 
 export const removeProjectMember = async (projectId: string, userId: string): Promise<void> => {
 	await db
-		.delete(s.projectMember)
-		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.userId, userId)))
+		.update(s.projectMember)
+		.set({ isDeleted: true, deletedAt: new Date() })
+		.where(
+			and(
+				eq(s.projectMember.projectId, projectId),
+				eq(s.projectMember.userId, userId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
 		.execute();
 };
 
@@ -115,7 +137,13 @@ export const updateProjectMemberRole = async (projectId: string, userId: string,
 	await db
 		.update(s.projectMember)
 		.set({ role: newRole })
-		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.userId, userId)))
+		.where(
+			and(
+				eq(s.projectMember.projectId, projectId),
+				eq(s.projectMember.userId, userId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
 		.execute();
 };
 
@@ -130,7 +158,7 @@ export const listProjectMembershipsForUser = async (
 		})
 		.from(s.projectMember)
 		.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
-		.where(eq(s.projectMember.userId, userId))
+		.where(and(eq(s.projectMember.userId, userId), eq(s.projectMember.isDeleted, false)))
 		.execute();
 };
 
@@ -141,8 +169,22 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 		})
 		.from(s.project)
-		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
+		.leftJoin(
+			s.projectMember,
+			and(
+				eq(s.projectMember.projectId, s.project.id),
+				eq(s.projectMember.userId, userId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
+		.leftJoin(
+			s.orgMember,
+			and(
+				eq(s.orgMember.orgId, s.project.orgId),
+				eq(s.orgMember.userId, userId),
+				eq(s.orgMember.isDeleted, false),
+			),
+		)
 		.where(
 			and(
 				ne(s.project.id, SYSTEM_EXAMPLE_PROJECT_ID),
@@ -173,7 +215,9 @@ export const getUserRoleInProject = async (projectId: string, userId: string): P
 	const [orgMember] = await db
 		.select({ userId: s.orgMember.userId, role: s.orgMember.role })
 		.from(s.orgMember)
-		.where(and(eq(s.orgMember.orgId, project.orgId), eq(s.orgMember.userId, userId)))
+		.where(
+			and(eq(s.orgMember.orgId, project.orgId), eq(s.orgMember.userId, userId), eq(s.orgMember.isDeleted, false)),
+		)
 		.limit(1)
 		.execute();
 
@@ -190,7 +234,7 @@ export const listProjectMembersWithRoles = async (projectId: string): Promise<Us
 			status: userMemberStatus,
 		})
 		.from(s.user)
-		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
+		.innerJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.isDeleted, false)))
 		.where(eq(s.projectMember.projectId, projectId))
 		.execute();
 
@@ -208,8 +252,22 @@ export const listUsersWithProjectAccess = async (projectId: string): Promise<Use
 			status: userMemberStatus,
 		})
 		.from(s.user)
-		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.userId, s.user.id), eq(s.orgMember.orgId, project?.orgId ?? '')))
+		.leftJoin(
+			s.projectMember,
+			and(
+				eq(s.projectMember.userId, s.user.id),
+				eq(s.projectMember.projectId, projectId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
+		.leftJoin(
+			s.orgMember,
+			and(
+				eq(s.orgMember.userId, s.user.id),
+				eq(s.orgMember.orgId, project?.orgId ?? ''),
+				eq(s.orgMember.isDeleted, false),
+			),
+		)
 		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)))
 		.execute();
 
@@ -232,8 +290,22 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 			end`,
 		})
 		.from(s.user)
-		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.userId, s.user.id), eq(s.orgMember.orgId, project?.orgId ?? '')))
+		.leftJoin(
+			s.projectMember,
+			and(
+				eq(s.projectMember.userId, s.user.id),
+				eq(s.projectMember.projectId, projectId),
+				eq(s.projectMember.isDeleted, false),
+			),
+		)
+		.leftJoin(
+			s.orgMember,
+			and(
+				eq(s.orgMember.userId, s.user.id),
+				eq(s.orgMember.orgId, project?.orgId ?? ''),
+				eq(s.orgMember.isDeleted, false),
+			),
+		)
 		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)))
 		.execute();
 
@@ -508,7 +580,11 @@ const toUtcDayEnd = (isoDate: string): Date => {
 };
 
 const buildMemberJoin = (projectId: string) =>
-	and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId));
+	and(
+		eq(s.projectMember.userId, s.user.id),
+		eq(s.projectMember.projectId, projectId),
+		eq(s.projectMember.isDeleted, false),
+	);
 
 const feedbackExpr = <T extends number | string>(vote: 'up' | 'down', aggregate: SQL<T>) => sql<T>`
 	(

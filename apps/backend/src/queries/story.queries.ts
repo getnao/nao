@@ -476,11 +476,13 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 		select 1 from ${s.projectMember}
 		where ${s.projectMember.projectId} = ${s.sharedStory.projectId}
 		  and ${s.projectMember.userId} = ${userId}
+		  and ${s.projectMember.isDeleted} = false
 	)`;
 	const isOrgMember = sql`exists (
 		select 1 from ${s.orgMember}
 		where ${s.orgMember.orgId} = ${s.project.orgId}
 		  and ${s.orgMember.userId} = ${userId}
+		  and ${s.orgMember.isDeleted} = false
 	)`;
 
 	const [shared] = await db

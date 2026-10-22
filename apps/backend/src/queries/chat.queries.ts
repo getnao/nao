@@ -152,8 +152,8 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 					and(
 						eq(s.sharedChat.visibility, 'project'),
 						or(
-							sql`exists(select 1 from ${s.projectMember} where ${s.projectMember.projectId} = ${s.chat.projectId} and ${s.projectMember.userId} = ${userId})`,
-							sql`exists(select 1 from ${s.orgMember} where ${s.orgMember.orgId} = ${s.project.orgId} and ${s.orgMember.userId} = ${userId})`,
+							sql`exists(select 1 from ${s.projectMember} where ${s.projectMember.projectId} = ${s.chat.projectId} and ${s.projectMember.userId} = ${userId} and ${s.projectMember.isDeleted} = false)`,
+							sql`exists(select 1 from ${s.orgMember} where ${s.orgMember.orgId} = ${s.project.orgId} and ${s.orgMember.userId} = ${userId} and ${s.orgMember.isDeleted} = false)`,
 						),
 					),
 					and(eq(s.sharedChat.visibility, 'specific'), isNotNull(s.sharedChatAccess.userId)),
@@ -1210,11 +1210,13 @@ export async function canUserAccessChat(chatId: string, userId: string): Promise
 		select 1 from ${s.projectMember}
 		where ${s.projectMember.projectId} = ${s.chat.projectId}
 		  and ${s.projectMember.userId} = ${userId}
+		  and ${s.projectMember.isDeleted} = false
 	)`;
 	const isOrgMember = sql`exists (
 		select 1 from ${s.orgMember}
 		where ${s.orgMember.orgId} = ${s.project.orgId}
 		  and ${s.orgMember.userId} = ${userId}
+		  and ${s.orgMember.isDeleted} = false
 	)`;
 
 	const [shared] = await db

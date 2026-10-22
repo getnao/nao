@@ -264,6 +264,8 @@ export const orgMember = sqliteTable(
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
+		isDeleted: integer('is_deleted', { mode: 'boolean' }).default(false).notNull(),
+		deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
 );
@@ -596,6 +598,8 @@ export const projectMember = sqliteTable(
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
+		isDeleted: integer('is_deleted', { mode: 'boolean' }).default(false).notNull(),
+		deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
 );
