@@ -19,6 +19,12 @@ import { containsBlockedPassthroughCall, detectQueryRowLimit, isReadOnlySqlQuery
 import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
+type SameTurnQueryOptions = {
+	queryId?: `query_${string}`;
+	/** The SQL as written by the model, kept so same-turn story validation can read it before the part is persisted. */
+	sqlQuery: string;
+};
+
 type ExecuteQueryOptions = {
 	/** SQL compiled by the semantic layer may reach the warehouse even when hand-written SQL may not. */
 	compiledBySemanticLayer?: boolean;
@@ -65,17 +71,20 @@ export async function executeQuery(
 	}
 
 	if (context.adminMode) {
-		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
-	}
-
-	if (database_id === LOCAL_DATABASE_ID) {
 		return withTemplateWarnings(
-			await executeLocalQuery(effectiveSql, context, query_id, save_to),
+			await executeAppDbQuery(effectiveSql, context, { queryId: query_id, sqlQuery: sql_query }),
 			templateWarnings,
 		);
 	}
 
-	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
+	if (database_id === LOCAL_DATABASE_ID) {
+		return withTemplateWarnings(
+			await executeLocalQuery(effectiveSql, context, { queryId: query_id, sqlQuery: sql_query, saveTo: save_to }),
+			templateWarnings,
+		);
+	}
+
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.projectId, context.agentSettings);
 	const data = await executeWarehouseSql(effectiveSql, {
 		projectFolder: context.projectFolder,
 		databaseId: database_id,
@@ -90,6 +99,8 @@ export async function executeQuery(
 	context.queryResults.set(id, {
 		columns: data.columns,
 		data: data.data,
+		sqlQuery: sql_query,
+		...(database_id && { databaseId: database_id }),
 		...(options.compiledBySemanticLayer && { compiledBySemanticLayer: true }),
 	});
 
@@ -108,18 +119,17 @@ export async function executeQuery(
 
 /** Files and earlier results, in nao's own DuckDB. No warehouse is involved. */
 async function executeLocalQuery(
-	sqlQuery: string,
+	effectiveSql: string,
 	context: ToolContext,
-	queryId?: `query_${string}`,
-	saveTo?: executeSql.SaveTo,
+	{ queryId, sqlQuery, saveTo }: SameTurnQueryOptions & { saveTo?: executeSql.SaveTo },
 ): Promise<executeSql.Output> {
 	const {
 		result: { columns, data },
 		savedFile,
-	} = await runQueryOnLocalFiles(sqlQuery, context, saveTo);
+	} = await runQueryOnLocalFiles(effectiveSql, context, saveTo);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
-	context.queryResults.set(id, { columns, data });
-	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	context.queryResults.set(id, { columns, data, sqlQuery, databaseId: LOCAL_DATABASE_ID });
+	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
 	return {
 		_version: '1',
@@ -134,14 +144,14 @@ async function executeLocalQuery(
 }
 
 async function executeAppDbQuery(
-	sqlQuery: string,
+	effectiveSql: string,
 	context: ToolContext,
-	queryId?: `query_${string}`,
+	{ queryId, sqlQuery }: SameTurnQueryOptions,
 ): Promise<executeSql.Output> {
-	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
+	const { columns, rows } = await queryAppDb(context.projectId, effectiveSql);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
-	context.queryResults.set(id, { columns, data: rows });
-	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	context.queryResults.set(id, { columns, data: rows, sqlQuery });
+	const appliedLimit = detectQueryRowLimit(effectiveSql);
 	return {
 		_version: '1',
 		data: rows,
@@ -223,7 +233,7 @@ function assertWarehouseSqlAllowed(databaseId: string | undefined, context: Tool
 
 const LOCAL_ONLY_DESCRIPTION = [
 	`Run DuckDB SQL in nao's local database ("${LOCAL_DATABASE_ID}", the only accepted database_id): the warehouse is only reachable through execute_semantic_query in this project.`,
-	'Every earlier query result, including semantic ones, is a table named after its query id, so post-process them here: joins, pivots, shares, deltas. It also reads CSV, JSON, Parquet and Excel files by their path.',
+	'Every earlier query result, including semantic ones, is a table named after its query id (the "Query ID" line of its tool output, e.g. query_ab12cd34), so post-process them here: joins, pivots, shares, deltas. It also reads CSV, JSON, Parquet and Excel files under /home and the project folder by their path; remote URLs are not readable.',
 	'To edit a previous local query in-place (keep the same query_id for charts/stories), pass query_id from an earlier execute_sql result.',
 ].join(' ');
 

@@ -30,7 +30,11 @@ export async function getCustomStoryState(
 /** With no viewer, e.g. in a delivered PDF, a story renders with its shared state only. */
 export async function getUnattendedCustomStoryState(chatId: string, storySlug: string): Promise<StoryStateSnapshot> {
 	const story = await requireCustomStory(chatId, storySlug);
-	return { shared: toValues(await storyAppStateQueries.listProjectStoryAppState(story.id)), own: {} };
+	return getUnattendedCustomStoryStateByStoryId(story.id);
+}
+
+export async function getUnattendedCustomStoryStateByStoryId(storyId: string): Promise<StoryStateSnapshot> {
+	return { shared: toValues(await storyAppStateQueries.listProjectStoryAppState(storyId)), own: {} };
 }
 
 /** A shared change is seen by every viewer of the story; any other change only by the viewer who made it. */

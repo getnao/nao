@@ -17,6 +17,7 @@ import {
 import type { DisplaySettings } from '@nao/shared/date';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
@@ -32,6 +33,7 @@ import {
 	FOLDER_VISIBILITY,
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
+	RECIPIENT_MODES,
 	SHARE_VISIBILITY,
 	STORY_ACTIONS,
 	STORY_FORMATS,
@@ -206,6 +208,7 @@ export const organization = sqliteTable('organization', {
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
 	bypassBilling: integer('bypass_billing', { mode: 'boolean' }).default(false).notNull(),
+	license: text('license'),
 
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -1245,6 +1248,8 @@ export const storyBundle = sqliteTable('story_bundle', {
 	bundle: text('bundle'),
 	pageShell: text('page_shell'),
 	bundleError: text('bundle_error'),
+	thumbnail: text('thumbnail'),
+	thumbnailTheme: text('thumbnail_theme'),
 	builtAt: integer('built_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),
@@ -1513,10 +1518,11 @@ export const storyDelivery = sqliteTable('story_delivery', {
 	cron: text('cron'),
 	scheduleDescription: text('schedule_description'),
 	channels: text('channels', { mode: 'json' }).$type<NotificationChannel[]>().notNull(),
-	recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+	recipientMode: text('recipient_mode', { enum: [...RECIPIENT_MODES] })
 		.notNull()
 		.default('specific'),
 	recipientUserIds: text('recipient_user_ids', { mode: 'json' }).$type<string[]>().notNull(),
+	recipientGroupIds: text('recipient_group_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
 	scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 	createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -1861,6 +1867,7 @@ export const projectStoryTheme = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		version: integer('version').notNull(),
 		theme: text('theme', { mode: 'json' }).$type<StoryThemePair>(),
+		generation: text('generation', { mode: 'json' }).$type<StoryThemeGeneration>(),
 		enabled: integer('enabled', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -1968,6 +1975,28 @@ export const storyFolderItem = sqliteTable(
 			.references(() => storyFolder.id, { onDelete: 'cascade' }),
 	},
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
+);
+
+export const storyFeedback = sqliteTable(
+	'story_feedback',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		vote: text('vote', { enum: ['up', 'down'] }).notNull(),
+		explanation: text('explanation'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.userId] }), index('story_feedback_userId_idx').on(t.userId)],
 );
 
 export const analyticsEvent = sqliteTable(

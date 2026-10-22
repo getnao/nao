@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
 import { settingsSearchIndex } from '@/components/settings-search-index';
+import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -51,7 +52,8 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 }
 
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
-	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
+	const { isAdmin, isContextAdmin, isOrgAdmin } = usePermissions();
+	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
 	const isCloud = useIsCloud();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
@@ -74,16 +76,16 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudBillingOnly || cloudBillingEnabled) &&
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled),
 				)
-				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
+				.filter((entry) => canSeeAdvancedSettings || accountPages.includes(entry.page)),
 		[
 			betaSubagentsEnabled,
+			canSeeAdvancedSettings,
 			cloudBillingEnabled,
 			enabledLicenseFeatures,
 			isAdmin,
 			isCloud,
 			isContextAdmin,
 			isOrgAdmin,
-			isViewer,
 		],
 	);
 }
@@ -110,4 +112,4 @@ const settingsSuggestionPages = [
 	'/settings/usage',
 ];
 
-const viewerVisiblePages = ['/settings/account'];
+const accountPages = ['/settings/account'];

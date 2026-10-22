@@ -2,7 +2,7 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import { getStorageConfig, getStorageHealth, isStorageEnabled } from '../services/storage';
 import { getProjectUsageByUser, getScopeUsage } from '../services/storage/usage';
-import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
+import { adminProtectedProcedure, advancedSettingsProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const storageRoutes = {
 	getConfig: adminProtectedProcedure.query(() => getStorageConfig()),
@@ -19,7 +19,7 @@ export const storageRoutes = {
 	})),
 
 	/** Everyone sees their own space; admins also get the breakdown across the project. */
-	getUsage: projectProtectedProcedure.query(async ({ ctx }) => {
+	getUsage: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		const own = await getScopeUsage({ projectId: ctx.project.id, userId: ctx.user.id });
 
 		return {

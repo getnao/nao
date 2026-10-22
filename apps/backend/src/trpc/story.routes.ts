@@ -1,7 +1,7 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
 import { STORY_KIT_EDITABLE_BLOCKS } from '@nao/shared/story-app';
-import type { BulkStoryItem, NotificationChannel, StoryFormat, UserRole } from '@nao/shared/types';
-import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
+import type { BulkStoryItem, NotificationChannel, RecipientMode, StoryFormat, UserRole } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS, RECIPIENT_MODES } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -17,6 +17,8 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
+	getActiveThemeForProject,
+	getActiveThemeForStory,
 	getCustomStoryFile,
 	getCustomStoryNarratives,
 	getCustomStoryQueryData,
@@ -31,7 +33,15 @@ import {
 	notifyStoryRefreshFailed,
 	notifyStorySubscriptionAdded,
 } from '../services/notification.service';
+import {
+	assertAudienceIncludes,
+	assertAudienceIncludesProject,
+	getShareAudience,
+	listShareableGroups,
+	type ShareAudience,
+} from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
+import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import {
 	editCustomStoryBlock,
 	restoreCustomStoryVersion,
@@ -49,6 +59,7 @@ import {
 	getStoryFilterOptions,
 	getStoryQuerySql,
 } from '../services/story-filters';
+import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -59,8 +70,9 @@ import {
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
+import { themeFontStylesheets } from '../utils/story-headless-page';
 import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
-import { backfillMissingQueryData } from '../utils/story-query-data';
+import { backfillMissingQueryData, withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -143,12 +155,13 @@ export const storyRoutes = {
 			const stories = await storyQueries.listUserChatStories(ctx.user.id, { projectId: input?.projectId });
 			const visibleStories = await filterStoriesByProjectAccess(stories, ctx.user.id, input?.projectId);
 			const sharingByStoryId = await storyQueries.getStorySharingInfo(visibleStories.map((s) => s.id));
-			return visibleStories.map(({ code, ...rest }) => ({
+			const items = visibleStories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
 				summary: extractStorySummary(code),
 				sharing: sharingByStoryId.get(rest.id) ?? null,
 			}));
+			return withKpiPreviewData(items, (story) => story.id);
 		}),
 
 	listArchived: protectedProcedure
@@ -160,30 +173,33 @@ export const storyRoutes = {
 			});
 			const visibleStories = await filterStoriesByProjectAccess(stories, ctx.user.id, input?.projectId);
 			const sharingByStoryId = await storyQueries.getStorySharingInfo(visibleStories.map((s) => s.id));
-			return visibleStories.map(({ code, ...rest }) => ({
+			const items = visibleStories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
 				summary: extractStorySummary(code),
 				sharing: sharingByStoryId.get(rest.id) ?? null,
 			}));
+			return withKpiPreviewData(items, (story) => story.id);
 		}),
 
 	listStandalone: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id);
-		return stories.map(({ code, ...rest }) => ({
+		const items = stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
 			summary: extractStorySummary(code),
 		}));
+		return withKpiPreviewData(items, (story) => story.id);
 	}),
 
 	listStandaloneArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await storyQueries.listUserStandaloneStories(ctx.user.id, ctx.project.id, { archived: true });
-		return stories.map(({ code, ...rest }) => ({
+		const items = stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
 			summary: extractStorySummary(code),
 		}));
+		return withKpiPreviewData(items, (story) => story.id);
 	}),
 
 	resolve: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
@@ -221,9 +237,10 @@ export const storyRoutes = {
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		const [cache, lastRefreshFailure] = await Promise.all([
+		const [cache, lastRefreshFailure, theme] = await Promise.all([
 			storyQueries.getStoryDataCacheByStoryId(input.storyId),
 			activityQueries.getLatestStoryRefreshFailure(input.storyId),
+			getActiveThemeForStory(input.storyId),
 		]);
 
 		if (story.projectId) {
@@ -253,6 +270,7 @@ export const storyRoutes = {
 			queryData,
 			cachedAt: storyData ? storyData.cachedAt : (cache?.cachedAt ?? null),
 			lastRefreshFailure,
+			theme,
 		};
 	}),
 
@@ -263,7 +281,10 @@ export const storyRoutes = {
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
+			const [lastRefreshFailure, theme] = await Promise.all([
+				activityQueries.getLatestStoryRefreshFailure(version.storyId),
+				getActiveThemeForStory(version.storyId),
+			]);
 			const { queryData, cachedAt, code, needsRefresh } = await getStoryQueryData(
 				input.chatId,
 				input.storySlug,
@@ -286,7 +307,15 @@ export const storyRoutes = {
 				});
 			}
 
-			return { ...version, code, queryData, cachedAt, lastRefreshFailure, needsRefresh: needsRefresh ?? false };
+			return {
+				...version,
+				code,
+				queryData,
+				cachedAt,
+				lastRefreshFailure,
+				needsRefresh: needsRefresh ?? false,
+				theme,
+			};
 		}),
 
 	listVersions: chatStoryProcedure
@@ -460,7 +489,8 @@ export const storyRoutes = {
 				});
 			}
 
-			return buildStorySnapshotDownload(input.format, version.title, input.html);
+			const fontStylesheets = themeFontStylesheets(await getActiveThemeForStory(version.storyId));
+			return buildStorySnapshotDownload(input.format, version.title, input.html, fontStylesheets);
 		}),
 
 	editCustomStoryBlock: chatOwnerProcedure
@@ -666,19 +696,24 @@ export const storyRoutes = {
 				channels: delivery?.channels ?? (['email'] as NotificationChannel[]),
 				recipientMode: delivery?.recipientMode ?? 'specific',
 				recipientUserIds: delivery?.recipientUserIds ?? [],
+				recipientGroupIds: delivery?.recipientGroupIds ?? [],
 			};
 		}),
 
 	listDeliveryRecipients: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (!projectId) {
 				return [];
 			}
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			const access = story ? await sharedStoryQueries.getStoryShareAccess(story.id, projectId) : null;
-			const members = await projectQueries.listProjectMembersWithRoles(projectId);
+			const [projectMembers, audience] = await Promise.all([
+				projectQueries.listProjectMembersWithRoles(projectId),
+				getShareAudience(projectId, ctx.user.id),
+			]);
+			const members = projectMembers.filter((member) => audience.memberIds.has(member.id));
 			const toRecipient = (member: (typeof members)[number]) => ({
 				id: member.id,
 				name: member.name,
@@ -686,10 +721,20 @@ export const storyRoutes = {
 			});
 
 			if (access?.visibility === 'specific' && access.recipientUserIds.length > 0) {
-				const allowed = new Set(access.recipientUserIds);
+				const allowed = new Set([...access.recipientUserIds, ctx.user.id]);
 				return members.filter((member) => allowed.has(member.id)).map(toRecipient);
 			}
 			return members.map(toRecipient);
+		}),
+
+	listDeliveryRecipientGroups: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				return [];
+			}
+			return listShareableGroups(projectId, ctx.user.id);
 		}),
 
 	updateDelivery: chatOwnerProcedure
@@ -701,8 +746,9 @@ export const storyRoutes = {
 				cron: z.string().nullable(),
 				scheduleDescription: z.string().nullable(),
 				channels: z.array(z.enum(NOTIFICATION_CHANNELS)).min(1),
-				recipientMode: z.enum(['all', 'specific']),
+				recipientMode: z.enum(RECIPIENT_MODES),
 				recipientUserIds: z.array(z.string()),
+				recipientGroupIds: z.array(z.string()).default([]),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
@@ -717,11 +763,23 @@ export const storyRoutes = {
 				});
 			}
 			const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-			assertValidDeliverySchedule(input.enabled, input.cron, input.recipientMode, input.recipientUserIds);
+			assertValidDeliverySchedule(
+				input.enabled,
+				input.cron,
+				input.recipientMode,
+				input.recipientUserIds,
+				input.recipientGroupIds,
+			);
 
 			const existingDelivery = await storyDeliveryQueries.getByStoryId(story.id);
 			const previousRecipientIds = new Set(
-				existingDelivery?.recipientMode === 'specific' ? existingDelivery.recipientUserIds : [],
+				existingDelivery?.recipientMode === 'specific' && projectId
+					? await resolveSpecificRecipientUserIds(
+							projectId,
+							existingDelivery.recipientUserIds,
+							existingDelivery.recipientGroupIds,
+						)
+					: [],
 			);
 
 			if (input.recipientMode === 'specific' && input.recipientUserIds.length > 0) {
@@ -738,14 +796,32 @@ export const storyRoutes = {
 					});
 				}
 			}
+			if (input.recipientMode === 'specific' && input.recipientGroupIds.length > 0) {
+				if (!projectId) {
+					throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Story has no project.' });
+				}
+				await assertShareableUserGroupIds(projectId, input.recipientGroupIds);
+			}
 
 			if (input.enabled && projectId) {
-				const sharedInfo = await sharedStoryQueries.getSharedStoryInfo(story.id, projectId);
-				if (!sharedInfo) {
-					await storyFolderQueries.moveStoryToFolder(story.id, null, {
-						storyOwnerId: ctx.user.id,
-						projectId,
-					});
+				const audience = await getShareAudience(projectId, ctx.user.id);
+				await assertDeliveryWithinShareAudience(
+					story.id,
+					projectId,
+					audience,
+					input,
+					existingDelivery?.enabled && existingDelivery.recipientMode === 'specific'
+						? existingDelivery
+						: null,
+				);
+				if (audience.canShareToProject) {
+					const sharedInfo = await sharedStoryQueries.getSharedStoryInfo(story.id, projectId);
+					if (!sharedInfo) {
+						await storyFolderQueries.moveStoryToFolder(story.id, null, {
+							storyOwnerId: ctx.user.id,
+							projectId,
+						});
+					}
 				}
 			}
 
@@ -758,15 +834,24 @@ export const storyRoutes = {
 				channels: input.channels,
 				recipientMode: input.recipientMode,
 				recipientUserIds: input.recipientUserIds,
+				recipientGroupIds: input.recipientMode === 'specific' ? input.recipientGroupIds : [],
 				createdBy: ctx.user.id,
 			});
 			await syncStoryDeliveryJob(story.id, input.enabled, input.cron);
 
 			if (input.enabled && input.recipientMode === 'specific' && projectId) {
-				const addedUserIds = input.recipientUserIds.filter(
-					(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
-				);
-				await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds).catch((error) => {
+				const bestEffortNotify = async () => {
+					const recipientIds = await resolveSpecificRecipientUserIds(
+						projectId,
+						input.recipientUserIds,
+						input.recipientGroupIds,
+					);
+					const addedUserIds = recipientIds.filter(
+						(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
+					);
+					await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds);
+				};
+				await bestEffortNotify().catch((error) => {
 					logger.error(`Failed to notify story subscribers: ${String(error)}`, {
 						source: 'system',
 						projectId,
@@ -944,7 +1029,7 @@ export const storyRoutes = {
 
 	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
-		return stories.map((story) => ({
+		const items = stories.map((story) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
@@ -955,6 +1040,7 @@ export const storyRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
+		return withKpiPreviewData(items, (story) => story.storyId);
 	}),
 
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
@@ -1020,7 +1106,12 @@ export const storyRoutes = {
 			const storyData = story.chatId
 				? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
 				: null;
-			const displaySettings = story.projectId ? await projectQueries.getDisplaySettings(story.projectId) : null;
+			const [displaySettings, theme] = story.projectId
+				? await Promise.all([
+						projectQueries.getDisplaySettings(story.projectId),
+						getActiveThemeForProject(story.projectId),
+					])
+				: [null, null];
 			const queryData =
 				storyData?.allowsPersistedFallback && story.chatId
 					? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
@@ -1033,6 +1124,7 @@ export const storyRoutes = {
 				storyData?.code ?? story.code,
 				queryData,
 				displaySettings?.dateFormat,
+				theme,
 			);
 		}),
 
@@ -1086,9 +1178,18 @@ export const storyRoutes = {
 				});
 			}
 
-			const displaySettings = projectId ? await projectQueries.getDisplaySettings(projectId) : null;
+			const [displaySettings, theme] = projectId
+				? await Promise.all([projectQueries.getDisplaySettings(projectId), getActiveThemeForProject(projectId)])
+				: [null, null];
 
-			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				version.title,
+				code,
+				queryData,
+				displaySettings?.dateFormat,
+				theme,
+			);
 		}),
 };
 
@@ -1235,6 +1336,33 @@ async function grantSpecificShareAccess(storyId: string, projectId: string, user
 	}
 	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
 	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
+}
+
+/**
+ * Delivering to "all" reaches the whole project unless the story is already limited to specific people.
+ * Recipients of the currently active specific delivery stay allowed so restricted owners can keep editing it.
+ */
+async function assertDeliveryWithinShareAudience(
+	storyId: string,
+	projectId: string,
+	audience: ShareAudience,
+	delivery: { recipientMode: RecipientMode; recipientUserIds: string[]; recipientGroupIds: string[] },
+	activeSpecificDelivery: { recipientUserIds: string[]; recipientGroupIds: string[] } | null,
+): Promise<void> {
+	if (audience.canShareToProject) {
+		return;
+	}
+	if (delivery.recipientMode === 'all') {
+		const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
+		if (access?.visibility !== 'specific') {
+			assertAudienceIncludesProject(audience);
+		}
+		return;
+	}
+	assertAudienceIncludes(audience, {
+		userIds: delivery.recipientUserIds.filter((id) => !activeSpecificDelivery?.recipientUserIds.includes(id)),
+		groupIds: delivery.recipientGroupIds.filter((id) => !activeSpecificDelivery?.recipientGroupIds.includes(id)),
+	});
 }
 
 async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {

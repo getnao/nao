@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StoryPageHeader } from './story-page-header';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const { favoritesQuery } = vi.hoisted(() => ({
+const { favoritesQuery, submitStoryFeedback } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+	submitStoryFeedback: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: () => favoritesQuery,
+	useMutation: () => ({ mutate: submitStoryFeedback, isPending: false }),
 }));
 
 vi.mock('@/components/editable-story-title', () => ({
@@ -45,6 +47,14 @@ vi.mock('@/main', () => ({
 		story: {
 			getCertification: {
 				queryOptions: () => ({}),
+			},
+		},
+		feedback: {
+			getStoryFeedback: {
+				queryOptions: () => ({}),
+			},
+			submitStoryFeedback: {
+				mutationOptions: () => ({}),
 			},
 		},
 	},
@@ -141,6 +151,34 @@ describe('StoryPageHeader actions', () => {
 		);
 
 		expect(screen.queryByRole('button', { name: 'Unfavorite' })).toBeNull();
+	});
+
+	it('submits story feedback with the chosen vote and optional message', () => {
+		render(
+			<TooltipProvider>
+				<StoryPageHeader title='Revenue' storyId='story-1' />
+			</TooltipProvider>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Good story' }));
+		fireEvent.change(screen.getByRole('textbox'), { target: { value: '  Clear charts  ' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+		expect(submitStoryFeedback).toHaveBeenCalledWith({
+			storyId: 'story-1',
+			vote: 'up',
+			explanation: 'Clear charts',
+		});
+	});
+
+	it('hides story feedback when there is no persisted story', () => {
+		render(
+			<TooltipProvider>
+				<StoryPageHeader title='Revenue' />
+			</TooltipProvider>,
+		);
+
+		expect(screen.queryByRole('button', { name: 'Good story' })).toBeNull();
 	});
 });
 

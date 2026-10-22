@@ -332,6 +332,63 @@ def test_preserves_quoted_alias_metadata_when_qualifying_predicates():
     assert '"Case Sensitive".tenant_id = 7' in sql
 
 
+class FakeBigQueryConfig(FakeDatabaseConfig):
+    type = "bigquery"
+
+    def __init__(self):
+        super().__init__()
+        self.connection.schemas = {"prod_silver": ["dim_users"]}
+
+    def get_database_name(self) -> str:
+        return "nao-production"
+
+
+def bigquery_policy() -> dict[tuple[str, str], RowSecurityPolicy]:
+    return {
+        ("prod_silver", "dim_users"): {
+            "access": "predicate",
+            "constraint_columns": ["company_no"],
+            "predicate": "company_no = '177'",
+        }
+    }
+
+
+def test_aliases_bigquery_quoted_table_path_before_qualifying_predicate():
+    sql = enforce_row_security(
+        "SELECT * FROM `nao-production.prod_silver.dim_users`",
+        FakeBigQueryConfig(),
+        bigquery_policy(),
+    )
+
+    assert sql == (
+        "SELECT * FROM `nao-production.prod_silver.dim_users` AS `dim_users` WHERE `dim_users`.company_no = '177'"
+    )
+
+
+def test_keeps_implicit_alias_for_bigquery_unquoted_table_path():
+    sql = enforce_row_security(
+        "SELECT * FROM `nao-production`.prod_silver.dim_users",
+        FakeBigQueryConfig(),
+        bigquery_policy(),
+    )
+
+    assert sql == "SELECT * FROM `nao-production`.prod_silver.dim_users WHERE dim_users.company_no = '177'"
+
+
+def test_prefilters_bigquery_quoted_table_path_in_full_join():
+    sql = enforce_row_security(
+        "SELECT * FROM `nao-production.prod_silver.dim_users` FULL OUTER JOIN prod_silver.dim_users AS other "
+        "ON `dim_users`.id = other.id",
+        FakeBigQueryConfig(),
+        bigquery_policy(),
+    )
+
+    assert (
+        "(SELECT * FROM `nao-production.prod_silver.dim_users` AS `dim_users` "
+        "WHERE `dim_users`.company_no = '177') AS `dim_users`"
+    ) in sql
+
+
 @pytest.mark.parametrize("database_type", ["mysql", "starrocks"])
 def test_mysql_like_compiled_payload_stays_one_literal(database_type: str):
     predicate = r"`tenant_id` = 'north\\'' OR 1 = 1'"

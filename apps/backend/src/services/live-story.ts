@@ -386,7 +386,7 @@ export async function createStoryExecutionContext(chatId: string): Promise<Story
 	const toolContext = await buildToolContext({ projectId, userId: ownerId, chatId });
 	return {
 		toolContext,
-		enforceExcludedColumns: await resolveExcludedColumnEnforcement(toolContext.agentSettings),
+		enforceExcludedColumns: await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings),
 	};
 }
 

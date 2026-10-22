@@ -205,6 +205,7 @@ function context(): ToolContext {
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: false },
 		filesContextAccess: { enforced: false },
+		mcpAccess: { mode: 'all' },
 		userGroupFeatures: [],
 		azureAccessToken: null,
 		queryResults: new Map(),

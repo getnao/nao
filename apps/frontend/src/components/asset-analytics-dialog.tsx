@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, Dot, FileDown, GitFork, Loader2, MousePointerClick, RefreshCw, Search, Star, X } from 'lucide-react';
+import {
+	Clock,
+	Dot,
+	FileDown,
+	GitFork,
+	Loader2,
+	MousePointerClick,
+	RefreshCw,
+	Search,
+	Star,
+	ThumbsDown,
+	ThumbsUp,
+	X,
+} from 'lucide-react';
 import type { KeyboardEvent, ReactNode } from 'react';
 
 import type { AnalyticsEventType, AnalyticsAssetType } from '@nao/shared/types';
@@ -16,8 +29,10 @@ import {
 	formatDuration,
 	getBadge,
 	getDownloadTitle,
+	getFeedbackExplanation,
 	getVersionNumber,
 	groupRowsByActor,
+	isCurrentFeedbackPositive,
 	isCurrentlyFavorited,
 } from '@/lib/analytics-events.utils';
 import { trpc } from '@/main';
@@ -70,6 +85,13 @@ const TAB_DEFS: TabDef[] = [
 		assetTypes: ['story'],
 	},
 	{
+		id: 'feedback',
+		icon: <ThumbsUp className='size-3.5' />,
+		label: 'Feedback',
+		emptyLabel: 'feedback',
+		assetTypes: ['story'],
+	},
+	{
 		id: 'refresh',
 		icon: <RefreshCw className='size-3.5' />,
 		label: 'Refreshes',
@@ -109,13 +131,14 @@ export function AssetAnalyticsDialog({
 				badge: getBadge(r.event.metadata),
 				versionNumber: getVersionNumber(r.event.metadata),
 				title: getDownloadTitle(r.event.metadata),
+				explanation: getFeedbackExplanation(r.event.metadata),
 			}));
 
 	const activeTabDef = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className='sm:max-w-2xl'>
+			<DialogContent className='grid-cols-1 sm:max-w-3xl'>
 				<DialogHeader className='flex-row items-center justify-between gap-2 pr-8'>
 					<DialogTitle>Analytics events</DialogTitle>
 					<AnalyticsSearchInput value={search} onChange={setSearch} />
@@ -126,19 +149,19 @@ export function AssetAnalyticsDialog({
 						<Loader2 className='size-5 animate-spin text-muted-foreground' />
 					</div>
 				) : (
-					<div className='flex flex-col gap-2'>
-						<div className='flex border-b'>
+					<div className='flex min-w-0 flex-col gap-2'>
+						<div className='flex overflow-x-auto shadow-[inset_0_-1px_0_var(--color-border)]'>
 							{tabs.map((tab) => {
 								const isActive = activeTabDef.id === tab.id;
 								const tabRows = rowsByType(tab.id);
-								const count = tab.id === 'favorite' ? countActiveFavorites(tabRows) : tabRows.length;
+								const count = getTabCount(tab.id, tabRows);
 								return (
 									<button
 										key={tab.id}
 										type='button'
 										onClick={() => setActiveTab(tab.id)}
 										className={cn(
-											'flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm transition-colors border-b-2 -mb-px w-full',
+											'flex flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-sm transition-colors border-b-2',
 											isActive
 												? 'border-primary text-foreground font-medium'
 												: 'border-transparent text-muted-foreground hover:text-foreground',
@@ -160,6 +183,8 @@ export function AssetAnalyticsDialog({
 							<ViewsTabContent events={events} search={search} />
 						) : activeTabDef.id === 'favorite' ? (
 							<FavoritesTabContent rows={rowsByType('favorite')} search={search} />
+						) : activeTabDef.id === 'feedback' ? (
+							<FeedbackTabContent rows={rowsByType('feedback')} search={search} />
 						) : (
 							<ActorEventTabContent
 								rows={rowsByType(activeTabDef.id)}
@@ -172,6 +197,16 @@ export function AssetAnalyticsDialog({
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function getTabCount(type: AnalyticsEventType, rows: EventRow[]): number {
+	if (type === 'favorite') {
+		return countActiveFavorites(rows);
+	}
+	if (type === 'feedback') {
+		return groupRowsByActor(rows).length;
+	}
+	return rows.length;
 }
 
 function AnalyticsSearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -421,6 +456,67 @@ function FavoritesTabContent({ rows, search }: { rows: EventRow[]; search: strin
 			}}
 		/>
 	);
+}
+
+function FeedbackTabContent({ rows, search }: { rows: EventRow[]; search: string }) {
+	const groups = groupRowsByActor(rows);
+
+	if (groups.length === 0) {
+		return <p className='py-6 text-center text-xs text-muted-foreground'>No feedback yet.</p>;
+	}
+
+	const query = search.trim().toLowerCase();
+	const filteredGroups = groups
+		.map((g) => ({
+			...g,
+			items: filterRows(
+				[g.actorName ?? 'Anonymous'],
+				g.items,
+				(row) => [row.badge, row.explanation, formatDate(row.createdAt)],
+				query,
+			),
+		}))
+		.filter((g) => g.items.length > 0);
+
+	return (
+		<MasterDetailPanel
+			groups={filteredGroups}
+			entityLabel='actor'
+			renderSidebarMeta={(group) => <FeedbackVoteIcon isPositive={isCurrentFeedbackPositive(group)} />}
+			renderItems={(group) =>
+				group.items.map((row, i) => (
+					<li key={i} className='flex items-start gap-2 px-3 py-2'>
+						<FeedbackVoteIcon isPositive={row.badge === 'positive'} className='mt-0.5' />
+						<span
+							className={cn(
+								'min-w-0 flex-1 whitespace-pre-wrap break-words',
+								row.explanation ? 'text-foreground' : 'italic text-muted-foreground/70',
+							)}
+						>
+							{row.explanation ?? 'No message'}
+						</span>
+						<span className='shrink-0 text-muted-foreground'>{formatDate(row.createdAt)}</span>
+					</li>
+				))
+			}
+			renderFooter={(group) => {
+				const isPositive = isCurrentFeedbackPositive(group);
+				return (
+					<div className='flex items-center gap-1.5 border-t bg-muted/30 px-3 py-2 text-xs'>
+						<FeedbackVoteIcon isPositive={isPositive} />
+						<span className='text-foreground'>
+							{isPositive ? 'Currently positive' : 'Currently negative'}
+						</span>
+					</div>
+				);
+			}}
+		/>
+	);
+}
+
+function FeedbackVoteIcon({ isPositive, className }: { isPositive: boolean; className?: string }) {
+	const Icon = isPositive ? ThumbsUp : ThumbsDown;
+	return <Icon className={cn('size-3 shrink-0', isPositive ? 'text-primary' : 'text-destructive', className)} />;
 }
 
 interface MasterDetailPanelProps<TGroup extends ActorGroup<unknown>> {

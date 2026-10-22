@@ -8,8 +8,10 @@ import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
 import { logActivity } from '../services/activity';
+import { getActiveThemeForProject } from '../services/custom-story';
 import { getStoryQueryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
+import { assertCanShareToProject, assertCanShareWith } from '../services/project-sharing.service';
 import { type UIChat } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
@@ -57,6 +59,11 @@ export const sharedChatRoutes = {
 			}
 			if (chatInfo.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
+			}
+			if (input.visibility === 'project') {
+				await assertCanShareToProject(ctx.project.id, ctx.user.id);
+			} else {
+				await assertCanShareWith(ctx.project.id, ctx.user.id, { userIds: input.allowedUserIds });
 			}
 
 			const created = await sharedChatQueries.createSharedChat(
@@ -138,6 +145,11 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
 
+			const previousAllowedUserIds = await sharedChatQueries.getShareAllowedUserIds(input.shareId);
+			await assertCanShareWith(ctx.resource.projectId, ctx.user.id, {
+				userIds: input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id)),
+			});
+
 			const accessibleUsers = await projectQueries.listUsersWithProjectAccess(ctx.resource.projectId);
 			const accessibleUserIds = new Set(accessibleUsers.map((m) => m.id));
 			const validUserIds = input.allowedUserIds.filter((id) => accessibleUserIds.has(id));
@@ -145,7 +157,6 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No valid users in the provided list.' });
 			}
 
-			const previousAllowedUserIds = await sharedChatQueries.getShareAllowedUserIds(input.shareId);
 			await sharedChatQueries.updateSharedChatAllowedUsers(input.shareId, validUserIds);
 
 			// Re-read the committed ACL: a concurrent update could have won the last write,
@@ -221,8 +232,18 @@ export const sharedChatRoutes = {
 				},
 			});
 
-			const displaySettings = await projectQueries.getDisplaySettings(share.projectId);
+			const [displaySettings, theme] = await Promise.all([
+				projectQueries.getDisplaySettings(share.projectId),
+				getActiveThemeForProject(share.projectId),
+			]);
 
-			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				version.title,
+				code,
+				queryData,
+				displaySettings.dateFormat,
+				theme,
+			);
 		}),
 };

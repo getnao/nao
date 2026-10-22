@@ -48,6 +48,7 @@ function StoryEmbedPage() {
 				title={story.title}
 				code={story.code}
 				queryData={story.queryData as QueryDataMap | null}
+				theme={story.theme}
 				naoUrl={naoUrl}
 				onDownload={(format) => downloadStory(storyId, token, format)}
 			/>

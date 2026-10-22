@@ -19,7 +19,9 @@ const VIEW_DESCRIPTIONS: Record<string, string> = {
 	v_mcp_call_log: 'One row per MCP tool call, with its duration and whether it succeeded.',
 	v_project: 'The current project (id and name).',
 	v_analytics_event:
-		'One row per asset engagement event. type is one of page_view, download, fork, favorite, refresh, view_duration; asset_type is chat or story; actor_user_id is who triggered it; chat_id/story_id/shared_chat_id/shared_story_id point to the asset; metadata holds event-specific JSON (e.g. download format, view duration). This is the view for adoption, engagement and sharing analytics.',
+		'One row per asset engagement event. type is one of page_view, download, fork, favorite, feedback, refresh, view_duration; asset_type is chat or story; actor_user_id is who triggered it; chat_id/story_id/shared_chat_id/shared_story_id point to the asset; metadata holds event-specific JSON (e.g. download format, view duration, feedback vote and explanation). Feedback events keep every vote a user cast over time. This is the view for adoption, engagement and sharing analytics.',
+	v_story_feedback:
+		"The current thumbs up/down feedback users left on stories, one row per user per story (a later vote replaces the earlier one; updated_at is when it last changed). vote is up or down and explanation is the optional message. story_owner_id/story_owner_name is the story's author, user_id/user_name is who left the feedback. This is the view for story quality and satisfaction; use v_analytics_event with type = 'feedback' for the history of vote changes.",
 };
 
 function AdminSystemPrompt({ timezone, dialect }: { timezone?: string; dialect: Dialect }) {

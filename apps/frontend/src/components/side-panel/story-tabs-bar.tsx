@@ -25,6 +25,9 @@ interface StoryTabsBarProps {
 		onAdd: () => void;
 	};
 	externalDrop?: StoryTabsExternalDrop;
+	/** Draws the add button with no action, for previews of a story's tab bar. */
+	showAddTab?: boolean;
+	containerClassName?: string;
 	contentClassName?: string;
 }
 
@@ -34,6 +37,8 @@ export function StoryTabsBar({
 	onSelect,
 	editable,
 	externalDrop,
+	showAddTab,
+	containerClassName,
 	contentClassName,
 }: StoryTabsBarProps) {
 	const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -158,7 +163,7 @@ export function StoryTabsBar({
 
 	return (
 		<div
-			className='relative w-full bg-muted/30'
+			className={cn('relative w-full', containerClassName ?? 'bg-muted/30')}
 			onDrop={handleDrop}
 			onDragLeave={(event) => {
 				if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -215,7 +220,7 @@ export function StoryTabsBar({
 									onClick={() => onSelect(index)}
 									onDoubleClick={() => editable && startRenaming(index)}
 									className={cn(
-										'h-full max-w-48 cursor-pointer truncate pl-3 text-sm font-medium outline-none',
+										'nao-story-tab h-full max-w-48 cursor-pointer truncate pl-3 text-sm font-medium outline-none',
 										editable ? 'pr-1' : 'pr-3',
 									)}
 								>
@@ -271,17 +276,20 @@ export function StoryTabsBar({
 					<div className='pointer-events-none h-9 w-[3px] shrink-0 self-center rounded-full bg-primary shadow-[0_0_6px] shadow-primary/40' />
 				)}
 
-				{editable && (
-					<Button
+				{(editable || showAddTab) && (
+					<button
 						type='button'
-						variant='ghost'
-						size='icon-xs'
 						aria-label='Add tab'
-						onClick={editable.onAdd}
-						className='shrink-0 self-center'
+						aria-hidden={editable ? undefined : true}
+						tabIndex={editable ? undefined : -1}
+						onClick={editable?.onAdd}
+						className={cn(
+							'flex h-9 shrink-0 items-center rounded-t-md border border-transparent px-2.5 text-muted-foreground outline-none transition-[color,background-color] hover:bg-background/50 hover:text-foreground focus-visible:bg-background/50 focus-visible:text-foreground',
+							editable ? 'cursor-pointer' : 'cursor-default',
+						)}
 					>
-						<Plus />
-					</Button>
+						<Plus className='size-4' />
+					</button>
 				)}
 			</div>
 		</div>

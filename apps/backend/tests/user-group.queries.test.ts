@@ -115,10 +115,11 @@ describe('user group queries', () => {
 				},
 			},
 			contextGrants: {
-				version: 5,
+				version: 6,
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: ALL_FILES_CONTEXT_ACCESS,
+				mcpAccess: { mode: 'all' },
 			},
 		});
 
@@ -690,6 +691,7 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'blocked',
 		});
 		expect(updated).toMatchObject({
 			name: 'Data Analysts',
@@ -698,6 +700,7 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'blocked',
 			databaseAccess: {
 				mode: 'restricted',
 				strict: false,
@@ -724,9 +727,12 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			projectSharing: 'blocked',
+			showAllSettings: false,
+			preloadedSkills: [],
 		});
 		expect(storedUpdated.contextGrants).toEqual({
-			version: 5,
+			version: 6,
 			databaseAccess: {
 				mode: 'restricted',
 				strict: false,
@@ -743,6 +749,7 @@ describe('user group queries', () => {
 			},
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'restricted', grants: [] },
 		});
 
 		await updateUserGroup(PROJECT_ID, group.id, {
@@ -1012,6 +1019,40 @@ describe('user group queries', () => {
 		]);
 	});
 
+	it('unions MCP grants and lets a whole-server grant absorb tool grants', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: [],
+			mcpAccess: { mode: 'restricted', grants: [{ kind: 'tool', server: 'github', tool: 'list_issues' }] },
+		});
+		const clientA = await createUserGroup(PROJECT_ID, 'Client A', []);
+		await updateUserGroup(PROJECT_ID, clientA.id, {
+			featureGrants: [],
+			mcpAccess: {
+				mode: 'restricted',
+				grants: [
+					{ kind: 'server', server: 'github' },
+					{ kind: 'tool', server: 'linear', tool: 'search' },
+				],
+			},
+		});
+
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).mcpAccess).toEqual({
+			mode: 'restricted',
+			grants: [{ kind: 'tool', server: 'github', tool: 'list_issues' }],
+		});
+
+		await setUserGroupMembership(PROJECT_ID, clientA.id, DIRECT_USER_ID, true);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).mcpAccess).toEqual({
+			mode: 'restricted',
+			grants: [
+				{ kind: 'server', server: 'github' },
+				{ kind: 'tool', server: 'linear', tool: 'search' },
+			],
+		});
+	});
+
 	it('excludes suspended groups from every effective access field without changing stored data', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
 		const defaultGroup = overview.groups[0];
@@ -1020,6 +1061,7 @@ describe('user group queries', () => {
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
+			mcpAccess: { mode: 'restricted', grants: [] },
 		});
 		const activeGroups = await Promise.all(
 			['First', 'Second', 'Third'].map((name) =>
@@ -1033,6 +1075,11 @@ describe('user group queries', () => {
 			{ defaultDensity: 'compact', canChange: true },
 			{ mode: 'all', strict: false },
 			{ mode: 'all' },
+			undefined,
+			undefined,
+			undefined,
+			'inherit',
+			{ mode: 'all' },
 		);
 		for (const group of [...activeGroups, suspendedGroup]) {
 			await setUserGroupMembership(PROJECT_ID, group.id, DIRECT_USER_ID, true);
@@ -1043,15 +1090,18 @@ describe('user group queries', () => {
 			groupNames: ['All Users', 'First', 'Second', 'Third'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			showAllSettings: true,
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'restricted', grants: [] },
 			rowPolicies: [
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
 			],
+			preloadedSkills: [],
 		});
 
 		expect(await listUserGroupMemberships(PROJECT_ID)).toContainEqual({
@@ -1065,6 +1115,7 @@ describe('user group queries', () => {
 			databaseAccess: { mode: 'all' },
 			docsAccess: { mode: 'all' },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'all' },
 		});
 	});
 
@@ -1122,6 +1173,29 @@ describe('user group queries', () => {
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 		});
+	});
+
+	it('preloads the All Users skills first, then the skills of the groups the user belongs to', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: defaultGroup.featureGrants,
+			preloadedSkills: ['glossary'],
+		});
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			preloadedSkills: ['revenue', 'glossary'],
+		});
+		const finance = await createUserGroup(PROJECT_ID, 'Finance');
+		await updateUserGroup(PROJECT_ID, finance.id, { featureGrants: [], preloadedSkills: ['revenue-recognition'] });
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+
+		const access = await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+
+		expect(access.preloadedSkills).toEqual(['glossary', 'revenue']);
+		const financeGroup = (await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.id === finance.id);
+		expect(financeGroup?.preloadedSkills).toEqual(['revenue-recognition']);
 	});
 
 	it('uses null defaults and fails malformed stored access closed', async () => {
@@ -1251,6 +1325,29 @@ describe('user group queries', () => {
 		await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation']);
 
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual(['automationCreation']);
+	});
+
+	it('shows all settings through All Users until it is turned off', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		expect(overview.groups[0].showAllSettings).toBe(true);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
+
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
+	});
+
+	it('follows the current group memberships when granting all settings', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: [], showAllSettings: true });
+
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
 	});
 
 	it('resolves effective names from All Users, manual, and SSO memberships within the project', async () => {

@@ -1,10 +1,13 @@
 import { ChartStyleContext, DEFAULT_CHART_STYLE } from '@nao/shared';
 import { storyThemeToCssVars } from '@nao/shared/story-theme';
-import { useEffect, useMemo } from 'react';
+import { storyBrandStyles } from '@nao/shared/story-theme-brand-styles';
+import { useEffect, useMemo, useState } from 'react';
 import type { ChartStyle } from '@nao/shared';
-import type { StoryTheme } from '@nao/shared/story-theme';
+import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 import type { CSSProperties, ReactNode } from 'react';
 
+import { PortalContainerContext } from '@/contexts/portal-container';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { cn } from '@/lib/utils';
 
 interface StoryThemeProviderProps {
@@ -15,6 +18,7 @@ interface StoryThemeProviderProps {
 
 export function StoryThemeProvider({ theme, children, className }: StoryThemeProviderProps) {
 	useFontStylesheets(theme?.text.fontStylesheets ?? []);
+	const [container, setContainer] = useState<HTMLDivElement | null>(null);
 	const style = useMemo(() => (theme ? toReactStyle(storyThemeToCssVars(theme)) : undefined), [theme]);
 	const chartStyle = useMemo<ChartStyle>(
 		() => (theme ? { barRadius: theme.charts.barRadius } : DEFAULT_CHART_STYLE),
@@ -24,16 +28,27 @@ export function StoryThemeProvider({ theme, children, className }: StoryThemePro
 	return (
 		<ChartStyleContext.Provider value={chartStyle}>
 			<div
+				ref={setContainer}
 				className={cn('h-full min-h-0', className)}
 				style={style}
 				data-story-themed={theme ? 'true' : undefined}
 				data-story-table-striped={theme?.table.stripedRows ? 'true' : undefined}
 			>
-				{children}
+				{theme && <style>{BRAND_STYLES}</style>}
+				<PortalContainerContext.Provider value={theme ? container : null}>
+					{children}
+				</PortalContainerContext.Provider>
 			</div>
 		</ChartStyleContext.Provider>
 	);
 }
+
+export function useStoryThemeForCurrentMode(pair: StoryThemePair | null | undefined): StoryTheme | null {
+	const isDarkMode = useIsDarkMode();
+	return pair ? pair[isDarkMode ? 'dark' : 'light'] : null;
+}
+
+const BRAND_STYLES = storyBrandStyles("[data-story-themed='true'] ");
 
 function toReactStyle(cssVars: Record<string, string>): CSSProperties {
 	const { 'color-scheme': colorScheme, ...customProperties } = cssVars;

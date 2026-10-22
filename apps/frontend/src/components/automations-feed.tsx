@@ -46,6 +46,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export type AutomationFeedRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -284,7 +285,7 @@ function getNotificationPresentation(
 			const isPositive = payload.vote === 'up';
 			return {
 				Icon: isPositive ? ThumbsUp : ThumbsDown,
-				title: payload.chatTitle ?? notification.title,
+				title: payload.storyTitle ?? payload.chatTitle ?? notification.title,
 				description: (
 					<p>
 						<span className='font-semibold'>{payload.submitterName}</span> left{' '}
@@ -723,7 +724,7 @@ function ExpandableText({ text }: { text: string }) {
 						: undefined
 				}
 			>
-				<Streamdown>{stripAssistantTags(text)}</Streamdown>
+				<Streamdown linkSafety={markdownLinkSafety}>{stripAssistantTags(text)}</Streamdown>
 			</div>
 			{(isClamped || isExpanded) && (
 				<button

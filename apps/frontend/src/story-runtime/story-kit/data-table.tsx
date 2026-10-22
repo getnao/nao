@@ -19,6 +19,7 @@ import { useStoryEditing } from './hooks';
 import { Block, BlockState } from './block';
 import { isNumericColumn, withNumericValues } from './columns';
 import { useBlockData } from './use-block-data';
+import { useFittingPageSize } from './use-fitting-page-size';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { TablePaginationProps } from '@nao/shared/table-display';
 import type { CSSProperties, ReactNode } from 'react';
@@ -41,12 +42,11 @@ interface ResolvedColumn {
 	numeric: boolean;
 }
 
-const DEFAULT_PAGE_SIZE = 10;
+const PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export function DataTable(props: DataTableProps) {
 	const { queryId, data, columns, maxRows, maxHeight = 420, conditionalFormats, ...block } = props;
-	const pageSize = toPageSize(maxRows);
 	const source = useBlockData({ queryId, data });
 	const editingEnabled = useStoryEditing();
 	const [fullscreen, setFullscreen] = useState(false);
@@ -56,7 +56,8 @@ export function DataTable(props: DataTableProps) {
 	return (
 		<Block kind='data-table' queryId={queryId} {...block}>
 			<BlockState data={source}>
-				{(rows, resultColumns) => {
+				{(resultRows, resultColumns) => {
+					const rows = capRows(resultRows, maxRows);
 					const visible = resolveColumns(rows, resultColumns, columns);
 					const editFormat = () =>
 						requestTableFormatEdit({
@@ -76,20 +77,14 @@ export function DataTable(props: DataTableProps) {
 									onFullscreen={() => setFullscreen(true)}
 								/>
 							</div>
-							<TableView
-								rows={rows}
-								columns={visible}
-								formats={formats}
-								pageSize={pageSize}
-								maxHeight={maxHeight}
-							/>
+							<TableView rows={rows} columns={visible} formats={formats} maxHeight={maxHeight} fitBlock />
 							{fullscreen && (
 								<FullscreenOverlay
 									title={title}
 									onClose={() => setFullscreen(false)}
 									actions={<TableActions rows={rows} columns={visible} filename={title} />}
 								>
-									<TableView rows={rows} columns={visible} formats={formats} pageSize={pageSize} />
+									<TableView rows={rows} columns={visible} formats={formats} />
 								</FullscreenOverlay>
 							)}
 						</div>
@@ -230,13 +225,15 @@ interface TableViewProps {
 	rows: Row[];
 	columns: ResolvedColumn[];
 	formats: ColumnConditionalFormats;
-	pageSize: number;
 	maxHeight?: number;
+	fitBlock?: boolean;
 }
 
-function TableView({ rows, columns, formats, pageSize, maxHeight }: TableViewProps) {
-	const style =
-		maxHeight === undefined ? undefined : ({ '--nao-table-max-height': `${maxHeight}px` } as CSSProperties);
+function TableView({ rows, columns, formats, maxHeight, fitBlock = false }: TableViewProps) {
+	const tableRef = useRef<HTMLDivElement>(null);
+	const pageSize = useFittingPageSize(tableRef, PAGE_SIZE, rows.length, fitBlock);
+	const capsHeight = maxHeight !== undefined && pageSize <= PAGE_SIZE;
+	const style = capsHeight ? ({ '--nao-table-max-height': `${maxHeight}px` } as CSSProperties) : undefined;
 	const tableRows = useMemo(
 		() =>
 			withNumericValues(
@@ -247,7 +244,7 @@ function TableView({ rows, columns, formats, pageSize, maxHeight }: TableViewPro
 	);
 	const cellBackground = useMemo(() => createCellBackgroundResolver(tableRows, formats), [formats, tableRows]);
 	return (
-		<div className='nao-table' style={style}>
+		<div className='nao-table' style={style} ref={tableRef}>
 			<TableDisplay
 				data={tableRows}
 				cellBackground={cellBackground}
@@ -262,8 +259,8 @@ function TableView({ rows, columns, formats, pageSize, maxHeight }: TableViewPro
 	);
 }
 
-function toPageSize(maxRows: number | undefined): number {
-	return maxRows !== undefined && Number.isInteger(maxRows) && maxRows > 0 ? maxRows : DEFAULT_PAGE_SIZE;
+function capRows(rows: Row[], maxRows: number | undefined): Row[] {
+	return maxRows !== undefined && Number.isInteger(maxRows) && maxRows > 0 ? rows.slice(0, maxRows) : rows;
 }
 
 function columnLabelsOf(columns: ResolvedColumn[]): Record<string, string> {

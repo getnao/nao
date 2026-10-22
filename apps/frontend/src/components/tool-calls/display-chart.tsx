@@ -279,7 +279,9 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 			>
 				{chartConfig.chart_type != 'kpi_card' ? (
 					<div className='flex items-center gap-1'>
-						<span className='text-sm font-medium text-foreground flex-1'>{chartConfig.title}</span>
+						<span className='nao-chart-title text-sm font-medium text-foreground flex-1'>
+							{chartConfig.title}
+						</span>
 						{viewMode === 'chart' &&
 							!isPieChart(chartConfig.chart_type) &&
 							chartConfig.x_axis_type === 'date' && (
@@ -742,7 +744,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const inlineHeader = useInlineHeader ? (
 		<div className='mb-6 flex w-full min-w-0 items-center gap-3'>
 			<div className={showInlineLegend ? 'min-h-11 shrink-0' : 'shrink-0'}>
-				<span className='block text-[15px] font-semibold'>{title}</span>
+				<span className='nao-chart-title block text-[15px] font-semibold'>{title}</span>
 				{titleAccessory}
 			</div>
 			{showInlineLegend && canScrollLeft && (

@@ -6,4 +6,9 @@ export const skillRoutes = router({
 		await skillService.initializeSkills(ctx.project.id);
 		return skillService.getSkills(ctx.project.id);
 	}),
+
+	listLoadErrors: projectProtectedProcedure.query(async ({ ctx }) => {
+		await skillService.initializeSkills(ctx.project.id);
+		return skillService.getSkillLoadErrors(ctx.project.id);
+	}),
 });

@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { formatRelativeDate } from '@/lib/time-ago';
@@ -63,6 +64,7 @@ export function FolderCard({
 }) {
 	const { isViewer, isAdmin } = usePermissions();
 	const { data: session } = useSession();
+	const storyTheme = useActiveStoryTheme();
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
 	const draggableId = `drag-folder-${displayMode}-${folder.id}`;
@@ -206,7 +208,7 @@ export function FolderCard({
 				onClick={selectionActive && canSelect ? handleToggleSelect : undefined}
 			>
 				<div className='absolute top-1 left-1 right-1 bottom-14 overflow-hidden rounded-md bg-sidebar dark:bg-background'>
-					<FolderThumbnail />
+					<FolderThumbnail theme={storyTheme} />
 				</div>
 
 				<Link
@@ -247,7 +249,7 @@ export function FolderCard({
 						</div>
 						{!isViewer && !selectionActive && (
 							<div
-								className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-5 group-has-data-[state=open]:translate-x-5'
+								className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-10 group-has-data-[state=open]:translate-x-10'
 								onPointerDown={(e) => e.stopPropagation()}
 							>
 								<FolderKebab

@@ -86,5 +86,14 @@ function UserGroupDetailPage() {
 }
 
 function isUserGroupEditorTab(value: unknown): value is UserGroupEditorTab {
-	return value === 'features' || value === 'context' || value === 'security' || value === 'budget' || value === 'sso';
+	return (
+		value === 'features' ||
+		value === 'context' ||
+		value === 'mcp' ||
+		value === 'skills' ||
+		value === 'security' ||
+		value === 'budget' ||
+		value === 'advanced' ||
+		value === 'sso'
+	);
 }

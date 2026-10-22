@@ -11,7 +11,7 @@ import {
 	getUnpricedModels,
 } from '../utils/budget';
 import { getProjectConfigLlm } from '../utils/llm';
-import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
+import { adminProtectedProcedure, advancedSettingsProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const budgetRoutes = {
 	getProvidersCostSupport: projectProtectedProcedure.query(async ({ ctx }) => {
@@ -22,18 +22,18 @@ export const budgetRoutes = {
 		return getUnpricedModels(ctx.project.id);
 	}),
 
-	getBudgets: projectProtectedProcedure.query(async ({ ctx }) => {
+	getBudgets: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		await budgetQueries.advanceStaleBudgetPeriods(ctx.project.id);
 		return getEffectiveProviderBudgets(ctx.project.id);
 	}),
 
-	getProviderCosts: projectProtectedProcedure.query(async ({ ctx }) => {
+	getProviderCosts: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		const budgets = await getEffectiveProviderBudgets(ctx.project.id);
 		return budgetQueries.getProviderPeriodCosts(ctx.project.id, budgets);
 	}),
 
 	getPerUserProviderCosts: adminProtectedProcedure.query(async ({ ctx }) => {
-		if (!(await hasFeature(LICENSE_FEATURES.userBudget))) {
+		if (!(await hasFeature(LICENSE_FEATURES.userBudget, { projectId: ctx.project.id }))) {
 			return {};
 		}
 		const budgets = (await getEffectiveProviderBudgets(ctx.project.id)).filter((b) => (b.perUserLimitUsd ?? 0) > 0);
@@ -51,7 +51,7 @@ export const budgetRoutes = {
 		const configManaged = new Set((configLlm?.providers ?? []).filter((p) => p.budget).map((p) => p.provider));
 		const editable = input.budgets.filter((b) => !configManaged.has(b.provider));
 
-		const userBudgetEnabled = await hasFeature(LICENSE_FEATURES.userBudget);
+		const userBudgetEnabled = await hasFeature(LICENSE_FEATURES.userBudget, { projectId: ctx.project.id });
 		const budgets = userBudgetEnabled
 			? editable
 			: editable.map(({ provider, limitUsd, period }) => ({ provider, limitUsd, period }));

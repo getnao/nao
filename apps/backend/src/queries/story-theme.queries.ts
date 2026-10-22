@@ -1,5 +1,7 @@
 import type { StoryThemePair } from '@nao/shared/story-theme';
-import { sameThemePair } from '@nao/shared/story-theme';
+import { DEFAULT_STORY_THEME_PAIR, sameThemePair } from '@nao/shared/story-theme';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
+import { parseStoredStoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import { parseStoredStoryThemePair } from '@nao/shared/story-theme-pair';
 import { asc, desc, eq, sql } from 'drizzle-orm';
 
@@ -15,6 +17,7 @@ export interface StoryThemeState {
 export interface StoryThemeVersion {
 	version: number;
 	theme: StoryThemePair;
+	generation: StoryThemeGeneration | null;
 	createdAt: Date;
 }
 
@@ -49,11 +52,23 @@ export async function listStoryThemeVersions(projectId: string): Promise<StoryTh
 		if (!theme) {
 			return [];
 		}
-		return [{ version: row.version, theme, createdAt: row.createdAt }];
+		return [
+			{
+				version: row.version,
+				theme,
+				generation: parseStoredStoryThemeGeneration(row.generation),
+				createdAt: row.createdAt,
+			},
+		];
 	});
 }
 
-export async function saveStoryTheme(projectId: string, theme: StoryThemePair): Promise<void> {
+/** A version restored from history keeps the record of what it was generated from. */
+export async function saveStoryTheme(
+	projectId: string,
+	theme: StoryThemePair,
+	generation: StoryThemeGeneration | null = null,
+): Promise<void> {
 	const latest = await getLatest(projectId);
 	const latestTheme = latest ? parseStoredStoryThemePair(latest.theme) : null;
 	if (latestTheme && sameThemePair(latestTheme, theme)) {
@@ -73,9 +88,11 @@ export async function saveStoryTheme(projectId: string, theme: StoryThemePair): 
 		.values({
 			projectId,
 			theme,
+			generation,
 			enabled: true,
 			version: sql`(${nextVersion})`,
 		})
+		.onConflictDoNothing()
 		.execute();
 }
 
@@ -85,13 +102,17 @@ export async function restoreStoryThemeVersion(projectId: string, version: numbe
 	if (!match) {
 		return null;
 	}
-	await saveStoryTheme(projectId, match.theme);
+	await saveStoryTheme(projectId, match.theme, match.generation);
 	return match.theme;
 }
 
 export async function setStoryThemeEnabled(projectId: string, enabled: boolean): Promise<void> {
 	const latest = await getLatest(projectId);
 	if (!latest) {
+		if (!enabled) {
+			return;
+		}
+		await saveStoryTheme(projectId, DEFAULT_STORY_THEME_PAIR);
 		return;
 	}
 	await db.update(s.projectStoryTheme).set({ enabled }).where(eq(s.projectStoryTheme.id, latest.id)).execute();

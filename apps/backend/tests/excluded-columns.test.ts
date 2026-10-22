@@ -36,8 +36,10 @@ describe('resolveExcludedColumnEnforcement', () => {
 		async ({ licensed, setting, expected }) => {
 			vi.mocked(hasFeature).mockResolvedValue(licensed);
 
-			await expect(resolveExcludedColumnEnforcement(createAgentSettings(setting))).resolves.toBe(expected);
-			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns);
+			await expect(resolveExcludedColumnEnforcement('project-id', createAgentSettings(setting))).resolves.toBe(
+				expected,
+			);
+			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns, { projectId: 'project-id' });
 		},
 	);
 });
@@ -59,7 +61,7 @@ describe('resolveExcludedColumnEnforcementForProject', () => {
 
 			await expect(resolveExcludedColumnEnforcementForProject('project-id')).resolves.toBe(expected);
 			expect(getAgentSettings).toHaveBeenCalledWith('project-id');
-			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns);
+			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns, { projectId: 'project-id' });
 		},
 	);
 });

@@ -86,7 +86,7 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 					id='mcp-sub-agent-mode'
 					label='Sub-agent mode'
 					description={renderInline(
-						"Exposes `ask_nao` (plus `get_nao_answer` to poll long runs) — delegates analytics tasks to nao's agent. The full reasoning trace is saved as a chat visible in the nao UI.",
+						"Exposes `ask_nao` (plus `get_nao_answer` to poll long runs) — delegates analytics tasks to nao's agent, on the model selected below (or the project default chat model) unless the caller names a `model`. The full reasoning trace is saved as a chat visible in the nao UI.",
 					)}
 					checked={settings?.subAgentModeEnabled ?? true}
 					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}

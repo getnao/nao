@@ -3,24 +3,31 @@ import {
 	DEFAULT_STORY_THEME_PAIR,
 	HEX_COLOR,
 	MAX_CHART_SERIES_COLORS,
+	MAX_STORY_LOGO_BYTES,
 	MIN_CHART_SERIES_COLORS,
+	normalizeBrandHeader,
 	oppositeStoryThemeMode,
 	sameThemePair,
+	STORY_LOGO_MEDIA_TYPES,
 	storyThemePairSchema,
 } from '@nao/shared/story-theme';
-import { deriveStoryThemeVariant } from '@nao/shared/story-theme-pair';
+import { deriveStoryThemeVariant, mapPairBrand } from '@nao/shared/story-theme-pair';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Eye, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 
 import type { InspirationOutcome } from '@/components/settings/story-theme-inspiration';
-import { LockedFieldset } from '@/components/settings/locked-fieldset';
+import type { ViewedThemeVersion } from '@/components/settings/story-theme-recorded-sources';
+import { StoryThemeTypographyEditor } from '@/components/settings/story-theme-typography-editor';
 import {
+	generationToSave,
 	STORY_THEME_MODE_OPTIONS,
 	useInvalidateStoryTheme,
 	useStoryThemeEditor,
 } from '@/components/settings/story-theme-editor-context';
+import { LockedFieldset } from '@/components/settings/locked-fieldset';
 import { StoryThemeInspiration } from '@/components/settings/story-theme-inspiration';
 import { StoryThemePreviewPanel } from '@/components/settings/story-theme-preview';
 import { Button } from '@/components/ui/button';
@@ -36,6 +43,24 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { trpc } from '@/main';
 
 const BORDER_WIDTHS = [0, 1, 2, 3, 4];
+const HEADER_LAYOUTS = {
+	none: { header: 'none', showName: false, label: 'None' },
+	logo: { header: 'logo', showName: false, label: 'Display logo' },
+	name: { header: 'name', showName: false, label: 'Display brand name' },
+	'logo-name': { header: 'logo', showName: true, label: 'Display logo and brand name' },
+	band: { header: 'band', showName: false, label: 'Display logo in a coloured band' },
+	'band-name': { header: 'band', showName: true, label: 'Display logo and brand name in a coloured band' },
+} as const satisfies Record<string, Pick<StoryTheme['brand'], 'header' | 'showName'> & { label: string }>;
+type HeaderLayout = keyof typeof HEADER_LAYOUTS;
+const HEADER_LAYOUT_OPTIONS = Object.entries(HEADER_LAYOUTS).map(([value, layout]) => ({
+	value: value as HeaderLayout,
+	label: layout.label,
+}));
+const KPI_STYLE_OPTIONS = [
+	{ value: 'plain', label: 'Plain' },
+	{ value: 'lead', label: 'Highlight the first' },
+	{ value: 'tinted', label: 'Tinted per series' },
+] as const;
 
 interface StoryThemeSettingsProps {
 	isAdmin: boolean;
@@ -68,33 +93,49 @@ export function StoryThemeSettings({ isAdmin }: StoryThemeSettingsProps) {
 
 function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	const state = useQuery(trpc.storyTheme.getState.queryOptions());
-	const { theme, setTheme, mode, setMode } = useStoryThemeEditor();
+	const {
+		theme,
+		setTheme,
+		mode,
+		setMode,
+		pendingGeneration,
+		setPendingGeneration,
+		viewingVersionIndex,
+		setViewingVersionIndex,
+	} = useStoryThemeEditor();
+	const versionsQuery = useQuery(trpc.storyTheme.listVersions.queryOptions());
+	const versions = versionsQuery.data?.versions ?? [];
+	const viewedVersion = viewedVersionAt(versions, viewingVersionIndex);
+	const viewedTheme = viewedThemeAt(versions, viewingVersionIndex);
 	const [error, setError] = useState<string | null>(null);
 	const [inspiration, setInspiration] = useState<InspirationOutcome | null>(null);
 	const openPreview = usePreviewPanel();
 	const invalidate = useInvalidateStoryTheme();
 
-	const saved = state.data?.theme ?? null;
+	const whiteLabelLogo = state.data?.whiteLabelIdentity?.logo ?? null;
+	const saved = state.data?.theme ? mapPairBrand(state.data.theme, normalizeBrandHeader) : null;
 	const enabled = state.data?.enabled ?? false;
 	const baseline = saved ?? DEFAULT_STORY_THEME_PAIR;
 	const otherMode = oppositeStoryThemeMode(mode);
 
 	useEffect(() => {
 		if (state.data && theme === null) {
-			setTheme(state.data.theme ?? DEFAULT_STORY_THEME_PAIR);
+			setTheme(baseline);
 		}
-	}, [state.data, theme, setTheme]);
+	}, [baseline, state.data, theme, setTheme]);
 
 	const onError = (mutationError: { message: string }) => setError(mutationError.message);
 	const revertPending = () => {
 		setTheme(baseline);
 		setInspiration(null);
+		setPendingGeneration(null);
 	};
 
 	const save = useMutation({
 		...trpc.storyTheme.save.mutationOptions(),
 		onSuccess: async () => {
 			setInspiration(null);
+			setPendingGeneration(null);
 			await invalidate();
 		},
 		onError,
@@ -114,7 +155,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	const isDirty = !sameThemePair(theme, baseline);
 	const isDefault = sameThemePair(theme, DEFAULT_STORY_THEME_PAIR);
 	const controlsDisabled = isReadOnly || isPending;
-	const variant = theme[mode];
+	const variant = (viewedTheme ?? theme)[mode];
 
 	const validate = (): StoryThemePair | null => {
 		const result = storyThemePairSchema.safeParse(theme);
@@ -123,7 +164,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 			return null;
 		}
 		setError(null);
-		return result.data;
+		return mapPairBrand(result.data, normalizeBrandHeader);
 	};
 
 	const update = <Group extends keyof StoryTheme>(group: Group, patch: Partial<StoryTheme[Group]>) =>
@@ -133,6 +174,16 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				: current,
 		);
 
+	/** Identity is the same in both schemes, so it is written to both variants at once. */
+	const updateIdentity = (patch: Partial<Pick<StoryTheme['brand'], 'name' | 'logo' | 'header' | 'showName'>>) =>
+		setTheme((current) => {
+			if (!current) {
+				return current;
+			}
+			const headerPatch = defaultBrandHeaderPatch(current[mode].brand, patch);
+			return mapPairBrand(current, (brand) => ({ ...brand, ...headerPatch }));
+		});
+
 	const deriveFromOther = () =>
 		setTheme((current) =>
 			current ? { ...current, [mode]: deriveStoryThemeVariant(current[otherMode], mode) } : current,
@@ -141,27 +192,27 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	return (
 		<>
 			<SettingsCard
-				title='Custom story theme'
+				title='Story theme'
 				description={
 					isReadOnly
-						? 'Colours, fonts, blocks, tables and charts applied to every custom story in this project, in a light and a dark variant that follow nao’s colour scheme. Only admins can change this.'
-						: 'Colours, fonts, blocks, tables and charts applied to every custom story in this project, in a light and a dark variant that follow nao’s colour scheme.'
+						? 'Colours, fonts, blocks, tables and charts applied to every story in this project, in a light and a dark variant that follow nao’s colour scheme. Only admins can change this.'
+						: 'Colours, fonts, blocks, tables and charts applied to every story in this project, in a light and a dark variant that follow nao’s colour scheme.'
 				}
 			>
 				<SettingsControlRow
 					id='story-theme-enabled'
-					label='Apply to custom stories'
+					label='Apply to stories'
 					description={
 						saved
 							? 'Turn off to fall back to the classic nao look without losing the saved theme.'
-							: 'Saving a theme turns this on.'
+							: 'Turn on to apply nao defaults to custom stories.'
 					}
 					control={
 						<Switch
 							id='story-theme-enabled'
 							checked={enabled}
 							onCheckedChange={(next) => setEnabled.mutate({ enabled: next })}
-							disabled={!saved || controlsDisabled}
+							disabled={controlsDisabled}
 						/>
 					}
 				/>
@@ -171,9 +222,14 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				<StoryThemeInspiration
 					disabled={controlsDisabled}
 					outcome={inspiration}
+					viewedVersion={viewedVersion}
+					onLeaveVersion={() => setViewingVersionIndex(null)}
+					logo={manualLogoOf(theme, whiteLabelLogo)}
 					onGenerated={(label, result) => {
-						setInspiration({ label });
-						setTheme(result.theme);
+						setInspiration({ label, generation: result.generation });
+						const generated = keepLogo(result.theme, manualLogoOf(theme, whiteLabelLogo));
+						setPendingGeneration({ record: result.generation, theme: generated });
+						setTheme(generated);
 						setMode(result.sourceMode);
 						openPreview.show();
 					}}
@@ -202,7 +258,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 								variant='outline'
 								className='rounded-full'
 								onClick={deriveFromOther}
-								disabled={controlsDisabled}
+								disabled={controlsDisabled || viewedTheme !== null}
 							>
 								Derive
 							</Button>
@@ -211,7 +267,44 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				)}
 			</SettingsCard>
 
-			<LockedFieldset disabled={controlsDisabled}>
+			<LockedFieldset disabled={controlsDisabled || viewedTheme !== null}>
+				<SettingsCard
+					title='Brand header'
+					description='How every story opens: the logo or brand name, bare on the page or in a coloured band.'
+					divide
+				>
+					<SelectRow
+						label='Header style'
+						description='Add the name beside a logo that is a symbol rather than a wordmark. Without a logo, the name is shown instead.'
+						value={headerLayoutOf(variant.brand)}
+						options={HEADER_LAYOUT_OPTIONS}
+						onChange={(layout) => {
+							const { header, showName } = HEADER_LAYOUTS[layout];
+							updateIdentity({ header, showName });
+						}}
+					/>
+					<TextRow
+						label='Brand name'
+						description='Shown when there is no logo, and as the logo’s alternative text.'
+						value={variant.brand.name}
+						onChange={(name) => updateIdentity({ name })}
+						placeholder='Acme'
+					/>
+					<LogoRow
+						value={variant.brand.logo}
+						onChange={(logo) => updateIdentity({ logo })}
+						onError={setError}
+					/>
+					{variant.brand.header === 'band' && (
+						<ColorRow
+							label='Band colour'
+							description='Behind the header band.'
+							value={variant.brand.headerBackground}
+							onChange={(headerBackground) => update('brand', { headerBackground })}
+						/>
+					)}
+				</SettingsCard>
+
 				<SettingsCard title='Colours' description='Page, text and accent.' divide>
 					<ColorRow
 						label='Page background'
@@ -285,6 +378,16 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					/>
 				</SettingsCard>
 
+				<SettingsCard
+					title='Typography'
+					description='Face, weight, case, italics, letter spacing and size for each kind of text.'
+				>
+					<StoryThemeTypographyEditor
+						theme={variant}
+						onChange={(typography) => update('text', { typography })}
+					/>
+				</SettingsCard>
+
 				<SettingsCard title='Text size' description='Scale of headings and body text.' divide>
 					<NumberRow
 						label='Heading size'
@@ -338,6 +441,21 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 						onChange={(radius) => update('block', { radius })}
 						min={0}
 						max={28}
+					/>
+					<NumberRow
+						label='Button radius'
+						description='Buttons and filter chips, in px. 999 draws pills.'
+						value={variant.block.controlRadius}
+						onChange={(controlRadius) => update('block', { controlRadius })}
+						min={0}
+						max={999}
+					/>
+					<SelectRow
+						label='KPI tiles'
+						description='Highlight inverts the first tile of a row; tinted washes each tile with a series colour.'
+						value={variant.block.kpiStyle}
+						options={KPI_STYLE_OPTIONS}
+						onChange={(kpiStyle) => update('block', { kpiStyle })}
 					/>
 				</SettingsCard>
 
@@ -430,6 +548,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 							onClick={() => {
 								setTheme(DEFAULT_STORY_THEME_PAIR);
 								setInspiration(null);
+								setPendingGeneration(null);
 							}}
 							disabled={isPending || isDefault}
 						>
@@ -446,7 +565,10 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 							onClick={() => {
 								const valid = validate();
 								if (valid) {
-									save.mutate({ theme: valid });
+									save.mutate({
+										theme: valid,
+										generation: generationToSave(pendingGeneration, valid),
+									});
 								}
 							}}
 							disabled={!isDirty}
@@ -458,6 +580,90 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 			</div>
 		</>
 	);
+}
+
+/** Only an earlier saved version is shown read-only; the latest one stays editable. */
+function viewedVersionAt(
+	versions: { generation: StoryThemeGeneration | null }[],
+	viewingVersionIndex: number | null,
+): ViewedThemeVersion | null {
+	if (viewingVersionIndex === null || viewingVersionIndex >= versions.length) {
+		return null;
+	}
+	return { label: `Theme ${viewingVersionIndex + 1}`, generation: versions[viewingVersionIndex].generation };
+}
+
+/** An earlier version is shown read-only: editing starts from the draft, or from the version once restored. */
+function viewedThemeAt(
+	versions: { theme: StoryThemePair }[],
+	viewingVersionIndex: number | null,
+): StoryThemePair | null {
+	if (viewingVersionIndex === null || viewingVersionIndex >= versions.length) {
+		return null;
+	}
+	return mapPairBrand(versions[viewingVersionIndex].theme, normalizeBrandHeader);
+}
+
+function headerLayoutOf(brand: StoryTheme['brand']): HeaderLayout {
+	const normalized = normalizeBrandHeader(brand);
+	if (normalized.header === 'none' || normalized.header === 'name') {
+		return normalized.header;
+	}
+	return normalized.showName ? `${normalized.header}-name` : normalized.header;
+}
+
+function defaultBrandHeaderPatch(
+	brand: StoryTheme['brand'],
+	patch: Partial<Pick<StoryTheme['brand'], 'name' | 'logo' | 'header' | 'showName'>>,
+) {
+	if ('header' in patch || 'showName' in patch) {
+		return patch;
+	}
+
+	const next = { ...brand, ...patch };
+	const hasName = next.name.trim().length > 0;
+	const hasLogo = Boolean(next.logo);
+	const hadName = brand.name.trim().length > 0;
+	const hadLogo = Boolean(brand.logo);
+
+	if (!hasName && !hasLogo) {
+		return patch;
+	}
+	if (!hasLogo && hasName && brand.header !== 'none') {
+		return { ...patch, header: 'name' as const, showName: false };
+	}
+	if (brand.showName && !hasName && hasLogo) {
+		return { ...patch, header: brand.header === 'band' ? ('band' as const) : ('logo' as const), showName: false };
+	}
+	if (brand.showName && hasName && !hasLogo) {
+		return { ...patch, header: 'name' as const, showName: false };
+	}
+	if (brand.header === 'none' && !hadName && !hadLogo) {
+		return { ...patch, header: hasLogo ? ('logo' as const) : ('name' as const), showName: hasName && hasLogo };
+	}
+	if (
+		['logo', 'name', 'band'].includes(brand.header) &&
+		!brand.showName &&
+		hasName &&
+		hasLogo &&
+		(!hadName || !hadLogo)
+	) {
+		return { ...patch, header: brand.header === 'band' ? ('band' as const) : ('logo' as const), showName: true };
+	}
+	return patch;
+}
+
+function manualLogoOf(theme: StoryThemePair, whiteLabelLogo: string | null): string | null {
+	const logo = theme.light.brand.logo ?? theme.dark.brand.logo;
+	return logo && logo !== whiteLabelLogo ? logo : null;
+}
+
+/** A logo uploaded by hand survives a generation that brought none of its own. */
+function keepLogo(generated: StoryThemePair, logo: string | null): StoryThemePair {
+	if (!logo || generated.light.brand.logo || generated.dark.brand.logo) {
+		return generated;
+	}
+	return mapPairBrand(generated, (brand) => ({ ...brand, logo }));
 }
 
 function usePreviewPanel() {
@@ -608,6 +814,128 @@ function BorderWidthRow({
 			}
 		/>
 	);
+}
+
+interface SelectOption<Value extends string> {
+	value: Value;
+	label: string;
+}
+
+function SelectRow<const Value extends string>({
+	label,
+	description,
+	value,
+	options,
+	onChange,
+}: RowProps<Value> & { options: readonly SelectOption<Value>[] }) {
+	const selected = options.some((option) => option.value === value) ? value : undefined;
+
+	return (
+		<SettingsControlRow
+			label={label}
+			description={description}
+			control={
+				<Select
+					value={selected}
+					onValueChange={(next) => {
+						const option = options.find((candidate) => candidate.value === next);
+						if (option) {
+							onChange(option.value);
+						}
+					}}
+				>
+					<SelectTrigger className='w-44'>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{options.map((option) => (
+							<SelectItem key={option.value} value={option.value}>
+								{option.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			}
+		/>
+	);
+}
+
+function LogoRow({
+	value,
+	onChange,
+	onError,
+}: {
+	value: string | null;
+	onChange: (logo: string | null) => void;
+	onError: (message: string | null) => void;
+}) {
+	const pick = (file: File | undefined) => {
+		if (!file) {
+			return;
+		}
+		if (!(STORY_LOGO_MEDIA_TYPES as readonly string[]).includes(file.type)) {
+			onError('The logo must be a PNG, JPEG, WebP or SVG image.');
+			return;
+		}
+		if (file.size > MAX_STORY_LOGO_BYTES) {
+			onError(`The logo is too large. Max ${MAX_STORY_LOGO_BYTES / 1024}KB.`);
+			return;
+		}
+		readAsDataUri(file).then(
+			(dataUri) => {
+				onError(null);
+				onChange(dataUri);
+			},
+			() => onError('The logo could not be read.'),
+		);
+	};
+
+	return (
+		<SettingsControlRow
+			label='Logo'
+			description='PNG, JPEG, WebP or SVG, up to 512KB. Shown in every story header, kept when a theme is generated, and read by the generation as a brand source.'
+			control={
+				<div className='flex items-center gap-2'>
+					{value && (
+						<div className='relative flex h-9 max-w-40 items-center rounded-md border bg-muted/30 px-2'>
+							<img src={value} alt='Story logo' className='h-6 max-w-36 object-contain' />
+							<button
+								type='button'
+								aria-label='Remove logo'
+								onClick={() => onChange(null)}
+								className='absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full border bg-background text-muted-foreground hover:text-foreground'
+							>
+								<X className='size-2.5' />
+							</button>
+						</div>
+					)}
+					<Button variant='outline' className='rounded-full' asChild>
+						<label className='cursor-pointer'>
+							{value ? 'Replace' : 'Upload'}
+							<input
+								type='file'
+								accept={STORY_LOGO_MEDIA_TYPES.join(',')}
+								className='sr-only'
+								onChange={(event) => {
+									pick(event.target.files?.[0]);
+									event.target.value = '';
+								}}
+							/>
+						</label>
+					</Button>
+				</div>
+			}
+		/>
+	);
+}
+
+function readAsDataUri(file: File): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result));
+		reader.onerror = () => reject(reader.error);
+		reader.readAsDataURL(file);
+	});
 }
 
 function TextRow({ label, description, value, onChange, placeholder }: RowProps<string> & { placeholder?: string }) {

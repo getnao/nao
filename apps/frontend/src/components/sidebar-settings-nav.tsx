@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { useSettingsSearch } from '@/hooks/use-settings-search';
 import { cn, hideIf } from '@/lib/utils';
 
-interface NavContext {
+export interface NavContext {
+	canSeeAdvancedSettings: boolean;
 	isAdmin: boolean;
 	isCloudBillingEnabled: boolean;
 	isContextAdmin: boolean;
@@ -29,6 +30,7 @@ interface NavItem {
 
 interface NavGroup {
 	label: string;
+	isAdvanced?: boolean;
 	items: NavItem[];
 }
 
@@ -46,6 +48,7 @@ const settingsNavGroups: NavGroup[] = [
 	},
 	{
 		label: 'Project',
+		isAdvanced: true,
 		items: [
 			{
 				label: 'Project Settings',
@@ -86,6 +89,7 @@ const settingsNavGroups: NavGroup[] = [
 	},
 	{
 		label: 'Context',
+		isAdvanced: true,
 		items: [
 			{
 				label: 'Git',
@@ -106,6 +110,7 @@ const settingsNavGroups: NavGroup[] = [
 	},
 	{
 		label: 'Observability',
+		isAdvanced: true,
 		items: [
 			{
 				label: 'Chat with nao data',
@@ -134,6 +139,7 @@ const settingsNavGroups: NavGroup[] = [
 	},
 	{
 		label: 'Organization',
+		isAdvanced: true,
 		items: [
 			{
 				label: 'Organization Settings',
@@ -172,6 +178,7 @@ const navRowClassName =
 
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
+	canSeeAdvancedSettings: boolean;
 	isAdmin: boolean;
 	isContextAdmin: boolean;
 	isViewer: boolean;
@@ -183,6 +190,7 @@ interface SidebarSettingsNavProps {
 
 export function SidebarSettingsNav({
 	isCollapsed,
+	canSeeAdvancedSettings,
 	isAdmin,
 	isContextAdmin,
 	isViewer,
@@ -197,6 +205,7 @@ export function SidebarSettingsNav({
 	const [isSearchFocused, setIsSearchFocused] = useState(false);
 
 	const navContext: NavContext = {
+		canSeeAdvancedSettings,
 		isAdmin,
 		isCloudBillingEnabled,
 		isContextAdmin,
@@ -204,14 +213,7 @@ export function SidebarSettingsNav({
 		isOrgAdmin,
 		isViewer,
 	};
-	const navGroups = settingsNavGroups
-		.map((group) => ({
-			...group,
-			items: group.items.filter(
-				(item) => (!item.requiresProject || !isTrial) && (item.visible?.(navContext) ?? true),
-			),
-		}))
-		.filter((group) => group.items.length > 0);
+	const navGroups = getVisibleSettingsNavGroups(navContext, isTrial);
 
 	useEffect(() => {
 		const handleSlashKey = (e: KeyboardEvent) => {
@@ -400,4 +402,16 @@ export function SidebarSettingsNav({
 			</div>
 		</div>
 	);
+}
+
+export function getVisibleSettingsNavGroups(context: NavContext, isTrial = false): NavGroup[] {
+	return settingsNavGroups
+		.filter((group) => !group.isAdvanced || context.canSeeAdvancedSettings)
+		.map((group) => ({
+			...group,
+			items: group.items.filter(
+				(item) => (!item.requiresProject || !isTrial) && (item.visible?.(context) ?? true),
+			),
+		}))
+		.filter((group) => group.items.length > 0);
 }

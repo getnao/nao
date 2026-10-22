@@ -43,6 +43,7 @@ import {
 	OPENAI_COMPATIBLE_BASE_URLS,
 	PROVIDER_META,
 } from './provider-meta';
+import { withWellFormedPrompt } from './well-formed-prompt';
 
 export {
 	getDefaultModelId,
@@ -234,9 +235,10 @@ function createCompatibleModel(provider: LlmProvider, settings: ProviderSettings
 
 /** Named instances all speak the OpenAI-compatible API, so they skip their kind's own factory. */
 function createModel(provider: LlmProvider, settings: ProviderSettings, modelId: string): LanguageModelV3 {
-	return providerName(provider)
+	const model = providerName(provider)
 		? createCompatibleModel(provider, settings, modelId)
 		: LLM_PROVIDERS[providerKind(provider)].create(settings, modelId);
+	return withWellFormedPrompt(model);
 }
 
 export type ModelCallSettings = {

@@ -287,6 +287,44 @@ describe('story actions', () => {
 		]);
 	});
 
+	it('groups consecutive superseded story actions without queries into one foldable', () => {
+		const created = createStoryPart('call-1');
+		const refined = createStoryPart('call-2', {
+			input: { action: 'replace', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 2 },
+		});
+		const updated = createStoryPart('call-3', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 3 },
+		});
+		const latest = createStoryPart('call-4', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 4 },
+		});
+
+		expect(groupToolCalls([created, refined, updated, latest])).toEqual([
+			{
+				type: 'story-query-group',
+				parts: [
+					{ type: 'story-status', part: created },
+					{ type: 'story-status', part: refined },
+					{ type: 'story-status', part: updated },
+				],
+			},
+			latest,
+		]);
+	});
+
+	it('does not group a single superseded story action without queries', () => {
+		const created = createStoryPart('call-1');
+		const updated = createStoryPart('call-2', {
+			input: { action: 'update', id: 'revenue' },
+			output: { success: true, id: 'revenue', version: 2 },
+		});
+
+		expect(groupToolCalls([created, updated])).toEqual([{ type: 'story-status', part: created }, updated]);
+	});
+
 	it('compares status lines by their underlying tool call', () => {
 		const created = createStoryPart('call-1');
 		const asStatus = { type: 'story-status', part: created } as GroupedMessagePart;

@@ -2,6 +2,20 @@ import { redirect } from '@tanstack/react-router';
 
 import { queryClient, trpc } from '@/main';
 
+export async function requireAdvancedSettingsAccess(pathname: string) {
+	if (pathname.startsWith('/settings/account')) {
+		return;
+	}
+	const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
+	if (!project) {
+		return;
+	}
+	const access = await queryClient.ensureQueryData(trpc.userGroup.effectiveAccess.queryOptions());
+	if (!access.canSeeAdvancedSettings) {
+		throw redirect({ to: '/settings/account' });
+	}
+}
+
 export async function requireAdmin() {
 	const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
 	if (!project || project.userRole !== 'admin') {

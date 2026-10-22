@@ -489,11 +489,13 @@ function ChatInputBase({
 							<ContextWindowRing />
 
 							{isTranscribeReady && isRecording && <RecordingTimer />}
-							<MicButton
-								state={isTranscribeReady ? transcribeState : 'idle'}
-								onClick={isTranscribeReady ? toggleRecording : showMicWarning}
-								disabled={isRunning && !allowQueueing}
-							/>
+							{hasTranscribeProvider && (
+								<MicButton
+									state={isTranscribeReady ? transcribeState : 'idle'}
+									onClick={isTranscribeReady ? toggleRecording : showMicWarning}
+									disabled={isRunning && !allowQueueing}
+								/>
+							)}
 							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}
 
 							{allowQueueing && isRunning ? (
@@ -816,14 +818,14 @@ function MicWarningBanner({ onDismiss }: { onDismiss: () => void }) {
 				&times;
 			</button>
 			<p className='text-sm'>
-				Voice input is not configured.{' '}
+				Voice input is disabled.{' '}
 				<Link
 					to='/settings/project/models'
 					className='font-medium text-primary underline underline-offset-2 hover:text-primary/80'
 				>
 					Go to Settings &rarr; Models
 				</Link>{' '}
-				to enable transcription and set up a provider. Ask your admin.
+				to enable transcription. Ask your admin.
 			</p>
 		</div>
 	);

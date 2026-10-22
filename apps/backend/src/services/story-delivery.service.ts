@@ -1,4 +1,4 @@
-import { NO_CACHE_SCHEDULE } from '@nao/shared';
+import { NO_CACHE_SCHEDULE, type RecipientMode } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 
 import { STORY_DELIVERY_JOB_NAME } from '../handlers/story-delivery.handler';
@@ -11,13 +11,14 @@ import { nextCronTick } from './scheduler.service';
 export function assertValidDeliverySchedule(
 	enabled: boolean,
 	cron: string | null,
-	recipientMode: 'all' | 'specific',
+	recipientMode: RecipientMode,
 	recipientUserIds: string[],
+	recipientGroupIds: string[],
 ): void {
 	if (!enabled) {
 		return;
 	}
-	if (recipientMode === 'specific' && recipientUserIds.length === 0) {
+	if (recipientMode === 'specific' && recipientUserIds.length === 0 && recipientGroupIds.length === 0) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Add at least one recipient to schedule delivery.' });
 	}
 	if (cron !== null && !nextCronTick(cron, new Date())) {

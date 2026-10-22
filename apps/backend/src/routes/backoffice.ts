@@ -83,6 +83,7 @@ export const backofficeRoutes = async (app: App) => {
 				.object({
 					name: z.string().trim().min(1).max(100).optional(),
 					bypassBilling: z.boolean().optional(),
+					license: z.string().trim().min(1).nullable().optional(),
 				})
 				.strict(),
 			request.body,

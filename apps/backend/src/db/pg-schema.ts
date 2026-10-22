@@ -17,6 +17,7 @@ import {
 import type { DisplaySettings } from '@nao/shared/date';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
@@ -32,6 +33,7 @@ import {
 	FOLDER_VISIBILITY,
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
+	RECIPIENT_MODES,
 	SHARE_VISIBILITY,
 	STORY_ACTIONS,
 	STORY_FORMATS,
@@ -195,6 +197,7 @@ export const organization = pgTable('organization', {
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
 	bypassBilling: boolean('bypass_billing').default(false).notNull(),
+	license: text('license'),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
@@ -1165,6 +1168,8 @@ export const storyBundle = pgTable('story_bundle', {
 	bundle: text('bundle'),
 	pageShell: text('page_shell'),
 	bundleError: text('bundle_error'),
+	thumbnail: text('thumbnail'),
+	thumbnailTheme: text('thumbnail_theme'),
 	builtAt: timestamp('built_at').defaultNow().notNull(),
 });
 
@@ -1411,10 +1416,11 @@ export const storyDelivery = pgTable('story_delivery', {
 	cron: text('cron'),
 	scheduleDescription: text('schedule_description'),
 	channels: jsonb('channels').$type<NotificationChannel[]>().notNull(),
-	recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+	recipientMode: text('recipient_mode', { enum: [...RECIPIENT_MODES] })
 		.notNull()
 		.default('specific'),
 	recipientUserIds: jsonb('recipient_user_ids').$type<string[]>().notNull(),
+	recipientGroupIds: jsonb('recipient_group_ids').$type<string[]>().notNull().default([]),
 	scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 	createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -1733,6 +1739,7 @@ export const projectStoryTheme = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		version: integer('version').notNull(),
 		theme: jsonb('theme').$type<StoryThemePair>(),
+		generation: jsonb('generation').$type<StoryThemeGeneration>(),
 		enabled: boolean('enabled').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
@@ -1832,6 +1839,26 @@ export const storyFolderItem = pgTable(
 			.references(() => storyFolder.id, { onDelete: 'cascade' }),
 	},
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
+);
+
+export const storyFeedback = pgTable(
+	'story_feedback',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		vote: text('vote', { enum: ['up', 'down'] }).notNull(),
+		explanation: text('explanation'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.userId] }), index('story_feedback_userId_idx').on(t.userId)],
 );
 
 export const analyticsEvent = pgTable(

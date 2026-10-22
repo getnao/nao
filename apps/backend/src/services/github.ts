@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { sliceHead } from '../utils/utils';
 import {
 	configDir,
 	isContextConfigFile,
@@ -933,7 +934,8 @@ function truncate(text: string, max: number): string {
 	if (text.length <= max) {
 		return text;
 	}
-	return `${text.slice(0, max)}\n... [truncated ${text.length - max} characters]`;
+	const kept = sliceHead(text, max);
+	return `${kept}\n... [truncated ${text.length - kept.length} characters]`;
 }
 
 function encodePath(path: string): string {

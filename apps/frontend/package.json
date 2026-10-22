@@ -63,7 +63,7 @@
 		"katex": "^0.16.45",
 		"leaflet": "^1.9.4",
 		"lucide-react": "^0.562.0",
-		"maplibre-gl": "^5.24.0",
+		"maplibre-gl": "^6.14.0",
 		"pdfjs-dist": "^5.7.284",
 		"posthog-js": "^1.336.4",
 		"prompt-mentions": "^0.0.37",
