@@ -19,6 +19,7 @@ import { useStoryEditing } from './hooks';
 import { Block, BlockState } from './block';
 import { isNumericColumn, withNumericValues } from './columns';
 import { useBlockData } from './use-block-data';
+import { useFittingPageSize } from './use-fitting-page-size';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { TablePaginationProps } from '@nao/shared/table-display';
 import type { CSSProperties, ReactNode } from 'react';
@@ -76,7 +77,7 @@ export function DataTable(props: DataTableProps) {
 									onFullscreen={() => setFullscreen(true)}
 								/>
 							</div>
-							<TableView rows={rows} columns={visible} formats={formats} maxHeight={maxHeight} />
+							<TableView rows={rows} columns={visible} formats={formats} maxHeight={maxHeight} fitBlock />
 							{fullscreen && (
 								<FullscreenOverlay
 									title={title}
@@ -225,11 +226,14 @@ interface TableViewProps {
 	columns: ResolvedColumn[];
 	formats: ColumnConditionalFormats;
 	maxHeight?: number;
+	fitBlock?: boolean;
 }
 
-function TableView({ rows, columns, formats, maxHeight }: TableViewProps) {
-	const style =
-		maxHeight === undefined ? undefined : ({ '--nao-table-max-height': `${maxHeight}px` } as CSSProperties);
+function TableView({ rows, columns, formats, maxHeight, fitBlock = false }: TableViewProps) {
+	const tableRef = useRef<HTMLDivElement>(null);
+	const pageSize = useFittingPageSize(tableRef, PAGE_SIZE, rows.length, fitBlock);
+	const capsHeight = maxHeight !== undefined && pageSize <= PAGE_SIZE;
+	const style = capsHeight ? ({ '--nao-table-max-height': `${maxHeight}px` } as CSSProperties) : undefined;
 	const tableRows = useMemo(
 		() =>
 			withNumericValues(
@@ -240,13 +244,13 @@ function TableView({ rows, columns, formats, maxHeight }: TableViewProps) {
 	);
 	const cellBackground = useMemo(() => createCellBackgroundResolver(tableRows, formats), [formats, tableRows]);
 	return (
-		<div className='nao-table' style={style}>
+		<div className='nao-table' style={style} ref={tableRef}>
 			<TableDisplay
 				data={tableRows}
 				cellBackground={cellBackground}
 				columns={columns.map((column) => column.key)}
 				columnLabels={columnLabelsOf(columns)}
-				maxRowsBeforePagination={PAGE_SIZE}
+				maxRowsBeforePagination={pageSize}
 				compactFooter
 				humanizeColumnLabels
 				renderPagination={(pagination) => <TableFooter {...pagination} />}
@@ -275,6 +279,9 @@ function TableFooter({
 }: TablePaginationProps) {
 	const canPrevious = pageIndex > 0;
 	const canNext = pageIndex < pageCount - 1;
+	const pageSizeOptions = PAGE_SIZE_OPTIONS.includes(pageSize)
+		? PAGE_SIZE_OPTIONS
+		: [...PAGE_SIZE_OPTIONS, pageSize].sort((a, b) => a - b);
 
 	return (
 		<div className='nao-table__footer'>
@@ -287,7 +294,7 @@ function TableFooter({
 						value={pageSize}
 						onChange={(event) => onPageSizeChange(Number(event.target.value))}
 					>
-						{PAGE_SIZE_OPTIONS.map((size) => (
+						{pageSizeOptions.map((size) => (
 							<option key={size} value={size}>
 								{size}
 							</option>

@@ -269,6 +269,7 @@ function useLocalTablePaging(data: TableRow[], columns: string[], maxRowsBeforeP
 	const [sort, setSort] = useState<TableSort | null>(null);
 
 	useEffect(() => setPageIndex(0), [data]);
+	useEffect(() => setPageSize(maxRowsBeforePagination), [maxRowsBeforePagination]);
 
 	const activeSort = sort && columns.includes(sort.column) ? sort : null;
 	const sortedData = useMemo(
