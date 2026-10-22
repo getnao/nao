@@ -2,11 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	claimMemberBudgetNotification: vi.fn(),
+	getProjectProviderBudgets: vi.fn(),
 	notify: vi.fn(),
 	resolveMemberBudgetUsage: vi.fn(),
 }));
 
-vi.mock('../src/queries/budget.queries', () => ({ getProjectProviderBudgets: vi.fn(async () => []) }));
+vi.mock('../src/queries/budget.queries', () => ({
+	advanceStaleBudgetPeriods: vi.fn(),
+	claimBudgetNotification: vi.fn(async () => false),
+	getProjectProviderBudgets: mocks.getProjectProviderBudgets,
+	getProviderBudgetSpend: vi.fn(async () => ({ projectSpend: 520, userSpend: 520 })),
+}));
 vi.mock('../src/queries/member-budget.queries', () => ({
 	claimMemberBudgetNotification: mocks.claimMemberBudgetNotification,
 	releaseMemberBudgetNotification: vi.fn(),
@@ -14,7 +20,7 @@ vi.mock('../src/queries/member-budget.queries', () => ({
 vi.mock('../src/queries/project.queries', () => ({}));
 vi.mock('../src/services/email', () => ({ emailService: { isEnabled: () => false } }));
 vi.mock('../src/services/license.service', () => ({
-	hasFeature: vi.fn(),
+	hasFeature: vi.fn(async () => true),
 	LICENSE_FEATURES: { userBudget: 'user-budget' },
 }));
 vi.mock('../src/services/notification.service', () => ({ notify: mocks.notify }));
@@ -30,6 +36,7 @@ import { assertBudgetNotExceeded } from '../src/utils/budget';
 describe('member budget enforcement', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.getProjectProviderBudgets.mockResolvedValue([]);
 		mocks.resolveMemberBudgetUsage.mockResolvedValue({
 			limitUsd: 100,
 			source: 'group',
@@ -56,6 +63,22 @@ describe('member budget enforcement', () => {
 
 		await expect(assertBudgetNotExceeded('project-id', 'openai', 'user-id')).rejects.toThrow();
 		expect(mocks.notify).not.toHaveBeenCalled();
+	});
+
+	it.each(['personal', 'group'] as const)('lets a %s budget replace the provider per-user limit', async (source) => {
+		mocks.getProjectProviderBudgets.mockResolvedValue([
+			{ provider: 'openai', limitUsd: 0, perUserLimitUsd: 500, period: 'month' },
+		]);
+		mocks.resolveMemberBudgetUsage.mockResolvedValue({
+			limitUsd: 700,
+			source,
+			spendUsd: 520,
+			ratio: 520 / 700,
+			period: 'month',
+			resetsAt: new Date('2026-11-01T00:00:00.000Z'),
+		});
+
+		await expect(assertBudgetNotExceeded('project-id', 'openai', 'user-id')).resolves.toBeUndefined();
 	});
 
 	it('applies the provider per-user limit when the member only has the default budget', async () => {
