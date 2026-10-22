@@ -13,7 +13,7 @@ import {
 	Star,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { MouseEvent, ReactNode } from 'react';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 
 import type { StoryItem } from '@/lib/stories-page';
@@ -39,6 +39,8 @@ import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
 import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hasAnyStoryReference, setStoryDragData } from '@/lib/story-reference';
+import { selectedStoryReferencesStore } from '@/stores/story-references';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -146,6 +148,14 @@ export function StoryCard({
 		}
 	}
 
+	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		const selection = selectedStoryReferencesStore.getSnapshot();
+		setStoryDragData(
+			e,
+			selected && hasAnyStoryReference(selection) ? selection : { storyIds: [item.storyId], folderIds: [] },
+		);
+	}
+
 	function handleLinkClick(e: MouseEvent<HTMLAnchorElement>) {
 		if (canSelect && onToggleSelect && (e.metaKey || e.ctrlKey || selectionActive)) {
 			e.preventDefault();
@@ -173,6 +183,8 @@ export function StoryCard({
 					{...listeners}
 					className={cn(GRID_CARD_CLASS, isDragging && 'opacity-0', selected && 'ring-2 ring-primary')}
 					onClick={handleCardClick}
+					draggable={selectionActive}
+					onDragStart={handleNativeDragStart}
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
 						{item.format === 'custom' ? (
@@ -269,6 +281,7 @@ export function StoryCard({
 				{...listeners}
 				className={cn(LINES_CARD_CLASS, isDragging && 'opacity-0', selected && 'bg-accent')}
 				onClick={handleCardClick}
+				onDragStart={handleNativeDragStart}
 			>
 				<div className='flex items-center flex-1 min-w-0'>
 					{canSelect && (

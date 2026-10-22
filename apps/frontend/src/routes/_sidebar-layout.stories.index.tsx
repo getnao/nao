@@ -20,6 +20,8 @@ import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from 
 
 import type { FolderItem, SortState, StoriesFilters, StoryItem } from '@/lib/stories-page';
 import type { BreadcrumbNode } from '@/components/stories-folder-breadcrumb';
+import type { PointerPosition } from '@/hooks/use-drag-pointer';
+import type { StoryReferences } from '@/lib/story-reference';
 import { FolderBreadcrumb } from '@/components/stories-folder-breadcrumb';
 import { StoriesSelectionBar } from '@/components/stories-selection-bar';
 import { FolderCreateDialog } from '@/components/stories-folder-create-dialog';
@@ -33,7 +35,10 @@ import { PromotedSections } from '@/components/stories-pinned-favorites';
 import { StoriesToolbar } from '@/components/stories-toolbar';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
+import { useDragPointer } from '@/hooks/use-drag-pointer';
+import { useStartChatWithStories } from '@/hooks/use-start-chat-with-stories';
 import { useSession } from '@/lib/auth-client';
+import { isOverNewChatDropTarget, NO_STORY_REFERENCES } from '@/lib/story-reference';
 import {
 	buildCurrentLevelEntries,
 	buildStoryItems,
@@ -48,6 +53,7 @@ import {
 import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { selectedStoryReferencesStore, storyDragOverNewChatStore } from '@/stores/story-references';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/')({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -81,6 +87,22 @@ const pointerWithinFallbackToRect: CollisionDetection = (args) => {
 	return rectIntersection(args);
 };
 
+/** The sidebar is outside of the drag context, so the "New chat" target is found under the pointer. */
+function isDragOverNewChat(pointer: PointerPosition | null): boolean {
+	return !!pointer && isOverNewChatDropTarget(pointer.x, pointer.y);
+}
+
+/** A dragged folder references its stories, like its @-mention. */
+function toDraggedReferences(activeId: string): StoryReferences {
+	if (activeId.startsWith('drag-story-')) {
+		return { storyIds: [parseDragStoryId(activeId)], folderIds: [] };
+	}
+	if (activeId.startsWith('drag-folder-')) {
+		return { storyIds: [], folderIds: [parseDragFolderId(activeId)] };
+	}
+	return NO_STORY_REFERENCES;
+}
+
 type DialogState =
 	| { kind: 'create' }
 	| { kind: 'modify'; folder: FolderItem }
@@ -93,6 +115,7 @@ function StoriesPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const startChatWithStories = useStartChatWithStories();
 
 	const { folderId: currentFolderId } = Route.useSearch();
 
@@ -105,6 +128,7 @@ function StoriesPage() {
 	const [showArchived, setShowArchived] = useState(false);
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [activeId, setActiveId] = useState<string | null>(null);
+	const dragPointerRef = useDragPointer(activeId !== null);
 
 	const [selectedStoryIds, setSelectedStoryIds] = useState<Set<string>>(new Set());
 	const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
@@ -233,6 +257,16 @@ function StoriesPage() {
 	useEffect(() => {
 		clearSelection();
 	}, [currentFolderId, activeProjectId, filters, searchQuery]);
+
+	const selectedStoryReferences = useMemo(
+		(): StoryReferences => ({ storyIds: [...selectedStoryIds], folderIds: [...selectedFolderIds] }),
+		[selectedStoryIds, selectedFolderIds],
+	);
+
+	useEffect(() => {
+		selectedStoryReferencesStore.set(selectedStoryReferences);
+		return () => selectedStoryReferencesStore.set(NO_STORY_REFERENCES);
+	}, [selectedStoryReferences]);
 
 	const {
 		pinned,
@@ -527,14 +561,29 @@ function StoriesPage() {
 		setActiveId(String(event.active.id));
 	}
 
+	function handleDragMove() {
+		storyDragOverNewChatStore.set(isDragOverNewChat(dragPointerRef.current));
+	}
+
+	function handleDragCancel() {
+		setActiveId(null);
+		storyDragOverNewChatStore.set(false);
+	}
+
 	function handleDragEnd(event: DragEndEvent) {
 		setActiveId(null);
+		storyDragOverNewChatStore.set(false);
 		const { active, over } = event;
+		const activeStr = String(active.id);
+
+		if (isDragOverNewChat(dragPointerRef.current)) {
+			startChatWithStories(toDraggedReferences(activeStr));
+			return;
+		}
 		if (!over) {
 			return;
 		}
 
-		const activeStr = String(active.id);
 		const overStr = String(over.id);
 
 		const isStory = activeStr.startsWith('drag-story-');
@@ -583,8 +632,9 @@ function StoriesPage() {
 				collisionDetection={pointerWithinFallbackToRect}
 				modifiers={[snapCenterToCursor]}
 				onDragStart={handleDragStart}
+				onDragMove={handleDragMove}
 				onDragEnd={handleDragEnd}
-				onDragCancel={() => setActiveId(null)}
+				onDragCancel={handleDragCancel}
 			>
 				<div className='w-full px-4 pt-4 pb-6 md:px-8 md:pt-2 md:pb-8'>
 					<div className='flex items-center justify-between min-h-9 mb-3 gap-3 flex-wrap'>
@@ -678,6 +728,7 @@ function StoriesPage() {
 				isPending={isBulkPending}
 				onArchive={handleBulkArchive}
 				onUnarchive={handleBulkUnarchive}
+				onStartChat={() => startChatWithStories(selectedStoryReferences)}
 				onCancel={clearSelection}
 			/>
 
