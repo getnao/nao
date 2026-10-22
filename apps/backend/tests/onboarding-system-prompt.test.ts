@@ -95,6 +95,14 @@ describe('onboarding system prompt', () => {
 		);
 	});
 
+	it('waits for the interface to detect deployment completion', () => {
+		const prompt = renderOnboardingSystemPrompt();
+
+		expect(prompt).toContain('The onboarding interface detects successful deployment automatically');
+		expect(prompt).toContain('Do not call onboarding_progress with step 4 or ask the user to confirm deployment');
+		expect(prompt).not.toContain('Did the deployment complete successfully?');
+	});
+
 	it('aligns GitHub progress with the events reported by the import card', () => {
 		const prompt = renderOnboardingSystemPrompt();
 

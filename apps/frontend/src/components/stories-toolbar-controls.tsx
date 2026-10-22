@@ -25,20 +25,22 @@ export function StoriesToolbarControls({
 	selectionActive: boolean;
 	onToggleSelection: () => void;
 }) {
-	const { isViewer } = usePermissions();
+	const { role, isViewer } = usePermissions();
 	return (
 		<div className='flex items-center gap-3'>
 			{!showArchived && <ScopeToggle value={scope} onChange={onScopeChange} />}
-			{!isViewer && <SelectionToggle active={selectionActive} onToggle={onToggleSelection} />}
-			<Button
-				variant='ghost'
-				size='sm'
-				onClick={() => onShowArchivedChange(!showArchived)}
-				className='text-foreground gap-1.5 rounded-full border'
-			>
-				<ArchiveIcon className='size-4' />
-				<span className='text-xs'>{showArchived ? 'Back to stories' : 'See archives'}</span>
-			</Button>
+			{role && !isViewer && <SelectionToggle active={selectionActive} onToggle={onToggleSelection} />}
+			{role && (
+				<Button
+					variant='ghost'
+					size='sm'
+					onClick={() => onShowArchivedChange(!showArchived)}
+					className='text-foreground gap-1.5 rounded-full border'
+				>
+					<ArchiveIcon className='size-4' />
+					<span className='text-xs'>{showArchived ? 'Back to stories' : 'See archives'}</span>
+				</Button>
+			)}
 			<DisplayModeToggle value={displayMode} onChange={onDisplayModeChange} />
 		</div>
 	);

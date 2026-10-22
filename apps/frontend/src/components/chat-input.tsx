@@ -145,7 +145,6 @@ function ChatInputBase({
 	const attachmentUpload = useAttachmentUpload({
 		documentsEnabled: uploadLimits.data?.enabled,
 		maxDocumentSizeMb: uploadLimits.data?.maxFileSizeMb ?? 0,
-		disabled: isTrial,
 	});
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
 	const effectivePlaceholder =
@@ -418,7 +417,7 @@ function ChatInputBase({
 					isHidden={inputText.trim().length > 0}
 				/>
 			)}
-			{isAdminMode ? <ChatInputAdminBadge /> : variant === 'onboarding' ? <ChatInputOnboardingBadge /> : null}
+			{isAdminMode ? <ChatInputAdminBadge /> : null}
 
 			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>
 				<InputGroup
@@ -427,10 +426,9 @@ function ChatInputBase({
 						'bg-background dark:bg-background shadow-xs border-none max-md:rounded-4xl',
 						isDragging && 'ring-2 ring-primary/50 border-primary',
 						isAdminMode && 'ring-4 ring-amber-500/60',
-						!isAdminMode && variant === 'onboarding' && 'ring-4 ring-foreground/10',
 					)}
 				>
-					{!isAdminMode && variant === 'default' && <ChatInputAnimatedBorder />}
+					{!isAdminMode && (variant === 'default' || variant === 'onboarding') && <ChatInputAnimatedBorder />}
 					<ChatInputAttachmentPreview
 						attachments={attachmentUpload.attachments}
 						rejection={attachmentUpload.rejection}
@@ -449,7 +447,6 @@ function ChatInputBase({
 						type='file'
 						accept={ATTACHMENT_ACCEPT}
 						multiple
-						disabled={isTrial}
 						className='hidden'
 						onChange={attachmentUpload.handleFileInputChange}
 					/>
@@ -649,16 +646,6 @@ function ChatInputAdminBadge() {
 	);
 }
 
-function ChatInputOnboardingBadge() {
-	return (
-		<div className='flex justify-end pr-4'>
-			<span className='mb-1 flex w-fit items-center rounded-t-lg bg-foreground/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground'>
-				Onboarding
-			</span>
-		</div>
-	);
-}
-
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
 	const prevProviderRef = useRef(selectedModel?.provider);
@@ -703,7 +690,6 @@ function ChatInputPlusMenu({
 	canChatWithNaoData,
 	isAdminMode,
 	adminModeLocked,
-	isTrial,
 	onSelectAdminMode,
 	onAddAttachment,
 	onAddStory,
@@ -746,12 +732,10 @@ function ChatInputPlusMenu({
 					requestAnimationFrame(onFocusPrompt);
 				}}
 			>
-				{!isTrial && (
-					<DropdownMenuItem onSelect={onAddAttachment}>
-						<Paperclip className='size-4' />
-						<span>Attach file</span>
-					</DropdownMenuItem>
-				)}
+				<DropdownMenuItem onSelect={onAddAttachment}>
+					<Paperclip className='size-4' />
+					<span>Attach file</span>
+				</DropdownMenuItem>
 				{hasDatabases && (
 					<DropdownMenuItem onSelect={onOpenDatabase}>
 						<Database className='size-4' />

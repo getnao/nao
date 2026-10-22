@@ -24,6 +24,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
@@ -32,7 +33,6 @@ import { useChatQuery } from '@/queries/use-chat-query';
 import { useHeight } from '@/hooks/use-height';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ShareChatDialog } from '@/components/share-dialog.chat';
-import { useIsDarkMode } from '@/contexts/theme.provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
@@ -362,38 +362,6 @@ function ChatPage() {
 				chatId={chatId}
 			/>
 		</SidePanelProvider>
-	);
-}
-
-function TrialOnboardingBanner() {
-	const logoSrc = useIsDarkMode() ? '/dark-card-logo.svg' : '/light-card-logo.svg';
-
-	return (
-		<div className='mx-auto w-full max-w-3xl px-3'>
-			<div className='relative mb-2 flex flex-col items-stretch gap-3 overflow-hidden rounded-xl border border-violet/20 bg-background px-4 py-3 shadow-xs sm:flex-row sm:items-center'>
-				<img
-					src={logoSrc}
-					alt=''
-					aria-hidden
-					className='pointer-events-none absolute left-1/2 top-1/2 w-full -translate-x-1/2 -translate-y-1/2 scale-150 select-none'
-				/>
-				<div className='relative z-10 min-w-0 flex-1'>
-					<span className='block text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
-						Guided setup
-					</span>
-					<p className='mt-0.5 text-sm font-semibold text-foreground'>Ready to use your own data?</p>
-					<p className='mt-0.5 text-xs text-muted-foreground'>
-						Set up your project with the help of our onboarding agent
-					</p>
-				</div>
-				<Button asChild size='sm' className='relative z-10 shrink-0 self-start rounded-full sm:self-center'>
-					<Link to='/onboarding'>
-						Start setup
-						<ArrowRight className='size-3.5' />
-					</Link>
-				</Button>
-			</div>
-		</div>
 	);
 }
 

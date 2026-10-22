@@ -18,6 +18,7 @@ import type { LucideIcon } from 'lucide-react';
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
@@ -64,6 +65,8 @@ export function Sidebar() {
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
 	const isInSettings = !!isSettingsRoute && !isViewer;
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+	const showTrialOnboarding =
+		isCloud && project.isSuccess && project.data === null && locationPath === '/' && !effectiveIsCollapsed;
 	useTrackLastAppLocation();
 
 	useEffect(() => {
@@ -292,6 +295,11 @@ export function Sidebar() {
 					/>
 				</>
 			)}
+			{showTrialOnboarding && (
+				<div className='mx-2 mb-2'>
+					<TrialOnboardingBanner variant='card' />
+				</div>
+			)}
 			{!isInSettings && <div className='border-b border-sidebar-border mx-2'></div>}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
@@ -466,16 +474,17 @@ function SidebarNav({
 			))}
 
 			{isEmpty && (
-				<p className='text-sm text-muted-foreground text-center p-4'>
+				<div className='p-4 text-center text-sm text-muted-foreground'>
 					{isViewer ? (
 						'No chats shared with you.'
 					) : isTrial ? (
 						<>
-							{username ? `Welcome to nao, ${capitalize(username)}! ` : ''}
-							<br />
-							Your chat history will appear here.
-							<br />
-							Start a new chat!
+							{username && <span className='mb-3 block'>Welcome to nao, {capitalize(username)}!</span>}
+							<span className='block'>
+								Your chat history will appear here.
+								<br />
+								Start a new chat!
+							</span>
 						</>
 					) : (
 						<>
@@ -484,7 +493,7 @@ function SidebarNav({
 							Start a new chat!
 						</>
 					)}
-				</p>
+				</div>
 			)}
 		</div>
 	);

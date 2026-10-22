@@ -8,6 +8,7 @@ import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
 import {
 	findWarehouseJobId,
+	isDeployStepReached,
 	isOnboardingComplete,
 	OnboardingProgress,
 	useOnboardingProgress,
@@ -42,6 +43,8 @@ interface OnboardingSearch {
 	chatId?: string;
 	github?: 'connected';
 }
+
+const DEPLOYMENT_POLL_INTERVALS = [2_000, 4_000, 8_000, 16_000, 30_000] as const;
 
 export const Route = createFileRoute('/_sidebar-layout/onboarding')({
 	validateSearch: (search: Record<string, unknown>): OnboardingSearch => ({
@@ -89,11 +92,24 @@ function OnboardingPage() {
 	const { isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
-	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
+	const waitingForDeployment = isDeployStepReached(progress);
+	const currentProject = useQuery({
+		...trpc.project.getCurrent.queryOptions(),
+		refetchInterval: (query) => {
+			if (!waitingForDeployment || query.state.data != null || query.state.status === 'error') {
+				return false;
+			}
+			return DEPLOYMENT_POLL_INTERVALS[
+				Math.min(query.state.dataUpdateCount, DEPLOYMENT_POLL_INTERVALS.length - 1)
+			];
+		},
+		refetchOnWindowFocus: 'always',
+	});
 	const search = Route.useSearch();
 	const inputAreaRef = useRef<HTMLDivElement>(null);
 	const actionAreaRef = useRef<HTMLDivElement>(null);
 	const githubConnectionReportedRef = useRef(false);
+	const activatedProjectIdRef = useRef<string | null>(null);
 	const hasMessages = messages.length > 0;
 	const inputAreaHeight = useHeight(inputAreaRef, [hasMessages]);
 	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step]);
@@ -111,7 +127,6 @@ function OnboardingPage() {
 		progress?.flow === 'github' &&
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
-	const setupReportedComplete = isOnboardingComplete(true, progress, warehouseReady);
 	const onboardingComplete = isOnboardingComplete(currentProject.data != null, progress, warehouseReady);
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
@@ -141,23 +156,15 @@ function OnboardingPage() {
 	}, [githubStatus.data?.connected, progress?.flow, progress?.step, queueOrSendMessage]);
 
 	useEffect(() => {
-		if (!setupReportedComplete || !session?.user.id) {
+		const project = currentProject.data;
+		if (!onboardingComplete || !project || !session?.user.id || activatedProjectIdRef.current === project.id) {
 			return;
 		}
 
-		const refreshProjects = async () => {
-			await queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() });
-			const project = await queryClient.fetchQuery(trpc.project.getCurrent.queryOptions());
-			if (!project) {
-				return;
-			}
-
-			setActiveProjectId(project.id);
-			await queryClient.invalidateQueries();
-		};
-
-		refreshProjects().catch(console.error);
-	}, [queryClient, session?.user.id, setupReportedComplete]);
+		activatedProjectIdRef.current = project.id;
+		setActiveProjectId(project.id);
+		queryClient.invalidateQueries().catch(console.error);
+	}, [currentProject.data, onboardingComplete, queryClient, session?.user.id]);
 
 	const alignActionDialogs = useCallback(() => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();
@@ -204,7 +211,7 @@ function OnboardingPage() {
 						<Dialog>
 							<div
 								ref={actionAreaRef}
-								className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 flex-col items-start justify-between gap-4 rounded-xl border border-violet/20 bg-background p-5 shadow-xs sm:flex-row sm:items-center'
+								className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 flex-col items-start justify-between gap-4 rounded-xl border border-violet/20 bg-background p-5 shadow-lg sm:flex-row sm:items-center'
 							>
 								<div className='flex min-w-0 items-center gap-3'>
 									<div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-violet/20 bg-violet/10 text-primary'>
@@ -250,7 +257,7 @@ function OnboardingPage() {
 					{showImportProviderCard && (
 						<div
 							ref={actionAreaRef}
-							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 rounded-xl border border-violet/20 bg-background p-5 shadow-xs'
+							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 rounded-xl border border-violet/20 bg-background p-5 shadow-lg'
 						>
 							{githubAvailable.isPending ? (
 								<p className='text-sm text-muted-foreground'>Checking GitHub availability…</p>
@@ -264,7 +271,7 @@ function OnboardingPage() {
 									resourceNounPlural='repositories'
 									connected={githubStatus.data?.connected === true}
 									compact={true}
-									className='border-violet/20 bg-muted/20 [&_[data-slot=button]]:rounded-full'
+									className='border-0 bg-transparent p-0 [&_[data-slot=button]]:rounded-full'
 									pickerDialogStyle={importDialogStyle}
 									Picker={GitHubRepoPicker}
 									onImported={(project) =>
@@ -285,13 +292,18 @@ function OnboardingPage() {
 			{hasMessages ? (
 				<>
 					<ChatMessages />
-					<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
-						<div
-							ref={inputAreaRef}
-							className='pointer-events-auto bg-gradient-to-t from-background via-background via-70% to-transparent'
-						>
+					<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background via-80% to-transparent pt-12'>
+						<div ref={inputAreaRef} className='pointer-events-auto bg-background'>
+							{warehouseJob.data?.status && (
+								<div className='mx-auto w-full max-w-3xl px-3 pb-2 md:px-4'>
+									<WarehouseCommandProgress
+										status={warehouseJob.data.status}
+										logs={warehouseJob.data.logs}
+									/>
+								</div>
+							)}
 							{onboardingComplete ? (
-								<div className='flex flex-col items-center gap-2 pb-4'>
+								<div className='flex flex-col items-center gap-2 pb-4 pt-2 shadow-[0_-12px_24px_-16px_rgb(0_0_0/0.35)]'>
 									<p className='text-center text-sm font-medium text-violet'>
 										Project setup successful!
 									</p>
@@ -309,15 +321,7 @@ function OnboardingPage() {
 									</p>
 								</div>
 							) : (
-								<>
-									<div className='mx-auto w-full max-w-3xl px-3 pb-2 md:px-4'>
-										<WarehouseCommandProgress
-											status={warehouseJob.data?.status}
-											logs={warehouseJob.data?.logs}
-										/>
-									</div>
-									<ChatInput variant='onboarding' />
-								</>
+								<ChatInput variant='onboarding' />
 							)}
 						</div>
 					</div>
