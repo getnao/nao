@@ -23,7 +23,7 @@ function toWellFormedDeep<T>(value: T): T {
 		return value.map(toWellFormedDeep) as T;
 	}
 	if (isPlainObject(value)) {
-		return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toWellFormedDeep(entry)])) as T;
+		return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key.toWellFormed(), toWellFormedDeep(entry)])) as T;
 	}
 	return value;
 }
