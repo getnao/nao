@@ -175,6 +175,14 @@ class TestDatabaseContext:
 
         assert _should_refresh(profiling_file, config) is False
 
+    def test_should_refresh_once_when_previous_render_failed(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+        profiling_file.write_text("# orders\n\nprofiling not generated: query timed out\n")
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.ONCE, interval_days=1)
+
+        assert _should_refresh(profiling_file, config) is True
+
     def test_interval_days_valid_with_interval_policy(self):
         config = ProfilingConfig(
             refresh_policy=ProfilingRefreshPolicy.INTERVAL,

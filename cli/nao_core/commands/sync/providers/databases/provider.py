@@ -122,7 +122,18 @@ def _placeholder_for_failed_render(
         UI.print(f"    [dim]↩ keeping previous {output_file.name}[/dim]")
         return None
     reason = str(error).splitlines()[0] if str(error) else error.__class__.__name__
-    return f"# {table}\n\n{template_name} not generated: {reason}\n"
+    return f"# {table}\n\n{_failed_render_notice(template_name)} {reason}\n"
+
+
+def _failed_render_notice(template_name: str) -> str:
+    return f"{template_name} not generated:"
+
+
+def _is_failed_render_placeholder(output_file: Path) -> bool:
+    try:
+        return _failed_render_notice(output_file.stem) in output_file.read_text()
+    except OSError:
+        return False
 
 
 def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[str]:
@@ -194,6 +205,8 @@ def _should_refresh(
 
     policy = refresh_config.refresh_policy
     if not output_file.exists() or policy == ProfilingRefreshPolicy.ALWAYS:
+        return True
+    if _is_failed_render_placeholder(output_file):
         return True
     if policy == ProfilingRefreshPolicy.ONCE:
         return False

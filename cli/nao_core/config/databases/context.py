@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 DEFAULT_PREVIEW_MAX_VALUE_LENGTH = 1000
+MIN_PREVIEW_MAX_VALUE_LENGTH = 100
 
 
 def truncate_middle_with_length(text: str, max_length: int) -> str:

@@ -472,6 +472,16 @@ def test_preview_max_value_length_rejects_negative_values():
         DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=-1)
 
 
+def test_preview_max_value_length_rejects_values_below_minimum():
+    with pytest.raises(ValidationError, match="at least 100"):
+        DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=26)
+
+
+def test_preview_max_value_length_accepts_zero_and_minimum():
+    assert DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=0).preview_max_value_length == 0
+    assert DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=100).preview_max_value_length == 100
+
+
 def test_exclude_columns_default_is_empty():
     db = DuckDBConfig(name="test-db", path=":memory:")
     assert db.exclude_columns == []
