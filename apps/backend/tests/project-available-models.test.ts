@@ -40,6 +40,11 @@ function writeConfig(lines: string[]): string {
 	return dir;
 }
 
+function enableManagedAi(): void {
+	process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
+	__reloadEnvForTesting();
+}
+
 describe('getProjectAvailableModels', () => {
 	beforeEach(() => {
 		originalEnv = { ...process.env };
@@ -63,7 +68,7 @@ describe('getProjectAvailableModels', () => {
 	});
 
 	it('lists the curated nao models only when the project has no other provider', async () => {
-		process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
+		enableManagedAi();
 		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: 'org-1', path: null, envVars: {} });
 		mocks.getCreditSummary.mockResolvedValue({ balanceMicroUsd: 480_000 });
 
@@ -116,7 +121,7 @@ describe('getProjectAvailableModels', () => {
 	});
 
 	it('hides managed models when the wallet has no credits', async () => {
-		process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
+		enableManagedAi();
 		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: 'org-1', path: null, envVars: {} });
 		mocks.getCreditSummary.mockResolvedValue({ balanceMicroUsd: 0 });
 
@@ -126,7 +131,7 @@ describe('getProjectAvailableModels', () => {
 	});
 
 	it('offers managed models when an environment provider has no selectable model', async () => {
-		process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
+		enableManagedAi();
 		process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://localhost:8000/v1';
 		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: 'org-1', path: null, envVars: {} });
 		mocks.getCreditSummary.mockResolvedValue({ balanceMicroUsd: 19_200 });

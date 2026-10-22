@@ -31,9 +31,7 @@ export type ManagedAiUsageContext = {
 
 export function isManagedAiEnabled(): boolean {
 	return (
-		env.NAO_MODE === 'cloud' &&
-		Boolean(process.env.NAO_MANAGED_OPENAI_API_KEY) &&
-		!env.DISABLED_PROVIDERS.includes('nao')
+		env.NAO_MODE === 'cloud' && Boolean(env.NAO_MANAGED_OPENAI_API_KEY) && !env.DISABLED_PROVIDERS.includes('nao')
 	);
 }
 
@@ -50,7 +48,7 @@ export const managedAiSource: ModelSource = {
 	},
 
 	async resolveModel({ projectId, provider, modelId, usageContext, hasOwnModels }) {
-		const apiKey = process.env.NAO_MANAGED_OPENAI_API_KEY;
+		const apiKey = env.NAO_MANAGED_OPENAI_API_KEY;
 		if (!isManagedAiEnabled() || !apiKey || !usageContext?.userId || !isManagedModel(provider, modelId)) {
 			return null;
 		}

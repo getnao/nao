@@ -330,6 +330,7 @@ jobs:
                           -e "BETTER_AUTH_URL=https://${{ env.CLOUD_DOMAIN }}" \
                           -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                           -e "NAO_BACKOFFICE_API_KEY=${{ secrets.NAO_BACKOFFICE_API_KEY }}" \
+                          -e "NAO_MANAGED_OPENAI_API_KEY=${{ secrets.NAO_MANAGED_OPENAI_API_KEY }}" \
                           -e "DB_SSL=true" \
                           -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/app" \
                           -e "NAO_MODE=cloud" \

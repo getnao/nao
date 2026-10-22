@@ -103,6 +103,7 @@ describe('DISABLED_PROVIDERS', () => {
 		process.env.CLOUD_GITHUB_PROJECT_INSTALLATION_ID = '456';
 		process.env.CLOUD_GITHUB_PROJECT_PRIVATE_KEY = 'test-private-key';
 		setDisabledProviders(undefined);
+		expect(env.NAO_MANAGED_OPENAI_API_KEY).toBe('managed-key');
 		expect(isManagedAiEnabled()).toBe(true);
 		expect(hasEnvApiKey('nao')).toBe(false);
 		expect(getEnvProviders()).not.toContain('nao');
