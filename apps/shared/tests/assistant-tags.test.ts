@@ -13,6 +13,11 @@ describe('stripAssistantTags', () => {
 		expect(stripAssistantTags(text)).toBe('Here it is: churn-2025.csv');
 	});
 
+	it('keeps the title a story reference wraps', () => {
+		const text = 'See <story-reference id="b411e523">Top 5 Customers by Payments</story-reference>.';
+		expect(stripAssistantTags(text)).toBe('See Top 5 Customers by Payments.');
+	});
+
 	it('keeps the text of a citation whose opening tag starts with an OpenAI citation marker', () => {
 		const text =
 			'GitHub had 1,936 stars. \uE200citation-number id="query_6244" column="stars">1936</citation-number>';

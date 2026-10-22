@@ -1,3 +1,4 @@
+import { SHARED_WITH_ME_FOLDER_ID } from '@nao/shared';
 import type { FolderVisibility } from '@nao/shared/types';
 import { and, asc, count, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
 
@@ -105,6 +106,45 @@ export async function listFolderTree(
 	}
 
 	return folders;
+}
+
+/**
+ * The stories of a folder and of its subfolders, null when the folder is archived or out of the user's
+ * reach. The stories themselves still have to be checked for access.
+ */
+export async function findReferencedFolder(
+	userId: string,
+	projectId: string,
+	folderId: string,
+): Promise<{ name: string; storyIds: string[] } | null> {
+	if (folderId === SHARED_WITH_ME_FOLDER_ID) {
+		return { name: 'Shared with me', storyIds: await listSharedWithMeStoryIds(userId, projectId) };
+	}
+	const folder = await getFolderById(folderId);
+	if (!folder || folder.projectId !== projectId || folder.archivedAt !== null || !isVisibleTo(folder, userId)) {
+		return null;
+	}
+	const folderIds = await listDescendantFolderIds(folderId);
+	return { name: folder.name, storyIds: await getStoryIdsInFolders(folderIds) };
+}
+
+function isVisibleTo(folder: DBStoryFolder, userId: string): boolean {
+	return folder.visibility === 'public' || folder.ownerId === userId;
+}
+
+async function listSharedWithMeStoryIds(userId: string, projectId: string): Promise<string[]> {
+	const rows = await db
+		.select({ storyId: s.sharedStory.storyId })
+		.from(s.sharedStory)
+		.where(
+			and(
+				eq(s.sharedStory.projectId, projectId),
+				eq(s.sharedStory.visibility, 'specific'),
+				sharedStoryGrantsUser(userId),
+			),
+		)
+		.execute();
+	return rows.map((row) => row.storyId);
 }
 
 async function countSharedWithMeStories(userId: string, projectId: string): Promise<number> {

@@ -354,6 +354,21 @@ function setBoundedCacheEntry<T>(cache: Map<string, T>, key: string, value: T): 
 	cache.set(key, value);
 }
 
+/** Fully qualified names of the tables of a `database.schema` the user may query. */
+export function listSchemaTableFqdns(
+	projectFolder: string,
+	schemaKey: string,
+	warehouseTableAccess: WarehouseTableAccess,
+): string[] {
+	return getDatabaseObjects(projectFolder)
+		.filter(
+			(object) =>
+				`${object.database}.${object.schema}` === schemaKey &&
+				isDatabaseObjectAllowed(warehouseTableAccess, object),
+		)
+		.map((object) => object.fqdn);
+}
+
 export function getTableColumnsContent(
 	projectFolder: string,
 	fqdn: string,
