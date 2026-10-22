@@ -183,6 +183,14 @@ class TestDatabaseContext:
 
         assert _should_refresh(profiling_file, config) is True
 
+    def test_should_not_refresh_once_when_file_is_not_decodable(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+        profiling_file.write_bytes(b"\xff\xfe\xfa invalid")
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.ONCE, interval_days=1)
+
+        assert _should_refresh(profiling_file, config) is False
+
     def test_interval_days_valid_with_interval_policy(self):
         config = ProfilingConfig(
             refresh_policy=ProfilingRefreshPolicy.INTERVAL,

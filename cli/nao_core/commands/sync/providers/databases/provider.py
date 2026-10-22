@@ -132,7 +132,7 @@ def _failed_render_notice(template_name: str) -> str:
 def _is_failed_render_placeholder(output_file: Path) -> bool:
     try:
         return _failed_render_notice(output_file.stem) in output_file.read_text()
-    except OSError:
+    except (OSError, UnicodeError):
         return False
 
 

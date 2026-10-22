@@ -158,9 +158,11 @@ def test_once_policy_retries_after_failed_render_placeholder(tmp_path):
     )
     engine.render.side_effect = _fail_ai_summary
     run_sync(config, engine, tmp_path)
+    summary_file = table_path(tmp_path) / "ai_summary.md"
+    assert "ai_summary not generated:" in summary_file.read_text()
 
     engine.render.side_effect = lambda template_name, **_kwargs: f"rendered {Path(template_name).stem}"
     run_sync(config, engine, tmp_path)
 
-    summary = (table_path(tmp_path) / "ai_summary.md").read_text()
+    summary = summary_file.read_text()
     assert summary == with_generated_marker("rendered ai_summary.md")
