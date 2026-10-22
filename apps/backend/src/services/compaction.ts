@@ -21,7 +21,7 @@ import { ITokenCounter, TokenCounter } from './token-counter';
 
 const CONTEXT_WINDOW_COMPACTION_THRESHOLD = 0.75;
 
-interface CompactIfNeededOptions extends CompactConversationOptions {
+export interface CompactIfNeededOptions extends CompactConversationOptions {
 	onCompactionStarted: () => void;
 	onCompactionFinished: (result: CompactionPart) => void;
 }
@@ -58,6 +58,42 @@ export class CompactionError extends Error {
 	}
 }
 
+/**
+ * Compaction state of a single agent run. The AI SDK rebuilds the step input from the original
+ * history on every step, so the summary must be reapplied each step and is computed at most once.
+ */
+export class RunCompaction {
+	private _attempted = false;
+	private _summary: string | undefined;
+
+	constructor(private readonly service: CompactionService) {}
+
+	async apply(opts: CompactIfNeededOptions): Promise<void> {
+		if (this._attempted) {
+			this._reapply(opts.messages);
+			return;
+		}
+
+		await this.service.compactConversationIfNeeded({
+			...opts,
+			onCompactionStarted: () => {
+				this._attempted = true;
+				opts.onCompactionStarted();
+			},
+			onCompactionFinished: (result) => {
+				this._summary = result.error ? undefined : result.summary;
+				opts.onCompactionFinished(result);
+			},
+		});
+	}
+
+	private _reapply(messages: ModelMessage[]): void {
+		if (this._summary) {
+			this.service.applySummary(messages, this._summary);
+		}
+	}
+}
+
 export class CompactionService {
 	private readonly _tc: ITokenCounter;
 
@@ -88,6 +124,21 @@ export class CompactionService {
 
 		const selectedMessages = messages.slice(userMessageBeforeCompactionIdx);
 		return [this._createSummaryUIMessage(compactionSummary), ...selectedMessages];
+	}
+
+	/** Replaces the history before the latest user message with the summary, in place. */
+	applySummary(messages: ModelMessage[], summary: string): void {
+		const firstNonSystemIndex = findFirstNonSystemMessageIndex(messages);
+		const lastUserIndex = findLastUserMessageIndex(messages);
+		if (firstNonSystemIndex === -1 || lastUserIndex <= firstNonSystemIndex) {
+			return;
+		}
+
+		messages.splice(
+			firstNonSystemIndex,
+			lastUserIndex - firstNonSystemIndex,
+			this._createSummaryModelMessage(summary),
+		);
 	}
 
 	private _createSummaryUIMessage(summary: string): Omit<UIMessage, 'id'> {
@@ -213,13 +264,7 @@ export class CompactionService {
 
 		const messagesToSummarize = opts.messages.slice(firstNonSystemIndex, lastUserIndex);
 		const { summary, usage } = await llm.compact(sanitizeToolCalls(messagesToSummarize, provider));
-
-		this._replaceCompactedMessages(
-			opts.messages,
-			messagesToSummarize,
-			firstNonSystemIndex,
-			this._createSummaryModelMessage(summary),
-		);
+		this.applySummary(opts.messages, summary);
 
 		return { summary, usage };
 	}
@@ -234,16 +279,6 @@ export class CompactionService {
 				}),
 			),
 		};
-	}
-
-	/** Replaces the compacted messages in-place. */
-	private _replaceCompactedMessages(
-		messages: ModelMessage[],
-		compactedMessages: ModelMessage[],
-		startIndex: number,
-		...newMessages: ModelMessage[]
-	) {
-		messages.splice(startIndex, compactedMessages.length, ...newMessages);
 	}
 
 	private _trackInference(opts: CompactConversationOptions, modelId: string, usage: TokenUsage) {

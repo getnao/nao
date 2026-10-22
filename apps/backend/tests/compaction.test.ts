@@ -2,7 +2,7 @@ import type { ModelMessage } from 'ai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createProviderModel } from '../src/agents/providers';
-import { CompactionService } from '../src/services/compaction';
+import { CompactionService, RunCompaction } from '../src/services/compaction';
 import type { ITokenCounter } from '../src/services/token-counter';
 import type { AgentTools, UIMessage } from '../src/types/chat';
 
@@ -338,5 +338,108 @@ describe('compactionService.useLastCompaction', () => {
 		expect(result[2]).toEqual(messages[3]);
 		expect(result[3]).toEqual(messages[4]);
 		expect(result).toHaveLength(4);
+	});
+});
+
+describe('RunCompaction', () => {
+	let compactionService: CompactionService;
+	let tokenCounter: FakeTokenCounter;
+
+	const history = (): ModelMessage[] => [
+		{ role: 'system', content: 'System prompt' },
+		{ role: 'user', content: 'First question' },
+		{ role: 'assistant', content: 'First answer' },
+		{ role: 'user', content: 'Current turn' },
+	];
+
+	const stepOptions = (messages: ModelMessage[]) => ({
+		chat: { id: 'chat-3', projectId: 'project-3', userId: 'user-3' },
+		provider: 'openai' as const,
+		modelId: 'gpt-5.5',
+		messages,
+		tools: {} as AgentTools,
+		maxOutputTokens: 50,
+		contextWindow: 30_000,
+		onCompactionStarted,
+		onCompactionFinished,
+	});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		tokenCounter = new FakeTokenCounter();
+		compactionService = new CompactionService({
+			createCompactionLlm: () => ({
+				modelId: 'gpt-4.1-mini',
+				compact: mocks.compactMock,
+			}),
+			tokenCounter,
+		});
+		mocks.resolveProviderModelMock.mockResolvedValue({
+			model: { modelId: 'gpt-4.1-mini' },
+			providerOptions: { openai: {} },
+			contextWindow: 200_000,
+		});
+		mocks.resolveAnnotationModelIdMock.mockResolvedValue('gpt-4.1-mini');
+		mocks.resolveDefaultModelSelectionMock.mockResolvedValue(null);
+		mocks.compactMock.mockResolvedValue({
+			summary: 'Conversation summary',
+			usage: { totalTokens: 123 },
+		});
+		tokenCounter.estimateMessages.mockImplementation((msgs: ModelMessage[]) => msgs.length * 6_000);
+		tokenCounter.estimateTools.mockResolvedValue(0);
+	});
+
+	it('compacts once per run and reapplies the summary to the rebuilt history of later steps', async () => {
+		const runCompaction = new RunCompaction(compactionService);
+
+		const firstStep = history();
+		await runCompaction.apply(stepOptions(firstStep));
+
+		expect(mocks.compactMock).toHaveBeenCalledOnce();
+		expect(firstStep).toHaveLength(3);
+
+		const secondStep = [...history(), { role: 'assistant', content: 'Tool call step' } as ModelMessage];
+		await runCompaction.apply(stepOptions(secondStep));
+
+		expect(mocks.compactMock).toHaveBeenCalledOnce();
+		expect(onCompactionStarted).toHaveBeenCalledOnce();
+		expect(secondStep).toHaveLength(4);
+		expect(secondStep[0]).toEqual({ role: 'system', content: 'System prompt' });
+		expect(secondStep[1]).toEqual(
+			expect.objectContaining({ role: 'assistant', content: expect.stringContaining('Conversation summary') }),
+		);
+		expect(secondStep[2]).toEqual({ role: 'user', content: 'Current turn' });
+		expect(secondStep[3]).toEqual({ role: 'assistant', content: 'Tool call step' });
+	});
+
+	it('does not compact when the run stays below the threshold', async () => {
+		const runCompaction = new RunCompaction(compactionService);
+		const messages = history().slice(0, 2);
+
+		await runCompaction.apply(stepOptions(messages));
+
+		expect(mocks.compactMock).not.toHaveBeenCalled();
+		expect(onCompactionStarted).not.toHaveBeenCalled();
+		expect(messages).toHaveLength(2);
+	});
+
+	it('does not retry after a failed compaction', async () => {
+		const runCompaction = new RunCompaction(compactionService);
+		const singleTurn = (): ModelMessage[] => [
+			{ role: 'system', content: 'System prompt' },
+			{ role: 'user', content: 'Only turn' },
+			{ role: 'assistant', content: 'Step one' },
+			{ role: 'assistant', content: 'Step two' },
+		];
+
+		await runCompaction.apply(stepOptions(singleTurn()));
+		expect(onCompactionFinished).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(String) }));
+
+		const secondStep = singleTurn();
+		await runCompaction.apply(stepOptions(secondStep));
+
+		expect(onCompactionStarted).toHaveBeenCalledOnce();
+		expect(mocks.compactMock).not.toHaveBeenCalled();
+		expect(secondStep).toEqual(singleTurn());
 	});
 });

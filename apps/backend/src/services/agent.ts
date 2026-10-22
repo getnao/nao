@@ -83,7 +83,7 @@ import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { compactionService } from './compaction';
+import { compactionService, RunCompaction } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
@@ -472,6 +472,7 @@ export class AgentManager {
 	private _resolveFinished: (() => void) | undefined;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
+	private _runCompaction = new RunCompaction(compactionService);
 
 	constructor(
 		readonly chat: AgentChat,
@@ -532,7 +533,7 @@ export class AgentManager {
 			this._systemPrompt && messages[0]?.role !== 'system'
 				? [{ role: 'system', content: this._systemPrompt }, ...messages]
 				: messages;
-		await compactionService.compactConversationIfNeeded({
+		await this._runCompaction.apply({
 			chat: this.chat,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
@@ -713,6 +714,7 @@ export class AgentManager {
 			this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
+		this._runCompaction = new RunCompaction(compactionService);
 		const conversationMessages = uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system');
 
 		const modelMessages = await convertToModelMessages<UIMessage>(conversationMessages, {
