@@ -45,7 +45,7 @@ export default function App() {
 
       <section className="grid grid--2">
         <BarChart title="Breakdown" queryId="REPLACE_ME" />
-        <DataTable title="Details" queryId="REPLACE_ME" maxRows={10} />
+        <DataTable title="Details" queryId="REPLACE_ME" />
       </section>
     </main>
   );

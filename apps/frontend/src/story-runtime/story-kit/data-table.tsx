@@ -41,12 +41,11 @@ interface ResolvedColumn {
 	numeric: boolean;
 }
 
-const DEFAULT_PAGE_SIZE = 10;
+const PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export function DataTable(props: DataTableProps) {
 	const { queryId, data, columns, maxRows, maxHeight = 420, conditionalFormats, ...block } = props;
-	const pageSize = toPageSize(maxRows);
 	const source = useBlockData({ queryId, data });
 	const editingEnabled = useStoryEditing();
 	const [fullscreen, setFullscreen] = useState(false);
@@ -56,7 +55,8 @@ export function DataTable(props: DataTableProps) {
 	return (
 		<Block kind='data-table' queryId={queryId} {...block}>
 			<BlockState data={source}>
-				{(rows, resultColumns) => {
+				{(resultRows, resultColumns) => {
+					const rows = capRows(resultRows, maxRows);
 					const visible = resolveColumns(rows, resultColumns, columns);
 					const editFormat = () =>
 						requestTableFormatEdit({
@@ -76,20 +76,14 @@ export function DataTable(props: DataTableProps) {
 									onFullscreen={() => setFullscreen(true)}
 								/>
 							</div>
-							<TableView
-								rows={rows}
-								columns={visible}
-								formats={formats}
-								pageSize={pageSize}
-								maxHeight={maxHeight}
-							/>
+							<TableView rows={rows} columns={visible} formats={formats} maxHeight={maxHeight} />
 							{fullscreen && (
 								<FullscreenOverlay
 									title={title}
 									onClose={() => setFullscreen(false)}
 									actions={<TableActions rows={rows} columns={visible} filename={title} />}
 								>
-									<TableView rows={rows} columns={visible} formats={formats} pageSize={pageSize} />
+									<TableView rows={rows} columns={visible} formats={formats} />
 								</FullscreenOverlay>
 							)}
 						</div>
@@ -230,11 +224,10 @@ interface TableViewProps {
 	rows: Row[];
 	columns: ResolvedColumn[];
 	formats: ColumnConditionalFormats;
-	pageSize: number;
 	maxHeight?: number;
 }
 
-function TableView({ rows, columns, formats, pageSize, maxHeight }: TableViewProps) {
+function TableView({ rows, columns, formats, maxHeight }: TableViewProps) {
 	const style =
 		maxHeight === undefined ? undefined : ({ '--nao-table-max-height': `${maxHeight}px` } as CSSProperties);
 	const tableRows = useMemo(
@@ -253,7 +246,7 @@ function TableView({ rows, columns, formats, pageSize, maxHeight }: TableViewPro
 				cellBackground={cellBackground}
 				columns={columns.map((column) => column.key)}
 				columnLabels={columnLabelsOf(columns)}
-				maxRowsBeforePagination={pageSize}
+				maxRowsBeforePagination={PAGE_SIZE}
 				compactFooter
 				humanizeColumnLabels
 				renderPagination={(pagination) => <TableFooter {...pagination} />}
@@ -262,8 +255,8 @@ function TableView({ rows, columns, formats, pageSize, maxHeight }: TableViewPro
 	);
 }
 
-function toPageSize(maxRows: number | undefined): number {
-	return maxRows !== undefined && Number.isInteger(maxRows) && maxRows > 0 ? maxRows : DEFAULT_PAGE_SIZE;
+function capRows(rows: Row[], maxRows: number | undefined): Row[] {
+	return maxRows !== undefined && Number.isInteger(maxRows) && maxRows > 0 ? rows.slice(0, maxRows) : rows;
 }
 
 function columnLabelsOf(columns: ResolvedColumn[]): Record<string, string> {
@@ -282,9 +275,6 @@ function TableFooter({
 }: TablePaginationProps) {
 	const canPrevious = pageIndex > 0;
 	const canNext = pageIndex < pageCount - 1;
-	const pageSizeOptions = PAGE_SIZE_OPTIONS.includes(pageSize)
-		? PAGE_SIZE_OPTIONS
-		: [...PAGE_SIZE_OPTIONS, pageSize].sort((a, b) => a - b);
 
 	return (
 		<div className='nao-table__footer'>
@@ -297,7 +287,7 @@ function TableFooter({
 						value={pageSize}
 						onChange={(event) => onPageSizeChange(Number(event.target.value))}
 					>
-						{pageSizeOptions.map((size) => (
+						{PAGE_SIZE_OPTIONS.map((size) => (
 							<option key={size} value={size}>
 								{size}
 							</option>

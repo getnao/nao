@@ -35,8 +35,9 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>xKey</Bold>, <Bold>series</Bold> (names or {'{ key, label?, type?, axis? }'}), <Bold>height</Bold>,{' '}
 			<Bold>stacked</Bold>, <Bold>percent</Bold>, <Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line),{' '}
 			<Bold>showDataLabels</Bold>. KpiCard: <Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous
-			row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the
-			same rule display_chart's conditional_formats takes) to colour cells.
+			row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold> (caps the rows shown; tables already page by 10
+			with a rows-per-page picker), <Bold>conditionalFormats</Bold> (column → the same rule display_chart's
+			conditional_formats takes) to colour cells.
 		</ListItem>,
 		<ListItem key='title'>
 			Title a story with your own <Bold>{'<h1>'}</Bold> and, if useful, a short lead <Bold>{'<p>'}</Bold>: they
