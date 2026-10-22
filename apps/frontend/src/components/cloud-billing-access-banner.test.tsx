@@ -252,7 +252,7 @@ it('hides the trial-start notice from non-admins but shows the final three-day w
 	expect(screen.getByText('Ask an organization admin to manage billing.')).toBeTruthy();
 });
 
-it('offers an available trial to non-managers without a billing action', () => {
+it('offers an available trial to non-managers and lets them dismiss it', () => {
 	mocks.access = { ...restrictedTrialAccess, canManageBilling: false, trialAvailable: true };
 
 	render(<CloudBillingAccessBanner />);
@@ -260,6 +260,10 @@ it('offers an available trial to non-managers without a billing action', () => {
 	expect(screen.getByRole('status').textContent).toContain('An organization admin can start the free trial.');
 	expect(screen.getByText('Ask an organization admin to manage billing.')).toBeTruthy();
 	expect(screen.queryByRole('button', { name: 'Manage billing' })).toBeNull();
+	fireEvent.click(screen.getByRole('button', { name: 'Dismiss trial banner' }));
+
+	expect(screen.queryByRole('status')).toBeNull();
+	expect(localStorage.getItem('nao-dismissed-trial-banner')).toBe(JSON.stringify(['project-organization:available']));
 });
 
 it('stops polling after active billing access is confirmed', () => {

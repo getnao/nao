@@ -1,11 +1,12 @@
 import { memo } from 'react';
 import { Streamdown } from 'streamdown';
-
 import { normalizeCitationMarkers, stripAssistantTags } from '@nao/shared';
+import type { ComponentProps } from 'react';
 
 import { CitationPopover } from '@/components/citation-popover';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { StreamingMarkdown } from '@/components/chat-messages/streaming-markdown';
+import { ContactSupportButton } from '@/components/contact-support-dialog';
 import { FileChip } from '@/components/file-chip';
 import { isStoredFilePath } from '@/lib/attachments';
 import { markdownPlugins } from '@/lib/markdown';
@@ -13,11 +14,13 @@ import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 const CLOBBER_PREFIX = 'user-content-';
 const SETTLED_COMPONENTS = {
+	a: MarkdownLinkRenderer,
 	table: MarkdownTableRenderer,
 	'citation-number': CitationNumberRenderer,
 	'saved-file': SavedFileRenderer,
 };
 const STREAMING_COMPONENTS = {
+	a: MarkdownLinkRenderer,
 	table: MarkdownTableRenderer,
 };
 const ALLOWED_TAGS = {
@@ -44,10 +47,22 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 			literalTagContent={LITERAL_TAG_CONTENT}
 			components={SETTLED_COMPONENTS}
 		>
-			{unwrapBacktickedSavedFiles(normalizeCitationMarkers(text))}
+			{unwrapBacktickedSavedFiles(normalizeCitationMarkers(placeMessageActionsLast(text)))}
 		</Streamdown>
 	);
 });
+
+function placeMessageActionsLast(markdown: string): string {
+	return markdown
+		.replace(
+			'You’ve finished the Jaffle Shop preview. [Set up your own project](/onboarding) to keep chatting. This conversation is saved.',
+			'You’ve used all the requests available for this example project. Let’s set up your own project and chat with your own data!',
+		)
+		.replace(
+			'[Contact support](mailto:support@getnao.io) if you need help debugging your setup.',
+			'If you need help debugging your setup.\n\n[Contact support](mailto:support@getnao.io)',
+		);
+}
 
 function unwrapBacktickedSavedFiles(markdown: string): string {
 	return transformMarkdownOutsideCodeBlocks(markdown, (line) =>
@@ -188,6 +203,18 @@ const asText = (value: unknown): string => (typeof value === 'string' ? value.tr
 
 function MarkdownTableRenderer({ node, className }: any) {
 	return <MarkdownTable node={node} className={className} />;
+}
+
+function MarkdownLinkRenderer({ href, children, node: _, ...props }: ComponentProps<'a'> & { node?: unknown }) {
+	if (href === 'mailto:support@getnao.io') {
+		return <ContactSupportButton>{children}</ContactSupportButton>;
+	}
+
+	return (
+		<a href={href} {...props}>
+			{children}
+		</a>
+	);
 }
 
 function CitationNumberRenderer({ id, column, children }: any) {

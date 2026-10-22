@@ -1,4 +1,5 @@
 import { documentMediaType, type ImageUploadData } from '@nao/shared/attachments';
+import { createUIMessageStream, type InferUIMessageChunk } from 'ai';
 
 import { renderAdminSystemPrompt } from '../components/ai';
 import { renderOnboardingSystemPrompt } from '../components/ai/onboarding-system-prompt';
@@ -10,7 +11,7 @@ import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
 import type { StorageScope } from '../services/storage';
 import { statUserFile } from '../services/storage/user-files';
-import { AgentRequest, AgentRequestUserMessage, MessageSource, UIMessagePart } from '../types/chat';
+import { AgentRequest, AgentRequestUserMessage, MessageSource, type UIMessage, UIMessagePart } from '../types/chat';
 import { createChatTitle } from '../utils/ai';
 import { HandlerError } from '../utils/error';
 import { buildImageUrl } from '../utils/image';
@@ -23,6 +24,7 @@ interface HandleAgentMessageInput extends Omit<AgentRequest, 'mode'> {
 	billingAccessVerifiedProjectId?: string;
 	domainHost: string | undefined;
 	projectAccessAlreadyAuthorized?: boolean;
+	unbilledManagedAiUsage?: boolean;
 }
 
 interface HandleAgentMessageResult {
@@ -31,6 +33,15 @@ interface HandleAgentMessageResult {
 	modelId: string;
 	stream: ReadableStream;
 	agent: AgentManager;
+}
+
+interface PersistUserMessageInput {
+	userId: string;
+	projectId: string;
+	message: AgentRequestUserMessage;
+	chatId?: string;
+	messageToEditId?: string;
+	source: MessageSource;
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
@@ -44,6 +55,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		adminMode,
 		billingAccessVerifiedProjectId,
 		isOnboarding,
+		unbilledManagedAiUsage,
 	} = opts;
 
 	if (!projectId) {
@@ -53,32 +65,14 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await agentService.assertBudget(projectId, model, userId);
 
 	const source: MessageSource = isOnboarding ? 'onboarding' : adminMode ? 'admin' : 'web';
-	const scope: StorageScope = { projectId, userId };
-	let chatId = opts.chatId;
-	const isNewChat = !chatId;
-	let newMessageId: string;
-
-	if (!chatId) {
-		const attachmentParts = await buildAttachmentParts(message, scope);
-		const [createdChat, createdMessage] = await createChat(userId, projectId, message, attachmentParts, source);
-		chatId = createdChat.id;
-		newMessageId = createdMessage.id;
-	} else {
-		const { messageId } = await insertOrSupersedeMessage({
-			userId,
-			chatId,
-			message,
-			messageToEditId,
-			source,
-			scope,
-		});
-		newMessageId = messageId;
-	}
-
-	const [chat] = await chatQueries.getChat(chatId);
-	if (!chat) {
-		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
-	}
+	const { chat, chatId, isNewChat, newMessageId } = await persistUserMessage({
+		userId,
+		projectId,
+		message,
+		chatId: opts.chatId,
+		messageToEditId,
+		source,
+	});
 
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
@@ -101,6 +95,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		billingAccessVerifiedProjectId,
 		isBudgetChecked: true,
 		projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
+		unbilledManagedAiUsage,
 	});
 
 	const isForkedFirstMessage =
@@ -136,6 +131,103 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		agent,
 	};
 };
+
+export async function handleExampleAllowanceExhaustedRoute({
+	userId,
+	projectId,
+	message,
+	chatId,
+	messageToEditId,
+	isOnboarding,
+}: {
+	userId: string;
+	projectId: string;
+	message: AgentRequestUserMessage;
+	chatId?: string;
+	messageToEditId?: string;
+	isOnboarding: boolean;
+}): Promise<{ chatId: string; stream: ReadableStream<InferUIMessageChunk<UIMessage>> }> {
+	const source: MessageSource = isOnboarding ? 'onboarding' : 'web';
+	const persisted = await persistUserMessage({
+		userId,
+		projectId,
+		message,
+		chatId,
+		messageToEditId,
+		source,
+	});
+	const responseText = isOnboarding
+		? 'You’ve made great progress! You’ve reached the chat limit for guided setup, but your progress is safe and every setup action on this page still works. If you get stuck, we’re happy to help.\n\n[Contact support](mailto:support@getnao.io)'
+		: 'You’ve used all the requests available for this example project. Let’s set up your own project and chat with your own data!';
+	const assistantMessageId = crypto.randomUUID();
+	await chatQueries.upsertMessage({
+		id: assistantMessageId,
+		chatId: persisted.chatId,
+		senderUserId: userId,
+		role: 'assistant',
+		parts: [{ type: 'text', text: responseText }],
+		source,
+		stopReason: 'stop',
+	});
+	const textPartId = crypto.randomUUID();
+	const stream = createUIMessageStream<UIMessage>({
+		execute: ({ writer }) => {
+			writer.write({ type: 'start', messageId: assistantMessageId });
+			if (persisted.isNewChat) {
+				writer.write({
+					type: 'data-newChat',
+					data: {
+						id: persisted.chatId,
+						projectId,
+						title: persisted.chat.title,
+						isStarred: persisted.chat.isStarred,
+						createdAt: persisted.chat.createdAt,
+						updatedAt: persisted.chat.updatedAt,
+					},
+				});
+			}
+			writer.write({ type: 'data-newUserMessage', data: { newId: persisted.newMessageId } });
+			writer.write({ type: 'text-start', id: textPartId });
+			writer.write({ type: 'text-delta', id: textPartId, delta: responseText });
+			writer.write({ type: 'text-end', id: textPartId });
+		},
+	});
+	return { chatId: persisted.chatId, stream };
+}
+
+async function persistUserMessage({
+	userId,
+	projectId,
+	message,
+	chatId,
+	messageToEditId,
+	source,
+}: PersistUserMessageInput) {
+	const scope: StorageScope = { projectId, userId };
+	const isNewChat = !chatId;
+	let newMessageId: string;
+	if (!chatId) {
+		const attachmentParts = await buildAttachmentParts(message, scope);
+		const [createdChat, createdMessage] = await createChat(userId, projectId, message, attachmentParts, source);
+		chatId = createdChat.id;
+		newMessageId = createdMessage.id;
+	} else {
+		const result = await insertOrSupersedeMessage({
+			userId,
+			chatId,
+			message,
+			messageToEditId,
+			source,
+			scope,
+		});
+		newMessageId = result.messageId;
+	}
+	const [chat] = await chatQueries.getChat(chatId);
+	if (!chat) {
+		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
+	}
+	return { chat, chatId, isNewChat, newMessageId };
+}
 
 /**
  * Both kinds of attachment become a `file` part, but they get there differently: an image

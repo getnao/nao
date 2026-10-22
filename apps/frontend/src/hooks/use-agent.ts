@@ -115,9 +115,14 @@ export const useAgent = ({
 
 	// A null pick means "nao default": no model is sent and the server resolves the admin default.
 	const [pinnedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
-	const defaultChatModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
+	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = currentProject.data != null;
+	const defaultChatModel = useQuery({
+		...trpc.project.getDefaultChatModel.queryOptions(),
+		enabled: hasProject,
+	});
 	const usesDefaultModel = pinnedModel === null;
-	const selectedModel = pinnedModel ?? defaultChatModel.data ?? null;
+	const selectedModel = hasProject ? (pinnedModel ?? defaultChatModel.data ?? null) : null;
 	const setChat = useSetChat();
 	const queryClient = useQueryClient();
 
@@ -126,7 +131,7 @@ export const useAgent = ({
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
-	selectedModelRef.current = pinnedModel;
+	selectedModelRef.current = hasProject ? pinnedModel : null;
 	const modeRef = useRef(mode);
 	modeRef.current = mode;
 	const mentionsRef = useRef<MentionOption[]>([]);

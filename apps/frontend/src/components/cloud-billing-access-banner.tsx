@@ -26,7 +26,12 @@ export function CloudBillingAccessBanner() {
 	});
 	const notice = getAccessNotice(access.data);
 	const trialKey =
-		access.data?.trialEndsAt && `${access.data.organizationId}:${access.data.trialEndsAt.toISOString()}`;
+		access.data &&
+		(access.data.trialEndsAt
+			? `${access.data.organizationId}:${access.data.trialEndsAt.toISOString()}`
+			: access.data.trialAvailable
+				? `${access.data.organizationId}:available`
+				: undefined);
 
 	if (
 		!notice ||
@@ -91,6 +96,7 @@ function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now(
 	if (access.trialAvailable) {
 		return {
 			restricted: true,
+			dismissible: true,
 			title: 'A 14-day free trial is available.',
 			description: access.canManageBilling
 				? 'Start your free trial now, or it will begin when you create your first project.'

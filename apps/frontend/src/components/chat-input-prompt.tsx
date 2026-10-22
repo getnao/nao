@@ -10,6 +10,7 @@ import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from '
 import type { RefObject } from 'react';
 import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { useActiveProjectId } from '@/lib/active-project';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -103,8 +104,20 @@ export function ChatPrompt({
 	onChange,
 	onEnter,
 }: ChatPromptProps) {
-	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
-	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const skillsQuery = useQuery({
+		...trpc.skill.list.queryOptions(),
+		enabled: hasProject,
+	});
+	const databaseObjectsQuery = useQuery({
+		...trpc.project.getDatabaseObjects.queryOptions(),
+		enabled: hasProject,
+	});
+	const skills = hasProject && !skillsQuery.isFetching ? skillsQuery.data : undefined;
+	const databaseObjects = hasProject && !databaseObjectsQuery.isFetching ? databaseObjectsQuery.data : undefined;
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const promptTheme = minHeight ? { ...theme, minHeight } : theme;
 

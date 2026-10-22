@@ -54,7 +54,7 @@ export function Sidebar() {
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
-	const showAutomations = !isViewer && betaAutomationsEnabled;
+	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;
 	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
 	const unreadAutomationRunCount = useUnreadAutomationRunCount(showAutomations, project.data?.id).data ?? 0;
 	const hasFeedActivity = unreadCount > 0 || unreadAutomationRunCount > 0;

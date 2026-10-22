@@ -104,6 +104,15 @@ describe('getProjectAvailableModels', () => {
 				category: 'chat',
 			}),
 		).resolves.toBeNull();
+		mocks.getProjectLlmConfigs.mockClear();
+		await expect(
+			resolveProviderModel('project-1', 'nao', 'gpt-5.6-sol', true, {
+				userId: 'user-1',
+				category: 'chat',
+				billingMode: 'unbilled',
+			}),
+		).resolves.not.toBeNull();
+		expect(mocks.getProjectLlmConfigs).not.toHaveBeenCalled();
 	});
 
 	it('hides managed models when the wallet has no credits', async () => {

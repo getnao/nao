@@ -151,8 +151,12 @@ function ChatInputBase({
 	}, [adminModeLocked, isAdminMode, setAdminMode, navigate]);
 	const { canCycleModels, cycleModel } = useModelSelection();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = project.data != null;
 	const isTrial = useIsCloud() && project.data === null;
-	const uploadLimits = useQuery(trpc.storage.getUploadLimits.queryOptions());
+	const uploadLimits = useQuery({
+		...trpc.storage.getUploadLimits.queryOptions(),
+		enabled: hasProject,
+	});
 	const attachmentUpload = useAttachmentUpload({
 		documentsEnabled: uploadLimits.data?.enabled,
 		maxDocumentSizeMb: uploadLimits.data?.maxFileSizeMb ?? 0,
@@ -166,25 +170,31 @@ function ChatInputBase({
 				? 'Tell me where you are starting from...'
 				: placeholder;
 
-	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
-	const transcribeModels = useQuery(trpc.project.getKnownTranscribeModels.queryOptions());
-	const isTranscribeEnabled = agentSettings.data?.transcribe?.enabled ?? false;
+	const agentSettings = useQuery({
+		...trpc.project.getAgentSettings.queryOptions(),
+		enabled: hasProject,
+	});
+	const transcribeModels = useQuery({
+		...trpc.project.getKnownTranscribeModels.queryOptions(),
+		enabled: hasProject,
+	});
+	const isTranscribeEnabled = hasProject && (agentSettings.data?.transcribe?.enabled ?? false);
 	const hasTranscribeProvider = Object.values(transcribeModels.data ?? {}).some((p) => p.hasKey);
 	const isTranscribeReady = isTranscribeEnabled && hasTranscribeProvider;
 
 	const budgetStatus = useQuery({
 		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
-		enabled: !!selectedModel?.provider && selectedModel.provider !== 'nao',
+		enabled: hasProject && !!selectedModel?.provider && selectedModel.provider !== 'nao',
 		refetchOnWindowFocus: false,
 	});
 	const managedCredit = useQuery({
 		...trpc.account.getManagedCreditStatus.queryOptions(),
-		enabled: selectedModel?.provider === 'nao',
+		enabled: hasProject && selectedModel?.provider === 'nao',
 		refetchOnWindowFocus: false,
 	});
 	const isSendBlocked =
 		!!parseBudgetError(error) ||
-		budgetStatus.data?.level === 'exceeded' ||
+		(hasProject && budgetStatus.data?.level === 'exceeded') ||
 		(selectedModel?.provider === 'nao' && !!parseManagedCreditsError(error)) ||
 		(selectedModel?.provider === 'nao' && managedCredit.data?.hasCredits === false);
 
@@ -393,10 +403,10 @@ function ChatInputBase({
 	const pendingCitation = useChatPendingCitation(chatId);
 	const isInputEmpty = !inputText.trim() && !attachmentUpload.hasAttachments && !pendingCitation;
 
-	const skills = useQuery(trpc.skill.list.queryOptions());
-	const databaseObjects = useQuery(trpc.project.getDatabaseObjects.queryOptions());
-	const hasSkills = Boolean(skills.data?.length);
-	const hasDatabases = Boolean(databaseObjects.data?.length);
+	const skills = useQuery({ ...trpc.skill.list.queryOptions(), enabled: hasProject });
+	const databaseObjects = useQuery({ ...trpc.project.getDatabaseObjects.queryOptions(), enabled: hasProject });
+	const hasSkills = hasProject && Boolean(skills.data?.length);
+	const hasDatabases = hasProject && Boolean(databaseObjects.data?.length);
 
 	const handleEditQueuedMessage = useCallback(
 		(text: string) => {
@@ -475,7 +485,9 @@ function ChatInputBase({
 					/>
 
 					<InputGroupAddon align='block-end'>
-						{(!isTranscribeReady || (!isRecording && !isTranscribing)) && <ChatInputModelSelect />}
+						{variant !== 'onboarding' && (!isTranscribeReady || (!isRecording && !isTranscribing)) && (
+							<ChatInputModelSelect isExample={mode === 'example'} />
+						)}
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
@@ -682,6 +694,8 @@ function ChatInputOnboardingBadge() {
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
 	const { isAdmin, isOrgAdmin } = usePermissions();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = project.data != null;
 	const selectedProvider = selectedModel?.provider;
 	const prevProviderRef = useRef(selectedProvider);
 
@@ -696,12 +710,12 @@ function BudgetBanner() {
 	const isManaged = selectedModel?.provider === 'nao';
 	const budgetStatus = useQuery({
 		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
-		enabled: !!selectedModel?.provider && !isManaged,
+		enabled: hasProject && !!selectedModel?.provider && !isManaged,
 		refetchOnWindowFocus: 'always',
 	});
 	const managedCredit = useQuery({
 		...trpc.account.getManagedCreditStatus.queryOptions(),
-		enabled: isManaged,
+		enabled: hasProject && isManaged,
 		refetchOnWindowFocus: false,
 	});
 

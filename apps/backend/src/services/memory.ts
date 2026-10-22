@@ -102,7 +102,7 @@ class MemoryService {
 	}
 
 	private async _resolveModel(
-		context: Pick<MemoryExtractionOptions, 'userId' | 'projectId' | 'chatId' | 'runId'>,
+		context: Pick<MemoryExtractionOptions, 'userId' | 'projectId' | 'chatId' | 'runId' | 'billingMode'>,
 		provider: LlmProvider,
 		modelId: string,
 	): Promise<ProviderModelResult | null> {

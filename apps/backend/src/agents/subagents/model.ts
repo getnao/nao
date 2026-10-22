@@ -25,6 +25,7 @@ export async function resolveSubagentModel(context: ToolContext, requestedModelI
 		chatId: context.chatId ?? undefined,
 		runId: context.usageRunId,
 		category: 'subagent',
+		billingMode: context.managedAiBillingMode,
 	});
 	if (!config) {
 		throw new Error(`The model ${selection.modelId} (${selection.provider}) could not be resolved.`);

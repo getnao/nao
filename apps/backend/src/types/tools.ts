@@ -35,6 +35,7 @@ export interface ToolContext {
 	/** The model the run itself uses; subagents inherit it unless the project pins another one. */
 	modelSelection?: LlmSelectedModel;
 	usageRunId?: string;
+	managedAiBillingMode?: 'wallet' | 'unbilled';
 	/**
 	 * How the run may use the project's semantic layer, resolved once from nao_config.yaml
 	 * and the admin settings. Null (or absent) when the project declares no semantic layer.

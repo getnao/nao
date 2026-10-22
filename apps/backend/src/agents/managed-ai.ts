@@ -13,7 +13,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as creditWalletService from '../services/credit-wallet.service';
 import type { TokenUsage } from '../types/chat';
 import type { ModelCosts, ModelSource } from '../types/llm';
-import type { ManagedAiUsageCategory, ManagedAiUsageStatus } from '../types/managed-ai-usage';
+import type { ManagedAiUsageCategory, ManagedAiUsageCostSource, ManagedAiUsageStatus } from '../types/managed-ai-usage';
 import { createProviderModel, getProviderMeta } from './providers';
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
@@ -26,6 +26,7 @@ export type ManagedAiUsageContext = {
 	messageId?: string;
 	runId?: string;
 	category: ManagedAiUsageCategory;
+	billingMode?: 'wallet' | 'unbilled';
 };
 
 export function isManagedAiEnabled(): boolean {
@@ -53,7 +54,7 @@ export const managedAiSource: ModelSource = {
 		if (!isManagedAiEnabled() || !apiKey || !usageContext?.userId || !isManagedModel(provider, modelId)) {
 			return null;
 		}
-		if (await hasOwnModels()) {
+		if (usageContext.billingMode !== 'unbilled' && (await hasOwnModels())) {
 			return null;
 		}
 		const orgId = usageContext.orgId ?? (await projectQueries.getProjectById(projectId))?.orgId ?? undefined;
@@ -224,11 +225,14 @@ async function prepareCall(
 	if (!context.userId) {
 		throw new Error('Managed AI usage requires an initiating user.');
 	}
-	if (!context.orgId) {
-		throw new Error('Managed AI usage requires a billed organization.');
-	}
 	if (!rates) {
 		throw new Error('Managed model has no configured token pricing.');
+	}
+	if (context.billingMode === 'unbilled') {
+		return;
+	}
+	if (!context.orgId) {
+		throw new Error('Managed AI usage requires a billed organization.');
 	}
 	await creditWalletService.reserveManagedAiCredits(
 		context.orgId,
@@ -254,42 +258,48 @@ type RecordManagedAiUsageOptions = {
 async function recordManagedAiUsage(options: RecordManagedAiUsageOptions): Promise<void> {
 	const tokenUsage = toTokenUsage(options.usage);
 	const costs = calculateCosts(tokenUsage, options.rates);
-	const costSource = options.rates ? (options.status === 'completed' ? 'price_book' : 'estimated') : 'unknown';
-	await creditWalletService.recordManagedAiUsageAndChargeWallet(
-		{
-			operationId: options.operationId,
-			runId: options.context.runId ?? options.operationId,
-			userId: options.context.userId,
-			orgId: options.context.orgId,
-			projectId: options.context.projectId,
-			chatId: options.context.chatId,
-			chatMessageId: options.context.messageId,
-			category: options.context.category,
-			llmProvider: 'nao',
-			llmModelId: options.modelId,
-			status: options.status,
-			finishReason: options.finishReason,
-			providerRequestId: options.providerRequestId,
-			inputTotalTokens: tokenUsage.inputTotalTokens,
-			inputNoCacheTokens: tokenUsage.inputNoCacheTokens ?? 0,
-			inputCacheReadTokens: tokenUsage.inputCacheReadTokens ?? 0,
-			inputCacheWriteTokens: tokenUsage.inputCacheWriteTokens ?? 0,
-			outputTotalTokens: tokenUsage.outputTotalTokens ?? 0,
-			outputTextTokens: tokenUsage.outputTextTokens,
-			outputReasoningTokens: tokenUsage.outputReasoningTokens ?? 0,
-			totalTokens: tokenUsage.totalTokens,
-			inputNoCacheRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.inputNoCache),
-			inputCacheReadRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.inputCacheRead),
-			inputCacheWriteRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.inputCacheWrite),
-			outputRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.output),
-			...costs,
-			upstreamCostMicroUsd: costs.total,
-			costSource,
-			startedAt: options.startedAt,
-			completedAt: new Date(),
-		},
-		costs.total ?? 0,
-	);
+	const costSource: ManagedAiUsageCostSource = options.rates
+		? options.status === 'completed'
+			? 'price_book'
+			: 'estimated'
+		: 'unknown';
+	const usage = {
+		operationId: options.operationId,
+		runId: options.context.runId ?? options.operationId,
+		userId: options.context.userId,
+		orgId: options.context.orgId,
+		projectId: options.context.projectId,
+		chatId: options.context.chatId,
+		chatMessageId: options.context.messageId,
+		category: options.context.category,
+		llmProvider: 'nao' as const,
+		llmModelId: options.modelId,
+		status: options.status,
+		finishReason: options.finishReason,
+		providerRequestId: options.providerRequestId,
+		inputTotalTokens: tokenUsage.inputTotalTokens,
+		inputNoCacheTokens: tokenUsage.inputNoCacheTokens ?? 0,
+		inputCacheReadTokens: tokenUsage.inputCacheReadTokens ?? 0,
+		inputCacheWriteTokens: tokenUsage.inputCacheWriteTokens ?? 0,
+		outputTotalTokens: tokenUsage.outputTotalTokens ?? 0,
+		outputTextTokens: tokenUsage.outputTextTokens,
+		outputReasoningTokens: tokenUsage.outputReasoningTokens ?? 0,
+		totalTokens: tokenUsage.totalTokens,
+		inputNoCacheRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.inputNoCache),
+		inputCacheReadRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.inputCacheRead),
+		inputCacheWriteRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.inputCacheWrite),
+		outputRateMicroUsdPerMillionTokens: toMicroUsd(options.rates?.output),
+		...costs,
+		upstreamCostMicroUsd: costs.total,
+		costSource,
+		startedAt: options.startedAt,
+		completedAt: new Date(),
+	};
+	if (options.context.billingMode === 'unbilled') {
+		await creditWalletService.recordUnbilledManagedAiUsage(usage);
+		return;
+	}
+	await creditWalletService.recordManagedAiUsageAndChargeWallet(usage, costs.total ?? 0);
 }
 
 function resolveRates(provider: LlmProvider, modelId: string, declaredCosts?: ModelCosts): ModelCosts | undefined {

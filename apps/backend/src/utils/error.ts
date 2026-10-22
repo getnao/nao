@@ -1,3 +1,5 @@
+import type { ExampleChatAllowanceScope } from '../types/example-chat-allowance';
+
 export type HandlerErrorCode = 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT';
 
 /**
@@ -29,6 +31,13 @@ export class ManagedCreditsExhaustedError extends HandlerError {
 			"Your organization's nao-managed AI credits have been used. Add a project provider key to continue.",
 		);
 		this.name = 'ManagedCreditsExhaustedError';
+	}
+}
+
+export class ExampleAllowanceExhaustedError extends HandlerError {
+	constructor(readonly scope: ExampleChatAllowanceScope) {
+		super('FORBIDDEN', 'The example chat allowance has been used.');
+		this.name = 'ExampleAllowanceExhaustedError';
 	}
 }
 

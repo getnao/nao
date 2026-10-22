@@ -14,7 +14,7 @@ import type {
 	LanguageModelV3Usage,
 } from '@ai-sdk/provider';
 import Database from 'better-sqlite3';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { type ManagedAiUsageContext, withManagedAiUsageMetering } from '../src/agents/managed-ai';
@@ -263,6 +263,33 @@ describe('managed AI usage and organization credits', () => {
 		expect(providerCall).not.toHaveBeenCalled();
 	});
 
+	it('records unbilled managed usage without touching an organization wallet', async () => {
+		const providerCall = vi.fn(async () => generateResult());
+		const model = withManagedAiUsageMetering(createModel(providerCall), 'nao', 'gpt-5.6-sol', {
+			userId: MANAGED_USER_ID,
+			projectId: PROJECT_ID,
+			category: 'chat',
+			billingMode: 'unbilled',
+		});
+		const before = await getCreditSummary(ORG_ID);
+
+		await model.doGenerate({} as LanguageModelV3CallOptions);
+
+		const rows = await db
+			.select()
+			.from(s.managedAiUsage)
+			.where(and(eq(s.managedAiUsage.userId, MANAGED_USER_ID), isNull(s.managedAiUsage.orgId)));
+		expect(providerCall).toHaveBeenCalledOnce();
+		expect(rows).toEqual([
+			expect.objectContaining({
+				llmModelId: 'gpt-5.6-sol',
+				customerChargeMicroUsd: 0,
+				walletId: null,
+			}),
+		]);
+		expect(await getCreditSummary(ORG_ID)).toEqual(before);
+	});
+
 	it('records and charges one row per managed invocation before the assistant message is persisted', async () => {
 		const context: ManagedAiUsageContext = {
 			userId: MANAGED_USER_ID,
@@ -277,7 +304,10 @@ describe('managed AI usage and organization credits', () => {
 		const streamed = await model.doStream({} as LanguageModelV3CallOptions);
 		await consume(streamed.stream);
 
-		const rows = await db.select().from(s.managedAiUsage).where(eq(s.managedAiUsage.userId, MANAGED_USER_ID));
+		const rows = await db
+			.select()
+			.from(s.managedAiUsage)
+			.where(and(eq(s.managedAiUsage.userId, MANAGED_USER_ID), eq(s.managedAiUsage.orgId, ORG_ID)));
 		expect(rows).toHaveLength(2);
 		expect(rows).toEqual(
 			expect.arrayContaining([

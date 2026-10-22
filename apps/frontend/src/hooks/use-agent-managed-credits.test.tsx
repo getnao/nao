@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => {
 	const invalidateQueries = vi.fn();
 	return {
 		agentConfig: null as TestAgentConfig | null,
+		currentProject: { id: 'project-id' } as { id: string } | null,
 		initialModel: { provider: 'nao', modelId: 'managed-model' } as LlmSelectedModel,
 		invalidateQueries,
 		navigate: vi.fn(),
@@ -52,7 +53,9 @@ vi.mock('@ai-sdk/react', () => ({
 
 vi.mock('@tanstack/react-query', () => ({
 	useMutation: () => ({ mutateAsync: vi.fn() }),
-	useQuery: () => ({ data: mocks.initialModel }),
+	useQuery: (options: { queryKey?: string[] }) => ({
+		data: options.queryKey?.[0] === 'current-project' ? mocks.currentProject : mocks.initialModel,
+	}),
 	useQueryClient: () => mocks.queryClient,
 }));
 
@@ -126,7 +129,8 @@ vi.mock('@/main', () => ({
 			get: { queryKey: () => ['chat'] },
 		},
 		project: {
-			getDefaultChatModel: { queryOptions: () => ({}) },
+			getCurrent: { queryOptions: () => ({ queryKey: ['current-project'] }) },
+			getDefaultChatModel: { queryOptions: () => ({ queryKey: ['default-model'] }) },
 			listAvailableTranscribeModels: { queryKey: () => ['transcribe-models'] },
 		},
 	},
@@ -175,6 +179,7 @@ vi.mock('@/stores/chat-message-queue', () => ({
 describe('useAgent managed credit refresh', () => {
 	beforeEach(() => {
 		mocks.agentConfig = null;
+		mocks.currentProject = { id: 'project-id' };
 		mocks.transportConfig = null;
 		mocks.invalidateQueries.mockReset();
 	});
@@ -196,5 +201,17 @@ describe('useAgent managed credit refresh', () => {
 		});
 
 		expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['credit-summary'] });
+	});
+
+	it('does not send a stale project model for a project-less example chat', () => {
+		mocks.currentProject = null;
+		renderHook(() => useAgent());
+
+		const request = mocks.transportConfig!.prepareSendMessagesRequest({
+			body: {},
+			messages: [{ role: 'user' }],
+		}) as { body: { model?: LlmSelectedModel } };
+
+		expect(request.body.model).toBeUndefined();
 	});
 });

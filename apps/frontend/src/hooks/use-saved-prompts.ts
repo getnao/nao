@@ -3,7 +3,16 @@ import type { SavedPrompt } from '@nao/backend/saved-prompts';
 import { trpc } from '@/main';
 
 export function useSavedPromptsQuery() {
-	return useQuery(trpc.project.getSavedPrompts.queryOptions());
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const savedPromptsQuery = useQuery({
+		...trpc.project.getSavedPrompts.queryOptions(),
+		enabled: project.isError || project.data != null,
+	});
+	return {
+		...savedPromptsQuery,
+		data: project.data === null ? undefined : savedPromptsQuery.data,
+		isLoading: project.isPending || savedPromptsQuery.isLoading,
+	};
 }
 
 /** CRUD mutations for saved prompts */

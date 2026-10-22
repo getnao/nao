@@ -239,6 +239,7 @@ export async function buildToolContext(opts: {
 	supportsCustomCharts?: boolean;
 	modelSelection?: LlmSelectedModel;
 	usageRunId?: string;
+	managedAiBillingMode?: ManagedAiUsageContext['billingMode'];
 	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
@@ -248,6 +249,7 @@ export async function buildToolContext(opts: {
 		adminMode: opts.adminMode ?? false,
 		...(opts.modelSelection && { modelSelection: opts.modelSelection }),
 		...(opts.usageRunId && { usageRunId: opts.usageRunId }),
+		...(opts.managedAiBillingMode && { managedAiBillingMode: opts.managedAiBillingMode }),
 	};
 }
 
@@ -369,6 +371,8 @@ export class AgentService {
 			isBudgetChecked?: boolean;
 			/** The request boundary has already authorized access to an internal system project. */
 			projectAccessAlreadyAuthorized?: boolean;
+			/** Records managed usage without charging an organization wallet. */
+			unbilledManagedAiUsage?: boolean;
 		} = {},
 	): Promise<AgentManager> {
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
@@ -385,6 +389,7 @@ export class AgentService {
 			chatId: options.attributeUsageToChat === false ? undefined : chat.id,
 			runId: crypto.randomUUID(),
 			category: options.usageCategory ?? 'chat',
+			billingMode: options.unbilledManagedAiUsage ? 'unbilled' : 'wallet',
 		};
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, usageContext);
 		const [agentSettings, customBoundaries] = await Promise.all([
@@ -401,6 +406,7 @@ export class AgentService {
 			supportsCustomCharts: options.supportsCustomCharts,
 			modelSelection: resolvedLlmSelectedModel,
 			usageRunId: usageContext.runId,
+			managedAiBillingMode: usageContext.billingMode,
 			projectAccessAlreadyAuthorized: options.projectAccessAlreadyAuthorized,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
@@ -569,6 +575,7 @@ export class AgentManager {
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
 			runId: this._usageContext.runId,
+			billingMode: this._usageContext.billingMode,
 			messages: workingMessages,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
@@ -852,6 +859,7 @@ export class AgentManager {
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
 			runId: this._usageContext.runId,
+			billingMode: this._usageContext.billingMode,
 		});
 	}
 
@@ -881,6 +889,7 @@ export class AgentManager {
 			chatId: this.chat.id,
 			runId: this._usageContext.runId,
 			category: 'title',
+			billingMode: this._usageContext.billingMode,
 		});
 		if (!modelResult) {
 			return;

@@ -559,6 +559,22 @@ export async function reserveManagedAiCredits(
 	});
 }
 
+export async function recordUnbilledManagedAiUsage(
+	usage: Omit<NewManagedAiUsage, 'id' | 'walletId' | 'isManaged' | 'customerChargeMicroUsd'>,
+): Promise<DBManagedAiUsage | null> {
+	const values = {
+		...usage,
+		walletId: null,
+		isManaged: true,
+		customerChargeMicroUsd: 0,
+	};
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		return db.insert(s.managedAiUsage).values(values).onConflictDoNothing().returning().get() ?? null;
+	}
+	const [created] = await db.insert(s.managedAiUsage).values(values).onConflictDoNothing().returning().execute();
+	return created ?? null;
+}
+
 export async function recordManagedAiUsageAndChargeWallet(
 	usage: Omit<NewManagedAiUsage, 'id' | 'walletId' | 'isManaged'>,
 	customerChargeMicroUsd: number,

@@ -610,6 +610,13 @@
       "when": 1792664180888,
       "tag": "0086_managed_ai_usage_wallet",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792665673401,
+      "tag": "0087_example_chat_allowance",
+      "breakpoints": true
     }
   ]
 }

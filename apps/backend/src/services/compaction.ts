@@ -2,6 +2,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import { ModelMessage, Tool } from 'ai';
 
 import { CompactionLLM } from '../agents/compaction';
+import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import type { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
@@ -36,6 +37,7 @@ interface CompactConversationOptions {
 	provider: LlmProvider;
 	modelId: string;
 	runId?: string;
+	billingMode?: ManagedAiUsageContext['billingMode'];
 	messages: ModelMessage[];
 	tools: Record<string, Tool>;
 	maxOutputTokens: number;
@@ -150,7 +152,13 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const compaction = await this._resolveCompactionLLM(opts.chat, opts.provider, opts.modelId, opts.runId);
+		const compaction = await this._resolveCompactionLLM(
+			opts.chat,
+			opts.provider,
+			opts.modelId,
+			opts.runId,
+			opts.billingMode,
+		);
 		if (!compaction) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
@@ -182,6 +190,7 @@ export class CompactionService {
 		provider: LlmProvider,
 		selectedModelId: string,
 		runId?: string,
+		billingMode?: ManagedAiUsageContext['billingMode'],
 	): Promise<ResolvedCompactionLLM | undefined> {
 		const pinned = await resolveDefaultModelSelection(chat.projectId, 'compaction');
 		const effectiveProvider = pinned?.provider ?? provider;
@@ -198,6 +207,7 @@ export class CompactionService {
 			chatId: chat.id,
 			runId,
 			category: 'compaction',
+			billingMode,
 		});
 		if (!model) {
 			return undefined;
