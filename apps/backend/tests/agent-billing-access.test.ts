@@ -100,8 +100,9 @@ describe('agent route billing access', () => {
 					project: { id: 'project-1' },
 					body,
 					headers: {},
+					raw: { once: vi.fn() },
 				},
-				{},
+				{ raw: { once: vi.fn(), writableEnded: false } },
 			),
 		).rejects.toBe(accessError);
 

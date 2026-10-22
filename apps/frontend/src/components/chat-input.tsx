@@ -28,7 +28,7 @@ import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.prov
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { useAttachmentUpload } from '@/hooks/use-attachment-upload';
-import { parseBudgetError } from '@/lib/ai';
+import { parseBudgetError, parseManagedCreditsError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useModelSelection } from '@/hooks/use-model-selection';
@@ -163,10 +163,21 @@ function ChatInputBase({
 
 	const budgetStatus = useQuery({
 		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
-		enabled: !!selectedModel?.provider,
+		enabled: !!selectedModel?.provider && selectedModel.provider !== 'nao',
 		refetchOnWindowFocus: false,
 	});
-	const isBudgetExceeded = !!parseBudgetError(error) || budgetStatus.data?.level === 'exceeded';
+	const managedCredit = useQuery({
+		...trpc.account.getManagedCreditStatus.queryOptions(),
+		enabled: selectedModel?.provider === 'nao',
+		refetchOnWindowFocus: false,
+	});
+	const isSendBlocked =
+		!!parseBudgetError(error) ||
+		budgetStatus.data?.level === 'exceeded' ||
+		(selectedModel?.provider === 'nao' && !!parseManagedCreditsError(error)) ||
+		(selectedModel?.provider === 'nao' &&
+			managedCredit.data?.balanceMicroUsd !== undefined &&
+			managedCredit.data.balanceMicroUsd <= 0);
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -302,7 +313,7 @@ function ChatInputBase({
 
 			if (
 				(isRunning && !allowQueueing) ||
-				isBudgetExceeded ||
+				isSendBlocked ||
 				attachmentUpload.isPreparing ||
 				attachmentUpload.hasErrors
 			) {
@@ -337,7 +348,7 @@ function ChatInputBase({
 			onSubmitMessage,
 			isRunning,
 			allowQueueing,
-			isBudgetExceeded,
+			isSendBlocked,
 			setMentions,
 			promptRef,
 			attachmentUpload,
@@ -501,14 +512,14 @@ function ChatInputBase({
 							{allowQueueing && isRunning ? (
 								<ChatButton
 									showStop={isInputEmpty}
-									disabled={!isInputEmpty && isBudgetExceeded}
+									disabled={!isInputEmpty && isSendBlocked}
 									onClick={isInputEmpty ? cancelAgent : handleSubmitMessage}
 									type='button'
 								/>
 							) : (
 								<ChatButton
 									showStop={isRunning}
-									disabled={isLoadingMessages || isInputEmpty || (!isRunning && isBudgetExceeded)}
+									disabled={isLoadingMessages || isInputEmpty || (!isRunning && isSendBlocked)}
 									onClick={isRunning ? cancelAgent : handleSubmitMessage}
 									type='button'
 								/>
@@ -661,37 +672,72 @@ function ChatInputOnboardingBadge() {
 
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
-	const prevProviderRef = useRef(selectedModel?.provider);
+	const { isAdmin } = usePermissions();
+	const selectedProvider = selectedModel?.provider;
+	const prevProviderRef = useRef(selectedProvider);
 
 	useEffect(() => {
 		const prev = prevProviderRef.current;
-		prevProviderRef.current = selectedModel?.provider;
-		if (prev && prev !== selectedModel?.provider && parseBudgetError(error)) {
+		prevProviderRef.current = selectedProvider;
+		if (prev && prev !== selectedProvider && (parseBudgetError(error) || parseManagedCreditsError(error))) {
 			clearError();
 		}
-	}, [selectedModel?.provider, error, clearError]);
+	}, [selectedProvider, error, clearError]);
 
+	const isManaged = selectedModel?.provider === 'nao';
 	const budgetStatus = useQuery({
 		...trpc.budget.checkBudgetStatus.queryOptions({ provider: selectedModel?.provider ?? 'openai' }),
-		enabled: !!selectedModel?.provider,
+		enabled: !!selectedModel?.provider && !isManaged,
+		refetchOnWindowFocus: 'always',
+	});
+	const managedCredit = useQuery({
+		...trpc.account.getManagedCreditStatus.queryOptions(),
+		enabled: isManaged,
 		refetchOnWindowFocus: false,
 	});
 
-	const errorMessage = parseBudgetError(error);
-	const level = errorMessage ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
-	const proactiveMessage = level !== 'ok' ? budgetStatus.data?.message : null;
-	const message = errorMessage ?? proactiveMessage;
+	const managedError = parseManagedCreditsError(error);
+	const balanceMicroUsd = managedCredit.data?.balanceMicroUsd;
+	const managedExhausted =
+		isManaged && (managedError !== null || (balanceMicroUsd !== undefined && balanceMicroUsd <= 0));
+	const budgetError = parseBudgetError(error);
+	const budgetLevel = budgetError ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
+	const budgetMessage = budgetError ?? (budgetLevel !== 'ok' ? budgetStatus.data?.message : null);
+	const managedMessage =
+		managedError ??
+		(managedExhausted
+			? 'Your organization has no nao-managed AI credits available. Existing projects, chats, and data remain available.'
+			: null);
+	const message = isManaged ? managedMessage : budgetMessage;
 
 	if (!message) {
 		return null;
 	}
 
-	const isExceeded = level === 'exceeded';
+	const isExceeded = managedExhausted || budgetLevel === 'exceeded';
 
 	return (
 		<div className='mb-2 flex items-start gap-2.5 rounded-2xl border border-input/50 bg-muted/50 px-3 py-2.5 text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-200'>
 			<AlertTriangle className={cn('size-4 shrink-0 mt-0.5', isExceeded ? 'text-red-500' : 'text-amber-500')} />
-			<p className='flex-1 min-w-0'>{message}</p>
+			<p className='flex-1 min-w-0'>
+				{message}
+				{managedExhausted &&
+					(isAdmin ? (
+						<>
+							{' '}
+							<Link
+								to='/settings/project/agent'
+								search={{ tab: 'models' }}
+								className='font-medium text-primary underline underline-offset-2 hover:text-primary/80'
+							>
+								Add a provider key
+							</Link>{' '}
+							to continue.
+						</>
+					) : (
+						' Ask a project admin to add a provider key to continue.'
+					))}
+			</p>
 		</div>
 	);
 }

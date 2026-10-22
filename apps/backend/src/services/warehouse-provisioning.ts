@@ -25,6 +25,7 @@ import {
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger, serializeError } from '../utils/logger';
 import { createNewProject, createTempProjectDir } from '../utils/project-import.utils';
+import { reconcileOrganizationSetupGrant } from './credit-grant.service';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
@@ -559,6 +560,7 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 			temporaryDirectory: null,
 			finishedAt: new Date(),
 		});
+		await reconcileOrganizationSetupGrant(job.projectId);
 	} catch (error) {
 		const serializedError = serializeError(error);
 		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';

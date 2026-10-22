@@ -8,6 +8,7 @@ import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
+import { recordOrganizationSetupCandidate } from '../services/credit-grant.service';
 
 export function createTempProjectDir(prefix: string): string {
 	const dir = path.resolve(env.NAO_PROJECTS_DIR, `.${prefix}-${crypto.randomUUID()}`);
@@ -92,6 +93,7 @@ export async function createNewProject({
 	});
 
 	await ensureContextRecommendationsScheduleForNewProject(project.id);
+	await recordOrganizationSetupCandidate(project.id);
 
 	return { projectId: project.id, projectName, status: 'created' as const };
 }
@@ -128,5 +130,6 @@ export async function replaceExistingProject({
 	}
 
 	await projectQueries.touchProjectUpdatedAt(project.id);
+	await recordOrganizationSetupCandidate(project.id);
 	return { projectId: project.id, projectName, status: 'updated' as const };
 }

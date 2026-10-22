@@ -149,6 +149,7 @@ export type ChatReplayFeedbackState = (typeof CHAT_REPLAY_FEEDBACK_STATES)[numbe
 export const NO_CACHE_SCHEDULE = 'no-cache';
 
 export const LLM_PROVIDERS = [
+	'nao',
 	'openai',
 	'anthropic',
 	'google',
@@ -167,6 +168,7 @@ export const LLM_PROVIDERS = [
 ] as const;
 
 export const providerLabels: Record<LlmProviderKind, string> = {
+	nao: 'nao',
 	openai: 'OpenAI',
 	anthropic: 'Anthropic',
 	google: 'Google',

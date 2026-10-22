@@ -76,7 +76,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudBillingOnly || cloudBillingEnabled) &&
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled),
 				)
-				.filter((entry) => canSeeAdvancedSettings || accountPages.includes(entry.page)),
+				.filter((entry) => canSeeAdvancedSettings || viewerVisiblePages.includes(entry.page)),
 		[
 			betaSubagentsEnabled,
 			canSeeAdvancedSettings,
@@ -112,4 +112,4 @@ const settingsSuggestionPages = [
 	'/settings/usage',
 ];
 
-const accountPages = ['/settings/account'];
+const viewerVisiblePages = ['/settings/account', '/settings/usage'];

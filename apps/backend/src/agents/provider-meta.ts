@@ -357,6 +357,36 @@ const OPENAI_COMPATIBLE_CUSTOM: ModelCapabilities = {
 
 /** Provider metadata: models, auth config, env vars. No SDK imports — safe for frontend. */
 export const PROVIDER_META: ProviderMetaMap = {
+	nao: {
+		auth: { apiKey: 'none' },
+		managed: true,
+		extractorModelId: 'gpt-5.6-luna',
+		summaryModelId: 'gpt-5.6-luna',
+		models: [
+			{
+				id: 'gpt-5.6-luna',
+				name: 'GPT 5.6 Luna',
+				default: true,
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 0.2, inputCacheRead: 0.02, inputCacheWrite: 0.25, output: 1.2 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
+				id: 'gpt-5.6-terra',
+				name: 'GPT 5.6 Terra',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 12 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
+				id: 'gpt-5.6-sol',
+				name: 'GPT 5.6 Sol',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 30 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+		],
+	},
 	anthropic: {
 		auth: { apiKey: 'required' },
 		envVar: 'ANTHROPIC_API_KEY',
@@ -1102,6 +1132,10 @@ export function getProviderMeta(provider: LlmProvider): ProviderMetaMap[LlmProvi
 	return PROVIDER_META[providerKind(provider)];
 }
 
+export function isManagedProvider(provider: LlmProvider): boolean {
+	return getProviderMeta(provider).managed === true;
+}
+
 export function getDefaultModelId(provider: LlmProvider): string {
 	const models = getProviderMeta(provider).models;
 	const defaultModel = models.find((m) => m.default);
@@ -1150,6 +1184,7 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 	switch (providerKind(provider)) {
 		case 'anthropic':
 			return ANTHROPIC_ADAPTIVE;
+		case 'nao':
 		case 'openai':
 			return OPENAI_REASONING_CUSTOM;
 		case 'azure':

@@ -57,7 +57,10 @@ export class TestAgentService extends AgentService {
 			projectId,
 		};
 
-		const agent = await this.create(tempChat, modelSelection);
+		const agent = await this.create(tempChat, modelSelection, {
+			usageCategory: 'test',
+			attributeUsageToChat: false,
+		});
 		return agent.generate([userMessage], { costs });
 	}
 
@@ -68,6 +71,7 @@ export class TestAgentService extends AgentService {
 	 */
 	async runVerification(
 		projectId: string,
+		userId: string,
 		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
@@ -77,8 +81,13 @@ export class TestAgentService extends AgentService {
 		if (queryResults.size === 0) {
 			return { data: null, sql: null, error: 'The agent did not run any SQL query.' };
 		}
+
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
+		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, {
+			userId,
+			projectId,
+			category: 'test',
+		});
 
 		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 

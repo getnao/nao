@@ -28,6 +28,10 @@ vi.mock('../src/db/db', async () => {
 vi.mock('../src/services/context-explorer-git.service', () => ({
 	cleanupContextWorktree: vi.fn(),
 }));
+vi.mock('../src/services/credit-grant.service', () => ({
+	recordOrganizationJoinCandidate: vi.fn(),
+	recordProjectJoinCandidate: vi.fn(),
+}));
 
 import { and, eq } from 'drizzle-orm';
 

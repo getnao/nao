@@ -159,6 +159,9 @@ vi.mock('../src/utils/project-import.utils', () => ({
 	createNewProject: vi.fn(),
 	createTempProjectDir: vi.fn(),
 }));
+vi.mock('../src/services/credit-grant.service', () => ({
+	reconcileOrganizationSetupGrant: vi.fn(),
+}));
 vi.mock('../src/services/managed-github-repository', () => ({
 	deleteManagedGithubRepository: vi.fn(),
 	getManagedGithubRepositoryFullName: vi.fn(() => 'nao-org/nao-analytics-owned-project'),
@@ -185,6 +188,7 @@ import { spawn } from 'node:child_process';
 import * as projectQueries from '../src/queries/project.queries';
 import * as scheduledJobQueries from '../src/queries/scheduled-job.queries';
 import * as warehouseProvisioningJobQueries from '../src/queries/warehouse-provisioning-job.queries';
+import { reconcileOrganizationSetupGrant } from '../src/services/credit-grant.service';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
@@ -477,6 +481,7 @@ describe('warehouse provisioning', () => {
 			projectName: 'analytics',
 			projectDir: registeredProjectDirectory,
 		});
+		expect(reconcileOrganizationSetupGrant).toHaveBeenCalledWith('project-2');
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});
 
@@ -507,6 +512,7 @@ describe('warehouse provisioning', () => {
 		await vi.waitFor(async () => {
 			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
 		});
+		expect(reconcileOrganizationSetupGrant).not.toHaveBeenCalledWith('project-publish-failure');
 		expect(deleteManagedGithubRepository).toHaveBeenCalledWith('nao-org/nao-analytics-project');
 		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-publish-failure');
 		expect(fs.existsSync(registeredProjectDirectory)).toBe(false);

@@ -65,7 +65,7 @@ class MemoryService {
 		const provider = pinned?.provider ?? opts.provider;
 		const modelId =
 			pinned?.modelId ?? (await this._getExtractorModelId(opts.projectId, opts.provider, opts.modelId));
-		const model = await this._resolveModel(opts.projectId, provider, modelId);
+		const model = await this._resolveModel(opts, provider, modelId);
 		if (!model) {
 			return;
 		}
@@ -102,11 +102,14 @@ class MemoryService {
 	}
 
 	private async _resolveModel(
-		projectId: string,
+		context: Pick<MemoryExtractionOptions, 'userId' | 'projectId' | 'chatId' | 'runId'>,
 		provider: LlmProvider,
 		modelId: string,
 	): Promise<ProviderModelResult | null> {
-		const model = await resolveProviderModel(projectId, provider, modelId, false);
+		const model = await resolveProviderModel(context.projectId, provider, modelId, false, {
+			...context,
+			category: 'memory',
+		});
 		return model ? disableModelReasoning(provider, model) : null;
 	}
 
