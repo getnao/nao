@@ -32,7 +32,7 @@ export function SidebarBackToApp({ isCollapsed }: { isCollapsed: boolean }) {
 					)}
 				>
 					<a href={href} onClick={handleClick} aria-label={BACK_TO_APP_LABEL}>
-						<ArrowLeft className='size-4 transition-transform group-hover:-translate-x-0.5' />
+						<ArrowLeft className='size-4 transition-transform will-change-transform group-hover:-translate-x-0.5' />
 						<span className={cn('transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
 							{BACK_TO_APP_LABEL}
 						</span>
