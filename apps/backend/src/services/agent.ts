@@ -80,6 +80,7 @@ import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-con
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { STORY_LIBRARY_MOUNT } from '../utils/story-library';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
@@ -101,7 +102,7 @@ import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import { customStoryAuthoringError } from './story-mount';
-import { safeExpandStoryReferences } from './story-reference';
+import { listTrustedStoriesForPrompt, safeExpandStoryReferences } from './story-reference';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
 	type AgentUserGroupAccess,
@@ -169,10 +170,11 @@ export function resolveStoryMode(
 
 const MAX_SCHEMA_TABLES_WITH_COLUMNS = 15;
 
+const EXISTING_STORY_FIRST = `If a story in /${STORY_LIBRARY_MOUNT} already answers the request, whatever its format, hand it over instead of creating a duplicate and offer to build a new one`;
+
 const STORY_MODE_INSTRUCTIONS = {
-	classic:
-		'[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts]',
-	custom: '[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks]',
+	classic: `[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts. ${EXISTING_STORY_FIRST}]`,
+	custom: `[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks. ${EXISTING_STORY_FIRST}]`,
 } as const;
 
 export async function buildToolContext(opts: {
@@ -695,10 +697,13 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets] = await Promise.all([
+		const [mcpServers, sandboxSecrets, trustedStories] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
+				: Promise.resolve([]),
+			toolNames.includes('list') && toolNames.includes('read')
+				? listTrustedStoriesForPrompt({ userId: this.chat.userId, projectId: this.chat.projectId })
 				: Promise.resolve([]),
 		]);
 		const basePrompt = renderToMarkdown(
@@ -712,6 +717,7 @@ export class AgentManager {
 				customCharts,
 				mcpServers,
 				sandboxSecrets,
+				trustedStories,
 				semanticLayerMode: this._toolContext.semanticLayerMode,
 				templates,
 				repoNames,

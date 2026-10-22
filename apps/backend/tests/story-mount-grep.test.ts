@@ -18,6 +18,14 @@ vi.mock('../src/services/story-mount', async (importOriginal) => ({
 		{ virtualPath: '/stories/revenue/lib/format.js', content: 'export const a = 1;\n' + 'a'.repeat(5_000) + '!' },
 	],
 }));
+vi.mock('../src/services/story-library', () => ({
+	listStoryLibraryFilesToGrep: async () => [
+		{
+			virtualPath: '/story-library/story-1/queries.sql',
+			content: '-- query_id: q1\nselect sum(revenue) from orders',
+		},
+	],
+}));
 
 let projectFolder: string;
 
@@ -50,6 +58,26 @@ describe('grep over custom story drafts', () => {
 		await run({ pattern: '(a+)+$', path: '/stories/revenue' });
 
 		expect(Date.now() - startedAt).toBeLessThan(5_000);
+	});
+});
+
+describe('grep over the story library', () => {
+	it('searches the library when the path targets it', async () => {
+		const output = await run({ pattern: 'revenue', path: '/story-library' });
+
+		expect(output.matches).toEqual([
+			{
+				path: '/story-library/story-1/queries.sql',
+				line_number: 2,
+				line_content: 'select sum(revenue) from orders',
+			},
+		]);
+	});
+
+	it('leaves the library out of a pathless search', async () => {
+		const output = await run({ pattern: 'revenue' });
+
+		expect(output.matches.map((match) => match.path)).not.toContain('/story-library/story-1/queries.sql');
 	});
 });
 
