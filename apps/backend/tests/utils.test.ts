@@ -92,6 +92,20 @@ describe('truncateMiddle', () => {
 	it('uses a custom ellipsis string', () => {
 		expect(truncateMiddle('abcdefghij', 8, '--')).toBe('abc--hij');
 	});
+
+	it('never splits an emoji into a lone surrogate on either side of the cut', () => {
+		const headCut = truncateMiddle(`${'x'.repeat(49)}😀${'y'.repeat(100)}`, 103);
+		const tailCut = truncateMiddle(`${'x'.repeat(100)}😀${'y'.repeat(49)}`, 103);
+
+		expect(headCut.isWellFormed()).toBe(true);
+		expect(tailCut.isWellFormed()).toBe(true);
+		expect(headCut).toBe(`${'x'.repeat(49)}...${'y'.repeat(50)}`);
+		expect(tailCut).toBe(`${'x'.repeat(50)}...${'y'.repeat(49)}`);
+	});
+
+	it('never returns more than maxLength when only the ellipsis fits', () => {
+		expect(truncateMiddle('abcdef', 4)).toBe('...');
+	});
 });
 
 describe('replaceEnvVars', () => {

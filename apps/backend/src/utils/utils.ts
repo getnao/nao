@@ -192,11 +192,33 @@ export const truncateMiddle = (str: string, maxLength: number, ellipsis: string 
 		return str;
 	}
 	if (maxLength <= ellipsis.length) {
-		return str.slice(0, maxLength);
+		return sliceHead(str, maxLength);
 	}
 	const half = Math.floor((maxLength - ellipsis.length) / 2);
-	return str.slice(0, half) + ellipsis + str.slice(-half);
+	return sliceHead(str, half) + ellipsis + sliceTail(str, half);
 };
+
+/**
+ * Keeps the first `length` UTF-16 units, one fewer when the cut would split a surrogate pair (emoji):
+ * a lone surrogate makes the whole LLM request body invalid JSON for strict parsers.
+ */
+export const sliceHead = (str: string, length: number): string => {
+	const end = isHighSurrogate(str.charCodeAt(length - 1)) ? length - 1 : length;
+	return str.slice(0, end);
+};
+
+/** Keeps the last `length` UTF-16 units, one fewer when the cut would split a surrogate pair. */
+const sliceTail = (str: string, length: number): string => {
+	if (length <= 0) {
+		return '';
+	}
+	const start = Math.max(str.length - length, 0);
+	return str.slice(isLowSurrogate(str.charCodeAt(start)) ? start + 1 : start);
+};
+
+const isHighSurrogate = (charCode: number): boolean => charCode >= 0xd800 && charCode <= 0xdbff;
+
+const isLowSurrogate = (charCode: number): boolean => charCode >= 0xdc00 && charCode <= 0xdfff;
 
 export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');
