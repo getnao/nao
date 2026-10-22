@@ -215,8 +215,11 @@ export const storyRoutes = {
 			storyId: story.id,
 			chatId: story.chatId,
 			slug: story.slug,
+			title: story.title,
 			format: story.format,
 			isOwner: ownerId === ctx.user.id,
+			isArchived: story.archivedAt !== null,
+			projectId,
 		};
 	}),
 

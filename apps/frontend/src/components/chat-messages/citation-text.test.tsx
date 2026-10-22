@@ -18,6 +18,17 @@ vi.mock('@/main', () => ({
 	trpcClient: { support: { submit: { mutate: mocks.submitSupportRequest } } },
 }));
 
+vi.mock('./story-reference-card', () => ({
+	StoryReferenceCard: ({ storyId, title }: { storyId: string; title: string }) => (
+		<div data-testid='story-card'>{`${storyId}:${title}`}</div>
+	),
+	StoryReferenceLink: ({ storyId, children }: { storyId: string; children: React.ReactNode }) => (
+		<span data-testid='story-link' data-story-id={storyId}>
+			{children}
+		</span>
+	),
+}));
+
 vi.mock('@/hooks/use-attachment-download', () => ({
 	useAttachmentDownload: () => ({ mutate: vi.fn(), isPending: false, error: null }),
 }));
@@ -298,5 +309,30 @@ describe('AssistantTextWithCitation', () => {
 		expect(screen.getByText('Look at secrets')).toBeDefined();
 		expect(screen.queryByRole('button')).toBeNull();
 		expect(screen.queryByText(/saved-file/)).toBeNull();
+	});
+
+	it('renders a story reference on its own line as a story card between the text around it', () => {
+		const { container } = renderAnswer(
+			'This story already answers it:\n\n<story-reference id="story-1">Top customers</story-reference>\n\nWant a new version?',
+		);
+
+		const card = screen.getByTestId('story-card');
+		expect(card.textContent).toBe('story-1:Top customers');
+		expect(container.textContent).toBe('This story already answers it:story-1:Top customersWant a new version?');
+	});
+
+	it('renders a story reference inside a sentence as a link to the story', () => {
+		renderAnswer('See <story-reference id="story-1">Top customers</story-reference> for details.');
+
+		expect(screen.queryByTestId('story-card')).toBeNull();
+		expect(screen.getByTestId('story-link').dataset.storyId).toBe('story-1');
+		expect(screen.getByTestId('story-link').textContent).toBe('Top customers');
+	});
+
+	it('keeps a story reference inside a code block as code', () => {
+		const { container } = renderAnswer('```\n<story-reference id="story-1">Top customers</story-reference>\n```');
+
+		expect(screen.queryByTestId('story-card')).toBeNull();
+		expect(container.querySelector('code')?.textContent).toContain('<story-reference id="story-1">');
 	});
 });

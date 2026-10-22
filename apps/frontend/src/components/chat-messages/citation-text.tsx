@@ -1,9 +1,10 @@
 import { memo } from 'react';
 import { Streamdown } from 'streamdown';
-import { normalizeCitationMarkers, stripAssistantTags } from '@nao/shared';
+import { normalizeCitationMarkers, STORY_REFERENCE_TAG, stripAssistantTags } from '@nao/shared';
 
 import { CitationPopover } from '@/components/citation-popover';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
+import { StoryReferenceCard, StoryReferenceLink } from '@/components/chat-messages/story-reference-card';
 import { StreamingMarkdown } from '@/components/chat-messages/streaming-markdown';
 import { ContactSupportButton } from '@/components/contact-support-dialog';
 import { FileChip } from '@/components/file-chip';
@@ -11,12 +12,17 @@ import { isStoredFilePath } from '@/lib/attachments';
 import { markdownPlugins } from '@/lib/markdown';
 import { markdownLinkSafety } from '@/components/external-link-dialog';
 
+type AssistantTextSegment =
+	| { type: 'markdown'; text: string }
+	| { type: 'story-reference'; storyId: string; title: string };
+
 const CLOBBER_PREFIX = 'user-content-';
 const SETTLED_COMPONENTS = {
 	table: MarkdownTableRenderer,
 	'contact-support': ContactSupportRenderer,
 	'citation-number': CitationNumberRenderer,
 	'saved-file': SavedFileRenderer,
+	[STORY_REFERENCE_TAG]: StoryReferenceRenderer,
 };
 const STREAMING_COMPONENTS = {
 	table: MarkdownTableRenderer,
@@ -26,8 +32,12 @@ const ALLOWED_TAGS = {
 	'contact-support': [],
 	'citation-number': ['id', 'column'],
 	'saved-file': ['path'],
+	[STORY_REFERENCE_TAG]: ['id'],
 };
-const LITERAL_TAG_CONTENT = ['contact-support', 'citation-number', 'saved-file'];
+const LITERAL_TAG_CONTENT = ['contact-support', 'citation-number', 'saved-file', STORY_REFERENCE_TAG];
+const STORY_REFERENCE_LINE_PATTERN = new RegExp(
+	`^\\s*<${STORY_REFERENCE_TAG}\\s+id\\s*=\\s*["']([^"'\\s]+)["']\\s*>([^<\\r\\n]*)</${STORY_REFERENCE_TAG}\\s*>\\s*$`,
+);
 const INLINE_CODE_PATTERN = /(?<![\\`])`([^`\r\n]+)`(?!`)/g;
 const SUPPORT_LINK_PATTERN =
 	/\[([^\]\r\n]+)\]\(\s*<?mailto:support@getnao\.io>?(?:\s+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^)\r\n]*\)))?\s*\)/gi;
@@ -48,6 +58,23 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 		);
 	}
 
+	const segments = splitStoryReferenceCards(
+		replaceSupportLinks(unwrapBacktickedSavedFiles(normalizeCitationMarkers(placeMessageActionsLast(text)))),
+	);
+	return (
+		<>
+			{segments.map((segment, index) =>
+				segment.type === 'story-reference' ? (
+					<StoryReferenceCard key={index} storyId={segment.storyId} title={segment.title} />
+				) : (
+					<SettledMarkdown key={index} markdown={segment.text} />
+				),
+			)}
+		</>
+	);
+});
+
+function SettledMarkdown({ markdown }: { markdown: string }) {
 	return (
 		<Streamdown
 			linkSafety={markdownLinkSafety}
@@ -57,10 +84,10 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 			literalTagContent={LITERAL_TAG_CONTENT}
 			components={SETTLED_COMPONENTS}
 		>
-			{replaceSupportLinks(unwrapBacktickedSavedFiles(normalizeCitationMarkers(placeMessageActionsLast(text))))}
+			{markdown}
 		</Streamdown>
 	);
-});
+}
 
 function placeMessageActionsLast(markdown: string): string {
 	return markdown
@@ -173,35 +200,54 @@ function transformOutsideInlineCode(line: string, transform: (text: string) => s
 }
 
 function transformMarkdownOutsideCodeBlocks(markdown: string, transformLine: (line: string) => string): string {
+	return splitMarkdownLines(markdown)
+		.map(({ text, isCode }) => (isCode ? text : transformLine(text)))
+		.join('\n');
+}
+
+/** Story references written on a line of their own become cards between the markdown around them. */
+function splitStoryReferenceCards(markdown: string): AssistantTextSegment[] {
+	const segments: AssistantTextSegment[] = [];
+	let markdownLines: string[] = [];
+	const flushMarkdown = () => {
+		if (markdownLines.length > 0) {
+			segments.push({ type: 'markdown', text: markdownLines.join('\n') });
+			markdownLines = [];
+		}
+	};
+
+	for (const { text, isCode } of splitMarkdownLines(markdown)) {
+		const match = isCode ? null : STORY_REFERENCE_LINE_PATTERN.exec(text);
+		if (!match) {
+			markdownLines.push(text);
+			continue;
+		}
+		flushMarkdown();
+		segments.push({ type: 'story-reference', storyId: match[1], title: match[2].trim() });
+	}
+	flushMarkdown();
+	return segments;
+}
+
+function splitMarkdownLines(markdown: string): { text: string; isCode: boolean }[] {
 	let fence: { marker: string; length: number } | undefined;
 
-	return markdown
-		.split('\n')
-		.map((line) => {
-			const fenceMarker = getFenceMarker(line);
-			if (fence) {
-				if (
-					fenceMarker?.marker === fence.marker &&
-					fenceMarker.length >= fence.length &&
-					fenceMarker.isClosing
-				) {
-					fence = undefined;
-				}
-				return line;
+	return markdown.split('\n').map((text) => {
+		const fenceMarker = getFenceMarker(text);
+		if (fence) {
+			if (fenceMarker?.marker === fence.marker && fenceMarker.length >= fence.length && fenceMarker.isClosing) {
+				fence = undefined;
 			}
+			return { text, isCode: true };
+		}
 
-			if (fenceMarker) {
-				fence = fenceMarker;
-				return line;
-			}
+		if (fenceMarker) {
+			fence = fenceMarker;
+			return { text, isCode: true };
+		}
 
-			if (/^(?: {4}|\t)/.test(line)) {
-				return line;
-			}
-
-			return transformLine(line);
-		})
-		.join('\n');
+		return { text, isCode: /^(?: {4}|\t)/.test(text) };
+	});
 }
 
 function getFenceMarker(line: string): { marker: string; length: number; isClosing: boolean } | undefined {
@@ -227,6 +273,14 @@ function SavedFileRenderer({ path, children }: any) {
 	}
 
 	return <FileChip path={filePath} label={label || undefined} className='mx-0.5' />;
+}
+
+function StoryReferenceRenderer({ id, children }: any) {
+	const storyId = stripClobberPrefix(asText(id));
+	if (!storyId) {
+		return <>{children}</>;
+	}
+	return <StoryReferenceLink storyId={storyId}>{children}</StoryReferenceLink>;
 }
 
 const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
