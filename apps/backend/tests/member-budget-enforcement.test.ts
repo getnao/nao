@@ -57,4 +57,22 @@ describe('member budget enforcement', () => {
 		await expect(assertBudgetNotExceeded('project-id', 'openai', 'user-id')).rejects.toThrow();
 		expect(mocks.notify).not.toHaveBeenCalled();
 	});
+
+	it('applies the provider per-user limit when the member only has the default budget', async () => {
+		mocks.getProjectProviderBudgets.mockResolvedValue([
+			{ provider: 'openai', limitUsd: 0, perUserLimitUsd: 500, period: 'month' },
+		]);
+		mocks.resolveMemberBudgetUsage.mockResolvedValue({
+			limitUsd: 700,
+			source: 'default',
+			spendUsd: 520,
+			ratio: 520 / 700,
+			period: 'month',
+			resetsAt: new Date('2026-11-01T00:00:00.000Z'),
+		});
+
+		await expect(assertBudgetNotExceeded('project-id', 'openai', 'user-id')).rejects.toThrow(
+			"You've used 100% of your personal OpenAI budget.",
+		);
+	});
 });
