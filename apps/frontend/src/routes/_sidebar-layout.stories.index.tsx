@@ -227,7 +227,7 @@ function StoriesPage() {
 
 	useEffect(() => {
 		clearSelection();
-	}, [currentFolderId, activeProjectId, filters]);
+	}, [currentFolderId, activeProjectId, filters, searchQuery]);
 
 	const {
 		pinned,

@@ -90,9 +90,9 @@ export const analyticsEventRoutes = {
 			return rows;
 		}),
 
-	/** Aggregated page view counts per story, without viewer identities, used to sort the stories library. */
+	/** Page view counts of the stories the user can see, without viewer identities, for the stories library. */
 	storyViewCounts: projectProtectedProcedure.query(async ({ ctx }) => {
-		return analyticsEventQueries.countStoryViewsByProject(ctx.project.id);
+		return analyticsEventQueries.countStoryViewsForUser(ctx.project.id, ctx.user.id);
 	}),
 
 	/** Exports made in the browser, which the server never sees: table exports and saved files. */

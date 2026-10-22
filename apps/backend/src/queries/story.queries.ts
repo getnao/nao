@@ -454,6 +454,27 @@ async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
 	await db.delete(s.storyFolderItem).where(inArray(s.storyFolderItem.storyId, storyIds)).execute();
 }
 
+/** Matches `story` rows the user owns or that are shared with them within the project. */
+export function storyVisibleToUser(userId: string, projectId: string): SQL {
+	return sql`(
+		exists (
+			select 1 from ${s.chat}
+			where ${s.chat.id} = ${s.story.chatId} and ${s.chat.userId} = ${userId}
+		)
+		or (${s.story.chatId} is null and ${s.story.userId} = ${userId})
+		or exists (
+			select 1 from ${s.sharedStory}
+			where ${s.sharedStory.storyId} = ${s.story.id}
+			  and ${s.sharedStory.projectId} = ${projectId}
+			  and (
+				${s.sharedStory.userId} = ${userId}
+				or ${s.sharedStory.visibility} = 'project'
+				or ${sharedStoryGrantsUser(userId)}
+			  )
+		)
+	)`;
+}
+
 export async function canUserAccessStory(storyId: string, userId: string): Promise<boolean> {
 	const [owned] = await db
 		.select({ id: s.story.id })

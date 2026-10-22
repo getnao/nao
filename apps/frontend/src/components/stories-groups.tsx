@@ -289,7 +289,7 @@ export function StoryCard({
 							{item.author}
 						</div>
 						<div className='hidden lg:block w-16 shrink-0 pl-1.5 text-xs text-muted-foreground tabular-nums truncate'>
-							{VIEW_COUNT_FORMAT.format(item.viewCount)}
+							{item.viewCount === null ? '—' : VIEW_COUNT_FORMAT.format(item.viewCount)}
 						</div>
 						<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{formatRelativeDate(item.createdAt)}

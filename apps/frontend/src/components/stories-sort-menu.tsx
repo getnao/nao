@@ -45,7 +45,11 @@ export function StoriesSortMenu({ value, onChange }: { value: SortState; onChang
 		<DropdownMenu>
 			<SimpleTooltip content={description}>
 				<DropdownMenuTrigger asChild>
-					<Button variant='ghost' className={TOOLBAR_BUTTON_CLASS} aria-label={description}>
+					<Button
+						variant='ghost'
+						className={TOOLBAR_BUTTON_CLASS}
+						aria-label={`Sort: ${SORT_FIELD_LABELS[value.field]}, ${directionLabel?.toLowerCase()}`}
+					>
 						<DirectionIcon />
 						<span className='hidden md:inline text-muted-foreground'>Sort:</span>
 						{SORT_FIELD_LABELS[value.field]}

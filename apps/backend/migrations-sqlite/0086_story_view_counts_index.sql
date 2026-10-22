@@ -1,0 +1,1 @@
+CREATE INDEX `analytics_event_project_type_asset_story_idx` ON `analytics_event` (`project_id`,`type`,`asset_type`,`story_id`);

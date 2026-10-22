@@ -68,12 +68,7 @@ export function StoriesToolbar({
 
 function SelectionToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
 	return (
-		<Button
-			variant='ghost'
-			onClick={onToggle}
-			aria-pressed={active}
-			className={cn(TOOLBAR_BUTTON_CLASS, active && 'bg-accent')}
-		>
+		<Button variant='ghost' onClick={onToggle} className={cn(TOOLBAR_BUTTON_CLASS, active && 'bg-accent')}>
 			{active ? <X /> : <ListChecks />}
 			{active ? 'Cancel' : 'Select'}
 		</Button>

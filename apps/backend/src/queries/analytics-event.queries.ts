@@ -1,10 +1,11 @@
 import type { AnalyticsAssetType, AnalyticsEventType } from '@nao/shared/types';
-import { and, count, desc, eq, isNotNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, or, sql } from 'drizzle-orm';
 
 import type { DBAnalyticsEvent, NewAnalyticsEvent } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { storyVisibleToUser } from './story.queries';
 
 const THROTTLE_MS = 2 * 60 * 1_000;
 
@@ -88,16 +89,17 @@ export const listEventsForAsset = async (input: {
 	return rows.map((r) => ({ event: r.event, actorName: r.actorName }));
 };
 
-export const countStoryViewsByProject = async (projectId: string): Promise<Record<string, number>> => {
+export const countStoryViewsForUser = async (projectId: string, userId: string): Promise<Record<string, number>> => {
 	const rows = await db
 		.select({ storyId: s.analyticsEvent.storyId, views: count() })
 		.from(s.analyticsEvent)
+		.innerJoin(s.story, eq(s.story.id, s.analyticsEvent.storyId))
 		.where(
 			and(
 				eq(s.analyticsEvent.projectId, projectId),
 				eq(s.analyticsEvent.type, 'page_view'),
 				eq(s.analyticsEvent.assetType, 'story'),
-				isNotNull(s.analyticsEvent.storyId),
+				storyVisibleToUser(userId, projectId),
 			),
 		)
 		.groupBy(s.analyticsEvent.storyId)

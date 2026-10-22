@@ -430,11 +430,9 @@ function FolderCardLabel({ folder }: { folder: FolderItem }) {
 
 function FolderStoryCount({ count }: { count: number }) {
 	return (
-		<span
-			className='text-xs text-muted-foreground tabular-nums shrink-0'
-			aria-label={`${count} ${count === 1 ? 'story' : 'stories'}`}
-		>
-			{count}
+		<span className='text-xs text-muted-foreground tabular-nums shrink-0'>
+			<span aria-hidden='true'>{count}</span>
+			<span className='sr-only'>{`${count} ${count === 1 ? 'story' : 'stories'}`}</span>
 		</span>
 	);
 }

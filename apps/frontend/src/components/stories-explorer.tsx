@@ -66,7 +66,7 @@ export function StoriesExplorer({
 	const selectionActive = selectionMode || selectedStoryIds.size + selectedFolderIds.size > 0;
 
 	if (entries.length === 0) {
-		if (!hasSearch && !showArchived && activeFilterCount === 1 && filters.certifiedOnly) {
+		if (!hasSearch && !showArchived && !currentFolderId && activeFilterCount === 1 && filters.certifiedOnly) {
 			return <CertifiedStoriesEmptyState />;
 		}
 		if (isShowingResults) {

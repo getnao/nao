@@ -94,7 +94,7 @@ export type StoryItem = {
 	isFavorited: boolean;
 	sharing: StorySharingInfo | null;
 	isShared: boolean;
-	viewCount: number;
+	viewCount: number | null;
 	folderId: string | null;
 	isInPrivateContext: boolean;
 	link: { to: '/stories/$storyId'; params: { storyId: string } };
@@ -146,7 +146,7 @@ export function buildStoryItems({
 	sharedStories,
 	currentUserName,
 	favoriteStoryIds,
-	viewCountByStoryId = {},
+	viewCountByStoryId,
 	folderItemMap,
 	folders,
 }: {
@@ -196,7 +196,7 @@ export function buildStoryItems({
 			isFavorited,
 			sharing: story.sharing,
 			isShared: sharedEntry !== undefined,
-			viewCount: viewCountByStoryId[story.id] ?? 0,
+			viewCount: lookupViewCount(viewCountByStoryId, story.id),
 			folderId,
 			isInPrivateContext: isPrivateContext(folderId, folders),
 			link: storyLink(story.id),
@@ -225,7 +225,7 @@ export function buildStoryItems({
 			isFavorited,
 			sharing: null,
 			isShared: false,
-			viewCount: viewCountByStoryId[story.id] ?? 0,
+			viewCount: lookupViewCount(viewCountByStoryId, story.id),
 			folderId,
 			isInPrivateContext: isPrivateContext(folderId, folders),
 			link: storyLink(story.id),
@@ -255,7 +255,7 @@ export function buildStoryItems({
 				isFavorited,
 				sharing: story.sharing,
 				isShared: true,
-				viewCount: viewCountByStoryId[story.storyId] ?? 0,
+				viewCount: lookupViewCount(viewCountByStoryId, story.storyId),
 				folderId,
 				isInPrivateContext: false,
 				link: storyLink(story.storyId),
@@ -438,6 +438,10 @@ function compareFolderNames(sort: SortState): (a: FolderItem, b: FolderItem) => 
 	return (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) * multiplier;
 }
 
+function lookupViewCount(viewCountByStoryId: Record<string, number> | undefined, storyId: string): number | null {
+	return viewCountByStoryId ? (viewCountByStoryId[storyId] ?? 0) : null;
+}
+
 function storyLink(storyId: string): StoryItem['link'] {
 	return { to: '/stories/$storyId', params: { storyId } };
 }
@@ -497,7 +501,7 @@ function getSortValue(entry: ExplorerEntry, field: SortField, currentUserName: s
 		return getNameFallback(entry);
 	}
 	if (field === 'views') {
-		return entry.kind === 'folder' ? 0 : entry.story.viewCount;
+		return entry.kind === 'folder' ? 0 : (entry.story.viewCount ?? 0);
 	}
 	if (field === 'owner') {
 		return entry.kind === 'folder' ? currentUserName : entry.story.author;
