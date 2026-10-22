@@ -12,41 +12,35 @@ export function useFittingPageSize(
 	enabled: boolean,
 ): number {
 	const [pageSize, setPageSize] = useState(minimum);
-	const [blockResizes, setBlockResizes] = useState(0);
-
-	useLayoutEffect(() => {
-		const block = findBlock(tableRef.current);
-		if (!enabled || !block) {
-			return;
-		}
-
-		let blockWidth = block.clientWidth;
-		const observer = new ResizeObserver(() => {
-			if (block.clientWidth !== blockWidth) {
-				blockWidth = block.clientWidth;
-				setPageSize(minimum);
-			}
-			setBlockResizes((count) => count + 1);
-		});
-		observer.observe(block);
-		return () => observer.disconnect();
-	}, [tableRef, minimum, enabled]);
+	const [widthChanges, setWidthChanges] = useState(0);
 
 	useLayoutEffect(() => {
 		const table = tableRef.current;
-		const block = findBlock(table);
+		const block = table?.closest<HTMLElement>('.nao-block');
 		if (!enabled || !table || !block) {
 			return;
 		}
-		const fittingRows = Math.min(totalRows, countVisibleRows(table) + countRowsFittingBelow(table, block));
-		setPageSize((current) => Math.max(current, fittingRows));
-	}, [tableRef, totalRows, enabled, blockResizes]);
+
+		const fit = () => {
+			const fittingRows = Math.min(totalRows, countVisibleRows(table) + countRowsFittingBelow(table, block));
+			setPageSize((current) => Math.max(current, fittingRows));
+		};
+		const blockWidth = block.clientWidth;
+		const observer = new ResizeObserver(() => {
+			if (block.clientWidth === blockWidth) {
+				fit();
+				return;
+			}
+			setPageSize(minimum);
+			setWidthChanges((count) => count + 1);
+		});
+
+		fit();
+		observer.observe(block);
+		return () => observer.disconnect();
+	}, [tableRef, minimum, totalRows, enabled, widthChanges]);
 
 	return enabled ? pageSize : minimum;
-}
-
-function findBlock(table: HTMLElement | null): HTMLElement | null {
-	return table?.closest<HTMLElement>('.nao-block') ?? null;
 }
 
 function countVisibleRows(table: HTMLElement): number {
