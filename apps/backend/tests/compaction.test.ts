@@ -425,21 +425,30 @@ describe('RunCompaction', () => {
 
 	it('does not retry after a failed compaction', async () => {
 		const runCompaction = new RunCompaction(compactionService);
-		const singleTurn = (): ModelMessage[] => [
-			{ role: 'system', content: 'System prompt' },
-			{ role: 'user', content: 'Only turn' },
-			{ role: 'assistant', content: 'Step one' },
-			{ role: 'assistant', content: 'Step two' },
-		];
+		mocks.compactMock.mockRejectedValueOnce(new Error('LLM unavailable'));
 
-		await runCompaction.apply(stepOptions(singleTurn()));
+		await runCompaction.apply(stepOptions(history()));
 		expect(onCompactionFinished).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(String) }));
 
-		const secondStep = singleTurn();
+		const secondStep = history();
 		await runCompaction.apply(stepOptions(secondStep));
 
 		expect(onCompactionStarted).toHaveBeenCalledOnce();
-		expect(mocks.compactMock).not.toHaveBeenCalled();
-		expect(secondStep).toEqual(singleTurn());
+		expect(mocks.compactMock).toHaveBeenCalledOnce();
+		expect(secondStep).toEqual(history());
+	});
+
+	it('reapplies an empty summary on later steps', async () => {
+		const runCompaction = new RunCompaction(compactionService);
+		mocks.compactMock.mockResolvedValue({ summary: '', usage: { totalTokens: 1 } });
+
+		await runCompaction.apply(stepOptions(history()));
+
+		const secondStep = history();
+		await runCompaction.apply(stepOptions(secondStep));
+
+		expect(mocks.compactMock).toHaveBeenCalledOnce();
+		expect(secondStep).toHaveLength(3);
+		expect(secondStep[2]).toEqual({ role: 'user', content: 'Current turn' });
 	});
 });

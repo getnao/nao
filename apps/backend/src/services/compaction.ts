@@ -88,7 +88,7 @@ export class RunCompaction {
 	}
 
 	private _reapply(messages: ModelMessage[]): void {
-		if (this._summary) {
+		if (this._summary !== undefined) {
 			this.service.applySummary(messages, this._summary);
 		}
 	}
