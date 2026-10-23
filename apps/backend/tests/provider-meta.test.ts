@@ -145,6 +145,29 @@ describe('getModelCapabilities', () => {
 			expect(getModelCapabilities('bedrock', modelId)).toMatchObject({ thinking: 'adaptive', topK: false });
 		}
 	});
+
+	it('gives unlisted geo-prefixed Bedrock ids the capabilities of their listed twin', () => {
+		for (const model of ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-sonnet-5']) {
+			const twin = getModelCapabilities('bedrock', `us.anthropic.${model}`);
+			for (const geo of ['eu', 'apac', 'us-gov']) {
+				expect(getModelCapabilities('bedrock', `${geo}.anthropic.${model}`)).toEqual(twin);
+			}
+		}
+		expect(getModelCapabilities('bedrock', 'eu.anthropic.claude-sonnet-5-5')).toMatchObject({
+			thinking: 'adaptive',
+			effortOptions: expect.any(Array),
+		});
+	});
+
+	it('applies the geo twin lookup to non-Anthropic Bedrock ids too', () => {
+		const twin = getModelCapabilities('bedrock', 'us.openai.gpt-6-sol');
+		expect(twin).toBeDefined();
+		expect(getModelCapabilities('bedrock', 'eu.openai.gpt-6-sol')).toEqual(twin);
+	});
+
+	it('keeps the budget fallback for geo-prefixed Bedrock ids with no listed twin', () => {
+		expect(getModelCapabilities('bedrock', 'eu.anthropic.claude-future-9')).toMatchObject({ thinking: 'budget' });
+	});
 });
 
 describe('getModelParameterSpec', () => {
