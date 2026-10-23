@@ -7,6 +7,7 @@ import pytest
 
 from nao_core.config.semantic_layer import SemanticLayerConfig
 from nao_core.semantic_layer import (
+    SYNCED_MANIFEST_RELATIVE_PATH,
     MetricFlowSemanticLayer,
     SemanticLayerError,
     SemanticQuery,
@@ -16,6 +17,7 @@ from nao_core.semantic_layer import (
 )
 
 FIXTURE_MANIFEST = Path(__file__).parent / "semantic_manifest.json"
+EXAMPLE_PROJECT = Path(__file__).parents[4] / "example"
 
 
 @pytest.fixture
@@ -144,3 +146,11 @@ def test_runtime_manifest_prefers_synced_copy(tmp_path: Path) -> None:
     synced.write_text("{}")
 
     assert runtime_manifest_path(config, tmp_path) == synced
+
+
+def test_example_project_ships_its_synced_manifest() -> None:
+    layer = MetricFlowSemanticLayer.load(EXAMPLE_PROJECT / SYNCED_MANIFEST_RELATIVE_PATH, "duckdb")
+
+    documented_metrics = {path.stem for path in (EXAMPLE_PROJECT / "semantics" / "metrics").glob("*.md")}
+
+    assert {metric.name for metric in layer.list_metrics()} == documented_metrics

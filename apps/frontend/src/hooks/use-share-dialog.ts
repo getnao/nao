@@ -2,6 +2,15 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/main';
 
+export function useShareAudience() {
+	const access = useQuery(trpc.userGroup.projectSharingAccess.queryOptions());
+	const canShareToProject = access.data?.canShareToProject === true;
+	return {
+		canShareToProject,
+		emptyMessage: canShareToProject ? undefined : 'No other members in your groups',
+	};
+}
+
 export function useMemberPicker(currentUserId: string | undefined, initialIds: string[] | undefined, chatId: string) {
 	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(initialIds));
 	const [search, setSearch] = useState('');

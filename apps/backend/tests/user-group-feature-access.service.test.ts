@@ -11,6 +11,7 @@ import { env } from '../src/env';
 import {
 	appendAgentUserGroupRestrictions,
 	assertUserGroupFeature,
+	canSeeAdvancedSettings,
 	getEffectiveUserGroupAccess,
 	getEffectiveUserGroupAccessForUserDetail,
 	getEffectiveUserGroupFeatureFlags,
@@ -29,20 +30,11 @@ describe('user group feature access service', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.resolveUserGroupAccess.mockResolvedValue({
-			features: ['storyCreation'],
-			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
-			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
-			rowPolicies: [{ version: 1, policies: [] }],
-			toolCallDensityPolicy: {
-				defaultDensity: 'compact',
-				canChange: false,
-			},
-		});
+		mocks.resolveUserGroupAccess.mockResolvedValue(resolvedGroupAccess);
 	});
 
 	it('formats resolved group policies as effective access', async () => {
-		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toEqual({
+		await expect(getEffectiveUserGroupAccess('project-id', 'user-id', 'user')).resolves.toEqual({
 			features: {
 				storyCreation: true,
 				customStoryCreation: false,
@@ -52,6 +44,7 @@ describe('user group feature access service', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			canSeeAdvancedSettings: false,
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 		});
@@ -64,7 +57,7 @@ describe('user group feature access service', () => {
 			customStoryCreation: false,
 			automationCreation: false,
 		});
-		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toMatchObject({
+		await expect(getEffectiveUserGroupAccess('project-id', 'user-id', 'user')).resolves.toMatchObject({
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			toolCallDensityPolicy: {
@@ -75,9 +68,28 @@ describe('user group feature access service', () => {
 	});
 
 	it('returns row policies for the admin user detail', async () => {
-		await expect(getEffectiveUserGroupAccessForUserDetail('project-id', 'user-id')).resolves.toMatchObject({
+		await expect(getEffectiveUserGroupAccessForUserDetail('project-id', 'user-id', 'user')).resolves.toMatchObject({
 			rowPolicies: [{ version: 1, policies: [] }],
 		});
+	});
+
+	it('resolves advanced settings visibility from the role and the user groups', async () => {
+		await expect(getEffectiveUserGroupAccess('project-id', 'user-id', 'admin')).resolves.toMatchObject({
+			canSeeAdvancedSettings: true,
+		});
+
+		mocks.resolveUserGroupAccess.mockResolvedValue({ ...resolvedGroupAccess, showAllSettings: true });
+		await expect(getEffectiveUserGroupAccess('project-id', 'user-id', 'user')).resolves.toMatchObject({
+			canSeeAdvancedSettings: true,
+		});
+		await expect(getEffectiveUserGroupAccess('project-id', 'user-id', 'viewer')).resolves.toMatchObject({
+			canSeeAdvancedSettings: false,
+		});
+	});
+
+	it('denies advanced settings to users whose groups hide them', async () => {
+		await expect(canSeeAdvancedSettings('project-id', 'user-id', 'user')).resolves.toBe(false);
+		await expect(canSeeAdvancedSettings('project-id', 'user-id', 'context_admin')).resolves.toBe(true);
 	});
 
 	it('allows and denies feature checks', async () => {
@@ -140,3 +152,15 @@ describe('user group feature access service', () => {
 		expect(prompt).toContain('Automation creation is unavailable');
 	});
 });
+
+const resolvedGroupAccess = {
+	features: ['storyCreation'],
+	databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
+	docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+	rowPolicies: [{ version: 1, policies: [] }],
+	toolCallDensityPolicy: {
+		defaultDensity: 'compact',
+		canChange: false,
+	},
+	showAllSettings: false,
+};

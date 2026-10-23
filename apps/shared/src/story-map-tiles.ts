@@ -25,11 +25,18 @@ export const STORY_MAP_TILE_LAYERS: Record<StoryThemeMode, StoryMapTileLayer> = 
 	},
 };
 
-/** `img-src` entries covering each tile host and its subdomains. */
 export const storyMapTileCspSources = (): string[] => {
-	return STORY_MAP_TILE_HOSTS.flatMap((host) => [`https://${host}`, `https://*.${host}`]);
+	return STORY_MAP_TILE_HOSTS.map((host) => `https://${host}`);
 };
 
-export const isStoryMapTileHost = (hostname: string): boolean => {
-	return STORY_MAP_TILE_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+/** Only the tiles of the story layers, so a tile request cannot carry anything else. */
+export const isStoryMapTileUrl = (url: URL): boolean => {
+	return (
+		url.search === '' && Object.values(STORY_MAP_TILE_LAYERS).some((layer) => matchesTileTemplate(url, layer.url))
+	);
 };
+
+function matchesTileTemplate(url: URL, template: string): boolean {
+	const pattern = template.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[zyx]\}/g, '\\d+');
+	return new RegExp(`^${pattern}$`).test(`${url.origin}${url.pathname}`);
+}

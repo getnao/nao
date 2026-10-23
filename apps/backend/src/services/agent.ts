@@ -71,7 +71,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { sanitizeToolCallIds } from '../utils/model-message';
+import { sanitizeToolCalls } from '../utils/model-message';
 import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
@@ -83,7 +83,7 @@ import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { compactionService } from './compaction';
+import { compactionService, RunCompaction } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
@@ -172,6 +172,7 @@ const STORY_MODE_INSTRUCTIONS = {
 export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
 	getTools(agentSettings, webTools ?? {}, {
 		customBoundaries,
+		mcpAccess: toolContext.mcpAccess,
 		semanticLayerMode: toolContext.semanticLayerMode,
 		customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 	});
@@ -183,6 +184,7 @@ export const defaultAgentToolsExcluding =
 		getTools(agentSettings, webTools ?? {}, {
 			excludeBuiltinTools,
 			customBoundaries,
+			mcpAccess: toolContext.mcpAccess,
 			semanticLayerMode: toolContext.semanticLayerMode,
 			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 		});
@@ -290,8 +292,10 @@ async function _buildContextBase(opts: {
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
 		docsContextAccess: contextAccess.docsContextAccess,
 		filesContextAccess: contextAccess.filesContextAccess,
+		mcpAccess: contextAccess.mcpAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
+		preloadedSkillNames: contextAccess.preloadedSkillNames,
 		azureAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -367,6 +371,7 @@ export class AgentService {
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
+			safeInitializeSkills(chat.projectId),
 		]);
 		const toolContext = await this._getToolContext({
 			projectId: chat.projectId,
@@ -467,6 +472,7 @@ export class AgentManager {
 	private _resolveFinished: (() => void) | undefined;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
+	private _runCompaction = new RunCompaction(compactionService);
 
 	constructor(
 		readonly chat: AgentChat,
@@ -527,7 +533,7 @@ export class AgentManager {
 			this._systemPrompt && messages[0]?.role !== 'system'
 				? [{ role: 'system', content: this._systemPrompt }, ...messages]
 				: messages;
-		await compactionService.compactConversationIfNeeded({
+		await this._runCompaction.apply({
 			chat: this.chat,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
@@ -708,13 +714,14 @@ export class AgentManager {
 			this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
+		this._runCompaction = new RunCompaction(compactionService);
 		const conversationMessages = uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system');
 
 		const modelMessages = await convertToModelMessages<UIMessage>(conversationMessages, {
 			tools: this._agentTools,
 		});
 
-		return sanitizeToolCallIds(modelMessages, this._modelSelection.provider);
+		return sanitizeToolCalls(modelMessages, this._modelSelection.provider);
 	}
 
 	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
@@ -738,12 +745,16 @@ export class AgentManager {
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
 		const repoNames = repos.map((repo) => repo.name);
 		const skills = skillService.getSkills(this.chat.projectId);
+		const preloadedSkills = skillService.getPreloadedSkills(
+			this.chat.projectId,
+			this._toolContext.preloadedSkillNames,
+		);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
 		const [mcpServers, sandboxSecrets] = await Promise.all([
-			mcpService.getEnabledServers(this.chat.projectId),
+			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
 				: Promise.resolve([]),
@@ -755,6 +766,7 @@ export class AgentManager {
 				connections,
 				configuredDatabases,
 				skills,
+				preloadedSkills,
 				customCharts,
 				mcpServers,
 				sandboxSecrets,
@@ -1179,6 +1191,15 @@ function describeCitation({ start, end, text, storySlug, block }: CitationData):
 	const title = block.title ? ` "${block.title}"` : '';
 	const query = block.queryId ? `, reading ${block.queryId}` : '';
 	return `[The user is referring to the ${block.kind} block${title}${query} of the custom story "${storySlug}". Apply their request to that block in the story's source and publish again.]`;
+}
+
+/** Messaging and automation entry points may be the first to reach a project after a restart. */
+async function safeInitializeSkills(projectId: string): Promise<void> {
+	try {
+		await skillService.initializeSkills(projectId);
+	} catch (error) {
+		logger.warn(`Failed to initialize skills for project ${projectId}: ${String(error)}`, { source: 'agent' });
+	}
 }
 
 // Singleton instance of the agent service

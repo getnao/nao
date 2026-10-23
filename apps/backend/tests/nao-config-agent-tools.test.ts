@@ -69,6 +69,7 @@ function context(): ToolContext {
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: false },
 		filesContextAccess: { enforced: false },
+		mcpAccess: { mode: 'all' },
 		userRulesGroupAccess: { enforced: false },
 	} as ToolContext;
 }

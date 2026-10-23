@@ -1,39 +1,24 @@
 import { ChevronDown } from 'lucide-react';
-import type { StoryPanelDisplayMode } from '@nao/shared/types';
-import type { SortDirection, SortField, SortState } from '@/lib/stories-page';
+import type { SortField, SortState } from '@/lib/stories-page';
+import { defaultSortDirection } from '@/lib/stories-page';
 import { cn } from '@/lib/utils';
 
-export function SortHeader({
-	value,
-	onChange,
-	displayMode,
-}: {
-	value: SortState;
-	onChange: (next: SortState) => void;
-	displayMode: StoryPanelDisplayMode;
-}) {
-	if (displayMode === 'lines') {
-		return (
-			<div className='flex items-center gap-3 px-3 pb-2 mb-1'>
-				<div className='flex-1 min-w-0 flex items-center'>
-					<SortPill label='Name' field='name' value={value} onChange={onChange} />
-				</div>
-				<div className='hidden md:flex w-32 shrink-0 items-center'>
-					<SortPill label='Owner' field='owner' value={value} onChange={onChange} />
-				</div>
-				<div className='hidden sm:flex w-24 shrink-0 items-center'>
-					<SortPill label='Updated' field='updated' value={value} onChange={onChange} />
-				</div>
-				<div className='w-26 shrink-0' />
-			</div>
-		);
-	}
-
+export function SortHeader({ value, onChange }: { value: SortState; onChange: (next: SortState) => void }) {
 	return (
-		<div className='flex items-center gap-1'>
-			<SortPill label='Name' field='name' value={value} onChange={onChange} />
-			<SortPill label='Owner' field='owner' value={value} onChange={onChange} />
-			<SortPill label='Updated' field='updated' value={value} onChange={onChange} />
+		<div className='flex items-center gap-3 px-3 pb-2 mb-1'>
+			<div className='flex-1 min-w-0 flex items-center'>
+				<SortPill label='Name' field='name' value={value} onChange={onChange} />
+			</div>
+			<div className='hidden md:flex w-32 shrink-0 items-center'>
+				<SortPill label='Owner' field='owner' value={value} onChange={onChange} />
+			</div>
+			<div className='hidden lg:flex w-16 shrink-0 items-center'>
+				<SortPill label='Views' field='views' value={value} onChange={onChange} />
+			</div>
+			<div className='hidden sm:flex w-24 shrink-0 items-center'>
+				<SortPill label='Updated' field='updated' value={value} onChange={onChange} />
+			</div>
+			<div className='w-26 shrink-0' />
 		</div>
 	);
 }
@@ -50,11 +35,11 @@ function SortPill({
 	onChange: (next: SortState) => void;
 }) {
 	const isActive = value.field === field;
-	const direction: SortDirection = isActive ? value.direction : 'desc';
+	const showsAscending = isActive ? value.direction === 'asc' : defaultSortDirection(field) === 'asc';
 
 	function handleClick() {
 		if (!isActive) {
-			onChange({ field, direction: 'desc' });
+			onChange({ field, direction: defaultSortDirection(field) });
 		} else {
 			onChange({ field, direction: value.direction === 'desc' ? 'asc' : 'desc' });
 		}
@@ -70,10 +55,7 @@ function SortPill({
 			)}
 		>
 			<span>{label}</span>
-			<ChevronDown
-				size={12}
-				className={cn('transition-transform', isActive && direction === 'asc' && 'rotate-180')}
-			/>
+			<ChevronDown size={12} className={cn('transition-transform', showsAscending && 'rotate-180')} />
 		</button>
 	);
 }

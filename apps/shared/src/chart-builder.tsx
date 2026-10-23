@@ -115,8 +115,10 @@ const VALUE_AXIS_MAX_WIDTH = 120;
 const VALUE_AXIS_CHARACTER_WIDTH = 7;
 const VALUE_AXIS_PADDING = 12;
 const HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH = 60;
-const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH = 180;
-const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 24;
+const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 18;
+const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH =
+	HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING;
+const HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP = 2;
 const HORIZONTAL_BAR_SIZE = 10;
 const HORIZONTAL_BAR_MAX_SIZE = 28;
 const HORIZONTAL_BAR_CATEGORY_GAP = '20%';
@@ -358,6 +360,7 @@ export interface BuildChartProps {
 	kpiLeadingSlot?: React.ReactNode;
 	/** Recharts-prop styling (bar radius); defaults to nao's look. Themed custom stories pass their own. */
 	chartStyle?: ChartStyle;
+	hideAxes?: boolean;
 }
 
 const CHART_ANIMATION_DURATION_MS = 400;
@@ -667,6 +670,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 	);
 	const signedRowTotals = data.map((row) => sumStackValue(row, renderedSeries) ?? 0);
 	const maximum = clampedRowTotals.reduce((current, value) => Math.max(current, value), 0) || 1;
+	const hiddenValueAxisDomain: [number, number] = isPercent ? [0, 1] : [0, maximum];
 	const showValueAxis = hasMultipleSeries || isDiverging;
 	const visibleValueAxisDomainProps = resolveHorizontalBarValueAxisDomainProps(
 		data,
@@ -714,7 +718,9 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 			{...(isDiverging && hasMultipleSeries ? { stackOffset: 'sign' as const } : {})}
 			{...(hasMultipleSeries ? { barCategoryGap: HORIZONTAL_BAR_CATEGORY_GAP } : {})}
 		>
-			{showValueAxis ? (
+			{props.hideAxes ? (
+				<XAxis type='number' hide domain={hiddenValueAxisDomain} />
+			) : showValueAxis ? (
 				<XAxis
 					type='number'
 					{...visibleValueAxisDomainProps}
@@ -727,20 +733,26 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 					}
 				/>
 			) : (
-				<XAxis type='number' hide domain={[0, maximum]} />
+				<XAxis type='number' hide domain={hiddenValueAxisDomain} />
 			)}
-			<YAxis
-				type='category'
-				dataKey={xAxisKey}
-				tick={AXIS_TICK}
-				tickLine={false}
-				axisLine={false}
-				minTickGap={12}
-				interval={xAxisInterval ?? 'preserveStartEnd'}
-				width={categoryAxisWidth}
-				tickFormatter={tickFormatter}
-			/>
-			{isDiverging && <ReferenceLine x={0} stroke={HORIZONTAL_BAR_BASELINE_COLOR} strokeWidth={1} />}
+			{props.hideAxes ? (
+				<YAxis type='category' dataKey={xAxisKey} hide />
+			) : (
+				<YAxis
+					type='category'
+					dataKey={xAxisKey}
+					tick={createHorizontalBarCategoryTick(tickFormatter)}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP}
+					interval={xAxisInterval ?? 'preserveStartEnd'}
+					width={categoryAxisWidth}
+					tickFormatter={tickFormatter}
+				/>
+			)}
+			{isDiverging && !props.hideAxes && (
+				<ReferenceLine x={0} stroke={HORIZONTAL_BAR_BASELINE_COLOR} strokeWidth={1} />
+			)}
 			{children}
 			{hasMultipleSeries ? (
 				renderedSeries.map((item, index) => (
@@ -859,6 +871,35 @@ interface HorizontalBarValueLabel {
 	y: number;
 }
 
+interface HorizontalBarCategoryTickProps {
+	x?: number | string;
+	y?: number | string;
+	fill?: string;
+	textAnchor?: React.SVGProps<SVGTextElement>['textAnchor'];
+	payload?: { value?: unknown };
+}
+
+/** Recharts' default tick wraps labels containing spaces onto several lines; categories stay on one line. */
+function createHorizontalBarCategoryTick(tickFormatter: (value: string) => string) {
+	function HorizontalBarCategoryTick({ x, y, fill, textAnchor, payload }: HorizontalBarCategoryTickProps) {
+		return (
+			<text
+				x={x}
+				y={y}
+				dy='0.355em'
+				fill={fill}
+				textAnchor={textAnchor}
+				fontSize={AXIS_TICK.fontSize}
+				fontFamily={AXIS_TICK.fontFamily}
+				className='recharts-text recharts-cartesian-axis-tick-value'
+			>
+				{tickFormatter(String(payload?.value ?? ''))}
+			</text>
+		);
+	}
+	return HorizontalBarCategoryTick;
+}
+
 function createHorizontalBarValueLabelsLayer(valueFormatter: (value: number) => string, valueLabelWidth: number) {
 	function HorizontalBarValueLabelsLayer({ formattedGraphicalItems, offset }: HorizontalBarLabelsLayerProps) {
 		const bar = formattedGraphicalItems?.find((item) => item.item?.type?.displayName === 'Bar');
@@ -973,7 +1014,13 @@ function buildBarChart(props: ResolvedProps) {
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			{isPercent ? (
+			{props.hideAxes ? (
+				<YAxis
+					hide
+					domain={isPercent ? undefined : yAxisDomain}
+					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+				/>
+			) : isPercent ? (
 				renderValueYAxis(true, formatYAxisTick, yAxisLabel)
 			) : (
 				<YAxis
@@ -988,18 +1035,22 @@ function buildBarChart(props: ResolvedProps) {
 					label={axisLabel(yAxisLabel, 'left')}
 				/>
 			)}
-			{renderCategoryXAxis({
-				xAxisKey,
-				xAxisType: xAxisType ?? 'category',
-				xAxisInterval,
-				labelFormatter,
-				compact: compactXAxis,
-				compactInterval: compactXAxisInterval,
-				tickFontSize: xAxisTickFontSize,
-				maxLabelChars: xAxisMaxLabelChars,
-				labelFootroom,
-				xAxisLabel,
-			})}
+			{props.hideAxes ? (
+				<XAxis dataKey={xAxisKey} type={xAxisType ?? 'category'} hide />
+			) : (
+				renderCategoryXAxis({
+					xAxisKey,
+					xAxisType: xAxisType ?? 'category',
+					xAxisInterval,
+					labelFormatter,
+					compact: compactXAxis,
+					compactInterval: compactXAxisInterval,
+					tickFontSize: xAxisTickFontSize,
+					maxLabelChars: xAxisMaxLabelChars,
+					labelFootroom,
+					xAxisLabel,
+				})
+			)}
 			{children}
 			{renderedSeries.map((s, i) => (
 				<Bar
@@ -1153,7 +1204,13 @@ function buildAreaChart(props: ResolvedProps) {
 				})}
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			{isPercent ? (
+			{props.hideAxes ? (
+				<YAxis
+					hide
+					domain={isPercent ? undefined : resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
+					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+				/>
+			) : isPercent ? (
 				renderValueYAxis(true, formatYAxisTick, yAxisLabel)
 			) : (
 				<YAxis
@@ -1168,18 +1225,22 @@ function buildAreaChart(props: ResolvedProps) {
 					label={axisLabel(yAxisLabel, 'left')}
 				/>
 			)}
-			{renderCategoryXAxis({
-				xAxisKey,
-				xAxisType,
-				xAxisInterval,
-				labelFormatter,
-				compact: compactXAxis,
-				compactInterval: compactXAxisInterval,
-				tickFontSize: xAxisTickFontSize,
-				maxLabelChars: xAxisMaxLabelChars,
-				labelFootroom,
-				xAxisLabel,
-			})}
+			{props.hideAxes ? (
+				<XAxis dataKey={xAxisKey} type={xAxisType} hide />
+			) : (
+				renderCategoryXAxis({
+					xAxisKey,
+					xAxisType,
+					xAxisInterval,
+					labelFormatter,
+					compact: compactXAxis,
+					compactInterval: compactXAxisInterval,
+					tickFontSize: xAxisTickFontSize,
+					maxLabelChars: xAxisMaxLabelChars,
+					labelFootroom,
+					xAxisLabel,
+				})
+			)}
 			{children}
 			{renderedSeries.map((s, i) => (
 				<Area
@@ -1270,45 +1331,66 @@ function buildComboChart(props: ResolvedProps) {
 				</defs>
 			)}
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
-			{leftSeries.length > 0 && (
-				<YAxis
-					yAxisId='left'
-					width={leftAxisWidth}
-					tick={AXIS_TICK}
-					tickLine={false}
-					axisLine={false}
-					minTickGap={12}
-					tickFormatter={(value: number) => formatValueYAxisTick(value, leftFormat)}
-					domain={leftDomain}
-					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
-					label={axisLabel(yAxisLabel, 'left')}
-				/>
+			{leftSeries.length > 0 &&
+				(props.hideAxes ? (
+					<YAxis
+						yAxisId='left'
+						hide
+						domain={leftDomain}
+						allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+					/>
+				) : (
+					<YAxis
+						yAxisId='left'
+						width={leftAxisWidth}
+						tick={AXIS_TICK}
+						tickLine={false}
+						axisLine={false}
+						minTickGap={12}
+						tickFormatter={(value: number) => formatValueYAxisTick(value, leftFormat)}
+						domain={leftDomain}
+						allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+						label={axisLabel(yAxisLabel, 'left')}
+					/>
+				))}
+			{rightSeries.length > 0 &&
+				(props.hideAxes ? (
+					<YAxis
+						yAxisId='right'
+						orientation='right'
+						hide
+						domain={rightDomain}
+						allowDataOverflow={yAxisRightMin !== undefined || yAxisRightMax !== undefined}
+					/>
+				) : (
+					<YAxis
+						yAxisId='right'
+						width={rightAxisWidth}
+						orientation='right'
+						tick={AXIS_TICK}
+						tickLine={false}
+						axisLine={false}
+						minTickGap={12}
+						tickFormatter={(value: number) => formatValueYAxisTick(value, rightFormat)}
+						domain={rightDomain}
+						allowDataOverflow={yAxisRightMin !== undefined || yAxisRightMax !== undefined}
+						label={axisLabel(yAxisRightLabel, 'right')}
+					/>
+				))}
+			{props.hideAxes ? (
+				<XAxis dataKey={xAxisKey} type={xAxisType ?? 'category'} hide />
+			) : (
+				renderCategoryXAxis({
+					xAxisKey,
+					xAxisType: xAxisType ?? 'category',
+					xAxisInterval,
+					labelFormatter,
+					compact: compactXAxis,
+					compactInterval: compactXAxisInterval,
+					tickFontSize: xAxisTickFontSize,
+					maxLabelChars: xAxisMaxLabelChars,
+				})
 			)}
-			{rightSeries.length > 0 && (
-				<YAxis
-					yAxisId='right'
-					width={rightAxisWidth}
-					orientation='right'
-					tick={AXIS_TICK}
-					tickLine={false}
-					axisLine={false}
-					minTickGap={12}
-					tickFormatter={(value: number) => formatValueYAxisTick(value, rightFormat)}
-					domain={rightDomain}
-					allowDataOverflow={yAxisRightMin !== undefined || yAxisRightMax !== undefined}
-					label={axisLabel(yAxisRightLabel, 'right')}
-				/>
-			)}
-			{renderCategoryXAxis({
-				xAxisKey,
-				xAxisType: xAxisType ?? 'category',
-				xAxisInterval,
-				labelFormatter,
-				compact: compactXAxis,
-				compactInterval: compactXAxisInterval,
-				tickFontSize: xAxisTickFontSize,
-				maxLabelChars: xAxisMaxLabelChars,
-			})}
 			{children}
 			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, idPrefix, props.chartStyle))}
 			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
@@ -1448,27 +1530,40 @@ function buildScatterChart(props: ResolvedProps) {
 	return (
 		<ScatterChart data={data} accessibilityLayer margin={margin}>
 			{showGrid && <CartesianGrid strokeDasharray='3 3' />}
-			<XAxis
-				dataKey={xAxisKey}
-				type={xAxisType ?? 'number'}
-				tick={AXIS_TICK}
-				tickLine={false}
-				axisLine={false}
-				minTickGap={12}
-				height={CATEGORY_XAXIS_HEIGHT + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
-				label={xAxisLabelProps(xAxisLabel)}
-			/>
-			<YAxis
-				width={valueAxisWidth}
-				tick={AXIS_TICK}
-				tickLine={false}
-				axisLine={false}
-				minTickGap={12}
-				tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
-				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
-				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
-				label={axisLabel(yAxisLabel, 'left')}
-			/>
+			{props.hideAxes ? (
+				<>
+					<XAxis dataKey={xAxisKey} type={xAxisType ?? 'number'} hide />
+					<YAxis
+						hide
+						domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
+						allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+					/>
+				</>
+			) : (
+				<>
+					<XAxis
+						dataKey={xAxisKey}
+						type={xAxisType ?? 'number'}
+						tick={AXIS_TICK}
+						tickLine={false}
+						axisLine={false}
+						minTickGap={12}
+						height={CATEGORY_XAXIS_HEIGHT + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
+						label={xAxisLabelProps(xAxisLabel)}
+					/>
+					<YAxis
+						width={valueAxisWidth}
+						tick={AXIS_TICK}
+						tickLine={false}
+						axisLine={false}
+						minTickGap={12}
+						tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
+						domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
+						allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+						label={axisLabel(yAxisLabel, 'left')}
+					/>
+				</>
+			)}
 			{children}
 			{series.map((s, i) => (
 				<Scatter
@@ -1489,12 +1584,21 @@ function buildRadarChart(props: ResolvedProps) {
 
 	return (
 		<RadarChart data={data} accessibilityLayer margin={margin}>
-			<PolarGrid />
-			<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
-			<PolarRadiusAxis
-				tick={AXIS_TICK}
-				tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
-			/>
+			{props.hideAxes ? (
+				<>
+					<PolarAngleAxis dataKey={xAxisKey} tick={false} axisLine={false} />
+					<PolarRadiusAxis tick={false} axisLine={false} />
+				</>
+			) : (
+				<>
+					<PolarGrid />
+					<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
+					<PolarRadiusAxis
+						tick={AXIS_TICK}
+						tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
+					/>
+				</>
+			)}
 			{children}
 			{series.map((s, i) => (
 				<Radar
@@ -1616,6 +1720,7 @@ function renderChartTitle(title: string) {
 			key='chart-title'
 			component={({ width = 0 }: { width?: number }) => (
 				<text
+					className='nao-chart-title'
 					x={width / 2}
 					y={16}
 					textAnchor='middle'

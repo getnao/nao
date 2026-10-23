@@ -11,7 +11,14 @@ import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
-import { resolvePinnedModel } from '../../utils/llm';
+import {
+	describeModelInput,
+	getProjectAvailableModels,
+	RequestedModelError,
+	resolveDefaultChatModel,
+	resolvePinnedModel,
+	resolveRequestedModel,
+} from '../../utils/llm';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
 import { chatUrl, storyUrl } from '../urls';
@@ -105,8 +112,16 @@ const ASK_NAO_CLARIFICATION_SCHEMA = z
 		'Present when `status` is `needs_clarification`: the question nao needs answered, with optional one-click answer choices.',
 	);
 
-export function registerSubAgentTools(server: McpServer, ctx: McpContext): void {
+const ASK_NAO_MODEL_SCHEMA = z
+	.string()
+	.optional()
+	.describe(
+		'Model that ran the sub-agent, as `provider/model-id`. Absent when the run is no longer tracked in memory and no assistant message recorded it.',
+	);
+
+export async function registerSubAgentTools(server: McpServer, ctx: McpContext): Promise<void> {
 	const askNaoDescription = buildAskNaoDescription(ctx);
+	const modelDescription = await describeAvailableModels(ctx);
 
 	registerMcpTool(server, ctx, {
 		name: 'ask_nao',
@@ -127,6 +142,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 						'Reuse only when the new question clearly builds on the same topic. ' +
 						'If the topic shifts or the prior reply was a refusal, omit it.',
 				),
+			model: z.string().optional().describe(modelDescription),
 		},
 		outputSchema: {
 			status: z
@@ -153,21 +169,31 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 				.describe(
 					'UUIDs of stories the sub-agent created or updated. Forward each one to `get_story` / `update_story` / `archive_story` / `delete_story`.',
 				),
+			model: ASK_NAO_MODEL_SCHEMA,
 		},
-		errorMessage: () => 'Nao agent failed to process the request.',
-		handler: async ({ question, chatId }) => {
+		errorMessage: (error) =>
+			error instanceof RequestedModelError ? error.message : 'Nao agent failed to process the request.',
+		handler: async ({ question, chatId, model }) => {
+			// Resolved before the chat is created so an unknown model leaves no empty chat behind.
+			const modelSelection = await agentService.resolveModelSelection(
+				ctx.projectId,
+				model !== undefined
+					? await resolveRequestedModel(ctx.projectId, model)
+					: await resolveSubAgentModel(ctx),
+			);
+			const modelLabel = `${modelSelection.provider}/${modelSelection.modelId}`;
 			await mcpService.initializeMcpState(ctx.projectId);
 			await skillService.initializeSkills(ctx.projectId);
 
 			const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 			const naoChatUrl = chatUrl(chat.id);
 
-			const agent = await agentService.create(chat, await resolveSubAgentModel(ctx), {
+			const agent = await agentService.create(chat, modelSelection, {
 				billingAccessVerifiedProjectId: ctx.projectId,
 				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
-			askNaoRuns.start(chat.id);
-			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl);
+			askNaoRuns.start(chat.id, modelLabel);
+			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl, modelLabel);
 
 			const outcome = await waitForResultOrBudget(runPromise, ASK_NAO_SYNC_BUDGET_MS);
 			if (outcome.kind === 'error') {
@@ -176,7 +202,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			if (outcome.kind === 'complete') {
 				return answerCompletePayload(outcome.result, ctx);
 			}
-			return runningPayload(chat.id, naoChatUrl);
+			return runningPayload(chat.id, naoChatUrl, modelLabel);
 		},
 	});
 
@@ -196,6 +222,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			queries: ASK_NAO_QUERIES_SCHEMA,
 			stories: ASK_NAO_STORIES_SCHEMA,
 			story_ids: z.array(z.string()),
+			model: ASK_NAO_MODEL_SCHEMA,
 			error: z.string().optional().describe('Failure reason when `status` is `error`.'),
 		},
 		errorMessage: () => 'Failed to fetch the nao answer.',
@@ -206,7 +233,29 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 	});
 }
 
-/** The model pinned for `ask_nao` in the MCP settings; undefined lets the agent use the project's chat default. */
+/**
+ * The `model` input description with the project's catalog as it stands when the MCP session
+ * starts, and the model a call without `model` runs on. Both are read again on every call.
+ */
+async function describeAvailableModels(ctx: McpContext): Promise<string> {
+	try {
+		const [available, pinned] = await Promise.all([
+			getProjectAvailableModels(ctx.projectId),
+			resolveSubAgentModel(ctx),
+		]);
+		const defaultModel = pinned ?? (await resolveDefaultChatModel(ctx.projectId));
+		return describeModelInput(available, defaultModel);
+	} catch (error) {
+		// The catalog is a convenience for the caller; a failed lookup must not keep `ask_nao` from registering.
+		console.warn('[mcp] could not list the project models for ask_nao:', error);
+		return describeModelInput(null, null);
+	}
+}
+
+/**
+ * The model pinned for `ask_nao` in the MCP settings; undefined lets the agent use the project's
+ * chat default. A `model` named by the caller takes precedence over both.
+ */
 async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel | undefined> {
 	const pinned = ctx.settings.subAgentModel;
 	if (!pinned) {
@@ -224,6 +273,7 @@ async function runAskNaoInBackground(
 	uiMessages: UIMessage[],
 	chatId: string,
 	naoChatUrl: string,
+	model: string,
 ): Promise<AskNaoResult> {
 	try {
 		let answer = await drainStream(agent.stream(uiMessages));
@@ -239,6 +289,7 @@ async function runAskNaoInBackground(
 			queries: agent.queryResultsSummary,
 			stories,
 			story_ids: stories.map((story) => story.id),
+			model,
 		};
 		askNaoRuns.complete(chatId, result);
 		return result;
@@ -278,7 +329,7 @@ async function resolveAnswerPayload(chatId: string, ctx: McpContext): Promise<To
 	if (state.status === 'error') {
 		return answerErrorPayload(chatId, state.error);
 	}
-	return answerRunningPayload(chatId);
+	return answerRunningPayload(chatId, state.model);
 }
 
 /**
@@ -287,8 +338,11 @@ async function resolveAnswerPayload(chatId: string, ctx: McpContext): Promise<To
  * metadata is not reconstructed since it only lives on the in-memory run.
  */
 async function reconstructAnswerFromDb(chatId: string, ctx: McpContext): Promise<ToolResult> {
-	const answer = await extractAnswerFromChat(chatId);
-	const stories = await resolveChatStories(chatId);
+	const [answer, stories, model] = await Promise.all([
+		extractAnswerFromChat(chatId),
+		resolveChatStories(chatId),
+		chatQueries.getLastAssistantModel(chatId),
+	]);
 	return answerCompletePayload(
 		{
 			chatId,
@@ -298,6 +352,7 @@ async function reconstructAnswerFromDb(chatId: string, ctx: McpContext): Promise
 			queries: [],
 			stories,
 			story_ids: stories.map((story) => story.id),
+			...(model ? { model } : {}),
 		},
 		ctx,
 	);
@@ -325,7 +380,7 @@ async function assertChatAccess(ctx: McpContext, chatId: string): Promise<void> 
 	}
 }
 
-function runningPayload(chatId: string, naoChatUrl: string): ToolResult {
+function runningPayload(chatId: string, naoChatUrl: string, model: string): ToolResult {
 	return {
 		content: [
 			{
@@ -344,6 +399,7 @@ function runningPayload(chatId: string, naoChatUrl: string): ToolResult {
 			queries: [],
 			stories: [],
 			story_ids: [],
+			model,
 		},
 	};
 }
@@ -356,7 +412,7 @@ function answerCompletePayload(result: AskNaoResult, ctx: McpContext): ToolResul
 	const content: ToolResult['content'] = [
 		{
 			type: 'text' as const,
-			text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]${formatStoryLinks(result.stories)}`,
+			text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]${result.model ? `\n[model: ${result.model}]` : ''}${formatStoryLinks(result.stories)}`,
 		},
 		{
 			type: 'text' as const,
@@ -401,11 +457,12 @@ function clarificationPayload(result: AskNaoResult, clarification: AskNaoClarifi
 			queries: result.queries,
 			stories: result.stories,
 			story_ids: result.story_ids,
+			...(result.model ? { model: result.model } : {}),
 		},
 	};
 }
 
-function answerRunningPayload(chatId: string): ToolResult {
+function answerRunningPayload(chatId: string, model: string | undefined): ToolResult {
 	const naoChatUrl = chatUrl(chatId);
 	return {
 		content: [
@@ -422,6 +479,7 @@ function answerRunningPayload(chatId: string): ToolResult {
 			queries: [],
 			stories: [],
 			story_ids: [],
+			...(model ? { model } : {}),
 		},
 	};
 }

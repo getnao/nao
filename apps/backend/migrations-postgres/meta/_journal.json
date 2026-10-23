@@ -575,6 +575,41 @@
       "when": 1792426293707,
       "tag": "0081_story_delivery_recipient_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792482052113,
+      "tag": "0082_add_story_bundle_thumbnail",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792583257419,
+      "tag": "0083_organization_license",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792588144855,
+      "tag": "0084_story_theme_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792596154812,
+      "tag": "0085_story_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792696735762,
+      "tag": "0086_story_view_counts_index",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import { StoryBlockDragGrip, StoryBlockDropZones, useStoryBlockDrag } from './st
 import { SelectedBlockPositionsContext } from './story-block-selection-context';
 import { decodeFromAttr } from './story-editor-utils';
 import type { ReactNodeViewProps } from '@tiptap/react';
+import { StoryBlock } from '@/components/story-block';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 
 function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeViewProps) {
@@ -48,7 +49,9 @@ function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeVie
 					<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />
 				</div>
 				<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
-					<StoryChartEmbed chart={chart} isSelected={isSelected} />
+					<StoryBlock>
+						<StoryChartEmbed chart={chart} isSelected={isSelected} />
+					</StoryBlock>
 				</EditorStoryChartEditProvider>
 			</div>
 		</NodeViewWrapper>

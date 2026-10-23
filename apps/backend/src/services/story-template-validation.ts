@@ -4,16 +4,24 @@ import { QueryIdSchema } from '@nao/shared/tools';
 
 import { env } from '../env';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
+import type { QueryResult } from '../types/tools';
 
-type SqlQueryMap = Record<string, { sqlQuery: string; databaseId?: string }>;
+export type SqlQueryMap = Record<string, { sqlQuery: string; databaseId?: string }>;
 
-export async function getStoryTemplateWarnings(chatId: string, code: string): Promise<string[]> {
+/**
+ * Queries run earlier in the current agent turn are not persisted until the turn ends,
+ * so callers inside a run pass them as `sameTurnQueries` on top of the DB lookup.
+ */
+export async function getStoryTemplateWarnings(
+	chatId: string,
+	code: string,
+	sameTurnQueries: SqlQueryMap = {},
+): Promise<string[]> {
 	const warnings: string[] = [];
 	const { wellFormedIds, malformedWarnings } = partitionReferencedQueryIds(code);
 	warnings.push(...malformedWarnings);
 
-	const sqlQueries =
-		wellFormedIds.size > 0 ? await executeSqlQueries.getLatestSqlQueriesByIds(chatId, wellFormedIds) : {};
+	const sqlQueries = await resolveSqlQueries(chatId, wellFormedIds, sameTurnQueries);
 
 	warnings.push(...getMissingQueryWarnings(wellFormedIds, sqlQueries));
 
@@ -22,6 +30,39 @@ export async function getStoryTemplateWarnings(chatId: string, code: string): Pr
 	}
 
 	return warnings;
+}
+
+export function sqlQueriesFromResults(queryResults: ReadonlyMap<string, QueryResult>): SqlQueryMap {
+	const sqlQueries: SqlQueryMap = {};
+	for (const [queryId, result] of queryResults) {
+		if (result.sqlQuery !== undefined) {
+			sqlQueries[queryId] = {
+				sqlQuery: result.sqlQuery,
+				...(result.databaseId && { databaseId: result.databaseId }),
+			};
+		}
+	}
+	return sqlQueries;
+}
+
+/** Same-turn queries are the freshest version of an id, so they win over persisted ones. */
+async function resolveSqlQueries(
+	chatId: string,
+	referencedIds: Set<string>,
+	sameTurnQueries: SqlQueryMap,
+): Promise<SqlQueryMap> {
+	const sameTurn: SqlQueryMap = {};
+	const persistedIds = new Set<string>();
+	for (const queryId of referencedIds) {
+		if (queryId in sameTurnQueries) {
+			sameTurn[queryId] = sameTurnQueries[queryId];
+		} else {
+			persistedIds.add(queryId);
+		}
+	}
+	const persisted =
+		persistedIds.size > 0 ? await executeSqlQueries.getLatestSqlQueriesByIds(chatId, persistedIds) : {};
+	return { ...persisted, ...sameTurn };
 }
 
 function partitionReferencedQueryIds(code: string): { wellFormedIds: Set<string>; malformedWarnings: string[] } {

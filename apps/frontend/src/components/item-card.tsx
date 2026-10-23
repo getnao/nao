@@ -11,7 +11,10 @@ export const GRID_CARD_CLASS =
 export const LINES_CARD_CLASS = 'group flex items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent';
 
 export const GRID_THUMBNAIL_CLASS =
-	'absolute top-0 left-0 right-0 bottom-12 pointer-events-none overflow-hidden bg-sidebar dark:bg-background mx-1 mt-1 mb-2 rounded-lg';
+	'absolute top-0 left-0 right-0 bottom-12 pointer-events-none overflow-hidden bg-background dark:bg-background mx-1 mt-1 mb-2 rounded-lg';
+
+export const GRID_HOVER_ACTION_GRADIENT_CLASS =
+	'pointer-events-none absolute inset-x-0 top-0 z-[1] h-16 bg-gradient-to-b from-background/95 via-background/70 to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:from-background/95 dark:via-background/75';
 
 export function CardsSection({
 	title,
@@ -52,7 +55,7 @@ export function CardsGrid({ displayMode, children }: { displayMode: StoryPanelDi
 export function GridCardFooter({ title, subtitle }: { title: string; subtitle: ReactNode }) {
 	return (
 		<div className='flex-1 min-w-0 transition-transform duration-200 ease-out group-hover:-translate-y-0.5'>
-			<span className='block text-xs font-medium truncate mb-2'>{title}</span>
+			<span className='block text-xs font-medium truncate mb-1'>{title}</span>
 			<span className='flex items-center text-[10px] font-medium text-muted-foreground/60 truncate'>
 				{subtitle}
 			</span>
@@ -78,12 +81,12 @@ export function NoResults({ query }: { query: string }) {
 	);
 }
 
-export function LiveBadge() {
+export function LiveBadge({ iconOnly = false }: { iconOnly?: boolean }) {
 	return (
 		<SimpleTooltip content='Live story'>
 			<span className='inline-flex items-center text-primary gap-1'>
 				<Activity className='size-3' />
-				<span className='text-[11px] font-medium truncate'>Live</span>
+				<span className={iconOnly ? 'sr-only' : 'text-[11px] font-medium truncate'}>Live</span>
 			</span>
 		</SimpleTooltip>
 	);
@@ -92,7 +95,7 @@ export function LiveBadge() {
 export function CertifiedBadge({ certifiedByName }: { certifiedByName?: string | null }) {
 	return (
 		<SimpleTooltip content={certifiedByName ? `Certified by ${certifiedByName}` : 'Certified by an admin'}>
-			<span className='inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300'>
+			<span className='inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 shadow-xs dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'>
 				<ShieldCheck className='size-3' />
 				<span className='text-[11px] font-medium truncate'>Certified</span>
 			</span>

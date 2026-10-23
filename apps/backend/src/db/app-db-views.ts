@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, type SQL, sql } from 'drizzle-orm';
 import { alias as pgAlias, pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
 import {
 	alias as sqliteAlias,
@@ -79,6 +79,8 @@ function buildScopedViews(
 		mcpCallLog,
 		project,
 		analyticsEvent,
+		story,
+		storyFeedback,
 	} = schema;
 	const scopedProjectIds = () => qb.select({ projectId: scope.projectId }).from(scope);
 
@@ -181,6 +183,21 @@ function buildScopedViews(
 		created_at: timestamp(analyticsEvent.createdAt, 'created_at'),
 	};
 
+	const storyOwner = alias(schema.user, 'story_owner');
+	const storyOwnerId = sql<string>`coalesce(${chat.userId}, ${story.userId})`;
+	const storyFeedbackSelection = {
+		story_id: storyFeedback.storyId,
+		story_title: sql<string>`${story.title}`.as('story_title'),
+		story_owner_id: storyOwnerId.as('story_owner_id'),
+		story_owner_name: sql<string>`${storyOwner.name}`.as('story_owner_name'),
+		user_id: storyFeedback.userId,
+		user_name: sql<string>`${user.name}`.as('user_name'),
+		vote: storyFeedback.vote,
+		explanation: storyFeedback.explanation,
+		created_at: timestamp(storyFeedback.createdAt, 'created_at'),
+		updated_at: timestamp(storyFeedback.updatedAt, 'updated_at'),
+	};
+
 	return [
 		toView(
 			'v_messages',
@@ -242,6 +259,18 @@ function buildScopedViews(
 				.from(analyticsEvent)
 				.leftJoin(user, eq(user.id, analyticsEvent.actorUserId))
 				.where(inArray(analyticsEvent.projectId, scopedProjectIds())),
+		),
+		toView(
+			'v_story_feedback',
+			storyFeedbackSelection,
+			qb
+				.select(storyFeedbackSelection)
+				.from(storyFeedback)
+				.innerJoin(story, eq(story.id, storyFeedback.storyId))
+				.leftJoin(chat, eq(chat.id, story.chatId))
+				.leftJoin(user, eq(user.id, storyFeedback.userId))
+				.leftJoin(storyOwner, eq(storyOwner.id, storyOwnerId))
+				.where(or(inArray(story.projectId, scopedProjectIds()), inArray(chat.projectId, scopedProjectIds()))),
 		),
 	];
 }

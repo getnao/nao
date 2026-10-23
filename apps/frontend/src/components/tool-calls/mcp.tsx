@@ -12,6 +12,7 @@ import type { ToolCallComponentProps } from '.';
 import { useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { getToolName } from '@/lib/ai';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 type McpContent = { type: string; text: string };
 type SqlData = Record<string, unknown>[];
@@ -166,7 +167,9 @@ const McpOutputContent = ({ text }: { text: string }) => {
 
 	return (
 		<div className='px-3 py-2 overflow-auto max-h-80 markdown-small'>
-			<Streamdown mode='static'>{text}</Streamdown>
+			<Streamdown linkSafety={markdownLinkSafety} mode='static'>
+				{text}
+			</Streamdown>
 		</div>
 	);
 };

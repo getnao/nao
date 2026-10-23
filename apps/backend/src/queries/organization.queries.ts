@@ -177,6 +177,33 @@ export const updateOrganizationBypassBilling = async (orgId: string, bypassBilli
 	await db.update(s.organization).set({ bypassBilling }).where(eq(s.organization.id, orgId)).execute();
 };
 
+export const updateOrganizationLicense = async (orgId: string, license: string | null): Promise<void> => {
+	await db.update(s.organization).set({ license }).where(eq(s.organization.id, orgId)).execute();
+};
+
+export type OrganizationLicenseToken = { orgId: string; license: string | null };
+
+export const getOrganizationLicenseToken = async (orgId: string): Promise<OrganizationLicenseToken | null> => {
+	const [row] = await db
+		.select({ orgId: s.organization.id, license: s.organization.license })
+		.from(s.organization)
+		.where(eq(s.organization.id, orgId))
+		.execute();
+	return row ?? null;
+};
+
+export const getProjectOrganizationLicenseToken = async (
+	projectId: string,
+): Promise<OrganizationLicenseToken | null> => {
+	const [row] = await db
+		.select({ orgId: s.organization.id, license: s.organization.license })
+		.from(s.project)
+		.innerJoin(s.organization, eq(s.organization.id, s.project.orgId))
+		.where(eq(s.project.id, projectId))
+		.execute();
+	return row ?? null;
+};
+
 export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
 	await db.update(s.organization).set({ googleAuthDomains: domains }).where(eq(s.organization.id, orgId)).execute();
 };

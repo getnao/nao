@@ -65,6 +65,7 @@ export const trpcClient = createTRPCClient<TrpcRouter>({
 		httpBatchLink({
 			url: '/api/trpc',
 			transformer: superjson,
+			maxURLLength: 4000,
 			headers({ opList }) {
 				const activeProjectId = getActiveProjectId();
 				const activeOrganizationId = getActiveOrganizationId();

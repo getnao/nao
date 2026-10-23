@@ -2,14 +2,19 @@ import type { FeedbackNotificationPayload } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { MessageFeedback } from '../db/abstractSchema';
+import { DBStory, MessageFeedback, StoryFeedback } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as storyQueries from '../queries/story.queries';
 import { notifyUsers } from '../services/notification.service';
 import { posthog, PostHogEvent } from '../services/posthog';
+import { logAnalyticsEvent } from '../utils/analytics-event';
 import { logger } from '../utils/logger';
+import { storyPath } from '../utils/story-links';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
+
+const feedbackVoteSchema = z.enum(['up', 'down']);
 
 export const feedbackRoutes = {
 	submit: projectProtectedProcedure
@@ -17,7 +22,7 @@ export const feedbackRoutes = {
 			z.object({
 				chatId: z.string(),
 				messageId: z.string(),
-				vote: z.enum(['up', 'down']),
+				vote: feedbackVoteSchema,
 				explanation: z.string().optional(),
 			}),
 		)
@@ -64,7 +69,101 @@ export const feedbackRoutes = {
 		.query(async ({ ctx, input }) => {
 			return feedbackQueries.listRecentFeedbacks(ctx.project.id, input?.limit ?? 10);
 		}),
+
+	getStoryFeedback: projectProtectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(async ({ input, ctx }): Promise<StoryFeedback | null> => {
+			await getAccessibleStory(input.storyId, ctx.user.id);
+			return feedbackQueries.getUserStoryFeedback(input.storyId, ctx.user.id);
+		}),
+
+	submitStoryFeedback: projectProtectedProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				vote: feedbackVoteSchema,
+				explanation: z.string().max(2000).optional(),
+			}),
+		)
+		.mutation(async ({ input, ctx }): Promise<StoryFeedback> => {
+			const story = await getAccessibleStory(input.storyId, ctx.user.id);
+			const projectId = (await storyQueries.getStoryProjectId(story.id)) ?? ctx.project.id;
+			const explanation = input.explanation?.trim() || null;
+
+			const feedback = await feedbackQueries.upsertStoryFeedback({
+				storyId: story.id,
+				userId: ctx.user.id,
+				vote: input.vote,
+				explanation,
+			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.StoryFeedbackSubmitted, {
+				project_id: projectId,
+				vote: input.vote,
+				has_explanation: !!explanation,
+			});
+
+			void logAnalyticsEvent({
+				projectId,
+				type: 'feedback',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: story.id,
+				metadata: { type: 'feedback', vote: input.vote, explanation: explanation ?? undefined },
+			});
+
+			void notifyStoryOwnerOfFeedback(projectId, ctx.user, story, input.vote, explanation).catch((error) =>
+				logger.error(`Failed to notify story owner of feedback: ${String(error)}`, {
+					source: 'system',
+				}),
+			);
+
+			return feedback;
+		}),
 };
+
+async function getAccessibleStory(storyId: string, userId: string): Promise<DBStory> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story || !(await storyQueries.canUserAccessStory(story.id, userId))) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	return story;
+}
+
+async function notifyStoryOwnerOfFeedback(
+	projectId: string,
+	submitter: { id: string; name: string },
+	story: DBStory,
+	vote: 'up' | 'down',
+	explanation: string | null,
+): Promise<void> {
+	const ownerId = await storyQueries.getStoryOwnerId(story.id);
+	if (!ownerId || ownerId === submitter.id) {
+		return;
+	}
+
+	const sentiment = vote === 'up' ? 'positive' : 'negative';
+	const payload: FeedbackNotificationPayload = {
+		kind: 'feedback',
+		vote,
+		submitterName: submitter.name,
+		chatTitle: null,
+		storyTitle: story.title,
+		explanation,
+	};
+
+	await notifyUsers([ownerId], {
+		category: 'feedback',
+		title: `${sentiment === 'positive' ? 'Positive' : 'Negative'} feedback on your story`,
+		body: explanation
+			? `${submitter.name} left ${sentiment} feedback on “${story.title}”: “${explanation}”`
+			: `${submitter.name} left ${sentiment} feedback on “${story.title}”.`,
+		linkUrl: storyPath(story.id),
+		ctaLabel: 'Open story',
+		projectId,
+		payload,
+	});
+}
 
 async function notifyDataTeamOfFeedback(
 	projectId: string,

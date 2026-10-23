@@ -2,7 +2,11 @@ import {
 	CONTEXT_CONFIG_FILENAME,
 	isFileTreeDirectoryGranted,
 	isFileTreeFileGranted,
+	isMcpServerFullyGranted,
+	isMcpServerGranted,
+	isMcpToolGranted,
 	mayTraverseFileTreeDirectory,
+	type McpAccess,
 } from '@nao/shared';
 import path from 'path';
 
@@ -10,10 +14,16 @@ import type { ToolContext } from '../types/tools';
 import { isContextPathAllowed } from './context-access';
 import type { ResolvedFileTreeAccess } from './user-group-context-access.service';
 
-type ProjectPathKind = 'file' | 'directory';
+export type ProjectPathKind = 'file' | 'directory';
 type ProjectPath = { kind: 'root' | 'docs' | 'files' | 'database'; relativePath: string } | { kind: 'invalid' };
 
-type ProjectPathAccessContext = Pick<ToolContext, 'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess'>;
+type ProjectPathAccessContext = Pick<
+	ToolContext,
+	'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess' | 'mcpAccess'
+>;
+
+const MCP_SPECS_DIRECTORY = 'agent/mcps/';
+const MCP_CONFIG_PATH = `${MCP_SPECS_DIRECTORY}mcp.json`;
 
 export function assertProjectContextPathAllowed(
 	context: ProjectPathAccessContext,
@@ -60,11 +70,17 @@ export function isProjectContextPathAllowed(
 				kind,
 			);
 		case 'files':
-			return isFileTreePathAllowed(
-				context.filesContextAccess,
-				requestedPath.relativePath,
-				canonicalPath.relativePath,
-				kind,
+			return (
+				!isMcpConfigPath(requestedPath.relativePath) &&
+				!isMcpConfigPath(canonicalPath.relativePath) &&
+				isFileTreePathAllowed(
+					context.filesContextAccess,
+					requestedPath.relativePath,
+					canonicalPath.relativePath,
+					kind,
+				) &&
+				isMcpSpecPathAllowed(context.mcpAccess, requestedPath.relativePath, kind) &&
+				isMcpSpecPathAllowed(context.mcpAccess, canonicalPath.relativePath, kind)
 			);
 	}
 }
@@ -76,6 +92,11 @@ export function isDocsProjectPath(virtualPath: string): boolean {
 /** `nao_config.yaml` can hold plaintext LLM keys and warehouse credentials, so the agent never sees it. */
 function isProjectConfigPath(virtualPath: string): boolean {
 	return path.posix.basename(virtualPath).toLowerCase() === CONTEXT_CONFIG_FILENAME;
+}
+
+/** The agent reaches MCP servers through the per-server tool specs; the raw server config only misleads it and can hold auth headers. */
+function isMcpConfigPath(relativePath: string): boolean {
+	return relativePath.toLowerCase() === MCP_CONFIG_PATH;
 }
 
 /** Grants are matched on the path the agent addressed, so a restricted tree rejects symlinks and aliases to other paths. */
@@ -98,6 +119,36 @@ function isFileTreePathAllowed(
 		isFileTreeDirectoryGranted(resolvedAccess.access, canonicalPath) ||
 		mayTraverseFileTreeDirectory(resolvedAccess.access, canonicalPath)
 	);
+}
+
+/** Tool specs live in `agent/mcps/<server>/<url-encoded tool>.json`, so the path tells which grant it needs. */
+function isMcpSpecPathAllowed(access: McpAccess, relativePath: string, kind: ProjectPathKind): boolean {
+	if (access.mode === 'all' || !relativePath.toLowerCase().startsWith(MCP_SPECS_DIRECTORY)) {
+		return true;
+	}
+	const [server, specFile, ...nestedSegments] = relativePath.slice(MCP_SPECS_DIRECTORY.length).split('/');
+	if (specFile === undefined) {
+		return kind === 'directory' && isMcpServerGranted(access, server);
+	}
+	if (kind === 'directory' || nestedSegments.length > 0) {
+		return false;
+	}
+	if (isMcpServerFullyGranted(access, server)) {
+		return true;
+	}
+	if (!specFile.endsWith('.json')) {
+		return false;
+	}
+	const tool = decodeSpecFileName(specFile.slice(0, -'.json'.length));
+	return tool !== null && isMcpToolGranted(access, server, tool);
+}
+
+function decodeSpecFileName(fileName: string): string | null {
+	try {
+		return decodeURIComponent(fileName);
+	} catch {
+		return null;
+	}
 }
 
 function parseProjectPath(virtualPath: string): ProjectPath {

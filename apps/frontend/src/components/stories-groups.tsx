@@ -21,6 +21,7 @@ import {
 	AuthorDateLabel,
 	CertifiedBadge,
 	GRID_CARD_CLASS,
+	GRID_HOVER_ACTION_GRADIENT_CLASS,
 	GRID_THUMBNAIL_CLASS,
 	GridCardFooter,
 	LINES_CARD_CLASS,
@@ -35,15 +36,18 @@ import StoryIcon from '@/components/ui/story-icon';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
+import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
+const VIEW_COUNT_FORMAT = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+
 export function StoriesNoResults({ query }: { query: string }) {
 	return (
 		<p className='text-muted-foreground text-sm py-12 text-center'>
-			No stories matching &ldquo;{query.trim()}&rdquo;
+			{query.trim() ? <>No stories matching &ldquo;{query.trim()}&rdquo;</> : 'No stories match these filters'}
 		</p>
 	);
 }
@@ -100,6 +104,7 @@ export function StoryCard({
 	const { isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
+	const storyTheme = useActiveStoryTheme();
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
@@ -151,10 +156,11 @@ export function StoryCard({
 
 	if (displayMode === 'grid') {
 		const certifiedBadge = item.isCertified && (
-			<div className='absolute top-2 right-2'>
+			<div className='absolute top-1.5 right-2 flex h-5 items-center'>
 				<CertifiedBadge certifiedByName={item.certifiedByName} />
 			</div>
 		);
+		const hasPersistentTopIcons = item.isCertified || (!selectionActive && (item.isPinned || item.isFavorited));
 
 		return (
 			<>
@@ -168,17 +174,24 @@ export function StoryCard({
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
 						{item.format === 'custom' ? (
-							<CustomStoryThumbnail />
+							<CustomStoryThumbnail
+								storyId={item.storyId}
+								version={item.version}
+								summary={item.summary}
+								theme={storyTheme}
+								queryData={item.kpiPreviewData}
+							/>
 						) : (
-							<StoryThumbnail summary={item.summary} />
+							<StoryThumbnail summary={item.summary} theme={storyTheme} queryData={item.kpiPreviewData} />
 						)}
 					</div>
+					<div className={cn(GRID_HOVER_ACTION_GRADIENT_CLASS, hasPersistentTopIcons && 'opacity-100')} />
 
 					{!selectionActive && (
 						<Link
 							{...item.link}
 							onClick={handleLinkClick}
-							className='absolute inset-0 flex flex-col justify-end p-2.5'
+							className='absolute inset-0 z-[2] flex flex-col justify-end p-2.5'
 						>
 							{certifiedBadge}
 							<div className='flex items-end gap-1.5'>
@@ -274,6 +287,9 @@ export function StoryCard({
 						</div>
 						<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{item.author}
+						</div>
+						<div className='hidden lg:block w-16 shrink-0 pl-1.5 text-xs text-muted-foreground tabular-nums truncate'>
+							{item.viewCount === null ? '—' : VIEW_COUNT_FORMAT.format(item.viewCount)}
 						</div>
 						<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{formatRelativeDate(item.createdAt)}
@@ -617,7 +633,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 
 function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }) {
 	const certified = item.isCertified ? <CertifiedBadge certifiedByName={item.certifiedByName} /> : null;
-	const live = item.isLive ? <LiveBadge /> : null;
+	const live = item.isLive ? <LiveBadge iconOnly={mode === 'grid'} /> : null;
 	const sharing = item.sharing ? (
 		<SharingBadge
 			visibility={item.sharing.visibility}
@@ -627,15 +643,14 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 	) : null;
 
 	if (mode === 'grid') {
-		const showPrivate = item.isInPrivateContext && item.sharing?.visibility !== 'specific';
-		if (!live && !sharing && !showPrivate) {
+		const isSharedWithSpecific = item.sharing?.visibility === 'specific';
+		if (!live && !isSharedWithSpecific) {
 			return null;
 		}
 		return (
 			<div className='flex items-center gap-2 shrink-0'>
 				{live}
-				{showPrivate && <PrivateBadge />}
-				{sharing}
+				{isSharedWithSpecific && sharing}
 			</div>
 		);
 	}

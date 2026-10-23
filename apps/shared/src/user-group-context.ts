@@ -1,3 +1,5 @@
+import { ALL_MCP_ACCESS, EMPTY_MCP_ACCESS, type McpAccess, normalizeMcpAccess, parseMcpAccess } from './user-group-mcp';
+
 export type DatabaseContextGrant = DatabaseSchemaGrant | DatabaseTableGrant;
 
 export interface DatabaseSchemaGrant {
@@ -60,11 +62,26 @@ export interface StoredLegacyUserGroupContextAccessV4 {
 	docsAccess: DocsContextAccess;
 }
 
-export interface StoredUserGroupContextAccess {
+export interface StoredLegacyUserGroupContextAccessV5 {
 	version: 5;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
+}
+
+export interface StoredUserGroupContextAccess {
+	version: 6;
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
+	mcpAccess: McpAccess;
+}
+
+export interface UserGroupContextAccessGrants {
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
+	mcpAccess: McpAccess;
 }
 
 export const ALL_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = { mode: 'all', strict: false };
@@ -146,18 +163,18 @@ export function serializeDatabaseContextAccess(access: DatabaseContextAccess): S
 	};
 }
 
-export function parseStoredUserGroupContextAccess(
-	value: unknown,
-	isDefault: boolean,
-): { databaseAccess: DatabaseContextAccess; docsAccess: DocsContextAccess; filesAccess: FilesContextAccess } {
+/** Before MCP grants existed every user reached every MCP server, which the All Users group keeps granting. */
+export function parseStoredUserGroupContextAccess(value: unknown, isDefault: boolean): UserGroupContextAccessGrants {
 	const legacyDatabaseAccess = isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
 	const legacyDocsAccess = isDefault ? ALL_DOCS_CONTEXT_ACCESS : EMPTY_DOCS_CONTEXT_ACCESS;
+	const legacyMcpAccess = isDefault ? ALL_MCP_ACCESS : EMPTY_MCP_ACCESS;
 
 	if (value === null || value === undefined) {
 		return {
 			databaseAccess: legacyDatabaseAccess,
 			docsAccess: legacyDocsAccess,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: legacyMcpAccess,
 		};
 	}
 	if (!isRecord(value)) {
@@ -165,6 +182,7 @@ export function parseStoredUserGroupContextAccess(
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+			mcpAccess: EMPTY_MCP_ACCESS,
 		};
 	}
 	if (value.version === 1 || value.version === 2 || value.version === 3) {
@@ -172,6 +190,7 @@ export function parseStoredUserGroupContextAccess(
 			databaseAccess: parseStoredDatabaseContextAccess(value),
 			docsAccess: legacyDocsAccess,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: legacyMcpAccess,
 		};
 	}
 	if (value.version === 4) {
@@ -179,32 +198,40 @@ export function parseStoredUserGroupContextAccess(
 			databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
 			docsAccess: parseFileTreeAccess(value.docsAccess),
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: legacyMcpAccess,
 		};
 	}
-	if (value.version !== 5) {
+	if (value.version === 5) {
+		return {
+			databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
+			docsAccess: parseFileTreeAccess(value.docsAccess),
+			filesAccess: parseFileTreeAccess(value.filesAccess),
+			mcpAccess: legacyMcpAccess,
+		};
+	}
+	if (value.version !== 6) {
 		return {
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+			mcpAccess: EMPTY_MCP_ACCESS,
 		};
 	}
 	return {
 		databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
 		docsAccess: parseFileTreeAccess(value.docsAccess),
 		filesAccess: parseFileTreeAccess(value.filesAccess),
+		mcpAccess: parseMcpAccess(value.mcpAccess),
 	};
 }
 
-export function serializeUserGroupContextAccess(
-	databaseAccess: DatabaseContextAccess,
-	docsAccess: DocsContextAccess,
-	filesAccess: FilesContextAccess,
-): StoredUserGroupContextAccess {
+export function serializeUserGroupContextAccess(grants: UserGroupContextAccessGrants): StoredUserGroupContextAccess {
 	return {
-		version: 5,
-		databaseAccess: normalizeDatabaseContextAccess(databaseAccess),
-		docsAccess: normalizeFileTreeAccess(docsAccess),
-		filesAccess: normalizeFileTreeAccess(filesAccess),
+		version: 6,
+		databaseAccess: normalizeDatabaseContextAccess(grants.databaseAccess),
+		docsAccess: normalizeFileTreeAccess(grants.docsAccess),
+		filesAccess: normalizeFileTreeAccess(grants.filesAccess),
+		mcpAccess: normalizeMcpAccess(grants.mcpAccess),
 	};
 }
 

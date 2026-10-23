@@ -186,17 +186,44 @@ export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, str
 	return replaced;
 };
 
+/** Names whose effective value comes from the process environment because the project does not override them. */
+export const getProcessEnvSourcedVarNames = (names: string[], projectEnv: Record<string, string>): string[] => {
+	return names.filter((name) => !projectEnv[name] && !!process.env[name]);
+};
+
 /** Truncate a string to a maximum length and add an ellipsis in the middle. */
 export const truncateMiddle = (str: string, maxLength: number, ellipsis: string = '...'): string => {
 	if (str.length <= maxLength) {
 		return str;
 	}
 	if (maxLength <= ellipsis.length) {
-		return str.slice(0, maxLength);
+		return sliceHead(str, maxLength);
 	}
 	const half = Math.floor((maxLength - ellipsis.length) / 2);
-	return str.slice(0, half) + ellipsis + str.slice(-half);
+	return sliceHead(str, half) + ellipsis + sliceTail(str, half);
 };
+
+/**
+ * Keeps the first `length` UTF-16 units, one fewer when the cut would split a surrogate pair (emoji):
+ * a lone surrogate makes the whole LLM request body invalid JSON for strict parsers.
+ */
+export const sliceHead = (str: string, length: number): string => {
+	const end = isHighSurrogate(str.charCodeAt(length - 1)) ? length - 1 : length;
+	return str.slice(0, end);
+};
+
+/** Keeps the last `length` UTF-16 units, one fewer when the cut would split a surrogate pair. */
+const sliceTail = (str: string, length: number): string => {
+	if (length <= 0) {
+		return '';
+	}
+	const start = Math.max(str.length - length, 0);
+	return str.slice(isLowSurrogate(str.charCodeAt(start)) ? start + 1 : start);
+};
+
+const isHighSurrogate = (charCode: number): boolean => charCode >= 0xd800 && charCode <= 0xdbff;
+
+const isLowSurrogate = (charCode: number): boolean => charCode >= 0xdc00 && charCode <= 0xdfff;
 
 export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');

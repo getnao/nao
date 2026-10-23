@@ -103,10 +103,8 @@ export async function checkBudgetStatus(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<BudgetStatus> {
-	const [resolved, memberUsage] = await Promise.all([
-		resolveBudgetUsages(projectId, provider, userId),
-		userId ? resolveMemberBudgetUsage(projectId, userId) : null,
-	]);
+	const memberUsage = userId ? await resolveMemberBudgetUsage(projectId, userId) : null;
+	const resolved = await resolveBudgetUsages(projectId, provider, userId, memberUsage);
 
 	const candidates = (resolved?.usages ?? []).map((usage) => ({
 		ratio: usage.ratio,
@@ -130,29 +128,24 @@ export async function assertBudgetNotExceeded(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<void> {
-	const exceededMemberUsage = userId ? await notifyIfMemberBudgetExceeded(projectId, userId) : null;
-	await assertProviderBudgetNotExceeded(projectId, provider, userId);
-	if (exceededMemberUsage) {
-		throw new BudgetExceededError(buildMemberBudgetMessage(exceededMemberUsage));
+	const memberUsage = userId ? await resolveMemberBudgetUsage(projectId, userId) : null;
+	const isMemberBudgetExceeded = !!userId && !!memberUsage && memberUsage.ratio >= 1;
+	if (isMemberBudgetExceeded) {
+		await notifyMemberOnBudgetLimitReached(projectId, userId, memberUsage);
 	}
-}
-
-/** Notifies before any limit throws, so a member over budget is told even when a provider cap blocks first. */
-async function notifyIfMemberBudgetExceeded(projectId: string, userId: string): Promise<MemberBudgetUsage | null> {
-	const usage = await resolveMemberBudgetUsage(projectId, userId);
-	if (!usage || usage.ratio < 1) {
-		return null;
+	await assertProviderBudgetNotExceeded(projectId, provider, userId, memberUsage);
+	if (isMemberBudgetExceeded) {
+		throw new BudgetExceededError(buildMemberBudgetMessage(memberUsage));
 	}
-	await notifyMemberOnBudgetLimitReached(projectId, userId, usage);
-	return usage;
 }
 
 async function assertProviderBudgetNotExceeded(
 	projectId: string,
 	provider: LlmProvider,
-	userId?: string,
+	userId: string | undefined,
+	memberUsage: MemberBudgetUsage | null,
 ): Promise<void> {
-	const resolved = await resolveBudgetUsages(projectId, provider, userId);
+	const resolved = await resolveBudgetUsages(projectId, provider, userId, memberUsage);
 	if (!resolved) {
 		return;
 	}
@@ -261,6 +254,7 @@ async function resolveBudgetUsages(
 	projectId: string,
 	provider: LlmProvider,
 	userId: string | undefined,
+	memberUsage: MemberBudgetUsage | null,
 ): Promise<ResolvedBudget | null> {
 	const budgets = await getEffectiveProviderBudgets(projectId);
 	const budget = budgets.find((b) => b.provider === provider);
@@ -273,7 +267,8 @@ async function resolveBudgetUsages(
 		!!userId &&
 		!!budget.perUserLimitUsd &&
 		budget.perUserLimitUsd > 0 &&
-		(await hasFeature(LICENSE_FEATURES.userBudget));
+		!hasMemberSpecificBudget(memberUsage) &&
+		(await hasFeature(LICENSE_FEATURES.userBudget, { projectId }));
 
 	const periodStart = getCurrentPeriodStart(budget.period);
 	if (!hasProjectLimit && !hasUserLimit) {
@@ -310,6 +305,11 @@ async function resolveBudgetUsages(
 		});
 	}
 	return { budget, usages, periodStart };
+}
+
+/** A personal or group budget is more specific than the provider's per-user limit, so it replaces it. */
+function hasMemberSpecificBudget(memberUsage: MemberBudgetUsage | null): boolean {
+	return memberUsage?.source === 'personal' || memberUsage?.source === 'group';
 }
 
 async function notifyAdminsOnBudgetLimitReached(

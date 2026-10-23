@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { formatRelativeDate } from '@/lib/time-ago';
@@ -63,6 +64,7 @@ export function FolderCard({
 }) {
 	const { isViewer, isAdmin } = usePermissions();
 	const { data: session } = useSession();
+	const storyTheme = useActiveStoryTheme();
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
 	const draggableId = `drag-folder-${displayMode}-${folder.id}`;
@@ -147,10 +149,12 @@ export function FolderCard({
 						<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
 							<FolderIcon folder={folder} />
 							<span className='text-sm font-medium truncate'>{folder.name}</span>
+							<FolderStoryCount count={folder.storyCount} />
 						</div>
 						<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{currentUserName}
 						</div>
+						<div className='hidden lg:block w-16 shrink-0' />
 						<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{formatRelativeDate(folder.updatedAt)}
 						</div>
@@ -206,7 +210,7 @@ export function FolderCard({
 				onClick={selectionActive && canSelect ? handleToggleSelect : undefined}
 			>
 				<div className='absolute top-1 left-1 right-1 bottom-14 overflow-hidden rounded-md bg-sidebar dark:bg-background'>
-					<FolderThumbnail />
+					<FolderThumbnail theme={storyTheme} />
 				</div>
 
 				<Link
@@ -247,7 +251,7 @@ export function FolderCard({
 						</div>
 						{!isViewer && !selectionActive && (
 							<div
-								className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-5 group-has-data-[state=open]:translate-x-5'
+								className='absolute top-1.5 left-2 z-20 transition-transform duration-150 group-hover:translate-x-10 group-has-data-[state=open]:translate-x-10'
 								onPointerDown={(e) => e.stopPropagation()}
 							>
 								<FolderKebab
@@ -292,8 +296,7 @@ export function FolderCard({
 						contentRightPadding,
 					)}
 				>
-					<FolderIcon folder={folder} />
-					<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
+					<FolderCardLabel folder={folder} />
 				</div>
 			) : (
 				<Link
@@ -306,8 +309,7 @@ export function FolderCard({
 					)}
 					onClick={handleLinkClick}
 				>
-					<FolderIcon folder={folder} />
-					<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
+					<FolderCardLabel folder={folder} />
 				</Link>
 			)}
 			{!isSystemFolder(folder) && (
@@ -413,6 +415,25 @@ function FolderFavoriteButton({ folder }: { folder: FolderItem }) {
 				<Star className='size-3' />
 			</button>
 		</SimpleTooltip>
+	);
+}
+
+function FolderCardLabel({ folder }: { folder: FolderItem }) {
+	return (
+		<>
+			<FolderIcon folder={folder} />
+			<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
+			<FolderStoryCount count={folder.storyCount} />
+		</>
+	);
+}
+
+function FolderStoryCount({ count }: { count: number }) {
+	return (
+		<span className='text-xs text-muted-foreground tabular-nums shrink-0'>
+			<span aria-hidden='true'>{count}</span>
+			<span className='sr-only'>{`${count} ${count === 1 ? 'story' : 'stories'}`}</span>
+		</span>
 	);
 }
 

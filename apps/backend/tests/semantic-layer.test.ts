@@ -14,6 +14,19 @@ vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('@resvg/resvg-js', () => ({
+	Resvg: class FakeResvg {
+		render() {
+			return { asPng: () => Buffer.from([]) };
+		}
+	},
+}));
+vi.mock('../src/agents/tools/display-chart', () => ({ default: {} }));
+vi.mock('../src/agents/tools/display-map', () => ({ createDisplayMapTool: () => ({}) }));
+vi.mock('../src/agents/tools/story', () => ({
+	buildStoryToolDescription: () => 'Story tool',
+	default: {},
+}));
 
 const dirs: string[] = [];
 
@@ -119,6 +132,7 @@ describe('execute_semantic_query exposure', () => {
 			queryResults: new Map(),
 			envVars: {},
 			filesContextAccess: { enforced: false },
+			mcpAccess: { mode: 'all' },
 		} as unknown as import('../src/types/tools').ToolContext;
 		const run = (databaseId?: string) => executeQuery({ sql_query: 'SELECT 1', database_id: databaseId }, context);
 

@@ -345,6 +345,102 @@ export const getProjectAvailableModels = async (
 	});
 };
 
+export type ProjectAvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[number];
+
+/** Raised when an MCP caller names a model the project does not expose. The message is safe to relay. */
+export class RequestedModelError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'RequestedModelError';
+	}
+}
+
+/**
+ * Picks the model an MCP caller asked for among the project's available models. `requested` is a
+ * model id as the model picker lists it (`mistral-large-4`), or `provider/model-id` when the same
+ * id is served by several providers. Matching ignores case and also accepts the display name.
+ * Provider ids and model ids may themselves contain `/` (`openaiCompatible/prod`,
+ * `mistralai/mistral-large`), so every split of the requested value is tried.
+ */
+export function pickRequestedModel(available: ProjectAvailableModel[], requested: string): LlmSelectedModel {
+	const wanted = requested.trim().toLowerCase();
+	if (!wanted) {
+		throw new RequestedModelError('`model` must not be empty.');
+	}
+
+	const matchesId = (m: ProjectAvailableModel, id: string): boolean =>
+		m.modelId.toLowerCase() === id || m.name.trim().toLowerCase() === id;
+
+	let candidates = available.filter((m) => matchesId(m, wanted));
+	for (
+		let slash = wanted.indexOf('/');
+		candidates.length === 0 && slash > 0;
+		slash = wanted.indexOf('/', slash + 1)
+	) {
+		const provider = wanted.slice(0, slash);
+		const id = wanted.slice(slash + 1);
+		candidates = available.filter((m) => m.provider.toLowerCase() === provider && matchesId(m, id));
+	}
+
+	if (candidates.length === 1) {
+		return { provider: candidates[0].provider, modelId: candidates[0].modelId };
+	}
+	if (candidates.length === 0) {
+		const list = available.map((m) => `${m.provider}/${m.modelId}`).join(', ') || 'none';
+		throw new RequestedModelError(`Unknown model "${requested}". Available models: ${list}.`);
+	}
+	const qualified = candidates.map((m) => `${m.provider}/${m.modelId}`).join(', ');
+	throw new RequestedModelError(
+		`Model "${requested}" is served by several providers. Qualify it as provider/model-id: ${qualified}.`,
+	);
+}
+
+/** Models listed in the `ask_nao` `model` description; the rest are only reachable by name. */
+export const MODEL_INPUT_LISTED_MAX = 20;
+
+/**
+ * The `model` input description of `ask_nao`, with the project's available models so an MCP
+ * caller picks one without a failed round trip. Models are written the way `pickRequestedModel`
+ * resolves them: the bare id, or `provider/model-id` when several providers serve the same id.
+ * The default is the model a call without `model` runs on. `available` is null when the catalog
+ * could not be read, in which case the description carries no list.
+ */
+export function describeModelInput(
+	available: ProjectAvailableModel[] | null,
+	defaultModel: LlmSelectedModel | null,
+): string {
+	if (available === null) {
+		return `${MODEL_INPUT_INTRO} ${MODEL_INPUT_OMIT}`;
+	}
+	const isDefault = (m: ProjectAvailableModel): boolean =>
+		defaultModel !== null && m.provider === defaultModel.provider && m.modelId === defaultModel.modelId;
+	const sharedIds = new Set(
+		available.filter((m, i) => available.some((o, j) => j !== i && o.modelId === m.modelId)).map((m) => m.modelId),
+	);
+	const label = (m: ProjectAvailableModel): string =>
+		`\`${sharedIds.has(m.modelId) ? `${m.provider}/${m.modelId}` : m.modelId}\`${isDefault(m) ? ' (default)' : ''}`;
+
+	const listed = available.slice(0, MODEL_INPUT_LISTED_MAX).map(label);
+	const hidden = available.length - listed.length;
+	const catalog =
+		listed.length === 0
+			? 'No model is configured on this project.'
+			: `Available models: ${listed.join(', ')}${hidden > 0 ? ` and ${hidden} more` : ''}.`;
+
+	return `${MODEL_INPUT_INTRO} ${catalog} ${MODEL_INPUT_OMIT}`;
+}
+
+const MODEL_INPUT_INTRO =
+	'Model to run the sub-agent with, as listed in the project model picker (e.g. `mistral-large-4`), ' +
+	'or `provider/model-id` when several providers serve the same id.';
+const MODEL_INPUT_OMIT =
+	'Omit to use the default: the model pinned in the MCP settings, else the project default chat model.';
+
+/** `pickRequestedModel` against the project's current model catalog. */
+export async function resolveRequestedModel(projectId: string, requested: string): Promise<LlmSelectedModel> {
+	return pickRequestedModel(await getProjectAvailableModels(projectId), requested);
+}
+
 /** The models declared for each provider, used to price usage on top of nao's built-in table. */
 export const getProjectDeclaredModels = async (
 	projectId: string,

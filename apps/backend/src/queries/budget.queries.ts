@@ -1,6 +1,6 @@
 import { getCurrentPeriodStart } from '@nao/shared/date';
 import type { CalendarPeriod, LlmProvider } from '@nao/shared/types';
-import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, notInArray, type SQL, sql } from 'drizzle-orm';
 
 import s, { DBProjectProviderBudget } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -141,7 +141,6 @@ export const queryProviderPeriodCosts = async (
 		return [];
 	}
 
-	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
 
 	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
@@ -150,27 +149,26 @@ export const queryProviderPeriodCosts = async (
 	);
 	const periodStartExpr = sql`CASE ${s.chatMessage.llmProvider} ${sql.join(periodStartCases, sql` `)} END`;
 
-	return db
-		.select({
-			provider: s.chatMessage.llmProvider,
-			userId: MESSAGE_SENDER_EXPR,
-			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
-		})
-		.from(s.chatMessage)
-		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
-		.leftJoin(costLookup.table, costLookup.joinCondition)
-		.where(
-			and(
-				eq(s.chat.projectId, projectId),
-				inArray(
-					s.chatMessage.llmProvider,
-					budgets.map((b) => b.provider),
-				),
-				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				options.userId ? eq(MESSAGE_SENDER_EXPR, options.userId) : undefined,
+	return queryCostsByProviderAndUser(
+		projectId,
+		and(
+			inArray(
+				s.chatMessage.llmProvider,
+				budgets.map((b) => b.provider),
 			),
-		)
-		.groupBy(s.chatMessage.llmProvider, MESSAGE_SENDER_EXPR);
+			sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
+		),
+		options,
+	);
+};
+
+/** Spend on every provider of the project, named instances included, since `periodStart`. */
+export const queryAllProvidersCostsSince = async (
+	projectId: string,
+	periodStart: Date,
+	options: { userId?: string } = {},
+): Promise<ProviderPeriodCostRow[]> => {
+	return queryCostsByProviderAndUser(projectId, gte(s.chatMessage.createdAt, periodStart), options);
 };
 
 export const getProviderPeriodCosts = async (
@@ -242,3 +240,29 @@ export const releaseBudgetNotification = async (key: BudgetNotificationKey): Pro
 		)
 		.execute();
 };
+
+async function queryCostsByProviderAndUser(
+	projectId: string,
+	messageCondition: SQL | undefined,
+	options: { userId?: string },
+): Promise<ProviderPeriodCostRow[]> {
+	const costLookup = await createCostLookup(projectId);
+
+	return db
+		.select({
+			provider: s.chatMessage.llmProvider,
+			userId: MESSAGE_SENDER_EXPR,
+			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
+		})
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+		.leftJoin(costLookup.table, costLookup.joinCondition)
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				messageCondition,
+				options.userId ? eq(MESSAGE_SENDER_EXPR, options.userId) : undefined,
+			),
+		)
+		.groupBy(s.chatMessage.llmProvider, MESSAGE_SENDER_EXPR);
+}

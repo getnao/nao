@@ -40,9 +40,10 @@ describe('system example project', () => {
 				features: ['storyCreation', 'customStoryCreation', 'automationCreation'],
 			},
 			contextGrants: {
-				version: 5,
+				version: 6,
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
+				mcpAccess: { mode: 'all' },
 			},
 		});
 	});

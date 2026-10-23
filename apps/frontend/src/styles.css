@@ -139,6 +139,11 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+/* Recharts sizes axis ticks with this span; an inherited body line-height makes labels look taller and get skipped. */
+#recharts_measurement_span {
+	line-height: normal;
+}
+
 code {
 	font-family: var(--font-mono);
 	font-size: 0.75rem;
@@ -945,30 +950,9 @@ code.dollar:before {
 	color: var(--foreground);
 }
 
-[data-story-themed='true'] :is(h1, h2, h3, h4) {
-	font-family: var(--font-heading);
-	letter-spacing: var(--story-heading-tracking, -0.02em);
-}
-
-[data-story-themed='true'] h1 {
-	font-size: calc(1.875rem * var(--story-heading-scale, 1));
-}
-
-[data-story-themed='true'] h2 {
-	font-size: calc(1.5rem * var(--story-heading-scale, 1));
-}
-
-[data-story-themed='true'] h3 {
-	font-size: calc(1.25rem * var(--story-heading-scale, 1));
-}
-
-[data-story-themed='true'] h4 {
-	font-size: calc(1.125rem * var(--story-heading-scale, 1));
-}
-
+/* Type voice per role (faces, weights, case, sizes) comes from the brand styles StoryThemeProvider injects. */
 [data-story-themed='true'] :is(p, li) {
 	color: var(--story-body-color, var(--foreground));
-	font-size: var(--story-body-size, 1rem);
 	line-height: var(--story-line-height, 1.6);
 }
 
@@ -988,6 +972,10 @@ code.dollar:before {
 	overflow: hidden;
 }
 
+[data-story-themed='true'] .story-block.story-map-block {
+	overflow: visible;
+}
+
 /* Tables ride on the background / panel / border tokens, re-pointed to the table slots inside the frame. */
 [data-story-themed='true'] .story-table {
 	--background: var(--story-table-bg);
@@ -996,6 +984,7 @@ code.dollar:before {
 }
 
 [data-story-themed='true'] .story-table [data-slot='data-table-card'] {
+	background: var(--background);
 	border-width: var(--story-table-border-width, 1px);
 	border-radius: var(--story-block-radius, var(--radius));
 }

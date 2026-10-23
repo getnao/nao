@@ -17,6 +17,7 @@ import {
 import type { DisplaySettings } from '@nao/shared/date';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
@@ -196,6 +197,7 @@ export const organization = pgTable('organization', {
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
 	bypassBilling: boolean('bypass_billing').default(false).notNull(),
+	license: text('license'),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
@@ -1166,6 +1168,8 @@ export const storyBundle = pgTable('story_bundle', {
 	bundle: text('bundle'),
 	pageShell: text('page_shell'),
 	bundleError: text('bundle_error'),
+	thumbnail: text('thumbnail'),
+	thumbnailTheme: text('thumbnail_theme'),
 	builtAt: timestamp('built_at').defaultNow().notNull(),
 });
 
@@ -1735,6 +1739,7 @@ export const projectStoryTheme = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		version: integer('version').notNull(),
 		theme: jsonb('theme').$type<StoryThemePair>(),
+		generation: jsonb('generation').$type<StoryThemeGeneration>(),
 		enabled: boolean('enabled').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
@@ -1836,6 +1841,26 @@ export const storyFolderItem = pgTable(
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
 );
 
+export const storyFeedback = pgTable(
+	'story_feedback',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		vote: text('vote', { enum: ['up', 'down'] }).notNull(),
+		explanation: text('explanation'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.userId] }), index('story_feedback_userId_idx').on(t.userId)],
+);
+
 export const analyticsEvent = pgTable(
 	'analytics_event',
 	{
@@ -1863,6 +1888,7 @@ export const analyticsEvent = pgTable(
 		index('analytics_event_sharedStoryId_idx').on(t.sharedStoryId),
 		index('analytics_event_actorUserId_idx').on(t.actorUserId),
 		index('analytics_event_type_createdAt_idx').on(t.type, t.createdAt),
+		index('analytics_event_project_type_asset_story_idx').on(t.projectId, t.type, t.assetType, t.storyId),
 		check(
 			'analytics_event_asset_id_required',
 			sql`CASE WHEN ${t.assetType} = 'chat' THEN ${t.chatId} IS NOT NULL WHEN ${t.assetType} = 'story' THEN ${t.storyId} IS NOT NULL ELSE TRUE END`,

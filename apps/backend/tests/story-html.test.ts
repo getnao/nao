@@ -1,6 +1,8 @@
+import { DEFAULT_COLORS } from '@nao/shared';
+import { DEFAULT_DARK_STORY_THEME, DEFAULT_STORY_THEME, type StoryThemePair } from '@nao/shared/story-theme';
 import { describe, expect, it } from 'vitest';
 
-import { generateStoryHtml } from '../src/utils/story-html';
+import { generateStoryEmailHtml, generateStoryHtml } from '../src/utils/story-html';
 
 const CHART_ONE =
 	'<chart query_id="q1" chart_type="line" x_axis_key="month" series=\'[{"data_key":"revenue"}]\' title="Revenue" />';
@@ -28,5 +30,52 @@ describe('generateStoryHtml grid flattening', () => {
 		expect(html).not.toContain('grid-template-columns');
 		expect(html).toContain('Revenue');
 		expect(html).toContain('Orders');
+	});
+});
+
+const THEME: StoryThemePair = {
+	light: {
+		...DEFAULT_STORY_THEME,
+		surfaces: { page: '#fbf7ef', sunken: '#f1e9da' },
+		text: { ...DEFAULT_STORY_THEME.text, headingColor: '#0b1f3a', bodyColor: '#2d3a4f', bodyFont: 'Lora, serif' },
+		table: { ...DEFAULT_STORY_THEME.table, headerBackground: '#e8dcc4' },
+		charts: { ...DEFAULT_STORY_THEME.charts, series: ['#c2410c', '#0f766e', '#7c3aed'] },
+	},
+	dark: DEFAULT_DARK_STORY_THEME,
+};
+
+const THEMED_STORY = {
+	title: 'Story',
+	code: `# Revenue\n\n${CHART_TWO}\n\n<table query_id="q2" title="Orders" />`,
+};
+const QUERY_DATA = { q2: { columns: ['month', 'orders'], data: [{ month: 'Jan', orders: 3 }] } };
+
+describe('generateStoryHtml theme', () => {
+	it('keeps the default look when the story has no theme', async () => {
+		const html = await generateStoryHtml(THEMED_STORY, QUERY_DATA);
+
+		expect(html).toContain('color:#111827');
+		expect(html).toContain(`fill="${DEFAULT_COLORS[0]}"`);
+		expect(html).not.toContain('#fbf7ef');
+	});
+
+	it('paints the document, tables and chart series with the light theme', async () => {
+		const html = await generateStoryHtml(THEMED_STORY, QUERY_DATA, null, undefined, { theme: THEME });
+
+		expect(html).toContain('background:#fbf7ef');
+		expect(html).toContain('@page{background:#fbf7ef}');
+		expect(html).toContain('color:#0b1f3a');
+		expect(html).toContain('font-family:Lora, serif');
+		expect(html).toContain('background:#e8dcc4');
+		expect(html).toContain('fill="#c2410c"');
+		expect(html).toContain('--background:#fbf7ef');
+		expect(html).not.toContain(DEFAULT_DARK_STORY_THEME.surfaces.page);
+	});
+
+	it('inlines the theme into emailed stories, where stylesheets are stripped', async () => {
+		const { html } = await generateStoryEmailHtml(THEMED_STORY, QUERY_DATA, null, undefined, THEME);
+
+		expect(html).toContain('color:#0b1f3a');
+		expect(html).toContain('background:#e8dcc4');
 	});
 });

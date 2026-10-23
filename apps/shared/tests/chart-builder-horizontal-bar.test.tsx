@@ -74,10 +74,27 @@ describe('buildChart horizontal bars', () => {
 
 		expect(yAxis?.props.tickFormatter?.('Eleanor Roberts')).toBe('Eleanor Roberts');
 		expect(yAxis?.props.width).toBe(117);
-		expect(yAxis?.props.width).toBeLessThanOrEqual(180);
+		expect(yAxis?.props.width).toBeLessThanOrEqual(138);
 	});
 
-	it('truncates category labels longer than 24 characters', () => {
+	it('renders category labels on a single line', () => {
+		const chart = buildChart({
+			data: [{ category: 'Omer.Regev Omer.Regev', value: 20 }],
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+			labelFormatter: (value) => value,
+		});
+		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
+		const tick = yAxis?.props.tick?.({ x: 100, y: 20, payload: { value: 'Omer.Regev Omer.Regev' } });
+		const html = renderToString(<svg>{tick}</svg>);
+
+		expect(html).not.toContain('<tspan');
+		expect(html).toContain('>Omer.Regev Omer.R…</text>');
+	});
+
+	it('truncates category labels longer than 18 characters', () => {
 		const chart = buildChart({
 			data: [{ category: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', value: 20 }],
 			chartType: 'horizontal_bar',
@@ -89,8 +106,8 @@ describe('buildChart horizontal bars', () => {
 		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
 		const formattedLabel = yAxis?.props.tickFormatter?.('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
 
-		expect(formattedLabel).toBe('ABCDEFGHIJKLMNOPQRSTUVW…');
-		expect(formattedLabel).toHaveLength(24);
+		expect(formattedLabel).toBe('ABCDEFGHIJKLMNOPQ…');
+		expect(formattedLabel).toHaveLength(18);
 	});
 
 	it('applies the series value format to the always-visible labels', () => {
@@ -504,6 +521,7 @@ interface TestElementProps {
 	radius?: number[];
 	shape?: (props: unknown) => ReactElement<{ radius?: number[]; stroke?: string; strokeWidth?: number }>;
 	stackId?: string;
+	tick?: (props: unknown) => ReactElement;
 	tickFormatter?: (value: string | number) => string;
 	width?: number;
 }

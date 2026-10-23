@@ -1,7 +1,7 @@
 export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
-import type { CustomBoundarySet } from '@nao/shared';
+import { ALL_MCP_ACCESS, type CustomBoundarySet, isMcpServerGranted, type McpAccess } from '@nao/shared';
 import { writeFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
@@ -80,6 +80,8 @@ export const getTools = (
 	options: {
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
+		/** MCP servers the run's user may reach through their groups; the MCP tools are dropped when none is. */
+		mcpAccess?: McpAccess;
 		excludeFollowUps?: boolean;
 		onboarding?: boolean;
 		/**
@@ -110,12 +112,15 @@ export const getTools = (
 	} = {},
 ) => {
 	const customStoryAuthoring = options.customStoryAuthoring ?? isCustomStoriesEnabled();
-	const configuredServers = new Set(mcpService.getConfiguredServerNames());
+	const mcpAccess = options.mcpAccess ?? ALL_MCP_ACCESS;
+	const grantedServers = new Set(
+		mcpService.getConfiguredServerNames().filter((server) => isMcpServerGranted(mcpAccess, server)),
+	);
 	const includeMcp =
 		options.mcpEnabled !== false &&
 		(options.mcpServers == null
-			? configuredServers.size > 0
-			: options.mcpServers.some((server) => configuredServers.has(server)));
+			? grantedServers.size > 0
+			: options.mcpServers.some((server) => grantedServers.has(server)));
 	const mcpTools: Record<string, Tool> = includeMcp
 		? {
 				mcp_call: createMcpCallTool(options.mcpServers ?? null),

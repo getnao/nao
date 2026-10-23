@@ -23,6 +23,7 @@ export type SharedItem = {
 	isLive?: boolean;
 	summary?: unknown;
 	format?: StoryFormat;
+	version?: number;
 	messageBubbles?: MessageBubble[];
 };
 

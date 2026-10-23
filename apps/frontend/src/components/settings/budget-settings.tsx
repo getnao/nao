@@ -29,6 +29,8 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 	})),
 ];
 
+const DEFAULT_PERIOD: BudgetPeriod = 'month';
+
 export function BudgetSettings() {
 	const { isAdmin } = usePermissions();
 	const { data: session } = useSession();
@@ -122,13 +124,25 @@ export function BudgetSettings() {
 	}
 
 	function updateBudget(provider: string, budget: number) {
-		const clamped = Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
+		const clamped = clampBudget(budget);
 		setBudgets((previous) => ({ ...previous, [provider]: clamped }));
+		setDefaultPeriodIfMissing(provider, clamped);
 	}
 
 	function updatePerUserBudget(provider: string, budget: number) {
-		const clamped = Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
+		const clamped = clampBudget(budget);
 		setPerUserBudgets((previous) => ({ ...previous, [provider]: clamped }));
+		setDefaultPeriodIfMissing(provider, clamped);
+	}
+
+	/** A budget without a period is dropped on save, so entering a limit picks a period by default. */
+	function setDefaultPeriodIfMissing(provider: string, budget: number) {
+		if (budget <= 0) {
+			return;
+		}
+		setPeriods((previous) =>
+			(previous[provider] ?? 'none') === 'none' ? { ...previous, [provider]: DEFAULT_PERIOD } : previous,
+		);
 	}
 
 	function clearPeriodIfNoBudget(provider: string) {
@@ -394,6 +408,10 @@ function BudgetInput({
 			</div>
 		</div>
 	);
+}
+
+function clampBudget(budget: number): number {
+	return Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
 }
 
 function buildFormState(

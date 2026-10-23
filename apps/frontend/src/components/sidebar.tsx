@@ -1,18 +1,11 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
-import {
-	ArrowLeftFromLine,
-	ArrowRightToLine,
-	ChevronRight,
-	NewspaperIcon,
-	PlusIcon,
-	SearchIcon,
-	X,
-} from 'lucide-react';
+import { ChevronRight, NewspaperIcon, PanelLeft, PlusIcon, SearchIcon, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
 import { ChatListItem } from './sidebar-chat-list-item';
+import { SidebarBackToApp } from './sidebar-back-to-app';
 import { SidebarCommunity } from './sidebar-community';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { SidebarUserMenu } from './sidebar-user-menu';
@@ -29,6 +22,7 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { resetLastAppLocation, useTrackLastAppLocation } from '@/hooks/use-last-app-location';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
@@ -39,6 +33,7 @@ import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings';
 import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
 import { useSession } from '@/lib/auth-client';
 
@@ -56,6 +51,7 @@ export function Sidebar() {
 	const branding = useBranding();
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
+	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const showAutomations = !isViewer && betaAutomationsEnabled;
@@ -68,6 +64,7 @@ export function Sidebar() {
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
 	const isInSettings = !!isSettingsRoute && !isViewer;
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+	useTrackLastAppLocation();
 
 	useEffect(() => {
 		setToggleHintOpen(false);
@@ -121,7 +118,11 @@ export function Sidebar() {
 	const handleProjectChange = useCallback(
 		async (projectId: string) => {
 			const didSwitch = await switchProject(projectId);
-			if (didSwitch && isMobile) {
+			if (!didSwitch) {
+				return;
+			}
+			resetLastAppLocation();
+			if (isMobile) {
 				closeMobile();
 			}
 		},
@@ -188,11 +189,7 @@ export function Sidebar() {
 										className='text-muted-foreground'
 										aria-label='Toggle sidebar'
 									>
-										{effectiveIsCollapsed ? (
-											<ArrowRightToLine className='size-4' />
-										) : (
-											<ArrowLeftFromLine className='size-4' />
-										)}
+										<PanelLeft className='size-4' />
 									</Button>
 								</TooltipTrigger>
 								<TooltipContent side='right'>
@@ -208,17 +205,22 @@ export function Sidebar() {
 					</div>
 				</div>
 				{isInSettings && (
-					<ProjectSwitcher
-						projects={projects.data ?? []}
-						currentProjectId={project.data?.id}
-						onChange={handleProjectChange}
-						variant='sidebar'
-						className={cn(
-							'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
-							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
-							hideIf(effectiveIsCollapsed),
-						)}
-					/>
+					<>
+						<div className='pt-4'>
+							<SidebarBackToApp isCollapsed={effectiveIsCollapsed} />
+						</div>
+						<ProjectSwitcher
+							projects={projects.data ?? []}
+							currentProjectId={project.data?.id}
+							onChange={handleProjectChange}
+							variant='sidebar'
+							className={cn(
+								'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
+								effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
+								hideIf(effectiveIsCollapsed),
+							)}
+						/>
+					</>
 				)}
 				{!isInSettings && (
 					<>
@@ -262,6 +264,7 @@ export function Sidebar() {
 			{isInSettings ? (
 				<SidebarSettingsNav
 					isCollapsed={effectiveIsCollapsed}
+					canSeeAdvancedSettings={canSeeAdvancedSettings}
 					isAdmin={isAdmin}
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}

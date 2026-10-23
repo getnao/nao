@@ -22,6 +22,8 @@ export interface AskNaoClarification {
 export interface AskNaoResult {
 	chatId: string;
 	chatUrl: string;
+	/** Model that answered, as `provider/model-id`. */
+	model?: string;
 	text: string;
 	clarification?: AskNaoClarification;
 	queries: AskNaoQuery[];
@@ -30,7 +32,7 @@ export interface AskNaoResult {
 }
 
 export type AskNaoRunState =
-	| { status: 'running'; startedAt: number }
+	| { status: 'running'; startedAt: number; model: string }
 	| { status: 'complete'; result: AskNaoResult; finishedAt: number }
 	| { status: 'error'; error: string; finishedAt: number };
 
@@ -54,14 +56,14 @@ const MAX_TRACKED_RUNS = 5_000;
  * keeps going in the background; `get_nao_answer` reads its outcome from this registry.
  */
 export const askNaoRuns = {
-	start(chatId: string): void {
+	start(chatId: string, model: string): void {
 		if (runs.size >= MAX_TRACKED_RUNS) {
 			const oldestChatId = runs.keys().next().value;
 			if (oldestChatId !== undefined) {
 				runs.delete(oldestChatId);
 			}
 		}
-		runs.set(chatId, { status: 'running', startedAt: Date.now() });
+		runs.set(chatId, { status: 'running', startedAt: Date.now(), model });
 	},
 	complete(chatId: string, result: AskNaoResult): void {
 		runs.set(chatId, { status: 'complete', result, finishedAt: Date.now() });

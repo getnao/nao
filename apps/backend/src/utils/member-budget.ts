@@ -34,12 +34,12 @@ export type MemberBudgetUsage = {
 	resetsAt: Date;
 };
 
-export function isMemberBudgetLicensed(): Promise<boolean> {
-	return hasFeature(LICENSE_FEATURES.userBudget);
+export function isMemberBudgetLicensed(projectId: string): Promise<boolean> {
+	return hasFeature(LICENSE_FEATURES.userBudget, { projectId });
 }
 
-export async function assertMemberBudgetLicensed(): Promise<void> {
-	if (!(await isMemberBudgetLicensed())) {
+export async function assertMemberBudgetLicensed(projectId: string): Promise<void> {
+	if (!(await isMemberBudgetLicensed(projectId))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Member budgets require an Enterprise license.' });
 	}
 }
@@ -54,7 +54,7 @@ export async function getMemberBudgetConfig(projectId: string): Promise<MemberBu
 
 /** Current-period usage of a member against their cross-provider budget. */
 export async function resolveMemberBudgetUsage(projectId: string, userId: string): Promise<MemberBudgetUsage | null> {
-	if (!(await isMemberBudgetLicensed())) {
+	if (!(await isMemberBudgetLicensed(projectId))) {
 		return null;
 	}
 

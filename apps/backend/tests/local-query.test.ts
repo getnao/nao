@@ -460,6 +460,7 @@ const runOutcome = async (sql: string, overrides: RunOverrides = {}): Promise<Lo
 		warehouseTableAccess: overrides.warehouseTableAccess ?? { enforced: false },
 		docsContextAccess: overrides.docsContextAccess ?? { enforced: false },
 		filesContextAccess: overrides.filesContextAccess ?? { enforced: false },
+		mcpAccess: { mode: 'all' },
 	} as unknown as ToolContext;
 
 	return runQueryOnLocalFiles(sql, context, overrides.saveTo);

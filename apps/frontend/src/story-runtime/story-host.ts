@@ -389,7 +389,15 @@ async function importStoryModule(source: string): Promise<{ default?: unknown }>
 	}
 }
 
+/**
+ * React hands event-handler errors to `window.reportError`; the sandboxed frame's opaque origin would mute them
+ * to "Script error." on the way to the `error` event, so they are reported before that happens.
+ */
 function installGlobalErrorReporting(): void {
+	window.reportError = (error: unknown) => {
+		console.error(error);
+		reportError(error);
+	};
 	window.addEventListener('error', (event) => reportError(event.error ?? event.message));
 	window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 }

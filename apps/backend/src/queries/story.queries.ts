@@ -25,7 +25,12 @@ export type UserStoryRow = Pick<
 	| 'format'
 	| 'createdAt'
 	| 'updatedAt'
-> & { code: string; version: number; versionCreatedAt: DBStoryVersion['createdAt']; certifiedByName: string | null };
+> & {
+	code: string;
+	version: number;
+	versionCreatedAt: DBStoryVersion['createdAt'];
+	certifiedByName: string | null;
+};
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
 
@@ -449,6 +454,27 @@ async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
 	await db.delete(s.storyFolderItem).where(inArray(s.storyFolderItem.storyId, storyIds)).execute();
 }
 
+/** Matches `story` rows the user owns or that are shared with them within the project. */
+export function storyVisibleToUser(userId: string, projectId: string): SQL {
+	return sql`(
+		exists (
+			select 1 from ${s.chat}
+			where ${s.chat.id} = ${s.story.chatId} and ${s.chat.userId} = ${userId}
+		)
+		or (${s.story.chatId} is null and ${s.story.userId} = ${userId})
+		or exists (
+			select 1 from ${s.sharedStory}
+			where ${s.sharedStory.storyId} = ${s.story.id}
+			  and ${s.sharedStory.projectId} = ${projectId}
+			  and (
+				${s.sharedStory.userId} = ${userId}
+				or ${s.sharedStory.visibility} = 'project'
+				or ${sharedStoryGrantsUser(userId)}
+			  )
+		)
+	)`;
+}
+
 export async function canUserAccessStory(storyId: string, userId: string): Promise<boolean> {
 	const [owned] = await db
 		.select({ id: s.story.id })
@@ -584,6 +610,29 @@ export function getStoryDataCacheByChatAndSlug(chatId: string, slug: string): Pr
 
 export function getStoryDataCacheByStoryId(storyId: string): Promise<DBStoryDataCache | null> {
 	return getStoryDataCache(eq(s.story.id, storyId));
+}
+
+export async function getStoryDataCachedAt(storyId: string): Promise<Date | null> {
+	const [row] = await db
+		.select({ cachedAt: s.storyDataCache.cachedAt })
+		.from(s.storyDataCache)
+		.where(eq(s.storyDataCache.storyId, storyId))
+		.execute();
+	return row?.cachedAt ?? null;
+}
+
+export async function getStoryQueryDataByStoryIds(
+	storyIds: string[],
+): Promise<Map<string, DBStoryDataCache['queryData']>> {
+	if (storyIds.length === 0) {
+		return new Map();
+	}
+	const rows = await db
+		.select({ storyId: s.storyDataCache.storyId, queryData: s.storyDataCache.queryData })
+		.from(s.storyDataCache)
+		.where(inArray(s.storyDataCache.storyId, storyIds))
+		.execute();
+	return new Map(rows.map((row) => [row.storyId, row.queryData]));
 }
 
 export async function upsertStoryDataCache(
