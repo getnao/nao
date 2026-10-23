@@ -11,7 +11,7 @@ import { findUserFiles } from '../../services/storage/user-files';
 import { findStoryLibraryFiles } from '../../services/story-library';
 import { findStoryMountFiles, isCustomStoriesEnabled } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
-import { isStoryLibraryPattern } from '../../utils/story-library';
+import { isStoryLibraryPattern, storyIdOfLibraryPattern } from '../../utils/story-library';
 import {
 	loadNaoignorePatterns,
 	resolveCanonicalProjectPath,
@@ -60,8 +60,10 @@ const searchStoryLibrary = (
 	if (!isStoryLibraryPattern(pattern)) {
 		return Promise.resolve([]);
 	}
-	return findStoryLibraryFiles(context, (libraryRelativePath) =>
-		minimatch(libraryRelativePath, recursivePattern, { dot: true }),
+	return findStoryLibraryFiles(
+		context,
+		(libraryRelativePath) => minimatch(libraryRelativePath, recursivePattern, { dot: true }),
+		storyIdOfLibraryPattern(pattern),
 	);
 };
 

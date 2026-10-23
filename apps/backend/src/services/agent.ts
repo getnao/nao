@@ -102,7 +102,11 @@ import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import { customStoryAuthoringError } from './story-mount';
-import { listTrustedStoriesForPrompt, safeExpandStoryReferences } from './story-reference';
+import {
+	keepStoryReferencesThroughCompaction,
+	listTrustedStoriesForPrompt,
+	safeExpandStoryReferences,
+} from './story-reference';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
 	type AgentUserGroupAccess,
@@ -641,7 +645,10 @@ export class AgentManager {
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
-		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
+		const uiMessagesWithCompaction = keepStoryReferencesThroughCompaction(
+			uiMessagesWithDbContext,
+			compactionService.useLastCompaction(uiMessagesWithDbContext),
+		);
 		const uiMessagesWithStoryReferences = await safeExpandStoryReferences(uiMessagesWithCompaction, {
 			userId: this.chat.userId,
 			projectId: this.chat.projectId,

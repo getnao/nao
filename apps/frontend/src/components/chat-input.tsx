@@ -248,6 +248,7 @@ function ChatInputBase({
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
 
 	const queryClient = useQueryClient();
+	const currentProjectId = project.data?.id;
 
 	/** Stories past the referenceable list, such as older ones in a large project, are resolved one by one. */
 	const findStoryReferenceOption = useCallback(
@@ -261,11 +262,14 @@ function ChatInputBase({
 			const resolved = await queryClient
 				.fetchQuery(trpc.story.resolve.queryOptions({ storyId }))
 				.catch(() => null);
-			return resolved && !resolved.isArchived && resolved.chatId !== chatId
+			return resolved &&
+				!resolved.isArchived &&
+				resolved.chatId !== chatId &&
+				resolved.projectId === currentProjectId
 				? toStoryReferenceOption(resolved)
 				: null;
 		},
-		[storyReferenceOptions, queryClient, chatId],
+		[storyReferenceOptions, queryClient, chatId, currentProjectId],
 	);
 
 	const storyFolders = useQuery(trpc.storyFolder.listTree.queryOptions({ archived: false }));

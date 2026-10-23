@@ -86,7 +86,6 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	);
 
 	useTrackViewDuration({ assetType: 'story', chatId, storyId, versionNumber: story.viewedVersion ?? undefined });
-
 	return (
 		<div className='flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
 			<StoryPageHeader

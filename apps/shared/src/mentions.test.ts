@@ -9,6 +9,7 @@ import {
 	replaceStoryFolderReferences,
 	replaceStoryReferences,
 	toStoryFolderMentionId,
+	toStoryReferenceMentionId,
 } from './mentions';
 
 describe('story reference mentions', () => {
@@ -16,6 +17,14 @@ describe('story reference mentions', () => {
 		const text = 'Compare @[story:b] with @[story:a] using @[warehouse.public.orders] and @[story:b] again';
 
 		expect(extractStoryReferenceIds(text)).toEqual(['b', 'a']);
+	});
+
+	it('reads the story id back from a story mention', () => {
+		const mentionId = toStoryReferenceMentionId('story-1');
+
+		expect(isStoryReferenceMentionId(mentionId)).toBe(true);
+		expect(isStoryFolderMentionId(mentionId)).toBe(false);
+		expect(getStoryIdFromMentionId(mentionId)).toBe('story-1');
 	});
 
 	it('replaces story references only', () => {

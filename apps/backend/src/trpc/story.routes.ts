@@ -225,9 +225,10 @@ export const storyRoutes = {
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		const [ownerId, projectId] = await Promise.all([
+		const [ownerId, projectId, latestVersion] = await Promise.all([
 			storyQueries.getStoryOwnerId(story.id),
 			storyQueries.getStoryProjectId(story.id),
+			storyQueries.getLatestVersionByStoryId(story.id),
 		]);
 		await assertCanOpenStory(story.id, projectId, ctx.user.id);
 		return {
@@ -236,6 +237,7 @@ export const storyRoutes = {
 			slug: story.slug,
 			title: story.title,
 			format: story.format,
+			summary: extractStorySummary(latestVersion?.code ?? ''),
 			isOwner: ownerId === ctx.user.id,
 			isArchived: story.archivedAt !== null,
 			projectId,

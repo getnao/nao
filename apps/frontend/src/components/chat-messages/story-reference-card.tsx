@@ -20,6 +20,8 @@ export function StoryReferenceCard({ storyId, title }: { storyId: string; title:
 		<StoryCard
 			title={story?.title ?? title}
 			isCustomStory={story?.format === 'custom'}
+			storyId={story?.storyId}
+			summary={story?.summary}
 			canOpen={Boolean(story)}
 			onOpen={() => story && openStory(story)}
 			status={<span className='text-xs text-muted-foreground'>{describeStatus(story, isError)}</span>}
@@ -50,7 +52,10 @@ function describeStatus(story: ResolvedStory | undefined, isError: boolean): str
 	if (isError) {
 		return 'Story no longer available';
 	}
-	return story?.isArchived ? 'Archived story' : 'Existing story';
+	if (!story) {
+		return 'Loading story…';
+	}
+	return story.isArchived ? 'Archived story' : 'Existing story';
 }
 
 function useResolvedStory(storyId: string) {

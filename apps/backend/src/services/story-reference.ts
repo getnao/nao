@@ -3,6 +3,8 @@ import {
 	extractStoryReferenceIds,
 	replaceStoryFolderReferences,
 	replaceStoryReferences,
+	toStoryFolderMentionId,
+	toStoryReferenceMentionId,
 } from '@nao/shared';
 import { extractQueryIds } from '@nao/shared/story-segments';
 
@@ -18,8 +20,9 @@ import type { UIMessage, UIMessagePart } from '../types/chat';
 import type { StoryDetails, StoryFile, StoryQuery, StorySummary } from '../types/story-reference';
 import { logger } from '../utils/logger';
 import { isViewableStoryFile } from '../utils/story-file-path';
+import { toStoryLibraryVirtualPath } from '../utils/story-library';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
-import { chunk, truncateMiddle } from '../utils/utils';
+import { truncateMiddle } from '../utils/utils';
 
 export type StoryReferenceScope = { userId: string; projectId: string };
 
@@ -29,6 +32,16 @@ type ExpansionState = { expandedStoryIds: Set<string>; remainingLength: number }
 
 type FolderReference = { name: string; storyIds: string[] };
 
+/** References past the caps are not loaded, so a message mentioning many stories stays cheap to expand. */
+type References = {
+	stories: Map<string, StoryDetails>;
+	folders: Map<string, FolderReference>;
+	skippedStoryIds: Set<string>;
+	skippedFolderIds: Set<string>;
+};
+
+const MAX_REFERENCED_STORIES = 100;
+const MAX_REFERENCED_FOLDERS = 10;
 const MAX_CODE_LENGTH = 20_000;
 const MAX_FILES_LENGTH = 30_000;
 const MAX_REFERENCED_CONTENT_LENGTH = 100_000;
@@ -132,15 +145,46 @@ export async function expandStoryReferences<T extends MessageLike>(
 	messages: T[],
 	scope: StoryReferenceScope,
 ): Promise<T[]> {
-	const folderIds = [...new Set(messages.flatMap(referencedFolderIdsOf))];
-	const folders = await loadFolderReferences(scope, folderIds);
-	const storyIds = [...new Set(messages.flatMap((message) => referencedStoryIdsOf(message, folders)))];
-	if (storyIds.length === 0 && folderIds.length === 0) {
+	const folderIds = capReferencedIds(messages.flatMap(referencedFolderIdsOf), MAX_REFERENCED_FOLDERS);
+	const folders = await loadFolderReferences(scope, folderIds.kept);
+	const storyIds = capReferencedIds(
+		messages.flatMap((message) => referencedStoryIdsOf(message, folders)),
+		MAX_REFERENCED_STORIES,
+	);
+	if (storyIds.kept.length === 0 && folderIds.kept.length === 0) {
 		return messages;
 	}
-	const references = await loadReferences(scope, storyIds);
+	const references: References = {
+		stories: await loadReferences(scope, storyIds.kept),
+		folders,
+		skippedStoryIds: storyIds.skipped,
+		skippedFolderIds: folderIds.skipped,
+	};
 	const expansion: ExpansionState = { expandedStoryIds: new Set(), remainingLength: MAX_REFERENCED_CONTENT_LENGTH };
-	return messages.map((message) => expandMessage(message, references, folders, expansion));
+	return messages.map((message) => expandMessage(message, references, expansion));
+}
+
+/**
+ * Compaction replaces the messages before its summary, and with them the references they made: these are
+ * carried over to the first message kept, so a referenced story stays available after a compaction.
+ */
+export function keepStoryReferencesThroughCompaction<T extends MessageLike>(
+	history: MessageLike[],
+	compactedHistory: T[],
+): T[] {
+	const keptTokens = new Set(compactedHistory.flatMap(referenceTokensOf));
+	const droppedTokens = [...new Set(history.flatMap(referenceTokensOf))].filter((token) => !keptTokens.has(token));
+	const firstUserMessageIndex = compactedHistory.findIndex((message) => message.role === 'user');
+	if (droppedTokens.length === 0 || firstUserMessageIndex === -1) {
+		return compactedHistory;
+	}
+	const carriedReferences: UIMessagePart = {
+		type: 'text',
+		text: `Referenced earlier in the conversation: ${droppedTokens.join(' ')}`,
+	};
+	return compactedHistory.map((message, index) =>
+		index === firstUserMessageIndex ? { ...message, parts: [carriedReferences, ...message.parts] } : message,
+	);
 }
 
 /** Keeps the history as it is when the references cannot be resolved. */
@@ -223,27 +267,31 @@ async function loadFolderReferences(
 /** Only the most trusted stories of a large folder are referenced. */
 async function resolveFolderReference(scope: StoryReferenceScope, folderId: string): Promise<FolderReference | null> {
 	const folder = await storyFolderQueries.findReferencedFolder(scope.userId, scope.projectId, folderId);
-	if (!folder || folder.storyIds.length === 0) {
-		return folder;
+	if (!folder) {
+		return null;
 	}
 	const stories = await storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
-		storyIds: folder.storyIds,
+		...folder.filters,
 		limit: MAX_STORIES_PER_FOLDER_REFERENCE,
 	});
 	return { name: folder.name, storyIds: stories.map((story) => story.storyId) };
 }
 
 async function loadReferences(scope: StoryReferenceScope, storyIds: string[]): Promise<Map<string, StoryDetails>> {
-	const storyBatches = await Promise.all(
-		chunk(storyIds, storyReferenceQueries.MAX_REFERENCEABLE_STORIES_LIMIT).map((storyIdsBatch) =>
-			storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
-				storyIds: storyIdsBatch,
-				limit: storyIdsBatch.length,
-			}),
-		),
-	);
-	const references = await loadStoriesDetails(storyBatches.flat());
+	if (storyIds.length === 0) {
+		return new Map();
+	}
+	const stories = await storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
+		storyIds,
+		limit: storyIds.length,
+	});
+	const references = await loadStoriesDetails(stories);
 	return new Map(references.map((reference) => [reference.id, truncateStoryContent(reference)]));
+}
+
+function capReferencedIds(ids: string[], max: number): { kept: string[]; skipped: Set<string> } {
+	const uniqueIds = [...new Set(ids)];
+	return { kept: uniqueIds.slice(0, max), skipped: new Set(uniqueIds.slice(max)) };
 }
 
 function truncateStoryContent(details: StoryDetails): StoryDetails {
@@ -254,20 +302,15 @@ function truncateStoryContent(details: StoryDetails): StoryDetails {
 	};
 }
 
-function expandMessage<T extends MessageLike>(
-	message: T,
-	references: Map<string, StoryDetails>,
-	folders: Map<string, FolderReference>,
-	expansion: ExpansionState,
-): T {
-	const storyIds = referencedStoryIdsOf(message, folders);
+function expandMessage<T extends MessageLike>(message: T, references: References, expansion: ExpansionState): T {
+	const storyIds = referencedStoryIdsOf(message, references.folders);
 	if (storyIds.length === 0 && referencedFolderIdsOf(message).length === 0) {
 		return message;
 	}
-	const parts = message.parts.map((part) => replaceReferenceTokens(part, references, folders));
+	const parts = message.parts.map((part) => replaceReferenceTokens(part, references));
 	const newReferences = storyIds
 		.filter((storyId) => !expansion.expandedStoryIds.has(storyId))
-		.map((storyId) => references.get(storyId))
+		.map((storyId) => references.stories.get(storyId))
 		.filter((reference): reference is StoryDetails => reference !== undefined);
 	if (newReferences.length === 0) {
 		return { ...message, parts };
@@ -303,30 +346,38 @@ function contentLengthOf(reference: StoryDetails): number {
 	return reference.code.length + filesLength + queriesLength;
 }
 
-function replaceReferenceTokens(
-	part: UIMessagePart,
-	references: Map<string, StoryDetails>,
-	folders: Map<string, FolderReference>,
-): UIMessagePart {
+function replaceReferenceTokens(part: UIMessagePart, references: References): UIMessagePart {
 	if (part.type !== 'text') {
 		return part;
 	}
-	const withStories = replaceStoryReferences(part.text, (storyId) => {
-		const reference = references.get(storyId);
-		return reference ? `@"${reference.title}"` : '@(a story that is no longer available)';
-	});
-	const text = replaceStoryFolderReferences(withStories, (folderId) => describeFolder(folders.get(folderId)));
+	const withStories = replaceStoryReferences(part.text, (storyId) => describeStory(storyId, references));
+	const text = replaceStoryFolderReferences(withStories, (folderId) => describeFolder(folderId, references));
 	return { ...part, text };
 }
 
-function describeFolder(folder: FolderReference | undefined): string {
+/** Names are JSON-quoted so a name written by a user reads as a single quoted value, not as the user's words. */
+function describeStory(storyId: string, references: References): string {
+	const reference = references.stories.get(storyId);
+	if (reference) {
+		return `@${JSON.stringify(reference.title)}`;
+	}
+	if (references.skippedStoryIds.has(storyId)) {
+		return `@(a story left out because too many stories are referenced, read it under ${toStoryLibraryVirtualPath(storyId)}/)`;
+	}
+	return '@(a story that is no longer available)';
+}
+
+function describeFolder(folderId: string, references: References): string {
+	const folder = references.folders.get(folderId);
 	if (!folder) {
-		return '@(a story folder that is no longer available)';
+		return references.skippedFolderIds.has(folderId)
+			? '@(a story folder left out because too many story folders are referenced)'
+			: '@(a story folder that is no longer available)';
 	}
 	if (folder.storyIds.length === 0) {
-		return `@"${folder.name}" (a story folder with no story you can see)`;
+		return `@${JSON.stringify(folder.name)} (a story folder with no story you can see)`;
 	}
-	return `@"${folder.name}" (a story folder, its stories are referenced below)`;
+	return `@${JSON.stringify(folder.name)} (a story folder, its stories are referenced below)`;
 }
 
 function referencedStoryIdsOf(message: MessageLike, folders: Map<string, FolderReference>): string[] {
@@ -337,6 +388,14 @@ function referencedStoryIdsOf(message: MessageLike, folders: Map<string, FolderR
 
 function referencedFolderIdsOf(message: MessageLike): string[] {
 	return [...new Set(textPartsOf(message).flatMap(extractStoryFolderReferenceIds))];
+}
+
+function referenceTokensOf(message: MessageLike): string[] {
+	const texts = textPartsOf(message);
+	return [
+		...texts.flatMap(extractStoryReferenceIds).map((storyId) => `@[${toStoryReferenceMentionId(storyId)}]`),
+		...texts.flatMap(extractStoryFolderReferenceIds).map((folderId) => `@[${toStoryFolderMentionId(folderId)}]`),
+	];
 }
 
 function textPartsOf(message: MessageLike): string[] {

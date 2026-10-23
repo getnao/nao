@@ -54,16 +54,15 @@ export function ReferencedStory({ story }: { story: StoryDetails }) {
 }
 
 function storyAttributes(story: StorySummary): string {
-	return [
+	const attributes = [
 		`id=${JSON.stringify(story.id)}`,
 		`title=${JSON.stringify(story.title)}`,
 		story.author ? `author=${JSON.stringify(story.author)}` : null,
 		`format=${JSON.stringify(story.format)}`,
 		story.pinned ? 'pinned="true"' : null,
 		story.certified ? 'certified="true"' : null,
-	]
-		.filter(Boolean)
-		.join(' ');
+	];
+	return neutralizeClosingTag(attributes.filter(Boolean).join(' '));
 }
 
 function CustomStoryFiles({ files }: { files: StoryFile[] }) {

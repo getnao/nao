@@ -25,9 +25,10 @@ export type ReferenceableStory = {
 };
 
 export type ReferenceableStoryFilters = {
-	search?: string;
 	trustedOnly?: boolean;
 	storyIds?: string[];
+	folderIds?: string[];
+	sharedWithMeOnly?: boolean;
 	limit?: number;
 };
 
@@ -71,7 +72,7 @@ export async function listReferenceableStories(
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
-		.leftJoin(s.sharedStory, eq(s.sharedStory.storyId, s.story.id))
+		.leftJoin(s.sharedStory, and(eq(s.sharedStory.storyId, s.story.id), eq(s.sharedStory.projectId, projectId)))
 		.leftJoin(storyOwner, eq(storyOwner.id, sql`coalesce(${s.chat.userId}, ${s.story.userId})`))
 		.innerJoin(latestVersions, eq(latestVersions.storyId, s.story.id))
 		.innerJoin(
@@ -83,9 +84,10 @@ export async function listReferenceableStories(
 				sql`coalesce(${s.story.projectId}, ${s.chat.projectId}) = ${projectId}`,
 				isNull(s.story.archivedAt),
 				or(isOwnedBy(userId), isSharedWith(userId)),
-				filters.search ? matchesSearch(filters.search) : undefined,
 				filters.trustedOnly ? isTrusted() : undefined,
 				filters.storyIds ? inArray(s.story.id, filters.storyIds) : undefined,
+				filters.folderIds ? isInFolders(filters.folderIds) : undefined,
+				filters.sharedWithMeOnly ? isSharedSpecificallyWith(userId) : undefined,
 			),
 		)
 		.orderBy(
@@ -150,20 +152,18 @@ function isTrusted(): SQL {
 	return or(eq(s.sharedStory.isPinned, true), isNotNull(s.story.certifiedAt))!;
 }
 
-function matchesSearch(search: string): SQL | undefined {
-	const words = search.toLowerCase().split(/\s+/).filter(Boolean);
-	if (words.length === 0) {
-		return undefined;
-	}
-	return and(
-		...words.map((word) => {
-			const pattern = `%${escapeLikePattern(word)}%`;
-			return or(
-				sql`lower(${s.story.title}) like ${pattern} escape '\\'`,
-				sql`lower(${s.storyVersion.code}) like ${pattern} escape '\\'`,
-			);
-		}),
+function isInFolders(folderIds: string[]): SQL {
+	return inArray(
+		s.story.id,
+		db
+			.select({ storyId: s.storyFolderItem.storyId })
+			.from(s.storyFolderItem)
+			.where(inArray(s.storyFolderItem.folderId, folderIds)),
 	);
+}
+
+function isSharedSpecificallyWith(userId: string): SQL {
+	return and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId))!;
 }
 
 function referencingMessageParts(storyId: string) {

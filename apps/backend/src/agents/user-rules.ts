@@ -360,13 +360,14 @@ export function listSchemaTableFqdns(
 	schemaKey: string,
 	warehouseTableAccess: WarehouseTableAccess,
 ): string[] {
-	return getDatabaseObjects(projectFolder)
+	const fqdns = getDatabaseObjects(projectFolder)
 		.filter(
 			(object) =>
 				`${object.database}.${object.schema}` === schemaKey &&
 				isDatabaseObjectAllowed(warehouseTableAccess, object),
 		)
 		.map((object) => object.fqdn);
+	return [...new Set(fqdns)];
 }
 
 export function getTableColumnsContent(

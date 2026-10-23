@@ -6,6 +6,9 @@ import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { sharedStoryGrantsUser } from './shared-story.queries';
+import type { ReferenceableStoryFilters } from './story-reference.queries';
+
+type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'sharedWithMeOnly'>;
 
 type FolderMoveTx = DBTransaction;
 
@@ -109,42 +112,26 @@ export async function listFolderTree(
 }
 
 /**
- * The stories of a folder and of its subfolders, null when the folder is archived or out of the user's
- * reach. The stories themselves still have to be checked for access.
+ * The filters selecting the stories of a folder and of its subfolders, null when the folder is archived or
+ * out of the user's reach. The stories themselves still have to be checked for access.
  */
 export async function findReferencedFolder(
 	userId: string,
 	projectId: string,
 	folderId: string,
-): Promise<{ name: string; storyIds: string[] } | null> {
+): Promise<{ name: string; filters: FolderStoryFilters } | null> {
 	if (folderId === SHARED_WITH_ME_FOLDER_ID) {
-		return { name: 'Shared with me', storyIds: await listSharedWithMeStoryIds(userId, projectId) };
+		return { name: 'Shared with me', filters: { sharedWithMeOnly: true } };
 	}
 	const folder = await getFolderById(folderId);
 	if (!folder || folder.projectId !== projectId || folder.archivedAt !== null || !isVisibleTo(folder, userId)) {
 		return null;
 	}
-	const folderIds = await listDescendantFolderIds(folderId);
-	return { name: folder.name, storyIds: await getStoryIdsInFolders(folderIds) };
+	return { name: folder.name, filters: { folderIds: await listDescendantFolderIds(folderId) } };
 }
 
 function isVisibleTo(folder: DBStoryFolder, userId: string): boolean {
 	return folder.visibility === 'public' || folder.ownerId === userId;
-}
-
-async function listSharedWithMeStoryIds(userId: string, projectId: string): Promise<string[]> {
-	const rows = await db
-		.select({ storyId: s.sharedStory.storyId })
-		.from(s.sharedStory)
-		.where(
-			and(
-				eq(s.sharedStory.projectId, projectId),
-				eq(s.sharedStory.visibility, 'specific'),
-				sharedStoryGrantsUser(userId),
-			),
-		)
-		.execute();
-	return rows.map((row) => row.storyId);
 }
 
 async function countSharedWithMeStories(userId: string, projectId: string): Promise<number> {

@@ -25,13 +25,12 @@ export function NewChatDropTarget({ children }: { children: ReactNode }) {
 	}
 
 	function handleDrop(event: DragEvent) {
+		event.preventDefault();
 		setIsLinkDragOver(false);
 		const references = readDroppedReferences(event.dataTransfer);
-		if (!hasAnyStoryReference(references)) {
-			return;
+		if (hasAnyStoryReference(references)) {
+			startChatWithStories(references);
 		}
-		event.preventDefault();
-		startChatWithStories(references);
 	}
 
 	return (

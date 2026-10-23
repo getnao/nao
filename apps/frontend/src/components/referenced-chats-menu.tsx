@@ -14,11 +14,8 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useStartChatWithStories } from '@/hooks/use-start-chat-with-stories';
-import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { trpc } from '@/main';
 
 type ReferencingChat = inferRouterOutputs<TrpcRouter>['story']['listReferencingChats']['chats'][number];
@@ -59,12 +56,10 @@ export function ReferencedChatsMenu({
 	const forkMutation = useMutation(
 		trpc.chatFork.forkStory.mutationOptions({
 			onSuccess: async ({ chatId }) => {
-				if (resolvedStory?.projectId) {
-					await switchProject(resolvedStory.projectId);
-				}
+				await switchToStoryProject();
 				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: data?.storySlug } });
+				navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: resolvedStory?.slug } });
 			},
 		}),
 	);
@@ -73,28 +68,29 @@ export function ReferencedChatsMenu({
 	const otherChats = chats.filter((chat) => !chat.isOrigin);
 	const canOpenInChat = !originChat && Boolean(onOpenInChat);
 	const isBusy = isOpeningInChat || forkMutation.isPending;
-	const isDisabled = isBusy || !storyId;
+	const isDisabled = isBusy || !resolvedStory;
 
-	useKeyboardShortcuts({
-		'toggle-story-chat': isDisabled ? undefined : () => setIsOpen((open) => !open),
-	});
+	/** The chats around a story live in its project, so the project is switched before reaching them. */
+	const switchToStoryProject = async () => {
+		if (resolvedStory?.projectId) {
+			await switchProject(resolvedStory.projectId);
+		}
+	};
 
-	const openChat = (chat: ReferencingChat) => {
+	const openChat = async (chat: ReferencingChat) => {
+		await switchToStoryProject();
 		navigate({
 			to: '/$chatId',
 			params: { chatId: chat.chatId },
-			state: chat.isOrigin ? { openStorySlug: data?.storySlug } : undefined,
+			state: chat.isOrigin ? { openStorySlug: resolvedStory?.slug } : undefined,
 		});
 	};
 
-	/** A story is only referenced from a chat of its own project, so the project is switched first. */
 	const startChat = async () => {
 		if (!storyId) {
 			return;
 		}
-		if (resolvedStory?.projectId) {
-			await switchProject(resolvedStory.projectId);
-		}
+		await switchToStoryProject();
 		startChatWithStories({ storyIds: [storyId], folderIds: [] });
 	};
 
@@ -106,32 +102,17 @@ export function ReferencedChatsMenu({
 
 	return (
 		<DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<DropdownMenuTrigger asChild>
-						<Button
-							variant='outline'
-							size='sm'
-							className='gap-1.5 rounded-full text-xs'
-							disabled={isDisabled}
-						>
-							{isBusy ? (
-								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-							) : (
-								<MessageSquare className='size-3.5' strokeWidth={2.25} />
-							)}
-							<span>Referenced chats</span>
-							<ChevronDown className='size-3' strokeWidth={2.25} />
-						</Button>
-					</DropdownMenuTrigger>
-				</TooltipTrigger>
-				<TooltipContent>
-					<span className='flex items-center gap-2'>
-						Referenced chats
-						<kbd className='text-[10px] opacity-60 font-sans'>{getShortcutLabel('toggle-story-chat')}</kbd>
-					</span>
-				</TooltipContent>
-			</Tooltip>
+			<DropdownMenuTrigger asChild>
+				<Button variant='outline' size='sm' className='gap-1.5 rounded-full text-xs' disabled={isDisabled}>
+					{isBusy ? (
+						<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+					) : (
+						<MessageSquare className='size-3.5' strokeWidth={2.25} />
+					)}
+					<span>Referenced chats</span>
+					<ChevronDown className='size-3' strokeWidth={2.25} />
+				</Button>
+			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' className='w-64'>
 				{isPending && (
 					<DropdownMenuItem disabled>

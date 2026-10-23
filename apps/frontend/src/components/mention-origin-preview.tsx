@@ -16,7 +16,7 @@ export type MentionOrigin = MentionOriginNode[];
 const PANEL_GAP_PX = 6;
 const VIEWPORT_MARGIN_PX = 8;
 const MAX_PANEL_WIDTH_PX = 320;
-const MIN_LEFT_SPACE_PX = 220;
+const MIN_PANEL_WIDTH_PX = 200;
 
 type MentionOriginPreviewProps = {
 	owner: string;
@@ -27,14 +27,15 @@ type MentionOriginPreviewProps = {
 export function MentionOriginPreview({ owner, origins }: MentionOriginPreviewProps) {
 	const highlighted = useHighlightedMention(owner);
 	const origin = highlighted ? origins.get(highlighted.optionId) : undefined;
-	if (!highlighted || !origin) {
+	const position = highlighted ? panelPosition(highlighted) : null;
+	if (!origin || !position) {
 		return null;
 	}
 
 	return createPortal(
 		<div
 			className='pointer-events-none fixed z-[201] rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg'
-			style={panelPosition(highlighted)}
+			style={position}
 		>
 			{origin.map((node, depth) => (
 				<MentionOriginRow key={depth} node={node} depth={depth} isMentioned={depth === origin.length - 1} />
@@ -83,18 +84,30 @@ function MentionOriginRow({
 	);
 }
 
-function panelPosition({ menuRect, itemRect }: HighlightedMention): CSSProperties {
-	const top = itemRect.top;
-	if (menuRect.left >= MIN_LEFT_SPACE_PX) {
+/** Beside the menu, on whichever side has room, growing away from the nearest viewport edge. */
+function panelPosition({ menuRect, itemRect }: HighlightedMention): CSSProperties | null {
+	const leftSpace = menuRect.left - PANEL_GAP_PX - VIEWPORT_MARGIN_PX;
+	const rightSpace = window.innerWidth - menuRect.right - PANEL_GAP_PX - VIEWPORT_MARGIN_PX;
+	if (leftSpace >= MIN_PANEL_WIDTH_PX) {
 		return {
-			top,
+			...verticalPosition(itemRect),
 			right: window.innerWidth - menuRect.left + PANEL_GAP_PX,
-			maxWidth: Math.min(MAX_PANEL_WIDTH_PX, menuRect.left - PANEL_GAP_PX - VIEWPORT_MARGIN_PX),
+			maxWidth: Math.min(MAX_PANEL_WIDTH_PX, leftSpace),
 		};
 	}
-	return {
-		top,
-		left: menuRect.right + PANEL_GAP_PX,
-		maxWidth: Math.min(MAX_PANEL_WIDTH_PX, window.innerWidth - menuRect.right - PANEL_GAP_PX - VIEWPORT_MARGIN_PX),
-	};
+	if (rightSpace >= MIN_PANEL_WIDTH_PX) {
+		return {
+			...verticalPosition(itemRect),
+			left: menuRect.right + PANEL_GAP_PX,
+			maxWidth: Math.min(MAX_PANEL_WIDTH_PX, rightSpace),
+		};
+	}
+	return null;
+}
+
+function verticalPosition(itemRect: DOMRect): CSSProperties {
+	if (itemRect.top < window.innerHeight / 2) {
+		return { top: itemRect.top };
+	}
+	return { bottom: window.innerHeight - itemRect.bottom };
 }
