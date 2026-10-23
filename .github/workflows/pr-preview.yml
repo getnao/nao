@@ -107,6 +107,7 @@ jobs:
                   NOTION_API_KEY: "something-random"
                   OPENAI_API_KEY: "${{ secrets.PREVIEW_OPENAI_API_KEY }}"
                   POSTHOG_DISABLED: "true"
+                  BETA_CUSTOM_STORIES_ENABLED: "true"
                   EOF
 
             - name: Deploy to Cloud Run
