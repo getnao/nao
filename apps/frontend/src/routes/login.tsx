@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import { useForm } from '@tanstack/react-form';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { LocalPasswordHelp } from '@/components/forgot-password-local';
 import { signIn } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
 import { useIsCloud } from '@/hooks/use-nao-mode';
@@ -95,13 +96,7 @@ function Login() {
 				placeholder='joe@gmail.com'
 				className='mb-4'
 			/>
-			<FormTextField
-				form={form}
-				name='password'
-				type='password'
-				title='Password'
-				className={isUserLoginEnabled && isSmtpSetup.data ? 'mb-2' : 'mb-8'}
-			/>
+			<FormTextField form={form} name='password' type='password' title='Password' className='mb-2' />
 			{isUserLoginEnabled && isSmtpSetup.data && (
 				<div className='text-right mb-6'>
 					<Link
@@ -111,6 +106,11 @@ function Login() {
 						Forgot password
 					</Link>
 				</div>
+			)}
+			{isUserLoginEnabled && isSmtpSetup.isSuccess && !isSmtpSetup.data && (
+				<form.Subscribe selector={(state) => state.values.email}>
+					{(email) => <LocalPasswordHelp email={email} />}
+				</form.Subscribe>
 			)}
 		</AuthForm>
 	);
