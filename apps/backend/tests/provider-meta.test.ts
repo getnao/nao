@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	findBedrockGeoTwin,
 	getModelCapabilities,
 	getModelParameterSpec,
 	isAnthropicApiModel,
@@ -163,6 +164,17 @@ describe('getModelCapabilities', () => {
 		const twin = getModelCapabilities('bedrock', 'us.openai.gpt-6-sol');
 		expect(twin).toBeDefined();
 		expect(getModelCapabilities('bedrock', 'eu.openai.gpt-6-sol')).toEqual(twin);
+	});
+
+	it('prefers the us. twin and falls back to the global. twin', () => {
+		const usTwin = { id: 'us.anthropic.claude-a' };
+		const globalTwin = { id: 'global.anthropic.claude-a' };
+		const globalOnly = { id: 'global.anthropic.claude-b' };
+		const models = [globalTwin, usTwin, globalOnly];
+
+		expect(findBedrockGeoTwin(models, 'eu.anthropic.claude-a')).toBe(usTwin);
+		expect(findBedrockGeoTwin(models, 'eu.anthropic.claude-b')).toBe(globalOnly);
+		expect(findBedrockGeoTwin(models, 'eu.anthropic.claude-c')).toBeUndefined();
 	});
 
 	it('keeps the budget fallback for geo-prefixed Bedrock ids with no listed twin', () => {

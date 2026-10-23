@@ -1202,7 +1202,7 @@ function findKnownModel(provider: LlmProvider, modelId: string): KnownModel | un
  * Bedrock inference profiles share a model across geo prefixes (`eu.`, `apac.`, `us-gov.`...), but the
  * catalog lists only some of them. An unlisted geo id takes the capabilities of its `us.` or `global.` twin.
  */
-function findBedrockGeoTwin(models: readonly KnownModel[], modelId: string): KnownModel | undefined {
+export function findBedrockGeoTwin(models: readonly KnownModel[], modelId: string): KnownModel | undefined {
 	const baseId = BEDROCK_GEO_PREFIXED_ID.exec(modelId)?.[1];
 	if (!baseId) {
 		return undefined;

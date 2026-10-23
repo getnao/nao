@@ -73,7 +73,7 @@ describe('buildVerificationMessages', () => {
 		});
 	});
 
-	it('renders non-text tool outputs and truncates long ones', () => {
+	it('renders non-text tool outputs and caps each tool result at 2000 characters', () => {
 		const messages = buildVerificationMessages(
 			'Q',
 			[
@@ -108,7 +108,10 @@ describe('buildVerificationMessages', () => {
 		const transcript = messages[1].content as string;
 		expect(transcript).toContain('Tool result json_tool:\n{"n":1}');
 		expect(transcript).toContain('Tool result denied_tool:\nexecution-denied');
-		expect(transcript.match(/x+\.\.\.x+/)?.[0].length).toBeLessThanOrEqual(2000);
+		const longResult = transcript.split('Tool result long_tool:\n')[1].split('\n\n')[0];
+		expect(longResult.length).toBeLessThanOrEqual(2000);
+		expect(longResult.length).toBeGreaterThan(1990);
+		expect(longResult).toContain('...');
 	});
 
 	it('keeps the assistant turn non-empty when the response holds only reasoning', () => {
