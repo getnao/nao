@@ -26,6 +26,9 @@ apps/backend/storage/
 .cursor/
 .nao/
 .meta/
+!example/.meta/
+example/.meta/*
+!example/.meta/semantic_layer/
 
 example/tests/outputs/
 
