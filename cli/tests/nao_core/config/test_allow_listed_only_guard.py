@@ -438,6 +438,122 @@ def test_starrocks_default_catalog_resolves_from_live_schemas(tmp_path: Path):
         enforce_allow_listed_only("SELECT * FROM other_catalog.analytics.events", config, tmp_path)
 
 
+def test_snowflake_catalog_compares_folded_like_the_engine(tmp_path: Path):
+    """Snowflake folds unquoted identifiers to uppercase, so the connected database
+    name from nao_config.yaml has to be folded before comparing. A lowercase
+    `database: prod` entry must not reject `prod.common.table`.
+    """
+    config = FakeDatabaseConfig(
+        False,
+        {"COMMON": ["RECAP__TEXT"]},
+        database_name="prod",
+    )
+    config.type = "snowflake"
+    allowed = {("COMMON", "RECAP__TEXT")}
+
+    for sql in (
+        "select * from prod.common.recap__text",
+        "select * from PROD.COMMON.RECAP__TEXT",
+    ):
+        assert enforce_allow_listed_only(sql, config, tmp_path, group_allowed_tables=allowed) == sql
+
+    upper_config = FakeDatabaseConfig(
+        False,
+        {"COMMON": ["RECAP__TEXT"]},
+        database_name="PROD",
+    )
+    upper_config.type = "snowflake"
+    assert (
+        enforce_allow_listed_only(
+            "select * from prod.common.recap__text",
+            upper_config,
+            tmp_path,
+            group_allowed_tables=allowed,
+        )
+        == "select * from prod.common.recap__text"
+    )
+
+
+def test_snowflake_multi_part_database_name_folds_the_leading_candidate(tmp_path: Path):
+    """A configured name like `hive1.analytics` produces the cumulative candidates
+    `hive1` and `hive1.analytics`, folded for unquoted requests, so a query naming a
+    prefix of the configured name as its catalog matches whatever case it is written
+    in. `other1.analytics` is not a prefix and is still not the connected database.
+    """
+    for configured in ("hive1.analytics", "HIVE1.Analytics"):
+        config = FakeDatabaseConfig(
+            False,
+            {"HIVE1.ANALYTICS": ["ORDERS"]},
+            database_name=configured,
+        )
+        config.type = "snowflake"
+        allowed = {("HIVE1.ANALYTICS", "ORDERS")}
+
+        for sql in (
+            "select id from hive1.analytics.orders",
+            "select id from HIVE1.ANALYTICS.ORDERS",
+        ):
+            assert enforce_allow_listed_only(sql, config, tmp_path, group_allowed_tables=allowed) == sql
+
+    other_catalog = FakeDatabaseConfig(
+        False,
+        {"HIVE1.ANALYTICS": ["ORDERS"]},
+        database_name="hive1.analytics",
+    )
+    other_catalog.type = "snowflake"
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
+        enforce_allow_listed_only(
+            "select id from other1.analytics.orders",
+            other_catalog,
+            tmp_path,
+            group_allowed_tables={("HIVE1.ANALYTICS", "ORDERS")},
+        )
+
+
+def test_snowflake_quoted_catalog_matches_the_configured_spelling(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {"COMMON": ["RECAP__TEXT"]},
+        database_name="prod",
+    )
+    config.type = "snowflake"
+
+    assert (
+        enforce_allow_listed_only(
+            'select * from "prod".common.recap__text',
+            config,
+            tmp_path,
+            group_allowed_tables={("COMMON", "RECAP__TEXT")},
+        )
+        == 'select * from "prod".common.recap__text'
+    )
+
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
+        enforce_allow_listed_only(
+            'select * from "PROD".common.recap__text',
+            config,
+            tmp_path,
+            group_allowed_tables={("COMMON", "RECAP__TEXT")},
+        )
+
+
+def test_snowflake_other_catalog_is_still_blocked(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {"COMMON": ["RECAP__TEXT"]},
+        database_name="prod",
+    )
+    config.type = "snowflake"
+
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
+        enforce_allow_listed_only(
+            "select * from other_db.common.recap__text",
+            config,
+            tmp_path,
+            group_allowed_tables={("COMMON", "RECAP__TEXT")},
+        )
+
+
 def test_starrocks_quoted_identifiers_match_exact_case(tmp_path: Path):
     config = FakeDatabaseConfig(
         False,
