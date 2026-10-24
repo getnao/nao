@@ -266,4 +266,4 @@ def _star_excluded_names(star: exp.Star) -> set[str]:
 
 
 def _blocked(reason: str) -> ColumnAccessError:
-    return ColumnAccessError(f"Query blocked because exclude_columns could not safely validate it: {reason}")
+    return ColumnAccessError(f"Query blocked because the column filters could not safely validate it: {reason}")

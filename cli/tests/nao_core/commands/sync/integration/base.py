@@ -14,6 +14,7 @@ import pytest
 from rich.progress import Progress
 
 from nao_core.commands.sync.providers.databases.provider import sync_database
+from nao_core.config.databases.base import TableColumnSelection
 
 
 @dataclass(frozen=True)
@@ -289,6 +290,33 @@ class BaseSyncIntegrationTests:
         config = db_config.model_copy(update={"exclude_columns": [f"*.*.{spec.excluded_column_name}"]})
 
         output = tmp_path_factory.mktemp(f"{spec.db_type}_exclude_columns")
+        with Progress(transient=True) as progress:
+            sync_database(config, output, progress)
+
+        users_columns = self._read_table_file(output, config, spec, spec.users_table, "columns.md")
+        assert f"- {spec.excluded_column_name} (" not in users_columns
+
+        preview_content = self._read_table_file(output, config, spec, spec.users_table, "preview.md")
+        for row in self._parse_preview_rows(preview_content):
+            assert spec.excluded_column_name not in row
+
+        profiling_content = self._read_table_file(output, config, spec, spec.users_table, "profiling.md")
+        for row in self._parse_preview_rows(profiling_content):
+            assert row.get("column") != spec.excluded_column_name
+
+    def test_column_selection_filter(self, tmp_path_factory, db_config, spec):
+        """Per-table column_selection rules should hide columns from output."""
+        if not spec.excluded_column_name:
+            pytest.skip("Provider spec does not declare a column to exclude")
+
+        table_key = f"{spec.effective_filter_schema}.{spec.users_table}"
+        config = db_config.model_copy(
+            update={
+                "column_selection": {table_key: TableColumnSelection(exclude=[spec.excluded_column_name])},
+            }
+        )
+
+        output = tmp_path_factory.mktemp(f"{spec.db_type}_column_selection")
         with Progress(transient=True) as progress:
             sync_database(config, output, progress)
 
