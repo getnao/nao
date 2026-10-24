@@ -1,0 +1,75 @@
+@import 'tailwindcss';
+
+@theme inline {
+	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-destructive: var(--destructive);
+	--color-warning: var(--warning);
+	--color-violet: var(--violet);
+}
+
+:root {
+	color-scheme: light;
+	--radius: 0.625rem;
+	--background: oklch(0.985 0 0);
+	--foreground: oklch(0 0 0 / 0.85);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0 0 0 / 0.85);
+	--muted: oklch(0.94 0 0);
+	--muted-foreground: oklch(0 0 0 / 50%);
+	--accent: oklch(0.96 0 0);
+	--border: oklch(0 0 0 / 0.1);
+	--input: oklch(0 0 0 / 0.12);
+	--destructive: oklch(0.577 0.245 27.325);
+	--warning: oklch(0.6 0.15 70);
+	--violet: oklch(0.5077 0.281 277.89);
+	--gradient-brand: linear-gradient(180deg, #522bff 0%, #6441ff 100%);
+	--gradient-brand-hover: linear-gradient(180deg, #6441ff 0%, #7858ff 100%);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		color-scheme: dark;
+		--background: oklch(0.145 0.005 270);
+		--foreground: oklch(0.984 0.003 247.858);
+		--card: oklch(0.21 0.008 270);
+		--card-foreground: oklch(0.984 0.003 247.858);
+		--muted: oklch(0.27 0.012 270);
+		--muted-foreground: oklch(0.6 0.015 270);
+		--accent: oklch(0.27 0.012 270);
+		--border: oklch(1 0 0 / 10%);
+		--input: oklch(1 0 0 / 15%);
+		--destructive: oklch(0.704 0.191 22.216);
+		--warning: oklch(0.8 0.15 80);
+		--violet: oklch(0.721 0.157 290.2);
+	}
+}
+
+@utility bg-brand-gradient {
+	background: var(--gradient-brand);
+}
+
+@utility bg-brand-gradient-hover {
+	background: var(--gradient-brand-hover);
+}
+
+html,
+body,
+#app {
+	@apply m-0 h-full;
+}
+
+body {
+	@apply bg-background text-foreground font-sans antialiased;
+}

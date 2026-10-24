@@ -1,0 +1,15 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "local-ui",
+	"description": "Bundled screens only (server picker, sign-in, errors). Server origins are untrusted and get no capability, so they have no IPC access.",
+	"local": true,
+	"windows": ["main"],
+	"permissions": [
+		"allow-list-servers",
+		"allow-add-server",
+		"allow-remove-server",
+		"allow-select-server",
+		"allow-start-sign-in",
+		"allow-cancel-sign-in"
+	]
+}

@@ -35,5 +35,6 @@ example/tests/outputs/
 # heal.dev related stuff
 .heal/
 apps/frontend/.playwright*
+apps/desktop/e2e/output/
 sandbox/
 .venv/
