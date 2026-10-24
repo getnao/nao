@@ -559,6 +559,23 @@ export const addUserGroupMemberships = async (
 		.execute();
 };
 
+export const removeUserFromProjectGroups = async (projectId: string, userId: string): Promise<void> => {
+	const projectGroupIds = db
+		.select({ id: s.userGroup.id })
+		.from(s.userGroup)
+		.where(eq(s.userGroup.projectId, projectId));
+	await db
+		.delete(s.userGroupMember)
+		.where(
+			and(
+				eq(s.userGroupMember.userId, userId),
+				eq(s.userGroupMember.provider, 'manual'),
+				inArray(s.userGroupMember.groupId, projectGroupIds),
+			),
+		)
+		.execute();
+};
+
 export const setUserGroupMembership = async (
 	projectId: string,
 	groupId: string,

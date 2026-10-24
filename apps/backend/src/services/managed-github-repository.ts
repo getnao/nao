@@ -7,7 +7,7 @@ import { SignJWT } from 'jose';
 
 import { env } from '../env';
 import { NAO_CO_AUTHOR } from '../utils/git-identity';
-import { getGitOAuthCredential, runGitWithOAuthAsync } from '../utils/git-oauth';
+import { getGitOAuthCredential, runGitWithOAuth } from '../utils/git-oauth';
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_API_TIMEOUT_MS = 30_000;
@@ -279,7 +279,7 @@ async function pushRepositoryWithAuthenticationRetry(
 
 async function pushRepository(projectDir: string, repoFullName: string, token: string): Promise<void> {
 	const cleanUrl = `https://github.com/${repoFullName}.git`;
-	await runGitWithOAuthAsync(
+	await runGitWithOAuth(
 		projectDir,
 		['push', cleanUrl, 'HEAD:refs/heads/main'],
 		getGitOAuthCredential('github', token),

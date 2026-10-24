@@ -467,7 +467,10 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		uniqueKey: INVITATION_CLEANUP_JOB_NAME,
 	});
 
-	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
+	registerJob(AUTOMATION_JOB_NAME, automationHandler, {
+		resolveProjectId: resolveAutomationProjectId,
+		retryFailures: false,
+	});
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
 	if (isCloudBillingEnabled()) {

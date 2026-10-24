@@ -13,7 +13,7 @@ interface OrgSignInDomainsProps {
 
 export function OrgSignInDomains({ isAdmin }: OrgSignInDomainsProps) {
 	const queryClient = useQueryClient();
-	const signInDomains = useQuery(trpc.organization.getSignInDomains.queryOptions());
+	const signInDomains = useQuery({ ...trpc.organization.getSignInDomains.queryOptions(), enabled: isAdmin });
 	const updateDomains = useMutation(trpc.organization.updateSignInDomains.mutationOptions());
 
 	const [domains, setDomains] = useState<string[]>([]);
@@ -57,6 +57,12 @@ export function OrgSignInDomains({ isAdmin }: OrgSignInDomainsProps) {
 		>
 			{!isAdmin ? (
 				<p className='text-sm text-muted-foreground'>Contact your admin to manage sign-in domains.</p>
+			) : signInDomains.isPending ? (
+				<p className='text-sm text-muted-foreground'>Loading sign-in domains...</p>
+			) : signInDomains.isError ? (
+				<p className='text-sm text-destructive'>
+					Could not load the sign-in domains: {signInDomains.error.message}
+				</p>
 			) : (
 				<div className='flex flex-col gap-4'>
 					{updateDomains.error ? (

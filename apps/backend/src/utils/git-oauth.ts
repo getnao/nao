@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,31 +32,22 @@ export function getGitOAuthCredential(provider: 'github' | 'gitlab', token: stri
 	};
 }
 
-export function runGitWithOAuth(
-	cwd: string,
-	args: string[],
-	credential: GitOAuthCredential,
-	timeout = 120_000,
-): Buffer {
-	return runGitWithAskpass(cwd, args, credential, timeout);
-}
-
-export async function runGitWithOAuthAsync(
+export async function runGitWithOAuth(
 	cwd: string,
 	args: string[],
 	credential: GitOAuthCredential,
 	timeout = 120_000,
 ): Promise<Buffer> {
-	return runGitWithAskpassAsync(cwd, args, credential, timeout);
+	return runGitWithAskpass(cwd, args, credential, timeout);
 }
 
-export function runGitFetchWithCredentials(
+export async function runGitFetchWithCredentials(
 	cwd: string,
 	repositoryUrl: string,
 	branch: string,
 	options: GitRemoteCredentialOptions,
 	timeout = 120_000,
-): Buffer {
+): Promise<Buffer> {
 	const sanitizedUrl = sanitizeContextSourceRepositoryUrl(repositoryUrl);
 	const args = ['fetch', '--no-tags', sanitizedUrl, branch];
 	if (options.sshKey) {
@@ -67,7 +58,18 @@ export function runGitFetchWithCredentials(
 		return runGitWithAskpass(cwd, args, { token: options.token, username: getTokenUsername(platform) }, timeout);
 	}
 	const embeddedCredential = readEmbeddedCredential(repositoryUrl, options.platform);
-	return embeddedCredential ? runGitWithAskpass(cwd, args, embeddedCredential, timeout) : runGit(cwd, args, timeout);
+	return embeddedCredential
+		? runGitWithAskpass(cwd, args, embeddedCredential, timeout)
+		: runRemoteGit(cwd, args, timeout);
+}
+
+/** Runs a git command that talks to a remote without blocking the event loop. */
+export async function runRemoteGit(cwd: string, args: string[], timeout = 120_000): Promise<Buffer> {
+	try {
+		return await execGit(cwd, args, timeout, { ...process.env, GIT_TERMINAL_PROMPT: '0' });
+	} catch (error) {
+		throw toGitError(error);
+	}
 }
 
 export function getGitRemoteCredentialSecrets(
@@ -80,31 +82,7 @@ export function getGitRemoteCredentialSecrets(
 	);
 }
 
-function runGitWithAskpass(cwd: string, args: string[], credential: GitOAuthCredential, timeout: number): Buffer {
-	const helperDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-git-auth-'));
-	const helperPath = path.join(helperDirectory, 'askpass');
-	try {
-		fs.writeFileSync(helperPath, ASKPASS_SCRIPT, { mode: 0o700 });
-		return execFileSync('git', args, {
-			cwd,
-			stdio: 'pipe',
-			timeout,
-			env: {
-				...process.env,
-				GIT_ASKPASS: helperPath,
-				GIT_TERMINAL_PROMPT: '0',
-				NAO_GIT_TOKEN: credential.token,
-				NAO_GIT_USERNAME: credential.username,
-			},
-		});
-	} catch (error) {
-		throw toGitError(error);
-	} finally {
-		fs.rmSync(helperDirectory, { recursive: true, force: true });
-	}
-}
-
-async function runGitWithAskpassAsync(
+async function runGitWithAskpass(
 	cwd: string,
 	args: string[],
 	credential: GitOAuthCredential,
@@ -114,7 +92,7 @@ async function runGitWithAskpassAsync(
 	const helperPath = path.join(helperDirectory, 'askpass');
 	try {
 		fs.writeFileSync(helperPath, ASKPASS_SCRIPT, { mode: 0o700 });
-		return await execGitAsync(cwd, args, timeout, {
+		return await execGit(cwd, args, timeout, {
 			...process.env,
 			GIT_ASKPASS: helperPath,
 			GIT_TERMINAL_PROMPT: '0',
@@ -128,21 +106,16 @@ async function runGitWithAskpassAsync(
 	}
 }
 
-function runGitWithSshKey(cwd: string, args: string[], sshKey: string, timeout: number): Buffer {
+async function runGitWithSshKey(cwd: string, args: string[], sshKey: string, timeout: number): Promise<Buffer> {
 	const helperDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-git-ssh-'));
 	const keyPath = path.join(helperDirectory, 'key');
 	try {
 		fs.writeFileSync(keyPath, sshKey, { mode: 0o600 });
 		const sshCommand = `${process.env.GIT_SSH_COMMAND?.trim() || 'ssh'} -i ${quoteShellArgument(keyPath)} -o IdentitiesOnly=yes`;
-		return execFileSync('git', args, {
-			cwd,
-			stdio: 'pipe',
-			timeout,
-			env: {
-				...process.env,
-				GIT_SSH_COMMAND: sshCommand,
-				GIT_TERMINAL_PROMPT: '0',
-			},
+		return await execGit(cwd, args, timeout, {
+			...process.env,
+			GIT_SSH_COMMAND: sshCommand,
+			GIT_TERMINAL_PROMPT: '0',
 		});
 	} catch (error) {
 		throw toGitError(error);
@@ -151,20 +124,7 @@ function runGitWithSshKey(cwd: string, args: string[], sshKey: string, timeout: 
 	}
 }
 
-function runGit(cwd: string, args: string[], timeout: number): Buffer {
-	try {
-		return execFileSync('git', args, {
-			cwd,
-			stdio: 'pipe',
-			timeout,
-			env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-		});
-	} catch (error) {
-		throw toGitError(error);
-	}
-}
-
-function execGitAsync(cwd: string, args: string[], timeout: number, env: NodeJS.ProcessEnv): Promise<Buffer> {
+function execGit(cwd: string, args: string[], timeout: number, env: NodeJS.ProcessEnv): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		execFile('git', args, { cwd, timeout, env, encoding: 'buffer' }, (error, stdout, stderr) => {
 			if (error) {

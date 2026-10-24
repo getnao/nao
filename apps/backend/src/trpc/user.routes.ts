@@ -1,9 +1,10 @@
-import { TOOL_CALL_DENSITIES } from '@nao/shared/types';
+import { TOOL_CALL_DENSITIES, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { env } from '../env';
 import * as memoryQueries from '../queries/memory';
+import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as discordConfigQueries from '../queries/project-discord-config.queries';
 import * as discordLinkQueries from '../queries/project-discord-link.queries';
@@ -111,14 +112,12 @@ export const userRoutes = {
 				name: input.name,
 				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
 				addMember: async (userId) => {
+					const role = await roleForAddedProjectMember(ctx.project.orgId, userId);
 					if (groupIds.length > 0) {
-						await addProjectMemberWithUserGroups(
-							{ userId, projectId, role: env.DEFAULT_USER_ROLE },
-							groupIds,
-						);
+						await addProjectMemberWithUserGroups({ userId, projectId, role }, groupIds);
 						return;
 					}
-					await projectQueries.addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE });
+					await projectQueries.addProjectMember({ userId, projectId, role });
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.project.name, 'project', password, ctx.user.email),
@@ -183,6 +182,12 @@ async function resolveDiscordLinkRequest(token: string): Promise<DiscordLinkToke
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Discord is no longer configured for this project.' });
 	}
 	return request;
+}
+
+/** A project membership overrides the organization role, so an organization admin must not be written down. */
+async function roleForAddedProjectMember(orgId: string | null, userId: string): Promise<UserRole> {
+	const orgRole = orgId ? await orgQueries.getUserRoleInOrg(orgId, userId) : null;
+	return orgRole === 'admin' ? 'admin' : env.DEFAULT_USER_ROLE;
 }
 
 async function handleUserGroupQuery<T>(operation: () => Promise<T>): Promise<T> {

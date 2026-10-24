@@ -13,9 +13,13 @@ import { getGitOAuthCredential, runGitWithOAuth } from '../../utils/git-oauth';
 import { runGit, toGitError, tryRunGit } from '../../utils/git-repo';
 import { GIT_OPERATION_TIMEOUT_MS, REPO_FULL_NAME_PATTERN } from './types';
 
-export function refreshDefaultBranch(repo: ResolvedContextRepo, provider: RepoProvider, token: string): void {
+export async function refreshDefaultBranch(
+	repo: ResolvedContextRepo,
+	provider: RepoProvider,
+	token: string,
+): Promise<void> {
 	try {
-		runGitWithOAuth(
+		await runGitWithOAuth(
 			repo.worktreeRoot,
 			['remote', 'set-head', 'origin', '--auto'],
 			getGitOAuthCredential(provider, token),

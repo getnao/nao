@@ -1,5 +1,5 @@
 import type { MemberStatus, UserRole } from '@nao/shared/types';
-import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -554,11 +554,27 @@ export const removeOrgMember = async (orgId: string, userId: string): Promise<vo
 };
 
 export const removeOrgMemberFromProjects = async (orgId: string, userId: string): Promise<void> => {
-	const projects = await db.select({ id: s.project.id }).from(s.project).where(eq(s.project.orgId, orgId)).execute();
+	const orgProjectIds = db.select({ id: s.project.id }).from(s.project).where(eq(s.project.orgId, orgId));
+	const orgGroupIds = db
+		.select({ id: s.userGroup.id })
+		.from(s.userGroup)
+		.innerJoin(s.project, eq(s.project.id, s.userGroup.projectId))
+		.where(eq(s.project.orgId, orgId));
 
-	for (const project of projects) {
-		await projectQueries.removeProjectMember(project.id, userId);
-	}
+	await db
+		.delete(s.projectMember)
+		.where(and(eq(s.projectMember.userId, userId), inArray(s.projectMember.projectId, orgProjectIds)))
+		.execute();
+	await db
+		.delete(s.userGroupMember)
+		.where(
+			and(
+				eq(s.userGroupMember.userId, userId),
+				eq(s.userGroupMember.provider, 'manual'),
+				inArray(s.userGroupMember.groupId, orgGroupIds),
+			),
+		)
+		.execute();
 };
 
 export const countOrgAdmins = async (orgId: string): Promise<number> => {

@@ -13,6 +13,7 @@ import { addTeamMember } from '../services/team-member';
 import { ORG_ROLES } from '../types/organization';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import {
 	assertCanRenameUser,
@@ -20,6 +21,9 @@ import {
 	protectedProcedure,
 	resolveOrganizationMembership,
 } from './trpc';
+
+/** One lock across organizations: a domain claim must see every other organization's committed claims. */
+const SIGN_IN_DOMAINS_LOCK_KEY = 'organization-sign-in-domains';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(
@@ -34,6 +38,13 @@ const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 const orgAdminOnlyProcedure = orgAdminProcedure.use(async ({ ctx, next }) => {
 	if (ctx.orgRole !== 'admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only organization admins can perform this action' });
+	}
+	return next({ ctx });
+});
+
+const orgNonViewerProcedure = orgAdminProcedure.use(async ({ ctx, next }) => {
+	if (ctx.orgRole === 'viewer') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot see the organization members' });
 	}
 	return next({ ctx });
 });
@@ -59,11 +70,11 @@ export const organizationRoutes = {
 		return orgQueries.listOrgProjectsWithAccess(ctx.org.id, ctx.user.id);
 	}),
 
-	getMembers: orgAdminProcedure.query(async ({ ctx }) => {
+	getMembers: orgNonViewerProcedure.query(async ({ ctx }) => {
 		return orgQueries.listOrgMembersWithUsers(ctx.org.id);
 	}),
 
-	getUserCounts: orgAdminProcedure.query(async ({ ctx }) => {
+	getUserCounts: orgAdminOnlyProcedure.query(async ({ ctx }) => {
 		const [totalUsers, activeUsers] = await Promise.all([
 			orgQueries.countOrgUsers(ctx.org.id),
 			usageQueries.getOrgActiveUserCount(ctx.org.id, LICENSE_ACTIVITY_WINDOW),
@@ -71,7 +82,7 @@ export const organizationRoutes = {
 		return { totalUsers, activeUsers };
 	}),
 
-	getSignInDomains: orgAdminProcedure.query(async ({ ctx }) => ({
+	getSignInDomains: orgAdminOnlyProcedure.query(async ({ ctx }) => ({
 		domains: normalizeEmailDomains(ctx.org.googleAuthDomains ?? ''),
 	})),
 
@@ -79,20 +90,24 @@ export const organizationRoutes = {
 		.input(z.object({ domains: z.array(z.string()) }))
 		.mutation(async ({ input, ctx }) => {
 			const requestedDomains = normalizeEmailDomains(input.domains.join(','));
-			const existingDomains = normalizeEmailDomains(ctx.org.googleAuthDomains ?? '');
 
-			// Newly added domains route future Google sign-ins to this org, so they require
-			// proof of ownership. Removing a domain never needs a check.
-			const addedDomains = requestedDomains.filter((domain) => !existingDomains.includes(domain));
-			if (addedDomains.length > 0) {
-				await assertDomainsClaimable(ctx.org.id, addedDomains);
-			}
+			return withKeyedLock(SIGN_IN_DOMAINS_LOCK_KEY, async () => {
+				const organization = await orgQueries.getOrganizationById(ctx.org.id);
+				const existingDomains = normalizeEmailDomains(organization?.googleAuthDomains ?? '');
 
-			await orgQueries.updateOrganizationEmailDomains(
-				ctx.org.id,
-				requestedDomains.length ? requestedDomains.join(',') : null,
-			);
-			return { domains: requestedDomains };
+				// Newly added domains route future Google sign-ins to this org, so they require
+				// proof of ownership. Removing a domain never needs a check.
+				const addedDomains = requestedDomains.filter((domain) => !existingDomains.includes(domain));
+				if (addedDomains.length > 0) {
+					await assertDomainsClaimable(ctx.org.id, addedDomains);
+				}
+
+				await orgQueries.updateOrganizationEmailDomains(
+					ctx.org.id,
+					requestedDomains.length ? requestedDomains.join(',') : null,
+				);
+				return { domains: requestedDomains };
+			});
 		}),
 
 	updateMemberRole: orgAdminOnlyProcedure

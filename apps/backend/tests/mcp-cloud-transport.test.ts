@@ -4,13 +4,18 @@ import { join } from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ isCloud: false }));
+const mocks = vi.hoisted(() => ({ isCloud: false, assertSafeHost: vi.fn() }));
 
 vi.mock('../src/env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/env')>()),
 	get isCloud() {
 		return mocks.isCloud;
 	},
+}));
+
+vi.mock('../src/utils/safe-fetch', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/utils/safe-fetch')>()),
+	assertSafeHost: mocks.assertSafeHost,
 }));
 
 type Definition = { name: string; command: { kind: 'stdio' | 'http' } };
@@ -87,7 +92,21 @@ describe('MCP transports in cloud mode', () => {
 	beforeEach(async () => {
 		registeredDefinitions.length = 0;
 		mocks.isCloud = true;
+		mocks.assertSafeHost.mockReset();
+		mocks.assertSafeHost.mockResolvedValue(undefined);
 		projectPath = await createProject();
+	});
+
+	it('refuses to register an HTTP server whose host resolves to a private address', async () => {
+		const service = new McpService();
+		await service.initializeMcpState('project-1');
+		registeredDefinitions.length = 0;
+		mocks.assertSafeHost.mockRejectedValue(new Error('Refusing to connect to a private network address.'));
+		const internals = service as unknown as { _ensureRegistered: (name: string) => Promise<unknown> };
+
+		await expect(internals._ensureRegistered('remote')).rejects.toThrow('private network address');
+		expect(mocks.assertSafeHost).toHaveBeenCalledWith('mcp.example.com');
+		expect(registeredDefinitions).toEqual([]);
 	});
 
 	it('never registers a stdio server on the runtime during discovery', async () => {

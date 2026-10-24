@@ -114,7 +114,7 @@ export async function createContextBranch(
 	validateBranch(branch);
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
-	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	await fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
 	assertBranchAvailable(repo, branch);
 	const { usedFallbackBase } = await createOwnedContextBranch(context, repo, branch);
 	invalidateContextProjectPrefix(repo.worktreeRoot);
@@ -128,7 +128,7 @@ export async function createContextBranchAndCommit(
 ): Promise<CreateBranchAndCommitResult> {
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
-	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	await fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
 	const branch = input.branch ?? generateContextBranchName(repo);
 	validateBranch(branch);
 	assertBranchAvailable(repo, branch);

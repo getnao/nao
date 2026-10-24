@@ -14,7 +14,7 @@ import {
 	resolveContextRepo,
 	toContextRepoState,
 } from '../../utils/context-repo';
-import { getGitOAuthCredential, runGitWithOAuth } from '../../utils/git-oauth';
+import { getGitOAuthCredential, runGitWithOAuth, runRemoteGit } from '../../utils/git-oauth';
 import { runGit, tryRunGit } from '../../utils/git-repo';
 import { getRepoProviderDisplayName, REVIEW_REQUEST_PROVIDERS } from '../review-request-provider';
 import {
@@ -142,7 +142,7 @@ export async function connectContextRepository(
 		providerOverride: dependencies.provider ?? input.providerOverride ?? REVIEW_REQUEST_PROVIDERS[input.provider],
 	};
 	const repo = await ensureContextWorktree(context);
-	refreshDefaultBranch(repo, input.provider, input.token);
+	await refreshDefaultBranch(repo, input.provider, input.token);
 	const defaultBranch = readDefaultBranch(repo);
 	const updateConfig =
 		dependencies.updateConfig ?? (await import('../../queries/context-recommendation.queries')).updateConfig;
@@ -207,7 +207,7 @@ export async function ensureContextWorktree(
 			if (matchingClone) {
 				provisionFromLocalClone(unresolved, context.projectFolder, matchingClone);
 			} else {
-				provisionByClone(unresolved, context.projectFolder, provider, context.token);
+				await provisionByClone(unresolved, context.projectFolder, provider, context.token);
 			}
 		} catch (error) {
 			removeWorktreeDirectory(unresolved.worktreeRoot, context.projectFolder);
@@ -217,7 +217,13 @@ export async function ensureContextWorktree(
 		provisioned = true;
 	}
 	if (provisioned) {
-		synchronizeDefaultContextWorktree(unresolved, context.projectFolder, matchingClone, provider, context.token);
+		await synchronizeDefaultContextWorktree(
+			unresolved,
+			context.projectFolder,
+			matchingClone,
+			provider,
+			context.token,
+		);
 	}
 	return resolveContextProject(unresolved, context.projectFolder, matchingClone);
 }
@@ -235,9 +241,9 @@ export async function updateContextWorktree(
 	);
 	const fetched = target.updateNeeded || requiredCommitMissing;
 	if (fetched) {
-		fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+		await fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
 		if (isFirstPartyOAuthProvider(repo.provider, provider)) {
-			refreshDefaultBranch(repo, repo.provider, availableContext.token);
+			await refreshDefaultBranch(repo, repo.provider, availableContext.token);
 		}
 		target = readContextWorktreeTarget(repo, context.projectFolder, provider);
 	}
@@ -351,13 +357,13 @@ async function logGitFailure(message: string, error: unknown): Promise<void> {
 	}
 }
 
-export function synchronizeDefaultContextWorktree(
+export async function synchronizeDefaultContextWorktree(
 	repo: Pick<UnresolvedContextRepo, 'provider' | 'repoFullName' | 'source' | 'worktreeRoot'>,
 	projectFolder: string,
 	matchingClone: string | null,
 	provider: ContextRepositoryProvider,
 	token: string,
-): void {
+): Promise<void> {
 	const defaultBranch =
 		repo.provider === 'generic'
 			? env.NAO_CONTEXT_GIT_BRANCH || 'main'
@@ -373,7 +379,7 @@ export function synchronizeDefaultContextWorktree(
 		liveCommit &&
 		(!hasCommit(repo.worktreeRoot, liveCommit) || targetCommit !== liveCommit)
 	) {
-		fetchContextRepository(repo, projectFolder, provider, token);
+		await fetchContextRepository(repo, projectFolder, provider, token);
 		targetCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', `origin/${defaultBranch}`]);
 	}
 	if (
@@ -384,7 +390,7 @@ export function synchronizeDefaultContextWorktree(
 	}
 	if (liveCommit) {
 		if (!hasCommit(repo.worktreeRoot, liveCommit)) {
-			fetchContextRepository(repo, projectFolder, provider, token);
+			await fetchContextRepository(repo, projectFolder, provider, token);
 		}
 		targetCommit = hasCommit(repo.worktreeRoot, liveCommit) ? liveCommit : targetCommit;
 	}
@@ -424,22 +430,22 @@ function provisionFromLocalClone(repo: UnresolvedContextRepo, projectFolder: str
 	]);
 }
 
-function provisionByClone(
+async function provisionByClone(
 	repo: UnresolvedContextRepo,
 	projectFolder: string,
 	provider: ContextRepositoryProvider,
 	token: string,
-): void {
+): Promise<void> {
 	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
 	if (isFirstPartyOAuthProvider(repo.provider, provider)) {
-		runGitWithOAuth(
+		await runGitWithOAuth(
 			path.dirname(repo.worktreeRoot),
 			['clone', provider.publicRepoUrl(repo.repoFullName), repo.worktreeRoot],
 			getGitOAuthCredential(repo.provider, token),
 			GIT_OPERATION_TIMEOUT_MS,
 		);
 	} else {
-		runGit(
+		await runRemoteGit(
 			path.dirname(repo.worktreeRoot),
 			['clone', provider.authenticatedRepoUrl(token, repo.repoFullName), repo.worktreeRoot],
 			GIT_OPERATION_TIMEOUT_MS,
@@ -473,27 +479,31 @@ function provisionByClone(
 	]);
 }
 
-export function fetchContextRepository(
+export async function fetchContextRepository(
 	repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'repoFullName' | 'provider'>,
 	projectFolder: string,
 	provider: ContextRepositoryProvider,
 	token: string,
-): void {
+): Promise<void> {
 	try {
+		assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
 		if (isFirstPartyOAuthProvider(repo.provider, provider)) {
-			assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
-			runGitWithOAuth(
+			await runGitWithOAuth(
 				repo.worktreeRoot,
 				['fetch', provider.publicRepoUrl(repo.repoFullName), '+refs/heads/*:refs/remotes/origin/*'],
 				getGitOAuthCredential(repo.provider, token),
 				GIT_OPERATION_TIMEOUT_MS,
 			);
 		} else {
-			runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
-				'fetch',
-				provider.authenticatedRepoUrl(token, repo.repoFullName),
-				'+refs/heads/*:refs/remotes/origin/*',
-			]);
+			await runRemoteGit(
+				repo.worktreeRoot,
+				[
+					'fetch',
+					provider.authenticatedRepoUrl(token, repo.repoFullName),
+					'+refs/heads/*:refs/remotes/origin/*',
+				],
+				GIT_OPERATION_TIMEOUT_MS,
+			);
 		}
 	} catch (error) {
 		throw sanitizeGitError(error, token);

@@ -416,31 +416,40 @@ export const getChatOwnerId = async (chatId: string): Promise<string | undefined
 	return result?.userId;
 };
 
-/** Marks all messages from a given message id onwards as superseeded (won't be used in the conversation anymore). */
-export const supersedeMessagesFrom = async (chatId: string, fromMessageId: string): Promise<void> => {
-	await db.transaction(async (t) => {
-		const [fromMessage] = await t
-			.select({ createdAt: s.chatMessage.createdAt })
-			.from(s.chatMessage)
-			.where(and(eq(s.chatMessage.id, fromMessageId), eq(s.chatMessage.chatId, chatId)))
-			.execute();
-
-		if (!fromMessage) {
-			return;
-		}
-
-		await t
-			.update(s.chatMessage)
-			.set({ supersededAt: new Date() })
-			.where(
-				and(
-					eq(s.chatMessage.chatId, chatId),
-					gte(s.chatMessage.createdAt, fromMessage.createdAt),
-					isNull(s.chatMessage.supersededAt),
-				),
-			)
-			.execute();
+/** Supersedes the edited message and everything after it, then inserts the edit; a failed insert leaves the chat untouched. */
+export const replaceMessagesFrom = async (
+	fromMessageId: string,
+	message: UpsertMessageInput,
+): Promise<{ messageId: string }> => {
+	return db.transaction(async (t) => {
+		await supersedeMessagesFrom(t, message.chatId, fromMessageId);
+		return writeMessage(t, message);
 	});
+};
+
+/** Marks all messages from a given message id onwards as superseeded (won't be used in the conversation anymore). */
+const supersedeMessagesFrom = async (t: DBTransaction, chatId: string, fromMessageId: string): Promise<void> => {
+	const [fromMessage] = await t
+		.select({ createdAt: s.chatMessage.createdAt })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.id, fromMessageId), eq(s.chatMessage.chatId, chatId)))
+		.execute();
+
+	if (!fromMessage) {
+		return;
+	}
+
+	await t
+		.update(s.chatMessage)
+		.set({ supersededAt: new Date() })
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				gte(s.chatMessage.createdAt, fromMessage.createdAt),
+				isNull(s.chatMessage.supersededAt),
+			),
+		)
+		.execute();
 };
 
 /**
@@ -606,63 +615,75 @@ const remapToolCallIds = (parts: NewMessagePart[]): NewMessagePart[] => {
 	});
 };
 
+type UpsertMessageInput = Omit<UIMessage, 'id'> & {
+	id?: string;
+	chatId: string;
+	senderUserId?: string;
+	stopReason?: StopReason;
+	error?: unknown;
+	tokenUsage?: TokenUsage;
+	llmProvider?: LlmProvider;
+	llmModelId?: string;
+	versionGroupId?: string;
+};
+
+interface UpsertMessageOptions {
+	updateMetadata?: boolean;
+}
+
 export const upsertMessage = async (
-	message: Omit<UIMessage, 'id'> & {
-		id?: string;
-		chatId: string;
-		senderUserId?: string;
-		stopReason?: StopReason;
-		error?: unknown;
-		tokenUsage?: TokenUsage;
-		llmProvider?: LlmProvider;
-		llmModelId?: string;
-		versionGroupId?: string;
-	},
-	options: { updateMetadata?: boolean } = {},
+	message: UpsertMessageInput,
+	options: UpsertMessageOptions = {},
 ): Promise<{ messageId: string }> => {
-	return db.transaction(async (t) => {
-		const messageId = message.id ?? crypto.randomUUID();
-		const messageValues = {
-			id: messageId,
-			chatId: message.chatId,
-			senderUserId: message.senderUserId,
-			role: message.role,
-			stopReason: message.stopReason,
-			errorMessage: getErrorMessage(message.error),
-			llmProvider: message.llmProvider,
-			llmModelId: message.llmModelId,
-			source: message.source,
-			isForked: message.isForked,
-			citation: message.citation ?? null,
-			versionGroupId: message.versionGroupId ?? (message.role === 'user' ? messageId : undefined),
-			...message.tokenUsage,
-		};
-		const insert = t.insert(s.chatMessage).values(messageValues);
-		if (options.updateMetadata === false) {
-			await insert.onConflictDoNothing({ target: s.chatMessage.id }).execute();
-		} else {
-			const { id, versionGroupId, ...updateValues } = messageValues;
-			void id;
-			void versionGroupId;
-			await insert
-				.onConflictDoUpdate({
-					target: s.chatMessage.id,
-					set: stripUndefined(updateValues),
-				})
-				.execute();
-		}
+	return db.transaction(async (t) => writeMessage(t, message, options));
+};
 
-		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, messageId)).execute();
-		const dbParts = mapUIPartsToDBParts(message.parts, messageId);
-		if (dbParts.length) {
-			const partsToInsert = await remapToolCallIdsCollidingWithOtherMessages(t, dbParts, messageId);
-			await t.insert(s.messagePart).values(partsToInsert).execute();
-		}
+const writeMessage = async (
+	t: DBTransaction,
+	message: UpsertMessageInput,
+	options: UpsertMessageOptions = {},
+): Promise<{ messageId: string }> => {
+	const messageId = message.id ?? crypto.randomUUID();
+	const messageValues = {
+		id: messageId,
+		chatId: message.chatId,
+		senderUserId: message.senderUserId,
+		role: message.role,
+		stopReason: message.stopReason,
+		errorMessage: getErrorMessage(message.error),
+		llmProvider: message.llmProvider,
+		llmModelId: message.llmModelId,
+		source: message.source,
+		isForked: message.isForked,
+		citation: message.citation ?? null,
+		versionGroupId: message.versionGroupId ?? (message.role === 'user' ? messageId : undefined),
+		...message.tokenUsage,
+	};
+	const insert = t.insert(s.chatMessage).values(messageValues);
+	if (options.updateMetadata === false) {
+		await insert.onConflictDoNothing({ target: s.chatMessage.id }).execute();
+	} else {
+		const { id, versionGroupId, ...updateValues } = messageValues;
+		void id;
+		void versionGroupId;
+		await insert
+			.onConflictDoUpdate({
+				target: s.chatMessage.id,
+				set: stripUndefined(updateValues),
+			})
+			.execute();
+	}
 
-		await t.update(s.chat).set({ updatedAt: new Date() }).where(eq(s.chat.id, message.chatId)).execute();
+	await t.delete(s.messagePart).where(eq(s.messagePart.messageId, messageId)).execute();
+	const dbParts = mapUIPartsToDBParts(message.parts, messageId);
+	if (dbParts.length) {
+		const partsToInsert = await remapToolCallIdsCollidingWithOtherMessages(t, dbParts, messageId);
+		await t.insert(s.messagePart).values(partsToInsert).execute();
+	}
 
-		return { messageId };
-	});
+	await t.update(s.chat).set({ updatedAt: new Date() }).where(eq(s.chat.id, message.chatId)).execute();
+
+	return { messageId };
 };
 
 /**

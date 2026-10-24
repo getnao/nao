@@ -32,8 +32,9 @@ import {
 	retrieveProjectById,
 } from '../queries/project.queries';
 import { logger } from '../utils/logger';
+import { assertSafeHost } from '../utils/safe-fetch';
 import { replaceEnvVars } from '../utils/utils';
-import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
+import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError, mcpFetch } from './mcp-oauth';
 import { buildMcpOpenApiDocument, extractToolsFromOpenApi, type McpToolDefinition } from './mcp-openapi';
 
 const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
@@ -820,8 +821,8 @@ export class McpService {
 		const url = new URL(config.url!.toString());
 		const transport =
 			config.transport === 'sse'
-				? new SSEClientTransport(url, { requestInit: { headers } })
-				: new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+				? new SSEClientTransport(url, { requestInit: { headers }, fetch: mcpFetch })
+				: new StreamableHTTPClientTransport(url, { requestInit: { headers }, fetch: mcpFetch });
 		const client = new Client({ name: 'nao', version: '1.0.0' }, { capabilities: {} });
 		await client.connect(transport);
 		try {
@@ -941,6 +942,7 @@ export class McpService {
 			throw new Error(`MCP server "${name}" is not configured.`);
 		}
 		this._assertTransportAllowed(name, config);
+		await this._assertHostAllowed(config);
 		const session = await this._session();
 		if (!session.registered.has(name)) {
 			session.runtime.registerDefinition(this._toServerDefinition(name, config), { overwrite: true });
@@ -1010,6 +1012,13 @@ export class McpService {
 	private _assertTransportAllowed(name: string, config: McpServerConfig): void {
 		if (!this._isTransportAllowed(config)) {
 			throw new McpTransportNotAllowedError(name);
+		}
+	}
+
+	/** The mcporter runtime takes no custom fetch, so in cloud mode its target is checked before registering. */
+	private async _assertHostAllowed(config: McpServerConfig): Promise<void> {
+		if (isCloud && this._transportOf(config) === 'http' && config.url) {
+			await assertSafeHost(new URL(config.url.toString()).hostname);
 		}
 	}
 

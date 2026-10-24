@@ -322,30 +322,43 @@ export async function ensureStoryPrivate(
 	options: { storyOwnerId: string; projectId: string },
 ): Promise<void> {
 	await db.transaction(async (tx) => {
+		await serializeFolderMovesInProject(tx, options.projectId);
 		const current = await getStoryFolderItem(storyId, tx);
 		const currentVisibility = await resolveFolderVisibility(current?.folderId ?? null, tx);
 		if (currentVisibility === 'private') {
 			return;
 		}
 		const privateFolderId = await ensurePrivateRoot(options.storyOwnerId, options.projectId, tx);
-		await moveStoryToFolder(storyId, privateFolderId, options, tx);
+		await placeStoryInFolder(storyId, privateFolderId, options, tx);
 	}, writeTransactionConfig);
 }
 
+/** Serialized with folder moves, so the story's share always follows the folder's committed visibility. */
 export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
-	executor: DBExecutor = db,
 ): Promise<void> {
-	await executor.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
+	await db.transaction(async (tx) => {
+		await serializeFolderMovesInProject(tx, options.projectId);
+		await placeStoryInFolder(storyId, folderId, options, tx);
+	}, writeTransactionConfig);
+}
+
+async function placeStoryInFolder(
+	storyId: string,
+	folderId: string | null,
+	options: { storyOwnerId: string; projectId: string },
+	tx: FolderMoveTx,
+): Promise<void> {
+	await tx.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
 
 	if (folderId) {
-		await executor.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
+		await tx.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
 	}
 
-	const newVisibility = await resolveFolderVisibility(folderId, executor);
-	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility, executor);
+	const newVisibility = await resolveFolderVisibility(folderId, tx);
+	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility, tx);
 }
 
 async function propagateShareChange(

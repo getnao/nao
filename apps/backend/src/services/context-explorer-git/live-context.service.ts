@@ -23,6 +23,7 @@ import {
 	getGitRemoteCredentialSecrets,
 	runGitFetchWithCredentials,
 	runGitWithOAuth,
+	runRemoteGit,
 } from '../../utils/git-oauth';
 import { runGit } from '../../utils/git-repo';
 import { getRepoProviderDisplayName, REVIEW_REQUEST_PROVIDERS } from '../review-request-provider';
@@ -98,13 +99,7 @@ export function getLiveContextUpdateStatus(projectFolder: string): LiveContextUp
 	return availableLiveContextStatus(configuredBranch, repository.lastCheckedAt);
 }
 
-export function pullLiveContext(projectFolder: string): LiveContextPullResult;
-
-export function pullLiveContext(context: ContextExplorerGitContext): Promise<LiveContextPullResult>;
-
-export function pullLiveContext(
-	input: string | ContextExplorerGitContext,
-): LiveContextPullResult | Promise<LiveContextPullResult> {
+export function pullLiveContext(input: string | ContextExplorerGitContext): Promise<LiveContextPullResult> {
 	return typeof input === 'string' ? pullDeploymentLiveContext(input) : pullConnectedLiveContext(input);
 }
 
@@ -121,7 +116,7 @@ export function getDeploymentContextSource(): DeploymentContextSource | null {
 	};
 }
 
-function pullDeploymentLiveContext(projectFolder: string): LiveContextPullResult {
+async function pullDeploymentLiveContext(projectFolder: string): Promise<LiveContextPullResult> {
 	if (!isGitContextSource()) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
@@ -148,12 +143,12 @@ function pullDeploymentLiveContext(projectFolder: string): LiveContextPullResult
 	return updateLiveRepository(
 		repository,
 		configuredBranch,
-		(repositoryRoot, branch) => {
+		async (repositoryRoot, branch) => {
 			if (!repositoryUrl) {
-				runGit(repositoryRoot, ['fetch', '--no-tags', 'origin', branch], GIT_OPERATION_TIMEOUT_MS);
+				await runRemoteGit(repositoryRoot, ['fetch', '--no-tags', 'origin', branch], GIT_OPERATION_TIMEOUT_MS);
 				return;
 			}
-			runGitFetchWithCredentials(
+			await runGitFetchWithCredentials(
 				repositoryRoot,
 				repositoryUrl,
 				branch,
@@ -193,12 +188,17 @@ async function pullConnectedLiveContext(context: ContextExplorerGitContext): Pro
 	}
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[configuredRepo.provider];
-	refreshDefaultBranch(repo, configuredRepo.provider, availableContext.token);
+	await refreshDefaultBranch(repo, configuredRepo.provider, availableContext.token);
 	const configuredBranch = readDefaultBranch(repo);
 	const liveRepository = resolveOAuthLiveRepository(context, provider, configuredRepo.repoFullName);
 	const result = liveRepository
-		? updateOAuthLiveRepository(liveRepository, configuredBranch, configuredRepo.provider, availableContext.token)
-		: convertLiveProjectToOAuthRepository(
+		? await updateOAuthLiveRepository(
+				liveRepository,
+				configuredBranch,
+				configuredRepo.provider,
+				availableContext.token,
+			)
+		: await convertLiveProjectToOAuthRepository(
 				context,
 				provider,
 				configuredRepo.provider,
@@ -206,7 +206,7 @@ async function pullConnectedLiveContext(context: ContextExplorerGitContext): Pro
 				configuredBranch,
 				availableContext.token,
 			);
-	synchronizeConnectedDefaultWorktrees(availableContext, repo, provider);
+	await synchronizeConnectedDefaultWorktrees(availableContext, repo, provider);
 	return result;
 }
 
@@ -384,18 +384,18 @@ function resolveOAuthLiveRepository(
 	return repository;
 }
 
-function updateOAuthLiveRepository(
+async function updateOAuthLiveRepository(
 	liveRepository: LiveRepository,
 	configuredBranch: string,
 	providerName: RepoProvider,
 	token: string,
-): LiveContextPullResult {
+): Promise<LiveContextPullResult> {
 	assertLiveRepositoryUpdatable(liveRepository, configuredBranch, 'repository default');
 	return updateLiveRepository(
 		liveRepository,
 		configuredBranch,
-		(repositoryRoot, branch) => {
-			runGitWithOAuth(
+		async (repositoryRoot, branch) => {
+			await runGitWithOAuth(
 				repositoryRoot,
 				['fetch', '--no-tags', 'origin', branch],
 				getGitOAuthCredential(providerName, token),
@@ -406,15 +406,15 @@ function updateOAuthLiveRepository(
 	);
 }
 
-function updateLiveRepository(
+async function updateLiveRepository(
 	repository: LiveRepository,
 	configuredBranch: string,
-	fetch: (repositoryRoot: string, branch: string) => void,
+	fetch: (repositoryRoot: string, branch: string) => Promise<void>,
 	secrets?: string | string[],
-): LiveContextPullResult {
+): Promise<LiveContextPullResult> {
 	const oldCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	try {
-		fetch(repository.repositoryRoot, configuredBranch);
+		await fetch(repository.repositoryRoot, configuredBranch);
 		runGit(repository.repositoryRoot, ['merge', '--ff-only', 'FETCH_HEAD'], GIT_OPERATION_TIMEOUT_MS);
 	} catch (error) {
 		throw sanitizeLiveContextError(error, secrets);
@@ -444,14 +444,14 @@ function createLivePullResult(
 	};
 }
 
-function convertLiveProjectToOAuthRepository(
+async function convertLiveProjectToOAuthRepository(
 	context: ContextExplorerGitContext,
 	provider: ContextRepositoryProvider,
 	providerName: RepoProvider,
 	repoFullName: string,
 	configuredBranch: string,
 	token: string,
-): LiveContextPullResult {
+): Promise<LiveContextPullResult> {
 	assertSafeLiveReplacementTarget(context);
 	const projectFolder = path.resolve(context.projectFolder);
 	const managedParent = getManagedLiveRepositoriesParent(projectFolder);
@@ -460,7 +460,7 @@ function convertLiveProjectToOAuthRepository(
 	const stagedRepository = path.join(stagingRoot, 'repository');
 	try {
 		fs.mkdirSync(stagingRoot);
-		runGitWithOAuth(
+		await runGitWithOAuth(
 			managedParent,
 			[
 				'clone',
@@ -587,11 +587,11 @@ function readInitialLiveFiles(repositoryRoot: string, newCommit: string, project
 	return readLivePullFiles(repositoryRoot, emptyTree, newCommit, projectPrefix);
 }
 
-function synchronizeConnectedDefaultWorktrees(
+async function synchronizeConnectedDefaultWorktrees(
 	context: ContextExplorerGitContext & { token: string },
 	repo: ResolvedContextRepo,
 	provider: ContextRepositoryProvider,
-): void {
+): Promise<void> {
 	const worktreesParent = path.dirname(
 		getContextWorktreePath(context.projectId, context.projectFolder, context.userId),
 	);
@@ -608,7 +608,13 @@ function synchronizeConnectedDefaultWorktrees(
 			continue;
 		}
 		try {
-			synchronizeDefaultContextWorktree(candidate, context.projectFolder, matchingClone, provider, context.token);
+			await synchronizeDefaultContextWorktree(
+				candidate,
+				context.projectFolder,
+				matchingClone,
+				provider,
+				context.token,
+			);
 		} catch {
 			continue;
 		}

@@ -83,7 +83,12 @@ export async function runScheduledStoryDelivery(
 		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug, {
 			billingAccessVerifiedProjectId: context.projectId,
 		});
-		await deliver(context, queryData, skipDeliveries);
+		// The refresh can take minutes, during which the owner may unshare the story or turn delivery off.
+		const contextAfterRefresh = await loadDeliveryContext(storyId);
+		if (!contextAfterRefresh) {
+			return;
+		}
+		await deliver(contextAfterRefresh, queryData, skipDeliveries);
 	});
 }
 

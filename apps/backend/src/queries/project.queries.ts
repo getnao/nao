@@ -285,31 +285,30 @@ export const getAgentSettings = async (projectId: string): Promise<AgentSettings
 	return project?.agentSettings ?? null;
 };
 
-export const updateAgentSettings = async (projectId: string, settings: AgentSettings): Promise<AgentSettings> => {
-	const current = (await getAgentSettings(projectId)) ?? {};
-	const next: AgentSettings = {
-		...current,
-		...settings,
-		experimental: {
-			...current.experimental,
-			...settings.experimental,
-		},
-		webSearch: {
-			...current.webSearch,
-			...settings.webSearch,
-		},
-		pythonExecution: {
-			...current.pythonExecution,
-			...settings.pythonExecution,
-		},
-		subagent: {
-			...current.subagent,
-			...settings.subagent,
-		},
-	};
-	await db.update(s.project).set({ agentSettings: next }).where(eq(s.project.id, projectId)).execute();
-	return next;
-};
+/** Merges a partial update under a row lock, so concurrent saves of different switches never undo each other. */
+export const updateAgentSettings = async (projectId: string, settings: AgentSettings): Promise<AgentSettings> =>
+	db.transaction(async (tx) => {
+		const base = tx
+			.select({ agentSettings: s.project.agentSettings })
+			.from(s.project)
+			.where(eq(s.project.id, projectId));
+		const [row] = await lockForUpdate(base).execute();
+		const next = mergeAgentSettings(row?.agentSettings ?? {}, settings);
+		await tx.update(s.project).set({ agentSettings: next }).where(eq(s.project.id, projectId)).execute();
+		return next;
+	});
+
+const mergeAgentSettings = (current: AgentSettings, settings: AgentSettings): AgentSettings => ({
+	...current,
+	...settings,
+	experimental: { ...current.experimental, ...settings.experimental },
+	transcribe: { ...current.transcribe, ...settings.transcribe },
+	sql: { ...current.sql, ...settings.sql },
+	webSearch: { ...current.webSearch, ...settings.webSearch },
+	pythonExecution: { ...current.pythonExecution, ...settings.pythonExecution },
+	semanticLayer: { ...current.semanticLayer, ...settings.semanticLayer },
+	subagent: { ...current.subagent, ...settings.subagent },
+});
 
 export const getDisabledMcpServers = async (projectId: string): Promise<string[]> => {
 	const project = await getProjectById(projectId);

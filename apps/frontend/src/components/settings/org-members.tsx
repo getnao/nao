@@ -26,8 +26,8 @@ export function OrgMembers() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const membersQuery = useQuery(trpc.organization.getMembers.queryOptions());
-	const userCountsQuery = useQuery(trpc.organization.getUserCounts.queryOptions());
 	const { isOrgAdmin } = usePermissions();
+	const userCountsQuery = useQuery({ ...trpc.organization.getUserCounts.queryOptions(), enabled: isOrgAdmin });
 	const isCloud = useIsCloud();
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
@@ -120,19 +120,21 @@ export function OrgMembers() {
 	return (
 		<>
 			<div className='flex flex-col gap-5'>
-				<div className='flex flex-wrap gap-x-10 gap-y-4 rounded-xl border border-border bg-background p-4'>
-					<OrgUserStat label='Organization members' value={membersQuery.data?.length} />
-					<OrgUserStat
-						label='People with access'
-						value={userCountsQuery.data?.totalUsers}
-						hint="Organization members plus people added directly to a project from its Users & Groups page, or created automatically by Slack. They aren't in the list below; see each project's user list."
-					/>
-					<OrgUserStat
-						label='Active in the last 90 days'
-						value={userCountsQuery.data?.activeUsers}
-						hint='Distinct people who sent at least one message on any channel. This is the number that maps to licensed seats at renewal.'
-					/>
-				</div>
+				{isOrgAdmin && (
+					<div className='flex flex-wrap gap-x-10 gap-y-4 rounded-xl border border-border bg-background p-4'>
+						<OrgUserStat label='Organization members' value={membersQuery.data?.length} />
+						<OrgUserStat
+							label='People with access'
+							value={userCountsQuery.data?.totalUsers}
+							hint="Organization members plus people added directly to a project from its Users & Groups page, or created automatically by Slack. They aren't in the list below; see each project's user list."
+						/>
+						<OrgUserStat
+							label='Active in the last 90 days'
+							value={userCountsQuery.data?.activeUsers}
+							hint='Distinct people who sent at least one message on any channel. This is the number that maps to licensed seats at renewal.'
+						/>
+					</div>
+				)}
 				<SettingsCard
 					flush
 					action={

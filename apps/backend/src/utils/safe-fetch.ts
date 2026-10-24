@@ -153,6 +153,32 @@ export async function resolveSafeAddress(hostname: string): Promise<string> {
 	return addresses[0];
 }
 
+/**
+ * A drop-in `fetch` that refuses private destinations, checking every redirect hop before following it.
+ * Unlike `safeFetch` it streams the response back untouched, so SDKs that expect a `fetch` can use it.
+ */
+export async function privateNetworkGuardedFetch(url: string | URL, init?: RequestInit): Promise<Response> {
+	let target = new URL(url);
+	let requestInit = init;
+	for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+		await assertSafeHost(target.hostname);
+		const response = await fetch(target, { ...requestInit, redirect: 'manual' });
+		const location = response.headers.get('location');
+		if (response.status < 300 || response.status >= 400 || !location) {
+			return response;
+		}
+		target = new URL(location, target);
+		requestInit = redirectedRequestInit(response.status, requestInit);
+	}
+	throw new Error(`Too many redirects (more than ${MAX_REDIRECTS}).`);
+}
+
+function redirectedRequestInit(status: number, init: RequestInit | undefined): RequestInit | undefined {
+	const method = init?.method?.toUpperCase() ?? 'GET';
+	const switchesToGet = status === 303 || ((status === 301 || status === 302) && method === 'POST');
+	return switchesToGet ? { ...init, method: 'GET', body: undefined } : init;
+}
+
 export async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<string> {
 	return (await safeFetchWithUrl(url, options)).text;
 }

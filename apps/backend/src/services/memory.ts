@@ -77,12 +77,15 @@ class MemoryService {
 			return;
 		}
 
-		const { newCount, supersededCount } = await this._persistExtractedMemories({
-			userId: opts.userId,
-			chatId: opts.chatId,
-			existingMemories,
-			extractedMemories: extractorResult.output,
-		});
+		const isStillEnabled = await this._isMemoryEnabled(opts.userId, opts.projectId);
+		const { newCount, supersededCount } = isStillEnabled
+			? await this._persistExtractedMemories({
+					userId: opts.userId,
+					chatId: opts.chatId,
+					existingMemories,
+					extractedMemories: extractorResult.output,
+				})
+			: { newCount: 0, supersededCount: 0 };
 
 		this._trackMemoryExtraction({
 			...opts,

@@ -228,18 +228,18 @@ const insertOrSupersedeMessage = async (opts: {
 
 	const attachmentParts = await buildAttachmentParts(message, scope);
 
-	let versionGroupId: string | undefined;
-	if (messageToEditId) {
-		versionGroupId = await chatQueries.resolveVersionGroupIdForEdit(chatId, messageToEditId);
-		await chatQueries.supersedeMessagesFrom(chatId, messageToEditId);
-	}
-	return chatQueries.upsertMessage({
-		role: 'user',
-		parts: [{ type: 'text', text: message.text }, ...attachmentParts],
+	const userMessage = {
+		role: 'user' as const,
+		parts: [{ type: 'text' as const, text: message.text }, ...attachmentParts],
 		chatId,
 		senderUserId: userId,
 		source,
 		citation: message.citation,
-		versionGroupId,
-	});
+	};
+	if (!messageToEditId) {
+		return chatQueries.upsertMessage(userMessage);
+	}
+
+	const versionGroupId = await chatQueries.resolveVersionGroupIdForEdit(chatId, messageToEditId);
+	return chatQueries.replaceMessagesFrom(messageToEditId, { ...userMessage, versionGroupId });
 };

@@ -11,10 +11,13 @@ export type ProjectIdResolver<T = unknown> = (payload: T) => string | null | Pro
 interface JobRegistration<T = unknown> {
 	handler: JobHandler<T>;
 	resolveProjectId?: ProjectIdResolver<T>;
+	retryFailures: boolean;
 }
 
 interface RegisterJobOptions<T> {
 	resolveProjectId?: ProjectIdResolver<T>;
+	/** Off for jobs with side effects a retry would repeat (e.g. emails): a failure waits for the next cron tick. */
+	retryFailures?: boolean;
 }
 
 const POLL_INTERVAL_MS = 30_000;
@@ -38,6 +41,7 @@ export function registerJob<T = unknown>(
 	handlers.set(name, {
 		handler: handler as JobHandler,
 		resolveProjectId: options.resolveProjectId as ProjectIdResolver | undefined,
+		retryFailures: options.retryFailures ?? true,
 	});
 }
 
@@ -173,7 +177,7 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 		await registration.handler(payload, job);
 		await onJobSuccess(job);
 	} catch (err) {
-		await onJobFailure(job, err);
+		await onJobFailure(job, err, registration.retryFailures);
 	}
 }
 
@@ -193,14 +197,14 @@ async function onJobSuccess(job: DBScheduledJob): Promise<void> {
 	await scheduledJobQueries.rescheduleJob(current.id, next);
 }
 
-async function onJobFailure(job: DBScheduledJob, err: unknown): Promise<void> {
+async function onJobFailure(job: DBScheduledJob, err: unknown, retryFailures: boolean): Promise<void> {
 	const message = err instanceof Error ? err.message : String(err);
 	logger.error(`Scheduler job '${job.name}' failed: ${message}`, {
 		source: 'system',
 		context: { jobId: job.id, name: job.name, attempts: job.attempts, error: serializeError(err) },
 	});
 
-	if (job.attempts >= job.maxAttempts) {
+	if (!retryFailures || job.attempts >= job.maxAttempts) {
 		const cron = (await scheduledJobQueries.getJobById(job.id))?.cron ?? job.cron;
 		if (cron) {
 			const next = nextCronTick(cron, new Date());

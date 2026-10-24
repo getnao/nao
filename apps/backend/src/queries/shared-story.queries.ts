@@ -3,7 +3,9 @@ import type { StoryFormat } from '@nao/shared/types';
 import { aliasedTable, and, count, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
+import { lockForUpdate } from '../db/lock-for-update';
+import { withPostgresTransaction } from '../db/postgres-transaction';
 import * as executeSqlQueries from './execute-sql.queries';
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
@@ -36,40 +38,43 @@ export async function createSharedStory(
 ): Promise<DBSharedStory> {
 	const pinned = options?.pinned === true;
 
-	const [existing] = await db
-		.select()
-		.from(s.sharedStory)
-		.where(and(eq(s.sharedStory.projectId, data.projectId), eq(s.sharedStory.storyId, data.storyId)))
-		.limit(1)
-		.execute();
+	return withPostgresTransaction(async (tx) => {
+		const [existing] = await lockForUpdate(
+			tx
+				.select()
+				.from(s.sharedStory)
+				.where(and(eq(s.sharedStory.projectId, data.projectId), eq(s.sharedStory.storyId, data.storyId)))
+				.limit(1),
+		).execute();
 
-	let saved: DBSharedStory;
-	if (existing) {
-		const [updated] = await db
-			.update(s.sharedStory)
-			.set({ visibility: data.visibility, ...(options?.pinned !== undefined ? { isPinned: pinned } : {}) })
-			.where(eq(s.sharedStory.id, existing.id))
-			.returning()
-			.execute();
-		saved = updated;
-		await deleteSharedStoryRecipients(existing.id);
-	} else {
-		const [created] = await db
-			.insert(s.sharedStory)
-			.values({
-				...data,
-				isPinned: pinned,
-			})
-			.returning()
-			.execute();
-		saved = created;
-	}
+		let saved: DBSharedStory;
+		if (existing) {
+			const [updated] = await tx
+				.update(s.sharedStory)
+				.set({ visibility: data.visibility, ...(options?.pinned !== undefined ? { isPinned: pinned } : {}) })
+				.where(eq(s.sharedStory.id, existing.id))
+				.returning()
+				.execute();
+			saved = updated;
+			await deleteSharedStoryRecipients(existing.id, tx);
+		} else {
+			const [created] = await tx
+				.insert(s.sharedStory)
+				.values({
+					...data,
+					isPinned: pinned,
+				})
+				.returning()
+				.execute();
+			saved = created;
+		}
 
-	if (data.visibility === 'specific') {
-		await insertSharedStoryRecipients(saved.id, recipients);
-	}
+		if (data.visibility === 'specific') {
+			await insertSharedStoryRecipients(saved.id, recipients, tx);
+		}
 
-	return saved;
+		return saved;
+	});
 }
 
 export async function getSharedStory(id: string): Promise<SharedStoryWithLatest | null> {
@@ -247,8 +252,13 @@ export async function getSharedStoryRecipientUserIds(sharedStoryId: string): Pro
 }
 
 export async function updateSharedStoryRecipients(sharedStoryId: string, recipients: ShareRecipients): Promise<void> {
-	await deleteSharedStoryRecipients(sharedStoryId);
-	await insertSharedStoryRecipients(sharedStoryId, recipients);
+	await withPostgresTransaction(async (tx) => {
+		await lockForUpdate(
+			tx.select({ id: s.sharedStory.id }).from(s.sharedStory).where(eq(s.sharedStory.id, sharedStoryId)),
+		).execute();
+		await deleteSharedStoryRecipients(sharedStoryId, tx);
+		await insertSharedStoryRecipients(sharedStoryId, recipients, tx);
+	});
 }
 
 export async function addSharedStoryAllowedUsers(sharedStoryId: string, userIds: string[]): Promise<void> {
@@ -262,9 +272,9 @@ export async function addSharedStoryAllowedUsers(sharedStoryId: string, userIds:
 		.execute();
 }
 
-export async function deleteSharedStoryRecipients(sharedStoryId: string): Promise<void> {
-	await db.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId)).execute();
-	await db
+export async function deleteSharedStoryRecipients(sharedStoryId: string, executor: DBExecutor = db): Promise<void> {
+	await executor.delete(s.sharedStoryAccess).where(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId)).execute();
+	await executor
 		.delete(s.sharedStoryGroupAccess)
 		.where(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId))
 		.execute();
@@ -311,18 +321,19 @@ export async function listProjectWideSharedStories(
 async function insertSharedStoryRecipients(
 	sharedStoryId: string,
 	recipients: Partial<ShareRecipients> | undefined,
+	executor: DBExecutor = db,
 ): Promise<void> {
 	const userIds = [...new Set(recipients?.userIds ?? [])];
 	const groupIds = [...new Set(recipients?.groupIds ?? [])];
 
 	if (userIds.length > 0) {
-		await db
+		await executor
 			.insert(s.sharedStoryAccess)
 			.values(userIds.map((userId) => ({ sharedStoryId, userId })))
 			.execute();
 	}
 	if (groupIds.length > 0) {
-		await db
+		await executor
 			.insert(s.sharedStoryGroupAccess)
 			.values(groupIds.map((groupId) => ({ sharedStoryId, groupId })))
 			.execute();

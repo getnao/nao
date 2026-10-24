@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm';
 import type { NewMcpCallLog } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import { lockForUpdate } from '../db/lock-for-update';
 import { env } from '../env';
 import { DEFAULT_MCP_ENDPOINT_SETTINGS, type McpEndpointSettings } from '../types/mcp-endpoint';
 
@@ -25,16 +26,24 @@ function defaultMcpEndpointSettings(): McpEndpointSettings {
 	return { ...DEFAULT_MCP_ENDPOINT_SETTINGS, enabled: env.MCP_ENDPOINT_ENABLED };
 }
 
+/** Merges under a row lock: a lost "off" would leave the endpoint answering MCP clients. */
 export async function updateMcpEndpointSettings(
 	projectId: string,
 	settings: Partial<McpEndpointSettings>,
 ): Promise<McpEndpointSettings> {
-	const current = await getMcpEndpointSettings(projectId);
-	const merged = { ...current, ...settings };
+	return db.transaction(async (tx) => {
+		const [row] = await lockForUpdate(
+			tx
+				.select({ mcpEndpointSettings: s.project.mcpEndpointSettings })
+				.from(s.project)
+				.where(eq(s.project.id, projectId)),
+		).execute();
+		const merged = { ...(row?.mcpEndpointSettings ?? defaultMcpEndpointSettings()), ...settings };
 
-	await db.update(s.project).set({ mcpEndpointSettings: merged }).where(eq(s.project.id, projectId)).execute();
+		await tx.update(s.project).set({ mcpEndpointSettings: merged }).where(eq(s.project.id, projectId)).execute();
 
-	return merged;
+		return merged;
+	});
 }
 
 export async function insertMcpCallLog(entry: Omit<NewMcpCallLog, 'calledAt'>): Promise<void> {

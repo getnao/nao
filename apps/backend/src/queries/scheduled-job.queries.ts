@@ -27,7 +27,7 @@ export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<D
 		.limit(1)
 		.execute();
 
-	if (existing?.status === 'running') {
+	if (existing && isMidRun(existing)) {
 		return refreshRunningJobDefinition(existing.id, input);
 	}
 
@@ -72,12 +72,19 @@ export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<D
 	return row;
 };
 
+/** A paused job keeps its lock while its last run finishes, so resuming it then must not make it claimable twice. */
+const isMidRun = (job: DBScheduledJob): boolean =>
+	job.status === 'running' || (job.status === 'paused' && job.lockedAt !== null);
+
 const refreshRunningJobDefinition = async (id: string, input: UpsertRecurringInput): Promise<DBScheduledJob> => {
 	const set: Partial<NewScheduledJob> = {
 		cron: input.cron,
 		name: input.name,
 		payload: input.payload,
 	};
+	if (input.status) {
+		set.status = input.status === 'paused' ? 'paused' : 'running';
+	}
 	if (input.maxAttempts !== undefined) {
 		set.maxAttempts = input.maxAttempts;
 	}
@@ -180,7 +187,7 @@ export const rescheduleJob = async (id: string, runAt: Date): Promise<void> => {
 	await db
 		.update(s.scheduledJob)
 		.set({
-			status: 'pending',
+			status: pendingUnlessPaused(),
 			runAt,
 			attempts: 0,
 			lastError: null,
@@ -195,7 +202,7 @@ export const markJobFailed = async (id: string, error: string, nextRunAt: Date |
 	await db
 		.update(s.scheduledJob)
 		.set({
-			status: nextRunAt ? 'pending' : 'failed',
+			status: nextRunAt ? pendingUnlessPaused() : 'failed',
 			runAt: nextRunAt ?? sql`${s.scheduledJob.runAt}`,
 			lastError: error,
 			lockedAt: null,
@@ -204,6 +211,10 @@ export const markJobFailed = async (id: string, error: string, nextRunAt: Date |
 		.where(eq(s.scheduledJob.id, id))
 		.execute();
 };
+
+/** A job paused while it ran stays paused once the run ends. */
+const pendingUnlessPaused = () =>
+	sql<DBScheduledJob['status']>`case when ${s.scheduledJob.status} = 'paused' then 'paused' else 'pending' end`;
 
 export const updateJobPayload = async (id: string, payload: Record<string, unknown>): Promise<void> => {
 	await db.update(s.scheduledJob).set({ payload }).where(eq(s.scheduledJob.id, id)).execute();

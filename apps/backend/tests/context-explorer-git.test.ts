@@ -152,44 +152,49 @@ describe('OAuth Git credentials', () => {
 	it.each([
 		['github', 'x-access-token'],
 		['gitlab', 'oauth2'],
-	] as const)('uses an ephemeral askpass helper for %s without putting the token in argv', (provider, username) => {
-		const root = temporaryRoot(temporaryRoots);
-		const bin = path.join(root, 'bin');
-		const fakeGit = path.join(bin, 'git');
-		const token = `${provider}-oauth-secret`;
-		fs.mkdirSync(bin);
-		fs.writeFileSync(
-			fakeGit,
-			`#!/bin/sh
+	] as const)(
+		'uses an ephemeral askpass helper for %s without putting the token in argv',
+		async (provider, username) => {
+			const root = temporaryRoot(temporaryRoots);
+			const bin = path.join(root, 'bin');
+			const fakeGit = path.join(bin, 'git');
+			const token = `${provider}-oauth-secret`;
+			fs.mkdirSync(bin);
+			fs.writeFileSync(
+				fakeGit,
+				`#!/bin/sh
 user="$("$GIT_ASKPASS" "Username for repository")"
 password="$("$GIT_ASKPASS" "Password for repository")"
 [ "$password" = "$EXPECTED_OAUTH_TOKEN" ] || exit 2
 case "$*" in *"$EXPECTED_OAUTH_TOKEN"*) exit 3 ;; esac
 printf '%s|%s' "$user" "$GIT_ASKPASS"
 `,
-			{ mode: 0o700 },
-		);
-		process.env.PATH = `${bin}:${originalPath ?? ''}`;
-		process.env.EXPECTED_OAUTH_TOKEN = token;
+				{ mode: 0o700 },
+			);
+			process.env.PATH = `${bin}:${originalPath ?? ''}`;
+			process.env.EXPECTED_OAUTH_TOKEN = token;
 
-		const [actualUsername, helperPath] = runGitWithOAuth(
-			root,
-			['fetch', 'https://example.com/nao/context.git'],
-			getGitOAuthCredential(provider, token),
-		)
-			.toString()
-			.split('|');
+			const [actualUsername, helperPath] = (
+				await runGitWithOAuth(
+					root,
+					['fetch', 'https://example.com/nao/context.git'],
+					getGitOAuthCredential(provider, token),
+				)
+			)
+				.toString()
+				.split('|');
 
-		expect(actualUsername).toBe(username);
-		expect(fs.existsSync(helperPath)).toBe(false);
-	});
+			expect(actualUsername).toBe(username);
+			expect(fs.existsSync(helperPath)).toBe(false);
+		},
+	);
 
 	it.each([
 		['github', 'x-access-token'],
 		['gitlab', 'oauth2'],
 		['bitbucket', 'x-token-auth'],
 		[null, 'git'],
-	] as const)('fetches with a scoped %s deployment token', (platform, expectedUsername) => {
+	] as const)('fetches with a scoped %s deployment token', async (platform, expectedUsername) => {
 		const root = temporaryRoot(temporaryRoots);
 		const bin = path.join(root, 'bin');
 		const fakeGit = path.join(bin, 'git');
@@ -206,11 +211,8 @@ printf '%s|%s|%s|%s' "$*" "$username" "$password" "$GIT_ASKPASS"
 		);
 		process.env.PATH = `${bin}:${originalPath ?? ''}`;
 
-		const [argv, username, password, helperPath] = runGitFetchWithCredentials(
-			root,
-			'https://example.com/nao/context.git',
-			'main',
-			{ platform, token },
+		const [argv, username, password, helperPath] = (
+			await runGitFetchWithCredentials(root, 'https://example.com/nao/context.git', 'main', { platform, token })
 		)
 			.toString()
 			.split('|');
@@ -222,7 +224,7 @@ printf '%s|%s|%s|%s' "$*" "$username" "$password" "$GIT_ASKPASS"
 		expect(fs.existsSync(helperPath)).toBe(false);
 	});
 
-	it('removes embedded HTTPS credentials from fetch argv and cleans up askpass', () => {
+	it('removes embedded HTTPS credentials from fetch argv and cleans up askpass', async () => {
 		const root = temporaryRoot(temporaryRoots);
 		const bin = path.join(root, 'bin');
 		const fakeGit = path.join(bin, 'git');
@@ -236,11 +238,13 @@ printf '%s|%s|%s|%s' "$*" "$("$GIT_ASKPASS" "Username")" "$("$GIT_ASKPASS" "Pass
 		);
 		process.env.PATH = `${bin}:${originalPath ?? ''}`;
 
-		const [argv, username, password, helperPath] = runGitFetchWithCredentials(
-			root,
-			'https://deploy-user:deploy-secret@example.com/nao/context.git',
-			'main',
-			{},
+		const [argv, username, password, helperPath] = (
+			await runGitFetchWithCredentials(
+				root,
+				'https://deploy-user:deploy-secret@example.com/nao/context.git',
+				'main',
+				{},
+			)
 		)
 			.toString()
 			.split('|');
@@ -253,7 +257,7 @@ printf '%s|%s|%s|%s' "$*" "$("$GIT_ASKPASS" "Username")" "$("$GIT_ASKPASS" "Pass
 		expect(fs.existsSync(helperPath)).toBe(false);
 	});
 
-	it('supports credential-free fetches and removes temporary SSH keys', () => {
+	it('supports credential-free fetches and removes temporary SSH keys', async () => {
 		const root = temporaryRoot(temporaryRoots);
 		const bin = path.join(root, 'bin');
 		const fakeGit = path.join(bin, 'git');
@@ -267,17 +271,16 @@ printf '%s|%s|%s' "$*" "$GIT_ASKPASS" "$GIT_SSH_COMMAND"
 		);
 		process.env.PATH = `${bin}:${originalPath ?? ''}`;
 
-		const [publicArgv, publicAskpass] = runGitFetchWithCredentials(
-			root,
-			'https://example.com/nao/context.git',
-			'main',
-			{},
+		const [publicArgv, publicAskpass] = (
+			await runGitFetchWithCredentials(root, 'https://example.com/nao/context.git', 'main', {})
 		)
 			.toString()
 			.split('|');
-		const [sshArgv, , sshCommand] = runGitFetchWithCredentials(root, 'git@example.com:nao/context.git', 'main', {
-			sshKey: 'private-key',
-		})
+		const [sshArgv, , sshCommand] = (
+			await runGitFetchWithCredentials(root, 'git@example.com:nao/context.git', 'main', {
+				sshKey: 'private-key',
+			})
+		)
 			.toString()
 			.split('|');
 		const keyPath = sshCommand.match(/-i '([^']+)'/)?.[1];
@@ -716,7 +719,7 @@ describe('live deployment context updates', { timeout: 15_000 }, () => {
 		const liveCommit = runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim();
 		writeRemoteChange(fixture, 'project/context.md', 'must not be pulled\n');
 
-		expect(() => pullLiveContext(fixture.live)).toThrow(
+		await expect(pullLiveContext(fixture.live)).rejects.toThrow(
 			'The configured context subfolder "example" was not found in the repository.',
 		);
 		expect(runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim()).toBe(liveCommit);
@@ -743,7 +746,7 @@ describe('live deployment context updates', { timeout: 15_000 }, () => {
 		expect(validateDeploymentContextSubpath(fixture.seed, configuredSubpath)).toBe(expectedPrefix);
 	});
 
-	it('fast-forwards the live checkout and reports context-only file stats', () => {
+	it('fast-forwards the live checkout and reports context-only file stats', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 		setContextSourceEnv({
@@ -759,7 +762,7 @@ describe('live deployment context updates', { timeout: 15_000 }, () => {
 		commitAll(fixture.seed, 'update deployed context');
 		runGit(fixture.seed, ['push', fixture.bare, 'main']);
 
-		const result = pullLiveContext(fixture.live);
+		const result = await pullLiveContext(fixture.live);
 
 		expect(result).toMatchObject({
 			changed: true,
@@ -780,13 +783,13 @@ describe('live deployment context updates', { timeout: 15_000 }, () => {
 		});
 	});
 
-	it('returns already-up-to-date semantics when the live commit does not change', () => {
+	it('returns already-up-to-date semantics when the live commit does not change', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 		setContextSourceEnv({ url: fixture.bare, branch: 'main', subpath: 'project', sshKey: 'deployment-key' });
 		const commit = runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim();
 
-		expect(pullLiveContext(fixture.live)).toMatchObject({
+		expect(await pullLiveContext(fixture.live)).toMatchObject({
 			changed: false,
 			oldCommit: commit,
 			newCommit: commit,
@@ -794,24 +797,24 @@ describe('live deployment context updates', { timeout: 15_000 }, () => {
 		});
 	});
 
-	it('rejects updates outside Git deployment mode and from the wrong live branch', () => {
+	it('rejects updates outside Git deployment mode and from the wrong live branch', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 		setContextSourceEnv({ source: null });
 
-		expect(() => pullLiveContext(fixture.live)).toThrow(
+		await expect(pullLiveContext(fixture.live)).rejects.toThrow(
 			'Live context updates are only available when NAO_CONTEXT_SOURCE is set to git.',
 		);
 
 		setContextSourceEnv({ url: fixture.bare, branch: 'main', subpath: 'project', sshKey: 'deployment-key' });
 		runGit(fixture.live, ['switch', '-c', 'other']);
 
-		expect(() => pullLiveContext(fixture.live)).toThrow(
+		await expect(pullLiveContext(fixture.live)).rejects.toThrow(
 			'The live checkout is on "other", not the configured "main" branch.',
 		);
 	});
 
-	it('rejects a mismatched deployment origin before fetching', () => {
+	it('rejects a mismatched deployment origin before fetching', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 		setContextSourceEnv({
@@ -825,7 +828,7 @@ describe('live deployment context updates', { timeout: 15_000 }, () => {
 			available: false,
 			unavailableReason: "The configured repository does not match the live project's Git repository.",
 		});
-		expect(() => pullLiveContext(fixture.live)).toThrow(
+		await expect(pullLiveContext(fixture.live)).rejects.toThrow(
 			"The configured repository does not match the live project's Git repository.",
 		);
 		expect(runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim()).toBe(commit);
@@ -846,7 +849,7 @@ describe('live deployment context updates', { timeout: 15_000 }, () => {
 		});
 	});
 
-	it('redacts deployment credentials from fetch errors and removes askpass', () => {
+	it('redacts deployment credentials from fetch errors and removes askpass', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		const repositoryUrl = 'https://deploy-user:deploy-secret@example.com/nao/context.git';
 		const publicUrl = 'https://example.com/nao/context.git';
@@ -875,7 +878,7 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
 
 		let error: Error | null = null;
 		try {
-			pullLiveContext(fixture.live);
+			await pullLiveContext(fixture.live);
 		} catch (caught) {
 			error = caught as Error;
 		}
@@ -907,7 +910,7 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
 		await ensureContextWorktree(fixture.context);
 		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(liveCommit);
 
-		const pull = pullLiveContext(fixture.live);
+		const pull = await pullLiveContext(fixture.live);
 		await ensureContextWorktree(fixture.context);
 
 		expect(pull.newCommit).toBe(remoteCommit);
@@ -939,7 +942,7 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
 		});
 		writeRemoteChange(fixture, 'project/context.md', 'new deployed context\n');
 
-		const pull = pullLiveContext(fixture.live);
+		const pull = await pullLiveContext(fixture.live);
 		await ensureContextWorktree(cleanContext);
 		await ensureContextWorktree(dirtyContext);
 		await ensureContextWorktree(branchContext);
@@ -981,7 +984,7 @@ exec '${realGit.replaceAll("'", "'\\''")}' "$@"
 		const oldCommit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
 		writeRemoteChange(fixture, 'project/context.md', 'standalone update\n');
 
-		const pull = pullLiveContext(fixture.live);
+		const pull = await pullLiveContext(fixture.live);
 		await ensureContextWorktree(fixture.context);
 
 		expect(pull.newCommit).not.toBe(oldCommit);

@@ -85,6 +85,7 @@ export function BudgetSettings() {
 	const [perUserBudgets, setPerUserBudgets] = useState<Record<string, number>>({});
 	const [periods, setPeriods] = useState<Record<string, Period>>({});
 	const [resetBoundaryVersion, setResetBoundaryVersion] = useState(0);
+	const [isPeriodErrorVisible, setIsPeriodErrorVisible] = useState(false);
 
 	useEffect(() => {
 		if (!savedBudgets.data) {
@@ -121,6 +122,7 @@ export function BudgetSettings() {
 		setBudgets(state.budgets);
 		setPerUserBudgets(state.perUserBudgets);
 		setPeriods(state.periods);
+		setIsPeriodErrorVisible(false);
 	}
 
 	function updateBudget(provider: string, budget: number) {
@@ -162,24 +164,30 @@ export function BudgetSettings() {
 		BUDGET_PERIODS.map((period) => [period, toUtcDateString(getNextPeriodStart(period))]),
 	) as Record<BudgetPeriod, string>;
 
+	const editableBudgetProviders = allConfiguredProviders.filter((provider) => {
+		const hasCost = costSupport.data?.[provider] ?? false;
+		const hasLimit = (budgets[provider] ?? 0) > 0 || (perUserBudgets[provider] ?? 0) > 0;
+		return !configManagedProviders.has(provider) && hasCost && hasLimit;
+	});
+	const providersMissingPeriod = editableBudgetProviders.filter(
+		(provider) => (periods[provider] ?? 'none') === 'none',
+	);
+	const periodErrorMessage =
+		isPeriodErrorVisible && providersMissingPeriod.length > 0
+			? `Choose a period for ${providersMissingPeriod.map(providerLabel).join(', ')} before saving.`
+			: undefined;
+
 	async function handleSave() {
-		const entries = allConfiguredProviders
-			.filter((provider) => {
-				if (configManagedProviders.has(provider)) {
-					return false;
-				}
-				const hasCost = costSupport.data?.[provider] ?? false;
-				const budget = budgets[provider] ?? 0;
-				const perUserBudget = perUserBudgets[provider] ?? 0;
-				const period = periods[provider] ?? 'none';
-				return hasCost && (budget > 0 || perUserBudget > 0) && period !== 'none';
-			})
-			.map((provider) => ({
-				provider,
-				limitUsd: budgets[provider] ?? 0,
-				...(hasUserBudget ? { perUserLimitUsd: perUserBudgets[provider] ?? 0 } : {}),
-				period: periods[provider] as BudgetPeriod,
-			}));
+		if (providersMissingPeriod.length > 0) {
+			setIsPeriodErrorVisible(true);
+			return;
+		}
+		const entries = editableBudgetProviders.map((provider) => ({
+			provider,
+			limitUsd: budgets[provider] ?? 0,
+			...(hasUserBudget ? { perUserLimitUsd: perUserBudgets[provider] ?? 0 } : {}),
+			period: periods[provider] as BudgetPeriod,
+		}));
 
 		await setBudgetsMutation.mutateAsync({ budgets: entries });
 	}
@@ -357,7 +365,10 @@ export function BudgetSettings() {
 			{isAdmin && (isDirty || setBudgetsMutation.isPending) && (
 				<UnsavedChangesFooter
 					isSaving={setBudgetsMutation.isPending}
-					errorMessage={setBudgetsMutation.isError ? setBudgetsMutation.error.message : undefined}
+					errorMessage={
+						periodErrorMessage ??
+						(setBudgetsMutation.isError ? setBudgetsMutation.error.message : undefined)
+					}
 					onCancel={resetForm}
 					onSave={handleSave}
 				/>

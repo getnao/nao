@@ -3,6 +3,8 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import s, { type DBSharedChat } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { lockForUpdate } from '../db/lock-for-update';
+import { withPostgresTransaction } from '../db/postgres-transaction';
 import { type ForkMetadata } from '../types/chat';
 
 export type SharedChatWithDetails = DBSharedChat & {
@@ -88,17 +90,17 @@ export async function createSharedChat(
 	chat: Pick<DBSharedChat, 'chatId' | 'visibility'>,
 	allowedUserIds?: string[],
 ): Promise<DBSharedChat> {
-	const [created] = await db.insert(s.sharedChat).values(chat).returning().execute();
+	return withPostgresTransaction(async (tx) => {
+		const [created] = await tx.insert(s.sharedChat).values(chat).returning().execute();
 
-	if (chat.visibility === 'specific' && allowedUserIds && allowedUserIds.length > 0) {
-		const accessRows = allowedUserIds.map((userId) => ({
-			sharedChatId: created.id,
-			userId,
-		}));
-		await db.insert(s.sharedChatAccess).values(accessRows).execute();
-	}
+		const userIds = [...new Set(allowedUserIds ?? [])];
+		if (chat.visibility === 'specific' && userIds.length > 0) {
+			const accessRows = userIds.map((userId) => ({ sharedChatId: created.id, userId }));
+			await tx.insert(s.sharedChatAccess).values(accessRows).execute();
+		}
 
-	return created;
+		return created;
+	});
 }
 
 export async function canUserAccessSharedChat(shareId: string, userId: string): Promise<boolean> {
@@ -170,10 +172,14 @@ export async function getShareAllowedUserIds(shareId: string): Promise<string[]>
 }
 
 export async function updateSharedChatAllowedUsers(shareId: string, userIds: string[]): Promise<void> {
-	await db.transaction(async (tx) => {
+	await withPostgresTransaction(async (tx) => {
+		await lockForUpdate(
+			tx.select({ id: s.sharedChat.id }).from(s.sharedChat).where(eq(s.sharedChat.id, shareId)),
+		).execute();
 		await tx.delete(s.sharedChatAccess).where(eq(s.sharedChatAccess.sharedChatId, shareId)).execute();
-		if (userIds.length > 0) {
-			const rows = userIds.map((userId) => ({ sharedChatId: shareId, userId }));
+		const uniqueUserIds = [...new Set(userIds)];
+		if (uniqueUserIds.length > 0) {
+			const rows = uniqueUserIds.map((userId) => ({ sharedChatId: shareId, userId }));
 			await tx.insert(s.sharedChatAccess).values(rows).execute();
 		}
 	});

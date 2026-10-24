@@ -47,7 +47,6 @@ import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
-import { AgentSettings } from '../types/agent-settings';
 import type { ContextUsage, MessageModel } from '../types/chat';
 import {
 	configLlmProviderSchema,
@@ -1082,18 +1081,7 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
-			const merged: AgentSettings = {
-				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
-				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
-				experimental: { ...existing.experimental, ...input.experimental },
-				transcribe: { ...existing.transcribe, ...input.transcribe },
-				sql: { ...existing.sql, ...input.sql },
-				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
-				webSearch: { ...existing.webSearch, ...input.webSearch },
-				semanticLayer: { ...existing.semanticLayer, ...input.semanticLayer },
-				subagent: { ...existing.subagent, ...input.subagent },
-			};
+			const merged = await projectQueries.updateAgentSettings(ctx.project.id, input);
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,
 				transcribe_enabled: merged.transcribe?.enabled,
@@ -1109,7 +1097,7 @@ export const projectRoutes = {
 				web_search_mode: merged.webSearch?.mode,
 				semantic_layer_mode: merged.semanticLayer?.mode,
 			});
-			return projectQueries.updateAgentSettings(ctx.project.id, merged);
+			return merged;
 		}),
 
 	getMemorySettings: projectProtectedProcedure.query(async ({ ctx }) => {

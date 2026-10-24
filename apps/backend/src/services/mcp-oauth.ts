@@ -10,10 +10,11 @@ import type {
 	OAuthClientMetadata,
 	OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { McpOAuthClientConfig } from '@nao/shared';
 
 import type { DBMcpOAuthClient } from '../db/abstractSchema';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import {
 	deleteMcpUserToken,
 	getMcpOAuthClient,
@@ -24,6 +25,13 @@ import {
 } from '../queries/mcp-oauth.queries';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger } from '../utils/logger';
+import { privateNetworkGuardedFetch } from '../utils/safe-fetch';
+
+/**
+ * The fetch every MCP request goes through. A self-hosted admin may point at an internal server
+ * (they can already run stdio servers), but a cloud tenant must never reach the shared network.
+ */
+export const mcpFetch: FetchLike | undefined = isCloud ? privateNetworkGuardedFetch : undefined;
 
 const BASE_URL = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 /** Redirect URI to whitelist on a provider app when using a pre-registered OAuth client. */
@@ -49,7 +57,7 @@ interface ProviderOptions {
 /** Returns true if the MCP server advertises OAuth protected-resource metadata (RFC 9728). */
 export async function isOAuthServer(serverUrl: string): Promise<boolean> {
 	try {
-		const metadata = await discoverOAuthProtectedResourceMetadata(serverUrl);
+		const metadata = await discoverOAuthProtectedResourceMetadata(serverUrl, undefined, mcpFetch);
 		return !!metadata;
 	} catch {
 		return false;
@@ -93,7 +101,7 @@ export async function getValidAccessToken(opts: {
 	}
 
 	try {
-		const info = await discoverOAuthServerInfo(opts.serverUrl);
+		const info = await discoverOAuthServerInfo(opts.serverUrl, { fetchFn: mcpFetch });
 		const clientInformation = await resolveClientInformation(opts.projectId, opts.server, opts.staticClient);
 		if (!clientInformation) {
 			return null;
@@ -102,6 +110,7 @@ export async function getValidAccessToken(opts: {
 			metadata: info.authorizationServerMetadata,
 			clientInformation,
 			refreshToken: decryptSecret(row.refreshToken),
+			fetchFn: mcpFetch,
 		});
 		await persistTokens(opts.userId, opts.projectId, opts.server, tokens);
 		return tokens.access_token;
@@ -126,7 +135,7 @@ export async function buildAuthorizationRedirect(opts: {
 	staticClient?: McpOAuthClientConfig;
 }): Promise<{ status: 'redirect'; url: string } | { status: 'authorized' }> {
 	const provider = new DbOAuthClientProvider(opts);
-	const result = await auth(provider, { serverUrl: opts.serverUrl });
+	const result = await auth(provider, { serverUrl: opts.serverUrl, fetchFn: mcpFetch });
 	if (result === 'AUTHORIZED') {
 		return { status: 'authorized' };
 	}
@@ -147,7 +156,7 @@ export async function completeAuthorization(opts: {
 	staticClient?: McpOAuthClientConfig;
 }): Promise<void> {
 	const provider = new DbOAuthClientProvider(opts);
-	const result = await auth(provider, { serverUrl: opts.serverUrl, authorizationCode: opts.code });
+	const result = await auth(provider, { serverUrl: opts.serverUrl, authorizationCode: opts.code, fetchFn: mcpFetch });
 	if (result !== 'AUTHORIZED') {
 		throw new Error('MCP authorization did not complete');
 	}

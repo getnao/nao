@@ -111,6 +111,39 @@ describe('scheduler', () => {
 		},
 	);
 
+	it.each([
+		{ retryFailures: true, rescheduled: null, retriedAt: new Date('2026-09-28T10:00:30.000Z') },
+		{ retryFailures: false, rescheduled: new Date('2026-09-28T11:00:00.000Z'), retriedAt: null },
+	])(
+		'retries a failed run only when the job allows it ($retryFailures)',
+		async ({ retryFailures, rescheduled, retriedAt }) => {
+			registerJob('automation.run', vi.fn().mockRejectedValue(new Error('send failed')), { retryFailures });
+			mocks.claimDueJobs.mockResolvedValueOnce([
+				{
+					id: 'automation-job',
+					name: 'automation.run',
+					payload: { automationId: 'automation-1' },
+					runAt: new Date(),
+					cron: '0 * * * *',
+					status: 'running',
+					attempts: 1,
+					maxAttempts: 10,
+				},
+			]);
+
+			startScheduler();
+			await vi.advanceTimersByTimeAsync(0);
+
+			if (rescheduled) {
+				expect(mocks.rescheduleJob).toHaveBeenCalledWith('automation-job', rescheduled);
+				expect(mocks.markJobFailed).not.toHaveBeenCalled();
+			} else {
+				expect(mocks.markJobFailed).toHaveBeenCalledWith('automation-job', 'send failed', retriedAt);
+				expect(mocks.rescheduleJob).not.toHaveBeenCalled();
+			}
+		},
+	);
+
 	it('waits for an active poll before resetting scheduler state', async () => {
 		let finishClaim: (jobs: []) => void = () => undefined;
 		mocks.claimDueJobs
