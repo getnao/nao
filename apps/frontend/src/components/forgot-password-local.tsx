@@ -16,7 +16,7 @@ export function LocalPasswordHelp({ email }: { email?: string }) {
 	};
 	const copyLabel = COPY_LABELS[copyState];
 	return (
-		<div className='mb-6'>
+		<div className='-mt-6 mb-6'>
 			<div className='text-right'>
 				<button
 					type='button'

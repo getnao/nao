@@ -96,7 +96,13 @@ function Login() {
 				placeholder='joe@gmail.com'
 				className='mb-4'
 			/>
-			<FormTextField form={form} name='password' type='password' title='Password' className='mb-2' />
+			<FormTextField
+				form={form}
+				name='password'
+				type='password'
+				title='Password'
+				className={isUserLoginEnabled && isSmtpSetup.data ? 'mb-2' : 'mb-8'}
+			/>
 			{isUserLoginEnabled && isSmtpSetup.data && (
 				<div className='text-right mb-6'>
 					<Link
@@ -107,7 +113,7 @@ function Login() {
 					</Link>
 				</div>
 			)}
-			{isUserLoginEnabled && isSmtpSetup.isSuccess && !isSmtpSetup.data && (
+			{!isCloud && isUserLoginEnabled && isSmtpSetup.isSuccess && !isSmtpSetup.data && (
 				<form.Subscribe selector={(state) => state.values.email}>
 					{(email) => <LocalPasswordHelp email={email} />}
 				</form.Subscribe>
