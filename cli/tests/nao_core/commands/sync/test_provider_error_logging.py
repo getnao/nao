@@ -86,7 +86,7 @@ class TestSyncDatabaseErrorLogging:
         assert "test_schema.test_table" in error_msg
         assert "Database connection failed!" in error_msg
 
-        # Verify file still written with error content
+        # Verify a short placeholder is written instead of the raw error dump
         preview_file = (
             tmp_path
             / "type=duckdb"
@@ -97,8 +97,8 @@ class TestSyncDatabaseErrorLogging:
         )
         assert preview_file.exists()
         content = preview_file.read_text()
-        assert "Error generating content" in content
-        assert "Database connection failed!" in content
+        assert "preview not generated: Database connection failed!" in content
+        assert "Error generating content" not in content
 
     def test_sync_database_logs_context_method_errors_to_console(self, tmp_path, mock_progress):
         """Test that DatabaseContext method errors are logged to CLI console."""
@@ -131,7 +131,7 @@ class TestSyncDatabaseErrorLogging:
         )
         assert columns_file.exists()
         content = columns_file.read_text()
-        assert "Error generating content" in content
+        assert "columns not generated: Column metadata not available" in content
 
     def test_sync_database_error_message_format(self, tmp_path, mock_progress):
         """Test that error messages contain all expected parts."""

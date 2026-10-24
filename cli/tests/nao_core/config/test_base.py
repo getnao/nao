@@ -462,6 +462,26 @@ def test_query_history_sql_unsupported_database_returns_none_when_no_override():
     assert db.get_query_history_sql(30) is None
 
 
+def test_preview_max_value_length_defaults_to_1000():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert db.preview_max_value_length == 1000
+
+
+def test_preview_max_value_length_rejects_negative_values():
+    with pytest.raises(ValidationError):
+        DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=-1)
+
+
+def test_preview_max_value_length_rejects_values_below_minimum():
+    with pytest.raises(ValidationError, match="at least 100"):
+        DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=26)
+
+
+def test_preview_max_value_length_accepts_zero_and_minimum():
+    assert DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=0).preview_max_value_length == 0
+    assert DuckDBConfig(name="test-db", path=":memory:", preview_max_value_length=100).preview_max_value_length == 100
+
+
 def test_exclude_columns_default_is_empty():
     db = DuckDBConfig(name="test-db", path=":memory:")
     assert db.exclude_columns == []
