@@ -29,6 +29,8 @@
 - **Frontend and shared tests**: `npm run -w @nao/frontend test` and `npm run -w @nao/shared test` (vitest)
 - **CLI tests**: `cd cli && uv run pytest`
 - Where tests go and how to keep the suite small is described under "Tests" in `CLAUDE.md`.
+- **Desktop (Tauri)**: `npm run test:desktop` (vitest), `npm run lint:desktop:rust` (cargo fmt, clippy, tests; needs `npm run build:ui -w @nao/desktop` first). E2E smoke test on Linux: build the frontend (`npx vite build` in `apps/frontend`), `npm run build:e2e -w @nao/desktop`, then `xvfb-run -a npm run test:e2e -w @nao/desktop` (needs `tauri-driver` and `WebKitWebDriver`). `npm run dev:desktop` opens the app.
+- **Memory**: the frontend `tsc` can exceed Node's default heap on this VM; prefix lint/build commands with `NODE_OPTIONS=--max-old-space-size=8192` if it aborts with "heap out of memory".
 - **Pre-commit hook** (`.husky/pre-commit`): runs `npm run lint`, `npm run format:check`, `npm run db:check-migrations -w @nao/backend`, and `npm run cli:check`
 
 ### Gotchas
