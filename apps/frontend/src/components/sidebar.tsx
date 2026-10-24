@@ -29,6 +29,7 @@ import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { SIDE_PANEL_ANIMATION_DURATION, SIDE_PANEL_ANIMATION_EASING } from '@/lib/side-panel';
 import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -37,11 +38,23 @@ import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings
 import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
 import { useSession } from '@/lib/auth-client';
 
+const SIDEBAR_TRANSITION_STYLE: React.CSSProperties = {
+	transitionDuration: `${SIDE_PANEL_ANIMATION_DURATION}ms`,
+	transitionTimingFunction: SIDE_PANEL_ANIMATION_EASING,
+};
+
 export function Sidebar() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const matchRoute = useMatchRoute();
-	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
+	const {
+		isCollapsed,
+		isMobile,
+		isMobileOpen,
+		closeMobile,
+		toggle: toggleSidebar,
+		expand: expandSidebar,
+	} = useSidebar();
 	const [toggleHintOpen, setToggleHintOpen] = useState(false);
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
@@ -69,6 +82,12 @@ export function Sidebar() {
 	useEffect(() => {
 		setToggleHintOpen(false);
 	}, [effectiveIsCollapsed]);
+
+	useEffect(() => {
+		if (isInSettings) {
+			expandSidebar();
+		}
+	}, [isInSettings, expandSidebar]);
 
 	useEffect(() => {
 		if (isMobile && isMobileOpen) {
@@ -136,10 +155,11 @@ export function Sidebar() {
 				isMobile
 					? 'w-72'
 					: cn(
-							'border-r border-sidebar-border transition-[width,background-color] duration-300',
+							'border-r border-sidebar-border transition-[width,background-color]',
 							effectiveIsCollapsed ? 'w-13' : 'w-72',
 						),
 			)}
+			style={isMobile ? undefined : SIDEBAR_TRANSITION_STYLE}
 		>
 			<div className='p-2 flex flex-col'>
 				<div className='flex items-center relative'>
