@@ -2,24 +2,36 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod/v4';
 
 import type { App } from '../app';
+import { getAuth } from '../auth';
 import { authMiddleware } from '../middleware/auth';
 import {
-	createCliAuthorizationCode,
+	AUTHORIZATION_CLIENTS,
+	createAuthorizationCode,
 	exchangeCliAuthorizationCode,
 	isTrustedOrigin,
 } from '../services/cli-auth.service';
+import { convertHeaders } from '../utils/utils';
 
 /**
- * Browser-based login flow for the nao CLI. The CLI opens /cli-login in the
- * browser, the logged-in user approves, and the frontend calls /authorize to
- * mint a one-time code that it forwards to the CLI's localhost callback. The
- * CLI then exchanges the code for a session token via /token.
+ * Browser-based login flow for the nao CLI and desktop app. The client opens /cli-login in the
+ * browser, the logged-in user approves, and the frontend calls /authorize to mint a one-time code
+ * that it forwards to the client's localhost callback. The CLI then exchanges the code for a
+ * session token via /token; the desktop app redeems it through /api/desktop-auth/session.
  */
 export const cliAuthRoutes = async (app: App) => {
-	app.post('/authorize', { preHandler: [requireBrowserRequest, authMiddleware] }, async (request) => {
-		const code = await createCliAuthorizationCode(request.user.id);
-		return { code };
-	});
+	app.post(
+		'/authorize',
+		{
+			preHandler: [requireBrowserRequest, authMiddleware],
+			schema: {
+				body: z.object({ client: z.enum(AUTHORIZATION_CLIENTS).optional() }).nullish(),
+			},
+		},
+		async (request) => {
+			const code = await createAuthorizationCode(request.user.id, request.body?.client ?? 'cli');
+			return { code };
+		},
+	);
 
 	app.post(
 		'/token',
@@ -34,6 +46,32 @@ export const cliAuthRoutes = async (app: App) => {
 				return reply.status(400).send({ error: 'Invalid or expired authorization code' });
 			}
 			return { token };
+		},
+	);
+};
+
+/**
+ * The desktop webview lands here after the browser sign-in. better-auth sets its own session cookie,
+ * then the webview is redirected to the app (or back to /login when the code is not valid).
+ */
+export const desktopAuthRoutes = async (app: App) => {
+	app.get(
+		'/session',
+		{
+			schema: {
+				querystring: z.object({ code: z.string().optional() }),
+			},
+		},
+		async (request, reply) => {
+			const auth = await getAuth();
+			const response = await auth.api.createDesktopSession({
+				query: { code: request.query.code },
+				headers: convertHeaders(request.headers),
+				asResponse: true,
+			});
+			reply.status(response.status).header('Referrer-Policy', 'no-referrer');
+			response.headers.forEach((value, key) => reply.header(key, value));
+			return reply.send();
 		},
 	);
 };
