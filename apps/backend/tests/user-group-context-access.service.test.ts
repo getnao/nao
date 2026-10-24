@@ -17,6 +17,15 @@ vi.mock('../src/queries/user-group.queries', () => ({
 vi.mock('../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: vi.fn(),
 }));
+vi.mock('../src/services/skill', () => ({
+	skillService: {
+		initializeSkills: vi.fn(async () => undefined),
+		getSkills: vi.fn(() => [
+			{ name: 'revenue', description: '', location: '/agent/skills/revenue-playbook.md' },
+			{ name: 'churn', description: '', location: '/agent/skills/churn.md' },
+		]),
+	},
+}));
 
 import { getDatabaseContextCatalog } from '../src/agents/user-rules';
 import { getUserRoleInProject } from '../src/queries/project.queries';
@@ -69,6 +78,7 @@ describe('warehouse Context access', () => {
 			groupNames: ['All Users', 'Finance'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
@@ -125,10 +135,31 @@ describe('warehouse Context access', () => {
 			},
 			filesContextAccess: { enforced: true, access: ALL_FILES_CONTEXT_ACCESS },
 			mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] },
+			skillsAccess: { mode: 'all' },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
 		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
+	});
+
+	it('resolves the files of the granted skills when skills are restricted', async () => {
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['All Users'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'restricted', skills: ['revenue'] },
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'all' },
+			rowPolicies: [],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			skillsAccess: {
+				mode: 'restricted',
+				skills: ['revenue'],
+				grantedFiles: ['agent/skills/revenue-playbook.md'],
+			},
+		});
 	});
 
 	it('scopes MCP settings to the group grants except for admins', async () => {
@@ -187,6 +218,7 @@ describe('warehouse Context access', () => {
 			groupNames: ['Finance'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 			rowPolicies: [{ version: 1, policies: [{ ...orders, access: 'full' }] }],
@@ -215,6 +247,7 @@ describe('warehouse Context access', () => {
 			groupNames: ['Context group', 'Non-Context group'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
 			databaseAccess: {
 				mode: 'restricted',
 				strict: true,
@@ -249,6 +282,7 @@ describe('warehouse Context access', () => {
 			groupNames: ['Context group', 'Non-Context group'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
 			databaseAccess: {
 				mode: 'restricted',
 				strict: true,
@@ -454,6 +488,7 @@ describe('warehouse Context access', () => {
 			groupNames: ['All Users'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 			rowPolicies: [],

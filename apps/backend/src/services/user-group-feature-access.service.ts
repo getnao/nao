@@ -4,6 +4,7 @@ import {
 	type DocsContextAccess,
 	type FilesContextAccess,
 	type McpAccess,
+	type SkillsAccess,
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
@@ -30,10 +31,12 @@ export interface EffectiveUserGroupAccess {
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
 	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
 }
 
 export interface EffectiveUserGroupAccessForUserDetail extends EffectiveUserGroupAccess {
 	rowPolicies: UserGroupRowPolicies[];
+	preloadedSkills: string[];
 }
 
 export class UserGroupFeatureAccessError extends HandlerError {
@@ -61,6 +64,7 @@ export async function getEffectiveUserGroupAccessForUserDetail(
 	return {
 		...formatEffectiveUserGroupAccess(access, role),
 		rowPolicies: access.rowPolicies,
+		preloadedSkills: access.preloadedSkills,
 	};
 }
 
@@ -150,6 +154,7 @@ function formatEffectiveUserGroupAccess(
 		docsAccess: access.docsAccess,
 		filesAccess: access.filesAccess,
 		mcpAccess: access.mcpAccess,
+		skillsAccess: access.skillsAccess,
 	};
 }
 

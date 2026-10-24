@@ -1,9 +1,11 @@
 import {
 	ALL_MCP_ACCESS,
 	type FileTreeAccess,
+	isSkillGranted,
 	type McpAccess,
 	type ProjectRowSecurity,
 	resolveWarehouseRowSecurity,
+	type SkillsAccess,
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
 	type UserRole,
@@ -17,6 +19,7 @@ import { getProjectRowSecurity } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import { expandDatabaseAccess, type WarehouseTableAccess } from './context-access';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { skillService } from './skill';
 import { resolveAvailableUserGroupAccess } from './user-group-availability.service';
 
 export * from './context-access';
@@ -24,6 +27,8 @@ export * from './context-access';
 export type ResolvedFileTreeAccess = { enforced: false } | { enforced: true; access: FileTreeAccess };
 export type ResolvedDocsContextAccess = ResolvedFileTreeAccess;
 export type ResolvedFilesContextAccess = ResolvedFileTreeAccess;
+/** A restricted run also carries the project-relative files of its granted skills, since file tools see paths, not names. */
+export type ResolvedSkillsAccess = { mode: 'all' } | { mode: 'restricted'; skills: string[]; grantedFiles: string[] };
 
 export async function resolveProjectContextAccess(
 	projectId: string,
@@ -36,6 +41,7 @@ export async function resolveProjectContextAccess(
 	docsContextAccess: ResolvedDocsContextAccess;
 	filesContextAccess: ResolvedFilesContextAccess;
 	mcpAccess: McpAccess;
+	skillsAccess: ResolvedSkillsAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	preloadedSkillNames: string[];
@@ -50,12 +56,14 @@ export async function resolveProjectContextAccess(
 		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
 		getProjectRowSecurity(projectId),
 	]);
+	const skillsAccess = await resolveSkillsAccess(projectId, effectiveAccess.skillsAccess);
 	return {
 		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
 		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed),
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
 		filesContextAccess: { enforced: true, access: effectiveAccess.filesAccess },
 		mcpAccess: effectiveAccess.mcpAccess,
+		skillsAccess,
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 		preloadedSkillNames: effectiveAccess.preloadedSkills,
@@ -74,12 +82,28 @@ export async function resolveMcpSettingsAccess(
 	return (await resolveAvailableUserGroupAccess(projectId, userId)).mcpAccess;
 }
 
+export async function resolveUserSkillsAccess(projectId: string, userId: string): Promise<SkillsAccess> {
+	return (await resolveAvailableUserGroupAccess(projectId, userId)).skillsAccess;
+}
+
 export async function resolveWarehouseTableAccess(
 	projectId: string,
 	userId: string,
 	projectFolder: string,
 ): Promise<WarehouseTableAccess> {
 	return (await resolveProjectContextAccess(projectId, userId, projectFolder)).warehouseTableAccess;
+}
+
+async function resolveSkillsAccess(projectId: string, access: SkillsAccess): Promise<ResolvedSkillsAccess> {
+	if (access.mode === 'all') {
+		return access;
+	}
+	await skillService.initializeSkills(projectId);
+	const grantedFiles = skillService
+		.getSkills(projectId)
+		.filter((skill) => isSkillGranted(access, skill.name))
+		.map((skill) => skill.location.replace(/^\/+/, ''));
+	return { ...access, grantedFiles };
 }
 
 function resolveRowSecurityAccess(

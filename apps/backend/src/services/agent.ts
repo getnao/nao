@@ -1,4 +1,4 @@
-import { type CustomBoundarySet, normalizeCitationMarkers } from '@nao/shared';
+import { type CustomBoundarySet, isSkillGranted, normalizeCitationMarkers } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
@@ -293,6 +293,7 @@ async function _buildContextBase(opts: {
 		docsContextAccess: contextAccess.docsContextAccess,
 		filesContextAccess: contextAccess.filesContextAccess,
 		mcpAccess: contextAccess.mcpAccess,
+		skillsAccess: contextAccess.skillsAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		preloadedSkillNames: contextAccess.preloadedSkillNames,
@@ -744,7 +745,9 @@ export class AgentManager {
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
 		const repoNames = repos.map((repo) => repo.name);
-		const skills = skillService.getSkills(this.chat.projectId);
+		const skills = skillService
+			.getSkills(this.chat.projectId)
+			.filter((skill) => isSkillGranted(this._toolContext.skillsAccess, skill.name));
 		const preloadedSkills = skillService.getPreloadedSkills(
 			this.chat.projectId,
 			this._toolContext.preloadedSkillNames,
@@ -1013,7 +1016,9 @@ export class AgentManager {
 	}
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		const skillMention = mentions?.find((m) => m.trigger === '/');
+		const skillMention = mentions?.find(
+			(m) => m.trigger === '/' && isSkillGranted(this._toolContext.skillsAccess, m.id),
+		);
 		const skillContent = skillMention
 			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
 			: undefined;

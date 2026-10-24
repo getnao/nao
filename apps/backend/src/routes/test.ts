@@ -128,6 +128,7 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		docsContextAccess: contextAccess.docsContextAccess,
 		filesContextAccess: contextAccess.filesContextAccess,
 		mcpAccess: contextAccess.mcpAccess,
+		skillsAccess: contextAccess.skillsAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		queryResults: new Map(),

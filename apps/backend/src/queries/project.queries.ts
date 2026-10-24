@@ -3,6 +3,7 @@ import {
 	ALL_DOCS_CONTEXT_ACCESS,
 	ALL_FILES_CONTEXT_ACCESS,
 	ALL_MCP_ACCESS,
+	ALL_SKILLS_ACCESS,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_NAME,
@@ -474,6 +475,7 @@ const defaultUserGroupValues = (projectId: string) => ({
 		docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 		filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		mcpAccess: ALL_MCP_ACCESS,
+		skillsAccess: ALL_SKILLS_ACCESS,
 	}),
 });
 

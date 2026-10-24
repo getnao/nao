@@ -1,4 +1,4 @@
-import { EMPTY_FILES_CONTEXT_ACCESS, EMPTY_MCP_ACCESS, MAX_PRELOADED_SKILLS } from '@nao/shared';
+import { EMPTY_FILES_CONTEXT_ACCESS, EMPTY_MCP_ACCESS, EMPTY_SKILLS_ACCESS, MAX_PRELOADED_SKILLS } from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -303,6 +303,41 @@ describe('user group routes', () => {
 			expect.objectContaining({ mcpAccess: { mode: 'all' } }),
 		);
 		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledTimes(1);
+	});
+
+	it('rejects unlicensed skill restrictions but lets admins keep or lift them', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		const revenueOnly = { mode: 'restricted' as const, skills: ['revenue'] };
+		mocks.listUserGroups.mockResolvedValue([{ id: 'group-id', skillsAccess: revenueOnly }]);
+		const update = (skillsAccess: typeof revenueOnly | { mode: 'all' }) =>
+			createCaller().update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+				skillsAccess,
+			});
+
+		await expect(createCaller().create({ name: 'Analysts', skillsAccess: revenueOnly })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(update({ mode: 'restricted', skills: [] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+
+		await update(revenueOnly);
+		await update({ mode: 'all' });
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			1,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ skillsAccess: revenueOnly }),
+		);
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			2,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ skillsAccess: { mode: 'all' } }),
+		);
 	});
 
 	it('allows group edits after a registry update prunes removed-table policies', async () => {
@@ -718,6 +753,7 @@ describe('user group routes', () => {
 			EMPTY_MCP_ACCESS,
 			false,
 			[],
+			EMPTY_SKILLS_ACCESS,
 		);
 	});
 
@@ -743,6 +779,7 @@ describe('user group routes', () => {
 			EMPTY_MCP_ACCESS,
 			false,
 			[],
+			EMPTY_SKILLS_ACCESS,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -804,6 +841,7 @@ describe('user group routes', () => {
 			EMPTY_MCP_ACCESS,
 			false,
 			[],
+			EMPTY_SKILLS_ACCESS,
 		);
 	});
 
@@ -856,6 +894,7 @@ describe('user group routes', () => {
 			EMPTY_MCP_ACCESS,
 			false,
 			[],
+			EMPTY_SKILLS_ACCESS,
 		);
 	});
 
@@ -884,6 +923,7 @@ describe('user group routes', () => {
 			EMPTY_MCP_ACCESS,
 			false,
 			[],
+			EMPTY_SKILLS_ACCESS,
 		);
 	});
 
@@ -968,6 +1008,7 @@ describe('user group routes', () => {
 			EMPTY_MCP_ACCESS,
 			false,
 			[],
+			EMPTY_SKILLS_ACCESS,
 		);
 	});
 
@@ -1054,7 +1095,7 @@ describe('user group routes', () => {
 			preloadedSkills: [' churn '],
 		});
 
-		expect(mocks.createUserGroup.mock.calls[0].at(-1)).toEqual(['revenue-recognition']);
+		expect(mocks.createUserGroup.mock.calls[0].at(-2)).toEqual(['revenue-recognition']);
 		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
 			'project-id',
 			'group-id',
@@ -1086,6 +1127,7 @@ describe('user group routes', () => {
 			EMPTY_MCP_ACCESS,
 			false,
 			[],
+			EMPTY_SKILLS_ACCESS,
 		);
 	});
 
