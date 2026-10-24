@@ -12,6 +12,7 @@ import {
 	OnboardingProgress,
 	useOnboardingProgress,
 	WarehouseCommandProgress,
+	WarehouseProvisioningWarnings,
 } from '@/components/onboarding-progress';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
@@ -200,6 +201,7 @@ function OnboardingPage() {
 			<div className='shrink-0 pb-2 pt-4'>
 				<div className='mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 md:px-4'>
 					<OnboardingProgress complete={onboardingComplete} warehouseStatus={warehouseJob.data?.status} />
+					<WarehouseProvisioningWarnings warnings={warehouseJob.data?.warnings} />
 					{showDeployKey && (
 						<Dialog>
 							<div

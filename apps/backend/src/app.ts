@@ -64,6 +64,7 @@ import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
+import { onboardingContextFileRoutes } from './routes/onboarding-context-files';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
 import { storyThumbnailRoutes } from './routes/story-thumbnail';
@@ -195,6 +196,10 @@ app.register(agentRoutes, {
 
 app.register(attachmentRoutes, {
 	prefix: '/api/attachments',
+});
+
+app.register(onboardingContextFileRoutes, {
+	prefix: '/api/onboarding/context-files',
 });
 
 app.register(analyticsRoutes, {

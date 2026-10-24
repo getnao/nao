@@ -27,6 +27,7 @@ describe('getCompletedSteps', () => {
 		['queued', 1],
 		['initializing', 1],
 		['debugging', 2],
+		['awaiting_sources', 3],
 		['syncing', 3],
 		['registering', 4],
 		['awaiting_context', 4],

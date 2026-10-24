@@ -370,13 +370,15 @@ function DynamicPatterns({
 	);
 }
 
-function DatabaseContextTree({
+export function DatabaseContextTree({
 	objects,
 	selectionObjects,
 	databaseAccess,
 	onChange,
 	isSearching,
 	draftPattern,
+	showDatabaseRoot = true,
+	showSelectionSourceLabels = true,
 }: {
 	objects: DatabaseContextObject[];
 	selectionObjects: DatabaseContextObject[];
@@ -384,6 +386,8 @@ function DatabaseContextTree({
 	onChange: (access: DatabaseContextAccess) => void;
 	isSearching: boolean;
 	draftPattern: string;
+	showDatabaseRoot?: boolean;
+	showSelectionSourceLabels?: boolean;
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
 	const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -408,19 +412,38 @@ function DatabaseContextTree({
 
 	return (
 		<>
-			{databases.map((database) => (
-				<DatabaseNode
-					key={database.key}
-					database={database}
-					expandedKeys={expandedKeys}
-					isSearching={isSearching}
-					onToggle={toggleFolder}
-					databaseAccess={databaseAccess}
-					onChange={onChange}
-					draftPattern={draftPattern}
-					selectionObjects={selectionObjects}
-				/>
-			))}
+			{databases.flatMap((database) =>
+				showDatabaseRoot
+					? [
+							<DatabaseNode
+								key={database.key}
+								database={database}
+								expandedKeys={expandedKeys}
+								isSearching={isSearching}
+								onToggle={toggleFolder}
+								databaseAccess={databaseAccess}
+								onChange={onChange}
+								draftPattern={draftPattern}
+								selectionObjects={selectionObjects}
+								showSelectionSourceLabels={showSelectionSourceLabels}
+							/>,
+						]
+					: database.schemas.map((schema) => (
+							<SchemaRow
+								key={schema.key}
+								schema={schema}
+								label={schema.schema}
+								depth={0}
+								open={isSearching || expandedKeys.has(schema.key)}
+								onToggle={() => toggleFolder(schema)}
+								databaseAccess={databaseAccess}
+								onChange={onChange}
+								draftPattern={draftPattern}
+								selectionObjects={selectionObjects}
+								showSelectionSourceLabels={showSelectionSourceLabels}
+							/>
+						)),
+			)}
 		</>
 	);
 }
@@ -463,6 +486,7 @@ function DatabaseNode({
 	onChange,
 	draftPattern,
 	selectionObjects,
+	showSelectionSourceLabels,
 }: {
 	database: GroupedDatabase;
 	expandedKeys: Set<string>;
@@ -472,6 +496,7 @@ function DatabaseNode({
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
+	showSelectionSourceLabels: boolean;
 }) {
 	const folderChain = getSingleChildFolderChain(database, DATABASE_TREE_EXPANSION_ADAPTER);
 	const compactSchema = folderChain.length === 2 ? folderChain[1] : undefined;
@@ -489,6 +514,7 @@ function DatabaseNode({
 				onChange={onChange}
 				draftPattern={draftPattern}
 				selectionObjects={selectionObjects}
+				showSelectionSourceLabels={showSelectionSourceLabels}
 			/>
 		);
 	}
@@ -549,6 +575,7 @@ function DatabaseNode({
 							onChange={onChange}
 							draftPattern={draftPattern}
 							selectionObjects={selectionObjects}
+							showSelectionSourceLabels={showSelectionSourceLabels}
 						/>
 					))}
 				</ul>
@@ -568,6 +595,7 @@ function SchemaRow({
 	onChange,
 	draftPattern,
 	selectionObjects,
+	showSelectionSourceLabels,
 }: {
 	schema: GroupedSchema;
 	label: string;
@@ -579,6 +607,7 @@ function SchemaRow({
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
+	showSelectionSourceLabels: boolean;
 }) {
 	const schemaGrant: DatabaseSchemaGrant = {
 		kind: 'schema',
@@ -636,7 +665,9 @@ function SchemaRow({
 					<span className='min-w-0 flex-1 truncate' title={label}>
 						{label}
 					</span>
-					{inherited && <span className='shrink-0 text-[10px] text-primary/80'>Inherited</span>}
+					{inherited && showSelectionSourceLabels && (
+						<span className='shrink-0 text-[10px] text-primary/80'>Inherited</span>
+					)}
 					{partial && <span className='shrink-0 text-[10px] text-muted-foreground'>Partial</span>}
 					{databaseType && (
 						<Badge variant='secondary' className='h-5 shrink-0 px-1.5 text-[10px] font-normal'>
@@ -656,6 +687,7 @@ function SchemaRow({
 							parentSchemaExplicit={explicitSchema}
 							onChange={onChange}
 							draftPattern={draftPattern}
+							showSelectionSourceLabels={showSelectionSourceLabels}
 						/>
 					))}
 				</ul>
@@ -671,6 +703,7 @@ function TableRow({
 	parentSchemaExplicit,
 	onChange,
 	draftPattern,
+	showSelectionSourceLabels,
 }: {
 	object: DatabaseContextObject;
 	depth: number;
@@ -678,6 +711,7 @@ function TableRow({
 	parentSchemaExplicit: boolean;
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
+	showSelectionSourceLabels: boolean;
 }) {
 	const grant: DatabaseTableGrant = { kind: 'table', ...object };
 	const patternDerived =
@@ -717,7 +751,7 @@ function TableRow({
 				<span className='min-w-0 flex-1 truncate' title={object.table}>
 					{object.table}
 				</span>
-				{inherited && (
+				{inherited && showSelectionSourceLabels && (
 					<span className='shrink-0 text-[10px] text-primary/80'>
 						{patternDerived ? 'Pattern' : 'Inherited'}
 					</span>

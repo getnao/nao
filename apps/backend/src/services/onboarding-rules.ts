@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { BUSINESS_CONTEXT_FILE_EXTENSIONS, documentExtension } from '@nao/shared/attachments';
 import type { generateOnboardingRules as generateOnboardingRulesTool } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText } from 'ai';
@@ -18,6 +19,7 @@ const MAX_CONTEXT_FILES = 60;
 const MAX_CONTEXT_CHARACTERS = 60_000;
 const MAX_ADDITIONAL_CONTEXT_CHARACTERS = 15_000;
 const MAX_WEBSITE_CONTEXT_CHARACTERS = 15_000;
+const READABLE_CONTEXT_EXTENSIONS = new Set<string>([...BUSINESS_CONTEXT_FILE_EXTENSIONS, 'yaml', 'yml']);
 
 type BusinessContext = generateOnboardingRulesTool.Input['businessContext'];
 
@@ -169,12 +171,11 @@ function collectFiles(directory: string, files: string[]): void {
 }
 
 function shouldReadContextFile(filePath: string): boolean {
-	const extension = path.extname(filePath);
 	const fileName = path.basename(filePath);
 
 	if (filePath.includes(`${path.sep}databases${path.sep}`)) {
 		return ['columns.md', 'profiling.md', 'ai_summary.md'].includes(fileName);
 	}
 
-	return ['.md', '.yaml', '.yml'].includes(extension);
+	return READABLE_CONTEXT_EXTENSIONS.has(documentExtension(fileName) ?? '');
 }

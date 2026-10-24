@@ -32,7 +32,7 @@ describe('WarehouseCredentialsForm', () => {
 		expect(onSubmit).not.toHaveBeenCalled();
 		expect(screen.getByText('Credentials OK!')).toBeTruthy();
 
-		fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 		await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
 	});
 
@@ -48,7 +48,7 @@ describe('WarehouseCredentialsForm', () => {
 
 		expect((screen.getByLabelText(/Access Token/) as HTMLInputElement).value).toBe('saved-token');
 		expect(screen.getByText('Check Access Token.')).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Next' })).toBeTruthy();
 	});
 });
 

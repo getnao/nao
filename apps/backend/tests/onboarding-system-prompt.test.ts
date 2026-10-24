@@ -61,15 +61,18 @@ describe('onboarding system prompt', () => {
 		expect(prompt).not.toContain('make their DuckDB file public');
 	});
 
-	it('collects optional business context in one open-ended question', () => {
+	it('uses the optional business context already collected by the setup card', () => {
 		const prompt = renderOnboardingSystemPrompt();
 
-		expect(prompt).toContain('warehouse synchronization is continuing in the background');
-		expect(prompt).toContain('write one or two sentences, paste a link to your company website, or reply Skip');
-		expect(prompt).toContain('The direct open-ended business-context question');
-		expect(prompt).toContain('"additionalContext": "<their complete answer>"');
-		expect(prompt).toContain('If they reply Skip, use an empty "businessContext" object');
-		expect(prompt).not.toContain('companyDescription');
+		expect(prompt).toContain('secure setup card has already collected optional business context');
+		expect(prompt).toContain('Do not ask for this context again');
+		expect(prompt).toContain('Call generate_onboarding_rules immediately');
+		expect(prompt).toContain('"businessContext": {}');
+		expect(prompt).toContain(
+			'including generate_onboarding_rules immediately after the internal context-request event',
+		);
+		expect(prompt).not.toContain('direct open-ended business-context question');
+		expect(prompt).not.toContain('write one or two sentences, paste a link');
 	});
 
 	it('ends the agent turn while project finalization continues in the background', () => {

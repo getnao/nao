@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Loader2, Terminal } from 'lucide-react';
+import { Loader2, Terminal, TriangleAlert } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -22,6 +22,7 @@ const DATABASE_COMPLETED_STEPS: Partial<Record<WarehouseProvisioningStatus, numb
 	queued: 1,
 	initializing: 1,
 	debugging: 2,
+	awaiting_sources: 3,
 	syncing: 3,
 	registering: 4,
 	awaiting_context: 4,
@@ -131,6 +132,35 @@ export function WarehouseCommandProgress({
 					</pre>
 				</details>
 			)}
+		</div>
+	);
+}
+
+export function WarehouseProvisioningWarnings({
+	warnings,
+}: {
+	warnings?: Array<{ source: string; message: string }> | null;
+}) {
+	if (!warnings?.length) {
+		return null;
+	}
+
+	return (
+		<div
+			role='alert'
+			className='rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-amber-950 dark:text-amber-100'
+		>
+			<div className='flex items-start gap-2'>
+				<TriangleAlert className='mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400' />
+				<div className='space-y-1'>
+					<p className='text-xs font-medium'>Some optional business context was not synced</p>
+					<ul className='space-y-0.5 text-xs text-muted-foreground'>
+						{warnings.map((warning) => (
+							<li key={warning.source}>{warning.message}</li>
+						))}
+					</ul>
+				</div>
+			</div>
 		</div>
 	);
 }

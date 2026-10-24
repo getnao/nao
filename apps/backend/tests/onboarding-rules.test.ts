@@ -68,4 +68,21 @@ describe('generateOnboardingRules', () => {
 		expect(systemPrompt).not.toContain('The document should:');
 		expect(fs.readFileSync(path.join(projectPath, 'RULES.md'), 'utf8')).toBe('# Generated rules\n');
 	});
+
+	it('includes uploaded text files in the initial business context', async () => {
+		const uploadDirectory = path.join(projectPath, 'docs', 'uploads');
+		fs.mkdirSync(uploadDirectory, { recursive: true });
+		fs.writeFileSync(path.join(uploadDirectory, 'company.txt'), 'We rent bicycles to commuters.');
+
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+		);
+
+		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
+		expect(userPrompt).toContain('## docs/uploads/company.txt');
+		expect(userPrompt).toContain('We rent bicycles to commuters.');
+	});
 });
