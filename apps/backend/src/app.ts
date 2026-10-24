@@ -312,10 +312,12 @@ app.register(mcpServerRoutes, {
 
 async function sendProtectedResourceMetadata(request: { host: string }, reply: FastifyReply) {
 	const { buildProtectedResourceMetadata } = await import('./auth');
-	const { resolveMcpFacingOrigin } = await import('./env');
-	const metadata = await buildProtectedResourceMetadata({
-		resource: `${resolveMcpFacingOrigin(request.host)}/mcp`,
-	});
+	const { isMcpPublicHost, resolveMcpFacingOrigin } = await import('./env');
+	const origin = resolveMcpFacingOrigin(request.host);
+	const metadata = await buildProtectedResourceMetadata(
+		{ resource: `${origin}/mcp` },
+		isMcpPublicHost(request.host) ? origin : undefined,
+	);
 	reply
 		.status(200)
 		.header('Content-Type', 'application/json')
@@ -330,27 +332,59 @@ app.get('/.well-known/oauth-protected-resource/mcp/:projectId', sendProtectedRes
 
 async function relayWebResponse(
 	handler: (req: Request) => Promise<Response>,
-	request: { url: string; headers: Record<string, string | string[] | undefined> },
+	request: { url: string; host: string; headers: Record<string, string | string[] | undefined> },
 	reply: FastifyReply,
+	transform?: (body: string) => string,
 ) {
 	const url = new URL(request.url, env.BETTER_AUTH_URL);
 	const { convertHeaders } = await import('./utils/utils');
 	const response = await handler(new Request(url, { method: 'GET', headers: convertHeaders(request.headers) }));
 	reply.status(response.status);
-	response.headers.forEach((value, key) => reply.header(key, value));
-	reply.send(await response.text());
+	response.headers.forEach((value, key) => {
+		// A transformed body has a different length; let Fastify compute it.
+		if (!(transform && key.toLowerCase() === 'content-length')) {
+			reply.header(key, value);
+		}
+	});
+	const body = await response.text();
+	reply.send(transform ? transform(body) : body);
+}
+
+/**
+ * On the public MCP host, rebase the discovery document onto that host (see
+ * `rewriteAuthServerMetadataForPublicHost`). Other hosts get it unchanged.
+ */
+async function publicHostMetadataTransform(requestHost: string): Promise<((body: string) => string) | undefined> {
+	const { isMcpPublicHost, resolveMcpFacingOrigin } = await import('./env');
+	if (!isMcpPublicHost(requestHost)) {
+		return undefined;
+	}
+	const { rewriteAuthServerMetadataForPublicHost } = await import('./mcp/public-auth-metadata');
+	const publicOrigin = resolveMcpFacingOrigin(requestHost);
+	return (body) => {
+		try {
+			const metadata = JSON.parse(body) as Record<string, unknown>;
+			const rewritten = rewriteAuthServerMetadataForPublicHost(metadata, {
+				uiOrigin: env.BETTER_AUTH_URL,
+				publicOrigin,
+			});
+			return JSON.stringify(rewritten);
+		} catch {
+			return body;
+		}
+	};
 }
 
 async function relayAuthServerMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
 	const { getAuthServerMetadataHandler } = await import('./auth');
 	const handler = await getAuthServerMetadataHandler();
-	await relayWebResponse(handler, request, reply);
+	await relayWebResponse(handler, request, reply, await publicHostMetadataTransform(request.host));
 }
 
 async function relayOpenIdConfigMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
 	const { getOpenIdConfigMetadataHandler } = await import('./auth');
 	const handler = await getOpenIdConfigMetadataHandler();
-	await relayWebResponse(handler, request, reply);
+	await relayWebResponse(handler, request, reply, await publicHostMetadataTransform(request.host));
 }
 
 app.get('/.well-known/oauth-authorization-server/api/auth', relayAuthServerMetadata);

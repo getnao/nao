@@ -54,6 +54,20 @@ describe('MCP_PUBLIC_URL', () => {
 		expect(env.resolveMcpFacingOrigin('evil.attacker.example')).toBe('https://nao.internal.example');
 	});
 
+	it('recognizes only the public MCP host as public', async () => {
+		const unset = await import('../src/env');
+		expect(unset.isMcpPublicHost('nao-mcp.public.example')).toBe(false);
+
+		vi.resetModules();
+		process.env.MCP_PUBLIC_URL = 'https://nao-mcp.public.example';
+		const env = await import('../src/env');
+		expect(env.isMcpPublicHost('nao-mcp.public.example')).toBe(true);
+		expect(env.isMcpPublicHost('NAO-MCP.Public.Example')).toBe(true);
+		expect(env.isMcpPublicHost('nao.internal.example')).toBe(false);
+		expect(env.isMcpPublicHost('evil.attacker.example')).toBe(false);
+		expect(env.isMcpPublicHost(undefined)).toBe(false);
+	});
+
 	it('rejects a non-URL MCP_PUBLIC_URL at parse time', async () => {
 		process.env.MCP_PUBLIC_URL = 'not-a-url';
 		const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {

@@ -597,6 +597,8 @@ const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
 
 const normalizedMcpPublicUrl = env.MCP_PUBLIC_URL?.replace(/\/+$/, '');
+/** The public MCP origin (MCP_PUBLIC_URL without a trailing slash), when set. */
+export const MCP_PUBLIC_ORIGIN = normalizedMcpPublicUrl;
 /** The `/mcp` URL on the public host, when MCP_PUBLIC_URL is set. */
 export const MCP_PUBLIC_SERVER_URL = normalizedMcpPublicUrl ? `${normalizedMcpPublicUrl}/mcp` : undefined;
 /** OAuth resource identifiers the token endpoint accepts (RFC 8707 audiences). */
@@ -617,10 +619,15 @@ const mcpPublicHost = normalizedMcpPublicUrl ? new URL(normalizedMcpPublicUrl).h
  * on it, else BETTER_AUTH_URL — never an arbitrary Host header, so only known origins are advertised.
  */
 export function resolveMcpFacingOrigin(requestHost: string | undefined): string {
-	if (normalizedMcpPublicUrl && requestHost && requestHost.toLowerCase() === mcpPublicHost) {
+	if (normalizedMcpPublicUrl && isMcpPublicHost(requestHost)) {
 		return normalizedMcpPublicUrl;
 	}
 	return normalizedBaseUrl;
+}
+
+/** Whether the request came in on the public MCP host (MCP_PUBLIC_URL). */
+export function isMcpPublicHost(requestHost: string | undefined): boolean {
+	return Boolean(mcpPublicHost && requestHost && requestHost.toLowerCase() === mcpPublicHost);
 }
 
 export function noProjectMessage(): string {
