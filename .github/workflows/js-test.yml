@@ -56,3 +56,6 @@ jobs:
 
             - name: Test frontend
               run: npm run -w @nao/frontend test
+
+            - name: Test desktop
+              run: npm run -w @nao/desktop test

@@ -1,0 +1,214 @@
+name: Desktop
+
+on:
+    pull_request:
+        paths:
+            - 'apps/desktop/**'
+            - 'package-lock.json'
+            - '.github/workflows/desktop.yml'
+    push:
+        tags:
+            - 'desktop-v*'
+
+concurrency:
+    group: desktop-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    LINUX_TAURI_PACKAGES: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+jobs:
+    checks:
+        name: Rust and TypeScript checks
+        runs-on: ubuntu-22.04
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              run: sudo apt-get update && sudo apt-get install -y $LINUX_TAURI_PACKAGES
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+
+            - name: Cache Rust build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: TypeScript lint
+              run: npm run lint:desktop
+
+            - name: TypeScript unit tests
+              run: npm run test:desktop
+
+            - name: Build the bundled UI
+              run: npm run build:ui -w @nao/desktop
+
+            - name: Rust checks (fmt, clippy, tests)
+              run: npm run lint:desktop:rust
+
+    e2e:
+        name: End-to-end smoke test (Linux)
+        runs-on: ubuntu-22.04
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              run: sudo apt-get update && sudo apt-get install -y $LINUX_TAURI_PACKAGES webkit2gtk-driver xvfb
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache Rust build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install tauri-driver
+              run: cargo install tauri-driver --locked
+
+            - name: Build the nao frontend served by the test backend
+              run: npx vite build
+              working-directory: apps/frontend
+
+            - name: Build the desktop app (debug)
+              run: npm run build:e2e -w @nao/desktop
+
+            - name: Run the smoke test
+              run: xvfb-run --auto-servernum npm run test:e2e -w @nao/desktop
+
+            - name: Upload failure screenshots
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: desktop-e2e-output
+                  path: apps/desktop/e2e/output
+                  if-no-files-found: ignore
+
+    build:
+        name: Build (${{ matrix.name }})
+        runs-on: ${{ matrix.platform }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: macOS universal
+                      platform: macos-latest
+                      args: --target universal-apple-darwin
+                      rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+                    - name: Windows
+                      platform: windows-latest
+                      args: ''
+                      rust-targets: ''
+                    - name: Linux
+                      platform: ubuntu-22.04
+                      args: ''
+                      rust-targets: ''
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Check the updater public key is configured
+              if: github.ref_type == 'tag'
+              shell: bash
+              run: |
+                  if grep -q REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY apps/desktop/src-tauri/tauri.conf.json; then
+                      echo "::error::Set plugins.updater.pubkey in apps/desktop/src-tauri/tauri.conf.json before releasing."
+                      exit 1
+                  fi
+
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y $LINUX_TAURI_PACKAGES
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Use the pinned npm
+              shell: bash
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.rust-targets }}
+
+            - name: Cache Rust build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Build
+              if: github.ref_type != 'tag'
+              uses: tauri-apps/tauri-action@v0
+              with:
+                  projectPath: apps/desktop
+                  args: ${{ matrix.args }}
+
+            - name: Build and publish a draft release
+              if: github.ref_type == 'tag'
+              uses: tauri-apps/tauri-action@v0
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+                  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+                  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+                  APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+                  APPLE_ID: ${{ secrets.APPLE_ID }}
+                  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+                  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+              with:
+                  projectPath: apps/desktop
+                  args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+                  tagName: ${{ github.ref_name }}
+                  releaseName: 'nao desktop __VERSION__'
+                  releaseBody: 'See the assets below to download and install this version.'
+                  releaseDraft: true
+                  prerelease: false
+
+            - name: Upload bundles
+              if: github.event_name == 'pull_request'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: nao-desktop-${{ runner.os }}
+                  path: apps/desktop/src-tauri/target/**/release/bundle/
+                  retention-days: 7
+                  if-no-files-found: warn

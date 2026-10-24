@@ -20,6 +20,7 @@ import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
 import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
+import { desktopAuthPlugin } from './services/desktop-auth.service';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
 import * as gitlabService from './services/gitlab';
@@ -227,6 +228,7 @@ async function createAuthInstance(baseURL: string) {
 				allowUnauthenticatedClientRegistration: env.ALLOW_UNAUTHENTICATED_DCR,
 				validAudiences: MCP_VALID_AUDIENCES,
 			}),
+			desktopAuthPlugin(),
 			...ssoPlugins,
 		],
 		trustedOrigins: baseURL ? [baseURL, ...(env.MODE === 'dev' ? ['http://localhost:3000'] : [])] : undefined,

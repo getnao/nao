@@ -21,3 +21,8 @@ helm/
 sandbox/
 .heal/
 apps/frontend/.playwright-cli/
+
+# Desktop (Rust build output and generated Tauri schemas)
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/e2e/output/
