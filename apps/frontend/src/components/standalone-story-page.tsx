@@ -51,17 +51,6 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 		[navigate, story?.chatId, story?.slug],
 	);
 
-	const handleOpenChat = useCallback(() => {
-		if (!story) {
-			return;
-		}
-		if (story.chatId) {
-			navigate({ to: '/$chatId', params: { chatId: story.chatId }, state: { openStorySlug: story.slug } });
-		} else {
-			openStandaloneMutation.mutate({ storyId });
-		}
-	}, [story, storyId, navigate, openStandaloneMutation]);
-
 	if (storyQuery.isLoading) {
 		return (
 			<div className='flex flex-1 items-center justify-center'>
@@ -74,12 +63,19 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 		return <StoryAccessError error={storyQuery.error} onRetry={() => storyQuery.refetch()} />;
 	}
 
+	const isArchived = Boolean(story.archivedAt);
+
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
 			<StoryPageHeader
 				title={story.title}
-				onOpenChat={handleOpenChat}
-				isOpeningChat={openStandaloneMutation.isPending}
+				referencedChats={{
+					storyId,
+					canStartChat: !isArchived,
+					canFork: !isArchived,
+					onOpenInChat: story.chatId ? undefined : () => openStandaloneMutation.mutate({ storyId }),
+					isOpeningInChat: openStandaloneMutation.isPending,
+				}}
 				download={{ storyId, isOwner: true }}
 				storyId={storyId}
 				canRename

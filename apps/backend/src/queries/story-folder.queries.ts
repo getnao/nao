@@ -1,3 +1,4 @@
+import { SHARED_WITH_ME_FOLDER_ID } from '@nao/shared';
 import type { FolderVisibility } from '@nao/shared/types';
 import { and, asc, count, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
 
@@ -5,6 +6,9 @@ import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { sharedStoryGrantsUser } from './shared-story.queries';
+import type { ReferenceableStoryFilters } from './story-reference.queries';
+
+type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'sharedWithMeOnly'>;
 
 type FolderMoveTx = DBTransaction;
 
@@ -105,6 +109,29 @@ export async function listFolderTree(
 	}
 
 	return folders;
+}
+
+/**
+ * The filters selecting the stories of a folder and of its subfolders, null when the folder is archived or
+ * out of the user's reach. The stories themselves still have to be checked for access.
+ */
+export async function findReferencedFolder(
+	userId: string,
+	projectId: string,
+	folderId: string,
+): Promise<{ name: string; filters: FolderStoryFilters } | null> {
+	if (folderId === SHARED_WITH_ME_FOLDER_ID) {
+		return { name: 'Shared with me', filters: { sharedWithMeOnly: true } };
+	}
+	const folder = await getFolderById(folderId);
+	if (!folder || folder.projectId !== projectId || folder.archivedAt !== null || !isVisibleTo(folder, userId)) {
+		return null;
+	}
+	return { name: folder.name, filters: { folderIds: await listDescendantFolderIds(folderId) } };
+}
+
+function isVisibleTo(folder: DBStoryFolder, userId: string): boolean {
+	return folder.visibility === 'public' || folder.ownerId === userId;
 }
 
 async function countSharedWithMeStories(userId: string, projectId: string): Promise<number> {

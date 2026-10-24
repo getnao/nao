@@ -6,6 +6,7 @@ import { isStorageEnabled, relativePathFromKey } from '../../services/storage';
 import { writeUserFile } from '../../services/storage/user-files';
 import { customStoryAuthoringError, isCustomStoriesEnabled, writeStoryMountFile } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { isStoryLibraryPath, STORY_LIBRARY_READ_ONLY } from '../../utils/story-library';
 import { isStoriesPath, STORIES_MOUNT } from '../../utils/story-mount';
 import {
 	createTool,
@@ -51,6 +52,9 @@ export default createTool<writeFile.Input, writeFile.Output>({
 		}
 		if (isStoragePath(file_path)) {
 			return { _version: '1' as const, ...(await writeStorageFile(file_path, content, context)) };
+		}
+		if (isStoryLibraryPath(file_path)) {
+			throw new Error(`Cannot write '${file_path}': ${STORY_LIBRARY_READ_ONLY}`);
 		}
 		throw new Error(`Cannot write '${file_path}': ${writableTargetsHint()}. Project context files are read-only.`);
 	},

@@ -229,6 +229,12 @@ export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');
 };
 
+export function chunk<T>(items: T[], size: number): T[][] {
+	return Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+		items.slice(index * size, (index + 1) * size),
+	);
+}
+
 export function groupBy<T, K extends string>(
 	items: T[],
 	keyFn: (item: T) => K,

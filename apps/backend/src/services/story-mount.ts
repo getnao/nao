@@ -16,6 +16,7 @@ import {
 	toStoriesMountRelativePath,
 	toStoriesVirtualPath,
 } from '../utils/story-mount';
+import { entriesInVirtualDirectory } from '../utils/virtual-directory';
 
 /** The files of one story (its draft, or a published version), addressed by their path inside the story. */
 interface MountedStory {
@@ -140,32 +141,8 @@ async function listMountRoot(chatId: string): Promise<list.Entry[]> {
 	}));
 }
 
-/** Files directly under `directory`, plus one entry per sub-folder implied by deeper paths. */
 function entriesInDirectory({ story, files }: MountedStory, directory: string): list.Entry[] {
-	const prefix = directory === '' ? '' : `${directory}/`;
-	const subfolders = new Map<string, number>();
-	const entries: list.Entry[] = [];
-
-	for (const file of files) {
-		if (!file.path.startsWith(prefix)) {
-			continue;
-		}
-		const rest = file.path.slice(prefix.length);
-		const [head, ...deeper] = rest.split('/');
-		if (deeper.length === 0) {
-			entries.push({ ...fileEntry(story.slug, file), name: head, type: 'file' });
-		} else {
-			subfolders.set(head, (subfolders.get(head) ?? 0) + 1);
-		}
-	}
-
-	const folderEntries = [...subfolders.entries()].map(([name, itemCount]) => ({
-		path: toStoriesVirtualPath(story.slug, `${prefix}${name}`),
-		name,
-		type: 'directory' as const,
-		itemCount,
-	}));
-	return [...folderEntries, ...entries];
+	return entriesInVirtualDirectory(files, directory, (filePath) => toStoriesVirtualPath(story.slug, filePath));
 }
 
 function fileEntry(slug: string, file: MountedFile): searchFiles.File {

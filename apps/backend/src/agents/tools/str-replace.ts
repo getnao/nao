@@ -12,6 +12,7 @@ import {
 } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { withKeyedLock } from '../../utils/keyed-lock';
+import { isStoryLibraryPath, STORY_LIBRARY_READ_ONLY } from '../../utils/story-library';
 import { isStoriesPath, STORIES_MOUNT } from '../../utils/story-mount';
 import {
 	createTool,
@@ -50,6 +51,9 @@ export default createTool<strReplace.Input, strReplace.Output>({
 		}
 		if (isStoragePath(file_path)) {
 			return { _version: '1' as const, ...(await editStorageFile(file_path, edit, context)) };
+		}
+		if (isStoryLibraryPath(file_path)) {
+			throw new Error(`Cannot edit '${file_path}': ${STORY_LIBRARY_READ_ONLY}`);
 		}
 		throw new Error(`Cannot edit '${file_path}': ${editableTargetsHint()}. Project context files are read-only.`);
 	},

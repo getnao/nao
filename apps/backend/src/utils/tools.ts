@@ -5,6 +5,7 @@ import path from 'path';
 
 import type { StorageScope } from '../services/storage';
 import { McpToolContext, ToolContext } from '../types/tools';
+import { isStoryLibraryPath, STORY_LIBRARY_MOUNT } from './story-library';
 import { isStoriesPath, STORIES_MOUNT } from './story-mount';
 
 const MCP_TOOL_SEPARATOR = '__';
@@ -75,9 +76,12 @@ export const toStorageVirtualPath = (relativePath: string): string => {
 	return trimmed === '' ? `/${STORAGE_MOUNT}` : `/${STORAGE_MOUNT}/${trimmed}`;
 };
 
-/** True when a virtual path lives in one of the virtual mounts (`/home`, `/stories`) rather than the project folder. */
+/**
+ * True when a virtual path lives in one of the virtual mounts (`/home`, `/stories`, `/story-library`)
+ * rather than the project folder.
+ */
 export const isMountPath = (virtualPath: string | undefined | null): boolean => {
-	return isStoragePath(virtualPath) || isStoriesPath(virtualPath);
+	return isStoragePath(virtualPath) || isStoriesPath(virtualPath) || isStoryLibraryPath(virtualPath);
 };
 
 const trimSlashes = (value: string): string => {
@@ -358,6 +362,9 @@ const assertNotMountPath = (candidatePath: string, virtualPath: string): void =>
 	}
 	if (isStoriesPath(candidatePath)) {
 		throw new Error(`Path '${virtualPath}' is in /${STORIES_MOUNT}, not in the project folder`);
+	}
+	if (isStoryLibraryPath(candidatePath)) {
+		throw new Error(`Path '${virtualPath}' is in /${STORY_LIBRARY_MOUNT}, not in the project folder`);
 	}
 };
 

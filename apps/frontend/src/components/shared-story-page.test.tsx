@@ -44,8 +44,8 @@ vi.mock('@/components/story-embeds', () => ({
 }));
 vi.mock('@/components/story-page-body', () => ({ StoryPageBody: () => null }));
 vi.mock('@/components/story-page-header', () => ({
-	StoryPageHeader: ({ onOpenChat }: { onOpenChat?: () => void }) =>
-		onOpenChat ? <button onClick={onOpenChat}>Discuss story</button> : null,
+	StoryPageHeader: ({ referencedChats }: { referencedChats?: { canFork: boolean } }) =>
+		referencedChats?.canFork ? <button>Fork this story</button> : null,
 }));
 vi.mock('@/components/story-tabbed-content', () => ({ StoryTabbedContent: () => null }));
 vi.mock('@/components/story-theme-provider', () => ({ useStoryThemeForCurrentMode: () => null }));
@@ -100,9 +100,6 @@ vi.mock('@/lib/auth-client', () => ({
 }));
 vi.mock('@/main', () => ({
 	trpc: {
-		chatFork: {
-			fork: { mutationOptions: () => ({}) },
-		},
 		storyShare: {
 			get: { queryOptions: () => ({}) },
 			refreshData: { mutationOptions: () => ({}), mutationKey: () => [] },
@@ -125,7 +122,7 @@ describe('shared Story fork controls', () => {
 		);
 
 		expect(screen.getByText('Loading story')).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Discuss story' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Fork this story' })).toBeNull();
 		expect(screen.queryByText('Fork selection')).toBeNull();
 	});
 
@@ -134,7 +131,7 @@ describe('shared Story fork controls', () => {
 
 		render(<SharedStoryPage storyId='story-1' />);
 
-		expect(screen.getByRole('button', { name: 'Discuss story' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Fork this story' })).toBeTruthy();
 		expect(screen.getByText('Fork selection')).toBeTruthy();
 	});
 
@@ -143,7 +140,7 @@ describe('shared Story fork controls', () => {
 
 		render(<SharedStoryPage storyId='story-1' />);
 
-		expect(screen.queryByRole('button', { name: 'Discuss story' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Fork this story' })).toBeNull();
 		expect(screen.queryByText('Fork selection')).toBeNull();
 	});
 });

@@ -9,4 +9,5 @@ export * from './live-story-refresh-prompt';
 export * from './memory-system-prompt';
 export * from './memory-user-prompt';
 export * from './messaging-provider-system-prompt';
+export * from './referenced-story-prompt';
 export * from './system-prompt';

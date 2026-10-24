@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
+import type { ReferencedChatsControls } from '@/components/referenced-chats-menu';
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
 import { SharedCustomStoryPage } from '@/components/custom-story/custom-story-page';
@@ -35,17 +35,7 @@ export function SharedStoryPage({ storyId }: { storyId: string }) {
 }
 
 function SharedCustomStory({ storyId }: { storyId: string }) {
-	const queryClient = useQueryClient();
-	const navigate = useNavigate();
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
-	const forkMutation = useMutation(
-		trpc.chatFork.fork.mutationOptions({
-			onSuccess: ({ chatId }) => {
-				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
-				navigate({ to: '/$chatId', params: { chatId } });
-			},
-		}),
-	);
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -61,8 +51,7 @@ function SharedCustomStory({ storyId }: { storyId: string }) {
 			authorName={story.authorName}
 			isLive={story.isLive}
 			canRefresh={story.canRefresh}
-			onOpenChat={story.canFork ? () => forkMutation.mutate({ source: { type: 'story', storyId } }) : undefined}
-			isOpeningChat={forkMutation.isPending}
+			referencedChats={toReferencedChatsControls(storyId, story)}
 		/>
 	);
 }
@@ -70,7 +59,6 @@ function SharedCustomStory({ storyId }: { storyId: string }) {
 function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
 
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
 
@@ -98,15 +86,6 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 		isRefreshing,
 		refresh: handleRefresh,
 	});
-
-	const forkMutation = useMutation(
-		trpc.chatFork.fork.mutationOptions({
-			onSuccess: ({ chatId }) => {
-				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
-				navigate({ to: '/$chatId', params: { chatId } });
-			},
-		}),
-	);
 
 	const canFork = story?.canFork === true;
 
@@ -151,8 +130,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 				<SharedStoryViewerHeader
 					title={story.title}
 					authorName={story.authorName}
-					onOpenChat={canFork ? () => forkMutation.mutate({ source: shareSource }) : undefined}
-					isOpeningChat={forkMutation.isPending}
+					referencedChats={toReferencedChatsControls(storyId, story)}
 					isLive={story.isLive}
 					cachedAt={story.cachedAt}
 					lastRefreshFailure={story.lastRefreshFailure}
@@ -206,8 +184,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 interface SharedStoryViewerHeaderProps {
 	title: string;
 	authorName: string;
-	onOpenChat?: () => void;
-	isOpeningChat: boolean;
+	referencedChats?: ReferencedChatsControls;
 	isLive: boolean;
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
@@ -221,8 +198,7 @@ interface SharedStoryViewerHeaderProps {
 function SharedStoryViewerHeader({
 	title,
 	authorName,
-	onOpenChat,
-	isOpeningChat,
+	referencedChats,
 	isLive,
 	cachedAt,
 	lastRefreshFailure,
@@ -240,9 +216,7 @@ function SharedStoryViewerHeader({
 			<StoryPageHeader
 				title={title}
 				authorName={authorName}
-				openChatLabel='Discuss story'
-				onOpenChat={onOpenChat}
-				isOpeningChat={isOpeningChat}
+				referencedChats={referencedChats}
 				live={
 					isLive
 						? {
@@ -382,4 +356,16 @@ function SharedStoryContent({
 			/>
 		</div>
 	);
+}
+
+/** Archived stories cannot be referenced or forked, and viewers cannot chat. */
+function toReferencedChatsControls(
+	storyId: string,
+	story: { userRole: string | null; canFork: boolean; isArchived: boolean },
+): ReferencedChatsControls {
+	return {
+		storyId,
+		canStartChat: story.userRole !== 'viewer' && !story.isArchived,
+		canFork: story.canFork && !story.isArchived,
+	};
 }

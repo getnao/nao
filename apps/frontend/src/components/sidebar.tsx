@@ -4,6 +4,7 @@ import { ChevronRight, NewspaperIcon, PanelLeft, PlusIcon, SearchIcon, X } from 
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
+import { NewChatDropTarget } from './new-chat-drop-target';
 import { ChatListItem } from './sidebar-chat-list-item';
 import { SidebarBackToApp } from './sidebar-back-to-app';
 import { SidebarCommunity } from './sidebar-community';
@@ -226,13 +227,15 @@ export function Sidebar() {
 					<>
 						<div className='py-4'>
 							{!isViewer && (
-								<SidebarMenuButton
-									icon={PlusIcon}
-									label='New chat'
-									shortcut={getShortcutLabel('new-chat')}
-									isCollapsed={effectiveIsCollapsed}
-									onClick={handleNavigateHome}
-								/>
+								<NewChatDropTarget>
+									<SidebarMenuButton
+										icon={PlusIcon}
+										label='New chat'
+										shortcut={getShortcutLabel('new-chat')}
+										isCollapsed={effectiveIsCollapsed}
+										onClick={handleNavigateHome}
+									/>
+								</NewChatDropTarget>
 							)}
 							<SidebarMenuButton
 								icon={SearchIcon}

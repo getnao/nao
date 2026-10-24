@@ -7,6 +7,7 @@ import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/
 
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import type { ReferencedChatsControls } from '@/components/referenced-chats-menu';
 import {
 	CustomStoryBlockEditDialog,
 	CustomStoryTableFormatDialog,
@@ -85,13 +86,14 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	);
 
 	useTrackViewDuration({ assetType: 'story', chatId, storyId, versionNumber: story.viewedVersion ?? undefined });
+	const isArchived = Boolean(content ? content.archivedAt : story.versionsQuery.data?.archivedAt);
 
 	return (
 		<div className='flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
 			<StoryPageHeader
 				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
 				authorName={authorName}
-				onOpenChat={handleOpenChat}
+				referencedChats={{ storyId, canStartChat: !isArchived, canFork: !isArchived }}
 				live={{
 					isLive: live.isLive,
 					cachedAt: content?.cachedAt,
@@ -118,7 +120,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 				}}
 			/>
 
-			{Boolean(content?.archivedAt) && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
+			{isArchived && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
 			{story.restoreError && <ActionErrorBanner message={story.restoreError.message} />}
 
 			<CustomStoryViewLayers
@@ -192,8 +194,7 @@ interface SharedCustomStoryPageProps {
 	authorName: string;
 	isLive: boolean;
 	canRefresh: boolean;
-	onOpenChat?: () => void;
-	isOpeningChat?: boolean;
+	referencedChats?: ReferencedChatsControls;
 }
 
 /** A custom story opened from a share link: data comes through the share, limited to the queries the story uses. */
@@ -203,8 +204,7 @@ export function SharedCustomStoryPage({
 	authorName,
 	isLive,
 	canRefresh,
-	onOpenChat,
-	isOpeningChat,
+	referencedChats,
 }: SharedCustomStoryPageProps) {
 	const queryClient = useQueryClient();
 	const contentQuery = useQuery(trpc.storyShare.getCustomVersion.queryOptions({ storyId }));
@@ -242,9 +242,7 @@ export function SharedCustomStoryPage({
 			<StoryPageHeader
 				title={content?.title ?? title}
 				authorName={authorName}
-				openChatLabel='Discuss story'
-				onOpenChat={onOpenChat}
-				isOpeningChat={isOpeningChat}
+				referencedChats={referencedChats}
 				live={
 					isLive
 						? {

@@ -8,8 +8,10 @@ import { renderToModelOutput, SearchOutput } from '../../components/tool-outputs
 import { isDocsProjectPath, isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { isStorageEnabled, relativePathFromKey } from '../../services/storage';
 import { findUserFiles } from '../../services/storage/user-files';
+import { findStoryLibraryFiles } from '../../services/story-library';
 import { findStoryMountFiles, isCustomStoriesEnabled } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { isStoryLibraryPattern, storyIdOfLibraryPattern } from '../../utils/story-library';
 import {
 	loadNaoignorePatterns,
 	resolveCanonicalProjectPath,
@@ -36,17 +38,34 @@ export default createTool<searchFiles.Input, searchFiles.Output>({
 		// Make pattern recursive if not already
 		const recursivePattern = pattern.startsWith('**/') ? pattern : `**/${pattern}`;
 
-		const [projectFiles, storageFiles, storyFiles] = await Promise.all([
+		const [projectFiles, storageFiles, storyFiles, libraryFiles] = await Promise.all([
 			searchProjectFolder(recursivePattern, context),
 			searchStorage(recursivePattern, context),
 			searchStories(recursivePattern, context),
+			searchStoryLibrary(pattern, recursivePattern, context),
 		]);
 
-		return { _version: '1' as const, files: [...projectFiles, ...storageFiles, ...storyFiles] };
+		return { _version: '1' as const, files: [...projectFiles, ...storageFiles, ...storyFiles, ...libraryFiles] };
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(SearchOutput({ output }), output),
 });
+
+/** Like grep, the library is only searched when the pattern targets it. */
+const searchStoryLibrary = (
+	pattern: string,
+	recursivePattern: string,
+	context: ToolContext,
+): Promise<searchFiles.File[]> => {
+	if (!isStoryLibraryPattern(pattern)) {
+		return Promise.resolve([]);
+	}
+	return findStoryLibraryFiles(
+		context,
+		(libraryRelativePath) => minimatch(libraryRelativePath, recursivePattern, { dot: true }),
+		storyIdOfLibraryPattern(pattern),
+	);
+};
 
 const searchStories = (recursivePattern: string, context: ToolContext): Promise<searchFiles.File[]> => {
 	if (!isCustomStoriesEnabled()) {

@@ -1,4 +1,11 @@
-import { type CustomBoundarySet, normalizeCitationMarkers } from '@nao/shared';
+import {
+	type CustomBoundarySet,
+	getSchemaKeyFromMentionId,
+	isSchemaMentionId,
+	isStoryFolderMentionId,
+	isStoryReferenceMentionId,
+	normalizeCitationMarkers,
+} from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
@@ -29,7 +36,7 @@ import {
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
-import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
+import { getConnections, getTableColumnsContent, getUserRules, listSchemaTableFqdns } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
 import { env, isCloud } from '../env';
@@ -76,6 +83,7 @@ import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-con
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { STORY_LIBRARY_MOUNT } from '../utils/story-library';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
@@ -96,6 +104,11 @@ import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import { customStoryAuthoringError } from './story-mount';
+import {
+	keepStoryReferencesThroughCompaction,
+	listTrustedStoriesForPrompt,
+	safeExpandStoryReferences,
+} from './story-reference';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
 	type AgentUserGroupAccess,
@@ -162,10 +175,13 @@ export function resolveStoryMode(
 	return mentioned(story.MENTION_ID) ? 'classic' : null;
 }
 
+const MAX_SCHEMA_TABLES_WITH_COLUMNS = 15;
+
+const EXISTING_STORY_FIRST = `If a story in /${STORY_LIBRARY_MOUNT} already answers the request, whatever its format, hand it over instead of creating a duplicate and offer to build a new one`;
+
 const STORY_MODE_INSTRUCTIONS = {
-	classic:
-		'[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts]',
-	custom: '[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks]',
+	classic: `[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts. ${EXISTING_STORY_FIRST}]`,
+	custom: `[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks. ${EXISTING_STORY_FIRST}]`,
 } as const;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
@@ -704,10 +720,17 @@ export class AgentManager {
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
-		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
+		const uiMessagesWithCompaction = keepStoryReferencesThroughCompaction(
+			uiMessagesWithDbContext,
+			compactionService.useLastCompaction(uiMessagesWithDbContext),
+		);
+		const uiMessagesWithStoryReferences = await safeExpandStoryReferences(uiMessagesWithCompaction, {
+			userId: this.chat.userId,
+			projectId: this.chat.projectId,
+		});
 		const uiMessagesWithArtifacts = artifacts
-			? appendChatArtifacts(uiMessagesWithCompaction, artifacts)
-			: uiMessagesWithCompaction;
+			? appendChatArtifacts(uiMessagesWithStoryReferences, artifacts)
+			: uiMessagesWithStoryReferences;
 		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithArtifacts);
 
 		const selectedSystemPrompt =
@@ -753,10 +776,13 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets] = await Promise.all([
+		const [mcpServers, sandboxSecrets, trustedStories] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
+				: Promise.resolve([]),
+			toolNames.includes('list') && toolNames.includes('read')
+				? listTrustedStoriesForPrompt({ userId: this.chat.userId, projectId: this.chat.projectId })
 				: Promise.resolve([]),
 		]);
 		const basePrompt = renderToMarkdown(
@@ -770,6 +796,7 @@ export class AgentManager {
 				customCharts,
 				mcpServers,
 				sandboxSecrets,
+				trustedStories,
 				semanticLayerMode: this._toolContext.semanticLayerMode,
 				templates,
 				repoNames,
@@ -1037,22 +1064,12 @@ export class AgentManager {
 	}
 
 	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		const dbMentions = mentions?.filter((m) => m.trigger === '@') ?? [];
-		if (dbMentions.length === 0) {
-			return messages;
-		}
-
-		const contextParts: string[] = [];
-		for (const mention of dbMentions) {
-			const content = getTableColumnsContent(
-				this._toolContext.projectFolder,
-				mention.id,
-				this._toolContext.warehouseTableAccess,
-			);
-			if (content) {
-				contextParts.push(`[Table: ${mention.id}]\n${content}`);
-			}
-		}
+		const mentionIds = mentions?.filter((m) => m.trigger === '@').map((m) => m.id) ?? [];
+		const schemaKeys = mentionIds.map(getSchemaKeyFromMentionId).filter((key): key is string => key !== null);
+		const contextParts = [
+			...mentionIds.filter(isTableMentionId).map((fqdn) => this._tableContext(fqdn)),
+			...schemaKeys.map((schemaKey) => this._schemaContext(schemaKey)),
+		].filter((part): part is string => part !== undefined);
 
 		if (contextParts.length === 0) {
 			return messages;
@@ -1063,6 +1080,36 @@ export class AgentManager {
 			messages,
 			(text) => `${text}\n\n---\nReferenced tables:\n${dbContext}`,
 		);
+	}
+
+	private _tableContext(fqdn: string): string | undefined {
+		const content = getTableColumnsContent(
+			this._toolContext.projectFolder,
+			fqdn,
+			this._toolContext.warehouseTableAccess,
+		);
+		return content ? `[Table: ${fqdn}]\n${content}` : undefined;
+	}
+
+	/** Only the first tables of a large schema come with their columns, the others are named. */
+	private _schemaContext(schemaKey: string): string | undefined {
+		const fqdns = listSchemaTableFqdns(
+			this._toolContext.projectFolder,
+			schemaKey,
+			this._toolContext.warehouseTableAccess,
+		);
+		if (fqdns.length === 0) {
+			return undefined;
+		}
+		const detailedTables = fqdns.slice(0, MAX_SCHEMA_TABLES_WITH_COLUMNS).map((fqdn) => this._tableContext(fqdn));
+		const otherTables = fqdns.slice(MAX_SCHEMA_TABLES_WITH_COLUMNS);
+		return [
+			`[Schema: ${schemaKey}] ${fqdns.length} tables`,
+			...detailedTables,
+			otherTables.length > 0 ? `Other tables of ${schemaKey}: ${otherTables.join(', ')}` : undefined,
+		]
+			.filter((part): part is string => part !== undefined)
+			.join('\n\n');
 	}
 
 	private _transformLastUserMessageText(messages: UIMessage[], transform: (text: string) => string): UIMessage[] {
@@ -1200,6 +1247,10 @@ async function safeInitializeSkills(projectId: string): Promise<void> {
 	} catch (error) {
 		logger.warn(`Failed to initialize skills for project ${projectId}: ${String(error)}`, { source: 'agent' });
 	}
+}
+
+function isTableMentionId(mentionId: string): boolean {
+	return !isStoryReferenceMentionId(mentionId) && !isStoryFolderMentionId(mentionId) && !isSchemaMentionId(mentionId);
 }
 
 // Singleton instance of the agent service

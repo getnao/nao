@@ -6,7 +6,6 @@ import {
 	Eye,
 	Info,
 	Loader2,
-	MessageSquare,
 	Pencil,
 	RefreshCw,
 	RotateCcw,
@@ -16,8 +15,10 @@ import {
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import type { StoryDownloadOptions } from '@/components/story-download';
 import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import type { ReferencedChatsControls } from '@/components/referenced-chats-menu';
 import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
 import { EditableStoryTitle } from '@/components/editable-story-title';
+import { ReferencedChatsMenu } from '@/components/referenced-chats-menu';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
@@ -36,9 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTimeAgo } from '@/hooks/use-time-ago';
-import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
 
 interface LiveControls {
@@ -86,9 +85,7 @@ interface VersionControls {
 export interface StoryPageHeaderProps {
 	title: string;
 	authorName?: string;
-	openChatLabel?: string;
-	onOpenChat?: () => void;
-	isOpeningChat?: boolean;
+	referencedChats?: ReferencedChatsControls;
 	live?: LiveControls;
 	download?: StoryDownloadOptions;
 	storyId?: string | null;
@@ -103,9 +100,7 @@ export interface StoryPageHeaderProps {
 export function StoryPageHeader({
 	title,
 	authorName,
-	openChatLabel = 'Open chat',
-	onOpenChat,
-	isOpeningChat = false,
+	referencedChats,
 	live,
 	download,
 	storyId,
@@ -116,10 +111,6 @@ export function StoryPageHeader({
 	viewModeControls,
 	versionControls,
 }: StoryPageHeaderProps) {
-	useKeyboardShortcuts({
-		'toggle-story-chat': onOpenChat && !isOpeningChat ? onOpenChat : undefined,
-	});
-
 	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics;
 
 	return (
@@ -147,34 +138,7 @@ export function StoryPageHeader({
 					)}
 					{viewModeControls && <ViewModeToggle controls={viewModeControls} />}
 
-					{onOpenChat && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									variant='outline'
-									size='sm'
-									className='gap-1.5 rounded-full text-xs'
-									onClick={onOpenChat}
-									disabled={isOpeningChat}
-								>
-									{isOpeningChat ? (
-										<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-									) : (
-										<MessageSquare className='size-3.5' strokeWidth={2.25} />
-									)}
-									<span>{openChatLabel}</span>
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>
-								<span className='flex items-center gap-2'>
-									{openChatLabel}
-									<kbd className='text-[10px] opacity-60 font-sans'>
-										{getShortcutLabel('toggle-story-chat')}
-									</kbd>
-								</span>
-							</TooltipContent>
-						</Tooltip>
-					)}
+					{referencedChats && <ReferencedChatsMenu {...referencedChats} />}
 
 					{live && <LiveStoryControls live={live} />}
 

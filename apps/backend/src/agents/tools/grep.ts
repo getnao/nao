@@ -16,9 +16,11 @@ import {
 } from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
+import { listStoryLibraryFilesToGrep } from '../../services/story-library';
 import { isCustomStoriesEnabled, listStoryMountFilesToGrep } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { getRipgrepPath } from '../../utils/ripgrep';
+import { isStoryLibraryPath } from '../../utils/story-library';
 import { isStoriesPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
@@ -77,6 +79,7 @@ export default createTool<grep.Input, grep.Output>({
 		const results = await Promise.all([
 			...targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
 			searchStories(rgPath, { ...options, max_results }, context),
+			searchStoryLibrary(rgPath, { ...options, max_results }, context),
 		]);
 
 		const totalMatches = results.reduce((total, result) => total + result.totalMatches, 0);
@@ -95,7 +98,7 @@ export default createTool<grep.Input, grep.Output>({
 
 /** Disk targets ripgrep walks; a search without a path covers the whole tree, permanent storage included. */
 const resolveTargets = (searchPath: string | undefined, context: ToolContext): SearchTarget[] => {
-	if (isStoriesPath(searchPath)) {
+	if (isStoriesPath(searchPath) || isStoryLibraryPath(searchPath)) {
 		return [];
 	}
 	if (isStoragePath(searchPath)) {
@@ -175,10 +178,7 @@ function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string
 	}
 }
 
-/**
- * Custom story drafts live in the database: they are copied to a temporary folder so ripgrep
- * searches them with the same regex engine and syntax as every other file.
- */
+/** Custom story files are searched when the path targets the stories mount. */
 const searchStories = async (
 	rgPath: string,
 	options: grep.Input & { max_results: number },
@@ -189,6 +189,34 @@ const searchStories = async (
 		return { matches: [], totalMatches: 0 };
 	}
 	const files = await listStoryMountFilesToGrep(context.chatId, options.path, options.glob);
+	return searchVirtualFiles(rgPath, files, options);
+};
+
+/**
+ * The library spans every story the user can see in the project, so it is only searched when the
+ * path targets it: a pathless grep stays focused on the project context.
+ */
+const searchStoryLibrary = async (
+	rgPath: string,
+	options: grep.Input & { max_results: number },
+	context: ToolContext,
+): Promise<TargetResult> => {
+	if (!isStoryLibraryPath(options.path)) {
+		return { matches: [], totalMatches: 0 };
+	}
+	const files = await listStoryLibraryFilesToGrep(context, options.path!, options.glob);
+	return searchVirtualFiles(rgPath, files, options);
+};
+
+/**
+ * Stories live in the database: their files are copied to a temporary folder so ripgrep
+ * searches them with the same regex engine and syntax as every other file.
+ */
+const searchVirtualFiles = async (
+	rgPath: string,
+	files: { virtualPath: string; content: string }[],
+	options: grep.Input & { max_results: number },
+): Promise<TargetResult> => {
 	if (files.length === 0) {
 		return { matches: [], totalMatches: 0 };
 	}

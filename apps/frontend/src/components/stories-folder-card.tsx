@@ -15,7 +15,7 @@ import {
 	Star,
 	Trash2,
 } from 'lucide-react';
-import type { MouseEvent } from 'react';
+import type { DragEvent, MouseEvent } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { FolderItem } from '@/lib/stories-page';
 import { isSystemFolder } from '@/lib/stories-page';
@@ -32,7 +32,9 @@ import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
+import { hasAnyStoryReference, setStoryDragData } from '@/lib/story-reference';
 import { formatRelativeDate } from '@/lib/time-ago';
+import { selectedStoryReferencesStore } from '@/stores/story-references';
 import { cn } from '@/lib/utils';
 
 export type FolderDisplayMode = StoryPanelDisplayMode | 'grid-large';
@@ -106,6 +108,14 @@ export function FolderCard({
 		}
 	}
 
+	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		const selection = selectedStoryReferencesStore.getSnapshot();
+		setStoryDragData(
+			e,
+			selected && hasAnyStoryReference(selection) ? selection : { storyIds: [], folderIds: [folder.id] },
+		);
+	}
+
 	function handleLinkClick(e: MouseEvent<HTMLElement>) {
 		if (selectionActive && canSelect) {
 			handleToggleSelect(e);
@@ -121,6 +131,7 @@ export function FolderCard({
 				style={style}
 				{...attributes}
 				{...listeners}
+				onDragStart={handleNativeDragStart}
 				className={cn(
 					LINES_CARD_CLASS,
 					'relative',
@@ -201,6 +212,7 @@ export function FolderCard({
 				style={style}
 				{...attributes}
 				{...listeners}
+				onDragStart={handleNativeDragStart}
 				className={cn(
 					GRID_CARD_CLASS,
 					isOver && 'ring-2 ring-primary/50',
@@ -280,6 +292,7 @@ export function FolderCard({
 			style={style}
 			{...attributes}
 			{...listeners}
+			onDragStart={handleNativeDragStart}
 			className={cn(
 				'group relative h-10 rounded-md border bg-background overflow-hidden',
 				isOver && 'ring-2 ring-primary/50',
