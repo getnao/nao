@@ -28,7 +28,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                workspace: [backend, frontend, shared]
+                workspace: [backend, frontend, shared, desktop]
 
         steps:
             - uses: actions/checkout@v4
