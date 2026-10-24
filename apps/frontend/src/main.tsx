@@ -10,6 +10,8 @@ import superjson from 'superjson';
 import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
 import { McpProvider } from './contexts/mcp';
+import { AppErrorBoundary } from './components/app-error-boundary';
+import { RouteErrorPage } from './components/route-error-page';
 import { TooltipProvider } from './components/ui/tooltip';
 import { getActiveOrganizationId } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
@@ -37,6 +39,7 @@ const router = createRouter({
 	scrollRestoration: true,
 	defaultStructuralSharing: true,
 	defaultPreloadStaleTime: 0,
+	defaultErrorComponent: RouteErrorPage,
 });
 
 /** Query client for state management */
@@ -91,17 +94,19 @@ if (!rootElement.innerHTML) {
 	const root = ReactDOM.createRoot(rootElement);
 	root.render(
 		<StrictMode>
-			<ThemeProvider>
-				<QueryClientProvider client={queryClient}>
-					<McpProvider>
-						<PostHogProvider>
-							<TooltipProvider>
-								<RouterProvider router={router} />
-							</TooltipProvider>
-						</PostHogProvider>
-					</McpProvider>
-				</QueryClientProvider>
-			</ThemeProvider>
+			<AppErrorBoundary>
+				<ThemeProvider>
+					<QueryClientProvider client={queryClient}>
+						<McpProvider>
+							<PostHogProvider>
+								<TooltipProvider>
+									<RouterProvider router={router} />
+								</TooltipProvider>
+							</PostHogProvider>
+						</McpProvider>
+					</QueryClientProvider>
+				</ThemeProvider>
+			</AppErrorBoundary>
 		</StrictMode>,
 	);
 }
