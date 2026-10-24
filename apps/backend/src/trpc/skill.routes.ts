@@ -18,7 +18,7 @@ export const skillRoutes = router({
 		return skillService.getSkills(ctx.project.id);
 	}),
 
-	listLoadErrors: projectProtectedProcedure.query(async ({ ctx }) => {
+	listLoadErrors: adminProtectedProcedure.query(async ({ ctx }) => {
 		await skillService.initializeSkills(ctx.project.id);
 		return skillService.getSkillLoadErrors(ctx.project.id);
 	}),

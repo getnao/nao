@@ -31,6 +31,7 @@ import { getDatabaseContextCatalog } from '../src/agents/user-rules';
 import { getUserRoleInProject } from '../src/queries/project.queries';
 import { getProjectRowSecurity } from '../src/queries/user-group.queries';
 import { hasFeature } from '../src/services/license.service';
+import { skillService } from '../src/services/skill';
 import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../src/services/user-group-availability.service';
 import {
 	expandDatabaseAccess,
@@ -159,6 +160,24 @@ describe('warehouse Context access', () => {
 				skills: ['revenue'],
 				grantedFiles: ['agent/skills/revenue-playbook.md'],
 			},
+		});
+		expect(skillService.initializeSkills).toHaveBeenCalledWith('project-1');
+	});
+
+	it('grants no skill files when skills fail to load for a restricted group', async () => {
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['All Users'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'restricted', skills: ['revenue'] },
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'all' },
+			rowPolicies: [],
+		});
+		vi.mocked(skillService.initializeSkills).mockRejectedValueOnce(new Error('disk error'));
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			skillsAccess: { mode: 'restricted', skills: ['revenue'], grantedFiles: [] },
 		});
 	});
 

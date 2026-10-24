@@ -53,7 +53,7 @@ export function UserGroupSkills({
 	const skills = useQuery(trpc.skill.catalog.queryOptions());
 	const skillLoadErrors = useQuery(trpc.skill.listLoadErrors.queryOptions());
 	const discoveredSkills = skills.data ?? [];
-	const missingSkills = getMissingSkillGrants(skillsAccess, discoveredSkills);
+	const missingSkills = skills.isSuccess ? getMissingSkillGrants(skillsAccess, discoveredSkills) : [];
 	const inheritedAccess: SkillsAccess = isDefaultGroup ? { mode: 'restricted', skills: [] } : allUsersSkillsAccess;
 	const inheritedPreloads = isDefaultGroup ? [] : allUsersPreloadedSkills;
 	const effectivePreloadCount = new Set([...inheritedPreloads, ...preloadedSkills]).size;

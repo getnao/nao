@@ -18,6 +18,7 @@ export function UserGroupEffectiveSkills({
 	const discoveredSkills = skills.data ?? [];
 	const grantedSkills = discoveredSkills.filter((skill) => isSkillGranted(skillsAccess, skill.name));
 	const preloadedSkillNames = new Set(preloadedSkills);
+	const preloadedCount = grantedSkills.filter((skill) => preloadedSkillNames.has(skill.name)).length;
 
 	return (
 		<div className='flex flex-col gap-4'>
@@ -33,7 +34,7 @@ export function UserGroupEffectiveSkills({
 				{skills.isSuccess && (
 					<span className='text-xs text-muted-foreground'>
 						{grantedSkills.length} of {discoveredSkills.length}{' '}
-						{discoveredSkills.length === 1 ? 'skill' : 'skills'} · {preloadedSkills.length} of{' '}
+						{discoveredSkills.length === 1 ? 'skill' : 'skills'} · {preloadedCount} of{' '}
 						{MAX_PRELOADED_SKILLS} preloaded
 					</span>
 				)}

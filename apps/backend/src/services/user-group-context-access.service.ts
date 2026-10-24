@@ -17,6 +17,7 @@ import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { getProjectRowSecurity } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
+import { logger } from '../utils/logger';
 import { expandDatabaseAccess, type WarehouseTableAccess } from './context-access';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { skillService } from './skill';
@@ -98,7 +99,12 @@ async function resolveSkillsAccess(projectId: string, access: SkillsAccess): Pro
 	if (access.mode === 'all') {
 		return access;
 	}
-	await skillService.initializeSkills(projectId);
+	try {
+		await skillService.initializeSkills(projectId);
+	} catch (error) {
+		logger.warn(`Failed to initialize skills for project ${projectId}: ${String(error)}`, { source: 'agent' });
+		return { ...access, grantedFiles: [] };
+	}
 	const grantedFiles = skillService
 		.getSkills(projectId)
 		.filter((skill) => isSkillGranted(access, skill.name))

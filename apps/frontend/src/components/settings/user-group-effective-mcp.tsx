@@ -68,7 +68,7 @@ function EffectiveMcpServerRow({ server, access }: { server: McpServerStatus; ac
 					className='flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:invisible'
 					aria-label={`${open ? 'Collapse' : 'Expand'} ${server.name} tools`}
 					aria-expanded={open}
-					aria-controls={panelId}
+					aria-controls={open ? panelId : undefined}
 					disabled={grantedTools.length === 0}
 					onClick={() => setOpen(!open)}
 				>
