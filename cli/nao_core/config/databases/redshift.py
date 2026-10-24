@@ -35,8 +35,8 @@ class RedshiftDatabaseContext(DatabaseContext):
                     column_name, data_type, is_nullable,
                     character_maximum_length, numeric_precision, numeric_scale
                 FROM information_schema.columns
-                WHERE table_schema = '{self._schema}'
-                AND table_name = '{self._table_name}'
+                WHERE table_schema = '{_quote_literal(self._schema)}'
+                AND table_name = '{_quote_literal(self._table_name)}'
                 ORDER BY ordinal_position
             """
             result = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]

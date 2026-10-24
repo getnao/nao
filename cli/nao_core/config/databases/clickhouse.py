@@ -196,12 +196,14 @@ def _show_create(conn: BaseBackend, sql: str) -> str | None:
 
 def _show_create_table(conn: BaseBackend, database: str, table_name: str) -> str | None:
     """Execute a SHOW CREATE TABLE query and return the DDL string, or None on error."""
-    return _show_create(conn, f"SHOW CREATE TABLE `{database}`.`{table_name}`")
+    target = f"{_quote_identifier(database)}.{_quote_identifier(table_name)}"
+    return _show_create(conn, f"SHOW CREATE TABLE {target}")
 
 
 def _show_create_dictionary(conn: BaseBackend, database: str, table_name: str) -> str | None:
     """Execute a SHOW CREATE DICTIONARY query and return the DDL string, or None on error."""
-    return _show_create(conn, f"SHOW CREATE DICTIONARY `{database}`.`{table_name}`")
+    target = f"{_quote_identifier(database)}.{_quote_identifier(table_name)}"
+    return _show_create(conn, f"SHOW CREATE DICTIONARY {target}")
 
 
 def _is_dictionary(conn: BaseBackend, database: str, table_name: str) -> bool:
@@ -730,7 +732,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
 
         # AggregateFunction tables are skipped above; plain column selection is sufficient here.
         select_parts = [f"`{name}`" for name in schema]
-        quoted_table = f"`{self._schema}`.`{self._table_name}`"
+        quoted_table = f"{_quote_identifier(self._schema)}.{_quote_identifier(self._table_name)}"
         sql = f"SELECT {', '.join(select_parts)} FROM {quoted_table} LIMIT {limit}"
 
         try:

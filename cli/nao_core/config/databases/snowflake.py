@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ class SnowflakeDatabaseContext(DatabaseContext):
         try:
             query = f"""
                 SELECT COMMENT FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+                WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema, escape_backslash=True)}'
+                  AND TABLE_NAME = '{quote_sql_literal(self._table_name, escape_backslash=True)}'
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -61,7 +62,8 @@ class SnowflakeDatabaseContext(DatabaseContext):
     def _fetch_column_descriptions(self) -> dict[str, str]:
         query = f"""
             SELECT COLUMN_NAME, COMMENT FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+            WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema, escape_backslash=True)}'
+              AND TABLE_NAME = '{quote_sql_literal(self._table_name, escape_backslash=True)}'
               AND COMMENT IS NOT NULL AND COMMENT != ''
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
@@ -84,7 +86,8 @@ def _get_snowflake_clustering_columns(conn: BaseBackend, schema: str, table: str
     query = f"""
         SELECT clustering_key
         FROM information_schema.tables
-        WHERE table_schema = '{schema}' AND table_name = '{table}'
+        WHERE table_schema = '{quote_sql_literal(schema, escape_backslash=True)}'
+          AND table_name = '{quote_sql_literal(table, escape_backslash=True)}'
     """
     result = conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
     if not result or not result[0]:
@@ -313,14 +316,15 @@ class SnowflakeConfig(DatabaseConfig):
             query = f"""
                 SELECT NAME, COMMENT
                 FROM INFORMATION_SCHEMA.SEMANTIC_VIEWS
-                WHERE "SCHEMA" = '{schema}'
+                WHERE "SCHEMA" = '{quote_sql_literal(schema, escape_backslash=True)}'
                 ORDER BY NAME
             """
             rows = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
             results = []
             for name, comment in rows:
                 try:
-                    ddl_row = conn.raw_sql(f"SELECT GET_DDL('SEMANTIC VIEW', '{schema}.{name}')").fetchone()  # type: ignore[union-attr]
+                    view_name = quote_sql_literal(f"{schema}.{name}", escape_backslash=True)
+                    ddl_row = conn.raw_sql(f"SELECT GET_DDL('SEMANTIC VIEW', '{view_name}')").fetchone()  # type: ignore[union-attr]
                     definition = str(ddl_row[0]) if ddl_row and ddl_row[0] else ""
                 except Exception:
                     definition = ""
