@@ -2820,7 +2820,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46.0.3" },
     { name = "cyclopts", specifier = ">=4.4.4" },
     { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.5.2" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.5.2,<2" },
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "glom", marker = "extra == 'aws-secrets'", specifier = ">=23.0.0" },
     { name = "google-cloud", marker = "extra == 'bigquery'", specifier = ">=0.34.0" },
