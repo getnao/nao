@@ -137,7 +137,10 @@ export async function getUserDetail(userId: string) {
 	return { user: toUserSummary(user), organizations, projects, ...usage };
 }
 
-export async function updateUser(userId: string, values: { name?: string; email?: string }) {
+export async function updateUser(
+	userId: string,
+	{ deactivated, ...values }: { name?: string; email?: string; deactivated?: boolean },
+) {
 	const user = await requireUser(userId);
 	if (values.email !== undefined) {
 		const owner = await userQueries.getUserByEmail(values.email);
@@ -145,10 +148,11 @@ export async function updateUser(userId: string, values: { name?: string; email?
 			throw new HandlerError('CONFLICT', 'Email is already in use');
 		}
 	}
-	if (Object.keys(values).length === 0) {
-		return toUserSummary(user);
+	const changes = { ...values, ...resolveDeactivationChange(user.deactivatedAt, deactivated) };
+	const updated = Object.keys(changes).length ? await userQueries.updateUserForBackoffice(userId, changes) : user;
+	if (deactivated) {
+		await userQueries.revokeUserCredentials(userId);
 	}
-	const updated = await userQueries.updateUserForBackoffice(userId, values);
 	return toUserSummary(updated!);
 }
 
@@ -261,9 +265,21 @@ function toUserSummary(user: NonNullable<Awaited<ReturnType<typeof userQueries.g
 		memoryEnabled: user.memoryEnabled,
 		hasGithubToken: isSet(user.githubAccessToken),
 		hasGitlabToken: isSet(user.gitlabAccessToken),
+		deactivatedAt: user.deactivatedAt,
 		createdAt: user.createdAt,
 		updatedAt: user.updatedAt,
 	};
+}
+
+/** Keeps the original deactivation date when an already deactivated user is deactivated again. */
+function resolveDeactivationChange(
+	currentDeactivatedAt: Date | null,
+	deactivated: boolean | undefined,
+): { deactivatedAt?: Date | null } {
+	if (deactivated === undefined || deactivated === (currentDeactivatedAt !== null)) {
+		return {};
+	}
+	return { deactivatedAt: deactivated ? new Date() : null };
 }
 
 function formatBudgetPeriod(period: 'day' | 'week' | 'month'): 'daily' | 'weekly' | 'monthly' {

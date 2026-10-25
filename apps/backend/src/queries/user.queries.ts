@@ -85,6 +85,15 @@ export const isUserConfinedToOrganization = async (userId: string, orgId: string
 	return !foreignProjectMembership;
 };
 
+export const isUserDeactivated = async (userId: string): Promise<boolean> => {
+	const [user] = await db
+		.select({ deactivatedAt: s.user.deactivatedAt })
+		.from(s.user)
+		.where(eq(s.user.id, userId))
+		.execute();
+	return Boolean(user?.deactivatedAt);
+};
+
 export const getUserMemoryEnabled = async (userId: string): Promise<boolean> => {
 	const user = await takeFirstOrThrow(
 		db.select({ memoryEnabled: s.user.memoryEnabled }).from(s.user).where(eq(s.user.id, userId)).execute(),

@@ -19,6 +19,7 @@ import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
+import { DEACTIVATED_ACCOUNT_MESSAGE } from './services/account-status.service';
 import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
@@ -340,6 +341,12 @@ async function createAuthInstance(baseURL: string) {
 			},
 			session: {
 				create: {
+					before: async (session) => {
+						if (await userQueries.isUserDeactivated(session.userId)) {
+							throw new APIError('FORBIDDEN', { message: DEACTIVATED_ACCOUNT_MESSAGE });
+						}
+						return true;
+					},
 					async after(session, ctx) {
 						await syncSsoLoginGroups(session.userId, resolveProviderId(ctx));
 					},

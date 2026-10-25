@@ -610,6 +610,13 @@
       "when": 1792696734236,
       "tag": "0086_story_view_counts_index",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "6",
+      "when": 1792939218417,
+      "tag": "0087_user_deactivated_at",
+      "breakpoints": true
     }
   ]
 }

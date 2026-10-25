@@ -350,6 +350,24 @@ describe('cloud backoffice routes', () => {
 		expect(untouched.json()).toMatchObject({ id: MEMBER_ID, email: 'renamed@example.com' });
 	});
 
+	it('deactivates a user, revokes their sessions, and reactivates them', async () => {
+		const deactivated = await request('PATCH', `/users/${MEMBER_ID}`, { deactivated: true });
+		expect(deactivated.statusCode).toBe(200);
+		const deactivatedAt = deactivated.json().deactivatedAt;
+		expect(deactivatedAt).toEqual(expect.any(String));
+		expect(await db.select().from(s.session).where(eq(s.session.userId, MEMBER_ID))).toEqual([]);
+
+		const deactivatedAgain = await request('PATCH', `/users/${MEMBER_ID}`, { deactivated: true });
+		expect(deactivatedAgain.json().deactivatedAt).toBe(deactivatedAt);
+
+		const users = await get('/users?search=member');
+		expect(users.json().items[0].deactivatedAt).toBe(deactivatedAt);
+
+		const reactivated = await request('PATCH', `/users/${MEMBER_ID}`, { deactivated: false });
+		expect(reactivated.statusCode).toBe(200);
+		expect(reactivated.json().deactivatedAt).toBeNull();
+	});
+
 	it('cleans up the context worktree when a direct role removes inherited context access', async () => {
 		const added = await request('PUT', `/projects/${PROJECT_ID}/members/${ADMIN_ID}`, { role: 'viewer' });
 		expect(added.statusCode).toBe(200);
