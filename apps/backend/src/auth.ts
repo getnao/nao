@@ -33,20 +33,22 @@ import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
+import { memoizeUntilRejected } from './utils/memoize-until-rejected';
 import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
 
 type MetadataHandler = (request: Request) => Promise<Response>;
 
-let defaultAuthPromise: Promise<Awaited<ReturnType<typeof createAuthInstance>>> | null = null;
-let authServerMetadataPromise: Promise<MetadataHandler> | null = null;
-let openIdConfigMetadataPromise: Promise<MetadataHandler> | null = null;
+const defaultAuth = memoizeUntilRejected<Awaited<ReturnType<typeof createAuthInstance>>>(() =>
+	createAuthInstance(env.BETTER_AUTH_URL),
+);
+const authServerMetadata = memoizeUntilRejected<MetadataHandler>(async () =>
+	oauthProviderAuthServerMetadata(await getAuth()),
+);
+const openIdConfigMetadata = memoizeUntilRejected<MetadataHandler>(async () =>
+	oauthProviderOpenIdConfigMetadata(await getAuth()),
+);
 
-export const getAuth = async () => {
-	if (!defaultAuthPromise) {
-		defaultAuthPromise = createAuthInstance(env.BETTER_AUTH_URL);
-	}
-	return defaultAuthPromise;
-};
+export const getAuth = () => defaultAuth.get();
 
 export const getSession = async (headers: Headers) => {
 	const auth = await getAuth();
@@ -61,9 +63,9 @@ export const getSession = async (headers: Headers) => {
 };
 
 export function updateAuth() {
-	defaultAuthPromise = null;
-	authServerMetadataPromise = null;
-	openIdConfigMetadataPromise = null;
+	defaultAuth.reset();
+	authServerMetadata.reset();
+	openIdConfigMetadata.reset();
 }
 
 export async function verifyOAuthAccessToken(token: string, audience: string[]): Promise<JWTPayload> {
@@ -91,17 +93,11 @@ export async function buildProtectedResourceMetadata(
 }
 
 export function getAuthServerMetadataHandler(): Promise<MetadataHandler> {
-	if (!authServerMetadataPromise) {
-		authServerMetadataPromise = getAuth().then(oauthProviderAuthServerMetadata);
-	}
-	return authServerMetadataPromise;
+	return authServerMetadata.get();
 }
 
 export function getOpenIdConfigMetadataHandler(): Promise<MetadataHandler> {
-	if (!openIdConfigMetadataPromise) {
-		openIdConfigMetadataPromise = getAuth().then(oauthProviderOpenIdConfigMetadata);
-	}
-	return openIdConfigMetadataPromise;
+	return openIdConfigMetadata.get();
 }
 
 async function createAuthInstance(baseURL: string) {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { serializeError } from '../src/utils/logger';
+import { describeError, serializeError } from '../src/utils/logger';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
 
@@ -35,5 +35,32 @@ describe('serializeError', () => {
 	it('redacts non-Error values that stringify to a credentialed URL', () => {
 		const serialized = serializeError('failed at https://user:pw@example.com/path');
 		expect(serialized.value).toBe('failed at https://***@example.com/path');
+	});
+});
+
+describe('describeError', () => {
+	it('appends the driver error hidden behind a wrapper error', () => {
+		const driverError = new Error('Connection terminated unexpectedly');
+		const queryError = new Error('Failed query: select count(*) from "user"\nparams: ', { cause: driverError });
+		const trpcError = new Error(queryError.message, { cause: queryError });
+
+		expect(describeError(trpcError)).toBe(
+			'Failed query: select count(*) from "user"\nparams:  | caused by: Connection terminated unexpectedly',
+		);
+	});
+
+	it('returns the message alone when there is no cause', () => {
+		expect(describeError(new Error('boom'))).toBe('boom');
+	});
+
+	it('stops on cyclic cause chains', () => {
+		const error = new Error('loop');
+		error.cause = error;
+		expect(describeError(error)).toBe('loop');
+	});
+
+	it('redacts credentials in causes', () => {
+		const error = new Error('clone failed', { cause: new Error('at https://oauth2:secret@gitlab.com/repo.git') });
+		expect(describeError(error)).toBe('clone failed | caused by: at https://***@gitlab.com/repo.git');
 	});
 });
