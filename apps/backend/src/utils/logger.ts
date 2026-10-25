@@ -37,13 +37,21 @@ export function describeError(error: unknown): string {
 	const messages: string[] = [];
 	let current: unknown = error;
 	for (let depth = 0; current !== undefined && current !== null && depth < MAX_CAUSE_DEPTH; depth++) {
-		const message = redactCredentialedUrls(current instanceof Error ? current.message : String(current));
+		const message = redactCredentialedUrls(getErrorLikeMessage(current));
 		if (!messages.includes(message)) {
 			messages.push(message);
 		}
-		current = current instanceof Error ? current.cause : undefined;
+		current = typeof current === 'object' ? (current as { cause?: unknown }).cause : undefined;
 	}
 	return messages.join(' | caused by: ');
+}
+
+function getErrorLikeMessage(value: unknown): string {
+	if (value instanceof Error) {
+		return value.message;
+	}
+	const message = typeof value === 'object' && value !== null ? (value as { message?: unknown }).message : undefined;
+	return typeof message === 'string' ? message : String(value);
 }
 
 const SENSITIVE_KEYS = new Set(['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key']);

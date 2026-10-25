@@ -49,6 +49,15 @@ describe('describeError', () => {
 		);
 	});
 
+	it('follows plain-object causes', () => {
+		const error = new Error('Failed query', {
+			cause: { message: 'pool exhausted', cause: new Error('Connection terminated unexpectedly') },
+		});
+		expect(describeError(error)).toBe(
+			'Failed query | caused by: pool exhausted | caused by: Connection terminated unexpectedly',
+		);
+	});
+
 	it('returns the message alone when there is no cause', () => {
 		expect(describeError(new Error('boom'))).toBe('boom');
 	});

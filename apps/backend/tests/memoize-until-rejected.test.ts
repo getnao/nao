@@ -7,8 +7,11 @@ describe('memoizeUntilRejected', () => {
 		const create = vi.fn().mockResolvedValue('auth');
 		const memoized = memoizeUntilRejected(create);
 
-		await expect(Promise.all([memoized.get(), memoized.get()])).resolves.toEqual(['auth', 'auth']);
-		await expect(memoized.get()).resolves.toBe('auth');
+		const first = memoized.get();
+		const second = memoized.get();
+		expect(first).toBe(second);
+		await expect(first).resolves.toBe('auth');
+		expect(memoized.get()).toBe(first);
 		expect(create).toHaveBeenCalledTimes(1);
 	});
 
