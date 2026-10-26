@@ -12,9 +12,9 @@ import type { ProjectChatsFacetKey } from '../../types/project';
 import { isValidIsoDateString } from '../../utils/date';
 import { withQueryResultPreviewsInChat } from '../../utils/query-result-preview';
 import { truncateMiddle } from '../../utils/utils';
-import type { McpContext, ToolResult } from '../logging';
+import type { McpContext } from '../logging';
 import { chatReplayUrl } from '../urls';
-import { registerMcpTool } from './register-mcp-tool';
+import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
 
 const SEARCH_CHATS_DESCRIPTION =
 	'Search the chat history of every member of this nao project (admins and context admins only).\n\n' +
@@ -153,7 +153,7 @@ function registerSearchChats(server: McpServer, ctx: McpContext): void {
 				total,
 				hasMore: (input.page + 1) * input.limit < total,
 			};
-			return jsonResult(output);
+			return jsonToolResult(output);
 		},
 	});
 }
@@ -201,7 +201,7 @@ function registerGetChat(server: McpServer, ctx: McpContext): void {
 					toChatMessage(message, include_tool_outputs),
 				),
 			};
-			return jsonResult(output);
+			return jsonToolResult(output);
 		},
 	});
 }
@@ -293,11 +293,4 @@ function serializeTruncated(value: unknown, maxChars: number): string | undefine
 	}
 	const serialized = typeof value === 'string' ? value : JSON.stringify(value);
 	return truncateMiddle(serialized, maxChars, ' … [truncated] … ');
-}
-
-function jsonResult<T extends Record<string, unknown>>(output: T): ToolResult {
-	return {
-		content: [{ type: 'text' as const, text: JSON.stringify(output) }],
-		structuredContent: output,
-	};
 }

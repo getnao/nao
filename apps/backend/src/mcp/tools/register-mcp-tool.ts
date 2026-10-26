@@ -48,6 +48,13 @@ export function registerMcpTool(server: McpServer, ctx: McpContext, opts: Regist
 	);
 }
 
+export function jsonToolResult<T extends Record<string, unknown>>(output: T): ToolResult {
+	return {
+		content: [{ type: 'text' as const, text: JSON.stringify(output) }],
+		structuredContent: output,
+	};
+}
+
 export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentInput>(
 	server: McpServer,
 	ctx: McpContext,
