@@ -1,4 +1,4 @@
-import { CircleAlert, CircleHelp, Globe2, Lightbulb, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { CircleAlert, CircleHelp, FlaskConical, Globe2, Lightbulb, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
@@ -27,6 +27,7 @@ const sourceConfig = {
 		label: 'Context recommendations',
 		icon: <Lightbulb className='size-3.5' />,
 	},
+	test: { label: 'Tests', icon: <FlaskConical className='size-3.5' /> },
 } as const;
 
 export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {

@@ -47,6 +47,7 @@ import {
 	bigint,
 	boolean,
 	check,
+	doublePrecision,
 	foreignKey,
 	index,
 	integer,
@@ -103,6 +104,7 @@ import {
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
+import { TEST_RUN_STATUSES, TEST_RUN_TRIGGERS, TestRunModels, TestRunResultDetails } from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
@@ -1131,6 +1133,70 @@ export const contextRecommendationLinkedFeedback = pgTable(
 	(t) => [
 		primaryKey({ columns: [t.recommendationId, t.messageId] }),
 		index('context_recommendation_linked_feedback_message_id_idx').on(t.messageId),
+	],
+);
+
+export const testRun = pgTable(
+	'test_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		triggeredByUserId: text('triggered_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+		trigger: text('trigger', { enum: TEST_RUN_TRIGGERS }).notNull().default('manual'),
+		status: text('status', { enum: TEST_RUN_STATUSES }).notNull().default('queued'),
+		contextRef: text('context_ref'),
+		contextCommit: text('context_commit'),
+		models: jsonb('models').$type<TestRunModels>().notNull(),
+		attempts: integer('attempts').notNull().default(1),
+		selection: jsonb('selection').$type<string[]>(),
+		totalAttempts: integer('total_attempts').notNull().default(0),
+		completedAttempts: integer('completed_attempts').notNull().default(0),
+		passedAttempts: integer('passed_attempts').notNull().default(0),
+		totalTokens: integer('total_tokens').notNull().default(0),
+		totalCost: doublePrecision('total_cost'),
+		errorMessage: text('error_message'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		startedAt: timestamp('started_at'),
+		completedAt: timestamp('completed_at'),
+	},
+	(t) => [index('test_run_projectId_idx').on(t.projectId), index('test_run_status_idx').on(t.status)],
+);
+
+export const testRunResult = pgTable(
+	'test_run_result',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => testRun.id, { onDelete: 'cascade' }),
+		testPath: text('test_path').notNull(),
+		testName: text('test_name').notNull(),
+		testHash: text('test_hash').notNull(),
+		tags: jsonb('tags').$type<string[]>().notNull().default([]),
+		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmModelId: text('llm_model_id').notNull(),
+		attempt: integer('attempt').notNull(),
+		passed: boolean('passed').notNull(),
+		message: text('message').notNull(),
+		errorMessage: text('error_message'),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		totalTokens: integer('total_tokens'),
+		totalCost: doublePrecision('total_cost'),
+		durationMs: integer('duration_ms'),
+		toolCallCount: integer('tool_call_count'),
+		details: jsonb('details').$type<TestRunResultDetails>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('test_run_result_runId_idx').on(t.runId),
+		index('test_run_result_chatId_idx').on(t.chatId),
+		index('test_run_result_testPath_idx').on(t.testPath),
 	],
 );
 

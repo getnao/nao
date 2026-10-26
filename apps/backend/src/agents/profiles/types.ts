@@ -30,6 +30,8 @@ export interface AgentProfile {
 	queriesAppDatabase?: boolean;
 	/** Project-defined charts only render in the web client. */
 	supportsCustomCharts?: boolean;
+	/** Leaves the user's memories out of the prompt and skips memory extraction, so the outcome does not depend on who runs it. */
+	excludesMemories?: boolean;
 	/** Ends non-interactive runs after this many steps instead of when the agent suggests follow-ups. */
 	maxSteps?: number;
 	usageCategory?: ManagedAiUsageCategory;

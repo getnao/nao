@@ -1,11 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { RepoProvider } from '@nao/shared/types';
+import { isLlmProvider, type LlmSelectedModel, type RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
 
 import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
+import {
+	type ConfiguredTestSettings,
+	DEFAULT_TEST_COMPARISON_TOLERANCES,
+	testComparisonTolerancesSchema,
+} from '../types/test-run';
 import { logger } from './logger';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -255,6 +260,35 @@ export function extractConfiguredSemanticLayer(projectFolder: string): Configure
 		manifestPath,
 		database: normalizeString(semanticLayer.database),
 	};
+}
+
+/** The `test` section of nao_config.yaml, read with the same defaults as `nao test`. */
+export function extractConfiguredTestSettings(projectFolder: string): ConfiguredTestSettings {
+	const config = loadProjectConfig(projectFolder);
+	const testConfig = isRecord(config) && isRecord(config.test) ? config.test : {};
+	const attempts = testConfig.k;
+	const tolerances = testComparisonTolerancesSchema.safeParse(testConfig.comparison ?? {});
+	return {
+		models: parseTestModels(testConfig.models),
+		attempts: typeof attempts === 'number' && Number.isInteger(attempts) && attempts >= 1 ? attempts : 1,
+		tolerances: tolerances.success ? tolerances.data : DEFAULT_TEST_COMPARISON_TOLERANCES,
+	};
+}
+
+function parseTestModels(models: unknown): LlmSelectedModel[] | null {
+	if (!Array.isArray(models)) {
+		return null;
+	}
+	const parsed = models.flatMap((model) => {
+		if (typeof model !== 'string') {
+			return [];
+		}
+		const separatorIndex = model.indexOf(':');
+		const provider = model.slice(0, separatorIndex);
+		const modelId = model.slice(separatorIndex + 1);
+		return separatorIndex > 0 && modelId && isLlmProvider(provider) ? [{ provider, modelId }] : [];
+	});
+	return parsed.length > 0 ? parsed : null;
 }
 
 function deriveDatabaseNameFromPath(databasePath: string): string {
