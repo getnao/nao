@@ -7,8 +7,10 @@ import requests
 
 from nao_core.auth import clear_stored_auth, get_auth_session, interactive_login, login
 from nao_core.config.llm import ModelCosts
+from nao_core.config.test import ComparisonConfig
 from nao_core.ui import UI
 
+from .assertions import Assertion
 from .case import TestCase
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5005")
@@ -51,6 +53,15 @@ class VerificationResult:
 
 
 @dataclass
+class TestVerdict:
+    """Pass/fail decision computed by the backend, absent on servers that predate it."""
+
+    passed: bool
+    message: str
+    comparison: str | None = None
+
+
+@dataclass
 class TestResult:
     """Result from running a test prompt."""
 
@@ -61,6 +72,7 @@ class TestResult:
     finish_reason: str
     duration_ms: int
     verification: VerificationResult | None = None
+    verdict: TestVerdict | None = None
 
 
 class AgentClientError(Exception):
@@ -139,6 +151,7 @@ class AgentClient:
         provider: str = "openai",
         model_id: str = "gpt-4.1",
         costs: ModelCosts | None = None,
+        comparison: ComparisonConfig | None = None,
         retry_auth: bool = True,
     ) -> TestResult:
         """Run a test prompt and return the result."""
@@ -157,6 +170,12 @@ class AgentClient:
         if test_case.database:
             payload["databaseId"] = test_case.database
 
+        if test_case.assertions:
+            payload["assertions"] = [serialize_assertion(assertion) for assertion in test_case.assertions]
+
+        if comparison is not None:
+            payload["comparison"] = comparison.model_dump()
+
         cost_payload = serialize_model_costs(costs)
         if cost_payload is not None:
             payload["meta"] = {"costs": cost_payload}
@@ -168,7 +187,9 @@ class AgentClient:
 
         if response.status_code == 401:
             if retry_auth and self._handle_auth_retry(auth_generation):
-                return self.run_test(test_case, provider, model_id, costs=costs, retry_auth=False)
+                return self.run_test(
+                    test_case, provider, model_id, costs=costs, comparison=comparison, retry_auth=False
+                )
             raise AgentClientError(
                 "Invalid API key." if self._api_key else "Unauthorized. Please check your credentials."
             )
@@ -185,6 +206,7 @@ class AgentClient:
             finish_reason=data["finishReason"],
             duration_ms=data.get("durationMs", 0),
             verification=VerificationResult(**data["verification"]) if data.get("verification") else None,
+            verdict=TestVerdict(**data["verdict"]) if data.get("verdict") else None,
         )
 
 
@@ -223,3 +245,11 @@ def serialize_model_costs(costs: ModelCosts | None) -> dict[str, float] | None:
     }
     serialized = {key: value for key, value in priced.items() if value is not None}
     return serialized or None
+
+
+def serialize_assertion(assertion: Assertion) -> dict[str, Any]:
+    """Convert an assertion to the backend API shape."""
+    serialized: dict[str, Any] = {"type": "tool_call", "tool": assertion.tool, "min_count": assertion.min_count}
+    if assertion.args is not None:
+        serialized["args"] = assertion.args
+    return serialized

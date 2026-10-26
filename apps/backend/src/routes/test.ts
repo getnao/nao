@@ -2,18 +2,14 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { NoObjectGeneratedError } from 'ai';
 import { z } from 'zod/v4';
 
-import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { sessionOrApiKeyAuthMiddleware } from '../middleware/auth';
-import { getUserRoleInProject, retrieveProjectById } from '../queries/project.queries';
-import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
-import { getProjectRuntimeEnvVars } from '../services/project-runtime-env';
-import { TestAgentService, testAgentService } from '../services/test-agent.service';
-import { resolveProjectContextAccess } from '../services/user-group-context-access.service';
+import { getUserRoleInProject } from '../queries/project.queries';
+import { testAgentService } from '../services/test-agent.service';
+import { evaluateTestAttempt } from '../services/test-evaluation.service';
 import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
-import type { ToolContext } from '../types/tools';
+import { testAssertionSchema, testComparisonTolerancesSchema } from '../types/test-run';
 import { truncateMiddle } from '../utils/utils';
 
 const describeRunError = (err: unknown): string => {
@@ -46,6 +42,8 @@ export const testRoutes = async (app: App) => {
 					model: llmSelectedModelSchema,
 					sql: z.string().optional(),
 					databaseId: z.string().optional(),
+					assertions: z.array(testAssertionSchema).default([]),
+					comparison: testComparisonTolerancesSchema.optional(),
 					meta: z
 						.object({
 							costs: customModelCostSchema,
@@ -57,7 +55,7 @@ export const testRoutes = async (app: App) => {
 		async (request, reply) => {
 			const projectId = request.project?.id;
 			const userId = request.user.id;
-			const { prompt, model, sql, databaseId, meta } = request.body;
+			const { prompt, model, sql, databaseId, assertions, comparison, meta } = request.body;
 
 			const costs = meta?.costs;
 
@@ -72,33 +70,23 @@ export const testRoutes = async (app: App) => {
 			try {
 				const modelSelection = model as LlmSelectedModel | undefined;
 				const result = await testAgentService.runTest(projectId, userId, prompt, modelSelection, costs);
-
-				let verification;
-				if (sql) {
-					const toolContext = await buildVerificationToolContext(projectId, userId);
-					const { data: expectedData, columns: expectedColumns } = await executeQuery(
-						{ sql_query: sql, database_id: databaseId },
-						toolContext,
-					);
-					const verified = await testAgentService.runVerification(
-						projectId,
-						userId,
-						prompt,
-						result,
-						expectedColumns,
-						modelSelection,
-					);
-					verification = { ...verified, expectedData, expectedColumns };
-				}
+				const { toolCalls, verification, verdict } = await evaluateTestAttempt({
+					projectId,
+					userId,
+					test: { prompt, sql, databaseId, assertions, tolerances: comparison },
+					result,
+					modelSelection,
+				});
 
 				return reply.send({
 					text: result.text,
-					toolCalls: TestAgentService.extractToolCalls(result),
+					toolCalls,
 					usage: result.usage,
 					cost: result.cost,
 					finishReason: result.finishReason,
 					durationMs: result.durationMs,
 					verification,
+					verdict,
 				});
 			} catch (err) {
 				return reply.status(500).send({ error: describeRunError(err) });
@@ -106,37 +94,3 @@ export const testRoutes = async (app: App) => {
 		},
 	);
 };
-
-async function buildVerificationToolContext(projectId: string, userId: string): Promise<ToolContext> {
-	const project = await retrieveProjectById(projectId);
-	const projectFolder = project.path;
-	if (!projectFolder) {
-		throw new Error('Project path does not exist.');
-	}
-	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
-		getProjectRuntimeEnvVars(projectId),
-		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(userId) : null)),
-		resolveProjectContextAccess(projectId, userId, projectFolder),
-	]);
-	return {
-		projectFolder,
-		chatId: '',
-		userId,
-		projectId,
-		supportsCustomCharts: false,
-		agentSettings: null,
-		adminMode: false,
-		envVars,
-		azureAccessToken,
-		warehouseTableAccess: contextAccess.warehouseTableAccess,
-		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
-		docsContextAccess: contextAccess.docsContextAccess,
-		filesContextAccess: contextAccess.filesContextAccess,
-		mcpAccess: contextAccess.mcpAccess,
-		skillsAccess: contextAccess.skillsAccess,
-		userGroupFeatures: contextAccess.userGroupFeatures,
-		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
-		queryResults: new Map(),
-		generatedArtifacts: { charts: [], maps: [], stories: [] },
-	};
-}

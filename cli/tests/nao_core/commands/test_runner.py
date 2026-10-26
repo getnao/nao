@@ -20,6 +20,9 @@ from nao_core.commands.test.client import (
 from nao_core.commands.test.client import (
     TestResult as AgentTestResult,
 )
+from nao_core.commands.test.client import (
+    TestVerdict as AgentTestVerdict,
+)
 from nao_core.commands.test.runner import ModelConfig, check_dataframe, filter_test_cases, run_test
 from nao_core.commands.test.runner import (
     TestRunResult as NaoTestRunResult,
@@ -255,6 +258,87 @@ def test_client_does_not_retry_login_when_the_api_key_is_rejected(monkeypatch):
     interactive_login.assert_not_called()
 
 
+def test_client_sends_assertions_and_comparison_tolerances(monkeypatch):
+    test_case = NaoTestCase(
+        name="orders",
+        prompt="p1",
+        file_path=Path("tests/orders.yml"),
+        assertions=[
+            ToolCallAssertion(tool="execute_sql"),
+            ToolCallAssertion(tool="query_metrics", args={"metric": "revenue"}, min_count=2),
+        ],
+    )
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.post.return_value = _successful_run_response()
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    client.run_test(test_case, comparison=ComparisonConfig(decimals=4))
+
+    payload = session.post.call_args.kwargs["json"]
+    assert payload["assertions"] == [
+        {"type": "tool_call", "tool": "execute_sql", "min_count": 1},
+        {"type": "tool_call", "tool": "query_metrics", "min_count": 2, "args": {"metric": "revenue"}},
+    ]
+    assert payload["comparison"] == {"rtol": 1e-5, "atol": 1e-8, "decimals": 4}
+
+
+def test_client_parses_the_server_verdict(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"))
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    response = _successful_run_response()
+    response.json.return_value = {
+        **response.json.return_value,
+        "verdict": {"passed": False, "message": "values differ", "comparison": "row 0, total: actual=1, expected=2"},
+    }
+    session.post.return_value = response
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    result = client.run_test(test_case)
+
+    assert result.verdict == AgentTestVerdict(
+        passed=False, message="values differ", comparison="row 0, total: actual=1, expected=2"
+    )
+
+
+def test_run_test_prefers_the_server_verdict_over_local_checks(monkeypatch):
+    test_case = NaoTestCase(
+        name="orders",
+        prompt="total revenue",
+        file_path=Path("tests/orders.yml"),
+        sql="select 1",
+        assertions=[ToolCallAssertion(tool="execute_sql")],
+    )
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="ok",
+        tool_calls=[{"toolName": "execute_sql", "args": {}}],
+        usage=TokenUsage(totalTokens=5),
+        cost=TokenCost(totalCost=0.0),
+        finish_reason="stop",
+        duration_ms=2,
+        verification=VerificationResult(
+            data=[{"total": 1}],
+            expectedData=[{"total": 1}],
+            expectedColumns=["total"],
+            sql="SELECT total FROM query_abc",
+        ),
+        verdict=AgentTestVerdict(passed=False, message="tool_call: execute_sql; values differ", comparison="diff"),
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model, comparison=ComparisonConfig())
+
+    assert result.passed is False
+    assert result.message == "tool_call: execute_sql; values differ"
+    assert result.details is not None
+    assert result.details.comparison == "diff"
+    assert result.details.actual_data == [{"total": 1}]
+    assert result.details.verification_sql == "SELECT total FROM query_abc"
+
+
 def test_run_test_passes_configured_costs_to_client(monkeypatch):
     test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
     model = ModelConfig(provider="openai", model_id="custom-model")
@@ -278,7 +362,9 @@ def test_run_test_passes_configured_costs_to_client(monkeypatch):
     result = run_test(test_case, model, costs=costs)
 
     assert result.passed is True
-    client.run_test.assert_called_once_with(test_case, provider="openai", model_id="custom-model", costs=costs)
+    client.run_test.assert_called_once_with(
+        test_case, provider="openai", model_id="custom-model", costs=costs, comparison=None
+    )
 
 
 def test_run_test_records_reference_sql_with_verification(monkeypatch):

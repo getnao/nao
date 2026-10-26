@@ -16,6 +16,7 @@ import {
 	RecommendationInsight,
 	WindowTotals,
 } from '../types/context-recommendation';
+import { isNotTestChat } from './chat.queries';
 
 export interface FeedbackLink {
 	recommendationId: string;
@@ -349,6 +350,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 				and(
 					eq(s.chat.projectId, projectId),
 					notInArray(s.chat.id, analysisChatIds()),
+					isNotTestChat(),
 					eq(s.messagePart.toolState, 'output-error'),
 					gte(s.messagePart.createdAt, start),
 					lt(s.messagePart.createdAt, end),
@@ -364,6 +366,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 				and(
 					eq(s.chat.projectId, projectId),
 					notInArray(s.chat.id, analysisChatIds()),
+					isNotTestChat(),
 					eq(s.messageFeedback.vote, 'down'),
 					gte(s.messageFeedback.createdAt, start),
 					lt(s.messageFeedback.createdAt, end),
@@ -378,6 +381,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 				and(
 					eq(s.chat.projectId, projectId),
 					notInArray(s.chat.id, analysisChatIds()),
+					isNotTestChat(),
 					isNotNull(s.chatMessage.supersededAt),
 					gte(s.chatMessage.createdAt, start),
 					lt(s.chatMessage.createdAt, end),
@@ -436,6 +440,7 @@ export async function getContextFileReadCosts(
 			and(
 				eq(s.chat.projectId, projectId),
 				notInArray(s.chat.id, analysisChatIds()),
+				isNotTestChat(),
 				or(isNull(s.chatMessage.isForked), eq(s.chatMessage.isForked, false)),
 				eq(s.messagePart.toolName, 'read'),
 				eq(s.messagePart.toolState, 'output-available'),
