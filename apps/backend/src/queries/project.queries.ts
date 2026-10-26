@@ -540,6 +540,8 @@ export const listProjectChats = async (
 		page?: number;
 		pageSize?: number;
 		search?: string;
+		author?: string;
+		messageCount?: { min?: number; max?: number };
 		filters?: { id: ProjectChatsFacetKey; values: string[] }[];
 		updatedAtFilter?: UpdatedAtFilter;
 		sorting?: { id: string; desc?: boolean }[];
@@ -548,6 +550,8 @@ export const listProjectChats = async (
 	const page = Math.max(0, opts?.page ?? 0);
 	const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 30));
 	const search = opts?.search?.trim() ?? '';
+	const author = opts?.author?.trim() ?? '';
+	const messageCount = opts?.messageCount;
 	const filters = (opts?.filters ?? []).filter((f) => f.values?.length);
 	const updatedAtFilter = opts?.updatedAtFilter;
 	const sorting = opts?.sorting ?? [];
@@ -624,8 +628,7 @@ export const listProjectChats = async (
 	}
 
 	if (search) {
-		const escaped = search.toLowerCase().replace(/[%_\\]/g, '\\$&');
-		const like = `%${escaped}%`;
+		const like = toContainsLikePattern(search);
 		baseWhereClauses.push(sql`
 			(
 				lower(${s.chat.title}) like ${like}
@@ -649,6 +652,16 @@ export const listProjectChats = async (
 		`);
 	}
 	const filterWhereClauses: SQL<unknown>[] = [];
+	if (author) {
+		const like = toContainsLikePattern(author);
+		filterWhereClauses.push(sql`(lower(${s.user.name}) like ${like} or lower(${s.user.email}) like ${like})`);
+	}
+	if (messageCount?.min !== undefined) {
+		filterWhereClauses.push(gte(numberOfMessagesExpr, messageCount.min));
+	}
+	if (messageCount?.max !== undefined) {
+		filterWhereClauses.push(lte(numberOfMessagesExpr, messageCount.max));
+	}
 	for (const filter of filters) {
 		if (filter.values.length === 0) {
 			continue;
@@ -798,6 +811,11 @@ export const listProjectChats = async (
 		facets,
 	};
 };
+
+function toContainsLikePattern(term: string): string {
+	const escaped = term.toLowerCase().replace(/[%_\\]/g, '\\$&');
+	return `%${escaped}%`;
+}
 
 function buildTieredSort(
 	dir: typeof asc | typeof desc,

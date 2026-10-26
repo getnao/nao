@@ -8,6 +8,10 @@ export function chatUrl(chatId: string): string {
 	return appUrl(`/${chatId}`);
 }
 
+export function chatReplayUrl(chatId: string): string {
+	return appUrl(`/settings/usage/replay/${chatId}`);
+}
+
 export function storyUrl(storyId: string): string {
 	return appUrl(storyPath(storyId));
 }
