@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, PencilRuler, Database, Paperclip, AlertTriangle, Shield, Check } from 'lucide-react';
@@ -44,6 +44,10 @@ import { SelectionCitationBanner } from '@/components/selection-citation-banner'
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
 import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { useIsCloud } from '@/hooks/use-nao-mode';
+import { useLibraryItems } from '@/hooks/use-library-items';
+import { buildLibraryMentionOptions } from '@/components/library/library-mention-options';
+import { LIBRARY_MENTION_TRIGGER, isLibraryDrag, readLibraryDragData } from '@/lib/library';
+import { libraryMentionRequestStore } from '@/stores/library';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
@@ -125,6 +129,8 @@ function ChatInputBase({
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const chatId = useChatId();
 	const storyBeforeAgentSend = useStoryBeforeAgentSend();
+	const libraryItems = useLibraryItems(chatId);
+	const libraryMentionOptions = useMemo(() => buildLibraryMentionOptions(libraryItems), [libraryItems]);
 
 	const isAdminMode = canChatWithNaoData && adminMode;
 	const adminModeLocked = useAgentMessagesSelector((messages) => messages.some((message) => message.role === 'user'));
@@ -214,7 +220,7 @@ function ChatInputBase({
 		const handleDragEnter = (e: DragEvent) => {
 			e.preventDefault();
 			dragCounter++;
-			if (e.dataTransfer?.types.includes('Files')) {
+			if (e.dataTransfer?.types.includes('Files') || isLibraryDrag(e.dataTransfer)) {
 				setIsDragging(true);
 			}
 		};
@@ -235,6 +241,12 @@ function ChatInputBase({
 			e.preventDefault();
 			dragCounter = 0;
 			setIsDragging(false);
+			const libraryMention = readLibraryDragData(e.dataTransfer);
+			if (libraryMention) {
+				promptRef.current?.appendMention(libraryMention, LIBRARY_MENTION_TRIGGER);
+				requestAnimationFrame(() => promptRef.current?.focus());
+				return;
+			}
 			if (e.dataTransfer?.files) {
 				attachmentUpload.addFiles(e.dataTransfer.files);
 			}
@@ -251,6 +263,19 @@ function ChatInputBase({
 			el.removeEventListener('drop', handleDrop);
 		};
 	}, [attachmentUpload.addFiles]); // eslint-disable-line
+
+	useEffect(() => {
+		if (!allowQueueing) {
+			return;
+		}
+		return libraryMentionRequestStore.subscribe(() => {
+			const mention = libraryMentionRequestStore.consume();
+			if (mention) {
+				promptRef.current?.appendMention(mention, LIBRARY_MENTION_TRIGGER);
+				requestAnimationFrame(() => promptRef.current?.focus());
+			}
+		});
+	}, [allowQueueing, promptRef]);
 
 	useEffect(() => {
 		const handler = (e: ClipboardEvent) => {
@@ -440,6 +465,7 @@ function ChatInputBase({
 						promptRef={promptRef}
 						placeholder={effectivePlaceholder}
 						storyCreationEnabled={storyCreationEnabled}
+						libraryMentionOptions={libraryMentionOptions}
 						onChange={(value) => setInputText(value)}
 						onEnter={(value, mentions) => submitMessage(value, mentions)}
 					/>

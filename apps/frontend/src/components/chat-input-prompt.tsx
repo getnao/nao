@@ -49,6 +49,7 @@ type ChatPromptProps = {
 	resizable?: boolean;
 	submitOnEnter?: boolean;
 	storyCreationEnabled: boolean;
+	libraryMentionOptions?: MentionOption[];
 	onChange: (value: string, mentions: SelectedMention[]) => void;
 	onEnter?: (value: string, mentions: SelectedMention[]) => void;
 };
@@ -92,6 +93,18 @@ function buildDatabaseObjectOptions(
 	}));
 }
 
+function buildAtMentionOptions(libraryOptions: MentionOption[], tableOptions: MentionOption[]): MentionOption[] {
+	if (libraryOptions.length === 0 || tableOptions.length === 0) {
+		return [...libraryOptions, ...tableOptions];
+	}
+	return [
+		...libraryOptions,
+		{ id: 'tables-divider', label: '', type: 'divider' },
+		{ id: 'tables-title', label: 'Tables', type: 'title', icon: tableIcon },
+		...tableOptions,
+	];
+}
+
 export function ChatPrompt({
 	promptRef,
 	placeholder,
@@ -100,6 +113,7 @@ export function ChatPrompt({
 	resizable = false,
 	submitOnEnter = true,
 	storyCreationEnabled,
+	libraryMentionOptions = [],
 	onChange,
 	onEnter,
 }: ChatPromptProps) {
@@ -138,7 +152,10 @@ export function ChatPrompt({
 				{
 					trigger: DATABASE_MENTION_TRIGGER,
 					menuPosition: 'above',
-					options: buildDatabaseObjectOptions(databaseObjects ?? []),
+					options: buildAtMentionOptions(
+						libraryMentionOptions,
+						buildDatabaseObjectOptions(databaseObjects ?? []),
+					),
 				},
 			]}
 			onChange={onChange}

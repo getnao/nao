@@ -1,11 +1,11 @@
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { PanelLeft } from 'lucide-react';
-import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
+import { Library, PanelLeft } from 'lucide-react';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { Button } from '@/components/ui/button';
 import { useSidebar } from '@/contexts/sidebar';
+import { useOpenLibrary } from '@/hooks/use-open-library';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
@@ -52,8 +52,24 @@ export function MobileHeader({
 						</Link>
 					</Button>
 				)}
-				{chatId && <ChatArtifactsMenu key={chatId} chatId={chatId} panelClassName='right-3 mt-1' />}
+				{chatId && <MobileLibraryButton chatId={chatId} />}
 			</div>
 		</div>
+	);
+}
+
+function MobileLibraryButton({ chatId }: { chatId: string }) {
+	const openLibrary = useOpenLibrary(chatId);
+
+	return (
+		<Button
+			variant='outline'
+			size='icon-sm'
+			className='rounded-full'
+			onClick={() => openLibrary()}
+			aria-label='Open My Library'
+		>
+			<Library className='size-3.5' strokeWidth={2.25} />
+		</Button>
 	);
 }

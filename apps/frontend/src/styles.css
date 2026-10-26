@@ -688,13 +688,6 @@ code.dollar:before {
 	animation: replay-highlight-pulse 2s ease-out forwards;
 }
 
-.chat-artifact-reveal-highlight {
-	@apply rounded-lg;
-	outline: 1px solid var(--primary);
-	outline-offset: 2px;
-	animation: replay-highlight-pulse 2s ease-out forwards;
-}
-
 @keyframes replay-highlight-pulse {
 	0%,
 	70% {

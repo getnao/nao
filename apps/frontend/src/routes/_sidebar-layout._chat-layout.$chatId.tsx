@@ -3,15 +3,15 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
-import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
+import type { ForkMetadata } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { Chat } from '@/queries/use-chat-query';
 import { NEW_CHAT_ID } from '@/lib/ai';
-import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
-import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { ChatAccessError } from '@/components/chat-access-error';
-import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
+import { LibraryHandle } from '@/components/library/library-handle';
+import { LibraryPanel } from '@/components/library/library-panel';
+import { LibraryShortcut } from '@/components/library/library-shortcut';
 import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
@@ -37,12 +37,12 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { libraryLastItemStore } from '@/stores/library';
 import { storyBlockEditStore } from '@/stores/story-block-edit';
 import { STORY_BLOCK_EDIT_PANEL_MIN_WIDTH } from '@/lib/side-panel';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
-import { findStories } from '@/lib/story.utils';
 import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
@@ -126,7 +126,6 @@ function ChatPage() {
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
 	const isEditingStoryBlock =
 		useSyncExternalStore(storyBlockEditStore.subscribe, storyBlockEditStore.getSnapshot) !== null;
-	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const chatInputCallback = useSetChatInputCallback();
@@ -155,7 +154,8 @@ function ChatPage() {
 			return;
 		}
 
-		sidePanel.open(<StoryViewer chatId={chatId} storySlug={openStorySlug} />, openStorySlug);
+		libraryLastItemStore.set(chatId, `chat-story:${openStorySlug}`);
+		sidePanel.open(<LibraryPanel chatId={chatId} />, openStorySlug);
 
 		const timer = setTimeout(() => {
 			router.history.replace(router.state.location.href, {
@@ -183,7 +183,7 @@ function ChatPage() {
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>
-			<ChatStoryShortcut chatId={chatId} latestStorySlug={latestStorySlug} />
+			<LibraryShortcut chatId={chatId} />
 			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div
@@ -281,12 +281,6 @@ function ChatPage() {
 										</>
 									)}
 								</Button>
-								<ChatArtifactsMenu
-									key={chatId}
-									chatId={chatId}
-									chatColumnRef={chatColumnRef}
-									panelClassName='right-0 mt-2'
-								/>
 							</div>
 						</div>
 
@@ -306,6 +300,7 @@ function ChatPage() {
 							</>
 						)}
 						<StoryBlockEditPanel chatId={chatId} />
+						<LibraryHandle chatId={chatId} />
 						<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
 							<div
 								ref={inputAreaRef}
@@ -405,10 +400,6 @@ function selectChatHeader(chat: Chat) {
 		forkMetadata: chat.forkMetadata,
 		automationRun: chat.automationRun,
 	};
-}
-
-function findLatestStorySlug(messages: UIMessage[]): string | undefined {
-	return findStories(messages).at(-1)?.id;
 }
 
 function resolveStoryCitationMeta(
