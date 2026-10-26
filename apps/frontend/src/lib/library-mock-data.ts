@@ -20,15 +20,6 @@ function buildThisChatItems(now: number): LibraryItem[] {
 			content: { kind: 'mock-story', story: q3RevenueStory },
 		},
 		{
-			id: 'mock-query-revenue-by-region',
-			type: 'query',
-			name: 'Revenue by region',
-			section: 'this-chat',
-			updatedAt: now - 15 * 60 * 1000,
-			detail: '4 rows',
-			content: { kind: 'mock-query', query: revenueByRegionQuery },
-		},
-		{
 			id: 'mock-file-targets',
 			type: 'file',
 			name: 'sales_targets_2026.csv',
@@ -122,7 +113,7 @@ function buildSharedItems(now: number): LibraryItem[] {
 			section: 'shared',
 			updatedAt: now - 4 * DAY,
 			sharedBy: 'Thomas Martin',
-			detail: '6 messages',
+			detail: '4 messages',
 			content: { kind: 'mock-chat', messages: pricingChatMessages },
 		},
 		{
@@ -132,7 +123,7 @@ function buildSharedItems(now: number): LibraryItem[] {
 			section: 'shared',
 			updatedAt: now - 6 * DAY,
 			sharedBy: 'Lea Bernard',
-			detail: '4 messages',
+			detail: '2 messages',
 			content: { kind: 'mock-chat', messages: forecastChatMessages },
 		},
 	];

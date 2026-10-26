@@ -17,7 +17,6 @@ export function buildLibraryMentionOptions(items: LibraryItem[]): MentionOption[
 			{
 				id: `library-type:${type}`,
 				label: LIBRARY_TYPE_LABELS[type].plural,
-				labelRight: String(itemsOfType.length),
 				icon: <LibraryItemIcon item={itemsOfType[0]} className='size-4' />,
 				children: itemsOfType.map(toItemOption),
 			},

@@ -41,7 +41,7 @@ export function LibraryPanel({ chatId }: { chatId: string }) {
 				onClose={close}
 			/>
 			{activeItem ? (
-				<div className='min-h-0 flex-1'>
+				<div className='flex min-h-0 flex-1 flex-col'>
 					<LibraryItemViewer key={activeItem.id} chatId={chatId} item={activeItem} />
 				</div>
 			) : (
