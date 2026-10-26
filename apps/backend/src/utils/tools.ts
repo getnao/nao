@@ -166,41 +166,45 @@ export const clearNaoignoreCache = (): void => {
  * @param projectFolder - The project folder path
  * @returns true if the path should be ignored
  */
-export const isIgnoredByNaoignore = (relativePath: string, projectFolder: string): boolean => {
-	const patterns = loadNaoignorePatterns(projectFolder);
-
+export const isIgnoredByNaoignore = (
+	relativePath: string,
+	projectFolder: string,
+	options: NaoignoreOptions = {},
+): boolean => {
 	// Normalize the path (remove leading slash if present)
 	const normalizedPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
-
-	for (const pattern of patterns) {
-		// Handle directory patterns (ending with /)
-		if (pattern.endsWith('/')) {
-			const dirPattern = pattern.slice(0, -1);
-			// Check if path starts with or is exactly the directory
-			if (
-				normalizedPath === dirPattern ||
-				normalizedPath.startsWith(dirPattern + '/') ||
-				normalizedPath.split('/').includes(dirPattern)
-			) {
-				return true;
-			}
-		} else {
-			// Use minimatch for glob pattern matching
-			// Match against the full path
-			if (minimatch(normalizedPath, pattern, { matchBase: true, dot: true })) {
-				return true;
-			}
-			// Also check if the pattern matches any directory in the path
-			if (minimatch(normalizedPath, `**/${pattern}`, { dot: true })) {
-				return true;
-			}
-			if (minimatch(normalizedPath, `**/${pattern}/**`, { dot: true })) {
-				return true;
-			}
-		}
+	if (isInNaoignoreExemptFolder(normalizedPath, options)) {
+		return false;
 	}
+	return loadNaoignorePatterns(projectFolder).some((pattern) => matchesNaoignorePattern(normalizedPath, pattern));
+};
 
-	return false;
+/**
+ * Checks if a single .naoignore pattern matches a path relative to the project folder.
+ */
+export const matchesNaoignorePattern = (normalizedPath: string, pattern: string): boolean => {
+	// Handle directory patterns (ending with /)
+	if (pattern.endsWith('/')) {
+		const dirPattern = pattern.slice(0, -1);
+		// Check if path starts with or is exactly the directory
+		return (
+			normalizedPath === dirPattern ||
+			normalizedPath.startsWith(dirPattern + '/') ||
+			normalizedPath.split('/').includes(dirPattern)
+		);
+	}
+	// Match against the full path, then against any directory in the path
+	return (
+		minimatch(normalizedPath, pattern, { matchBase: true, dot: true }) ||
+		minimatch(normalizedPath, `**/${pattern}`, { dot: true }) ||
+		minimatch(normalizedPath, `**/${pattern}/**`, { dot: true })
+	);
+};
+
+const isInNaoignoreExemptFolder = (normalizedPath: string, options: NaoignoreOptions): boolean => {
+	return (options.naoignoreExemptFolders ?? []).some(
+		(folder) => normalizedPath === folder || normalizedPath.startsWith(`${folder}/`),
+	);
 };
 
 /**
@@ -209,7 +213,7 @@ export const isIgnoredByNaoignore = (relativePath: string, projectFolder: string
  * @param projectFolder - The project folder path
  * @returns true if the path should be ignored
  */
-export const isIgnoredPath = (realPath: string, projectFolder: string): boolean => {
+export const isIgnoredPath = (realPath: string, projectFolder: string, options: NaoignoreOptions = {}): boolean => {
 	const resolved = path.resolve(realPath);
 	const normalizedFolder = path.resolve(projectFolder);
 	const relativePath = path.relative(normalizedFolder, resolved);
@@ -219,7 +223,7 @@ export const isIgnoredPath = (realPath: string, projectFolder: string): boolean 
 		return false;
 	}
 
-	return isIgnoredByNaoignore(relativePath, normalizedFolder);
+	return isIgnoredByNaoignore(relativePath, normalizedFolder, options);
 };
 
 /**
@@ -253,7 +257,12 @@ const isEnvironmentFileName = (name: string): boolean => {
  * @param projectFolder - The project folder path
  * @returns true if the entry should be excluded
  */
-export const shouldExcludeEntry = (entryName: string, parentPath: string, projectFolder: string): boolean => {
+export const shouldExcludeEntry = (
+	entryName: string,
+	parentPath: string,
+	projectFolder: string,
+	options: NaoignoreOptions = {},
+): boolean => {
 	// First check built-in exclusions
 	if (isExcludedEntry(entryName)) {
 		return true;
@@ -266,14 +275,18 @@ export const shouldExcludeEntry = (entryName: string, parentPath: string, projec
 
 	// Then check naoignore patterns
 	const relativePath = parentPath ? `${parentPath}/${entryName}` : entryName;
-	return isIgnoredByNaoignore(relativePath, projectFolder);
+	return isIgnoredByNaoignore(relativePath, projectFolder, options);
 };
 
 /**
  * Checks if a given path is within the project folder, not in an excluded directory,
  * and not ignored by .naoignore.
  */
-export const isWithinProjectFolder = (filePath: string, projectFolder: string): boolean => {
+export const isWithinProjectFolder = (
+	filePath: string,
+	projectFolder: string,
+	options: NaoignoreOptions = {},
+): boolean => {
 	const resolved = path.resolve(filePath);
 	const normalizedFolder = path.resolve(projectFolder);
 	const withinFolder = resolved === normalizedFolder || resolved.startsWith(normalizedFolder + path.sep);
@@ -286,13 +299,18 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 	if (isMountPath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
 		return false;
 	}
-	if (isIgnoredPath(resolved, normalizedFolder)) {
+	if (isIgnoredPath(resolved, normalizedFolder, options)) {
 		return false;
 	}
 	return true;
 };
 
-type ToRealPathOptions = {
+export type NaoignoreOptions = {
+	/** Top-level folders admin tools show despite .naoignore. Agent tools never set it. */
+	naoignoreExemptFolders?: readonly string[];
+};
+
+type ToRealPathOptions = NaoignoreOptions & {
 	/** Set to false when the caller applies its own symlink policy (e.g. `assertNoSymlinkInWritePath`). */
 	resolveSymlinks?: boolean;
 };
@@ -317,7 +335,7 @@ export const toRealPath = (virtualPath: string, projectFolder: string, options: 
 
 	// Resolve and normalize (this handles .. and .)
 	const resolvedPath = path.resolve(normalizedFolder, relativePath);
-	assertAllowedProjectPath(resolvedPath, normalizedFolder, virtualPath);
+	assertAllowedProjectPath(resolvedPath, normalizedFolder, virtualPath, options);
 
 	if (options.resolveSymlinks === false) {
 		return resolvedPath;
@@ -325,13 +343,18 @@ export const toRealPath = (virtualPath: string, projectFolder: string, options: 
 
 	const realPath = resolveSymlinks(resolvedPath);
 	if (realPath !== resolvedPath) {
-		assertAllowedProjectPath(realPath, resolveSymlinks(normalizedFolder), virtualPath);
+		assertAllowedProjectPath(realPath, resolveSymlinks(normalizedFolder), virtualPath, options);
 	}
 
 	return resolvedPath;
 };
 
-const assertAllowedProjectPath = (absolutePath: string, projectFolder: string, virtualPath: string): void => {
+const assertAllowedProjectPath = (
+	absolutePath: string,
+	projectFolder: string,
+	virtualPath: string,
+	options: NaoignoreOptions,
+): void => {
 	const withinFolder = absolutePath === projectFolder || absolutePath.startsWith(projectFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
@@ -351,7 +374,7 @@ const assertAllowedProjectPath = (absolutePath: string, projectFolder: string, v
 		throw new Error(`Access denied: path '${virtualPath}' is in an excluded directory`);
 	}
 
-	if (isIgnoredPath(absolutePath, projectFolder)) {
+	if (isIgnoredPath(absolutePath, projectFolder, options)) {
 		throw new Error(`Access denied: path '${virtualPath}' is ignored by .naoignore`);
 	}
 };
@@ -446,11 +469,11 @@ function resolveExistingAncestor(candidatePath: string): string {
  * - `{projectFolder}` → `/`
  * @throws Error if the path is outside the project folder
  */
-export const toVirtualPath = (realPath: string, projectFolder: string): string => {
+export const toVirtualPath = (realPath: string, projectFolder: string, options: NaoignoreOptions = {}): string => {
 	const resolved = path.resolve(realPath);
 	const normalizedFolder = path.resolve(projectFolder);
 
-	if (!isWithinProjectFolder(resolved, normalizedFolder)) {
+	if (!isWithinProjectFolder(resolved, normalizedFolder, options)) {
 		throw new Error(`Path '${realPath}' is outside the project folder`);
 	}
 

@@ -26,6 +26,7 @@ import type {
 	ContextRepositoryProvider,
 } from '../src/services/context-explorer-git.service';
 import { resolveContextExplorerGit } from '../src/services/context-explorer-git.service';
+import { isIgnoredByNaoignore } from '../src/utils/tools';
 
 describe('context explorer worktree writes', () => {
 	let root: string;
@@ -128,6 +129,25 @@ describe('context explorer worktree writes', () => {
 			code: 'FORBIDDEN',
 		});
 		expectLiveUnchanged();
+	});
+
+	it('shows the tests folder despite .naoignore while keeping it hidden from the agent', async () => {
+		writeFiles(live, {
+			'.naoignore': 'tests/\nprivate/\n',
+			'tests/revenue.yml': 'prompt: What is the revenue?\n',
+			'private/notes.md': 'What is the revenue?\n',
+		});
+
+		const tree = await getFileTree(live);
+		const test = await readFileContent('/tests/revenue.yml', access);
+		const search = await searchFileContents('revenue', live);
+
+		expect(tree.map((entry) => entry.name)).toContain('tests');
+		expect(tree.map((entry) => entry.name)).not.toContain('private');
+		expect(test.content).toBe('prompt: What is the revenue?\n');
+		await expect(readFileContent('/private/notes.md', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(search.results.map((result) => result.path)).toEqual(['/tests/revenue.yml']);
+		expect(isIgnoredByNaoignore('tests/revenue.yml', live)).toBe(true);
 	});
 
 	it('browses the live project read-only when no repository is connected', async () => {
