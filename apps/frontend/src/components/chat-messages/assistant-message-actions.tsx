@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { trpc, trpcClient } from '@/main';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useTimedFlag } from '@/hooks/use-timed-flag';
 import { useAgentMessagesGetter } from '@/contexts/agent.provider';
 import { getMessageMarkdown, getChatMarkdown } from '@/lib/serialize-message';
 import { downloadBase64File, downloadTextFile, toFileSlug } from '@/lib/export-chat';
@@ -22,6 +23,8 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+const FEEDBACK_CONFIRMATION_DURATION_MS = 3000;
 
 export function AssistantMessageActions({
 	message,
@@ -40,6 +43,7 @@ export function AssistantMessageActions({
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
 	const [exportError, setExportError] = useState<string | null>(null);
 	const { isCopied, copy } = useCopyToClipboard();
+	const feedbackConfirmation = useTimedFlag(FEEDBACK_CONFIRMATION_DURATION_MS);
 	const getAgentMessages = useAgentMessagesGetter();
 	const { data: chat } = useChatQuery({ chatId, select: selectChatExportMetadata });
 
@@ -76,6 +80,7 @@ export function AssistantMessageActions({
 	const submitFeedback = useMutation(
 		trpc.feedback.submit.mutationOptions({
 			onSuccess: (data, _, __, ctx) => {
+				feedbackConfirmation.activate();
 				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId }), (prev) =>
 					prev
 						? {
@@ -95,6 +100,8 @@ export function AssistantMessageActions({
 			},
 		}),
 	);
+
+	const selectedVote = submitFeedback.data?.vote ?? message.feedback?.vote;
 
 	const handlePositiveFeedbackClick = () => {
 		setFeedbackDialogVote('up');
@@ -126,11 +133,12 @@ export function AssistantMessageActions({
 					disabled={submitFeedback.isPending}
 					className={cn(
 						'hover:rounded-full',
-						message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100',
+						selectedVote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100',
 					)}
 					aria-label='Good response'
+					aria-pressed={selectedVote === 'up'}
 				>
-					<ThumbsUp className='size-4' />
+					<ThumbsUp className={cn('size-4', selectedVote === 'up' && 'fill-current')} />
 				</Button>
 
 				<Button
@@ -140,11 +148,12 @@ export function AssistantMessageActions({
 					disabled={submitFeedback.isPending}
 					className={cn(
 						'hover:rounded-full',
-						message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100',
+						selectedVote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100',
 					)}
 					aria-label='Bad response'
+					aria-pressed={selectedVote === 'down'}
 				>
-					<ThumbsDown className='size-4' />
+					<ThumbsDown className={cn('size-4', selectedVote === 'down' && 'fill-current')} />
 				</Button>
 
 				<Button
@@ -211,6 +220,18 @@ export function AssistantMessageActions({
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
+
+				{feedbackConfirmation.isActive && (
+					<p role='status' className='text-xs text-muted-foreground animate-in fade-in'>
+						Thanks for your feedback!
+					</p>
+				)}
+
+				{submitFeedback.isError && (
+					<p role='alert' className='text-xs text-destructive'>
+						Couldn't send feedback. Please try again.
+					</p>
+				)}
 
 				{exportError && (
 					<p className='text-xs text-destructive max-w-64 truncate' title={exportError}>
