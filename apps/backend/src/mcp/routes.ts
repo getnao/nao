@@ -1,5 +1,4 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { UserRole } from '@nao/shared/types';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type { App } from '../app';
@@ -7,6 +6,7 @@ import { resolveMcpFacingOrigin } from '../env';
 import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
+import type { McpUserRole } from '../types/mcp-endpoint';
 import { resolveUserId } from './auth';
 import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
 import { resolveMcpProjectId } from './project';
@@ -17,7 +17,7 @@ declare module 'fastify' {
 	interface FastifyRequest {
 		mcpUserId: string;
 		mcpProjectId: string;
-		mcpRole: Exclude<UserRole, 'viewer'>;
+		mcpRole: McpUserRole;
 	}
 }
 
@@ -80,6 +80,7 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 	const server = await createMcpServer(
 		request.mcpUserId,
 		request.mcpProjectId,
+		request.mcpRole,
 		settings,
 		isChartDataModeRequest(request),
 	);
