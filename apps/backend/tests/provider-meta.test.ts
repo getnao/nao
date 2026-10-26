@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	getAdvisorModelOptions,
 	getModelCapabilities,
 	getModelParameterSpec,
 	isAnthropicApiModel,
@@ -202,6 +203,7 @@ describe('getModelParameterSpec', () => {
 			'speed',
 			'inferenceGeo',
 			'thinkingDisplay',
+			'advisorModel',
 		]);
 		expect(controlByKey(controls, 'reasoningEffort')).toMatchObject({
 			kind: 'effort',
@@ -454,5 +456,45 @@ describe('getModelParameterSpec', () => {
 
 		expect(controlByKey(muse, 'topP')).toMatchObject({ min: 0.05, placeholder: '0.05 – 1' });
 		expect(controlByKey(gemini, 'topP')).toMatchObject({ min: 0, placeholder: '0 – 1' });
+	});
+
+	it('offers an advisor select, off by default, on Claude executors served by the Anthropic API', () => {
+		const controls = getModelParameterSpec('anthropic', 'claude-sonnet-5');
+
+		expect(controlByKey(controls, 'advisorModel')).toMatchObject({
+			kind: 'select',
+			label: 'Advisor model',
+			unsetLabel: 'Off',
+			options: getAdvisorModelOptions('anthropic', 'claude-sonnet-5'),
+		});
+	});
+});
+
+describe('getAdvisorModelOptions', () => {
+	it('lists only the advisors Anthropic pairs with the executor', () => {
+		expect(getAdvisorModelOptions('anthropic', 'claude-sonnet-4-6')).toContain('claude-sonnet-4-6');
+		expect(getAdvisorModelOptions('anthropic', 'claude-sonnet-5')).toContain('claude-opus-4-8');
+		expect(getAdvisorModelOptions('anthropic', 'claude-sonnet-5')).not.toContain('claude-sonnet-4-6');
+		expect(getAdvisorModelOptions('anthropic', 'claude-opus-5-5')).not.toContain('claude-opus-4-8');
+		expect(getAdvisorModelOptions('anthropic', 'claude-fable-5-1')).toEqual([
+			'claude-mythos-5-1',
+			'claude-fable-5-1',
+		]);
+	});
+
+	it('offers no advisor to models that cannot be executors', () => {
+		expect(getAdvisorModelOptions('anthropic', 'claude-sonnet-4-5')).toEqual([]);
+		expect(getAdvisorModelOptions('anthropic', 'claude-custom-model')).toEqual([]);
+		expect(getModelParameterSpec('anthropic', 'claude-sonnet-4-5').map((c) => c.key)).not.toContain('advisorModel');
+	});
+
+	it.each([
+		['bedrock', 'us.anthropic.claude-sonnet-4-6'],
+		['vertex', 'claude-sonnet-4-6'],
+		['openrouter', 'anthropic/claude-sonnet-4.6'],
+		['openrouter', 'claude-sonnet-4-6'],
+	] as const)('offers no advisor outside the Anthropic API (%s %s)', (provider, modelId) => {
+		expect(getAdvisorModelOptions(provider, modelId)).toEqual([]);
+		expect(getModelParameterSpec(provider, modelId).map((c) => c.key)).not.toContain('advisorModel');
 	});
 });

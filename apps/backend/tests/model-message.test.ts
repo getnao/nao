@@ -2,7 +2,12 @@ import { convertToModelMessages, type ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
 import type { UIMessage } from '../src/types/chat';
-import { sanitizeToolCalls, stripReasoningParts, toProviderSafeToolCallId } from '../src/utils/model-message';
+import {
+	sanitizeToolCalls,
+	stripAdvisorParts,
+	stripReasoningParts,
+	toProviderSafeToolCallId,
+} from '../src/utils/model-message';
 
 const SAFE_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const NAMESPACED_ID = '3f0d9a3e-6f1a-4b8e-9d2c-1a2b3c4d5e6f:functions.get_automation_run_history:0';
@@ -233,5 +238,96 @@ describe('stripReasoningParts', () => {
 		const stripped = stripReasoningParts(messages);
 		expect(stripped[0]).toBe(messages[0]);
 		expect((stripped[1].content as { type: string }[]).map((p) => p.type)).toEqual(['text']);
+	});
+});
+
+describe('stripAdvisorParts', () => {
+	const advisorPart = (toolCallId: string, result: Record<string, unknown>) => ({
+		type: 'tool-advisor',
+		toolCallId,
+		providerExecuted: true,
+		input: {},
+		...result,
+	});
+
+	const replayedHistory = () =>
+		convertToModelMessages<UIMessage>(
+			[
+				{ role: 'user', parts: [{ type: 'text', text: 'why did revenue drop?' }] },
+				{
+					role: 'assistant',
+					parts: [
+						advisorPart('srvtoolu_ok', {
+							state: 'output-available',
+							output: { type: 'advisor_result', text: 'Compare against last quarter first.' },
+						}),
+						advisorPart('srvtoolu_failed', {
+							state: 'output-error',
+							errorText: JSON.stringify({ type: 'advisor_tool_result_error', errorCode: 'overloaded' }),
+						}),
+						{ type: 'text', text: 'Revenue dropped because of churn.' },
+					],
+				},
+				{ role: 'user', parts: [{ type: 'text', text: 'thanks' }] },
+			] as unknown as UIMessage[],
+			{ tools: {} },
+		);
+
+	const advisorCallIds = (messages: ModelMessage[]) =>
+		messages.flatMap((message) =>
+			Array.isArray(message.content)
+				? message.content.flatMap((part) =>
+						'toolName' in part && part.toolName === 'advisor' ? [`${part.type}:${part.toolCallId}`] : [],
+					)
+				: [],
+		);
+
+	it('keeps successful advisor calls and drops failed ones while the advisor is offered', async () => {
+		const stripped = stripAdvisorParts(await replayedHistory(), true);
+
+		expect(advisorCallIds(stripped)).toEqual(['tool-call:srvtoolu_ok', 'tool-result:srvtoolu_ok']);
+		expect(stripped[1].content).toContainEqual({ type: 'text', text: 'Revenue dropped because of churn.' });
+	});
+
+	it('drops every advisor call when the advisor is no longer offered', async () => {
+		const history = await replayedHistory();
+		const stripped = stripAdvisorParts(history, false);
+
+		expect(advisorCallIds(stripped)).toEqual([]);
+		expect(stripped).toHaveLength(3);
+		expect(stripped[0]).toBe(history[0]);
+		expect(stripped[1].content).toEqual([{ type: 'text', text: 'Revenue dropped because of churn.' }]);
+	});
+
+	it('drops an assistant turn left empty', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'hi' },
+			{
+				role: 'assistant',
+				content: [
+					{
+						type: 'tool-call',
+						toolCallId: 'srvtoolu_1',
+						toolName: 'advisor',
+						input: {},
+						providerExecuted: true,
+					},
+				],
+			},
+			{ role: 'user', content: 'still there?' },
+		];
+
+		expect(stripAdvisorParts(messages, true)).toEqual([messages[0], messages[2]]);
+	});
+
+	it('leaves a history without advisor calls untouched', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'hi' },
+			{ role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
+		];
+
+		const stripped = stripAdvisorParts(messages, false);
+		expect(stripped[0]).toBe(messages[0]);
+		expect(stripped[1]).toBe(messages[1]);
 	});
 });
