@@ -1576,4 +1576,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['files', 'context', 'documents', 'knowledge base'],
 		adminOrContextAdmin: true,
 	},
+
+	// ── Tests ────────────────────────────────────────────────
+	{
+		page: '/settings/tests',
+		pageLabel: 'Tests',
+		title: 'Tests',
+		description: 'Run the context tests and review their results.',
+		keywords: ['tests', 'evaluation', 'eval', 'benchmark', 'nao test', 'run tests', 'pass rate', 'reliability'],
+		adminOrContextAdmin: true,
+	},
 ];

@@ -32,13 +32,41 @@ export async function getRunStatus(runId: string): Promise<DBTestRun['status'] |
 	return run?.status ?? null;
 }
 
-export async function listRuns(projectId: string, limit = DEFAULT_RUN_LIST_LIMIT): Promise<DBTestRun[]> {
-	return db
-		.select()
+export async function listRuns(
+	projectId: string,
+	limit = DEFAULT_RUN_LIST_LIMIT,
+): Promise<(DBTestRun & { triggeredByName: string | null })[]> {
+	const rows = await db
+		.select({ run: s.testRun, triggeredByName: s.user.name })
 		.from(s.testRun)
+		.leftJoin(s.user, eq(s.user.id, s.testRun.triggeredByUserId))
 		.where(eq(s.testRun.projectId, projectId))
 		.orderBy(desc(s.testRun.createdAt))
 		.limit(limit)
+		.execute();
+	return rows.map(({ run, triggeredByName }) => ({ ...run, triggeredByName }));
+}
+
+/** Results of the most recent runs, newest run first, to find the last outcome of each test. */
+export async function listRecentResultOutcomes(projectId: string, runLimit = DEFAULT_RUN_LIST_LIMIT) {
+	const recentRunIds = db
+		.select({ id: s.testRun.id })
+		.from(s.testRun)
+		.where(eq(s.testRun.projectId, projectId))
+		.orderBy(desc(s.testRun.createdAt))
+		.limit(runLimit);
+	return db
+		.select({
+			runId: s.testRunResult.runId,
+			runCreatedAt: s.testRun.createdAt,
+			testPath: s.testRunResult.testPath,
+			testHash: s.testRunResult.testHash,
+			passed: s.testRunResult.passed,
+		})
+		.from(s.testRunResult)
+		.innerJoin(s.testRun, eq(s.testRun.id, s.testRunResult.runId))
+		.where(inArray(s.testRunResult.runId, recentRunIds))
+		.orderBy(desc(s.testRun.createdAt))
 		.execute();
 }
 
