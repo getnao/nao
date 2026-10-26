@@ -5,7 +5,13 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
-import { type InvalidTestFile, testAssertionSchema, type TestDefinition, type TestSuite } from '../types/test-run';
+import {
+	type InvalidTestFile,
+	type NewTestFile,
+	testAssertionSchema,
+	type TestDefinition,
+	type TestSuite,
+} from '../types/test-run';
 
 const TESTS_FOLDER = 'tests';
 const OUTPUTS_FOLDER = 'outputs';
@@ -28,7 +34,7 @@ export function discoverTests(projectFolder: string): TestSuite {
 
 	for (const relativePath of listTestFiles(testsFolder)) {
 		const parsed = parseTestFile(testsFolder, relativePath);
-		if ('error' in parsed) {
+		if (isInvalidTestFile(parsed)) {
 			invalidFiles.push(parsed);
 		} else {
 			tests.push(parsed);
@@ -36,6 +42,53 @@ export function discoverTests(projectFolder: string): TestSuite {
 	}
 
 	return { tests, invalidFiles };
+}
+
+export function isInvalidTestFile(parsed: TestDefinition | InvalidTestFile): parsed is InvalidTestFile {
+	return 'error' in parsed;
+}
+
+/** The path of a test relative to the tests folder, or null when the project path is not a test file. */
+export function toTestPath(projectPath: string): string | null {
+	const normalized = projectPath.replaceAll('\\', '/').replace(/^\/+/, '');
+	if (!normalized.startsWith(`${TESTS_FOLDER}/`)) {
+		return null;
+	}
+	const relativePath = normalized.slice(TESTS_FOLDER.length + 1);
+	const isTestFile = TEST_FILE_EXTENSIONS.has(path.extname(relativePath));
+	const isInOutputs = relativePath.split('/').slice(0, -1).includes(OUTPUTS_FOLDER);
+	return isTestFile && !isInOutputs && !relativePath.split('/').includes('..') ? relativePath : null;
+}
+
+export function serializeTestFile(test: NewTestFile): string {
+	const document: Record<string, unknown> = { name: test.name, prompt: test.prompt };
+	if (test.sql) {
+		document.sql = test.sql;
+	}
+	if (test.databaseId) {
+		document.database = test.databaseId;
+	}
+	if (test.tags?.length) {
+		document.tags = test.tags;
+	}
+	if (test.owner) {
+		document.owner = test.owner;
+	}
+	return yaml.dump(document, { lineWidth: -1 });
+}
+
+/** Candidate explorer paths for a new test file, the first one free being used. */
+export function newTestFilePaths(name: string, maxCandidates = 20): string[] {
+	const slug =
+		name
+			.toLowerCase()
+			.normalize('NFKD')
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.slice(0, 60) || 'test';
+	return Array.from({ length: maxCandidates }, (_, index) =>
+		index === 0 ? `/${TESTS_FOLDER}/${slug}.yml` : `/${TESTS_FOLDER}/${slug}-${index + 1}.yml`,
+	);
 }
 
 export function filterTests(
@@ -76,7 +129,11 @@ function parseTestFile(testsFolder: string, relativePath: string): TestDefinitio
 	} catch (error) {
 		return { path: relativePath, error: `Unreadable file: ${describeError(error)}` };
 	}
+	return parseTestContent(relativePath, content);
+}
 
+/** Parses a test from its YAML content, given its path relative to the tests folder. */
+export function parseTestContent(relativePath: string, content: string): TestDefinition | InvalidTestFile {
 	let data: unknown;
 	try {
 		data = yaml.load(content, { schema: yaml.CORE_SCHEMA });

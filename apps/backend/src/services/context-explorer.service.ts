@@ -82,7 +82,7 @@ export async function readFileContent(
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
 	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
 	const readPath =
-		repo && trackedPaths.has(normalizeProjectPath(filePath))
+		repo && (trackedPaths.has(normalizeProjectPath(filePath)) || isWorktreeDraft(filePath, livePath, repo))
 			? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
 			: livePath;
 	const contentBuffer = await readValidatedFile(readPath, filePath);
@@ -187,10 +187,61 @@ export function getFileEditability(
 			actionLabel: 'Open nao_config.yaml',
 		});
 	}
-	if (!repo || !trackedPaths.has(projectPath)) {
+	if (!repo || (!trackedPaths.has(projectPath) && !isWorktreeDraft(filePath, realPath, repo))) {
 		return readOnly('not-tracked', guidanceForReason('not-tracked'));
 	}
 	return { isEditable: true, reason: null, guidance: null };
+}
+
+/**
+ * Creates a file that exists neither in the live context nor in the user's worktree.
+ * It lands in the worktree only, so it reaches the context through the usual commit and review flow.
+ */
+export async function createDraftFile(
+	filePath: string,
+	content: string,
+	access: ContextExplorerFileAccess,
+): Promise<FileWriteResponse> {
+	if (access.git.status === 'unavailable') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
+	}
+	const contentBuffer = Buffer.from(content, 'utf-8');
+	validateContentBuffer(contentBuffer);
+
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(access.git.repo));
+	assertFileDoesNotExist(livePath, filePath);
+	assertFileDoesNotExist(realPath, filePath);
+
+	try {
+		fsSync.mkdirSync(path.dirname(realPath), { recursive: true });
+		writeFileAtomically({
+			beforeRename: () => assertFileDoesNotExist(realPath, filePath),
+			content,
+			displayPath: filePath,
+			root,
+			target: realPath,
+		});
+	} catch (error) {
+		throw toFileError(error, filePath);
+	}
+
+	return { hash: hashContent(contentBuffer) };
+}
+
+/** A file the user created in their worktree that the live context does not have yet. */
+function isWorktreeDraft(filePath: string, livePath: string, repo: ResolvedContextRepo): boolean {
+	if (fsSync.existsSync(livePath)) {
+		return false;
+	}
+	const worktreePath = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath;
+	return fsSync.lstatSync(worktreePath, { throwIfNoEntry: false })?.isFile() ?? false;
+}
+
+function assertFileDoesNotExist(filePath: string, displayPath: string): void {
+	if (fsSync.lstatSync(filePath, { throwIfNoEntry: false })) {
+		throw new TRPCError({ code: 'CONFLICT', message: `A file already exists at ${displayPath}.` });
+	}
 }
 
 export function assertFileEditable(

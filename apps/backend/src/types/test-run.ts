@@ -84,6 +84,15 @@ export interface TestDefinition {
 	hash: string;
 }
 
+export interface NewTestFile {
+	name: string;
+	prompt: string;
+	sql?: string | null;
+	databaseId?: string | null;
+	tags?: string[];
+	owner?: string | null;
+}
+
 export interface InvalidTestFile {
 	path: string;
 	error: string;

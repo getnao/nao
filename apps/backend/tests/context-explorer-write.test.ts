@@ -14,6 +14,7 @@ vi.hoisted(() => {
 
 import type { ContextExplorerFileAccess } from '../src/services/context-explorer.service';
 import {
+	createDraftFile,
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
@@ -105,6 +106,26 @@ describe('context explorer worktree writes', () => {
 		expect(result.hash).toBe(updated.hash);
 		await expect(writeFileContent('/context.md', 'stale\n', original.hash, access)).rejects.toMatchObject({
 			code: 'CONFLICT',
+		});
+		expectLiveUnchanged();
+	});
+
+	it('creates new files as editable worktree drafts without touching the live project', async () => {
+		const created = await createDraftFile('/tests/new/revenue.yml', 'name: revenue\n', access);
+		const draft = await readFileContent('/tests/new/revenue.yml', access);
+		const updated = await writeFileContent('/tests/new/revenue.yml', 'name: updated\n', draft.hash, access);
+
+		expect(draft).toMatchObject({ content: 'name: revenue\n', isEditable: true, hash: created.hash });
+		expect((await readFileContent('/tests/new/revenue.yml', access)).hash).toBe(updated.hash);
+		await expect(createDraftFile('/tests/new/revenue.yml', 'again\n', access)).rejects.toMatchObject({
+			code: 'CONFLICT',
+		});
+		await expect(createDraftFile('/untracked.md', 'shadow\n', access)).rejects.toMatchObject({
+			code: 'CONFLICT',
+		});
+		await expect(createDraftFile('/.env.test', 'secret\n', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(createDraftFile('../outside.yml', 'outside\n', access)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
 		});
 		expectLiveUnchanged();
 	});

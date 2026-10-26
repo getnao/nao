@@ -10,6 +10,7 @@ import type { FileEditabilityGuidance } from '@nao/shared/types';
 import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
+import { isTestFilePath, TestFileToolbar } from '@/components/settings/test-file-toolbar';
 import { UserGroupPicker } from '@/components/settings/user-group-picker';
 import {
 	AlertDialog,
@@ -373,6 +374,7 @@ function EditableFileViewer({
 					onSelectedGroupIdsChange={setSelectedGroupIds}
 				/>
 			)}
+			{isTestFilePath(filePath) && <TestFileToolbar filePath={filePath} content={draft} />}
 			{!isEditable && editabilityGuidance && (
 				<ReadOnlyNote guidance={editabilityGuidance} onOpenPath={onOpenGuidancePath} />
 			)}
