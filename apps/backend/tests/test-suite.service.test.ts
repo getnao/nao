@@ -4,7 +4,14 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { discoverTests, filterTests } from '../src/services/test-suite.service';
+import {
+	discoverTests,
+	filterTests,
+	newTestFilePaths,
+	parseTestContent,
+	serializeTestFile,
+	toTestPath,
+} from '../src/services/test-suite.service';
 import { extractConfiguredTestSettings } from '../src/utils/nao-config';
 
 let projectFolder: string;
@@ -111,6 +118,58 @@ describe('filterTests', () => {
 		expect(filterTests(tests, { paths: ['b.yml', 'c.yml'], tags: ['sales'] }).map((test) => test.path)).toEqual([
 			'b.yml',
 		]);
+	});
+});
+
+describe('toTestPath', () => {
+	it.each([
+		['/tests/revenue.yml', 'revenue.yml'],
+		['tests/sales/orders.yaml', 'sales/orders.yaml'],
+		['/tests/outputs/results.yml', null],
+		['/tests/notes.md', null],
+		['/semantics/revenue.yml', null],
+		['/tests/../nao_config.yaml', null],
+	])('maps %s to %s', (projectPath, expected) => {
+		expect(toTestPath(projectPath)).toBe(expected);
+	});
+});
+
+describe('serializeTestFile', () => {
+	it('writes a test file that parses back to the same test', () => {
+		const content = serializeTestFile({
+			name: 'Revenue: 2025',
+			prompt: 'What is the revenue?\nPer month.',
+			sql: 'select month,\n  sum(amount) as revenue\nfrom orders\ngroup by 1',
+			databaseId: 'warehouse',
+			tags: ['finance'],
+			owner: 'ana@example.com',
+		});
+
+		expect(parseTestContent('revenue.yml', content)).toMatchObject({
+			name: 'Revenue: 2025',
+			prompt: 'What is the revenue?\nPer month.',
+			sql: 'select month,\n  sum(amount) as revenue\nfrom orders\ngroup by 1',
+			databaseId: 'warehouse',
+			tags: ['finance'],
+			owner: 'ana@example.com',
+		});
+	});
+
+	it('omits the optional fields that are not set', () => {
+		expect(serializeTestFile({ name: 'Orders', prompt: 'How many orders?' })).toBe(
+			'name: Orders\nprompt: How many orders?\n',
+		);
+	});
+});
+
+describe('newTestFilePaths', () => {
+	it('slugifies the name and suffixes the following candidates', () => {
+		expect(newTestFilePaths('Revenue per Month (2025)!', 3)).toEqual([
+			'/tests/revenue-per-month-2025.yml',
+			'/tests/revenue-per-month-2025-2.yml',
+			'/tests/revenue-per-month-2025-3.yml',
+		]);
+		expect(newTestFilePaths('???', 1)).toEqual(['/tests/test.yml']);
 	});
 });
 
