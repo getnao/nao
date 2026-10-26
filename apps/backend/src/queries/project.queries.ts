@@ -16,7 +16,7 @@ import {
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -615,7 +615,7 @@ export const listProjectChats = async (
 		limit 1
 	)`;
 
-	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
+	const baseWhereClauses = [eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt)];
 
 	if (updatedAtFilter) {
 		if (updatedAtFilter.mode === 'single') {
@@ -631,22 +631,22 @@ export const listProjectChats = async (
 		const like = toContainsLikePattern(search);
 		baseWhereClauses.push(sql`
 			(
-				lower(${s.chat.title}) like ${like}
-				or lower(${s.user.name}) like ${like}
-				or lower(coalesce(${s.projectMember.role}, 'Former member')) like ${like}
-				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like}
-				or CAST(${totalTokensExpr} AS TEXT) like ${like}
-				or CAST(${downvotesExpr} AS TEXT) like ${like}
-				or CAST(${upvotesExpr} AS TEXT) like ${like}
-				or CAST(${toolErrorCountExpr} AS TEXT) like ${like}
-				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like}
+				lower(${s.chat.title}) like ${like} escape '\\'
+				or lower(${s.user.name}) like ${like} escape '\\'
+				or lower(coalesce(${s.projectMember.role}, 'Former member')) like ${like} escape '\\'
+				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${totalTokensExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${downvotesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${upvotesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${toolErrorCountExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like} escape '\\'
 				or exists (
 					select 1
 					from ${s.chatMessage}
 					inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
 					where ${s.chatMessage.chatId} = ${s.chat.id}
 						and ${s.chatMessage.supersededAt} is null
-						and lower(${s.messagePart.text}) like ${like}
+						and lower(${s.messagePart.text}) like ${like} escape '\\'
 				)
 			)
 		`);
@@ -654,7 +654,9 @@ export const listProjectChats = async (
 	const filterWhereClauses: SQL<unknown>[] = [];
 	if (author) {
 		const like = toContainsLikePattern(author);
-		filterWhereClauses.push(sql`(lower(${s.user.name}) like ${like} or lower(${s.user.email}) like ${like})`);
+		filterWhereClauses.push(
+			sql`(lower(${s.user.name}) like ${like} escape '\\' or lower(${s.user.email}) like ${like} escape '\\')`,
+		);
 	}
 	if (messageCount?.min !== undefined) {
 		filterWhereClauses.push(gte(numberOfMessagesExpr, messageCount.min));

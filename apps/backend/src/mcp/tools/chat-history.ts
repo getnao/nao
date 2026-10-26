@@ -55,10 +55,13 @@ const CHAT_SUMMARY_SCHEMA = z.object({
 		name: z.string(),
 		role: z.string().describe('Project role of the author, or `Former member` when they left the project.'),
 	}),
-	source: z.string().nullable().describe('Where the chat started (web, slack, mcp…). Null for web chats.'),
+	source: z
+		.string()
+		.nullable()
+		.describe('Where the chat started (web, slack, mcp…). Null for older chats with no recorded source.'),
 	updatedAt: z.string().describe('ISO timestamp of the last activity.'),
 	messageCount: z.number(),
-	toolCallCount: z.number(),
+	toolCallCount: z.number().describe('Tool calls that ran, successfully or not. Denied calls are not counted.'),
 	toolErrorCount: z.number(),
 	upvotes: z.number(),
 	downvotes: z.number(),

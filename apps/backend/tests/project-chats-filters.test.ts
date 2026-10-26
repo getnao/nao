@@ -70,6 +70,26 @@ describe('listProjectChats author and message count filters', () => {
 		expect(atLeastThree.chats.map(({ id }) => id)).toEqual([chatIds[1]]);
 		expect(atLeastThree.total).toBe(1);
 		expect(atMostThree.chats.map(({ id }) => id)).toEqual([chatIds[0]]);
+		expect(atMostThree.total).toBe(1);
+	});
+
+	it('treats LIKE wildcards in the author as literal characters', async () => {
+		await db.update(user).set({ name: 'Alice_Martin' }).where(eq(user.id, userIds[0]));
+
+		const literal = await listProjectChats(projectId, { author: 'alice_martin' });
+		const wildcard = await listProjectChats(projectId, { author: 'b_b' });
+
+		expect(literal.chats.map(({ id }) => id)).toEqual([chatIds[0]]);
+		expect(wildcard.chats).toEqual([]);
+	});
+
+	it('leaves out deleted chats', async () => {
+		await db.update(chat).set({ deletedAt: new Date() }).where(eq(chat.id, chatIds[1]));
+
+		const { chats, total } = await listProjectChats(projectId);
+
+		expect(chats.map(({ id }) => id)).toEqual([chatIds[0]]);
+		expect(total).toBe(1);
 	});
 });
 

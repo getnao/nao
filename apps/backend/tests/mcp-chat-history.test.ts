@@ -25,6 +25,8 @@ vi.mock('../src/queries/user.queries', () => ({ getUserName: mocks.getUserName }
 
 import { registerContextAdminTools } from '../src/mcp/tools/context-admin-tools';
 
+const BASELINE_TOOL = 'baseline';
+
 const connections: Array<{ client: Client; server: McpServer }> = [];
 
 afterEach(async () => {
@@ -42,7 +44,7 @@ describe('MCP context admin tools', () => {
 	it('hides the chat history tools from regular users', async () => {
 		const client = await connect('user');
 
-		expect(await toolNames(client)).toEqual([]);
+		expect(await toolNames(client)).toEqual([BASELINE_TOOL]);
 	});
 });
 
@@ -166,8 +168,13 @@ describe('MCP get_chat', () => {
 			arguments: { chat_id: 'chat-1', include_tool_outputs: true },
 		});
 
-		expect(lastToolCall(withoutOutputs)).not.toHaveProperty('output');
-		expect(lastToolCall(withOutputs)).toMatchObject({ output: '{"row_count":1}' });
+		const successfulCall = {
+			toolName: 'execute_sql',
+			state: 'output-available',
+			input: '{"sql_query":"select * from sales"}',
+		};
+		expect(lastToolCall(withoutOutputs)).toEqual(successfulCall);
+		expect(lastToolCall(withOutputs)).toEqual({ ...successfulCall, output: '{"row_count":1}' });
 	});
 
 	it('refuses chats from another project', async () => {
@@ -183,6 +190,13 @@ describe('MCP get_chat', () => {
 
 async function connect(role: McpUserRole): Promise<Client> {
 	const server = new McpServer({ name: 'test', version: '0.0.0' });
+	server.registerTool(
+		BASELINE_TOOL,
+		{ description: 'Always registered, like the tools of the other modes.' },
+		() => ({
+			content: [],
+		}),
+	);
 	registerContextAdminTools(server, {
 		userId: 'user-1',
 		projectId: 'project-1',
@@ -200,7 +214,7 @@ async function connect(role: McpUserRole): Promise<Client> {
 }
 
 async function toolNames(client: Client): Promise<string[]> {
-	const { tools } = await client.listTools().catch(() => ({ tools: [] }));
+	const { tools } = await client.listTools();
 	return tools.map((tool) => tool.name);
 }
 
