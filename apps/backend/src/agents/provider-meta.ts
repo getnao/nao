@@ -386,6 +386,13 @@ export const PROVIDER_META: ProviderMetaMap = {
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
+				id: 'claude-sonnet-5-5',
+				name: 'Claude Sonnet 5.5',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: ANTHROPIC_ALWAYS_THINKING,
+			},
+			{
 				id: 'claude-haiku-5-5',
 				name: 'Claude Haiku 5.5',
 				contextWindow: 1_000_000,
