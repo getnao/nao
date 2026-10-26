@@ -57,6 +57,7 @@ import { cliAuthRoutes } from './routes/cli-auth';
 import { deployRoutes } from './routes/deploy';
 import { discordRoutes } from './routes/discord';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
+import { errorReportRoutes } from './routes/error-report';
 import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
@@ -199,6 +200,10 @@ app.register(attachmentRoutes, {
 
 app.register(analyticsRoutes, {
 	prefix: '/api/analytics',
+});
+
+app.register(errorReportRoutes, {
+	prefix: '/api/error-reports',
 });
 
 app.register(testRoutes, {

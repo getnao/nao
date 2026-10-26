@@ -239,6 +239,7 @@ const baseRawEnvSchema = z.object({
 	APP_VERSION: z.string().default('dev'),
 	APP_COMMIT: z.string().default('unknown'),
 	APP_BUILD_DATE: z.string().default(''),
+	CLOUD_ERROR_INGEST_TOKEN: optionalNonEmptyString,
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
@@ -528,6 +529,10 @@ const envSchema = rawEnvSchema
 				});
 			}
 		}
+	})
+	.refine((data) => data.NAO_MODE !== 'cloud' || !!data.CLOUD_ERROR_INGEST_TOKEN, {
+		message: 'CLOUD_ERROR_INGEST_TOKEN is required when NAO_MODE=cloud',
+		path: ['CLOUD_ERROR_INGEST_TOKEN'],
 	})
 	// Refresh tokens must outlive access tokens, otherwise a client can hold a valid
 	// access token it can no longer renew once the refresh token has expired.

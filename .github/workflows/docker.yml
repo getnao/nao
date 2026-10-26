@@ -365,6 +365,7 @@ jobs:
                           -e "CLOUD_GITHUB_PROJECT_APP_ID=${{ secrets.NAOCLOUD_GITHUB_PROJECT_APP_ID }}" \
                           -e "CLOUD_GITHUB_PROJECT_INSTALLATION_ID=${{ secrets.NAOCLOUD_GITHUB_PROJECT_INSTALLATION_ID }}" \
                           -e "CLOUD_GITHUB_PROJECT_PRIVATE_KEY=${{ secrets.NAOCLOUD_GITHUB_PROJECT_PRIVATE_KEY }}" \
+                          -e "CLOUD_ERROR_INGEST_TOKEN=${{ secrets.NAOCLOUD_ERROR_INGEST_TOKEN }}" \
                           "$IMAGE"
 
                       HEALTHY=false

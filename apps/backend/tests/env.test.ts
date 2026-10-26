@@ -80,6 +80,22 @@ describe('cloud billing environment', () => {
 	});
 });
 
+describe('cloud error reporting environment', () => {
+	it('requires an ingest token in cloud mode', () => {
+		const result = loadEnvWithOverrides({
+			CLOUD_ERROR_INGEST_TOKEN: '',
+			NAO_MODE: 'cloud',
+		});
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('CLOUD_ERROR_INGEST_TOKEN is required when NAO_MODE=cloud');
+	});
+
+	it('does not require an ingest token in self-hosted mode', () => {
+		expect(loadEnvWithOverrides({ NAO_MODE: 'self-hosted' }).status).toBe(0);
+	});
+});
+
 function loadEnv(mode: 'cloud' | 'self-hosted', contextSource: (typeof contextSources)[number]) {
 	return loadEnvWithOverrides({
 		NAO_CONTEXT_SOURCE: contextSource,
@@ -97,13 +113,14 @@ function loadEnvWithOverrides(overrides: NodeJS.ProcessEnv) {
 			encoding: 'utf8',
 			env: {
 				PATH: process.env.PATH,
-				...overrides,
 				...(overrides.NAO_MODE === 'cloud' && {
+					CLOUD_ERROR_INGEST_TOKEN: 'test-ingest-token',
 					CLOUD_GITHUB_PROJECT_ORG: 'test-org',
 					CLOUD_GITHUB_PROJECT_APP_ID: '123',
 					CLOUD_GITHUB_PROJECT_INSTALLATION_ID: '456',
 					CLOUD_GITHUB_PROJECT_PRIVATE_KEY: 'test-private-key',
 				}),
+				...overrides,
 			},
 		});
 	} finally {
