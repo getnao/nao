@@ -1347,7 +1347,7 @@ export function getAdvisorModelOptions(provider: LlmProvider, modelId: string): 
 	if (providerKind(provider) !== 'anthropic') {
 		return [];
 	}
-	return ANTHROPIC_ADVISOR_MODELS[modelId] ?? [];
+	return Object.hasOwn(ANTHROPIC_ADVISOR_MODELS, modelId) ? ANTHROPIC_ADVISOR_MODELS[modelId] : [];
 }
 
 function buildExtraParamControl(key: ExtraParamKey, caps: ModelCapabilities): ParamControl {

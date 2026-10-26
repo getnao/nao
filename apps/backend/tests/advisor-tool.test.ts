@@ -1,5 +1,5 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { convertToModelMessages, readUIMessageStream, streamText, type Tool, tool } from 'ai';
+import { convertToModelMessages, readUIMessageStream, stepCountIs, streamText, type Tool, tool } from 'ai';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 
@@ -47,14 +47,40 @@ const SSE_EVENTS = [
 	{ type: 'message_stop' },
 ];
 
+const FAILED_ADVISOR_THEN_SQL_EVENTS = [
+	SSE_EVENTS[0],
+	SSE_EVENTS[1],
+	SSE_EVENTS[2],
+	{
+		type: 'content_block_start',
+		index: 1,
+		content_block: {
+			type: 'advisor_tool_result',
+			tool_use_id: 'srvtoolu_1',
+			content: { type: 'advisor_tool_result_error', error_code: 'overloaded' },
+		},
+	},
+	{ type: 'content_block_stop', index: 1 },
+	{
+		type: 'content_block_start',
+		index: 2,
+		content_block: { type: 'tool_use', id: 'toolu_1', name: 'execute_sql', input: {} },
+	},
+	{ type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"sql":"SELECT 1"}' } },
+	{ type: 'content_block_stop', index: 2 },
+	{ type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5 } },
+	{ type: 'message_stop' },
+];
+
 type CapturedRequest = { body: Record<string, unknown>; beta: string | null };
 
-function createRecordingAnthropic() {
+function createRecordingAnthropic(responses: (typeof SSE_EVENTS)[] = [SSE_EVENTS]) {
 	const requests: CapturedRequest[] = [];
 	const fetch = async (_url: RequestInfo | URL, init?: RequestInit) => {
 		const headers = new Headers(init?.headers);
 		requests.push({ body: JSON.parse(String(init?.body)), beta: headers.get('anthropic-beta') });
-		const sse = SSE_EVENTS.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+		const events = responses[Math.min(requests.length - 1, responses.length - 1)];
+		const sse = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
 		return new Response(sse, { headers: { 'content-type': 'text/event-stream' } });
 	};
 	const model = createAnthropic({ apiKey: 'test-key', fetch }).chat('claude-sonnet-5');
@@ -159,5 +185,27 @@ describe('Anthropic advisor tool', () => {
 		expect(body).not.toContain('server_tool_use');
 		expect(body).not.toContain('advisor_tool_result');
 		expect(body).toContain('Revenue is fine.');
+	});
+
+	it('replays a failed advisor call as a valid error block on the next step of the same run', async () => {
+		const { model, requests } = createRecordingAnthropic([FAILED_ADVISOR_THEN_SQL_EVENTS, SSE_EVENTS]);
+
+		const result = streamText({
+			model,
+			tools: advisorTools,
+			messages: [{ role: 'user', content: 'Why did revenue drop?' }],
+			stopWhen: stepCountIs(2),
+		});
+		await result.consumeStream();
+
+		expect(requests).toHaveLength(2);
+		const assistant = (requests[1].body.messages as { role: string; content: unknown[] }[])[1];
+		expect(assistant.content).toContainEqual(
+			expect.objectContaining({
+				type: 'advisor_tool_result',
+				tool_use_id: 'srvtoolu_1',
+				content: { type: 'advisor_tool_result_error', error_code: 'overloaded' },
+			}),
+		);
 	});
 });

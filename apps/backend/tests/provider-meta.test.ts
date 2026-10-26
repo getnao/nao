@@ -485,6 +485,8 @@ describe('getAdvisorModelOptions', () => {
 	it('offers no advisor to models that cannot be executors', () => {
 		expect(getAdvisorModelOptions('anthropic', 'claude-sonnet-4-5')).toEqual([]);
 		expect(getAdvisorModelOptions('anthropic', 'claude-custom-model')).toEqual([]);
+		expect(getAdvisorModelOptions('anthropic', 'constructor')).toEqual([]);
+		expect(getAdvisorModelOptions('anthropic', 'toString')).toEqual([]);
 		expect(getModelParameterSpec('anthropic', 'claude-sonnet-4-5').map((c) => c.key)).not.toContain('advisorModel');
 	});
 
