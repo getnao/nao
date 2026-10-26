@@ -97,6 +97,7 @@ export const modelInferenceSettingsSchema = z.object({
 	safePrompt: z.boolean().optional(),
 	documentImageLimit: z.number().int().min(1).optional(),
 	documentPageLimit: z.number().int().min(1).optional(),
+	advisorModel: z.string().min(1).optional(),
 });
 export type ModelInferenceSettings = z.infer<typeof modelInferenceSettingsSchema>;
 
@@ -152,7 +153,7 @@ export type SelectParamKey = Exclude<
 /** Provider-specific per-call options a model can additionally expose (beyond the core set). */
 export type ExtraParamKey = Exclude<
 	ParamKey,
-	'temperature' | 'topP' | 'topK' | 'maxOutputTokens' | 'reasoningEffort' | 'thinkingBudgetTokens'
+	'temperature' | 'topP' | 'topK' | 'maxOutputTokens' | 'reasoningEffort' | 'thinkingBudgetTokens' | 'advisorModel'
 >;
 
 /** Declares which tunable inference parameters a model supports, driving both UI and translation. */
@@ -194,7 +195,7 @@ export type ParamControl =
 			exclusiveWith?: NumberParamKey;
 			lessThan?: NumberParamKey;
 	  }
-	| { key: SelectParamKey; kind: 'select'; label: string; options: readonly string[] }
+	| { key: SelectParamKey; kind: 'select'; label: string; options: readonly string[]; unsetLabel?: string }
 	| { key: BooleanParamKey; kind: 'boolean'; label: string };
 
 export const llmConfigSchema = z.object({

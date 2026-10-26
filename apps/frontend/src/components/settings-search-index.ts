@@ -401,6 +401,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'inference',
 			'sampling',
 			'claude',
+			'advisor',
+			'advisor model',
 		],
 	},
 	{

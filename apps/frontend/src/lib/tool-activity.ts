@@ -50,6 +50,8 @@ const describeToolActivity = (part: UIToolPart): string | null => {
 			return describeMcpCall(input);
 		case 'mcp_connect':
 			return withAsset('Connecting to', asString(input.server));
+		case 'advisor':
+			return 'Consulting the advisor';
 		default:
 			return `Running ${humanizeToolName(toolName)}`;
 	}

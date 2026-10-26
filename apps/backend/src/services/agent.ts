@@ -28,6 +28,7 @@ import {
 } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
+import { ADVISOR_TOOL_NAME, createAdvisorTools } from '../agents/tools/advisor';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
@@ -71,7 +72,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { sanitizeToolCalls } from '../utils/model-message';
+import { sanitizeToolCalls, stripAdvisorParts } from '../utils/model-message';
 import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
@@ -390,7 +391,7 @@ export class AgentService {
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const resolvedTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
 		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, resolvedTools);
-		const agentTools = resolvedTools;
+		const agentTools: AgentTools = { ...resolvedTools, ...createAdvisorTools(modelConfig.advisorModelId) };
 		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
 			? [stepCountIs(options.maxSteps ?? 20)]
 			: interactiveStopConditions;
@@ -724,7 +725,8 @@ export class AgentManager {
 			tools: this._agentTools,
 		});
 
-		return sanitizeToolCalls(modelMessages, this._modelSelection.provider);
+		const sanitizedMessages = sanitizeToolCalls(modelMessages, this._modelSelection.provider);
+		return stripAdvisorParts(sanitizedMessages, ADVISOR_TOOL_NAME in this._agentTools);
 	}
 
 	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
