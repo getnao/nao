@@ -114,6 +114,11 @@ const settingsNavGroups: NavGroup[] = [
 				to: '/settings/context-explorer',
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 			},
+			{
+				label: 'Tests',
+				to: '/settings/tests',
+				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+			},
 		],
 	},
 	{
