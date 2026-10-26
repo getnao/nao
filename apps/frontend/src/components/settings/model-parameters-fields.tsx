@@ -120,7 +120,9 @@ function SelectField({
 					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
-					<SelectItem value={DEFAULT_SENTINEL}>Default</SelectItem>
+					<SelectItem value={DEFAULT_SENTINEL}>
+						{(control.kind === 'select' && control.unsetLabel) || 'Default'}
+					</SelectItem>
 					{options.map((option) => (
 						<SelectItem key={option.value} value={option.value}>
 							{option.label}

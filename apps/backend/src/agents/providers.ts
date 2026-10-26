@@ -38,6 +38,7 @@ import {
 	EFFORT_TO_BEDROCK,
 	EFFORT_TO_GEMINI_LEVEL,
 	EFFORT_TO_OPENAI,
+	getAdvisorModelOptions,
 	getModelCapabilities,
 	isAnthropicApiModel,
 	OPENAI_COMPATIBLE_BASE_URLS,
@@ -257,6 +258,8 @@ export type ProviderModelResult = {
 	providerOptions: ProviderOptionsMap;
 	contextWindow: number;
 	callSettings?: ModelCallSettings;
+	/** Model the agent consults through Anthropic's advisor tool, when the admin enabled one. */
+	advisorModelId?: string;
 };
 
 export function disableModelReasoning(provider: LlmProvider, modelResult: ProviderModelResult): ProviderModelResult {
@@ -315,6 +318,7 @@ export function createProviderModel(
 	const contextWindow = getContextWindow(provider, modelId);
 
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
+	const advisorModelId = resolveAdvisorModelId(provider, modelId, inferenceSettings);
 
 	// Claude-on-Vertex keys provider options under `anthropic`, not `vertex`.
 	const optionKey: LlmProvider = kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
@@ -326,6 +330,7 @@ export function createProviderModel(
 		} as ProviderOptionsMap,
 		contextWindow,
 		callSettings,
+		...(advisorModelId && { advisorModelId }),
 	};
 }
 
@@ -383,6 +388,16 @@ function resolveInferenceOptions(
 		callSettings: Object.keys(callSettings).length > 0 ? callSettings : undefined,
 		providerOverrides,
 	};
+}
+
+/** A stored advisor the model cannot pair with (e.g. after a model swap) is ignored rather than sent to fail. */
+function resolveAdvisorModelId(
+	provider: LlmProvider,
+	modelId: string,
+	settings: ModelInferenceSettings = {},
+): string | undefined {
+	const advisorModel = settings.advisorModel;
+	return advisorModel && getAdvisorModelOptions(provider, modelId).includes(advisorModel) ? advisorModel : undefined;
 }
 
 function clampNumber(value: number, min: number, max: number): number {

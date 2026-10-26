@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { type LlmProvider, providerKind } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 
+import { ADVISOR_TOOL_NAME } from '../agents/tools/advisor';
+
 const PROVIDER_SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const IDENTIFIER_HASH_LENGTH = 8;
 const TOOL_CALL_ID_MAX_LENGTH = 64;
@@ -93,6 +95,50 @@ export function stripReasoningParts(messages: ModelMessage[]): ModelMessage[] {
 		const content = kept.length > 0 ? kept : [{ type: 'text' as const, text: '[Reasoning omitted]' }];
 		return { ...message, content } as ModelMessage;
 	});
+}
+
+/**
+ * Anthropic rejects a history holding advisor blocks when the advisor tool is not offered, and only a
+ * successful advisor result can be replayed: failed or interrupted calls carry an error the SDK cannot
+ * convert back. Advisor calls are dropped from the history, except the successful ones while the
+ * advisor is still offered. An assistant turn left empty is dropped as well.
+ */
+export function stripAdvisorParts(messages: ModelMessage[], advisorOffered: boolean): ModelMessage[] {
+	const replayableCallIds = advisorOffered ? collectReplayableAdvisorCallIds(messages) : new Set<string>();
+	return messages.flatMap((message) => {
+		if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+			return [message];
+		}
+		const content = message.content.filter(
+			(part) => !isAdvisorPart(part) || replayableCallIds.has(part.toolCallId),
+		);
+		if (content.length === message.content.length) {
+			return [message];
+		}
+		return content.length > 0 ? [{ ...message, content }] : [];
+	});
+}
+
+function collectReplayableAdvisorCallIds(messages: ModelMessage[]): Set<string> {
+	const callIds = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+			continue;
+		}
+		for (const part of message.content) {
+			if (isAdvisorPart(part) && part.type === 'tool-result' && part.output.type === 'json') {
+				callIds.add(part.toolCallId);
+			}
+		}
+	}
+	return callIds;
+}
+
+type AssistantContentPart = Exclude<Extract<ModelMessage, { role: 'assistant' }>['content'], string>[number];
+type AdvisorPart = Extract<AssistantContentPart, { type: 'tool-call' | 'tool-result' }>;
+
+function isAdvisorPart(part: AssistantContentPart): part is AdvisorPart {
+	return (part.type === 'tool-call' || part.type === 'tool-result') && part.toolName === ADVISOR_TOOL_NAME;
 }
 
 /**

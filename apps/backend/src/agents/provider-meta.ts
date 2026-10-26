@@ -107,6 +107,51 @@ const GOOGLE_EXTRAS: ExtraParamKey[] = ['includeThoughts', 'safetyThreshold', 'm
 const MISTRAL_EXTRAS: ExtraParamKey[] = ['safePrompt', 'parallelToolCalls', 'documentImageLimit', 'documentPageLimit'];
 const BEDROCK_EXTRAS: ExtraParamKey[] = ['serviceTier'];
 
+const ADVISORS_FOR_5_1 = ['claude-mythos-5-1', 'claude-fable-5-1'];
+const ADVISORS_FOR_5 = [...ADVISORS_FOR_5_1, 'claude-mythos-5', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5'];
+const ADVISORS_FOR_OPUS_4_7 = [...ADVISORS_FOR_5, 'claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-5-5'];
+const ADVISORS_FOR_SONNET_5 = [...ADVISORS_FOR_OPUS_4_7, 'claude-sonnet-5', 'claude-haiku-5-5'];
+const ADVISORS_FOR_OPUS_4_6 = [
+	...ADVISORS_FOR_5,
+	'claude-opus-4-8',
+	'claude-opus-4-7',
+	'claude-opus-4-6',
+	'claude-sonnet-5-5',
+	'claude-sonnet-5',
+	'claude-haiku-5-5',
+];
+const ADVISORS_FOR_SONNET_4_6 = [
+	...ADVISORS_FOR_5,
+	'claude-opus-4-8',
+	'claude-opus-4-7',
+	'claude-opus-4-6',
+	'claude-sonnet-5-5',
+	'claude-sonnet-5',
+	'claude-sonnet-4-6',
+	'claude-haiku-5-5',
+];
+
+/**
+ * Advisor models Anthropic accepts for each executor model; the API rejects any other pair with a 400.
+ * See https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool#model-compatibility
+ */
+const ANTHROPIC_ADVISOR_MODELS: Record<string, readonly string[]> = {
+	'claude-mythos-5-1': ADVISORS_FOR_5_1,
+	'claude-fable-5-1': ADVISORS_FOR_5_1,
+	'claude-mythos-5': ADVISORS_FOR_5,
+	'claude-fable-5': ADVISORS_FOR_5,
+	'claude-opus-5-5': ADVISORS_FOR_5,
+	'claude-opus-5': ADVISORS_FOR_5,
+	'claude-sonnet-5-5': [...ADVISORS_FOR_5, 'claude-sonnet-5-5'],
+	'claude-opus-4-8': ADVISORS_FOR_OPUS_4_7,
+	'claude-opus-4-7': ADVISORS_FOR_OPUS_4_7,
+	'claude-opus-4-6': ADVISORS_FOR_OPUS_4_6,
+	'claude-sonnet-5': ADVISORS_FOR_SONNET_5,
+	'claude-haiku-5-5': ADVISORS_FOR_SONNET_5,
+	'claude-sonnet-4-6': ADVISORS_FOR_SONNET_4_6,
+	'claude-haiku-4-5': ADVISORS_FOR_SONNET_4_6,
+};
+
 /** Modern Claude (sonnet-4-6+/opus-4-6+/fable-5): adaptive thinking driven by effort; topK deprecated. */
 const ANTHROPIC_ADAPTIVE: ModelCapabilities = {
 	thinking: 'adaptive',
@@ -1280,7 +1325,29 @@ export function getModelParameterSpec(provider: LlmProvider, modelId: string): P
 		controls.push(buildExtraParamControl(key, caps));
 	}
 
+	const advisorModels = getAdvisorModelOptions(provider, modelId);
+	if (advisorModels.length > 0) {
+		controls.push({
+			key: 'advisorModel',
+			kind: 'select',
+			label: 'Advisor model',
+			options: advisorModels,
+			unsetLabel: 'Off',
+		});
+	}
+
 	return controls;
+}
+
+/**
+ * Advisor models a model can consult through Anthropic's advisor tool. Only the Anthropic API
+ * serves the tool, so Claude reached through Bedrock, Vertex or a router gets none.
+ */
+export function getAdvisorModelOptions(provider: LlmProvider, modelId: string): readonly string[] {
+	if (providerKind(provider) !== 'anthropic') {
+		return [];
+	}
+	return Object.hasOwn(ANTHROPIC_ADVISOR_MODELS, modelId) ? ANTHROPIC_ADVISOR_MODELS[modelId] : [];
 }
 
 function buildExtraParamControl(key: ExtraParamKey, caps: ModelCapabilities): ParamControl {

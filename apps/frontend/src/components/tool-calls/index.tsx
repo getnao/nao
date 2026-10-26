@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { AdvisorToolCall } from './advisor';
 import { StoryToolCall } from './story';
 import { ClarificationToolCall, RequestWarehouseSelectionToolCall } from './clarification';
 import { DefaultToolCall } from './default';
@@ -61,6 +62,7 @@ const toolComponents: Partial<{
 };
 
 export const dynamicToolComponents = {
+	advisor: AdvisorToolCall,
 	web_search: WebSearchToolCall,
 	web_fetch: WebFetchToolCall,
 	google_search: WebSearchToolCall,

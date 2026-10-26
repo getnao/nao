@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getToolName, isToolUIPart } from 'ai';
 
+import { ADVISOR_TOOL_NAME } from '../agents/tools/advisor';
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
 import { UIMessagePart, UIToolPart } from '../types/chat';
 import { buildImageUrl } from './image';
 import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from './tools';
 
-const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search']);
+const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search', ADVISOR_TOOL_NAME]);
 
 /**
  * Converts a list of UI message parts to a list of database message parts.

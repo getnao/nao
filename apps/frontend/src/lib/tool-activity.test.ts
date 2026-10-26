@@ -71,6 +71,10 @@ describe('getLatestToolActivityLabel', () => {
 		expect(getLatestToolActivityLabel(parts)).toBe('Exploring slow.sql');
 	});
 
+	it('says the agent is consulting the advisor while the advisor reviews the conversation', () => {
+		expect(getLatestToolActivityLabel([toolPart('advisor', {})])).toBe('Consulting the advisor');
+	});
+
 	it('falls back to the tool name for tools without a dedicated label', () => {
 		expect(getLatestToolActivityLabel([toolPart('execute_python', { code: 'print(1)' })])).toBe(
 			'Running execute python',

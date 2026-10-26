@@ -36,6 +36,39 @@ function resolve(provider: LlmProvider, modelId: string, inference?: ModelInfere
 	return { callSettings: result.callSettings, options, providerOptions: result.providerOptions };
 }
 
+describe('Anthropic advisor', () => {
+	it('is off unless the admin picks an advisor model', () => {
+		const result = createProviderModel('anthropic', SETTINGS, 'claude-sonnet-5', { reasoningEffort: 'high' });
+
+		expect(result).not.toHaveProperty('advisorModelId');
+	});
+
+	it('exposes the advisor model picked for the executor, without sending it as a provider option', () => {
+		const result = createProviderModel('anthropic', SETTINGS, 'claude-sonnet-5', {
+			advisorModel: 'claude-opus-4-8',
+		});
+
+		expect(result.advisorModelId).toBe('claude-opus-4-8');
+		expect(result.providerOptions.anthropic).not.toHaveProperty('advisorModel');
+	});
+
+	it('ignores a stored advisor the executor cannot pair with', () => {
+		const result = createProviderModel('anthropic', SETTINGS, 'claude-opus-5-5', {
+			advisorModel: 'claude-opus-4-8',
+		});
+
+		expect(result).not.toHaveProperty('advisorModelId');
+	});
+
+	it('ignores an advisor stored on Claude outside the Anthropic API', () => {
+		const result = createProviderModel('openrouter', SETTINGS, 'anthropic/claude-sonnet-4.6', {
+			advisorModel: 'claude-opus-4-8',
+		});
+
+		expect(result).not.toHaveProperty('advisorModelId');
+	});
+});
+
 describe('Anthropic (live-validated Claude rules)', () => {
 	it('returns no call settings and no thinking overrides without inference settings', () => {
 		const { callSettings, options } = resolve('anthropic', 'claude-sonnet-4-6');

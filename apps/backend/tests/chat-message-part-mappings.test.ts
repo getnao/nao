@@ -71,6 +71,28 @@ describe('file parts', () => {
 	});
 });
 
+describe('advisor parts', () => {
+	it('reads a stored advisor call back as provider-executed so it replays as a server tool', () => {
+		const output = { type: 'advisor_result', text: 'Check the date filter first.' };
+		const dbPart = asDBPart({
+			type: 'tool-advisor',
+			toolName: 'advisor',
+			toolCallId: 'srvtoolu_1',
+			toolState: 'output-available',
+			toolInput: {},
+			toolOutput: output,
+		});
+
+		expect(convertDBPartToUIPart(dbPart)).toMatchObject({
+			type: 'tool-advisor',
+			toolCallId: 'srvtoolu_1',
+			state: 'output-available',
+			output,
+			providerExecuted: true,
+		});
+	});
+});
+
 describe('compaction parts', () => {
 	it('stores a compaction summary and reads it back', () => {
 		const dbPart = convertUIPartToDBPart(
