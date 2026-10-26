@@ -60,6 +60,7 @@ import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
+import { linkPreviewRoutes } from './routes/link-preview';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
@@ -76,6 +77,7 @@ import { discordService } from './services/discord';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { LINK_PREVIEW_ROUTE_PREFIX, resolveLinkPreview } from './services/link-preview.service';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
@@ -86,6 +88,7 @@ import { validateCloudBillingConfiguration } from './services/stripe.service';
 import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
+import { renderAppShell } from './utils/app-shell';
 import { BudgetExceededError, HandlerError } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { describeError, logger } from './utils/logger';
@@ -234,6 +237,10 @@ app.register(embedStoryDownloadRoutes, {
 
 app.register(storyThumbnailRoutes, {
 	prefix: '/api/stories',
+});
+
+app.register(linkPreviewRoutes, {
+	prefix: LINK_PREVIEW_ROUTE_PREFIX,
 });
 
 app.register(notificationUnsubscribeRoutes, {
@@ -410,22 +417,37 @@ if (staticRoot) {
 		root: staticRoot,
 		prefix: '/',
 		wildcard: false,
+		// `/` goes through the SPA fallback so its link preview tags get rendered too.
+		index: false,
 	});
 }
 
 // SPA fallback: serve index.html for all non-API routes.
 // In dev mode without a built frontend, redirect to the Vite dev server.
-app.setNotFoundHandler((request, reply) => {
+app.setNotFoundHandler(async (request, reply) => {
 	if (isReservedBackendPath(request.url)) {
-		reply.status(404).send({ error: 'Not found' });
-	} else if (staticRoot) {
-		reply.sendFile('index.html');
-	} else if (isDev) {
-		reply.redirect(`${FRONTEND_DEV_ORIGIN}${request.url}`);
-	} else {
-		reply.status(404).send({ error: 'Not found' });
+		return reply.status(404).send({ error: 'Not found' });
 	}
+	if (staticRoot) {
+		return sendAppShell(request, reply, staticRoot);
+	}
+	if (isDev) {
+		return reply.redirect(`${FRONTEND_DEV_ORIGIN}${request.url}`);
+	}
+	return reply.status(404).send({ error: 'Not found' });
 });
+
+async function sendAppShell(request: FastifyRequest, reply: FastifyReply, root: string) {
+	try {
+		const pathname = request.url.split('?', 1)[0];
+		const preview = await resolveLinkPreview(pathname, `${request.protocol}://${request.host}`);
+		const html = await renderAppShell(root, preview);
+		return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-cache').send(html);
+	} catch (error) {
+		logger.warn(`Falling back to the static app shell: ${describeError(error)}`, { source: 'http' });
+		return reply.sendFile('index.html');
+	}
+}
 
 export const startServer = async (opts: { port: number; host: string }) => {
 	if (isCloud) {

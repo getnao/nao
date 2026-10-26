@@ -1128,6 +1128,7 @@ export const projectRoutes = {
 						customFormat: z.string().trim().max(64).optional(),
 					})
 					.optional(),
+				linkPreviewThumbnails: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -1136,6 +1137,7 @@ export const projectRoutes = {
 				project_id: ctx.project.id,
 				date_format_preset: next.dateFormat?.preset,
 				date_format_has_custom_pattern: Boolean(next.dateFormat?.customFormat),
+				link_preview_thumbnails: next.linkPreviewThumbnails,
 			});
 			return next;
 		}),
