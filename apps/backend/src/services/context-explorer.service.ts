@@ -24,6 +24,8 @@ import {
 	BUILT_IN_EXCLUSION_GLOBS,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
+	matchesNaoignorePattern,
+	type NaoignoreOptions,
 	shouldExcludeEntry,
 	toRealPath,
 	toVirtualPath,
@@ -36,6 +38,8 @@ const MAX_SEARCH_FILES = 200;
 export const MAX_CONTEXT_FILE_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FRONTMATTER_READ_SIZE = 8 * 1024;
+/** Context admins manage tests here, while .naoignore keeps them away from the agent. */
+const EXPLORER_NAOIGNORE_OPTIONS: NaoignoreOptions = { naoignoreExemptFolders: ['tests'] };
 
 export interface FileEditability {
 	isEditable: boolean;
@@ -288,7 +292,7 @@ function buildSearchArguments(query: string, projectFolder: string): string[] {
 		args.push('--glob', exclusionGlob);
 	}
 
-	for (const ignorePattern of loadNaoignorePatterns(projectFolder)) {
+	for (const ignorePattern of loadExplorerNaoignorePatterns(projectFolder)) {
 		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
 		args.push('--glob', `!${cleanPattern}`);
 		args.push('--glob', `!${cleanPattern}/**`);
@@ -297,6 +301,14 @@ function buildSearchArguments(query: string, projectFolder: string): string[] {
 	args.push('--regexp', query);
 	args.push('--', projectFolder);
 	return args;
+}
+
+/** Patterns that would hide an exempt folder are dropped; results are filtered by `isWithinProjectFolder` anyway. */
+function loadExplorerNaoignorePatterns(projectFolder: string): string[] {
+	const exemptFolders = EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? [];
+	return loadNaoignorePatterns(projectFolder).filter(
+		(pattern) => !exemptFolders.some((folder) => matchesNaoignorePattern(folder, pattern)),
+	);
 }
 
 function runContentSearch(
@@ -345,11 +357,11 @@ function runContentSearch(
 				}
 
 				const filePath = entry.data.path.text;
-				if (!isWithinProjectFolder(filePath, projectFolder)) {
+				if (!isWithinProjectFolder(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS)) {
 					return;
 				}
 
-				const virtualPath = toVirtualPath(filePath, projectFolder);
+				const virtualPath = toVirtualPath(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS);
 				const existing = results.get(virtualPath);
 				if (existing) {
 					existing.count += entry.data.submatches.length;
@@ -416,7 +428,9 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 	const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
 
 	const parentRelativePath = path.relative(projectFolder, dirPath);
-	const filtered = dirEntries.filter((entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder));
+	const filtered = dirEntries.filter(
+		(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS),
+	);
 
 	const entries: FileTreeEntry[] = [];
 
@@ -454,7 +468,7 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
-		const realPath = toRealPath(virtualPath, root, { resolveSymlinks: false });
+		const realPath = toRealPath(virtualPath, root, { ...EXPLORER_NAOIGNORE_OPTIONS, resolveSymlinks: false });
 		assertNoSymlinkInWritePath(root, realPath, virtualPath);
 		return { realPath, root };
 	} catch (error) {
