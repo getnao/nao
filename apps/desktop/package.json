@@ -1,0 +1,49 @@
+{
+	"name": "@nao/desktop",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"dev": "tauri dev",
+		"build": "tauri build",
+		"dev:ui": "vite --port 1420 --strictPort",
+		"build:ui": "tsc --noEmit && vite build",
+		"test": "vitest run",
+		"build:e2e": "tauri build --debug --no-bundle",
+		"test:e2e": "wdio run e2e/wdio.conf.ts",
+		"lint": "tsc --noEmit && tsc --noEmit -p e2e && eslint",
+		"lint:fix": "eslint --fix",
+		"lint:rust": "cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
+		"format": "prettier --write .",
+		"tauri": "tauri"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "^2.9.0",
+		"clsx": "^2.1.1",
+		"lucide-react": "^0.562.0",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
+		"tailwind-merge": "^3.4.0"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.0.6",
+		"@tauri-apps/cli": "^2.9.0",
+		"@testing-library/react": "^16.2.0",
+		"@types/node": "^22.10.2",
+		"@types/react": "^19.2.0",
+		"@types/react-dom": "^19.2.0",
+		"@vitejs/plugin-react": "^5.0.4",
+		"@wdio/cli": "^9.20.0",
+		"@wdio/globals": "^9.20.0",
+		"@wdio/local-runner": "^9.20.0",
+		"@wdio/mocha-framework": "^9.20.0",
+		"@wdio/spec-reporter": "^9.20.0",
+		"eslint-plugin-react-hooks": "^7.0.1",
+		"jsdom": "^27.0.0",
+		"tailwindcss": "^4.0.6",
+		"typescript": "^5.7.2",
+		"vite": "^7.1.7",
+		"vitest": "^3.0.5",
+		"webdriverio": "^9.20.0"
+	}
+}

@@ -53,7 +53,7 @@ import { automationWebhookRoutes } from './routes/automation-webhook';
 import { backofficeRoutes } from './routes/backoffice';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
-import { cliAuthRoutes } from './routes/cli-auth';
+import { cliAuthRoutes, desktopAuthRoutes } from './routes/cli-auth';
 import { deployRoutes } from './routes/deploy';
 import { discordRoutes } from './routes/discord';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
@@ -64,6 +64,7 @@ import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
+import { serverInfoRoutes } from './routes/server-info';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
 import { storyThumbnailRoutes } from './routes/story-thumbnail';
@@ -206,6 +207,14 @@ app.register(testRoutes, {
 
 app.register(cliAuthRoutes, {
 	prefix: '/api/cli-auth',
+});
+
+app.register(desktopAuthRoutes, {
+	prefix: '/api/desktop-auth',
+});
+
+app.register(serverInfoRoutes, {
+	prefix: '/api',
 });
 
 app.register(chartRoutes, {
