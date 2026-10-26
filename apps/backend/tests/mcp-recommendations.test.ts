@@ -35,6 +35,8 @@ import { registerContextAdminTools } from '../src/mcp/tools/context-admin-tools'
 
 const RECOMMENDATION_TOOLS = ['list_recommendations', 'get_recommendation', 'set_recommendation_status'];
 
+const BASELINE_TOOL = 'baseline';
+
 const connections: Array<{ client: Client; server: McpServer }> = [];
 
 beforeEach(() => {
@@ -56,7 +58,7 @@ describe('MCP recommendation tools registration', () => {
 	it('hides them from regular users', async () => {
 		const client = await connect('user');
 
-		expect(await toolNames(client)).toEqual([]);
+		expect(await toolNames(client)).toEqual([BASELINE_TOOL]);
 	});
 
 	it('hides them when context recommendations are disabled on the instance', async () => {
@@ -177,6 +179,13 @@ describe('MCP set_recommendation_status', () => {
 
 async function connect(role: McpUserRole): Promise<Client> {
 	const server = new McpServer({ name: 'test', version: '0.0.0' });
+	server.registerTool(
+		BASELINE_TOOL,
+		{ description: 'Always registered, like the tools of the other modes.' },
+		() => ({
+			content: [],
+		}),
+	);
 	registerContextAdminTools(server, {
 		userId: 'user-1',
 		projectId: 'project-1',
@@ -194,7 +203,7 @@ async function connect(role: McpUserRole): Promise<Client> {
 }
 
 async function toolNames(client: Client): Promise<string[]> {
-	const { tools } = await client.listTools().catch(() => ({ tools: [] }));
+	const { tools } = await client.listTools();
 	return tools.map((tool) => tool.name);
 }
 
