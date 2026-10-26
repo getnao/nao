@@ -363,7 +363,9 @@ export function SystemPrompt({
 					<Block>
 						<Title level={2}>Skills</Title>
 						<Span>
-							You have access to pre-defined skills. Use these as guidance for relevant questions.
+							You have access to pre-defined skills. Use these as guidance for relevant questions. To use
+							a skill, read its file at the location below. Never call <Bold>load_skill</Bold> for them:
+							it only serves built-in skills.
 						</Span>
 						{listedSkills.map((skill) => (
 							<>

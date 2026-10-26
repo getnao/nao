@@ -468,6 +468,18 @@ describe('SystemPrompt preloaded skills', () => {
 	});
 });
 
+describe('SystemPrompt project skills', () => {
+	const skills = [{ name: 'revenue', description: 'How to compute revenue.', location: '/agent/skills/revenue.md' }];
+
+	it('tells the agent to read a listed skill file instead of calling load_skill', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, internalSkills: [] }));
+
+		expect(markdown).toContain('read its file at the location below');
+		expect(markdown).toContain('Never call **load_skill** for them');
+		expect(markdown).toContain('/agent/skills/revenue.md');
+	});
+});
+
 describe('SystemPrompt SQL query rules', () => {
 	it('forbids citing table documentation statistics as answers to data questions', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
