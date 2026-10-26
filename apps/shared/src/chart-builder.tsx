@@ -24,14 +24,11 @@ import {
 } from 'recharts';
 
 import {
-	boxesOverlap,
 	DATA_LABEL_ANCHOR_GAP,
 	DATA_LABEL_MARGIN_TOP,
 	DATA_LABEL_X_AXIS_FOOTROOM,
 	getDataLabelSetup,
 	getRenderedSeries,
-	type LabelBox,
-	labelBox,
 	PIE_LABELLED_OUTER_RADIUS,
 	renderDataLabelsLayer,
 	renderPieDataLabelsLayer,
@@ -118,7 +115,7 @@ const HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH = 60;
 const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 18;
 const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH =
 	HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING;
-const HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP = 2;
+const HORIZONTAL_BAR_LABEL_MIN_FONT_SIZE = 9;
 const HORIZONTAL_BAR_SIZE = 10;
 const HORIZONTAL_BAR_MAX_SIZE = 28;
 const HORIZONTAL_BAR_CATEGORY_GAP = '20%';
@@ -688,7 +685,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 	const categoryAxisWidth = computeHorizontalBarCategoryAxisWidth(data, xAxisKey, tickFormatter);
 	const valueLabelWidth = showValueLabels ? computeHorizontalBarValueLabelWidth(labelValues, valueFormatter) : 0;
 	const horizontalBarValueLabelsLayer = showValueLabels
-		? createHorizontalBarValueLabelsLayer(valueFormatter, valueLabelWidth)
+		? createHorizontalBarValueLabelsLayer(valueFormatter, valueLabelWidth, xAxisInterval)
 		: undefined;
 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
 	const margin = {
@@ -744,8 +741,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 					tick={createHorizontalBarCategoryTick(tickFormatter)}
 					tickLine={false}
 					axisLine={false}
-					minTickGap={HORIZONTAL_BAR_CATEGORY_MIN_TICK_GAP}
-					interval={xAxisInterval ?? 'preserveStartEnd'}
+					interval={xAxisInterval ?? 0}
 					width={categoryAxisWidth}
 					tickFormatter={tickFormatter}
 				/>
@@ -861,6 +857,7 @@ interface HorizontalBarLabelsLayerProps {
 	offset?: {
 		left?: number;
 		width?: number;
+		height?: number;
 	};
 }
 
@@ -877,11 +874,32 @@ interface HorizontalBarCategoryTickProps {
 	fill?: string;
 	textAnchor?: React.SVGProps<SVGTextElement>['textAnchor'];
 	payload?: { value?: unknown };
+	index?: number;
+	visibleTicksCount?: number;
+	height?: number | string;
+}
+
+interface HorizontalBarLabelLayout {
+	fontSize: number;
+	stride: number;
 }
 
 /** Recharts' default tick wraps labels containing spaces onto several lines; categories stay on one line. */
 function createHorizontalBarCategoryTick(tickFormatter: (value: string) => string) {
-	function HorizontalBarCategoryTick({ x, y, fill, textAnchor, payload }: HorizontalBarCategoryTickProps) {
+	function HorizontalBarCategoryTick({
+		x,
+		y,
+		fill,
+		textAnchor,
+		payload,
+		index,
+		visibleTicksCount,
+		height,
+	}: HorizontalBarCategoryTickProps) {
+		const { fontSize, stride } = resolveHorizontalBarLabelLayout(visibleTicksCount ?? 0, toFiniteNumber(height));
+		if ((index ?? 0) % stride !== 0) {
+			return <g />;
+		}
 		return (
 			<text
 				x={x}
@@ -889,7 +907,7 @@ function createHorizontalBarCategoryTick(tickFormatter: (value: string) => strin
 				dy='0.355em'
 				fill={fill}
 				textAnchor={textAnchor}
-				fontSize={AXIS_TICK.fontSize}
+				fontSize={fontSize}
 				fontFamily={AXIS_TICK.fontFamily}
 				className='recharts-text recharts-cartesian-axis-tick-value'
 			>
@@ -900,13 +918,39 @@ function createHorizontalBarCategoryTick(tickFormatter: (value: string) => strin
 	return HorizontalBarCategoryTick;
 }
 
-function createHorizontalBarValueLabelsLayer(valueFormatter: (value: number) => string, valueLabelWidth: number) {
+/**
+ * Recharts' own tick skipping measures labels with the page line-height (18px for a 12px font),
+ * which drops every other label on rows that still fit. Category and value labels instead shrink
+ * to the row pitch, and only below the minimum font are rows skipped, with the same stride for
+ * both columns so they stay on the same rows.
+ */
+function resolveHorizontalBarLabelLayout(rowCount: number, plotHeight: number | null): HorizontalBarLabelLayout {
+	if (!plotHeight || rowCount <= 1) {
+		return { fontSize: CHART_LABEL_FONT_SIZE, stride: 1 };
+	}
+	const rowPitch = plotHeight / rowCount;
+	const fontSize = Math.min(
+		CHART_LABEL_FONT_SIZE,
+		Math.max(HORIZONTAL_BAR_LABEL_MIN_FONT_SIZE, Math.floor(rowPitch)),
+	);
+	return { fontSize, stride: Math.ceil(fontSize / rowPitch) };
+}
+
+function createHorizontalBarValueLabelsLayer(
+	valueFormatter: (value: number) => string,
+	valueLabelWidth: number,
+	categoryInterval: number | undefined,
+) {
 	function HorizontalBarValueLabelsLayer({ formattedGraphicalItems, offset }: HorizontalBarLabelsLayerProps) {
 		const bar = formattedGraphicalItems?.find((item) => item.item?.type?.displayName === 'Bar');
 		const trackEnd = (toFiniteNumber(offset?.left) ?? 0) + (toFiniteNumber(offset?.width) ?? 0);
 		const labelX = trackEnd + valueLabelWidth - HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING;
 		const points = bar?.props?.data ?? [];
-		const labels = selectHorizontalBarValueLabels(points, labelX, valueFormatter);
+		const { fontSize, stride } =
+			categoryInterval != null
+				? { fontSize: CHART_LABEL_FONT_SIZE, stride: categoryInterval + 1 }
+				: resolveHorizontalBarLabelLayout(points.length, toFiniteNumber(offset?.height));
+		const labels = selectHorizontalBarValueLabels(points, labelX, valueFormatter, stride);
 		if (labels.length === 0) {
 			return null;
 		}
@@ -918,7 +962,7 @@ function createHorizontalBarValueLabelsLayer(valueFormatter: (value: number) => 
 						x={label.x}
 						y={label.y}
 						fill={MUTED_FOREGROUND}
-						fontSize={CHART_LABEL_FONT_SIZE}
+						fontSize={fontSize}
 						textAnchor='end'
 						dominantBaseline='central'
 						className='recharts-horizontal-bar-value-label'
@@ -937,26 +981,18 @@ function selectHorizontalBarValueLabels(
 	points: HorizontalBarGraphicalPoint[],
 	labelX: number,
 	valueFormatter: (value: number) => string,
+	stride: number,
 ): HorizontalBarValueLabel[] {
 	const labels: HorizontalBarValueLabel[] = [];
-	let previousBox: LabelBox | null = null;
-	for (const point of points) {
+	points.forEach((point, index) => {
 		const y = toFiniteNumber(point.y);
 		const height = toFiniteNumber(point.height);
-		if (y == null || height == null) {
-			continue;
+		if (index % stride !== 0 || y == null || height == null) {
+			return;
 		}
 		const value = toFiniteNumber(point.payload?.[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]) ?? 0;
-		const text = valueFormatter(value);
-		const labelY = y + height / 2;
-		const halfWidth = (text.length * VALUE_AXIS_CHARACTER_WIDTH) / 2;
-		const box = labelBox(labelX, labelY, halfWidth, 'end', CHART_LABEL_FONT_SIZE);
-		if (previousBox && boxesOverlap(previousBox, box)) {
-			continue;
-		}
-		labels.push({ key: `${y}-${value}`, text, x: labelX, y: labelY });
-		previousBox = box;
-	}
+		labels.push({ key: `${y}-${value}`, text: valueFormatter(value), x: labelX, y: y + height / 2 });
+	});
 	return labels;
 }
 
