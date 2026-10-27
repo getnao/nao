@@ -389,7 +389,7 @@ export const PROVIDER_META: ProviderMetaMap = {
 				id: 'claude-sonnet-5-5',
 				name: 'Claude Sonnet 5.5',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.1, inputCacheWrite: 2.5, output: 10 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
