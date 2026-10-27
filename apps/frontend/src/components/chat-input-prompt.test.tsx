@@ -37,6 +37,10 @@ vi.mock('@tanstack/react-query', () => ({
 	},
 }));
 
+vi.mock('@tanstack/react-router', () => ({
+	useParams: () => undefined,
+}));
+
 vi.mock('prompt-mentions', () => ({
 	Prompt: ({ mentionConfigs }: { mentionConfigs: { options: { id: string; label: string }[] }[] }) => (
 		<div>
@@ -67,6 +71,14 @@ vi.mock('@/main', () => ({
 		},
 		skill: {
 			list: { queryOptions: () => ({ queryKey: ['skills'] }) },
+		},
+		story: {
+			listReferenceable: { queryOptions: () => ({ queryKey: ['referenceable-stories'] }) },
+			listMostViewed: { queryOptions: () => ({ queryKey: ['most-viewed-stories'] }) },
+		},
+		storyFolder: {
+			listTree: { queryOptions: () => ({ queryKey: ['story-folders'] }) },
+			listItems: { queryOptions: () => ({ queryKey: ['story-folder-items'] }) },
 		},
 	},
 }));
