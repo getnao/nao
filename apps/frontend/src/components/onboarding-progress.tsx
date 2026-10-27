@@ -222,12 +222,22 @@ export function getCompletedSteps(
 }
 
 export function isOnboardingComplete(
-	hasProject: boolean,
+	hasOnboardingProject: boolean,
 	progress: OnboardingProgressState | null,
 	warehouseReady: boolean,
 ): boolean {
 	const progressComplete = isDeployStepReached(progress) || (progress?.flow === 'github' && progress.step === 2);
-	return hasProject && (warehouseReady || progressComplete);
+	return hasOnboardingProject && (warehouseReady || progressComplete);
+}
+
+export function findCreatedOnboardingProject<T extends { id: string }>(
+	projects: T[] | undefined,
+	initialProjectIds: ReadonlySet<string> | null,
+): T | null {
+	if (!initialProjectIds) {
+		return null;
+	}
+	return projects?.find((project) => !initialProjectIds.has(project.id)) ?? null;
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

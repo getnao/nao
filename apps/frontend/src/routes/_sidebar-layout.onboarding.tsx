@@ -7,6 +7,7 @@ import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
 import {
+	findCreatedOnboardingProject,
 	findWarehouseJobId,
 	isDeployStepReached,
 	isOnboardingComplete,
@@ -94,10 +95,16 @@ function OnboardingPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const waitingForDeployment = isDeployStepReached(progress);
-	const currentProject = useQuery({
-		...trpc.project.getCurrent.queryOptions(),
+	const [initialProjectIds, setInitialProjectIds] = useState<ReadonlySet<string> | null>(null);
+	const projects = useQuery({
+		...trpc.project.listForCurrentUser.queryOptions(),
 		refetchInterval: (query) => {
-			if (!waitingForDeployment || query.state.data != null || query.state.status === 'error') {
+			if (
+				!waitingForDeployment ||
+				!initialProjectIds ||
+				query.state.status === 'error' ||
+				findCreatedOnboardingProject(query.state.data, initialProjectIds)
+			) {
 				return false;
 			}
 			return DEPLOYMENT_POLL_INTERVALS[
@@ -106,6 +113,7 @@ function OnboardingPage() {
 		},
 		refetchOnWindowFocus: 'always',
 	});
+	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const billingAccess = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
@@ -125,6 +133,7 @@ function OnboardingPage() {
 		enabled: githubAvailable.data === true,
 		refetchOnWindowFocus: 'always',
 	});
+	const createdProject = findCreatedOnboardingProject(projects.data, initialProjectIds);
 	const projectIsMissing = currentProject.isSuccess && currentProject.data === null;
 	const showDeployKey =
 		(progress?.flow === 'new' || progress?.flow === 'local') &&
@@ -133,11 +142,18 @@ function OnboardingPage() {
 		progress?.flow === 'github' &&
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
-	const onboardingComplete = isOnboardingComplete(currentProject.data != null, progress, warehouseReady);
+	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
+	const onboardingComplete = isOnboardingComplete(onboardingProject != null, progress, warehouseReady);
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (initialProjectIds === null && projects.isSuccess) {
+			setInitialProjectIds(new Set(projects.data.map((project) => project.id)));
+		}
+	}, [initialProjectIds, projects.data, projects.isSuccess]);
 
 	useEffect(() => {
 		if (search.github !== 'connected') {
@@ -163,7 +179,7 @@ function OnboardingPage() {
 	}, [githubStatus.data?.connected, progress?.flow, progress?.step, queueOrSendMessage]);
 
 	useEffect(() => {
-		const project = currentProject.data;
+		const project = onboardingProject;
 		if (!onboardingComplete || !project || !session?.user.id || activatedProjectIdRef.current === project.id) {
 			return;
 		}
@@ -171,7 +187,7 @@ function OnboardingPage() {
 		activatedProjectIdRef.current = project.id;
 		setActiveProjectId(project.id);
 		queryClient.invalidateQueries().catch(console.error);
-	}, [currentProject.data, onboardingComplete, queryClient, session?.user.id]);
+	}, [onboardingComplete, onboardingProject, queryClient, session?.user.id]);
 
 	const alignActionDialogs = useCallback(() => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();

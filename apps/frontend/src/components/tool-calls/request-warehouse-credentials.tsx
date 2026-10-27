@@ -145,6 +145,7 @@ export function RequestWarehouseCredentialsToolCall({
 		credentialValues !== undefined &&
 		validatedCredentialFingerprint === JSON.stringify(credentialValues);
 	const credentialsAccepted = credentialsVerified || setupInProgress || setupReady;
+	const credentialDetailsUnavailable = jobId !== null && credentialValues === undefined;
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -207,7 +208,9 @@ export function RequestWarehouseCredentialsToolCall({
 						{setupFailed
 							? 'Review setup'
 							: setupReady || setupInProgress
-								? 'View credentials'
+								? credentialDetailsUnavailable
+									? 'View setup'
+									: 'View credentials'
 								: credentialsVerified
 									? 'Edit credentials'
 									: 'Enter credentials'}
@@ -226,12 +229,16 @@ export function RequestWarehouseCredentialsToolCall({
 						<div className='space-y-1'>
 							<DialogTitle>
 								{jobId
-									? `${WAREHOUSE_PROVIDER_LABELS[provider]} connection details`
+									? credentialDetailsUnavailable
+										? `${WAREHOUSE_PROVIDER_LABELS[provider]} connection setup`
+										: `${WAREHOUSE_PROVIDER_LABELS[provider]} connection details`
 									: `Connect ${WAREHOUSE_PROVIDER_LABELS[provider]}`}
 							</DialogTitle>
 							<DialogDescription>
 								{jobId
-									? 'These credentials are securely stored and cannot be changed during setup.'
+									? credentialDetailsUnavailable
+										? 'Submitted connection details are not retained in the browser after a reload.'
+										: 'These credentials are securely stored and cannot be changed during setup.'
 									: 'Add a secure connection for your nao project.'}
 							</DialogDescription>
 						</div>
@@ -245,6 +252,11 @@ export function RequestWarehouseCredentialsToolCall({
 							startProvisioning.reset();
 						}}
 					/>
+				) : jobId && credentialDetailsUnavailable && isSqlProvider(provider) ? (
+					<div className='rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground'>
+						Your connection details are unavailable in this session. The credentials remain securely stored
+						for this connection.
+					</div>
 				) : isSqlProvider(provider) ? (
 					<WarehouseCredentialsForm
 						provider={provider}

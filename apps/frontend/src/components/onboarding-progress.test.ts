@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getCompletedSteps, isDeployStepReached, isOnboardingComplete } from './onboarding-progress';
+import {
+	findCreatedOnboardingProject,
+	getCompletedSteps,
+	isDeployStepReached,
+	isOnboardingComplete,
+} from './onboarding-progress';
 
 vi.mock('@/main', () => ({ trpc: {} }));
 
@@ -33,6 +38,18 @@ describe('isOnboardingComplete', () => {
 			expect(isOnboardingComplete(hasProject, progress, warehouseReady)).toBe(expected);
 		},
 	);
+});
+
+describe('findCreatedOnboardingProject', () => {
+	it('returns the project added after onboarding started', () => {
+		const projects = [{ id: 'existing' }, { id: 'created' }];
+
+		expect(findCreatedOnboardingProject(projects, new Set(['existing']))).toEqual({ id: 'created' });
+	});
+
+	it('does not treat an existing project as the onboarding project', () => {
+		expect(findCreatedOnboardingProject([{ id: 'existing' }], new Set(['existing']))).toBeNull();
+	});
 });
 
 describe('getCompletedSteps', () => {
