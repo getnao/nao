@@ -1,4 +1,5 @@
 import re
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -14,7 +15,7 @@ from nao_core.config.notion import NotionConfig
 from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
-from .database import get_database_as_markdown, inject_child_databases
+from .database import fetch_rows, get_database_as_markdown, inject_child_databases, list_children
 
 console = Console()
 
@@ -121,6 +122,72 @@ def cleanup_if_fully_synced(failed_pages: int, synced_files: set[str], output_pa
         return 0
 
     return cleanup_stale_pages(synced_files, output_path, verbose=True)
+
+
+def discover_documents(config: NotionConfig) -> tuple[list[str], bool]:
+    """Add descendants of configured page trees in breadth-first order."""
+    references = list(dict.fromkeys(config.pages))
+    if not config.page_trees:
+        return references, False
+
+    client = create_client(config.api_key)
+    output_ids = extract_reference_ids(references)
+    visited: set[str] = set()
+    queue = deque((reference, 0) for reference in config.page_trees)
+
+    while queue:
+        reference, depth = queue.popleft()
+        object_id = extract_notion_id(reference)
+        if object_id in visited:
+            continue
+        if len(visited) >= config.max_pages:
+            return references, True
+
+        visited.add(object_id)
+        if object_id not in output_ids:
+            references.append(reference)
+            output_ids.add(object_id)
+
+        if depth >= config.max_depth:
+            continue
+
+        page = retrieve_page(client, object_id)
+        if page is None:
+            if depth > 0:
+                continue
+            database = cast(dict[str, Any], client.databases.retrieve(database_id=object_id))
+            rows = fetch_rows(client, database, extract_view_id(reference)).rows
+            child_ids = [cast(str, row["id"]) for row in rows]
+        else:
+            child_ids = find_child_page_ids(client, object_id)
+
+        queue.extend((child_id, depth + 1) for child_id in child_ids)
+
+    return references, False
+
+
+def extract_reference_ids(references: list[str]) -> set[str]:
+    ids: set[str] = set()
+    for reference in references:
+        try:
+            ids.add(extract_notion_id(reference))
+        except ValueError:
+            continue
+    return ids
+
+
+def find_child_page_ids(client: Any, block_id: str) -> list[str]:
+    """Find child pages anywhere inside a page's block containers."""
+    page_ids: list[str] = []
+
+    for block in list_children(client, block_id):
+        block_type = block["type"]
+        if block_type == "child_page":
+            page_ids.append(block["id"])
+        elif block.get("has_children") and block_type not in {"child_database", "table"}:
+            page_ids.extend(find_child_page_ids(client, block["id"]))
+
+    return page_ids
 
 
 def fetch_documents(page_urls: list[str], api_key: str, threads: int) -> tuple[list[tuple[str, str, str]], int]:
@@ -391,12 +458,31 @@ class NotionSyncProvider(SyncProvider):
 
         UI.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
         UI.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
-        if threads > 1 and len(notion_config.pages) > 1:
+
+        try:
+            references, truncated = discover_documents(notion_config)
+        except Exception as error:  # noqa: BLE001 - incomplete discovery must not delete existing context
+            message = f"Failed to discover Notion pages: {error}"
+            UI.print(f"[bold red]✗[/bold red] {escape(message)}")
+            return SyncResult(
+                provider_name=self.name,
+                items_synced=0,
+                details={"pages": [], "removed": 0},
+                summary="No pages synced",
+                error=message,
+            )
+
+        if truncated:
+            UI.print(
+                f"[yellow]⚠[/yellow]  Recursive Notion sync stopped at the configured limit of "
+                f"{notion_config.max_pages} objects"
+            )
+        if threads > 1 and len(references) > 1:
             UI.print(f"[dim]Threads:[/dim] {threads}\n")
 
         api_key = notion_config.api_key
 
-        documents, failed_pages = fetch_documents(notion_config.pages, api_key, threads)
+        documents, failed_pages = fetch_documents(references, api_key, threads)
         synced_files, synced_pages, write_failures = write_documents(documents, output_path)
         pages_synced = len(synced_pages)
         failed_pages += write_failures

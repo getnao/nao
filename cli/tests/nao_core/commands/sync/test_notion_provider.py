@@ -11,6 +11,7 @@ from notion_client.errors import APIErrorCode, APIResponseError
 from nao_core.commands.sync.providers.notion.database import DatabaseExportError
 from nao_core.commands.sync.providers.notion.provider import (
     NotionSyncProvider,
+    discover_documents,
     export_page_as_markdown,
     extract_notion_id,
     extract_page_title,
@@ -41,6 +42,110 @@ def test_sync_pages_with_threads(mock_get_page, tmp_path: Path):
     assert (tmp_path / "page-a-aaaaaaaa.md").read_text() == "# Page A"
     assert (tmp_path / "page-b-bbbbbbbb.md").read_text() == "# Page B"
     assert mock_get_page.call_count == 2
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.discover_documents")
+@patch("nao_core.commands.sync.providers.notion.provider.get_content_as_markdown")
+def test_sync_writes_discovered_pages_separately_and_keeps_parent_links(mock_get_page, mock_discover, tmp_path: Path):
+    parent, child = ("a" * 32, "b" * 32)
+    parent_link = f"[Child](https://www.notion.so/{child})"
+    mock_discover.return_value = ([parent, child], False)
+    mock_get_page.side_effect = [
+        ("Parent", f"# Parent\n\n{parent_link}"),
+        ("Child", "# Child\n\nDetails"),
+    ]
+
+    result = NotionSyncProvider().sync(
+        [NotionConfig(api_key="secret", page_trees=[parent])],
+        tmp_path,
+    )
+
+    assert result.items_synced == 2
+    assert {path.name for path in tmp_path.glob("*.md")} == {
+        "parent-aaaaaaaa.md",
+        "child-bbbbbbbb.md",
+    }
+    assert parent_link in (tmp_path / "parent-aaaaaaaa.md").read_text()
+    assert (tmp_path / "child-bbbbbbbb.md").read_text() == "# Child\n\nDetails"
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.UI.print")
+@patch("nao_core.commands.sync.providers.notion.provider.discover_documents")
+@patch("nao_core.commands.sync.providers.notion.provider.get_content_as_markdown")
+def test_sync_warns_when_recursive_discovery_is_truncated(mock_get_page, mock_discover, mock_print, tmp_path: Path):
+    root = "a" * 32
+    mock_discover.return_value = ([root], True)
+    mock_get_page.return_value = ("Root", "# Root")
+
+    NotionSyncProvider().sync(
+        [NotionConfig(api_key="secret", page_trees=[root], max_pages=1)],
+        tmp_path,
+    )
+
+    assert any("configured limit of 1 objects" in call.args[0] for call in mock_print.call_args_list)
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.discover_documents")
+def test_sync_keeps_existing_files_when_recursive_discovery_fails(mock_discover, tmp_path: Path):
+    existing = tmp_path / "child-bbbbbbbb.md"
+    existing.write_text("previous content")
+    mock_discover.side_effect = RuntimeError("rate limited")
+
+    result = NotionSyncProvider().sync(
+        [NotionConfig(api_key="secret", page_trees=["a" * 32])],
+        tmp_path,
+    )
+
+    assert existing.read_text() == "previous content"
+    assert result.items_synced == 0
+    assert result.details == {"pages": [], "removed": 0}
+    assert result.error == "Failed to discover Notion pages: rate limited"
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.discover_documents")
+@patch("nao_core.commands.sync.providers.notion.provider.get_content_as_markdown")
+def test_sync_keeps_existing_descendants_when_one_fetch_fails(mock_get_page, mock_discover, tmp_path: Path):
+    parent, child = ("a" * 32, "b" * 32)
+    existing_child = tmp_path / "child-bbbbbbbb.md"
+    existing_child.write_text("previous child content")
+    mock_discover.return_value = ([parent, child], False)
+    mock_get_page.side_effect = [
+        ("Parent", "# Parent"),
+        RuntimeError("rate limited"),
+    ]
+
+    result = NotionSyncProvider().sync(
+        [NotionConfig(api_key="secret", page_trees=[parent])],
+        tmp_path,
+    )
+
+    assert existing_child.read_text() == "previous child content"
+    assert result.items_synced == 1
+    assert result.details is not None
+    assert result.details["removed"] == 0
+    assert result.error == "Failed to sync 1 Notion page"
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.discover_documents")
+@patch("nao_core.commands.sync.providers.notion.provider.get_content_as_markdown")
+def test_sync_removes_descendants_deleted_from_notion_after_a_successful_sync(
+    mock_get_page, mock_discover, tmp_path: Path
+):
+    parent = "a" * 32
+    deleted_child = tmp_path / "child-bbbbbbbb.md"
+    deleted_child.write_text("deleted child content")
+    mock_discover.return_value = ([parent], False)
+    mock_get_page.return_value = ("Parent", "# Parent")
+
+    result = NotionSyncProvider().sync(
+        [NotionConfig(api_key="secret", page_trees=[parent])],
+        tmp_path,
+    )
+
+    assert not deleted_child.exists()
+    assert result.items_synced == 1
+    assert result.details is not None
+    assert result.details["removed"] == 1
 
 
 @patch("nao_core.commands.sync.providers.notion.provider.get_content_as_markdown")
@@ -80,6 +185,149 @@ def test_sync_keeps_existing_pages_when_one_failed(mock_get_page, tmp_path: Path
 
 def api_error(code: APIErrorCode, status: int) -> APIResponseError:
     return APIResponseError(code, status, str(code), httpx.Headers(), "")
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_walks_child_pages_breadth_first(mock_create_client):
+    root, first, second, grandchild = ("a" * 32, "b" * 32, "c" * 32, "d" * 32)
+    client = mock_create_client.return_value
+    client.pages.retrieve.return_value = {"properties": {}}
+
+    def list_children(block_id, **_kwargs):
+        blocks = {
+            root: [
+                {"id": first, "type": "child_page", "has_children": True},
+                {"id": "column", "type": "column_list", "has_children": True},
+            ],
+            "column": [{"id": second, "type": "child_page", "has_children": True}],
+            first: [{"id": grandchild, "type": "child_page", "has_children": False}],
+        }
+        return {"results": blocks.get(block_id, []), "has_more": False}
+
+    client.blocks.children.list.side_effect = list_children
+    config = NotionConfig(api_key="secret", page_trees=[root])
+
+    references, truncated = discover_documents(config)
+
+    assert references == [root, first, second, grandchild]
+    assert not truncated
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_deduplicates_and_stops_at_the_page_limit(mock_create_client):
+    root, child, omitted = ("a" * 32, "b" * 32, "c" * 32)
+    client = mock_create_client.return_value
+    client.pages.retrieve.return_value = {"properties": {}}
+    client.blocks.children.list.side_effect = [
+        {
+            "results": [
+                {"id": child, "type": "child_page", "has_children": False},
+                {"id": child, "type": "child_page", "has_children": False},
+                {"id": omitted, "type": "child_page", "has_children": False},
+            ],
+            "has_more": False,
+        },
+        {"results": [], "has_more": False},
+    ]
+    config = NotionConfig(api_key="secret", page_trees=[root], max_pages=2)
+
+    references, truncated = discover_documents(config)
+
+    assert references == [root, child]
+    assert truncated
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_stops_at_the_depth_limit(mock_create_client):
+    root, child = ("a" * 32, "b" * 32)
+    client = mock_create_client.return_value
+    client.pages.retrieve.return_value = {"properties": {}}
+    client.blocks.children.list.return_value = {
+        "results": [{"id": child, "type": "child_page", "has_children": True}],
+        "has_more": False,
+    }
+    config = NotionConfig(api_key="secret", page_trees=[root], max_depth=1)
+
+    references, truncated = discover_documents(config)
+
+    assert references == [root, child]
+    assert not truncated
+    assert client.blocks.children.list.call_count == 1
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_includes_database_entries(mock_create_client):
+    database, first, second = ("a" * 32, "b" * 32, "c" * 32)
+    client = mock_create_client.return_value
+
+    def retrieve_page(page_id):
+        if page_id == database:
+            raise api_error(APIErrorCode.ValidationError, 400)
+        return {"id": page_id, "properties": {}}
+
+    client.pages.retrieve.side_effect = retrieve_page
+    client.databases.retrieve.return_value = {"id": database, "data_sources": [{"id": "source"}]}
+    client.data_sources.query.return_value = {
+        "results": [{"id": first}, {"id": second}],
+        "has_more": False,
+    }
+    client.blocks.children.list.return_value = {"results": [], "has_more": False}
+    config = NotionConfig(api_key="secret", page_trees=[database])
+
+    references, truncated = discover_documents(config)
+
+    assert references == [database, first, second]
+    assert not truncated
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_does_not_follow_links_or_embedded_databases(mock_create_client):
+    root, linked_page, embedded_database = ("a" * 32, "b" * 32, "c" * 32)
+    client = mock_create_client.return_value
+    client.pages.retrieve.return_value = {"id": root, "properties": {}}
+    client.blocks.children.list.return_value = {
+        "results": [
+            {
+                "id": "paragraph",
+                "type": "paragraph",
+                "has_children": False,
+                "paragraph": {"rich_text": [{"href": f"https://www.notion.so/{linked_page}"}]},
+            },
+            {"id": embedded_database, "type": "child_database", "has_children": False},
+        ],
+        "has_more": False,
+    }
+
+    references, truncated = discover_documents(NotionConfig(api_key="secret", page_trees=[root]))
+
+    assert references == [root]
+    assert not truncated
+    client.databases.retrieve.assert_not_called()
+    client.data_sources.query.assert_not_called()
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_expands_database_rows_only_for_tree_roots(mock_create_client):
+    root, nested_database = ("a" * 32, "b" * 32)
+    client = mock_create_client.return_value
+
+    def retrieve_page(page_id):
+        if page_id == nested_database:
+            raise api_error(APIErrorCode.ValidationError, 400)
+        return {"id": page_id, "properties": {}}
+
+    client.pages.retrieve.side_effect = retrieve_page
+    client.blocks.children.list.return_value = {
+        "results": [{"id": nested_database, "type": "child_page", "has_children": True}],
+        "has_more": False,
+    }
+
+    references, truncated = discover_documents(NotionConfig(api_key="secret", page_trees=[root]))
+
+    assert references == [root, nested_database]
+    assert not truncated
+    client.databases.retrieve.assert_not_called()
+    client.data_sources.query.assert_not_called()
 
 
 def test_retrieve_page_reports_a_database_as_not_a_page():
