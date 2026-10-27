@@ -3,6 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	addOrgMemberIfMissing: vi.fn(),
 	betterAuth: vi.fn(),
+	buildVerifyEmail: vi.fn(),
+	emailSend: vi.fn(),
+	env: {
+		BETTER_AUTH_SECRET: 'test-secret-at-least-twenty-characters',
+		DEFAULT_USER_ROLE: 'user',
+		ENABLE_USER_LOGIN: true,
+		ENABLE_USER_SIGNUP: true,
+		GOOGLE_CLIENT_ID: 'google-client',
+		GOOGLE_CLIENT_SECRET: 'google-secret',
+		MODE: 'test',
+		NAO_MODE: 'cloud',
+	},
 	findOrganizationByEmailDomain: vi.fn(),
 }));
 
@@ -25,16 +37,12 @@ vi.mock('../src/db/dbConfig', () => ({
 	Dialect: { Postgres: 'postgres' },
 }));
 vi.mock('../src/env', () => ({
-	env: {
-		BETTER_AUTH_SECRET: 'test-secret-at-least-twenty-characters',
-		DEFAULT_USER_ROLE: 'user',
-		ENABLE_USER_LOGIN: true,
-		ENABLE_USER_SIGNUP: true,
-		GOOGLE_CLIENT_ID: 'google-client',
-		GOOGLE_CLIENT_SECRET: 'google-secret',
-		MODE: 'test',
+	get env() {
+		return mocks.env;
 	},
-	isCloud: true,
+	get isCloud() {
+		return mocks.env.NAO_MODE === 'cloud';
+	},
 	MCP_VALID_AUDIENCES: [],
 }));
 vi.mock('../src/queries/organization.queries', () => ({
@@ -50,7 +58,7 @@ vi.mock('../src/services/auth-user-onboarding.service', () => ({
 vi.mock('../src/services/credit-grant.service', () => ({
 	activateUserJoinCandidates: vi.fn(),
 }));
-vi.mock('../src/services/email', () => ({ emailService: { sendEmail: vi.fn() } }));
+vi.mock('../src/services/email', () => ({ emailService: { sendEmail: mocks.emailSend } }));
 vi.mock('../src/services/github', () => ({ githubOAuthConfig: vi.fn(() => null) }));
 vi.mock('../src/services/gitlab', () => ({ gitlabOAuthConfig: vi.fn(() => null) }));
 vi.mock('../src/services/license.service', () => ({
@@ -71,7 +79,10 @@ vi.mock('../src/services/oidc-auth.service', () => ({
 }));
 vi.mock('../src/services/sso-login-sync.service', () => ({ syncSsoLoginGroups: vi.fn() }));
 vi.mock('../src/services/sso-session.service', () => ({ shouldExpireSsoSession: vi.fn() }));
-vi.mock('../src/utils/email-builders', () => ({ buildForgotPasswordEmail: vi.fn() }));
+vi.mock('../src/utils/email-builders', () => ({
+	buildForgotPasswordEmail: vi.fn(),
+	buildVerifyEmail: mocks.buildVerifyEmail,
+}));
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), warn: vi.fn() },
 	serializeError: vi.fn(),
@@ -79,11 +90,28 @@ vi.mock('../src/utils/logger', () => ({
 
 import { getAuth, updateAuth } from '../src/auth';
 
+interface CapturedAuthOptions {
+	emailAndPassword: { requireEmailVerification: boolean };
+	emailVerification:
+		| {
+				sendVerificationEmail: (data: { user: { email: string; name: string }; url: string }) => Promise<void>;
+				sendOnSignUp: boolean;
+				sendOnSignIn: boolean;
+				autoSignInAfterVerification: boolean;
+				expiresIn: number;
+		  }
+		| undefined;
+	rateLimit: unknown;
+}
+
 describe('Cloud Google organization enrollment', () => {
 	beforeEach(() => {
+		mocks.env.NAO_MODE = 'cloud';
 		updateAuth();
 		mocks.addOrgMemberIfMissing.mockReset();
 		mocks.betterAuth.mockReset().mockReturnValue({});
+		mocks.buildVerifyEmail.mockReset().mockResolvedValue({ subject: 'Verify', html: '<p>Verify</p>' });
+		mocks.emailSend.mockReset().mockResolvedValue(undefined);
 		mocks.findOrganizationByEmailDomain.mockReset().mockResolvedValue({ id: 'matched-org' });
 	});
 
@@ -113,4 +141,63 @@ describe('Cloud Google organization enrollment', () => {
 			role: 'user',
 		});
 	});
+
+	it('requires cloud email verification and limits resend requests', async () => {
+		const options = await getAuthOptions();
+
+		expect(options.emailAndPassword.requireEmailVerification).toBe(true);
+		expect(options.emailVerification).toMatchObject({
+			sendOnSignUp: true,
+			sendOnSignIn: true,
+			autoSignInAfterVerification: true,
+			expiresIn: 3600,
+		});
+		expect(options.rateLimit).toEqual({
+			enabled: true,
+			customRules: {
+				'/send-verification-email': {
+					window: 60,
+					max: 3,
+				},
+			},
+		});
+	});
+
+	it('sends branded verification email and surfaces delivery failures', async () => {
+		const options = await getAuthOptions();
+		const user = { email: 'new@example.com', name: 'New User' };
+		if (!options.emailVerification) {
+			throw new Error('Expected cloud email verification options');
+		}
+
+		await options.emailVerification.sendVerificationEmail({ user, url: 'https://nao.test/verify' });
+
+		expect(mocks.buildVerifyEmail).toHaveBeenCalledWith(user, 'https://nao.test/verify');
+		expect(mocks.emailSend).toHaveBeenCalledWith(
+			'new@example.com',
+			{ subject: 'Verify', html: '<p>Verify</p>' },
+			{ throwOnError: true },
+		);
+
+		mocks.emailSend.mockRejectedValueOnce(new Error('SMTP unavailable'));
+		await expect(
+			options.emailVerification.sendVerificationEmail({ user, url: 'https://nao.test/verify' }),
+		).rejects.toThrow('SMTP unavailable');
+	});
+
+	it('leaves self-hosted email authentication unchanged', async () => {
+		mocks.env.NAO_MODE = 'self-hosted';
+
+		const options = await getAuthOptions();
+
+		expect(options.emailAndPassword.requireEmailVerification).toBe(false);
+		expect(options.emailVerification).toBeUndefined();
+		expect(options.rateLimit).toBeUndefined();
+	});
 });
+
+async function getAuthOptions(): Promise<CapturedAuthOptions> {
+	updateAuth();
+	await getAuth();
+	return mocks.betterAuth.mock.calls.at(-1)?.[0] as CapturedAuthOptions;
+}

@@ -7,6 +7,7 @@ import { NotificationEmail } from '../components/email/notification-email';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
+import { VerifyEmail } from '../components/email/verify-email';
 import { env } from '../env';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
 import { type EmailBranding, resolveEmailBranding } from './email-branding';
@@ -56,6 +57,15 @@ export async function buildForgotPasswordEmail(user: { name: string }, resetUrl:
 	return createEmail(
 		`Reset your password on ${branding.appName}`,
 		ForgotPassword({ userName: user.name, resetUrl, branding }),
+		branding,
+	);
+}
+
+export async function buildVerifyEmail(user: { name: string }, verificationUrl: string): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	return createEmail(
+		`Verify your email on ${branding.appName}`,
+		VerifyEmail({ userName: user.name, verificationUrl, branding }),
 		branding,
 	);
 }

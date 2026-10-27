@@ -88,6 +88,26 @@ describe('cloud billing environment', () => {
 	});
 });
 
+describe('cloud SMTP environment', () => {
+	it.each(['SMTP_HOST', 'SMTP_MAIL_FROM', 'SMTP_PASSWORD'] as const)('requires %s in cloud mode', (variable) => {
+		const result = loadEnvWithOverrides({ NAO_MODE: 'cloud', [variable]: '' });
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(`${variable} is required when NAO_MODE=cloud`);
+	});
+
+	it('allows self-hosted mode without SMTP configuration', () => {
+		expect(
+			loadEnvWithOverrides({
+				NAO_MODE: 'self-hosted',
+				SMTP_HOST: '',
+				SMTP_MAIL_FROM: '',
+				SMTP_PASSWORD: '',
+			}).status,
+		).toBe(0);
+	});
+});
+
 function loadEnv(mode: 'cloud' | 'self-hosted', contextSource: (typeof contextSources)[number]) {
 	return loadEnvWithOverrides({
 		NAO_CONTEXT_SOURCE: contextSource,
@@ -105,13 +125,16 @@ function loadEnvWithOverrides(overrides: NodeJS.ProcessEnv) {
 			encoding: 'utf8',
 			env: {
 				PATH: process.env.PATH,
-				...overrides,
 				...(overrides.NAO_MODE === 'cloud' && {
 					CLOUD_GITHUB_PROJECT_ORG: 'test-org',
 					CLOUD_GITHUB_PROJECT_APP_ID: '123',
 					CLOUD_GITHUB_PROJECT_INSTALLATION_ID: '456',
 					CLOUD_GITHUB_PROJECT_PRIVATE_KEY: 'test-private-key',
+					SMTP_HOST: 'smtp.example.com',
+					SMTP_MAIL_FROM: 'hello@example.com',
+					SMTP_PASSWORD: 'secret',
 				}),
+				...overrides,
 			},
 		});
 	} finally {

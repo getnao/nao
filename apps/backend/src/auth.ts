@@ -34,7 +34,7 @@ import {
 import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
-import { buildForgotPasswordEmail } from './utils/email-builders';
+import { buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { memoizeUntilRejected } from './utils/memoize-until-rejected';
 import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
@@ -229,13 +229,38 @@ async function createAuthInstance(baseURL: string) {
 			...ssoPlugins,
 		],
 		trustedOrigins: baseURL ? [baseURL, ...(env.MODE === 'dev' ? ['http://localhost:3000'] : [])] : undefined,
+		emailVerification: isCloud
+			? {
+					sendVerificationEmail: async ({ user, url }) => {
+						await emailService.sendEmail(user.email, await buildVerifyEmail(user, url), {
+							throwOnError: true,
+						});
+					},
+					sendOnSignUp: true,
+					sendOnSignIn: true,
+					autoSignInAfterVerification: true,
+					expiresIn: 60 * 60,
+				}
+			: undefined,
 		emailAndPassword: {
 			enabled: env.ENABLE_USER_LOGIN === true,
 			disableSignUp: disableEmailSignUp,
+			requireEmailVerification: isCloud,
 			sendResetPassword: async ({ user, url }) => {
 				await emailService.sendEmail(user.email, await buildForgotPasswordEmail(user, url));
 			},
 		},
+		rateLimit: isCloud
+			? {
+					enabled: true,
+					customRules: {
+						'/send-verification-email': {
+							window: 60,
+							max: 3,
+						},
+					},
+				}
+			: undefined,
 		socialProviders,
 		account: {
 			accountLinking: {

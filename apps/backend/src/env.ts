@@ -207,12 +207,18 @@ const baseRawEnvSchema = z.object({
 		}),
 	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
-	SMTP_PASSWORD: z.string().optional(),
-	SMTP_HOST: z.string().optional(),
-	SMTP_PORT: z.string().optional(),
-	SMTP_USER: z.string().optional(),
-	SMTP_MAIL_FROM: z.string().optional(),
-	SMTP_SSL: z.enum(['true', 'false']).optional(),
+	SMTP_PASSWORD: z
+		.string()
+		.optional()
+		.transform((value) => value || undefined),
+	SMTP_HOST: optionalNonEmptyString,
+	SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+	SMTP_USER: optionalNonEmptyString,
+	SMTP_MAIL_FROM: optionalNonEmptyString,
+	SMTP_SSL: z
+		.enum(['true', 'false'])
+		.default('false')
+		.transform((value) => value === 'true'),
 
 	/**
 	 * Declarative Slack setup: when SLACK_BOT_TOKEN is set, these seed the default project's Slack
@@ -477,6 +483,18 @@ const baseRawEnvSchema = z.object({
 const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema);
 const envSchema = rawEnvSchema
 	.superRefine((data, ctx) => {
+		if (data.NAO_MODE === 'cloud') {
+			for (const variable of ['SMTP_HOST', 'SMTP_MAIL_FROM', 'SMTP_PASSWORD'] as const) {
+				if (!data[variable]) {
+					ctx.addIssue({
+						code: 'custom',
+						path: [variable],
+						message: `${variable} is required when NAO_MODE=cloud`,
+					});
+				}
+			}
+		}
+
 		if (isCloudBillingEnabled(data)) {
 			for (const variable of [
 				'STRIPE_SECRET_KEY',
