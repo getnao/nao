@@ -49,6 +49,8 @@ export interface DateFormatSettings {
  */
 export interface DisplaySettings {
 	dateFormat?: DateFormatSettings;
+	/** Shared story links unfurl with the rendered story thumbnail, which can show data to anyone holding the link. */
+	linkPreviewThumbnails?: boolean;
 }
 
 export const DEFAULT_DATE_FORMAT_SETTINGS: DateFormatSettings = {

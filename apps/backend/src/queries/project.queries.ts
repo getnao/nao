@@ -359,6 +359,7 @@ export const getDisplaySettings = async (projectId: string): Promise<DisplaySett
 	const stored = project?.displaySettings ?? {};
 	return {
 		dateFormat: stored.dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS },
+		linkPreviewThumbnails: stored.linkPreviewThumbnails ?? false,
 	};
 };
 
@@ -368,6 +369,7 @@ export const updateDisplaySettings = async (projectId: string, settings: Display
 		...current,
 		...settings,
 		dateFormat: settings.dateFormat ?? current.dateFormat,
+		linkPreviewThumbnails: settings.linkPreviewThumbnails ?? current.linkPreviewThumbnails,
 	};
 	await db.update(s.project).set({ displaySettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;

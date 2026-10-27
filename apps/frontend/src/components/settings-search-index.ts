@@ -348,6 +348,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'pattern',
 		],
 	},
+	{
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
+		search: { tab: 'advanced' },
+		section: 'Advanced',
+		title: 'Link previews',
+		description: 'Show the story thumbnail when a story link is pasted in Slack, Teams or any other app.',
+		keywords: ['link', 'preview', 'unfurl', 'open graph', 'og', 'thumbnail', 'slack', 'teams', 'share', 'metadata'],
+	},
 	// ── Project > Agent > Models ─────────────────────────────
 	{
 		page: '/settings/project/agent',
