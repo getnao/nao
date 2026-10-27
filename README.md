@@ -95,81 +95,78 @@ nao chat
 
 The nao chat opens at `http://localhost:5005`. Start asking questions.
 
-**4. Keep improving the context with your agent:**
-
-| Skill | What it does |
-| --- | --- |
-| [`setup-context`](skills/setup-context) | First-time setup: scope, `nao_config.yaml`, `nao init` + `nao sync`, first `RULES.md` |
-| [`write-context-rules`](skills/write-context-rules) | Create or refine `RULES.md` without duplicating existing context |
-| [`create-context-tests`](skills/create-context-tests) | Generate a test suite for your key metrics and run it with `nao test` |
-| [`audit-context`](skills/audit-context) | Diagnose context gaps and the root causes of failing tests |
-| [`add-semantic-layer`](skills/add-semantic-layer) | Wire in dbt MetricFlow, Snowflake views, your own YAML layer or another tool via MCP |
-| [`build-custom-charts`](skills/build-custom-charts) | Create custom chart modules beyond the built-in charts |
-| [`migrate-metabase`](skills/migrate-metabase) / [`migrate-tableau-workbook`](skills/migrate-tableau-workbook) | Recreate Metabase or Tableau dashboards as nao charts and stories |
-| [`deploy-context`](skills/deploy-context) | Ship your context to your deployed nao instance on every push to `main` |
-
-More in the [skills docs](https://docs.getnao.io/nao-agent/context-engineering/skills).
-
 ### Option 2: set it up manually with the CLI
 
-**1. Install nao-core**
+- **Step 1**: Install nao-core package
 
-```bash
-pip install nao-core
-```
+    ```bash
+    pip install nao-core
+    ```
 
-**2. Initialize a nao project**
+<br/>
 
-```bash
-nao init
-```
+- **Step 2**: Initialize a nao project
 
-It will ask you to name your project and, optionally, to connect a database, add a repo to the agent context, add an LLM key and set up Slack. You can skip any optional question and configure it later in `nao_config.yaml`.
+    ```bash
+    nao init
+    ```
 
-This creates a project folder with your context architecture, a `nao_config.yaml` and a `RULES.md`.
+    It will ask you:
+    - To name your project
+    - If you want to connect a database _(optional)_
+    - If you want to add a repo in agent context _(optional)_
+    - To add an LLM key _(optional)_
+    - If you want to setup a Slack connection _(optional)_
 
-**3. Verify your setup**, from the project folder:
+    💡 You can skip any optional question and configure them later in your `nao_config.yaml` file.
 
-```bash
-nao debug
-```
+    This will create:
+    - A new folder with your project name
+    - An architecture for your context files
+    - A `nao_config.yaml` configuration file
+    - A `RULES.md` file
 
-**4. Sync your context**
+<br/>
 
-```bash
-nao sync
-```
+- **Step 3**: Verify your setup
 
-This populates your context folder with your data, metadata, repos and docs.
+    cd to the project folder and run:
 
-**5. Launch the chat and ask questions**
+    ```bash
+    nao debug
+    ```
 
-```bash
-nao chat
-```
+<br/>
 
-The nao chat opens in your browser at `http://localhost:5005`.
+- **Step 4**: Synchronize your context
 
-## 🧪 Evaluate your agent
+    ```bash
+    nao sync
+    ```
 
-Create a `tests/` folder with your key questions and the SQL you expect, in YAML (or let the `create-context-tests` skill do it). Then run:
+    This will populate your context folder with your context files (data, metadata, repos, etc.)
+
+<br/>
+
+- **Step 5**: Launch the chat and ask questions
+
+    ```bash
+    nao chat
+    ```
+
+    This will start the nao chat UI. It will open the chat interface in your browser at `http://localhost:5005`.
+    From there, you can start asking questions to your agent.
+
+## Evaluation framework
+
+Unit test your agent performance before deploying it to users. First, create a folder `tests/` with questions and expected SQL in yaml.
+Then, measure agent's performance on examples with nao test command:
 
 ```bash
 nao test
 ```
 
-```text
-$ nao test
-✓ last_month_mrr
-✓ revenue_by_country
-✓ active_users_28d
-✗ churned_mrr
-
-Tests   Success %   Always %   Cost    Time (s)
-24      91.7%       87.5%      $0.41   212.4
-```
-
-Explore the results in the tests panel:
+View results in tests panel:
 
 ```bash
 nao test server
