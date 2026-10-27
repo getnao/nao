@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import grepTool from '../src/agents/tools/grep';
 import { __reloadEnvForTesting } from '../src/env';
-import { listStoryLibraryFilesToGrep } from '../src/services/story-library';
+import { storyLibraryFileBatchesToGrep } from '../src/services/story-library';
 import type { ToolContext } from '../src/types/tools';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -20,12 +20,14 @@ vi.mock('../src/services/story-mount', async (importOriginal) => ({
 	],
 }));
 vi.mock('../src/services/story-library', () => ({
-	listStoryLibraryFilesToGrep: vi.fn(async () => [
-		{
-			virtualPath: '/story-library/story-1/queries.sql',
-			content: '-- query_id: q1\nselect sum(revenue) from orders',
-		},
-	]),
+	storyLibraryFileBatchesToGrep: vi.fn(async function* () {
+		yield [
+			{
+				virtualPath: '/story-library/story-1/queries.sql',
+				content: '-- query_id: q1\nselect sum(revenue) from orders',
+			},
+		];
+	}),
 }));
 
 let projectFolder: string;
@@ -66,7 +68,7 @@ describe('grep over the story library', () => {
 	it('searches the library when the path targets it', async () => {
 		const output = await run({ pattern: 'revenue', path: '/story-library', glob: '*.sql' });
 
-		expect(listStoryLibraryFilesToGrep).toHaveBeenCalledWith(
+		expect(storyLibraryFileBatchesToGrep).toHaveBeenCalledWith(
 			expect.objectContaining({ projectId: 'proj-1', userId: 'user-1' }),
 			'/story-library',
 			'*.sql',
@@ -81,11 +83,11 @@ describe('grep over the story library', () => {
 	});
 
 	it('leaves the library out of a pathless search', async () => {
-		vi.mocked(listStoryLibraryFilesToGrep).mockClear();
+		vi.mocked(storyLibraryFileBatchesToGrep).mockClear();
 
 		const output = await run({ pattern: 'revenue' });
 
-		expect(listStoryLibraryFilesToGrep).not.toHaveBeenCalled();
+		expect(storyLibraryFileBatchesToGrep).not.toHaveBeenCalled();
 		expect(output.matches.map((match) => match.path)).not.toContain('/story-library/story-1/queries.sql');
 	});
 });

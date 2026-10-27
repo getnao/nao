@@ -1,16 +1,21 @@
 import '../src/env';
 
+import { inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { createSharedStory } from '../src/queries/shared-story.queries';
-import { listMentioningChats, listReferenceableStories } from '../src/queries/story-reference.queries';
+import {
+	listMentioningChats,
+	listReferenceableStories,
+	MAX_REFERENCEABLE_STORIES_LIMIT,
+} from '../src/queries/story-reference.queries';
 import {
 	findStoryLibraryFiles,
 	listStoryLibrary,
-	listStoryLibraryFilesToGrep,
 	readStoryLibraryFile,
+	storyLibraryFileBatchesToGrep,
 } from '../src/services/story-library';
 import {
 	expandStoryReferences,
@@ -396,15 +401,46 @@ describe('referencing other stories', () => {
 	});
 
 	it('hands grep the library files under the searched path and glob', async () => {
-		const everyStory = await listStoryLibraryFilesToGrep(MEMBER_SCOPE, '/story-library', '*.sql');
-		const oneFile = await listStoryLibraryFilesToGrep(
-			MEMBER_SCOPE,
-			`/story-library/${CERTIFIED_STORY}/story.md`,
-			undefined,
-		);
+		const everyStory = (
+			await Array.fromAsync(storyLibraryFileBatchesToGrep(MEMBER_SCOPE, '/story-library', '*.sql'))
+		).flat();
+		const oneFile = (
+			await Array.fromAsync(
+				storyLibraryFileBatchesToGrep(MEMBER_SCOPE, `/story-library/${CERTIFIED_STORY}/story.md`, undefined),
+			)
+		).flat();
 
 		expect(everyStory.map((file) => file.virtualPath)).toEqual([`/story-library/${CERTIFIED_STORY}/queries.sql`]);
 		expect(oneFile).toEqual([{ virtualPath: `/story-library/${CERTIFIED_STORY}/story.md`, content: REVENUE_CODE }]);
+	});
+
+	it('pages a library grep through every story the user can see, past the listing cap', async () => {
+		const ownerScope = { userId: OWNER_ID, projectId: PROJECT_ID };
+		const storyIds = Array.from(
+			{ length: MAX_REFERENCEABLE_STORIES_LIMIT + 5 },
+			(_, index) => `story-page-${index}`,
+		);
+		await db.insert(s.story).values(storyIds.map((id) => ({ id, slug: id, chatId: CHAT_ID, title: id })));
+		await db.insert(s.storyVersion).values(
+			storyIds.map((storyId) => ({
+				storyId,
+				version: 1,
+				code: storyId,
+				action: 'create',
+				source: 'assistant',
+			})),
+		);
+
+		const batches = await Array.fromAsync(storyLibraryFileBatchesToGrep(ownerScope, '/story-library', 'story.md'));
+		const libraryRoot = await listStoryLibrary(ownerScope, '/story-library');
+
+		const grepped = new Set(batches.flat().map((file) => file.content));
+		expect(storyIds.every((storyId) => grepped.has(storyId))).toBe(true);
+		expect(batches.length).toBeGreaterThan(1);
+		expect(libraryRoot).toHaveLength(MAX_REFERENCEABLE_STORIES_LIMIT);
+
+		await db.delete(s.storyVersion).where(inArray(s.storyVersion.storyId, storyIds));
+		await db.delete(s.story).where(inArray(s.story.id, storyIds));
 	});
 
 	it('lists the chats of the user that created or visibly reference a story, the origin first', async () => {

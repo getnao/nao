@@ -60,13 +60,11 @@ export async function copyQueriesToStoryChat(
 	storyChatId: string,
 	queryIds: Set<string>,
 ): Promise<void> {
-	const storedInStoryChat = await executeSqlQueries.getLatestSqlQueriesByIds(storyChatId, queryIds);
-	const missingIds = [...queryIds].filter((queryId) => !storedInStoryChat[queryId]);
-	const currentTurnIds = question.adminMode ? [] : missingIds.filter((queryId) => runThisTurn(question, queryId));
-	const storedIds = new Set(missingIds.filter((queryId) => !currentTurnIds.includes(queryId)));
+	const currentTurnIds = question.adminMode ? [] : [...queryIds].filter((queryId) => runThisTurn(question, queryId));
+	const storedIds = new Set([...queryIds].filter((queryId) => !currentTurnIds.includes(queryId)));
 	const parts = [
 		...currentTurnIds.map((queryId) => fromCurrentTurn(queryId, question.queryResults.get(queryId)!)),
-		...(await fromStoredQueries(question.chatId, storedIds)),
+		...(await fromStoredQueriesOutdatedInStoryChat(question.chatId, storyChatId, storedIds)),
 	];
 	if (parts.length > 0) {
 		await chatQueries.upsertMessage({ chatId: storyChatId, role: 'assistant', isForked: true, parts });
@@ -81,19 +79,36 @@ function fromCurrentTurn(queryId: string, result: QueryResult): UIMessagePart {
 	return toExecuteSqlPart(queryId, { sqlQuery: result.sqlQuery!, databaseId: result.databaseId }, result);
 }
 
-async function fromStoredQueries(chatId: string, queryIds: Set<string>): Promise<UIMessagePart[]> {
+/** A query the question re-ran under the same id in an earlier turn must replace the story chat's older version. */
+async function fromStoredQueriesOutdatedInStoryChat(
+	chatId: string,
+	storyChatId: string,
+	queryIds: Set<string>,
+): Promise<UIMessagePart[]> {
 	if (queryIds.size === 0) {
 		return [];
 	}
-	const [sqlById, dataById] = await Promise.all([
-		executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds),
+	const [sqlByChat, dataById] = await Promise.all([
+		executeSqlQueries.getLatestSqlQueriesByChats(
+			new Map([
+				[chatId, queryIds],
+				[storyChatId, queryIds],
+			]),
+		),
 		executeSqlQueries.getLatestSqlQueryDataByIds(chatId, queryIds),
 	]);
+	const sqlById = sqlByChat.get(chatId) ?? {};
+	const storyChatSqlById = sqlByChat.get(storyChatId) ?? {};
 	return [...queryIds].flatMap((queryId) => {
 		const query = sqlById[queryId];
 		const result = dataById[queryId];
-		return query && result && !query.adminMode ? [toExecuteSqlPart(queryId, query, result)] : [];
+		const isOutdated = !isSameQuery(query, storyChatSqlById[queryId]);
+		return query && result && !query.adminMode && isOutdated ? [toExecuteSqlPart(queryId, query, result)] : [];
 	});
+}
+
+function isSameQuery(query?: executeSqlQueries.StoredSqlQuery, other?: executeSqlQueries.StoredSqlQuery): boolean {
+	return query?.sqlQuery === other?.sqlQuery && query?.databaseId === other?.databaseId;
 }
 
 function toExecuteSqlPart(

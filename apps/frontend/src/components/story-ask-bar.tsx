@@ -25,7 +25,13 @@ export function StoryAskBar({
 	isInputHidden?: boolean;
 }) {
 	const [handedOverQuestion] = useState(() => getHandedOverQuestion(storyId));
-	const askMutation = useMutation(trpc.chatFork.askStory.mutationOptions());
+	const queryClient = useQueryClient();
+	const askMutation = useMutation(
+		trpc.chatFork.askStory.mutationOptions({
+			onSuccess: () =>
+				queryClient.invalidateQueries({ queryKey: trpc.story.listQuickQuestions.queryKey({ storyId }) }),
+		}),
+	);
 
 	useEffect(() => {
 		forgetHandedOverQuestion(storyId);

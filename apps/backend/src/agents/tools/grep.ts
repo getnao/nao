@@ -16,7 +16,7 @@ import {
 } from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
-import { listStoryLibraryFilesToGrep } from '../../services/story-library';
+import { storyLibraryFileBatchesToGrep } from '../../services/story-library';
 import { isCustomStoriesEnabled, listStoryMountFilesToGrep } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { getRipgrepPath } from '../../utils/ripgrep';
@@ -204,8 +204,14 @@ const searchStoryLibrary = async (
 	if (!isStoryLibraryPath(options.path)) {
 		return { matches: [], totalMatches: 0 };
 	}
-	const files = await listStoryLibraryFilesToGrep(context, options.path!, options.glob);
-	return searchVirtualFiles(rgPath, files, options);
+	const results: TargetResult[] = [];
+	for await (const files of storyLibraryFileBatchesToGrep(context, options.path!, options.glob)) {
+		results.push(await searchVirtualFiles(rgPath, files, options));
+	}
+	return {
+		matches: results.flatMap((result) => result.matches),
+		totalMatches: results.reduce((total, result) => total + result.totalMatches, 0),
+	};
 };
 
 /**

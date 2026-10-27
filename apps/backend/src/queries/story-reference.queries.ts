@@ -1,6 +1,20 @@
 import { STORY_REFERENCE_TAG } from '@nao/shared';
 import type { StoryFormat } from '@nao/shared/types';
-import { aliasedTable, and, desc, eq, exists, inArray, isNotNull, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import {
+	aliasedTable,
+	and,
+	asc,
+	desc,
+	eq,
+	exists,
+	inArray,
+	isNotNull,
+	isNull,
+	max,
+	or,
+	type SQL,
+	sql,
+} from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -31,6 +45,7 @@ export type ReferenceableStoryFilters = {
 	folderIds?: string[];
 	sharedWithMeOnly?: boolean;
 	limit?: number;
+	offset?: number;
 };
 
 export type MentioningChat = {
@@ -95,8 +110,10 @@ export async function listReferenceableStories(
 			sql`case when ${eq(s.sharedStory.isPinned, true)} then 0 else 1 end`,
 			sql`case when ${isNotNull(s.story.certifiedAt)} then 0 else 1 end`,
 			desc(s.story.updatedAt),
+			asc(s.story.id),
 		)
 		.limit(Math.min(filters.limit ?? DEFAULT_LIMIT, MAX_REFERENCEABLE_STORIES_LIMIT))
+		.offset(filters.offset ?? 0)
 		.execute();
 
 	return rows.map(({ isPinned, certifiedAt, shareVisibility, ...row }) => ({

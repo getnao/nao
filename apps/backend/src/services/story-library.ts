@@ -19,6 +19,8 @@ import {
 import { entriesInVirtualDirectory } from '../utils/virtual-directory';
 import { loadStoriesDetails, loadStoryDetails, type StoryReferenceScope, toStorySummary } from './story-reference';
 
+const LIBRARY_PAGE_SIZE = storyReferenceQueries.MAX_REFERENCEABLE_STORIES_LIMIT;
+
 /** A story of the library, with the files its folder exposes. */
 interface LibraryStory {
 	id: string;
@@ -59,20 +61,25 @@ export async function readStoryLibraryFile(scope: StoryReferenceScope, virtualPa
 	return content;
 }
 
-/** Files a grep over `virtualPath` covers, addressed by their virtual path. */
-export async function listStoryLibraryFilesToGrep(
+/** Files a grep over `virtualPath` covers, addressed by their virtual path, one page of stories at a time. */
+export async function* storyLibraryFileBatchesToGrep(
 	scope: StoryReferenceScope,
 	virtualPath: string,
 	glob: string | undefined,
-): Promise<{ virtualPath: string; content: string }[]> {
+): AsyncGenerator<{ virtualPath: string; content: string }[]> {
 	const target = parseStoryLibraryPath(virtualPath);
-	const stories =
-		target.kind === 'root' ? await loadAllLibraryStories(scope) : [await loadLibraryStory(scope, target.storyId)];
-	return stories.flatMap((story) =>
-		story.files
-			.filter((file) => isInGrepScope(file, target) && matchesGlob(story.id, file, glob))
-			.map((file) => ({ virtualPath: toStoryLibraryVirtualPath(story.id, file.path), content: file.content })),
-	);
+	const pages =
+		target.kind === 'root' ? libraryStoryPages(scope) : singlePage(loadLibraryStory(scope, target.storyId));
+	for await (const stories of pages) {
+		yield stories.flatMap((story) =>
+			story.files
+				.filter((file) => isInGrepScope(file, target) && matchesGlob(story.id, file, glob))
+				.map((file) => ({
+					virtualPath: toStoryLibraryVirtualPath(story.id, file.path),
+					content: file.content,
+				})),
+		);
+	}
 }
 
 /** A search limited to one story only loads that story. */
@@ -81,19 +88,12 @@ export async function findStoryLibraryFiles(
 	matches: (libraryRelativePath: string) => boolean,
 	storyId: string | null,
 ): Promise<searchFiles.File[]> {
-	const stories = storyId ? await loadLibraryStoryIfVisible(scope, storyId) : await loadAllLibraryStories(scope);
-	return stories.flatMap((story) =>
-		story.files
-			.filter((file) => matches(toStoryLibraryRelativePath(story.id, file.path)))
-			.map((file) => {
-				const virtualPath = toStoryLibraryVirtualPath(story.id, file.path);
-				return {
-					path: virtualPath,
-					dir: path.posix.dirname(virtualPath),
-					size: String(Buffer.byteLength(file.content, 'utf8')),
-				};
-			}),
-	);
+	const pages = storyId ? singlePage(loadLibraryStoryIfVisible(scope, storyId)) : libraryStoryPages(scope);
+	const files: searchFiles.File[] = [];
+	for await (const stories of pages) {
+		files.push(...stories.flatMap((story) => matchingLibraryFiles(story, matches)));
+	}
+	return files;
 }
 
 async function listLibraryRoot(scope: StoryReferenceScope): Promise<list.Entry[]> {
@@ -106,15 +106,47 @@ async function listLibraryRoot(scope: StoryReferenceScope): Promise<list.Entry[]
 	}));
 }
 
-async function loadAllLibraryStories(scope: StoryReferenceScope): Promise<LibraryStory[]> {
-	const details = await loadStoriesDetails(await listLibraryStories(scope));
-	return details.map(toLibraryStory);
+/** Searches reach every story the user can see while holding a single page of stories in memory. */
+async function* libraryStoryPages(scope: StoryReferenceScope): AsyncGenerator<LibraryStory[]> {
+	for (let offset = 0; ; offset += LIBRARY_PAGE_SIZE) {
+		const stories = await listLibraryStories(scope, offset);
+		if (stories.length > 0) {
+			yield (await loadStoriesDetails(stories)).map(toLibraryStory);
+		}
+		if (stories.length < LIBRARY_PAGE_SIZE) {
+			return;
+		}
+	}
 }
 
-function listLibraryStories(scope: StoryReferenceScope): Promise<storyReferenceQueries.ReferenceableStory[]> {
+async function* singlePage(stories: Promise<LibraryStory | LibraryStory[]>): AsyncGenerator<LibraryStory[]> {
+	yield [await stories].flat();
+}
+
+function listLibraryStories(
+	scope: StoryReferenceScope,
+	offset = 0,
+): Promise<storyReferenceQueries.ReferenceableStory[]> {
 	return storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
-		limit: storyReferenceQueries.MAX_REFERENCEABLE_STORIES_LIMIT,
+		limit: LIBRARY_PAGE_SIZE,
+		offset,
 	});
+}
+
+function matchingLibraryFiles(
+	story: LibraryStory,
+	matches: (libraryRelativePath: string) => boolean,
+): searchFiles.File[] {
+	return story.files
+		.filter((file) => matches(toStoryLibraryRelativePath(story.id, file.path)))
+		.map((file) => {
+			const virtualPath = toStoryLibraryVirtualPath(story.id, file.path);
+			return {
+				path: virtualPath,
+				dir: path.posix.dirname(virtualPath),
+				size: String(Buffer.byteLength(file.content, 'utf8')),
+			};
+		});
 }
 
 async function loadLibraryStory(scope: StoryReferenceScope, storyId: string): Promise<LibraryStory> {

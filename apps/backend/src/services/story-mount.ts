@@ -7,7 +7,7 @@ import type { DBStory, DBStoryDraftFile } from '../db/abstractSchema';
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
-import type { ToolContext } from '../types/tools';
+import type { LinkedStory, ToolContext } from '../types/tools';
 import { formatStoryFile } from '../utils/story-file-format';
 import {
 	parsePublishedVersionPath,
@@ -95,6 +95,14 @@ export async function writeStoryMountFile(
 		content: await formatStoryFile(target.filePath, content),
 	});
 	return { path: toStoriesVirtualPath(target.slug, file.path), size: Buffer.byteLength(file.content, 'utf8') };
+}
+
+/** The chat owning the story a path points to, shared by every quick question editing the same linked story. */
+export function storyMountOwnerChatId(scope: StoryMountScope, virtualPath: string): string {
+	const target = parseStoriesPath(virtualPath);
+	const linkedStory = editableLinkedStory(scope);
+	const isLinkedStory = linkedStory && target.kind !== 'root' && target.slug === linkedStory.slug;
+	return isLinkedStory ? linkedStory.chatId : scope.chatId;
 }
 
 export async function findStoryMountFiles(
@@ -221,11 +229,13 @@ async function requireCustomStory(scope: StoryMountScope, slug: string): Promise
 	return story;
 }
 
-async function findEditableLinkedStory({ linkedStory }: StoryMountScope): Promise<DBStory | null> {
-	if (!linkedStory?.canEdit || linkedStory.format !== 'custom') {
-		return null;
-	}
-	return storyQueries.getStoryByChatAndSlug(linkedStory.chatId, linkedStory.slug);
+async function findEditableLinkedStory(scope: StoryMountScope): Promise<DBStory | null> {
+	const linkedStory = editableLinkedStory(scope);
+	return linkedStory ? storyQueries.getStoryByChatAndSlug(linkedStory.chatId, linkedStory.slug) : null;
+}
+
+function editableLinkedStory({ linkedStory }: StoryMountScope): LinkedStory | undefined {
+	return linkedStory?.canEdit && linkedStory.format === 'custom' ? linkedStory : undefined;
 }
 
 function assertCustomStoriesEnabled(): void {
