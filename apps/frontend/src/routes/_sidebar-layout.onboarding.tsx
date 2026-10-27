@@ -8,10 +8,12 @@ import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
 import {
 	findCreatedOnboardingProject,
+	getOnboardingInitialProjectIds,
 	findWarehouseJobId,
 	isDeployStepReached,
 	isOnboardingComplete,
 	OnboardingProgress,
+	setOnboardingInitialProjectIds,
 	useOnboardingProgress,
 	WarehouseCommandProgress,
 } from '@/components/onboarding-progress';
@@ -95,7 +97,13 @@ function OnboardingPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const waitingForDeployment = isDeployStepReached(progress);
-	const [initialProjectIds, setInitialProjectIds] = useState<ReadonlySet<string> | null>(null);
+	const canRestoreInitialProjects = Boolean(chatId && chatId !== NEW_CHAT_ID);
+	const restoredInitialProjectIds = useMemo(
+		() => (canRestoreInitialProjects ? getOnboardingInitialProjectIds(chatId!) : null),
+		[canRestoreInitialProjects, chatId],
+	);
+	const [capturedInitialProjectIds, setCapturedInitialProjectIds] = useState<ReadonlySet<string> | null>(null);
+	const initialProjectIds = restoredInitialProjectIds ?? capturedInitialProjectIds;
 	const projects = useQuery({
 		...trpc.project.listForCurrentUser.queryOptions(),
 		refetchInterval: (query) => {
@@ -151,9 +159,16 @@ function OnboardingPage() {
 
 	useEffect(() => {
 		if (initialProjectIds === null && projects.isSuccess) {
-			setInitialProjectIds(new Set(projects.data.map((project) => project.id)));
+			setCapturedInitialProjectIds(new Set(projects.data.map((project) => project.id)));
 		}
 	}, [initialProjectIds, projects.data, projects.isSuccess]);
+
+	useEffect(() => {
+		if (!canRestoreInitialProjects || !chatId || !initialProjectIds || restoredInitialProjectIds) {
+			return;
+		}
+		setOnboardingInitialProjectIds(chatId, initialProjectIds);
+	}, [canRestoreInitialProjects, chatId, initialProjectIds, restoredInitialProjectIds]);
 
 	useEffect(() => {
 		if (search.github !== 'connected') {

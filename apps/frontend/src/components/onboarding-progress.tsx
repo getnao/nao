@@ -6,6 +6,7 @@ import type { TrpcRouter } from '@nao/backend/trpc';
 import type { UIMessage } from '@nao/backend/chat';
 
 import { useAgentMessages } from '@/contexts/agent.provider';
+import { createLocalStorage } from '@/lib/local-storage';
 import { cn } from '@/lib/utils';
 
 const ONBOARDING_STEPS = {
@@ -238,6 +239,15 @@ export function findCreatedOnboardingProject<T extends { id: string }>(
 		return null;
 	}
 	return projects?.find((project) => !initialProjectIds.has(project.id)) ?? null;
+}
+
+export function getOnboardingInitialProjectIds(chatId: string): ReadonlySet<string> | null {
+	const stored = createLocalStorage<unknown>(`nao-onboarding-initial-project-ids:${chatId}`).get();
+	return Array.isArray(stored) && stored.every((projectId) => typeof projectId === 'string') ? new Set(stored) : null;
+}
+
+export function setOnboardingInitialProjectIds(chatId: string, projectIds: ReadonlySet<string>): void {
+	createLocalStorage<string[]>(`nao-onboarding-initial-project-ids:${chatId}`).set([...projectIds]);
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

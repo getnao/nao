@@ -1,13 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
 	findCreatedOnboardingProject,
+	getOnboardingInitialProjectIds,
 	getCompletedSteps,
 	isDeployStepReached,
 	isOnboardingComplete,
+	setOnboardingInitialProjectIds,
 } from './onboarding-progress';
 
 vi.mock('@/main', () => ({ trpc: {} }));
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
 
 describe('isDeployStepReached', () => {
 	it.each([
@@ -49,6 +55,25 @@ describe('findCreatedOnboardingProject', () => {
 
 	it('does not treat an existing project as the onboarding project', () => {
 		expect(findCreatedOnboardingProject([{ id: 'existing' }], new Set(['existing']))).toBeNull();
+	});
+});
+
+describe('onboarding initial project storage', () => {
+	it('restores the project baseline for the same conversation', () => {
+		const storedValues = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (key: string) => storedValues.get(key) ?? null,
+			setItem: (key: string, value: string) => storedValues.set(key, value),
+		});
+
+		setOnboardingInitialProjectIds('chat-1', new Set(['existing']));
+
+		const restoredProjectIds = getOnboardingInitialProjectIds('chat-1');
+		expect([...restoredProjectIds!]).toEqual(['existing']);
+		expect(findCreatedOnboardingProject([{ id: 'existing' }, { id: 'deployed' }], restoredProjectIds)).toEqual({
+			id: 'deployed',
+		});
+		expect(getOnboardingInitialProjectIds('chat-2')).toBeNull();
 	});
 });
 
