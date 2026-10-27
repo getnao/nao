@@ -5,12 +5,14 @@ import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
 import { isCustomStoriesEnabled } from '../services/story-mount';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import type { McpEndpointSettings, McpUserRole } from '../types/mcp-endpoint';
+import { isMemberBudgetLicensed } from '../utils/member-budget';
 import { extractConfiguredDatabases } from '../utils/nao-config';
 import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
 import { registerContextAdminTools } from './tools/context-admin-tools';
 import { registerContextLayerTools } from './tools/context-layer';
+import { registerMemberBudgetTools } from './tools/member-budget';
 import { registerSubAgentTools } from './tools/sub-agent';
 
 export async function createMcpServer(
@@ -50,6 +52,9 @@ export async function createMcpServer(
 	}
 
 	registerContextAdminTools(server, ctx);
+	if (role === 'admin' && (await isMemberBudgetLicensed(projectId))) {
+		registerMemberBudgetTools(server, ctx);
+	}
 	registerNaoMcpApps(server);
 
 	return server;

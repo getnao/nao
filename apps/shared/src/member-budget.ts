@@ -9,6 +9,19 @@ export type MemberBudgetStatus = 'under' | 'close' | 'exceeded' | 'unlimited';
 export type MemberBudgetSource = 'personal' | 'group' | 'default';
 export type InheritedMemberBudgetSource = Exclude<MemberBudgetSource, 'personal'>;
 
+export const MEMBER_BUDGET_STATUS_LABELS: Record<MemberBudgetStatus, string> = {
+	exceeded: 'Over budget',
+	close: 'Close to limit',
+	under: 'Under budget',
+	unlimited: 'No limit',
+};
+
+export const MEMBER_BUDGET_SOURCE_LABELS: Record<MemberBudgetSource, string> = {
+	personal: 'Personal limit',
+	group: 'User group limit',
+	default: 'Workspace default limit',
+};
+
 /* personal budget > most permissive budget among their groups > project default */
 export function resolveMemberBudgetLimit(
 	personalLimitUsd: number | null | undefined,
