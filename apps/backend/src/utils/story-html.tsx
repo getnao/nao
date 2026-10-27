@@ -1792,7 +1792,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 	function labelize(s){
 		var str=String(s);
 		if(/^\\d{4}-\\d{2}-\\d{2}/.test(str)){var d=new Date(str);if(!isNaN(d.getTime()))return escHtml(formatDate(d))}
-		return escHtml(str.replace(/_/g,' ').replace(/(^|[^\\p{L}\\p{N}_])(\\p{L})/gu,function(m,sep,letter){return sep+letter.toUpperCase()}))
+		return escHtml(str.replace(/_/g,' ').replace(/(^|[^\\p{L}\\p{M}\\p{N}_])(\\p{L})/gu,function(m,sep,letter){return sep+letter.toUpperCase()}))
 	}
 	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString('en-US')}
 	// Faithful port of d3-format's SI-prefix formatting so exported values match the chart.

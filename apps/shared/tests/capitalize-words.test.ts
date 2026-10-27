@@ -8,6 +8,11 @@ describe('capitalizeWords', () => {
 		expect(capitalizeWords('La Réunion')).toBe('La Réunion');
 	});
 
+	it('keeps words intact when accents are separate combining marks', () => {
+		expect(capitalizeWords('La Réunion')).toBe('La Réunion');
+		expect(capitalizeWords('saint-étienne')).toBe('Saint-Étienne');
+	});
+
 	it('capitalizes a leading accented letter', () => {
 		expect(capitalizeWords('île de france')).toBe('Île De France');
 	});

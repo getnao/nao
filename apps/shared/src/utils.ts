@@ -35,7 +35,7 @@ export function parseStoredJson<Schema extends z.ZodType>(raw: unknown, schema: 
 
 /** Uppercases the first letter of each word, treating accented letters as part of the word. */
 export function capitalizeWords(text: string): string {
-	return text.replace(/(^|[^\p{L}\p{N}_])(\p{L})/gu, (_match, separator: string, letter: string) => {
+	return text.replace(/(^|[^\p{L}\p{M}\p{N}_])(\p{L})/gu, (_match, separator: string, letter: string) => {
 		return separator + letter.toUpperCase();
 	});
 }
