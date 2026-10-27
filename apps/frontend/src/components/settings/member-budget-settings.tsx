@@ -403,31 +403,28 @@ function MemberBudgetsCard({
 
 /** Exports the saved budgets, so unsaved edits must be saved or discarded first. */
 function ExportUsageButton({ hasUnsavedChanges }: { hasUnsavedChanges: boolean }) {
-	const usageCsv = useQuery({ ...trpc.memberBudget.exportUsageCsv.queryOptions(), enabled: false });
-
-	async function handleExport() {
-		const { data } = await usageCsv.refetch();
-		if (data !== undefined) {
-			downloadCsv(`budget-usage-${toUtcDateString(new Date())}.csv`, data);
-		}
-	}
+	const queryClient = useQueryClient();
+	const exportMutation = useMutation({
+		mutationFn: () => queryClient.fetchQuery({ ...trpc.memberBudget.exportUsageCsv.queryOptions(), staleTime: 0 }),
+		onSuccess: (csv) => downloadCsv(`budget-usage-${toUtcDateString(new Date())}.csv`, csv),
+	});
 
 	const button = (
 		<Button
 			variant='outline'
 			size='sm'
-			isLoading={usageCsv.isFetching}
+			isLoading={exportMutation.isPending}
 			disabled={hasUnsavedChanges}
-			onClick={() => handleExport().catch(console.error)}
+			onClick={() => exportMutation.mutate()}
 		>
-			{!usageCsv.isFetching && <Download />}
+			{!exportMutation.isPending && <Download />}
 			Export CSV
 		</Button>
 	);
 
 	return (
 		<div className='flex items-center gap-2'>
-			{usageCsv.isError && <span className='text-xs text-destructive'>Export failed</span>}
+			{exportMutation.isError && <span className='text-xs text-destructive'>Export failed</span>}
 			{hasUnsavedChanges ? (
 				<SimpleTooltip content='Save or cancel your changes to export.'>
 					<span>{button}</span>

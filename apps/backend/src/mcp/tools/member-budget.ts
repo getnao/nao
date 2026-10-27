@@ -5,15 +5,16 @@ import { MEMBER_BUDGET_PERIODS } from '@nao/shared/types';
 import { z } from 'zod';
 
 import { buildMemberBudgetReportCsv, getMemberBudgetReport } from '../../services/member-budget-report.service';
+import { isMemberBudgetLicensed } from '../../utils/member-budget';
 import type { McpContext } from '../logging';
-import { registerMcpTool } from './register-mcp-tool';
+import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
 
 const EXPORT_MEMBER_BUDGETS_DESCRIPTION =
-	'Admin only. Export the AI usage and budget of every member of the nao project over the current budget period, ' +
-	'as CSV text (also returned as structured rows).\n\n' +
+	'Export the AI usage and budget of every member of the nao project over the current budget period ' +
+	'(admins only), as structured rows and as a ready-to-save CSV in `csv`.\n\n' +
 	'USE WHEN: the user asks who spends the most on AI, who is over or close to their budget, or wants a ' +
 	'usage/budget report or CSV file.\n' +
-	'Usage and budgets are in USD across all providers; a member with no limit has an empty budget.';
+	'Usage and budgets are in USD across all providers; a member with no limit has a null budget.';
 
 const MEMBER_ROW_SCHEMA = z.object({
 	name: z.string(),
@@ -26,7 +27,11 @@ const MEMBER_ROW_SCHEMA = z.object({
 	status: z.enum(['under', 'close', 'exceeded', 'unlimited']),
 });
 
-export function registerMemberBudgetTools(server: McpServer, ctx: McpContext): void {
+/** Member budgets are an Enterprise feature that only admins manage in the UI. */
+export async function registerMemberBudgetTools(server: McpServer, ctx: McpContext): Promise<void> {
+	if (ctx.role !== 'admin' || !(await isMemberBudgetLicensed(ctx.projectId))) {
+		return;
+	}
 	registerMcpTool(server, ctx, {
 		name: 'export_member_budgets',
 		title: 'Export Member Budgets',
@@ -37,19 +42,17 @@ export function registerMemberBudgetTools(server: McpServer, ctx: McpContext): v
 			periodStart: z.string().describe('Start of the current period (ISO date, UTC).'),
 			resetsAt: z.string().describe('When usage resets for the next period (ISO date, UTC).'),
 			members: z.array(MEMBER_ROW_SCHEMA).describe('Every project member, highest spenders first.'),
+			csv: z.string().describe('The same rows as CSV, ready to save as a file.'),
 		},
 		handler: async () => {
 			const report = await getMemberBudgetReport(ctx.projectId);
-			const output = {
+			return jsonToolResult({
 				period: report.period,
 				periodStart: report.periodStart.toISOString(),
 				resetsAt: report.resetsAt.toISOString(),
 				members: report.members,
-			};
-			return {
-				content: [{ type: 'text' as const, text: buildMemberBudgetReportCsv(report) }],
-				structuredContent: output,
-			};
+				csv: buildMemberBudgetReportCsv(report),
+			});
 		},
 	});
 }
