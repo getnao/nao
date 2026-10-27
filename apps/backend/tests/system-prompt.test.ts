@@ -471,12 +471,18 @@ describe('SystemPrompt preloaded skills', () => {
 describe('SystemPrompt project skills', () => {
 	const skills = [{ name: 'revenue', description: 'How to compute revenue.', location: '/agent/skills/revenue.md' }];
 
-	it('tells the agent to read a listed skill file instead of calling load_skill', () => {
+	it('tells the agent to load a listed skill with load_skill', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ skills, internalSkills: [] }));
 
-		expect(markdown).toContain('read its file at the location below');
-		expect(markdown).toContain('Never call **load_skill** for them');
+		expect(markdown).toContain('To use a skill, call **load_skill** with its name.');
 		expect(markdown).toContain('/agent/skills/revenue.md');
+	});
+
+	it('falls back to reading the skill file when the run has no load_skill tool', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, internalSkills: [], toolNames: ['read'] }));
+
+		expect(markdown).toContain('To use a skill, read its file at the location below.');
+		expect(markdown).not.toContain('load_skill');
 	});
 });
 

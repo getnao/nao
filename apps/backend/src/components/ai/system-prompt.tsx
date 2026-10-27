@@ -363,9 +363,14 @@ export function SystemPrompt({
 					<Block>
 						<Title level={2}>Skills</Title>
 						<Span>
-							You have access to pre-defined skills. Use these as guidance for relevant questions. To use
-							a skill, read its file at the location below. Never call <Bold>load_skill</Bold> for them:
-							it only serves built-in skills.
+							You have access to pre-defined skills. Use these as guidance for relevant questions.{' '}
+							{hasTool('load_skill') ? (
+								<>
+									To use a skill, call <Bold>load_skill</Bold> with its name.
+								</>
+							) : (
+								'To use a skill, read its file at the location below.'
+							)}
 						</Span>
 						{listedSkills.map((skill) => (
 							<>
@@ -433,8 +438,7 @@ function PreloadedSkillsBlock({ skills }: { skills: PreloadedSkill[] }) {
 			<Title level={2}>Preloaded Skills</Title>
 			<Span>
 				These project skills are already loaded below. Follow them whenever they are relevant. Very long skills
-				are truncated, so read a skill's file directly only when you need a part that is missing. Never call{' '}
-				<Bold>load_skill</Bold> for them.
+				are truncated, so read a skill's file directly only when you need a part that is missing.
 			</Span>
 			{skills.map((skill) => (
 				<>
