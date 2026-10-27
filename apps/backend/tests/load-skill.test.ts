@@ -43,6 +43,10 @@ describe('load_skill tool with project skills', () => {
 			join(skillsFolder, 'churn.md'),
 			'---\nname: churn\ndescription: How to compute churn.\n---\n\nCount a customer once.\n',
 		);
+		writeFileSync(
+			join(skillsFolder, 'excel-handling.md'),
+			'---\nname: excel-handling\ndescription: Our own spreadsheet rules.\n---\n\nUse the Finance tab only.\n',
+		);
 		projectPaths[PROJECT_ID] = projectRoot;
 		await skillService.initializeSkills(PROJECT_ID);
 	});
@@ -57,10 +61,24 @@ describe('load_skill tool with project skills', () => {
 		expect(output).toEqual({ _version: '1', name: 'revenue', body: 'Always use net revenue.' });
 	});
 
-	it('still serves a built-in skill first', async () => {
+	it('still serves a built-in skill no project skill shadows', async () => {
 		const output = await runLoadSkill('pdf-handling', { skillsAccess: { mode: 'all' } });
 
 		expect(output.name).toBe('pdf-handling');
+		expect(output.body).toContain('--- Page N ---');
+	});
+
+	it('serves a project skill over the built-in skill of the same name', async () => {
+		const output = await runLoadSkill('excel-handling', { skillsAccess: { mode: 'all' } });
+
+		expect(output.body).toBe('Use the Finance tab only.');
+	});
+
+	it('falls back to the built-in skill when the shadowing project skill is not granted', async () => {
+		const output = await runLoadSkill('excel-handling', { skillsAccess: restrictedSkills(['revenue']) });
+
+		expect(output.body).not.toBe('Use the Finance tab only.');
+		expect(output.body).toContain('read_xlsx');
 	});
 
 	it('loads a skill granted to the user group', async () => {

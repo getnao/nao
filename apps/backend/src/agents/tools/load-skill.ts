@@ -14,6 +14,11 @@ export default createTool<loadSkill.Input, loadSkill.Output>({
 	inputSchema: loadSkill.InputSchema,
 	outputSchema: loadSkill.OutputSchema,
 	execute: async ({ name }, context) => {
+		const projectSkill = loadProjectSkill(name, context);
+		if (projectSkill) {
+			return projectSkill;
+		}
+
 		const internalSkill = findInternalSkill(name);
 		if (internalSkill) {
 			return {
@@ -21,11 +26,6 @@ export default createTool<loadSkill.Input, loadSkill.Output>({
 				name: internalSkill.name,
 				body: internalSkill.body(skillCapabilities(context)),
 			};
-		}
-
-		const projectSkill = loadProjectSkill(name, context);
-		if (projectSkill) {
-			return projectSkill;
 		}
 
 		throw new Error(`There is no skill called '${name}'. Available: ${availableSkillNames(context).join(', ')}.`);
@@ -39,7 +39,10 @@ const skillCapabilities = (context: ToolContext | undefined): SkillCapabilities 
 	return { canRunSandbox: isSandboxAvailable && context?.agentSettings?.experimental?.sandboxes === true };
 };
 
-/** A project skill the run may not reach is reported as missing, so its existence does not leak. */
+/**
+ * A project skill shadows the built-in skill of the same name, as the prompt lists it in its place.
+ * A project skill the run may not reach is reported as missing, so its existence does not leak.
+ */
 const loadProjectSkill = (name: string, context: ToolContext | undefined): loadSkill.Output | null => {
 	if (!context?.projectId) {
 		return null;
@@ -69,5 +72,5 @@ const availableSkillNames = (context: ToolContext | undefined): string[] => {
 				.filter((skill) => isProjectSkillAllowed(skill, context))
 				.map((skill) => skill.name)
 		: [];
-	return [...internalSkillNames(), ...projectSkillNames];
+	return [...new Set([...internalSkillNames(), ...projectSkillNames])];
 };

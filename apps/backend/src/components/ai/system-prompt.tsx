@@ -86,6 +86,7 @@ export function SystemPrompt({
 	const dialectToolCallRules = getDialectToolCallRules(connections);
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
 	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
+	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]);
 
 	return (
 		<Block>
@@ -384,7 +385,7 @@ export function SystemPrompt({
 					</Block>
 				)}
 
-				{hasTool('load_skill') && internalSkills.length > 0 && <BuiltInSkillsBlock skills={internalSkills} />}
+				{hasTool('load_skill') && builtInSkills.length > 0 && <BuiltInSkillsBlock skills={builtInSkills} />}
 
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
 
@@ -432,13 +433,20 @@ function excludePreloadedSkills(skills: Skill[], preloadedSkills: PreloadedSkill
 	return skills.filter((skill) => !preloadedNames.has(skill.name));
 }
 
+/** load_skill serves the project skill over a built-in one of the same name. */
+function excludeShadowedInternalSkills(internalSkills: InternalSkill[], projectSkills: Skill[]): InternalSkill[] {
+	const projectSkillNames = new Set(projectSkills.map((skill) => skill.name));
+	return internalSkills.filter((skill) => !projectSkillNames.has(skill.name));
+}
+
 function PreloadedSkillsBlock({ skills }: { skills: PreloadedSkill[] }) {
 	return (
 		<Block>
 			<Title level={2}>Preloaded Skills</Title>
 			<Span>
 				These project skills are already loaded below. Follow them whenever they are relevant. Very long skills
-				are truncated, so read a skill's file directly only when you need a part that is missing.
+				are truncated, so read a skill's file directly only when you need a part that is missing. Never call{' '}
+				<Bold>load_skill</Bold> for them.
 			</Span>
 			{skills.map((skill) => (
 				<>
