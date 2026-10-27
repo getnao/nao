@@ -2,7 +2,7 @@
 
 Your data team owns the context layer. Everyone in the company can build on data.
 
-nao is an open-source framework to build, evaluate and deploy analytics agents. Build your agent's context with the nao-core CLI (or let your coding agent do it with the nao skills), then deploy this chat UI for anyone in the company to analyze data in plain English.
+Create your own Agentic BI with nao. Build your data context layer with the nao-core CLI (or let your coding agent do it with the nao skills), then deploy this image so anyone in the company can chat with your data and build live dashboards, data apps and slides.
 
 🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ) · 🐙 [GitHub](https://github.com/getnao/nao)
 

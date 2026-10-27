@@ -33,13 +33,13 @@
 
 ## What is nao?
 
-nao is an open-source framework to build, evaluate and deploy analytics agents on top of your existing data stack.
+nao lets you create your own Agentic BI: an open-source analytics agent and BI layer, built on a context layer your data team controls and tests.
 
-1. **Your data team builds the context** with the `nao-core` CLI: sync your warehouse, dbt, docs and rules into files your agent reads.
-2. **nao tests it**: `nao test` scores every context change against the SQL you expect, before it ships.
-3. **Everyone in the company uses it**: business users ask questions in plain English from the nao chat, Slack, Teams or any MCP client, and build their own charts and stories.
+1. **Build your data context layer**: your data team syncs the warehouse, dbt, docs and rules into files the agent reads, with the `nao-core` CLI or your coding agent.
+2. **Let your whole company analyze data**: anyone can chat with your data from the nao app, Slack, Teams or Claude, and build their own live dashboards, data apps and slides as stories.
+3. **Monitor that your agent always gets it right**: test every context change offline with `nao test`, and observe real usage online.
 
-Context work is what takes an analytics agent from 15% to 85% reliability. nao gives you the framework to do it, and keeps it in your hands.
+Watch your whole company grow into analysts.
 
 ## Key features
 
