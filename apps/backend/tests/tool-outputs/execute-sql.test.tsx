@@ -62,7 +62,7 @@ created_at: 2025-03-10T09:15:00Z
 		);
 	});
 
-	it('renders empty result message when no rows', () => {
+	it('renders the query id and empty result message when no rows', () => {
 		const result = renderToMarkdown(
 			<ExecuteSqlOutput
 				output={{
@@ -75,7 +75,7 @@ created_at: 2025-03-10T09:15:00Z
 		);
 		printOutput('execute_sql', 'no rows', result);
 
-		expect(result).toBe('The query was successfully executed and returned no rows.');
+		expect(result).toBe('Query ID: query_empty\n\nThe query was successfully executed and returned no rows.');
 	});
 
 	it('includes the query id when an empty result has template warnings', () => {

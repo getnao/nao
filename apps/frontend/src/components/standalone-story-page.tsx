@@ -10,6 +10,7 @@ import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryAccessError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { Spinner } from '@/components/ui/spinner';
 import { SelectionProvider } from '@/contexts/text-selection';
@@ -24,6 +25,7 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 
 	const storyQuery = useQuery(trpc.story.getStandalone.queryOptions({ storyId }));
 	const story = storyQuery.data;
+	const storyTheme = useStoryThemeForCurrentMode(story?.theme);
 
 	useTrackViewDuration({ assetType: 'story', storyId, versionNumber: story?.version });
 
@@ -97,6 +99,7 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 				<StandaloneStoryContent
 					code={story.code}
 					queryData={story.queryData as QueryDataMap | null}
+					theme={storyTheme}
 					chatId={story.chatId}
 					storySlug={story.slug}
 				/>
@@ -115,6 +118,7 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 function StandaloneStoryContent({
 	code,
 	queryData,
+	theme,
 	chatId,
 	storySlug,
 	filtersEnabled = true,
@@ -122,6 +126,7 @@ function StandaloneStoryContent({
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
+	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
 	chatId?: string | null;
 	storySlug?: string;
 	filtersEnabled?: boolean;
@@ -198,6 +203,7 @@ function StandaloneStoryContent({
 		<StoryTabbedContent
 			code={code}
 			baselineQueryData={queryData}
+			theme={theme}
 			filterApi={filterApi}
 			renderChart={renderChart}
 			renderTable={renderTable}

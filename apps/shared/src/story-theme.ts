@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
-import { isDarkSurface } from './story-theme-contrast';
+import { contrastRatio, isDarkSurface, legibleOn, readableInkFor } from './story-theme-contrast';
+import {
+	DEFAULT_STORY_TYPOGRAPHY,
+	seedTypographyFromLegacy,
+	storyTypographySchema,
+	typographyCssVars,
+} from './story-theme-typography';
+import { parseStoredJson } from './utils';
 
 export const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const hexColor = z.string().regex(HEX_COLOR, 'Expected a 6-digit hex colour such as #522bff.');
@@ -29,6 +36,17 @@ export function isAllowedFontStylesheet(raw: string): boolean {
 	}
 }
 
+export const STORY_HEADER_STYLES = ['none', 'logo', 'name', 'band'] as const;
+export const STORY_KPI_STYLES = ['plain', 'lead', 'tinted'] as const;
+export const STORY_LOGO_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'] as const;
+export type StoryLogoMediaType = (typeof STORY_LOGO_MEDIA_TYPES)[number];
+export const MAX_STORY_LOGO_BYTES = 512 * 1024;
+const MAX_STORY_LOGO_DATA_URI_LENGTH = 64 + Math.ceil(MAX_STORY_LOGO_BYTES / 3) * 4;
+const STORY_LOGO_DATA_URI = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+const LEAD_ACCENT_CONTRAST = 3;
+const MIN_HEADER_INK_CONTRAST = 4.5;
+
 export const MIN_CHART_SERIES_COLORS = 3;
 export const MAX_CHART_SERIES_COLORS = 11;
 export const MAX_FONT_STYLESHEETS = 4;
@@ -43,11 +61,18 @@ const DEFAULT_TEXT = {
 	bodyFont: "Geist, 'Helvetica Neue', Arial, sans-serif",
 	fontStylesheets: [] as string[],
 	headingScale: 1,
-	headingTracking: -0.02,
+	typography: DEFAULT_STORY_TYPOGRAPHY,
 	bodySize: 16,
 	lineHeight: 1.6,
 };
-const DEFAULT_BLOCK = { background: '#ffffff', borderColor: '#e6e6e6', borderWidth: 0, radius: 10 };
+const DEFAULT_BLOCK = {
+	background: '#ffffff',
+	borderColor: '#e6e6e6',
+	borderWidth: 0,
+	radius: 10,
+	controlRadius: 8,
+	kpiStyle: 'plain' as const,
+};
 const DEFAULT_TABLE = {
 	background: '#ffffff',
 	headerBackground: '#f8f8f8',
@@ -60,6 +85,13 @@ const DEFAULT_CHARTS = {
 	series: ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00', '#ff6467', '#8b5cf6'],
 	grid: '#ebebeb',
 	barRadius: 4,
+};
+const DEFAULT_BRAND = {
+	name: '',
+	logo: null,
+	header: 'none' as const,
+	headerBackground: '#ffffff',
+	showName: false,
 };
 
 export const storySurfacesSchema = z.object({
@@ -77,7 +109,7 @@ export const storyAccentSchema = z.object({
 });
 
 /** Text blocks render bare on the page, so everything about type lives here. */
-export const storyTextSchema = z.object({
+const storyTextObjectSchema = z.object({
 	/** Headings and KPI figures. */
 	headingColor: hexColor.default(DEFAULT_TEXT.headingColor),
 	/** Paragraphs, lists and table cells. */
@@ -93,13 +125,15 @@ export const storyTextSchema = z.object({
 		.default(DEFAULT_TEXT.fontStylesheets),
 	/** Multiplier on heading sizes. */
 	headingScale: z.number().min(0.8).max(1.4).default(DEFAULT_TEXT.headingScale),
-	/** Letter spacing on headings, in em. */
-	headingTracking: z.number().min(-0.06).max(0.06).default(DEFAULT_TEXT.headingTracking),
+	/** Face, weight, case, slant, tracking and size for each kind of text. */
+	typography: storyTypographySchema.default(DEFAULT_TEXT.typography),
 	/** Paragraph size in px. */
 	bodySize: z.number().min(13).max(20).default(DEFAULT_TEXT.bodySize),
 	/** Paragraph line height, unitless. */
 	lineHeight: z.number().min(1.2).max(2).default(DEFAULT_TEXT.lineHeight),
 });
+
+export const storyTextSchema = z.preprocess(seedTypographyFromLegacy, storyTextObjectSchema);
 
 /** KPI, chart and any other framed block; tables and text have their own slots. */
 export const storyBlockSchema = z.object({
@@ -110,6 +144,10 @@ export const storyBlockSchema = z.object({
 	borderWidth: z.number().min(0).max(4).default(DEFAULT_BLOCK.borderWidth),
 	/** Corner radius in px. */
 	radius: z.number().min(0).max(28).default(DEFAULT_BLOCK.radius),
+	/** Corner radius of buttons and filter chips, in px; 999 draws pills. */
+	controlRadius: z.number().min(0).max(999).default(DEFAULT_BLOCK.controlRadius),
+	/** `lead` inverts the first KPI of a row, `tinted` washes each KPI with a series colour. */
+	kpiStyle: z.enum(STORY_KPI_STYLES).default(DEFAULT_BLOCK.kpiStyle),
 });
 
 /** Tables draw their own frame, so they are styled apart from blocks. */
@@ -133,6 +171,22 @@ export const storyChartsSchema = z.object({
 	barRadius: z.number().min(0).max(12).default(DEFAULT_CHARTS.barRadius),
 });
 
+export const storyLogoSchema = z
+	.string()
+	.max(MAX_STORY_LOGO_DATA_URI_LENGTH, 'The logo is too large.')
+	.regex(STORY_LOGO_DATA_URI, 'The logo must be a PNG, JPEG, WebP or SVG image.');
+
+/** The identity a story opens with: a header carrying the logo or the brand name. */
+export const storyBrandSchema = z.object({
+	name: z.string().trim().max(60).default(DEFAULT_BRAND.name),
+	logo: storyLogoSchema.nullable().default(DEFAULT_BRAND.logo),
+	/** `band` fills the header with `headerBackground`; `logo` and `name` set identity bare on the page. */
+	header: z.enum(STORY_HEADER_STYLES).default(DEFAULT_BRAND.header),
+	headerBackground: hexColor.default(DEFAULT_BRAND.headerBackground),
+	/** Sets the name beside the logo, for a logo that is a symbol rather than a wordmark. */
+	showName: z.boolean().default(DEFAULT_BRAND.showName),
+});
+
 export const storyThemeSchema = z.object({
 	surfaces: storySurfacesSchema.default(DEFAULT_SURFACES),
 	accent: storyAccentSchema.default(DEFAULT_ACCENT),
@@ -140,6 +194,7 @@ export const storyThemeSchema = z.object({
 	block: storyBlockSchema.default(DEFAULT_BLOCK),
 	table: storyTableSchema.default(DEFAULT_TABLE),
 	charts: storyChartsSchema.default(DEFAULT_CHARTS),
+	brand: storyBrandSchema.default(DEFAULT_BRAND),
 });
 
 export type StoryTheme = z.infer<typeof storyThemeSchema>;
@@ -161,6 +216,7 @@ export const DEFAULT_DARK_STORY_THEME: StoryTheme = storyThemeSchema.parse({
 		series: ['#0095c7', '#ff6e2c', '#00baa9', '#ffcc04', '#ffac00', '#ff7778', '#b27fff'],
 		grid: '#24262c',
 	},
+	brand: { headerBackground: '#17181c' },
 });
 
 export const storyThemePairSchema = z.object({
@@ -185,12 +241,7 @@ export function oppositeStoryThemeMode(mode: StoryThemeMode): StoryThemeMode {
 }
 
 export function parseStoredStoryTheme(raw: unknown): StoryTheme | null {
-	const value = typeof raw === 'string' ? safeJsonParse(raw) : raw;
-	if (value === null || typeof value !== 'object') {
-		return null;
-	}
-	const result = storyThemeSchema.safeParse(value);
-	return result.success ? result.data : null;
+	return parseStoredJson(raw, storyThemeSchema);
 }
 
 export function sameTheme(a: StoryTheme, b: StoryTheme): boolean {
@@ -199,6 +250,32 @@ export function sameTheme(a: StoryTheme, b: StoryTheme): boolean {
 
 export function sameThemePair(a: StoryThemePair, b: StoryThemePair): boolean {
 	return sameTheme(a.light, b.light) && sameTheme(a.dark, b.dark);
+}
+
+/** No name and no logo shows nothing, a missing logo falls back to the name, and the name sits beside a logo only when both exist. */
+export function normalizeBrandHeader(brand: StoryTheme['brand']): StoryTheme['brand'] {
+	const hasName = brand.name.trim().length > 0;
+	const hasLogo = Boolean(brand.logo);
+	if (!hasName && !hasLogo) {
+		return { ...brand, header: 'none', showName: false };
+	}
+	if (!hasLogo && (brand.header === 'logo' || brand.header === 'band')) {
+		return { ...brand, header: 'name', showName: false };
+	}
+	if (!hasName && brand.header === 'name') {
+		return { ...brand, header: 'logo', showName: false };
+	}
+	return { ...brand, showName: brand.showName && hasName && hasLogo && brand.header !== 'name' };
+}
+
+export function showsBrandIdentity(brand: StoryTheme['brand']): boolean {
+	if (brand.header === 'none') {
+		return false;
+	}
+	if (brand.header === 'name') {
+		return Boolean(brand.name);
+	}
+	return Boolean(brand.logo || (brand.showName && brand.name));
 }
 
 /**
@@ -230,6 +307,7 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 
 		'--primary': theme.accent.color,
 		'--primary-foreground': theme.accent.ink,
+		'--story-accent-text': legibleOn(theme.accent.color, theme.surfaces.page),
 		'--ring': theme.accent.color,
 
 		'--border': theme.block.borderColor,
@@ -246,9 +324,20 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		'--font-sans': theme.text.bodyFont,
 		'--font-heading': theme.text.headingFont,
 		'--story-heading-scale': String(theme.text.headingScale),
-		'--story-heading-tracking': `${theme.text.headingTracking}em`,
+		...typographyCssVars(theme.text.typography),
+
+		'--story-control-radius': `${theme.block.controlRadius}px`,
+		...kpiVars(theme),
 
 		'--chart-grid': theme.charts.grid,
+
+		'--story-header-bg': theme.brand.header === 'band' ? theme.brand.headerBackground : 'transparent',
+		'--story-header-fg': headerInk(theme),
+		'--story-header-padding': theme.brand.header === 'band' ? '28px 32px' : '4px 0 20px',
+		'--story-header-rule': ['logo', 'name'].includes(theme.brand.header)
+			? `1px solid ${theme.block.borderColor}`
+			: '0',
+		'--story-header-radius': theme.brand.header === 'band' ? `${theme.block.radius}px` : '0',
 
 		'color-scheme': mode,
 	};
@@ -257,6 +346,29 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		vars[`--chart-${index + 1}`] = theme.charts.series[index % theme.charts.series.length];
 	}
 	return vars;
+}
+
+/** Concrete colours rather than `var()` chains: the lead tile re-points `--foreground`, which must not refer to itself. */
+function kpiVars(theme: StoryTheme): Record<string, string> {
+	const isLead = theme.block.kpiStyle === 'lead';
+	const leadBackground = isLead ? theme.text.headingColor : theme.block.background;
+	const leadInk = isLead ? theme.surfaces.page : theme.text.headingColor;
+	const accentReads = contrastRatio(theme.accent.color, leadBackground) >= LEAD_ACCENT_CONTRAST;
+	return {
+		'--story-kpi-lead-bg': leadBackground,
+		'--story-kpi-lead-fg': leadInk,
+		'--story-kpi-lead-muted': isLead ? theme.surfaces.sunken : theme.text.mutedColor,
+		'--story-kpi-lead-value': isLead && accentReads ? theme.accent.color : leadInk,
+		'--story-kpi-lead-strength': isLead ? '100%' : '0%',
+		'--story-kpi-tint': theme.block.kpiStyle === 'tinted' ? '14%' : '0%',
+	};
+}
+
+function headerInk(theme: StoryTheme): string {
+	const background = theme.brand.header === 'band' ? theme.brand.headerBackground : theme.surfaces.page;
+	return contrastRatio(theme.text.headingColor, background) >= MIN_HEADER_INK_CONTRAST
+		? theme.text.headingColor
+		: readableInkFor(background, [theme.text.headingColor, '#ffffff', '#111111']);
 }
 
 function radiusScale(radius: number): Record<string, string> {
@@ -271,12 +383,4 @@ function radiusScale(radius: number): Record<string, string> {
 		'--radius-4xl': `${radius + 16}px`,
 		'--story-block-radius': `${radius}px`,
 	};
-}
-
-function safeJsonParse(raw: string): unknown {
-	try {
-		return JSON.parse(raw);
-	} catch {
-		return null;
-	}
 }

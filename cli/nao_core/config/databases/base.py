@@ -8,7 +8,9 @@ from enum import Enum
 from typing import TYPE_CHECKING, cast
 
 import questionary
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from nao_core.config.databases.context import DEFAULT_PREVIEW_MAX_VALUE_LENGTH, MIN_PREVIEW_MAX_VALUE_LENGTH
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -125,6 +127,16 @@ class DatabaseConfig(BaseModel, ABC):
             "'analytics.events.*_id'). Empty means no columns are excluded."
         ),
     )
+    preview_max_value_length: int = Field(
+        default=DEFAULT_PREVIEW_MAX_VALUE_LENGTH,
+        ge=0,
+        description=(
+            "Maximum length of a single value in preview rows. Longer values are truncated "
+            "in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the "
+            "generated docs or the ai_summary prompt. 0 disables truncation, otherwise "
+            f"the minimum is {MIN_PREVIEW_MAX_VALUE_LENGTH}."
+        ),
+    )
     templates: list[DatabaseTemplate] = Field(
         default_factory=lambda: list(DEFAULT_DATABASE_TEMPLATES),
         description=(
@@ -153,6 +165,14 @@ class DatabaseConfig(BaseModel, ABC):
             "Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)')."
         ),
     )
+
+    @field_validator("preview_max_value_length")
+    @classmethod
+    def _validate_preview_max_value_length(cls, value: int) -> int:
+        """Reject caps too small to hold the truncation marker alongside part of the value."""
+        if 0 < value < MIN_PREVIEW_MAX_VALUE_LENGTH:
+            raise ValueError(f"must be 0 (no cap) or at least {MIN_PREVIEW_MAX_VALUE_LENGTH}, got {value}")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -314,7 +334,13 @@ class DatabaseConfig(BaseModel, ABC):
         """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
         from nao_core.config.databases.context import DatabaseContext
 
-        return DatabaseContext(conn, schema, table_name, exclude_columns=self.exclude_columns)
+        return DatabaseContext(
+            conn,
+            schema,
+            table_name,
+            exclude_columns=self.exclude_columns,
+            preview_max_value_length=self.preview_max_value_length,
+        )
 
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""

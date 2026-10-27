@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatBillingPrice } from './billing-display';
+import { formatBillingPrice, getBillingStatusView } from './billing-display';
 
 describe('formatBillingPrice', () => {
 	it.each([
@@ -15,5 +15,27 @@ describe('formatBillingPrice', () => {
 		}).format(majorAmount);
 
 		expect(formatBillingPrice(amount, currency)).toBe(expected);
+	});
+});
+
+it.each([
+	{
+		hasPaidPlan: false,
+		label: 'Free trial ended',
+		description: 'Your free trial has ended. Subscribe to restore access.',
+	},
+	{
+		hasPaidPlan: true,
+		label: 'Canceled',
+		description: 'Your previous subscription is canceled and kept as billing history. It cannot be resumed.',
+	},
+])('describes a canceled subscription when hasPaidPlan=$hasPaidPlan', ({ hasPaidPlan, label, description }) => {
+	const cancellationScheduled = false;
+	const hasDefaultPaymentMethod = false;
+
+	expect(getBillingStatusView('canceled', cancellationScheduled, hasDefaultPaymentMethod, hasPaidPlan)).toEqual({
+		label,
+		description,
+		variant: 'outline',
 	});
 });

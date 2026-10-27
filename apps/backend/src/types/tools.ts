@@ -1,4 +1,4 @@
-import type { UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
+import type { McpAccess, UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
@@ -7,6 +7,7 @@ import type { WarehouseTableAccess } from '../services/context-access';
 import type {
 	ResolvedDocsContextAccess,
 	ResolvedFilesContextAccess,
+	ResolvedSkillsAccess,
 } from '../services/user-group-context-access.service';
 import { AgentSettings } from './agent-settings';
 
@@ -14,6 +15,9 @@ export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
 	compiledBySemanticLayer?: boolean;
+	/** The SQL as the model wrote it (filter templates included), set for results produced in the current run. */
+	sqlQuery?: string;
+	databaseId?: string;
 }
 
 export interface GeneratedArtifacts {
@@ -31,6 +35,8 @@ export interface ToolContext {
 	agentSettings: AgentSettings | null;
 	/** The model the run itself uses; subagents inherit it unless the project pins another one. */
 	modelSelection?: LlmSelectedModel;
+	usageRunId?: string;
+	managedAiBillingMode?: 'wallet' | 'unbilled';
 	/**
 	 * How the run may use the project's semantic layer, resolved once from nao_config.yaml
 	 * and the admin settings. Null (or absent) when the project declares no semantic layer.
@@ -41,8 +47,14 @@ export interface ToolContext {
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	filesContextAccess: ResolvedFilesContextAccess;
+	/** MCP servers and tools the user's groups grant; spec files of other servers are hidden too. */
+	mcpAccess: McpAccess;
+	/** Project skills the user's groups grant; files of other skills under agent/skills/ are hidden too. */
+	skillsAccess: ResolvedSkillsAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
+	/** Project skills the user's groups load in full into the system prompt. */
+	preloadedSkillNames?: string[];
 	/**
 	 * Database federation access token. Populated by the EE Microsoft/Azure AD
 	 * integration when the user signs in via Microsoft; always null in the

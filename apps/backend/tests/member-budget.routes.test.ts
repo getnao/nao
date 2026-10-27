@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getMemberBudget: vi.fn(),
+	getMemberBudgetReport: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	setPersonalBudget: vi.fn(),
@@ -23,6 +24,10 @@ vi.mock('../src/services/member-budget.service', () => ({
 	getMemberSpendForPeriod: vi.fn(),
 	saveMemberBudgets: vi.fn(),
 	setPersonalBudget: mocks.setPersonalBudget,
+}));
+vi.mock('../src/services/member-budget-report.service', () => ({
+	buildMemberBudgetReportCsv: vi.fn(() => 'Member,Email'),
+	getMemberBudgetReport: mocks.getMemberBudgetReport,
 }));
 
 import { memberBudgetRoutes } from '../src/trpc/member-budget.routes';
@@ -46,6 +51,15 @@ describe('member budget routes', () => {
 			code: 'FORBIDDEN',
 		});
 		expect(mocks.setPersonalBudget).not.toHaveBeenCalled();
+	});
+
+	it('exports the usage CSV only with the enterprise license', async () => {
+		await expect(createCaller().exportUsageCsv()).resolves.toBe('Member,Email');
+
+		mocks.hasFeature.mockResolvedValue(false);
+
+		await expect(createCaller().exportUsageCsv()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.getMemberBudgetReport).toHaveBeenCalledTimes(1);
 	});
 
 	it('refuses to read or write the budget of a user outside the project', async () => {

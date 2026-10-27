@@ -1,11 +1,29 @@
 import type { UserRole } from '@nao/shared/types';
 
+import type { DBOrgMember, DBProjectMember, NewOrgMember, NewProjectMember } from '../db/abstractSchema';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { cleanupContextWorktree } from './context-explorer-git.service';
+import { recordOrganizationJoinCandidate, recordProjectJoinCandidate } from './credit-grant.service';
+import { addProjectMemberWithUserGroups } from './project-user-group-membership.service';
+
+export async function addOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
+	await Promise.all([requireOrganization(member.orgId), requireUser(member.userId)]);
+	return createOrganizationMember(member);
+}
+
+export async function addOrganizationMemberIfMissing(member: NewOrgMember): Promise<void> {
+	await Promise.all([requireOrganization(member.orgId), requireUser(member.userId)]);
+	await persistOrganizationMember(member, () => orgQueries.addOrgMemberIfMissing(member));
+}
+
+export async function addProjectMember(member: NewProjectMember, groupIds: string[] = []): Promise<DBProjectMember> {
+	await Promise.all([requireProject(member.projectId), requireUser(member.userId)]);
+	return createProjectMember(member, groupIds);
+}
 
 export async function putOrganizationMember(
 	orgId: string,
@@ -28,7 +46,7 @@ export async function putOrganizationMember(
 			await cleanupLostOrgContextAccess(orgId, userId);
 		}
 	} else {
-		await orgQueries.addOrgMember({ orgId, userId, role });
+		await createOrganizationMember({ orgId, userId, role });
 	}
 	return { userId, role };
 }
@@ -68,7 +86,7 @@ export async function putProjectMember(projectId: string, userId: string, role: 
 	if (existing) {
 		await projectQueries.updateProjectMemberRole(projectId, userId, role);
 	} else {
-		await projectQueries.addProjectMember({ projectId, userId, role });
+		await createProjectMember({ projectId, userId, role });
 	}
 	if (project.path && isContextRole(previousRole) && !isContextRole(role)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
@@ -87,6 +105,24 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
 	if (project.path && !isContextRole(remainingRole)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
 	}
+}
+
+async function createOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
+	return persistOrganizationMember(member, () => orgQueries.addOrgMember(member));
+}
+
+async function persistOrganizationMember<T>(member: NewOrgMember, persist: () => Promise<T>): Promise<T> {
+	const created = await persist();
+	await recordOrganizationJoinCandidate(member.orgId, member.userId);
+	return created;
+}
+
+async function createProjectMember(member: NewProjectMember, groupIds: string[] = []): Promise<DBProjectMember> {
+	const created = groupIds.length
+		? await addProjectMemberWithUserGroups(member, groupIds)
+		: await projectQueries.addProjectMember(member);
+	await recordProjectJoinCandidate(member.projectId, member.userId);
+	return created;
 }
 
 async function cleanupLostOrgContextAccess(orgId: string, userId: string): Promise<void> {

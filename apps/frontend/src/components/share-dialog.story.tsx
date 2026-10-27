@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
-import { useGroupPicker, useMemberPicker, useCopyWithFeedback } from '@/hooks/use-share-dialog';
+import { useGroupPicker, useMemberPicker, useCopyWithFeedback, useShareAudience } from '@/hooks/use-share-dialog';
 
 export type ShareStoryIntent = 'share' | 'pin';
 
@@ -92,13 +92,15 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const currentUserId = session?.user?.id;
-	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+	const audience = useShareAudience();
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, isLoading, reset } = useMemberPicker(
 		currentUserId,
 		undefined,
 		chatId,
 	);
 	const groupPicker = useGroupPicker(search, undefined);
 	const { selectedGroupIds, reset: resetGroups } = groupPicker;
+	const effectiveVisibility: Visibility = audience.canShareToProject ? visibility : 'specific';
 
 	useEffect(() => {
 		if (open) {
@@ -113,12 +115,12 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 	const shareMutation = useMutation(trpc.storyShare.create.mutationOptions());
 
 	const handleConfirm = useCallback(() => {
-		const isSpecific = visibility === 'specific';
+		const isSpecific = effectiveVisibility === 'specific';
 		const promise = shareMutation
 			.mutateAsync({
 				chatId,
 				storySlug,
-				visibility,
+				visibility: effectiveVisibility,
 				allowedUserIds: isSpecific ? [...selectedUserIds] : undefined,
 				allowedGroupIds: isSpecific ? [...selectedGroupIds] : undefined,
 				pinAfterCreate: isPinIntent,
@@ -145,7 +147,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 	}, [
 		chatId,
 		storySlug,
-		visibility,
+		effectiveVisibility,
 		selectedUserIds,
 		selectedGroupIds,
 		notify,
@@ -156,7 +158,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 		isPinIntent,
 	]);
 
-	const canConfirm = visibility === 'project' || selectedUserIds.size > 0 || selectedGroupIds.size > 0;
+	const canConfirm = effectiveVisibility === 'project' || selectedUserIds.size > 0 || selectedGroupIds.size > 0;
 
 	const title = isPinIntent ? 'Pin Story' : 'Share Story';
 	const description = isPinIntent
@@ -181,24 +183,26 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 						</div>
 					)}
 					<VisibilityPicker
-						visibility={visibility}
+						visibility={effectiveVisibility}
 						onChange={setVisibility}
 						specificLabel='People & groups'
+						canShareToProject={audience.canShareToProject}
 					/>
 					{isSmtpEnabled && (
 						<NotifyPeopleToggle checked={notify} onCheckedChange={setNotify} itemLabel='story' />
 					)}
-					{visibility === 'specific' && (
+					{effectiveVisibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
-							isLoading={membersQuery.isLoading || groupPicker.groupsQuery.isLoading}
+							isLoading={isLoading || groupPicker.groupsQuery.isLoading}
 							search={search}
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}
 							groups={groupPicker.filteredGroups}
 							selectedGroupIds={selectedGroupIds}
 							onToggleGroup={groupPicker.toggleGroup}
+							emptyMessage={audience.emptyMessage}
 						/>
 					)}
 				</div>
@@ -252,7 +256,8 @@ function ManageShareDialog({
 	const invalidateShareQueries = useInvalidateShareQueries(chatId, storySlug);
 
 	const currentUserId = session?.user?.id;
-	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+	const audience = useShareAudience();
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, isLoading, reset } = useMemberPicker(
 		currentUserId,
 		allowedUserIds,
 		chatId,
@@ -340,13 +345,14 @@ function ManageShareDialog({
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
-							isLoading={membersQuery.isLoading || groupPicker.groupsQuery.isLoading}
+							isLoading={isLoading || groupPicker.groupsQuery.isLoading}
 							search={search}
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}
 							groups={groupPicker.filteredGroups}
 							selectedGroupIds={selectedGroupIds}
 							onToggleGroup={groupPicker.toggleGroup}
+							emptyMessage={audience.emptyMessage}
 						/>
 					)}
 				</div>

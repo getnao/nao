@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
 	DEFAULT_USAGE_SEARCH,
@@ -10,8 +10,15 @@ import {
 	validateUsageSearchWithStoredFilters,
 } from './usage-route-search';
 
+const storedValues = new Map<string, string>();
+
 describe('validateUsageSearch', () => {
 	beforeEach(() => {
+		vi.stubGlobal('localStorage', {
+			clear: () => storedValues.clear(),
+			getItem: (key: string) => storedValues.get(key) ?? null,
+			setItem: (key: string, value: string) => storedValues.set(key, value),
+		});
 		localStorage.clear();
 		localStorage.setItem('nao.active-project-id', JSON.stringify('project-a'));
 	});
@@ -31,6 +38,23 @@ describe('validateUsageSearch', () => {
 			'contextRecommendations',
 			'onboarding',
 		]);
+	});
+
+	it('accepts only supported tabs', () => {
+		expect(validateUsageSearch({ tab: 'usage' }).tab).toBe('usage');
+		expect(validateUsageSearch({ tab: 'managed-ai' }).tab).toBeUndefined();
+		expect(validateUsageSearch({ tab: 'wallet' }).tab).toBeUndefined();
+		expect(validateUsageSearch({ tab: 'replay' }).tab).toBeUndefined();
+		expect(validateUsageSearch({ tab: 'other' }).tab).toBeUndefined();
+	});
+
+	it('does not persist the selected tab with project filters', () => {
+		saveUsageFilters({ ...DEFAULT_USAGE_SEARCH, tab: 'usage', provider: 'openai' });
+
+		expect(validateUsageSearchWithStoredFilters({})).toMatchObject({
+			tab: undefined,
+			provider: 'openai',
+		});
 	});
 
 	it('parses the split per user toggle and persists it with the other filters', () => {

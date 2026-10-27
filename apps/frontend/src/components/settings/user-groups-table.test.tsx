@@ -2,14 +2,18 @@
 
 import {
 	ALL_DOCS_CONTEXT_ACCESS,
+	ALL_MCP_ACCESS,
+	ALL_SKILLS_ACCESS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
+	EMPTY_SKILLS_ACCESS,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +28,7 @@ import { UserGroupUserDetail } from './user-group-user-detail';
 import { resolveUserGroupsPageTab, UserGroupsTable } from './user-groups-table';
 import type { UserGroupEditorGroup, UserGroupEditorTab } from './user-group-editor';
 import type { UserGroupUserDetailTab } from './user-group-user-detail';
-import type { ProjectRowSecurity } from '@nao/shared';
+import type { McpServerStatus, ProjectRowSecurity } from '@nao/shared';
 import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
@@ -33,6 +37,7 @@ const mocks = vi.hoisted(() => ({
 	useQuery: vi.fn(),
 	useMutation: vi.fn(),
 	invalidateQueries: vi.fn(),
+	fetchQuery: vi.fn(),
 	mutate: vi.fn(),
 	mutateAsync: vi.fn(),
 	navigate: vi.fn(),
@@ -43,7 +48,7 @@ vi.mock('@/hooks/use-license', () => ({ useLicenseFeatures: mocks.useLicenseFeat
 vi.mock('@/hooks/use-custom-stories-enabled', () => ({ useCustomStoriesEnabled: mocks.useCustomStoriesEnabled }));
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: mocks.useQuery,
-	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, fetchQuery: mocks.fetchQuery }),
 	useMutation: mocks.useMutation,
 }));
 vi.mock('@tanstack/react-router', () => ({
@@ -96,6 +101,12 @@ vi.mock('@/main', () => ({
 			addUserToProject: { mutationOptions: vi.fn() },
 			modify: { mutationOptions: vi.fn() },
 		},
+		mcp: {
+			getServers: { queryOptions: vi.fn(() => ({ queryKey: ['mcp-servers'] })) },
+		},
+		skill: {
+			catalog: { queryOptions: vi.fn(() => ({ queryKey: ['skill-catalog'] })) },
+		},
 		memberBudget: {
 			getSettings: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-settings'] })) },
 			getOverview: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-overview'] })) },
@@ -114,6 +125,9 @@ vi.mock('@/main', () => ({
 			updateRowSecurity: { mutationOptions: vi.fn() },
 			effectiveAccess: { queryKey: vi.fn(() => ['effective-access']) },
 			effectiveAccessForUser: { queryKey: vi.fn(() => ['effective-access-for-user']) },
+			previewProjectSharingRevocation: {
+				queryOptions: vi.fn((input: unknown) => ({ queryKey: ['preview-project-sharing-revocation', input] })),
+			},
 			effectiveOidcEnvMappings: {
 				queryOptions: vi.fn(() => ({ queryKey: ['effective-oidc-env-mappings'] })),
 				queryKey: vi.fn(() => ['effective-oidc-env-mappings']),
@@ -254,9 +268,14 @@ const allUsers = {
 	isDefault: true,
 	featureGrants: [],
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	projectSharing: 'inherit' as const,
+	showAllSettings: true,
+	preloadedSkills: [] as string[],
 	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 	filesAccess: { mode: 'all' as const },
+	mcpAccess: ALL_MCP_ACCESS,
+	skillsAccess: ALL_SKILLS_ACCESS,
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 };
 const analysts = {
@@ -264,9 +283,12 @@ const analysts = {
 	id: 'analysts',
 	name: 'Analysts',
 	isDefault: false,
+	showAllSettings: false,
 	databaseAccess: { ...EMPTY_DATABASE_CONTEXT_ACCESS, strict: false },
 	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+	mcpAccess: EMPTY_MCP_ACCESS,
+	skillsAccess: EMPTY_SKILLS_ACCESS,
 };
 const rowSecurityIdentity = {
 	databaseType: 'duckdb',
@@ -317,6 +339,7 @@ beforeEach(() => {
 	mocks.mutate.mockReset();
 	mocks.mutateAsync.mockReset();
 	mocks.invalidateQueries.mockReset();
+	mocks.fetchQuery.mockReset();
 	mocks.copyText.mockReset().mockResolvedValue(undefined);
 	Object.defineProperty(navigator, 'clipboard', {
 		configurable: true,
@@ -931,13 +954,87 @@ describe('UserGroupEditor', () => {
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
 			'Context',
+			'MCP',
+			'Skills',
 			'Security',
 			'Budget',
+			'Advanced settings',
 		]);
 		expect(screen.getByRole('tab', { name: 'Features' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
 		expect(screen.queryByText('Context permissions')).toBeNull();
 		expect(screen.queryByRole('navigation', { name: 'User group sections' })).toBeNull();
+	});
+
+	it('offers the All Users default as the inherited project sharing permission', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [{ ...allUsers, projectSharing: 'blocked' }, analysts] },
+		});
+		renderEditor();
+
+		expect(screen.getByRole('combobox', { name: 'Allow sharing to entire project' }).textContent).toContain(
+			'Use All Users default (not allowed)',
+		);
+	});
+
+	it('confirms before unsharing project-wide content when project sharing is turned off', async () => {
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 1, storyCount: 2 });
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		selectProjectSharing('Not allowed');
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(await screen.findByText(/unshares 1 chat and 2 stories/)).toBeTruthy();
+		expect(mocks.fetchQuery).toHaveBeenCalledWith(
+			expect.objectContaining({
+				queryKey: ['preview-project-sharing-revocation', { groupId: 'analysts', projectSharing: 'blocked' }],
+			}),
+		);
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Unshare and save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ groupId: 'analysts', projectSharing: 'blocked' }),
+			),
+		);
+		await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: [['sharedChat']] }));
+		expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: [['storyShare']] });
+	});
+
+	it('saves the project sharing permission directly when nothing would be unshared', async () => {
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0 });
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		selectProjectSharing('Allowed');
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ groupId: 'analysts', projectSharing: 'allowed' }),
+			),
+		);
+		expect(screen.queryByText(/Unshare content shared with everyone/)).toBeNull();
+	});
+
+	it('turns project sharing back on for All Users with a switch', async () => {
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0 });
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor('features', vi.fn(), { ...allUsers, projectSharing: 'blocked' });
+
+		fireEvent.click(screen.getByRole('switch', { name: 'Allow sharing to entire project' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ groupId: 'all-users', projectSharing: 'allowed' }),
+			),
+		);
 	});
 
 	it('reports editor tab changes to the route', () => {
@@ -1663,6 +1760,21 @@ describe('UserGroupEditor', () => {
 		);
 	});
 
+	it('tracks, restores, and saves the settings visibility', () => {
+		renderEditor('advanced');
+		const showAllSettings = () => screen.getByRole('switch', { name: 'Show all settings to users' });
+
+		fireEvent.click(showAllSettings());
+		expect(showAllSettings().getAttribute('aria-checked')).toBe('true');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(showAllSettings().getAttribute('aria-checked')).toBe('false');
+
+		fireEvent.click(showAllSettings());
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ showAllSettings: true }));
+	});
+
 	it.each([
 		{ tab: 'features' as const, control: /Stories/ },
 		{ tab: 'features' as const, control: 'Density slider' },
@@ -1831,6 +1943,15 @@ describe('UserGroupEditor', () => {
 				databaseAccess: group.databaseAccess,
 			}),
 		).toBe(true);
+		expect(
+			hasUserGroupEditorChanges(group, {
+				name: group.name,
+				featureGrants: group.featureGrants,
+				toolCallDensityPolicy: group.toolCallDensityPolicy,
+				databaseAccess: group.databaseAccess,
+				preloadedSkills: ['revenue'],
+			}),
+		).toBe(true);
 	});
 });
 
@@ -1842,6 +1963,8 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
 			'Context',
+			'MCP',
+			'Skills',
 			'Security',
 			'Budget',
 		]);
@@ -1874,6 +1997,68 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.queryByText('Density slider')).toBeNull();
 	});
 
+	it('shows only the MCP servers and tools granted to the user', () => {
+		mockQueries({
+			'mcp-servers': [
+				createMcpServer('github', ['search', 'create_issue']),
+				createMcpServer('linear', ['list_issues']),
+				createMcpServer('slack', ['post_message']),
+			],
+		});
+		renderUserDetail({
+			activeTab: 'mcp',
+			effectiveAccess: {
+				...createEffectiveAccess([]),
+				mcpAccess: {
+					mode: 'restricted',
+					grants: [
+						{ kind: 'server', server: 'linear' },
+						{ kind: 'tool', server: 'github', tool: 'search' },
+					],
+				},
+			},
+		});
+
+		expect(screen.getByText('Specific selection')).toBeTruthy();
+		expect(screen.getByText('2 of 3 servers')).toBeTruthy();
+		expect(screen.queryByText('slack')).toBeNull();
+		expect(screen.getByText('Full server')).toBeTruthy();
+		expect(screen.getByText('Partial')).toBeTruthy();
+		expect(screen.getByText('1/2 tools')).toBeTruthy();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand github tools' }));
+
+		expect(screen.getByText('search')).toBeTruthy();
+		expect(screen.queryByText('create_issue')).toBeNull();
+	});
+
+	it('shows granted skills and marks the preloaded ones', () => {
+		mockQueries({
+			'skill-catalog': [
+				{ name: 'revenue', description: 'Revenue analysis', location: '/agent/skills/revenue/SKILL.md' },
+				{ name: 'churn', description: 'Churn analysis', location: '/agent/skills/churn/SKILL.md' },
+				{ name: 'secret', description: 'Hidden skill', location: '/agent/skills/secret/SKILL.md' },
+			],
+		});
+		renderUserDetail({
+			activeTab: 'skills',
+			effectiveAccess: {
+				...createEffectiveAccess([]),
+				skillsAccess: { mode: 'restricted', skills: ['churn', 'revenue'] },
+				preloadedSkills: ['revenue'],
+			},
+		});
+
+		expect(screen.getByText('Specific selection')).toBeTruthy();
+		expect(screen.getByText(/2 of 3 skills · 1 of 50 preloaded/)).toBeTruthy();
+		expect(screen.getByText('churn')).toBeTruthy();
+		expect(screen.queryByText('secret')).toBeNull();
+		const revenueRow = screen.getByText('revenue').closest('li');
+		const churnRow = screen.getByText('churn').closest('li');
+		expect(revenueRow?.textContent).toContain('Preloaded');
+		expect(churnRow?.textContent).not.toContain('Preloaded');
+	});
+
 	it('counts current effective access without overlap, including Everything mode', () => {
 		const contextObjects = [
 			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
@@ -1895,6 +2080,9 @@ describe('UserGroupUserDetail', () => {
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: { mode: 'all' },
+				mcpAccess: ALL_MCP_ACCESS,
+				skillsAccess: ALL_SKILLS_ACCESS,
+				preloadedSkills: [],
 				rowPolicies: [],
 			},
 		});
@@ -1948,6 +2136,9 @@ describe('UserGroupUserDetail', () => {
 				},
 				docsAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'finance/kpis.md' }] },
 				filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+				mcpAccess: ALL_MCP_ACCESS,
+				skillsAccess: ALL_SKILLS_ACCESS,
+				preloadedSkills: [],
 				rowPolicies: [],
 			},
 		});
@@ -1986,6 +2177,9 @@ describe('UserGroupUserDetail', () => {
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: { mode: 'all' },
+				mcpAccess: ALL_MCP_ACCESS,
+				skillsAccess: ALL_SKILLS_ACCESS,
+				preloadedSkills: [],
 				rowPolicies: [],
 			},
 		});
@@ -2245,6 +2439,11 @@ function StatefulEditorHarness({ group, initialTab }: { group: UserGroupEditorGr
 	);
 }
 
+function selectProjectSharing(optionName: string) {
+	fireEvent.keyDown(screen.getByRole('combobox', { name: 'Allow sharing to entire project' }), { key: 'Enter' });
+	fireEvent.click(screen.getByRole('option', { name: optionName }));
+}
+
 function renderEditor(
 	activeTab: UserGroupEditorTab = 'features',
 	onTabChange = vi.fn(),
@@ -2286,6 +2485,9 @@ function renderUserDetail({
 		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 		docsAccess: { mode: 'restricted', grants: [] },
 		filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+		mcpAccess: ALL_MCP_ACCESS,
+		skillsAccess: ALL_SKILLS_ACCESS,
+		preloadedSkills: [],
 		rowPolicies: [],
 	},
 }: {
@@ -2363,6 +2565,31 @@ function createUserDetail(
 	);
 }
 
+function mockQueries(dataByQueryKey: Record<string, unknown>) {
+	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+		isLoading: false,
+		isError: false,
+		isSuccess: true,
+		data: dataByQueryKey[options?.queryKey?.[0] ?? ''] ?? overview,
+	}));
+}
+
+function createMcpServer(name: string, toolNames: string[]): McpServerStatus {
+	return {
+		name,
+		transport: 'http',
+		enabled: true,
+		discovered: true,
+		connectionOk: true,
+		oauth: false,
+		oauthConnected: false,
+		toolCount: toolNames.length,
+		enabledToolCount: toolNames.length,
+		tools: toolNames.map((toolName) => ({ name: toolName, description: '', enabled: true })),
+		specPath: `agent/mcps/${name}`,
+	};
+}
+
 function createEffectiveAccess(
 	rowPolicies: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess']['rowPolicies'],
 ): ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] {
@@ -2372,6 +2599,9 @@ function createEffectiveAccess(
 		databaseAccess: { mode: 'all', strict: true },
 		docsAccess: { mode: 'restricted', grants: [] },
 		filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+		mcpAccess: ALL_MCP_ACCESS,
+		skillsAccess: ALL_SKILLS_ACCESS,
+		preloadedSkills: [],
 		rowPolicies,
 	};
 }

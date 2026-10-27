@@ -1,24 +1,34 @@
 import { type BackgroundModelCategory, type DefaultModelSettings, selectBackgroundModel } from '@nao/shared';
 import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
 
+import { managedAiSource, type ManagedAiUsageContext } from '../agents/managed-ai';
 import {
 	createProviderModel,
 	getDefaultModelId,
 	getProviderMeta,
+	isManagedProvider,
 	LLM_PROVIDERS,
 	type ProviderModelResult,
 } from '../agents/providers';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
-import type { CustomModelMetadata, ProviderSettings } from '../types/llm';
+import type {
+	CustomModelMetadata,
+	ModelRequest,
+	ModelSettingsMap,
+	ModelSource,
+	ProviderModelSource,
+	ProviderSettings,
+} from '../types/llm';
 import { type ConfigLlm, type ConfigLlmProvider, findConfigLlmProvider, readProjectConfigLlm } from './nao-config-llm';
 
 export { getDefaultModelId };
 
 /** Get the API key from environment for a provider */
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
-	return process.env[getProviderMeta(provider).envVar];
+	const { envVar } = getProviderMeta(provider);
+	return envVar ? process.env[envVar] : undefined;
 }
 
 /** Get the base URL from environment for a provider (e.g. OPENAI_BASE_URL) */
@@ -94,7 +104,7 @@ export function getEnvModelSelections(): LlmSelectedModel[] {
 	}));
 }
 
-/** Resolve API key + base URL for a provider from DB config, nao_config.yaml or env vars. */
+/** Resolve API key + base URL for a provider from the first model source that hands out credentials for it. */
 export async function resolveProviderSettings(
 	projectId: string,
 	provider: LlmProvider,
@@ -102,86 +112,42 @@ export async function resolveProviderSettings(
 	if (isProviderDisabled(provider)) {
 		return null;
 	}
-	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
-	if (config) {
-		return {
-			apiKey: config.apiKey,
-			...(config.baseUrl && { baseURL: config.baseUrl }),
-			...(config.credentials && { credentials: config.credentials }),
-		};
+	for (const source of getSourcesServing(provider)) {
+		const settings = await source.resolveSettings?.(projectId, provider);
+		if (settings) {
+			return settings;
+		}
 	}
-
-	const configured = findConfigLlmProvider(await getProjectConfigLlm(projectId), provider);
-	if (configured) {
-		return toProviderSettings(configured);
-	}
-
-	const envApiKey = getEnvApiKey(provider);
-	if (envApiKey) {
-		const envBaseUrl = getEnvBaseUrl(provider);
-		return { apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) };
-	}
-
-	if (hasEnvApiKey(provider)) {
-		const envBaseUrl = getEnvBaseUrl(provider);
-		return { apiKey: '', ...(envBaseUrl && { baseURL: envBaseUrl }) };
-	}
-
 	return null;
 }
 
 /**
- * Resolve a provider model from DB config, falling back to nao_config.yaml then env vars.
- * Returns null when no source has credentials for the provider.
+ * Resolve a provider model from the first model source that serves it: DB config, nao_config.yaml,
+ * env vars, then nao's managed models. Returns null when no source has credentials for the provider.
  */
 export async function resolveProviderModel(
 	projectId: string,
 	provider: LlmProvider,
 	modelId: string,
 	applyUserSettings = true,
+	usageContext?: ManagedAiUsageContext,
 ): Promise<ProviderModelResult | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
 	}
-	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
-	if (config) {
-		return createProviderModel(
-			provider,
-			{
-				apiKey: config.apiKey,
-				...(config.baseUrl && { baseURL: config.baseUrl }),
-				...(config.credentials && { credentials: config.credentials }),
-			},
-			modelId,
-			applyUserSettings ? config.modelSettings?.[modelId] : undefined,
-		);
+	const request: ModelRequest = {
+		projectId,
+		provider,
+		modelId,
+		applyUserSettings,
+		usageContext,
+	};
+	for (const source of getSourcesServing(provider)) {
+		const result = await source.resolveModel(request);
+		if (result) {
+			return result;
+		}
 	}
-
-	const configured = findConfigLlmProvider(await getProjectConfigLlm(projectId), provider);
-	if (configured) {
-		return createProviderModel(
-			provider,
-			toProviderSettings(configured),
-			modelId,
-			applyUserSettings ? configured.modelSettings[modelId] : undefined,
-		);
-	}
-
-	const envApiKey = getEnvApiKey(provider);
-	if (envApiKey) {
-		const envBaseUrl = getEnvBaseUrl(provider);
-		return createProviderModel(
-			provider,
-			{ apiKey: envApiKey, ...(envBaseUrl && { baseURL: envBaseUrl }) },
-			modelId,
-		);
-	}
-
-	if (hasEnvApiKey(provider)) {
-		const envBaseUrl = getEnvBaseUrl(provider);
-		return createProviderModel(provider, { apiKey: '', ...(envBaseUrl && { baseURL: envBaseUrl }) }, modelId);
-	}
-
 	return null;
 }
 
@@ -345,6 +311,102 @@ export const getProjectAvailableModels = async (
 	});
 };
 
+export type ProjectAvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[number];
+
+/** Raised when an MCP caller names a model the project does not expose. The message is safe to relay. */
+export class RequestedModelError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'RequestedModelError';
+	}
+}
+
+/**
+ * Picks the model an MCP caller asked for among the project's available models. `requested` is a
+ * model id as the model picker lists it (`mistral-large-4`), or `provider/model-id` when the same
+ * id is served by several providers. Matching ignores case and also accepts the display name.
+ * Provider ids and model ids may themselves contain `/` (`openaiCompatible/prod`,
+ * `mistralai/mistral-large`), so every split of the requested value is tried.
+ */
+export function pickRequestedModel(available: ProjectAvailableModel[], requested: string): LlmSelectedModel {
+	const wanted = requested.trim().toLowerCase();
+	if (!wanted) {
+		throw new RequestedModelError('`model` must not be empty.');
+	}
+
+	const matchesId = (m: ProjectAvailableModel, id: string): boolean =>
+		m.modelId.toLowerCase() === id || m.name.trim().toLowerCase() === id;
+
+	let candidates = available.filter((m) => matchesId(m, wanted));
+	for (
+		let slash = wanted.indexOf('/');
+		candidates.length === 0 && slash > 0;
+		slash = wanted.indexOf('/', slash + 1)
+	) {
+		const provider = wanted.slice(0, slash);
+		const id = wanted.slice(slash + 1);
+		candidates = available.filter((m) => m.provider.toLowerCase() === provider && matchesId(m, id));
+	}
+
+	if (candidates.length === 1) {
+		return { provider: candidates[0].provider, modelId: candidates[0].modelId };
+	}
+	if (candidates.length === 0) {
+		const list = available.map((m) => `${m.provider}/${m.modelId}`).join(', ') || 'none';
+		throw new RequestedModelError(`Unknown model "${requested}". Available models: ${list}.`);
+	}
+	const qualified = candidates.map((m) => `${m.provider}/${m.modelId}`).join(', ');
+	throw new RequestedModelError(
+		`Model "${requested}" is served by several providers. Qualify it as provider/model-id: ${qualified}.`,
+	);
+}
+
+/** Models listed in the `ask_nao` `model` description; the rest are only reachable by name. */
+export const MODEL_INPUT_LISTED_MAX = 20;
+
+/**
+ * The `model` input description of `ask_nao`, with the project's available models so an MCP
+ * caller picks one without a failed round trip. Models are written the way `pickRequestedModel`
+ * resolves them: the bare id, or `provider/model-id` when several providers serve the same id.
+ * The default is the model a call without `model` runs on. `available` is null when the catalog
+ * could not be read, in which case the description carries no list.
+ */
+export function describeModelInput(
+	available: ProjectAvailableModel[] | null,
+	defaultModel: LlmSelectedModel | null,
+): string {
+	if (available === null) {
+		return `${MODEL_INPUT_INTRO} ${MODEL_INPUT_OMIT}`;
+	}
+	const isDefault = (m: ProjectAvailableModel): boolean =>
+		defaultModel !== null && m.provider === defaultModel.provider && m.modelId === defaultModel.modelId;
+	const sharedIds = new Set(
+		available.filter((m, i) => available.some((o, j) => j !== i && o.modelId === m.modelId)).map((m) => m.modelId),
+	);
+	const label = (m: ProjectAvailableModel): string =>
+		`\`${sharedIds.has(m.modelId) ? `${m.provider}/${m.modelId}` : m.modelId}\`${isDefault(m) ? ' (default)' : ''}`;
+
+	const listed = available.slice(0, MODEL_INPUT_LISTED_MAX).map(label);
+	const hidden = available.length - listed.length;
+	const catalog =
+		listed.length === 0
+			? 'No model is configured on this project.'
+			: `Available models: ${listed.join(', ')}${hidden > 0 ? ` and ${hidden} more` : ''}.`;
+
+	return `${MODEL_INPUT_INTRO} ${catalog} ${MODEL_INPUT_OMIT}`;
+}
+
+const MODEL_INPUT_INTRO =
+	'Model to run the sub-agent with, as listed in the project model picker (e.g. `mistral-large-4`), ' +
+	'or `provider/model-id` when several providers serve the same id.';
+const MODEL_INPUT_OMIT =
+	'Omit to use the default: the model pinned in the MCP settings, else the project default chat model.';
+
+/** `pickRequestedModel` against the project's current model catalog. */
+export async function resolveRequestedModel(projectId: string, requested: string): Promise<LlmSelectedModel> {
+	return pickRequestedModel(await getProjectAvailableModels(projectId), requested);
+}
+
 /** The models declared for each provider, used to price usage on top of nao's built-in table. */
 export const getProjectDeclaredModels = async (
 	projectId: string,
@@ -364,53 +426,130 @@ export const getProjectModelNameResolver = async (
 	};
 };
 
-type ProviderModelSource = {
-	provider: LlmProvider;
-	enabledModels: string[];
-	customModels: CustomModelMetadata[];
-	baseUrl: string | null;
-};
-
 /**
  * The model list of every provider available to a project, taking each provider from the first
- * source that declares it: the database, then nao_config.yaml, then the environment.
+ * source that declares it.
  */
 async function getProjectModelSources(projectId: string): Promise<ProviderModelSource[]> {
-	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
-	const sources: ProviderModelSource[] = configs.map((config) => ({
-		provider: config.provider as LlmProvider,
-		enabledModels: config.enabledModels ?? [],
-		customModels: config.customModels ?? [],
-		baseUrl: config.baseUrl ?? getEnvBaseUrl(config.provider as LlmProvider) ?? null,
-	}));
+	const [ownProviders, managedProviders] = await Promise.all([
+		collectProviders(projectId, { managed: false }),
+		collectProviders(projectId, { managed: true }),
+	]);
+	return [...ownProviders, ...managedProviders];
+}
 
-	const declares = (provider: LlmProvider) => sources.some((source) => source.provider === provider);
-
-	const configLlm = await getProjectConfigLlm(projectId);
-	for (const configured of configLlm?.providers ?? []) {
-		if (!declares(configured.provider)) {
-			sources.push({
-				provider: configured.provider,
-				enabledModels: configured.enabledModels,
-				customModels: configured.customModels,
-				baseUrl: configured.baseUrl ?? getEnvBaseUrl(configured.provider) ?? null,
-			});
+async function collectProviders(projectId: string, { managed }: { managed: boolean }): Promise<ProviderModelSource[]> {
+	const collected: ProviderModelSource[] = [];
+	for (const source of getModelSources().filter((candidate) => Boolean(candidate.managed) === managed)) {
+		for (const entry of await source.listProviders(projectId)) {
+			const isFirstDeclaration = !collected.some((existing) => existing.provider === entry.provider);
+			if (isFirstDeclaration && servesProvider(source, entry.provider) && !isProviderDisabled(entry.provider)) {
+				collected.push(entry);
+			}
 		}
 	}
+	return collected;
+}
 
-	for (const provider of getEnvProviders()) {
-		if (!declares(provider)) {
-			sources.push({
-				provider,
-				enabledModels: [],
-				customModels: [],
-				baseUrl: getEnvBaseUrl(provider) ?? null,
-			});
-		}
-	}
+function getSourcesServing(provider: LlmProvider): ModelSource[] {
+	return getModelSources().filter((source) => servesProvider(source, provider));
+}
 
-	return sources.filter((source) => !isProviderDisabled(source.provider));
+/** Managed providers run on nao's own keys, so only managed sources serve them. */
+function servesProvider(source: ModelSource, provider: LlmProvider): boolean {
+	return Boolean(source.managed) === isManagedProvider(provider);
 }
 
 const getModelName = (provider: LlmProvider, modelId: string): string =>
 	getProviderMeta(provider).models.find((m) => m.id === modelId)?.name ?? modelId;
+
+type ProviderAccess = { settings: ProviderSettings; modelSettings?: ModelSettingsMap | null };
+
+type CredentialSource = {
+	listProviders(projectId: string): Promise<ProviderModelSource[]>;
+	findAccess(projectId: string, provider: LlmProvider): Promise<ProviderAccess | null>;
+};
+
+/** A source holding the project's own credentials, which can also be handed out for direct provider calls. */
+function credentialSource(source: CredentialSource): ModelSource {
+	return {
+		listProviders: source.listProviders,
+		async resolveSettings(projectId, provider) {
+			return (await source.findAccess(projectId, provider))?.settings ?? null;
+		},
+		async resolveModel({ projectId, provider, modelId, applyUserSettings }) {
+			const access = await source.findAccess(projectId, provider);
+			if (!access) {
+				return null;
+			}
+			const inferenceSettings = applyUserSettings ? access.modelSettings?.[modelId] : undefined;
+			return createProviderModel(provider, access.settings, modelId, inferenceSettings);
+		},
+	};
+}
+
+const projectConfigSource = credentialSource({
+	async listProviders(projectId) {
+		const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
+		return configs.map((config) => ({
+			provider: config.provider as LlmProvider,
+			enabledModels: config.enabledModels ?? [],
+			customModels: config.customModels ?? [],
+			baseUrl: config.baseUrl ?? getEnvBaseUrl(config.provider as LlmProvider) ?? null,
+		}));
+	},
+	async findAccess(projectId, provider) {
+		const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
+		if (!config) {
+			return null;
+		}
+		const settings = {
+			apiKey: config.apiKey,
+			...(config.baseUrl && { baseURL: config.baseUrl }),
+			...(config.credentials && { credentials: config.credentials }),
+		};
+		return { settings, modelSettings: config.modelSettings };
+	},
+});
+
+const naoConfigFileSource = credentialSource({
+	async listProviders(projectId) {
+		const configLlm = await getProjectConfigLlm(projectId);
+		return (configLlm?.providers ?? []).map((configured) => ({
+			provider: configured.provider,
+			enabledModels: configured.enabledModels,
+			customModels: configured.customModels,
+			baseUrl: configured.baseUrl ?? getEnvBaseUrl(configured.provider) ?? null,
+		}));
+	},
+	async findAccess(projectId, provider) {
+		const configured = findConfigLlmProvider(await getProjectConfigLlm(projectId), provider);
+		if (!configured) {
+			return null;
+		}
+		return { settings: toProviderSettings(configured), modelSettings: configured.modelSettings };
+	},
+});
+
+const envSource = credentialSource({
+	async listProviders() {
+		return getEnvProviders().map((provider) => ({
+			provider,
+			enabledModels: [],
+			customModels: [],
+			baseUrl: getEnvBaseUrl(provider) ?? null,
+		}));
+	},
+	async findAccess(_projectId, provider) {
+		if (!hasEnvApiKey(provider)) {
+			return null;
+		}
+		const baseURL = getEnvBaseUrl(provider);
+		return { settings: { apiKey: getEnvApiKey(provider) ?? '', ...(baseURL && { baseURL }) } };
+	},
+});
+
+/** Built on call: `managed-ai` imports this module back through the project queries, so it may not be loaded yet. */
+function getModelSources(): ModelSource[] {
+	return [projectConfigSource, naoConfigFileSource, envSource, managedAiSource];
+}

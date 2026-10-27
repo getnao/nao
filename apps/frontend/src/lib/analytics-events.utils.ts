@@ -16,6 +16,7 @@ export interface EventRow {
 	badge?: string;
 	versionNumber?: number | null;
 	title?: string | null;
+	explanation?: string | null;
 }
 
 export interface ActorGroup<TItem> {
@@ -52,6 +53,10 @@ export function getDownloadTitle(metadata: AnalyticsEventMetadata | null | undef
 	return metadata?.type === 'download' ? (metadata.title ?? null) : null;
 }
 
+export function getFeedbackExplanation(metadata: AnalyticsEventMetadata | null | undefined): string | null {
+	return metadata?.type === 'feedback' ? (metadata.explanation ?? null) : null;
+}
+
 export function getBadge(metadata: AnalyticsEventMetadata | null | undefined): string | undefined {
 	if (!metadata) {
 		return undefined;
@@ -65,6 +70,8 @@ export function getBadge(metadata: AnalyticsEventMetadata | null | undefined): s
 			return metadata.scope;
 		case 'favorite':
 			return metadata.favorited ? 'added' : 'removed';
+		case 'feedback':
+			return metadata.vote === 'up' ? 'positive' : 'negative';
 		default:
 			return undefined;
 	}
@@ -211,6 +218,10 @@ export function isCurrentlyFavorited(group: ActorGroup<EventRow>): boolean {
 
 export function countActiveFavorites(rows: EventRow[]): number {
 	return groupRowsByActor(rows).filter(isCurrentlyFavorited).length;
+}
+
+export function isCurrentFeedbackPositive(group: ActorGroup<EventRow>): boolean {
+	return group.items[0]?.badge === 'positive';
 }
 
 export function formatDate(date: Date): string {

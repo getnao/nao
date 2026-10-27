@@ -1,10 +1,11 @@
 import type { AnalyticsAssetType, AnalyticsEventType } from '@nao/shared/types';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, or, sql } from 'drizzle-orm';
 
 import type { DBAnalyticsEvent, NewAnalyticsEvent } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { storyVisibleToUser } from './story.queries';
 
 const THROTTLE_MS = 2 * 60 * 1_000;
 
@@ -86,4 +87,29 @@ export const listEventsForAsset = async (input: {
 		.execute();
 
 	return rows.map((r) => ({ event: r.event, actorName: r.actorName }));
+};
+
+export const countStoryViewsForUser = async (projectId: string, userId: string): Promise<Record<string, number>> => {
+	const rows = await db
+		.select({ storyId: s.analyticsEvent.storyId, views: count() })
+		.from(s.analyticsEvent)
+		.innerJoin(s.story, eq(s.story.id, s.analyticsEvent.storyId))
+		.where(
+			and(
+				eq(s.analyticsEvent.projectId, projectId),
+				eq(s.analyticsEvent.type, 'page_view'),
+				eq(s.analyticsEvent.assetType, 'story'),
+				storyVisibleToUser(userId, projectId),
+			),
+		)
+		.groupBy(s.analyticsEvent.storyId)
+		.execute();
+
+	const viewsByStoryId: Record<string, number> = {};
+	for (const row of rows) {
+		if (row.storyId) {
+			viewsByStoryId[row.storyId] = Number(row.views);
+		}
+	}
+	return viewsByStoryId;
 };

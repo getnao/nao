@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
-import { useMemberPicker, useCopyWithFeedback } from '@/hooks/use-share-dialog';
+import { useMemberPicker, useCopyWithFeedback, useShareAudience } from '@/hooks/use-share-dialog';
 
 interface ShareChatDialogProps {
 	open: boolean;
@@ -84,11 +84,13 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const currentUserId = session?.user?.id;
-	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+	const audience = useShareAudience();
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, isLoading, reset } = useMemberPicker(
 		currentUserId,
 		undefined,
 		chatId,
 	);
+	const effectiveVisibility: Visibility = audience.canShareToProject ? visibility : 'specific';
 
 	useEffect(() => {
 		if (open) {
@@ -105,8 +107,8 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		const blobPromise = shareMutation
 			.mutateAsync({
 				chatId,
-				visibility,
-				allowedUserIds: visibility === 'specific' ? [...selectedUserIds] : undefined,
+				visibility: effectiveVisibility,
+				allowedUserIds: effectiveVisibility === 'specific' ? [...selectedUserIds] : undefined,
 				notify: isSmtpEnabled && notify,
 			})
 			.then((data) => {
@@ -124,7 +126,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
 	}, [
 		chatId,
-		visibility,
+		effectiveVisibility,
 		selectedUserIds,
 		notify,
 		isSmtpEnabled,
@@ -133,7 +135,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		onOpenChange,
 	]);
 
-	const canShare = visibility === 'project' || selectedUserIds.size > 0;
+	const canShare = effectiveVisibility === 'project' || selectedUserIds.size > 0;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -144,18 +146,23 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 				</DialogHeader>
 
 				<div className='flex flex-col gap-4'>
-					<VisibilityPicker visibility={visibility} onChange={setVisibility} />
+					<VisibilityPicker
+						visibility={effectiveVisibility}
+						onChange={setVisibility}
+						canShareToProject={audience.canShareToProject}
+					/>
 					{isSmtpEnabled && (
 						<NotifyPeopleToggle checked={notify} onCheckedChange={setNotify} itemLabel='chat' />
 					)}
-					{visibility === 'specific' && (
+					{effectiveVisibility === 'specific' && (
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
-							isLoading={membersQuery.isLoading}
+							isLoading={isLoading}
 							search={search}
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}
+							emptyMessage={audience.emptyMessage}
 						/>
 					)}
 				</div>
@@ -205,7 +212,8 @@ function ManageShareDialog({
 	const invalidateShareQueries = useInvalidateShareQueries(chatId);
 
 	const currentUserId = session?.user?.id;
-	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+	const audience = useShareAudience();
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, isLoading, reset } = useMemberPicker(
 		currentUserId,
 		allowedUserIds,
 		chatId,
@@ -274,10 +282,11 @@ function ManageShareDialog({
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
-							isLoading={membersQuery.isLoading}
+							isLoading={isLoading}
 							search={search}
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}
+							emptyMessage={audience.emptyMessage}
 						/>
 					)}
 				</div>

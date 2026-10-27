@@ -1,7 +1,8 @@
 import { and, eq, lte, sql } from 'drizzle-orm';
 
 import s, { type DBScheduledJob, type NewScheduledJob } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 
 export interface UpsertRecurringInput {
 	name: string;
@@ -94,7 +95,10 @@ export interface EnqueueOnceInput {
 	maxAttempts?: number;
 }
 
-export const enqueueOnceJob = async (input: EnqueueOnceInput): Promise<DBScheduledJob | null> => {
+export const enqueueOnceJob = (
+	input: EnqueueOnceInput,
+	executor: DBExecutor = db,
+): DBScheduledJob | null | Promise<DBScheduledJob | null> => {
 	const values: NewScheduledJob = {
 		name: input.name,
 		payload: input.payload,
@@ -104,12 +108,20 @@ export const enqueueOnceJob = async (input: EnqueueOnceInput): Promise<DBSchedul
 	};
 
 	if (!input.uniqueKey) {
-		const [row] = await db.insert(s.scheduledJob).values(values).returning().execute();
-		return row;
+		const query = executor.insert(s.scheduledJob).values(values).returning();
+		if (dbConfig.dialect === Dialect.Postgres) {
+			return query.execute().then(([row]) => row);
+		}
+		const row = query.all()[0];
+		return executor === db ? Promise.resolve(row) : row;
 	}
 
-	const [row] = await db.insert(s.scheduledJob).values(values).onConflictDoNothing().returning().execute();
-	return row ?? null;
+	const query = executor.insert(s.scheduledJob).values(values).onConflictDoNothing().returning();
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return query.execute().then(([row]) => row ?? null);
+	}
+	const row = query.all()[0] ?? null;
+	return executor === db ? Promise.resolve(row) : row;
 };
 
 /**

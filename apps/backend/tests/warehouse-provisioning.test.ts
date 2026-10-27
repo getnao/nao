@@ -155,9 +155,12 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 		),
 	),
 }));
-vi.mock('../src/utils/project-import.utils', () => ({
+vi.mock('../src/services/project-import.service', () => ({
 	createNewProject: vi.fn(),
 	createTempProjectDir: vi.fn(),
+}));
+vi.mock('../src/services/project.service', () => ({
+	reconcileProjectReadiness: vi.fn(),
 }));
 vi.mock('../src/services/managed-github-repository', () => ({
 	deleteManagedGithubRepository: vi.fn(),
@@ -191,6 +194,8 @@ import {
 	provisionManagedGithubRepository,
 } from '../src/services/managed-github-repository';
 import { generateOnboardingRules } from '../src/services/onboarding-rules';
+import { reconcileProjectReadiness } from '../src/services/project.service';
+import { createNewProject, createTempProjectDir } from '../src/services/project-import.service';
 import { saveProjectWarehouseEnvVars } from '../src/services/warehouse-credentials';
 import {
 	getPublicProvisioningError,
@@ -200,7 +205,6 @@ import {
 	startWarehouseProvisioning,
 	validateWarehouseCredentials,
 } from '../src/services/warehouse-provisioning';
-import { createNewProject, createTempProjectDir } from '../src/utils/project-import.utils';
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -477,6 +481,7 @@ describe('warehouse provisioning', () => {
 			projectName: 'analytics',
 			projectDir: registeredProjectDirectory,
 		});
+		expect(reconcileProjectReadiness).toHaveBeenCalledWith('project-2');
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});
 
@@ -507,6 +512,7 @@ describe('warehouse provisioning', () => {
 		await vi.waitFor(async () => {
 			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
 		});
+		expect(reconcileProjectReadiness).not.toHaveBeenCalledWith('project-publish-failure');
 		expect(deleteManagedGithubRepository).toHaveBeenCalledWith('nao-org/nao-analytics-project');
 		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-publish-failure');
 		expect(fs.existsSync(registeredProjectDirectory)).toBe(false);

@@ -107,6 +107,35 @@ def _fmt_error(error: Exception) -> str:
     return escape(str(error))
 
 
+def _placeholder_for_failed_render(
+    table: str,
+    template_name: str,
+    output_file: Path,
+    error: Exception,
+) -> str | None:
+    """Decide what to write when a template fails: keep a previous file, else a short placeholder.
+
+    The error text is never written as if it were content so the agent does not
+    read a provider error as a table summary.
+    """
+    if output_file.exists():
+        UI.print(f"    [dim]↩ keeping previous {output_file.name}[/dim]")
+        return None
+    reason = str(error).splitlines()[0] if str(error) else error.__class__.__name__
+    return f"# {table}\n\n{_failed_render_notice(template_name)} {reason}\n"
+
+
+def _failed_render_notice(template_name: str) -> str:
+    return f"{template_name} not generated:"
+
+
+def _is_failed_render_placeholder(output_file: Path) -> bool:
+    try:
+        return _failed_render_notice(output_file.stem) in output_file.read_text()
+    except (OSError, UnicodeError):
+        return False
+
+
 def _fetch_query_history(db_config: DatabaseConfig, conn: BaseBackend) -> list[str]:
     """Fetch query history over the already-open sync connection.
 
@@ -176,6 +205,8 @@ def _should_refresh(
 
     policy = refresh_config.refresh_policy
     if not output_file.exists() or policy == ProfilingRefreshPolicy.ALWAYS:
+        return True
+    if _is_failed_render_placeholder(output_file):
         return True
     if policy == ProfilingRefreshPolicy.ONCE:
         return False
@@ -340,6 +371,7 @@ def sync_database(
 
                 ctx = db_config.create_context(conn, schema, table)
                 ctx.set_exclude_columns(db_config.exclude_columns)
+                ctx.set_preview_max_value_length(db_config.preview_max_value_length)
                 table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
                 has_profiling = DatabaseTemplate.PROFILING in db_config.templates
                 has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
@@ -382,7 +414,7 @@ def sync_database(
 
                     t_render = time.monotonic()
                     try:
-                        content = engine.render(
+                        content: str | None = engine.render(
                             template_name,
                             db=ctx,
                             table_name=table,
@@ -405,10 +437,10 @@ def sync_database(
                             f"[red]{tpl_name}[/red] [dim]failed after "
                             f"{_fmt_duration(render_dur)}:[/dim] {_fmt_error(e)}"
                         )
-                        content = f"# {table}\n\nError generating content: {e}"
+                        content = _placeholder_for_failed_render(table, tpl_name, output_file, e)
 
-                    output_file = table_path / output_filename
-                    output_file.write_text(with_generated_marker(content))
+                    if content is not None:
+                        output_file.write_text(with_generated_marker(content))
 
                 columns = ctx.all_columns()
                 if columns is None:
@@ -447,6 +479,7 @@ def sync_database(
             progress.update(schema_task, advance=1)
 
         if total_errors:
+            state.render_errors = total_errors
             UI.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
 
         catalog_project_path = project_path if project_path is not None else base_path.parent
@@ -505,6 +538,7 @@ class DatabaseSyncProvider(SyncProvider):
         total_datasets = 0
         total_tables = 0
         total_removed = 0
+        total_render_errors = 0
         sync_states: list[DatabaseSyncState] = []
         failures: list[str] = []
 
@@ -553,6 +587,7 @@ class DatabaseSyncProvider(SyncProvider):
                         sync_states.append(state)
                         total_datasets += state.schemas_synced
                         total_tables += state.tables_synced
+                        total_render_errors += state.render_errors
                     except Exception as e:
                         error = _fmt_error(e)
                         database_name = escape(db.name)
@@ -581,6 +616,7 @@ class DatabaseSyncProvider(SyncProvider):
                             sync_states.append(state)
                             total_datasets += state.schemas_synced
                             total_tables += state.tables_synced
+                            total_render_errors += state.render_errors
                         except Exception as e:
                             error = _fmt_error(e)
                             database_name = escape(db.name)
@@ -596,6 +632,8 @@ class DatabaseSyncProvider(SyncProvider):
         summary = f"{total_tables} tables across {total_datasets} datasets in {total_dur}"
         if total_removed > 0:
             summary += f", {total_removed} stale removed"
+        if total_render_errors > 0:
+            summary += f", {total_render_errors} files not generated"
 
         error = None
         if failures:

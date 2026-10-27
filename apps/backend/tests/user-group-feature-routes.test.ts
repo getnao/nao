@@ -91,6 +91,7 @@ vi.mock('../src/queries/story.queries', () => ({
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: mocks.getStoryProjectId,
 	getStorySharingInfo: mocks.getStorySharingInfo,
+	getStoryQueryDataByStoryIds: vi.fn(async () => new Map()),
 	getVersionByNumber: mocks.getVersionByNumber,
 	listUserChatStories: mocks.listUserChatStories,
 	renameStory: mocks.renameStory,
@@ -356,6 +357,7 @@ describe('user group feature route enforcement', () => {
 			'# Old version\n<table query_id="query_old" />',
 			queryData,
 			'MM/dd/yyyy',
+			null,
 		);
 	});
 
@@ -397,6 +399,7 @@ describe('user group feature route enforcement', () => {
 			'# Refreshed latest version',
 			queryData,
 			'MM/dd/yyyy',
+			null,
 		);
 	});
 

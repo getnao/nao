@@ -83,6 +83,7 @@ describe('member budget resolution', () => {
 	it('skips usage when the license is missing', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 		await expect(resolveMemberBudgetUsage('project-id', 'user-id')).resolves.toBeNull();
+		expect(mocks.hasFeature).toHaveBeenCalledWith('user-budget', { projectId: 'project-id' });
 		expect(mocks.getUserPeriodCost).not.toHaveBeenCalled();
 	});
 });

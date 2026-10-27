@@ -14,6 +14,13 @@ export function invalidateStoriesCaches(queryClient: QueryClient): void {
 	void queryClient.invalidateQueries({ queryKey: trpc.favorite.list.queryKey() });
 }
 
+export function invalidateStoryArchiveCaches(queryClient: QueryClient): void {
+	invalidateStoriesCaches(queryClient);
+	void queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey() });
+	void queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey() });
+	void queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey() });
+}
+
 export function invalidateStoryTitleCaches(queryClient: QueryClient): void {
 	invalidateStoriesCaches(queryClient);
 	void queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey() });

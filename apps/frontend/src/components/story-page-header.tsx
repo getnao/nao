@@ -24,6 +24,7 @@ import {
 	StoryCertifyMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
+	StoryFeedbackButtons,
 } from '@/components/story-header-actions';
 import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { Button } from '@/components/ui/button';
@@ -176,6 +177,8 @@ export function StoryPageHeader({
 					)}
 
 					{live && <LiveStoryControls live={live} />}
+
+					{storyId && <StoryFeedbackButtons storyId={storyId} />}
 
 					{storyId && <StoryFavoritedButton storyId={storyId} />}
 

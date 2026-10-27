@@ -1,3 +1,4 @@
+import { joinWithAnd } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { Github } from 'lucide-react';
@@ -814,14 +815,8 @@ function getProviderSwitchDescription(request: ProviderSwitchRequest): string {
 		request.repositoryName ? `the context repository "${request.repositoryName}"` : null,
 		request.disconnectAccount ? `the connected ${sourceProviderLabel} account` : null,
 	].filter((item): item is string => item !== null);
-	return `Switching to ${targetProviderLabel} will disconnect ${joinWithAnd(disconnectedItems)}.`;
-}
-
-function joinWithAnd(items: string[]): string {
-	if (items.length < 2) {
-		return items[0] ?? 'the current Git setup';
-	}
-	return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+	const disconnected = disconnectedItems.length > 0 ? joinWithAnd(disconnectedItems) : 'the current Git setup';
+	return `Switching to ${targetProviderLabel} will disconnect ${disconnected}.`;
 }
 
 async function invalidateRepositoryQueries(queryClient: QueryClient): Promise<void> {

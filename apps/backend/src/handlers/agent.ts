@@ -23,6 +23,7 @@ interface HandleAgentMessageInput extends Omit<AgentRequest, 'mode'> {
 	billingAccessVerifiedProjectId?: string;
 	domainHost: string | undefined;
 	projectAccessAlreadyAuthorized?: boolean;
+	unbilledManagedAiUsage?: boolean;
 }
 
 interface HandleAgentMessageResult {
@@ -31,6 +32,15 @@ interface HandleAgentMessageResult {
 	modelId: string;
 	stream: ReadableStream;
 	agent: AgentManager;
+}
+
+interface PersistUserMessageInput {
+	userId: string;
+	projectId: string;
+	message: AgentRequestUserMessage;
+	chatId?: string;
+	messageToEditId?: string;
+	source: MessageSource;
 }
 
 export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<HandleAgentMessageResult> => {
@@ -44,6 +54,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		adminMode,
 		billingAccessVerifiedProjectId,
 		isOnboarding,
+		unbilledManagedAiUsage,
 	} = opts;
 
 	if (!projectId) {
@@ -53,32 +64,14 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await agentService.assertBudget(projectId, model, userId);
 
 	const source: MessageSource = isOnboarding ? 'onboarding' : adminMode ? 'admin' : 'web';
-	const scope: StorageScope = { projectId, userId };
-	let chatId = opts.chatId;
-	const isNewChat = !chatId;
-	let newMessageId: string;
-
-	if (!chatId) {
-		const attachmentParts = await buildAttachmentParts(message, scope);
-		const [createdChat, createdMessage] = await createChat(userId, projectId, message, attachmentParts, source);
-		chatId = createdChat.id;
-		newMessageId = createdMessage.id;
-	} else {
-		const { messageId } = await insertOrSupersedeMessage({
-			userId,
-			chatId,
-			message,
-			messageToEditId,
-			source,
-			scope,
-		});
-		newMessageId = messageId;
-	}
-
-	const [chat] = await chatQueries.getChat(chatId);
-	if (!chat) {
-		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
-	}
+	const { chat, chatId, isNewChat, newMessageId } = await persistUserMessage({
+		userId,
+		projectId,
+		message,
+		chatId: opts.chatId,
+		messageToEditId,
+		source,
+	});
 
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
@@ -101,6 +94,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		billingAccessVerifiedProjectId,
 		isBudgetChecked: true,
 		projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
+		unbilledManagedAiUsage,
 	});
 
 	const isForkedFirstMessage =
@@ -136,6 +130,40 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		agent,
 	};
 };
+
+async function persistUserMessage({
+	userId,
+	projectId,
+	message,
+	chatId,
+	messageToEditId,
+	source,
+}: PersistUserMessageInput) {
+	const scope: StorageScope = { projectId, userId };
+	const isNewChat = !chatId;
+	let newMessageId: string;
+	if (!chatId) {
+		const attachmentParts = await buildAttachmentParts(message, scope);
+		const [createdChat, createdMessage] = await createChat(userId, projectId, message, attachmentParts, source);
+		chatId = createdChat.id;
+		newMessageId = createdMessage.id;
+	} else {
+		const result = await insertOrSupersedeMessage({
+			userId,
+			chatId,
+			message,
+			messageToEditId,
+			source,
+			scope,
+		});
+		newMessageId = result.messageId;
+	}
+	const [chat] = await chatQueries.getChat(chatId);
+	if (!chat) {
+		throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
+	}
+	return { chat, chatId, isNewChat, newMessageId };
+}
 
 /**
  * Both kinds of attachment become a `file` part, but they get there differently: an image

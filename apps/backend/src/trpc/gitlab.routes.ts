@@ -6,18 +6,18 @@ import { z } from 'zod/v4';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import * as gitlabService from '../services/gitlab';
-import { logger, serializeError } from '../utils/logger';
 import {
 	createNewProject,
 	createTempProjectDir,
 	getProjectNameFromPath,
 	readProjectNameFromConfig,
 	replaceExistingProject,
-} from '../utils/project-import.utils';
+} from '../services/project-import.service';
+import { logger, serializeError } from '../utils/logger';
 import {
 	adminProtectedProcedure,
 	cloudBillingAdminProcedure,
-	cloudBillingOrganizationProcedure,
+	cloudBillingProjectImportProcedure,
 	protectedProcedure,
 } from './trpc';
 
@@ -62,7 +62,7 @@ export const gitlabRoutes = {
 			}
 		}),
 
-	createProjectFromRepo: cloudBillingOrganizationProcedure
+	createProjectFromRepo: cloudBillingProjectImportProcedure
 		.input(
 			z.object({
 				projectPathWithNamespace: z.string(),
@@ -109,7 +109,7 @@ export const gitlabRoutes = {
 					});
 				}
 
-				return createNewProject({ sourceDir: cloneDir, projectName, orgId });
+				return createNewProject({ sourceDir: cloneDir, projectName, orgId, actingUserId: ctx.user.id });
 			} finally {
 				try {
 					fs.rmSync(cloneDir, { recursive: true, force: true });

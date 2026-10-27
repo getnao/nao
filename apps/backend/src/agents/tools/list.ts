@@ -1,4 +1,5 @@
 import { list } from '@nao/shared/tools';
+import type { Dirent } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -8,6 +9,7 @@ import {
 	isDocsProjectPath,
 	isProjectContextPathAllowed,
 } from '../../services/project-context-path-access.service';
+import { toProjectPathError } from '../../services/project-path-error.service';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
 import { isCustomStoriesEnabled, listStoryMount } from '../../services/story-mount';
@@ -66,7 +68,7 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	// Get the relative path of the parent directory for naoignore matching
 	const parentRelativePath = canonical.virtualPath.replace(/^\/+/, '');
 
-	const dirEntries = await fs.readdir(realPath, { withFileTypes: true });
+	const dirEntries = await readProjectDirectory(realPath, virtualPath, context);
 
 	// Filter out excluded entries (including .naoignore patterns)
 	const filteredEntries = dirEntries.filter((entry) => {
@@ -122,6 +124,14 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	const isRoot = parentRelativePath === '';
 	return isRoot ? [...entries, ...mountEntries()] : entries;
 };
+
+async function readProjectDirectory(realPath: string, virtualPath: string, context: ToolContext): Promise<Dirent[]> {
+	try {
+		return await fs.readdir(realPath, { withFileTypes: true });
+	} catch (error) {
+		throw toProjectPathError(error, virtualPath, 'directory', context);
+	}
+}
 
 function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
 	try {

@@ -6,6 +6,7 @@ import {
 	groupToolCalls,
 	isOnboardingContextRequestMessage,
 	ONBOARDING_CONTEXT_REQUEST_PREFIX,
+	parseChatAllowanceExhaustedError,
 } from './ai';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
 import type { GroupedMessagePart } from '@/types/ai';
@@ -408,5 +409,16 @@ describe('isOnboardingContextRequestMessage', () => {
 
 		expect(isOnboardingContextRequestMessage(message)).toBe(true);
 		expect(isOnboardingContextRequestMessage({ ...message, role: 'assistant' })).toBe(false);
+	});
+});
+
+describe('parseChatAllowanceExhaustedError', () => {
+	it.each([
+		['EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED', 'example'],
+		['ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED', 'onboarding'],
+	] as const)('maps %s to %s', (code, scope) => {
+		const error = new Error(JSON.stringify({ error: 'Allowance exhausted', code }));
+
+		expect(parseChatAllowanceExhaustedError(error)).toBe(scope);
 	});
 });

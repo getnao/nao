@@ -426,6 +426,15 @@ describe('SystemPrompt built-in skills', () => {
 		expect(markdown).not.toContain('Built-in Skills');
 	});
 
+	it('leaves out a built-in skill that a project skill of the same name shadows', () => {
+		const skills = [{ name: 'pdf-handling', description: 'Our PDF rules.', location: '/agent/skills/pdf.md' }];
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills, skills }));
+
+		expect(markdown).not.toContain('**pdf-handling** — How to get data out of a PDF.');
+		expect(markdown).toContain('**other-thing** — Something else entirely.');
+		expect(markdown).toContain('Skill: pdf-handling');
+	});
+
 	it('omits the section when nao ships no built-in skills', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ internalSkills: [] }));
 		expect(markdown).not.toContain('Built-in Skills');
@@ -434,6 +443,61 @@ describe('SystemPrompt built-in skills', () => {
 	it('lists the real skills by default, so a new one needs no wiring', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('**pdf-handling**');
+	});
+});
+
+describe('SystemPrompt preloaded skills', () => {
+	const skills = [
+		{ name: 'revenue', description: 'How to compute revenue.', location: '/agent/skills/revenue.md' },
+		{ name: 'churn', description: 'How to compute churn.', location: '/agent/skills/churn.md' },
+	];
+	const preloadedSkills = [{ ...skills[0], content: 'Always use net revenue.' }];
+
+	it('carries the full content of preloaded skills and says they are already loaded', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, preloadedSkills }));
+
+		expect(markdown).toContain('Preloaded Skills');
+		expect(markdown).toContain('already loaded below');
+		expect(markdown).toContain('Always use net revenue.');
+	});
+
+	it('tells the agent not to load a preloaded skill again', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, preloadedSkills }));
+
+		expect(markdown).toContain('Never call **load_skill** for them.');
+	});
+
+	it('keeps preloaded skills out of the regular skills listing', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, preloadedSkills }));
+
+		expect(markdown.match(/Skill: revenue/g)).toHaveLength(1);
+		expect(markdown).toContain('Skill: churn');
+		expect(markdown).not.toContain('How to compute revenue.');
+	});
+
+	it('omits the section when no skill is preloaded', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills }));
+
+		expect(markdown).not.toContain('Preloaded Skills');
+		expect(markdown).toContain('Skill: revenue');
+	});
+});
+
+describe('SystemPrompt project skills', () => {
+	const skills = [{ name: 'revenue', description: 'How to compute revenue.', location: '/agent/skills/revenue.md' }];
+
+	it('tells the agent to load a listed skill with load_skill', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, internalSkills: [] }));
+
+		expect(markdown).toContain('To use a skill, call **load_skill** with its name.');
+		expect(markdown).toContain('/agent/skills/revenue.md');
+	});
+
+	it('falls back to reading the skill file when the run has no load_skill tool', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ skills, internalSkills: [], toolNames: ['read'] }));
+
+		expect(markdown).toContain('To use a skill, read its file at the location below.');
+		expect(markdown).not.toContain('load_skill');
 	});
 });
 

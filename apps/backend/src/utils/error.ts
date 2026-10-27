@@ -22,6 +22,30 @@ export class BudgetExceededError extends HandlerError {
 	}
 }
 
+export class ManagedCreditsExhaustedError extends HandlerError {
+	constructor() {
+		super(
+			'FORBIDDEN',
+			"Your organization's nao-managed AI credits have been used. Add a project provider key to continue.",
+		);
+		this.name = 'ManagedCreditsExhaustedError';
+	}
+}
+
+export class ExampleChatAllowanceExhaustedError extends HandlerError {
+	constructor() {
+		super('FORBIDDEN', 'The example chat allowance has been used.');
+		this.name = 'ExampleChatAllowanceExhaustedError';
+	}
+}
+
+export class OnboardingChatAllowanceExhaustedError extends HandlerError {
+	constructor() {
+		super('FORBIDDEN', 'The onboarding chat allowance has been used.');
+		this.name = 'OnboardingChatAllowanceExhaustedError';
+	}
+}
+
 const httpStatusByHandlerErrorCode: Record<HandlerErrorCode, number> = {
 	BAD_REQUEST: 400,
 	UNAUTHORIZED: 401,

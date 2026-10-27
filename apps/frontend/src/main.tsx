@@ -13,7 +13,11 @@ import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
 import { getActiveOrganizationId } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
-import { getActiveProjectId, getProjectRequestHeaders } from './lib/active-project';
+import {
+	getActiveProjectId,
+	getProjectRequestHeaders,
+	subscribeToExternalActiveProjectChanges,
+} from './lib/active-project';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -49,6 +53,11 @@ export const queryClient = new QueryClient({
 	},
 });
 
+subscribeToExternalActiveProjectChanges(() => {
+	void queryClient.invalidateQueries();
+	void router.invalidate();
+});
+
 const activeOrganizationRecovery = createActiveOrganizationRecovery({
 	invalidateQueries: () => void queryClient.invalidateQueries(),
 	invalidateRouter: () => void router.invalidate(),
@@ -62,6 +71,7 @@ export const trpcClient = createTRPCClient<TrpcRouter>({
 		httpBatchLink({
 			url: '/api/trpc',
 			transformer: superjson,
+			maxURLLength: 4000,
 			headers({ opList }) {
 				const activeProjectId = getActiveProjectId();
 				const activeOrganizationId = getActiveOrganizationId();

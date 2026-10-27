@@ -257,6 +257,12 @@ describe('resolveCssVariables', () => {
 		);
 	});
 
+	it('takes a themed value over the fallback when the story has a theme', () => {
+		expect(
+			resolveCssVariables('<text fill="var(--foreground, #111827)">x</text>', { '--foreground': '#0b1f3a' }),
+		).toBe('<text fill="#0b1f3a">x</text>');
+	});
+
 	it('keeps a variable that declares no fallback, having nothing to substitute', () => {
 		expect(resolveCssVariables('<text fill="var(--only)">x</text>')).toBe('<text fill="var(--only)">x</text>');
 	});

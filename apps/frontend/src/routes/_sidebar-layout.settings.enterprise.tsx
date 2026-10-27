@@ -15,6 +15,7 @@ import {
 	KeyRound,
 	LifeBuoy,
 	Palette,
+	Plug,
 	ShieldCheck,
 	TriangleAlert,
 	UserCheck,
@@ -273,6 +274,12 @@ export const ENTERPRISE_FEATURES = [
 		label: 'Row-level security',
 		description: "Restrict which rows each person can see, using your warehouse's own rules.",
 		icon: ShieldCheck,
+	},
+	{
+		key: 'row-level-security',
+		label: 'MCP access per group',
+		description: 'Choose which MCP servers and tools each group can use.',
+		icon: Plug,
 	},
 	{
 		label: 'Data rights impersonation from warehouse',

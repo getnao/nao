@@ -4,6 +4,7 @@ import { Conversation, ConversationContent } from '../ui/conversation';
 import { StreamingMarkdown } from '@/components/chat-messages/streaming-markdown';
 import { Expandable } from '@/components/ui/expandable';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 interface AssistantReasoningProps {
 	text: string;
@@ -43,6 +44,7 @@ export const AssistantReasoning = memo(({ text, isStreaming }: AssistantReasonin
 							<StreamingMarkdown text={text} />
 						) : (
 							<Streamdown
+								linkSafety={markdownLinkSafety}
 								isAnimating={isStreaming}
 								mode={isStreaming ? 'streaming' : 'static'}
 								plugins={markdownPlugins}

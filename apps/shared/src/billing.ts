@@ -18,13 +18,57 @@ export function isTerminalBillingStatus(status: string | null | undefined): bool
 export const CLOUD_BILLING_CURRENCIES = ['usd', 'eur'] as const;
 export type CloudBillingCurrency = (typeof CLOUD_BILLING_CURRENCIES)[number];
 
+export const CREDIT_TOP_UP_CURRENCY = 'usd';
+export const CREDIT_TOP_UP_MIN_CENTS = 2_000;
+export const CREDIT_TOP_UP_MAX_CENTS = 50_000;
+export const CREDIT_TOP_UP_PLATFORM_FEE_BASIS_POINTS = 500;
+
+export function formatMicroUsd(
+	microUsd: number,
+	{ locale, ...options }: Intl.NumberFormatOptions & { locale?: string | string[] } = {},
+): string {
+	return new Intl.NumberFormat(locale, {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+		...options,
+		style: 'currency',
+		currency: 'USD',
+	}).format(microUsd / 1_000_000);
+}
+
+export function calculateCreditTopUp(creditAmountCents: number): {
+	creditAmountCents: number;
+	platformFeeCents: number;
+	totalAmountCents: number;
+	walletAmountMicroUsd: number;
+} {
+	if (
+		!Number.isSafeInteger(creditAmountCents) ||
+		creditAmountCents < CREDIT_TOP_UP_MIN_CENTS ||
+		creditAmountCents > CREDIT_TOP_UP_MAX_CENTS
+	) {
+		throw new RangeError(
+			`Credit top-up amount must be between ${CREDIT_TOP_UP_MIN_CENTS} and ${CREDIT_TOP_UP_MAX_CENTS} cents`,
+		);
+	}
+	const platformFeeCents = Math.ceil((creditAmountCents * CREDIT_TOP_UP_PLATFORM_FEE_BASIS_POINTS) / 10_000);
+	return {
+		creditAmountCents,
+		platformFeeCents,
+		totalAmountCents: creditAmountCents + platformFeeCents,
+		walletAmountMicroUsd: creditAmountCents * 10_000,
+	};
+}
+
+export const CLOUD_BILLING_TRIAL_DAYS = 14;
+
 export const CLOUD_BILLING_PLANS = {
 	monthly: {
 		key: 'cloud_monthly_v2',
 		name: 'nao Cloud',
 		interval: 'month',
 		intervalCount: 1,
-		trialDays: 14,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
 		userLimit: null,
 	},
 	yearly: {
@@ -32,7 +76,7 @@ export const CLOUD_BILLING_PLANS = {
 		name: 'nao Cloud',
 		interval: 'year',
 		intervalCount: 1,
-		trialDays: 14,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
 		userLimit: null,
 	},
 } as const;

@@ -347,10 +347,13 @@ export function ChartConfigEditForm({
 		setYAxisMaxText(toRangeString(config.y_axis_max));
 		setYAxisRightMinText(toRangeString(config.y_axis_right_min));
 		setYAxisRightMaxText(toRangeString(config.y_axis_right_max));
-		setPaletteHexes(palette ?? resolveChartPaletteHexes());
 		setError(null);
 		setOpenValueFormatIndexes(new Set());
-	}, [config, palette]);
+	}, [config]);
+
+	useEffect(() => {
+		setPaletteHexes(palette ?? resolveChartPaletteHexes());
+	}, [palette]);
 
 	useEffect(() => {
 		onDraftChange?.(draft);
@@ -441,14 +444,16 @@ export function ChartConfigEditForm({
 		setOpenValueFormatIndexes((previous) => remapOpenIndexesAfterRemoval(previous, index));
 	};
 
+	const usedSeriesKeys = new Set(draft.series.map((s) => s.data_key));
+	const nextUnusedSeriesColumn = getSelectableColumns(availableColumns).find(
+		(column) => column !== draft.x_axis_key && !usedSeriesKeys.has(column),
+	);
+
 	const addSeries = (column?: string) => {
-		const used = new Set(draft.series.map((s) => s.data_key));
-		if (column && (column === draft.x_axis_key || used.has(column))) {
+		if (column && (column === draft.x_axis_key || usedSeriesKeys.has(column))) {
 			return;
 		}
-		const selectableColumns = getSelectableColumns(availableColumns);
-		const nextColumn =
-			column ?? selectableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? selectableColumns[0];
+		const nextColumn = column ?? nextUnusedSeriesColumn;
 		if (!nextColumn) {
 			setError('No columns are available to add as a series.');
 			return;
@@ -615,6 +620,8 @@ export function ChartConfigEditForm({
 						variant='outline'
 						className='rounded-full text-xs'
 						onClick={() => addSeries()}
+						disabled={!nextUnusedSeriesColumn}
+						title={nextUnusedSeriesColumn ? undefined : 'All columns are already used'}
 					>
 						<Plus className='size-3.5' /> Add series
 					</Button>
@@ -1357,8 +1364,10 @@ function normalizeHexColor(color: string | undefined, fallback: string): string 
 	return HEX_RE.test(fallback) ? fallback : DEFAULT_COLORS[0];
 }
 
-function resolveChartPaletteHexes(): string[] {
-	return DEFAULT_COLORS.map((fallback, index) => resolveCssVariableColorHex(`--chart-${index + 1}`, fallback));
+export function resolveChartPaletteHexes(element?: HTMLElement | null): string[] {
+	return DEFAULT_COLORS.map((fallback, index) =>
+		resolveCssVariableColorHex(`--chart-${index + 1}`, fallback, element),
+	);
 }
 
 function applyChartConfigToMessages(

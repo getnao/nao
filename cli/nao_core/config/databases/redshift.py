@@ -123,7 +123,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                     row_dict[col_name] = str(val)
                 else:
                     row_dict[col_name] = val
-            rows.append(self._filter_excluded_row(row_dict))
+            rows.append(self._prepare_preview_row(row_dict))
         return rows
 
     def _fetch_column_descriptions(self) -> dict[str, str]:

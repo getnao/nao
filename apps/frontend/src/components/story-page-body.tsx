@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { ReactNode } from 'react';
+import type { StoryTheme } from '@nao/shared/story-theme';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { useStoryPageEditor } from '@/hooks/use-story-page-editor';
@@ -9,15 +10,17 @@ import { StoryCodeView } from '@/components/side-panel/story-code-view';
 import { StoryEditor } from '@/components/side-panel/story-editor';
 import { StoryTabbedEditor } from '@/components/side-panel/story-tabbed-editor';
 import { StoryUnsavedChangesDialog } from '@/components/story-unsaved-changes-dialog';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
 
 interface StoryPageBodyProps {
 	editor: ReturnType<typeof useStoryPageEditor>;
 	preview: ReactNode;
 	queryData?: QueryDataMap | null;
+	theme?: StoryTheme | null;
 }
 
-export function StoryPageBody({ editor, preview, queryData }: StoryPageBodyProps) {
+export function StoryPageBody({ editor, preview, queryData, theme }: StoryPageBodyProps) {
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	useDragAutoScroll(scrollContainerRef);
 	const unsavedChangesDialog = <StoryUnsavedChangesDialog {...editor.exitDialog} />;
@@ -29,28 +32,33 @@ export function StoryPageBody({ editor, preview, queryData }: StoryPageBodyProps
 		return (
 			<>
 				<StoryEmbedDataProvider value={queryData ?? null}>
-					<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
-						{isTabbed ? (
-							<StoryTabbedEditor
-								code={editCode}
-								editorRef={editor.tiptapEditorRef}
-								onSave={editor.handleSave}
-								onChange={editor.onEditCodeChange}
-								getCodeRef={editor.tabbedEditCodeRef}
-								barContentClassName='mx-auto w-full max-w-5xl px-4 md:px-8'
-								contentClassName='mx-auto w-full max-w-5xl p-4 md:p-8'
-							/>
-						) : (
-							<div className='max-w-5xl mx-auto p-4 md:p-8'>
-								<StoryEditor
+					<StoryThemeProvider
+						theme={theme ?? null}
+						className='flex flex-1 min-h-0 flex-col bg-background text-foreground'
+					>
+						<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
+							{isTabbed ? (
+								<StoryTabbedEditor
 									code={editCode}
 									editorRef={editor.tiptapEditorRef}
 									onSave={editor.handleSave}
 									onChange={editor.onEditCodeChange}
+									getCodeRef={editor.tabbedEditCodeRef}
+									barContentClassName='mx-auto w-full max-w-5xl px-4 md:px-8'
+									contentClassName='mx-auto w-full max-w-5xl p-4 md:p-8'
 								/>
-							</div>
-						)}
-					</div>
+							) : (
+								<div className='max-w-5xl mx-auto p-4 md:p-8'>
+									<StoryEditor
+										code={editCode}
+										editorRef={editor.tiptapEditorRef}
+										onSave={editor.handleSave}
+										onChange={editor.onEditCodeChange}
+									/>
+								</div>
+							)}
+						</div>
+					</StoryThemeProvider>
 				</StoryEmbedDataProvider>
 				{unsavedChangesDialog}
 			</>

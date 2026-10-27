@@ -15,7 +15,7 @@ import {
 	publishCustomStoryDraft,
 } from '../../services/custom-story-authoring';
 import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
-import { getStoryTemplateWarnings } from '../../services/story-template-validation';
+import { getStoryTemplateWarnings, sqlQueriesFromResults } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
 import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
@@ -203,7 +203,7 @@ async function classicResult(
 		version: version.version,
 		code: version.code,
 		title: version.title,
-		...(await storyTemplateWarnings(context.chatId, version.code)),
+		...(await storyTemplateWarnings(context, version.code)),
 	};
 }
 
@@ -386,9 +386,13 @@ async function carryOverTableFormatting(code: string, chatId: string): Promise<s
 }
 
 /** The story version is already committed at this point, so a warning failure must not fail the tool. */
-async function storyTemplateWarnings(chatId: string, code: string): Promise<{ template_warnings?: string[] }> {
+async function storyTemplateWarnings(context: ToolContext, code: string): Promise<{ template_warnings?: string[] }> {
 	try {
-		const warnings = await getStoryTemplateWarnings(chatId, code);
+		const warnings = await getStoryTemplateWarnings(
+			context.chatId,
+			code,
+			sqlQueriesFromResults(context.queryResults),
+		);
 		return warnings.length > 0 ? { template_warnings: warnings } : {};
 	} catch (error) {
 		console.error('Failed to compute story template warnings', error);

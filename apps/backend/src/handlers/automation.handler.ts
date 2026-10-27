@@ -148,6 +148,7 @@ async function finishAutomationRun(
 				billingAccessVerifiedProjectId,
 				excludeFollowUps: true,
 				supportsCustomCharts: false,
+				usageCategory: 'automation',
 				tools: ({ agentSettings, toolContext, webTools }) =>
 					getTools(
 						agentSettings,
@@ -165,6 +166,7 @@ async function finishAutomationRun(
 						{
 							mcpEnabled: automation.mcpEnabled,
 							mcpServers: automation.mcpServers,
+							mcpAccess: toolContext.mcpAccess,
 							excludeFollowUps: true,
 							semanticLayerMode: toolContext.semanticLayerMode,
 						},

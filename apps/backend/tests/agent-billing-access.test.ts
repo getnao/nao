@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	addHook: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserIsActive: vi.fn(),
 	getChatProjectId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	handleAgentRoute: vi.fn(),
@@ -24,6 +25,9 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
+vi.mock('../src/services/account-status.service', () => ({
+	assertUserIsActive: mocks.assertUserIsActive,
+}));
 
 import { agentRoutes } from '../src/routes/agent';
 import { AgentService } from '../src/services/agent';
@@ -31,6 +35,20 @@ import { AgentService } from '../src/services/agent';
 describe('agent billing access', () => {
 	beforeEach(() => {
 		mocks.assertProjectCloudBillingAccess.mockReset();
+		mocks.assertUserIsActive.mockReset();
+	});
+
+	it('rejects a deactivated user before checking billing', async () => {
+		const service = new AgentService();
+		const deactivatedError = new Error('This account has been deactivated.');
+		mocks.assertUserIsActive.mockRejectedValue(deactivatedError);
+
+		await expect(service.create({ id: 'chat-1', projectId: 'project-1', userId: 'user-1' })).rejects.toBe(
+			deactivatedError,
+		);
+
+		expect(mocks.assertUserIsActive).toHaveBeenCalledWith('user-1');
+		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
 	});
 
 	it('preserves an existing agent when billing rejects its replacement', async () => {
@@ -100,8 +118,9 @@ describe('agent route billing access', () => {
 					project: { id: 'project-1' },
 					body,
 					headers: {},
+					raw: { once: vi.fn() },
 				},
-				{},
+				{ raw: { once: vi.fn(), writableEnded: false } },
 			),
 		).rejects.toBe(accessError);
 

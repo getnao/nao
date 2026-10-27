@@ -1,4 +1,5 @@
 import type { DateFormatSettings } from '@nao/shared/date';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { DownloadFormat } from '@nao/shared/types';
 
 import { generateStoryHtml } from './story-html';
@@ -22,9 +23,10 @@ export async function buildStoryDownloadFile(
 	code: string,
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
+	theme?: StoryThemePair | null,
 ): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
 	const story = { title, code };
-	const buffer = await generateStoryBuffer(format, story, queryData, dateFormat);
+	const buffer = await generateStoryBuffer(format, story, queryData, dateFormat, theme);
 	return {
 		buffer,
 		filename: formatDownloadFilename(title, format),
@@ -38,8 +40,16 @@ export async function buildDownloadResponse(
 	code: string,
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
+	theme?: StoryThemePair | null,
 ): Promise<{ data: string; filename: string; mimeType: string }> {
-	const { buffer, filename, mimeType } = await buildStoryDownloadFile(format, title, code, queryData, dateFormat);
+	const { buffer, filename, mimeType } = await buildStoryDownloadFile(
+		format,
+		title,
+		code,
+		queryData,
+		dateFormat,
+		theme,
+	);
 	return {
 		data: buffer.toString('base64'),
 		filename,
@@ -52,12 +62,13 @@ async function generateStoryBuffer(
 	story: StoryInput,
 	queryData: QueryDataMap | null,
 	dateFormat: DateFormatSettings | null | undefined,
+	theme: StoryThemePair | null | undefined,
 ): Promise<Buffer> {
 	switch (format) {
 		case 'pdf':
-			return generateStoryPdf(story, queryData, dateFormat);
+			return generateStoryPdf(story, queryData, dateFormat, theme);
 		case 'html':
-			return Buffer.from(await generateStoryHtml(story, queryData, dateFormat));
+			return Buffer.from(await generateStoryHtml(story, queryData, dateFormat, undefined, { theme }));
 	}
 }
 

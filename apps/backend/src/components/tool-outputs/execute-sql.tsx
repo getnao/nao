@@ -32,14 +32,10 @@ export const ExecuteSqlOutput = ({
 	if (output.data.length === 0) {
 		return (
 			<Block>
-				The query was successfully executed and returned no rows.
+				<Span>Query ID: {output.id}</Span>
+				<Span>The query was successfully executed and returned no rows.</Span>
 				{output.saved_file && <SavedFile file={output.saved_file} />}
-				{templateWarnings.length > 0 && (
-					<>
-						<Span>Query ID: {output.id}</Span>
-						<TemplateWarnings warnings={templateWarnings} />
-					</>
-				)}
+				{templateWarnings.length > 0 && <TemplateWarnings warnings={templateWarnings} />}
 			</Block>
 		);
 	}

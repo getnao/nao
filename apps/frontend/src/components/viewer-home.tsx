@@ -55,6 +55,7 @@ export function ViewerHome() {
 			isLive: s.isLive,
 			summary: s.summary,
 			format: s.format,
+			version: s.version,
 		}));
 		const chatItems: SharedItem[] = (sharedChats.data ?? [])
 			.filter((c) => c.projectId === projectId)

@@ -10,6 +10,8 @@ const STATUS_CONFIRMATION_TIMEOUT_MS = 15_000;
 export type OrganizationBillingSearch = {
 	checkout?: 'success' | 'subscribed' | 'canceled';
 	portal?: 'returned';
+	creditCheckout?: string;
+	creditsTab?: 'history' | 'usage';
 };
 
 export function useOrganizationBillingSync(
@@ -28,7 +30,7 @@ export function useOrganizationBillingSync(
 		refetchOnWindowFocus: false,
 		refetchInterval: (query) =>
 			(isCheckoutPolling &&
-				(!query.state.data?.hasStripeSubscription ||
+				(!query.state.data?.paidPlanSelected ||
 					(search.checkout === 'subscribed' && isTerminalBillingStatus(query.state.data?.status)))) ||
 			(query.state.data?.status === 'paused' && isResumeConfirming) ||
 			isBillingRefreshPolling
@@ -54,13 +56,14 @@ export function useOrganizationBillingSync(
 		}),
 	);
 	const hasStripeSubscription = billing.data?.hasStripeSubscription === true;
+	const paidPlanSelected = billing.data?.paidPlanSelected === true;
 	const status = billing.data?.status ?? null;
 	const isHistoricalSubscription = isTerminalBillingStatus(status);
 	const isCheckoutConfirmed =
 		search.checkout === 'subscribed'
-			? hasStripeSubscription && !isHistoricalSubscription
+			? paidPlanSelected && !isHistoricalSubscription
 			: search.checkout === 'success'
-				? hasStripeSubscription
+				? paidPlanSelected
 				: false;
 	const canSyncStripeBilling =
 		billing.data?.canManageBilling === true && billing.data.paymentMethodManagementAvailable;

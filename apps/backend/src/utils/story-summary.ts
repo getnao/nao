@@ -1,4 +1,4 @@
-import { parseChartAttributes, resolveGridWidths, storyBlockRegex } from '@nao/shared/story-segments';
+import { type Segment, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
@@ -19,76 +19,78 @@ export function extractStorySummary(code: string): StorySummary {
 }
 
 function extractSegments(code: string): SummarySegment[] {
-	const segments: SummarySegment[] = [];
-	const blockRegex = storyBlockRegex();
-	let match;
-	let lastIndex = 0;
-
-	while ((match = blockRegex.exec(code)) !== null) {
-		if (match.index > lastIndex) {
-			const content = truncateText(code.slice(lastIndex, match.index));
-			if (content) {
-				segments.push({ type: 'text', content });
-			}
-		}
-
-		if (match[2] !== undefined) {
-			const attrs = parseChartAttributes(match[1] ?? '');
-			const children = extractSegments(match[2]);
-			const cols = parseInt(attrs.cols || String(children.length || 1), 10);
-			const widths = resolveGridWidths(attrs.widths, children.length);
-			segments.push({ type: 'grid', cols, widths, children });
-		} else if (match[3] !== undefined) {
-			const attrs = parseChartAttributes(match[3]);
-			if (attrs.chart_type) {
-				segments.push({
-					type: 'chart',
-					chartType: attrs.chart_type,
-					title: attrs.title || '',
-					...(attrs.chart_type === 'kpi_card' ? { kpiCount: countSeries(attrs.series) } : {}),
-				});
-			}
-		} else if (match[4] !== undefined) {
-			const attrs = parseChartAttributes(match[4]);
-			segments.push({
-				type: 'table',
-				title: attrs.title || '',
-			});
-		} else if (match[6] !== undefined) {
-			const attrs = parseChartAttributes(match[6]);
-			segments.push({
-				type: 'map',
-				mapType: attrs.map_type || 'points',
-				title: attrs.title || '',
-			});
-		}
-
-		lastIndex = match.index + match[0].length;
-	}
-
-	if (lastIndex < code.length) {
-		const content = truncateText(code.slice(lastIndex));
-		if (content) {
-			segments.push({ type: 'text', content });
-		}
-	}
-
-	return segments;
+	return splitCodeIntoSegments(code).flatMap(summarySegmentsFromSegment);
 }
 
-function countSeries(series: string | undefined): number {
-	if (!series) {
-		return 1;
-	}
-	try {
-		const parsed = JSON.parse(series);
-		if (Array.isArray(parsed) && parsed.length > 0) {
-			return parsed.length;
+function summarySegmentsFromSegment(segment: Segment): SummarySegment[] {
+	switch (segment.type) {
+		case 'markdown': {
+			const content = truncateText(segment.content);
+			if (content) {
+				return [{ type: 'text', content }];
+			}
+			return [];
 		}
-	} catch {
-		// ignore malformed series
+		case 'chart': {
+			const colors = segment.chart.series.map((series, i) => series.color || defaultColor(i));
+			return [
+				{
+					type: 'chart',
+					chartType: segment.chart.chartType,
+					title: segment.chart.title,
+					...(segment.chart.chartType === 'kpi_card'
+						? {
+								kpiCount: Math.max(segment.chart.series.length, 1),
+								queryId: segment.chart.queryId,
+								series: segment.chart.series.map((series) => ({
+									dataKey: series.data_key,
+									...(series.label ? { label: series.label } : {}),
+									...(series.value_format ? { valueFormat: series.value_format } : {}),
+								})),
+							}
+						: {}),
+					...(colors.length > 0 ? { colors } : {}),
+				},
+			];
+		}
+		case 'table':
+			return [{ type: 'table', title: segment.table.title }];
+		case 'map':
+			return [
+				{
+					type: 'map',
+					mapType: segment.map.mapType,
+					title: segment.map.title,
+					...(segment.map.color ? { color: segment.map.color } : {}),
+				},
+			];
+		case 'grid':
+			return summarizeGrid(segment);
+		case 'filter':
+			return [];
 	}
-	return 1;
+}
+
+function summarizeGrid(grid: Extract<Segment, { type: 'grid' }>): SummarySegment[] {
+	const columns = grid.children.flatMap((child, index) =>
+		summarySegmentsFromSegment(child).map((summary) => ({ summary, width: grid.widths?.[index] })),
+	);
+	if (columns.length === 0) {
+		return [];
+	}
+	const widths = grid.widths ? columns.map((column) => column.width ?? 1) : null;
+	return [
+		{
+			type: 'grid',
+			cols: Math.min(grid.cols, columns.length),
+			widths,
+			children: columns.map((column) => column.summary),
+		},
+	];
+}
+
+function defaultColor(index: number): string {
+	return `var(--chart-${(index % 11) + 1})`;
 }
 
 function truncateText(raw: string): string {

@@ -6,7 +6,12 @@ import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.prov
 import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
-import { getLastUserMessageIdx, parseBudgetError } from '@/lib/ai';
+import {
+	getLastUserMessageIdx,
+	parseBudgetError,
+	parseChatAllowanceExhaustedError,
+	parseManagedCreditsError,
+} from '@/lib/ai';
 import { isCloudBillingAccessError } from '@/lib/cloud-billing-access';
 import { cn } from '@/lib/utils';
 
@@ -53,7 +58,12 @@ export function ChatError({ className }: Props) {
 	const isBillingAccessError = isCloudBillingAccessError(parsed);
 	const billingAccess = useCloudBillingAccess({ enabled: isBillingAccessError });
 
-	if (!error || parseBudgetError(error)) {
+	if (
+		!error ||
+		parseBudgetError(error) ||
+		parseManagedCreditsError(error) ||
+		parseChatAllowanceExhaustedError(error)
+	) {
 		return null;
 	}
 

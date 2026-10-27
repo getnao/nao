@@ -156,6 +156,21 @@ export type NewBudgetNotification = typeof sqliteSchema.budgetNotification.$infe
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 
+export type DBCreditWallet = typeof sqliteSchema.creditWallet.$inferSelect;
+export type NewCreditWallet = typeof sqliteSchema.creditWallet.$inferInsert;
+
+export type DBCreditGrantPolicy = typeof sqliteSchema.creditGrantPolicy.$inferSelect;
+export type NewCreditGrantPolicy = typeof sqliteSchema.creditGrantPolicy.$inferInsert;
+
+export type DBCreditGrantCandidate = typeof sqliteSchema.creditGrantCandidate.$inferSelect;
+export type NewCreditGrantCandidate = typeof sqliteSchema.creditGrantCandidate.$inferInsert;
+
+export type DBCreditLedger = typeof sqliteSchema.creditLedger.$inferSelect;
+export type NewCreditLedger = typeof sqliteSchema.creditLedger.$inferInsert;
+
+export type DBManagedAiUsage = typeof sqliteSchema.managedAiUsage.$inferSelect;
+export type NewManagedAiUsage = typeof sqliteSchema.managedAiUsage.$inferInsert;
+
 export type DBContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferSelect;
 export type NewContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferInsert;
 
@@ -218,6 +233,9 @@ export type NewStoryFolder = typeof sqliteSchema.storyFolder.$inferInsert;
 
 export type DBStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferSelect;
 export type NewStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferInsert;
+
+export type StoryFeedback = typeof sqliteSchema.storyFeedback.$inferSelect;
+export type NewStoryFeedback = typeof sqliteSchema.storyFeedback.$inferInsert;
 
 export type DBMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferSelect;
 export type NewMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferInsert;

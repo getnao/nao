@@ -28,6 +28,7 @@ export async function listUsers(input: SearchPaginationInput) {
 				image: s.user.image,
 				createdAt: s.user.createdAt,
 				updatedAt: s.user.updatedAt,
+				deactivatedAt: s.user.deactivatedAt,
 				githubAccessToken: s.user.githubAccessToken,
 				gitlabAccessToken: s.user.gitlabAccessToken,
 				projectCount: projectCounts.count,
@@ -63,6 +64,7 @@ export async function listUsers(input: SearchPaginationInput) {
 			image: user.image,
 			createdAt: user.createdAt,
 			updatedAt: user.updatedAt,
+			deactivatedAt: user.deactivatedAt,
 			hasGithubToken: isSet(user.githubAccessToken),
 			hasGitlabToken: isSet(user.gitlabAccessToken),
 			organizations: (byUser.get(user.id) ?? []).map((membership) => ({
@@ -153,9 +155,19 @@ export async function getUserStats(userId: string) {
 	};
 }
 
-export async function updateUserForBackoffice(userId: string, values: { name?: string; email?: string }) {
+export async function updateUserForBackoffice(
+	userId: string,
+	values: { name?: string; email?: string; deactivatedAt?: Date | null },
+) {
 	const [updated] = await db.update(s.user).set(values).where(eq(s.user.id, userId)).returning().execute();
 	return updated ?? null;
+}
+
+/** Signs the user out everywhere: browser sessions and MCP OAuth tokens. */
+export async function revokeUserCredentials(userId: string): Promise<void> {
+	await db.delete(s.oauthAccessToken).where(eq(s.oauthAccessToken.userId, userId)).execute();
+	await db.delete(s.oauthRefreshToken).where(eq(s.oauthRefreshToken.userId, userId)).execute();
+	await db.delete(s.session).where(eq(s.session.userId, userId)).execute();
 }
 
 export async function getUserByEmail(email: string) {

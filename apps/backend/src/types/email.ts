@@ -8,6 +8,7 @@ export interface EmailAttachment {
 interface CreatedEmail {
 	subject: string;
 	html: string;
+	replyTo?: string;
 	attachments?: EmailAttachment[];
 }
 

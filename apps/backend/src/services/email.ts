@@ -51,6 +51,7 @@ class EmailService {
 			await this.transporter.sendMail({
 				from: env.SMTP_MAIL_FROM,
 				to,
+				replyTo: email.replyTo,
 				subject: email.subject,
 				html: email.html,
 				attachments: email.attachments,

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	executeQuery: vi.fn(),
 	extractToolCalls: vi.fn(() => []),
 	getAzureAccessTokenForUser: vi.fn(),
+	getUserRoleInProject: vi.fn(),
 	getProjectRuntimeEnvVars: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveProjectContextAccess: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('../src/middleware/auth', () => ({
 	authMiddleware: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({
+	getUserRoleInProject: mocks.getUserRoleInProject,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
 vi.mock('../src/services/license.service', () => ({
@@ -55,9 +57,11 @@ describe('test routes', () => {
 			warehouseRowSecurity: { enforced: false },
 			docsContextAccess: { enforced: false },
 			filesContextAccess: { enforced: false },
+			mcpAccess: { mode: 'all' },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 		});
+		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.getProjectRuntimeEnvVars.mockResolvedValue({
 			WAREHOUSE_HOST: 'warehouse.example.com',
 			WAREHOUSE_PASSWORD: 'encrypted-storage-secret',
@@ -102,6 +106,7 @@ describe('test routes', () => {
 				warehouseRowSecurity: { enforced: false },
 				docsContextAccess: { enforced: false },
 				filesContextAccess: { enforced: false },
+				mcpAccess: { mode: 'all' },
 				userGroupFeatures: [],
 				userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 				queryResults: new Map(),
@@ -132,6 +137,15 @@ describe('test routes', () => {
 		expect(mocks.runVerification).not.toHaveBeenCalled();
 		expect(reply.status).not.toHaveBeenCalled();
 		expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ text: 'answer', verification: undefined }));
+	});
+
+	it('rejects project viewers before running a test', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('viewer');
+
+		const reply = await runExpectedQuery({ prompt: 'Question' });
+
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(mocks.runTest).not.toHaveBeenCalled();
 	});
 });
 

@@ -1,10 +1,10 @@
 /* @license Enterprise */
 
 import { useQuery } from '@tanstack/react-query';
+import { MEMBER_BUDGET_SOURCE_LABELS } from '@nao/shared/member-budget';
 
 import { MemberBudgetUsage } from '@/components/settings/member-budget-usage';
 import { SettingsCard } from '@/components/ui/settings-card';
-import { BUDGET_SOURCE_LABELS } from '@/lib/member-budget';
 import { trpc } from '@/main';
 
 export function MyMemberBudget() {
@@ -25,7 +25,7 @@ export function MyMemberBudget() {
 					limitUsd={budget.data.limitUsd}
 					period={budget.data.period}
 					nextPeriodStart={budget.data.nextPeriodStart}
-					sourceLabel={BUDGET_SOURCE_LABELS[budget.data.source]}
+					sourceLabel={MEMBER_BUDGET_SOURCE_LABELS[budget.data.source]}
 				/>
 			)}
 		</SettingsCard>

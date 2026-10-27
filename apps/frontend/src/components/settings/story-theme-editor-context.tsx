@@ -1,7 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Moon, Sun } from 'lucide-react';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { sameThemePair } from '@nao/shared/story-theme';
 import type { StoryThemeMode, StoryThemePair } from '@nao/shared/story-theme';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 import type { IconSegmentedToggleOption } from '@/components/ui/icon-segmented-toggle';
@@ -13,6 +15,11 @@ export const STORY_THEME_MODE_OPTIONS: readonly IconSegmentedToggleOption<StoryT
 	{ value: 'dark', label: 'Dark theme', icon: Moon },
 ];
 
+export interface PendingGeneration {
+	record: StoryThemeGeneration;
+	theme: StoryThemePair;
+}
+
 interface StoryThemeEditorState {
 	theme: StoryThemePair | null;
 	setTheme: Dispatch<SetStateAction<StoryThemePair | null>>;
@@ -20,6 +27,8 @@ interface StoryThemeEditorState {
 	setMode: Dispatch<SetStateAction<StoryThemeMode>>;
 	viewingVersionIndex: number | null;
 	setViewingVersionIndex: Dispatch<SetStateAction<number | null>>;
+	pendingGeneration: PendingGeneration | null;
+	setPendingGeneration: Dispatch<SetStateAction<PendingGeneration | null>>;
 }
 
 const StoryThemeEditorContext = createContext<StoryThemeEditorState | null>(null);
@@ -29,13 +38,23 @@ export function StoryThemeEditorProvider({ children }: { children: ReactNode }) 
 	const [theme, setThemeState] = useState<StoryThemePair | null>(null);
 	const [mode, setMode] = useState<StoryThemeMode>(isDarkMode ? 'dark' : 'light');
 	const [viewingVersionIndex, setViewingVersionIndex] = useState<number | null>(null);
+	const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
 	const setTheme = useCallback<Dispatch<SetStateAction<StoryThemePair | null>>>((action) => {
 		setViewingVersionIndex(null);
 		setThemeState(action);
 	}, []);
 	const value = useMemo(
-		() => ({ theme, setTheme, mode, setMode, viewingVersionIndex, setViewingVersionIndex }),
-		[theme, setTheme, mode, viewingVersionIndex],
+		() => ({
+			theme,
+			setTheme,
+			mode,
+			setMode,
+			viewingVersionIndex,
+			setViewingVersionIndex,
+			pendingGeneration,
+			setPendingGeneration,
+		}),
+		[theme, setTheme, mode, viewingVersionIndex, pendingGeneration],
 	);
 	return <StoryThemeEditorContext.Provider value={value}>{children}</StoryThemeEditorContext.Provider>;
 }
@@ -46,6 +65,16 @@ export function useStoryThemeEditor(): StoryThemeEditorState {
 		throw new Error('useStoryThemeEditor must be used within StoryThemeEditorProvider');
 	}
 	return context;
+}
+
+export function generationToSave(
+	pending: PendingGeneration | null,
+	theme: StoryThemePair,
+): StoryThemeGeneration | null {
+	if (!pending) {
+		return null;
+	}
+	return { ...pending.record, editedByHand: !sameThemePair(pending.theme, theme) };
 }
 
 export function useInvalidateStoryTheme(): () => Promise<void> {

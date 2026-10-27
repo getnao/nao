@@ -45,6 +45,7 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 	}
 
 	const required = envVarsQuery.data?.required ?? [];
+	const setFromProcessEnv = new Set(envVarsQuery.data?.setFromProcessEnv ?? []);
 	if (required.length === 0) {
 		return null;
 	}
@@ -85,7 +86,9 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 			<div className='grid gap-4'>
 				{required.map((key) => {
 					const value = localValues[key] ?? '';
-					const isSet = !!value;
+					const isFromProcessEnv = setFromProcessEnv.has(key);
+					const isSet = isFromProcessEnv || !!value;
+					const isEditable = isAdmin && !isFromProcessEnv;
 					const inputId = `env-var-${key}`;
 
 					return (
@@ -94,13 +97,13 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 								<label htmlFor={inputId} className='text-sm font-medium text-foreground'>
 									{key}
 								</label>
-								{!isAdmin && (
+								{!isEditable && (
 									<span className='text-xs text-muted-foreground'>
-										{isSet ? '(configured)' : '(not set)'}
+										{getStatusLabel(isFromProcessEnv, isSet)}
 									</span>
 								)}
 							</div>
-							{isAdmin ? (
+							{isEditable ? (
 								<Input
 									id={inputId}
 									type='password'
@@ -126,4 +129,11 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 			{updateMutation.error && <ErrorMessage message={updateMutation.error.message} />}
 		</SettingsCard>
 	);
+}
+
+function getStatusLabel(isFromProcessEnv: boolean, isSet: boolean): string {
+	if (isFromProcessEnv) {
+		return '(set from environment)';
+	}
+	return isSet ? '(configured)' : '(not set)';
 }

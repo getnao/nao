@@ -17,6 +17,7 @@ export enum PostHogEvent {
 
 	MessageSent = 'message_sent',
 	MessageFeedbackSubmitted = 'message_feedback_submitted',
+	StoryFeedbackSubmitted = 'story_feedback_submitted',
 
 	ChatRenamed = 'chat_renamed',
 	ChatDeleted = 'chat_deleted',

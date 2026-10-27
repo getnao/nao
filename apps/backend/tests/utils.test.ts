@@ -8,7 +8,14 @@ import {
 	recoverMalformedToolInputs,
 	settleInterruptedToolParts,
 } from '../src/utils/ai';
-import { buildUsernameAllowlist, formatErrorMessageForUI, replaceEnvVars, truncateMiddle } from '../src/utils/utils';
+import { ManagedCreditsExhaustedError } from '../src/utils/error';
+import {
+	buildUsernameAllowlist,
+	formatErrorMessageForUI,
+	getProcessEnvSourcedVarNames,
+	replaceEnvVars,
+	truncateMiddle,
+} from '../src/utils/utils';
 
 describe('buildUsernameAllowlist', () => {
 	it('returns an empty set when unset', () => {
@@ -33,6 +40,14 @@ describe('formatErrorMessageForUI', () => {
 	it('returns the message from a normal Error', () => {
 		const reason = 'Query blocked because main.customers.last_name is an excluded column.';
 		expect(formatErrorMessageForUI(new Error(reason))).toBe(reason);
+	});
+
+	it('preserves the managed-credit code for streamed errors', () => {
+		const error = new ManagedCreditsExhaustedError();
+		expect(JSON.parse(formatErrorMessageForUI(error))).toEqual({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+		});
 	});
 
 	it('replaces provider payload validation errors with a concise message', () => {
@@ -92,6 +107,20 @@ describe('truncateMiddle', () => {
 	it('uses a custom ellipsis string', () => {
 		expect(truncateMiddle('abcdefghij', 8, '--')).toBe('abc--hij');
 	});
+
+	it('never splits an emoji into a lone surrogate on either side of the cut', () => {
+		const headCut = truncateMiddle(`${'x'.repeat(49)}😀${'y'.repeat(100)}`, 103);
+		const tailCut = truncateMiddle(`${'x'.repeat(100)}😀${'y'.repeat(49)}`, 103);
+
+		expect(headCut.isWellFormed()).toBe(true);
+		expect(tailCut.isWellFormed()).toBe(true);
+		expect(headCut).toBe(`${'x'.repeat(49)}...${'y'.repeat(50)}`);
+		expect(tailCut).toBe(`${'x'.repeat(50)}...${'y'.repeat(49)}`);
+	});
+
+	it('never returns more than maxLength when only the ellipsis fits', () => {
+		expect(truncateMiddle('abcdef', 4)).toBe('...');
+	});
 });
 
 describe('replaceEnvVars', () => {
@@ -125,6 +154,27 @@ describe('replaceEnvVars', () => {
 
 	it('keeps the placeholder when no value exists', () => {
 		expect(replaceEnvVars('${MISSING_TOKEN}')).toBe('${MISSING_TOKEN}');
+	});
+});
+
+describe('getProcessEnvSourcedVarNames', () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it('returns names resolved from process env without a project override', () => {
+		vi.stubEnv('DB_PASSWORD', 'from-process');
+		vi.stubEnv('DBT_TOKEN', 'from-process');
+
+		expect(
+			getProcessEnvSourcedVarNames(['DB_PASSWORD', 'DBT_TOKEN', 'MISSING_TOKEN'], { DBT_TOKEN: 'from-project' }),
+		).toEqual(['DB_PASSWORD']);
+	});
+
+	it('ignores empty process env values', () => {
+		vi.stubEnv('DB_PASSWORD', '');
+
+		expect(getProcessEnvSourcedVarNames(['DB_PASSWORD'], {})).toEqual([]);
 	});
 });
 

@@ -7,6 +7,7 @@ import { getMcpTarget } from '@/lib/mcp';
 import { getFileName, getReadContextLabel } from '@/lib/file-path';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentProps<'read'>) => {
 	const { isSettled } = useToolCallContext();
@@ -62,7 +63,13 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 						</div>
 					)}
 					<div className='overflow-auto max-h-200 hide-code-header markdown-small'>
-						<Streamdown mode='static' controls={false} plugins={markdownPlugins} className='py-10 px-24'>
+						<Streamdown
+							linkSafety={markdownLinkSafety}
+							mode='static'
+							controls={false}
+							plugins={markdownPlugins}
+							className='py-10 px-24'
+						>
 							{toMarkdown(output.content, filePath)}
 						</Streamdown>
 					</div>

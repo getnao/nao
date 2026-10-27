@@ -7,6 +7,7 @@ import type { ToolContext } from '../src/types/tools';
 // The db module imports bun:sqlite, which is unavailable under the node-based
 // vitest runner; stub it so the automation-tools import chain can load.
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/services/custom-story', () => ({ getActiveThemeForProject: vi.fn(async () => null) }));
 
 vi.mock('../src/queries/project.queries', () => ({
 	getDisplaySettings: vi.fn(async () => ({ dateFormat: null })),

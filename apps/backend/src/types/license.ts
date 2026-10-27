@@ -39,9 +39,14 @@ export const LICENSE_ALL_FEATURES = '*';
 export const LICENSE_STATUSES = ['active', 'expired', 'invalid', 'unlicensed'] as const;
 export type LicenseStatus = (typeof LICENSE_STATUSES)[number];
 
+/** The organization or project a feature check runs for, so a cloud organization's Enterprise grant applies. */
+export type LicenseScope = { orgId: string } | { projectId: string };
+
 export interface NaoLicense {
 	subscriptionId: string;
 	companyName: string;
+	/** Set on licenses issued for a single nao Cloud organization; they never license a whole instance. */
+	orgId: string | null;
 	isOffline: boolean;
 	expiresAt: Date;
 	issuedAt: Date;

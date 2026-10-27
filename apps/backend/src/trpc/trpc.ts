@@ -12,6 +12,7 @@ import {
 	assertProjectCloudBillingAccess,
 } from '../services/cloud-billing-access.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
+import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
@@ -222,6 +223,15 @@ export const contextAdminProtectedProcedure = projectProtectedProcedure.use(asyn
 
 export const cloudBillingContextAdminProcedure = contextAdminProtectedProcedure.use(selectedProjectBillingMiddleware);
 
+/** Grants the settings pages beyond the user's own account: the User role needs a group showing all settings. */
+export const advancedSettingsProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
+	if (!(await canSeeAdvancedSettings(ctx.project.id, ctx.user.id, ctx.userRole))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Advanced settings are not enabled for your user group.' });
+	}
+
+	return next({ ctx });
+});
+
 export const organizationProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(
 		ctx.user.id,
@@ -231,11 +241,12 @@ export const organizationProtectedProcedure = protectedProcedure.use(async ({ ct
 	return next({ ctx: { organization: membership.organization, orgRole: membership.role } });
 });
 
-export const cloudBillingOrganizationProcedure = organizationProtectedProcedure.use(
-	cloudBillingMiddleware<{ organization: { id: string } }>(({ organization }) => ({
-		organizationId: organization.id,
-	})),
-);
+export const cloudBillingProjectImportProcedure = organizationProtectedProcedure.use(async ({ ctx, next }) => {
+	if (await projectQueries.organizationHasProjects(ctx.organization.id)) {
+		await assertOrganizationCloudBillingAccess(ctx.organization.id);
+	}
+	return next({ ctx });
+});
 
 /** Organization roles mapped from identity provider groups are re-applied on every sign-in. */
 export async function assertOrganizationRolesAreEditable(): Promise<void> {

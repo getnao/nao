@@ -18,7 +18,7 @@ import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import type { BulkStoryItem, StoryPanelDisplayMode } from '@nao/shared/types';
 import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
 
-import type { FolderItem, SortState, StoriesScope, StoryItem } from '@/lib/stories-page';
+import type { FolderItem, SortState, StoriesFilters, StoryItem } from '@/lib/stories-page';
 import type { BreadcrumbNode } from '@/components/stories-folder-breadcrumb';
 import { FolderBreadcrumb } from '@/components/stories-folder-breadcrumb';
 import { StoriesSelectionBar } from '@/components/stories-selection-bar';
@@ -30,20 +30,21 @@ import { ProjectSwitcher } from '@/components/project-selector';
 import { SortHeader } from '@/components/stories-sort-header';
 import { StoriesExplorer } from '@/components/stories-explorer';
 import { PromotedSections } from '@/components/stories-pinned-favorites';
-import { SearchBar } from '@/components/search-bar';
-import { StoriesToolbarControls } from '@/components/stories-toolbar-controls';
+import { StoriesToolbar } from '@/components/stories-toolbar';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSession } from '@/lib/auth-client';
 import {
 	buildCurrentLevelEntries,
 	buildStoryItems,
+	countActiveFilters,
+	DEFAULT_FILTERS,
 	filterStories,
 	getStoredSetting,
 	readStoredSort,
 	STORIES_DISPLAY_KEY,
-	STORIES_SORT_KEY,
 	writeStoredSort,
 } from '@/lib/stories-page';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -87,17 +88,6 @@ type DialogState =
 	| { kind: 'picker-folder'; folder: FolderItem }
 	| null;
 
-function invalidateFolderAndStoryCaches(queryClient: ReturnType<typeof useQueryClient>): void {
-	queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listSharedArchived.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-}
-
 function StoriesPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
@@ -110,7 +100,7 @@ function StoriesPage() {
 	);
 	const [sort, setSort] = useState<SortState>(() => readStoredSort());
 	const [searchQuery, setSearchQuery] = useState('');
-	const [scope, setScope] = useState<StoriesScope>('all');
+	const [filters, setFilters] = useState<StoriesFilters>(DEFAULT_FILTERS);
 	const [showArchived, setShowArchived] = useState(false);
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [activeId, setActiveId] = useState<string | null>(null);
@@ -132,6 +122,10 @@ function StoriesPage() {
 		enabled: !!activeProjectId,
 	});
 	const favorites = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: !!activeProjectId });
+	const storyViewCounts = useQuery({
+		...trpc.analyticsEvent.storyViewCounts.queryOptions(),
+		enabled: !!activeProjectId && (sort.field === 'views' || displayMode === 'lines'),
+	});
 	const archivedStories = useQuery({
 		...trpc.story.listArchived.queryOptions({ projectId: activeProjectId }),
 		enabled: showArchived,
@@ -170,6 +164,7 @@ function StoriesPage() {
 				sharedStories: archivedSharedStories.data ?? [],
 				currentUserName,
 				favoriteStoryIds: favorites.data?.storyIds,
+				viewCountByStoryId: storyViewCounts.data,
 				folderItemMap,
 				folders: folderTree.data ?? [],
 			});
@@ -180,10 +175,12 @@ function StoriesPage() {
 			sharedStories: sharedStories.data ?? [],
 			currentUserName,
 			favoriteStoryIds: favorites.data?.storyIds,
+			viewCountByStoryId: storyViewCounts.data,
 			folderItemMap,
 			folders: folderTree.data ?? [],
 		});
 	}, [
+		storyViewCounts.data,
 		showArchived,
 		userStories.data,
 		standaloneStories.data,
@@ -197,7 +194,10 @@ function StoriesPage() {
 		folderTree.data,
 	]);
 
-	const filteredItems = useMemo(() => filterStories(allItems, searchQuery, scope), [allItems, searchQuery, scope]);
+	const filteredItems = useMemo(
+		() => filterStories(allItems, searchQuery, filters),
+		[allItems, searchQuery, filters],
+	);
 
 	const folders = useMemo(
 		() => (showArchived ? archivedFolderTree.data : folderTree.data) ?? [],
@@ -217,7 +217,7 @@ function StoriesPage() {
 
 	useEffect(() => {
 		clearSelection();
-	}, [currentFolderId, activeProjectId, scope]);
+	}, [currentFolderId, activeProjectId, filters, searchQuery]);
 
 	const {
 		pinned,
@@ -232,7 +232,7 @@ function StoriesPage() {
 			currentUserName,
 			favoriteFolderIds: favorites.data?.folderIds,
 			searchQuery,
-			scope,
+			filters,
 		});
 		if (showArchived) {
 			return { pinned: [], favorites: [], entries: levelEntries.entries };
@@ -247,7 +247,7 @@ function StoriesPage() {
 		showArchived,
 		favorites.data,
 		searchQuery,
-		scope,
+		filters,
 	]);
 
 	const breadcrumbPath = useMemo((): BreadcrumbNode[] => {
@@ -286,13 +286,10 @@ function StoriesPage() {
 	function handleSortChange(next: SortState) {
 		setSort(next);
 		writeStoredSort(next);
-		localStorage.setItem(STORIES_SORT_KEY, `${next.field}-${next.direction}`);
 	}
 
 	function handleShowArchivedChange(value: boolean) {
 		setShowArchived(value);
-		setSearchQuery('');
-		setScope('all');
 		clearSelection();
 		if (value) {
 			navigate({ to: '/stories', search: { folderId: null } });
@@ -403,13 +400,13 @@ function StoriesPage() {
 
 	const archiveFolderMutation = useMutation(
 		trpc.storyFolder.archive.mutationOptions({
-			onSuccess: () => invalidateFolderAndStoryCaches(queryClient),
+			onSuccess: () => invalidateStoryArchiveCaches(queryClient),
 		}),
 	);
 
 	const unarchiveFolderMutation = useMutation(
 		trpc.storyFolder.unarchive.mutationOptions({
-			onSuccess: () => invalidateFolderAndStoryCaches(queryClient),
+			onSuccess: () => invalidateStoryArchiveCaches(queryClient),
 		}),
 	);
 
@@ -424,7 +421,7 @@ function StoriesPage() {
 	const bulkArchiveStoryMutation = useMutation(
 		trpc.story.bulkArchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectStoryIds(variables.items.map((item) => item.storyId));
 			},
 		}),
@@ -433,7 +430,7 @@ function StoriesPage() {
 	const bulkUnarchiveStoryMutation = useMutation(
 		trpc.story.bulkUnarchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectStoryIds(variables.items.map((item) => item.storyId));
 			},
 		}),
@@ -442,7 +439,7 @@ function StoriesPage() {
 	const bulkArchiveFolderMutation = useMutation(
 		trpc.storyFolder.bulkArchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectFolderIds(variables.ids);
 			},
 		}),
@@ -451,7 +448,7 @@ function StoriesPage() {
 	const bulkUnarchiveFolderMutation = useMutation(
 		trpc.storyFolder.bulkUnarchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectFolderIds(variables.ids);
 			},
 		}),
@@ -557,8 +554,11 @@ function StoriesPage() {
 		return null;
 	}, [activeId, allItems, folders]);
 
-	const showExplorerControls = !showArchived;
-	const isCertifiedScope = scope === 'certified';
+	const isShowingResults = searchQuery.trim() !== '' || countActiveFilters(filters) > 0;
+	const currentFolderName = breadcrumbPath.length > 1 ? breadcrumbPath[breadcrumbPath.length - 1].name : null;
+	const searchPlaceholder = currentFolderName
+		? `Search in ${currentFolderName}...`
+		: 'Search stories by title, author, content or ID...';
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-auto'>
@@ -571,48 +571,43 @@ function StoriesPage() {
 				onDragEnd={handleDragEnd}
 				onDragCancel={() => setActiveId(null)}
 			>
-				<div className='w-full px-4 py-6 md:px-8 md:py-10'>
-					<div className='flex items-center justify-between mb-6 md:mb-8 gap-3 flex-wrap'>
+				<div className='w-full px-4 pt-4 pb-6 md:px-8 md:pt-2 md:pb-8'>
+					<div className='flex items-center justify-between min-h-9 mb-3 gap-3 flex-wrap'>
 						<div className='flex items-center gap-3 min-w-0'>
-							<h1 className='text-xl font-semibold tracking-tight shrink-0'>
+							<h1 className='text-sm font-medium shrink-0'>
 								<FolderBreadcrumb path={breadcrumbPath} rootIcon={showArchived ? Archive : Home} />
 							</h1>
 						</div>
-						<div className='flex items-center gap-3 min-w-0'>
-							{project.data && (
-								<ProjectSwitcher
-									projects={projects.data ?? []}
-									currentProjectId={project.data.id}
-									onChange={handleProjectChange}
-									variant='inline'
-								/>
-							)}
-							{(!isEmpty || showArchived) && (
-								<StoriesToolbarControls
-									scope={scope}
-									onScopeChange={setScope}
-									displayMode={displayMode}
-									onDisplayModeChange={handleDisplayChange}
-									showArchived={showArchived}
-									onShowArchivedChange={handleShowArchivedChange}
-									selectionActive={selectionActive}
-									onToggleSelection={toggleSelectionMode}
-								/>
-							)}
-						</div>
+						{project.data && (
+							<ProjectSwitcher
+								projects={projects.data ?? []}
+								currentProjectId={project.data.id}
+								onChange={handleProjectChange}
+								variant='inline'
+							/>
+						)}
 					</div>
 
-					{!isEmpty && !showArchived && (
-						<SearchBar
-							value={searchQuery}
-							onChange={setSearchQuery}
-							placeholder='Search stories or paste an ID...'
-							ariaLabel='Search stories'
-							className='mb-6'
+					{(!isEmpty || showArchived) && (
+						<StoriesToolbar
+							searchQuery={searchQuery}
+							onSearchChange={setSearchQuery}
+							searchPlaceholder={searchPlaceholder}
+							filters={filters}
+							onFiltersChange={setFilters}
+							showArchived={showArchived}
+							onShowArchivedChange={handleShowArchivedChange}
+							sort={sort}
+							onSortChange={handleSortChange}
+							displayMode={displayMode}
+							onDisplayModeChange={handleDisplayChange}
+							selectionActive={selectionActive}
+							onToggleSelection={toggleSelectionMode}
+							className='mb-8'
 						/>
 					)}
 
-					{!showArchived && !isCertifiedScope && (
+					{!showArchived && !isShowingResults && (
 						<PromotedSections
 							pinned={pinned}
 							favorites={promotedFavorites}
@@ -631,17 +626,15 @@ function StoriesPage() {
 						/>
 					)}
 
-					{!isEmpty && showExplorerControls && (
-						<div className='mb-2'>
-							<SortHeader value={sort} onChange={handleSortChange} displayMode={displayMode} />
-						</div>
+					{displayMode === 'lines' && entries.length > 0 && (
+						<SortHeader value={sort} onChange={handleSortChange} />
 					)}
 
 					<StoriesExplorer
 						entries={entries}
 						displayMode={displayMode}
 						showArchived={showArchived}
-						scope={scope}
+						filters={filters}
 						searchQuery={searchQuery}
 						currentFolderId={currentFolderId ?? null}
 						currentUserName={currentUserName}

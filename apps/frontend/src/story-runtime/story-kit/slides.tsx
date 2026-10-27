@@ -1,9 +1,13 @@
 import { joinClassNames } from '@nao/shared/class-names';
 import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+import { StoryBrandMark } from '@nao/shared/story-brand-mark';
 import { ChevronLeftIcon, ChevronRightIcon, MaximizeIcon, MinimizeIcon } from 'lucide-react';
 import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isPrintMode } from '../story-host';
+import { useFrameRelativeStoryStyles } from './frame-styles';
+import { useStoryBrand } from './hooks';
+import { fitScale, useStageSize } from './stage-fit';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 
 const SLIDE_FRAME_BORDER_PX = 1;
@@ -47,6 +51,7 @@ interface Fullscreen {
 
 /** A deck: one slide at a time on screen, one slide per page once printed. */
 export function Slides({ children, title, eyebrow, className }: SlidesProps) {
+	useFrameRelativeStoryStyles();
 	const slides = Children.toArray(children);
 	if (isPrintMode()) {
 		return <PrintedSlides slides={slides} />;
@@ -68,6 +73,18 @@ export function Slide({ children, title, eyebrow, className, style }: SlideProps
 	);
 }
 
+function DeckBrandMark() {
+	const brand = useStoryBrand();
+	if (!brand) {
+		return null;
+	}
+	return (
+		<div className='nao-slides__brand'>
+			<StoryBrandMark brand={brand} />
+		</div>
+	);
+}
+
 function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 	const [index, setIndex] = useState(0);
 	const lastIndex = Math.max(slides.length - 1, 0);
@@ -84,6 +101,7 @@ function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 			className={joinClassNames('nao-slides', fullscreen.active && 'nao-slides--fullscreen', className)}
 		>
 			<div className='nao-slides__top'>
+				<DeckBrandMark />
 				{(title || eyebrow) && (
 					<header className='nao-slides__header'>
 						{eyebrow && <div className='nao-slides__eyebrow'>{eyebrow}</div>}
@@ -173,25 +191,12 @@ function PrintedSlides({ slides }: { slides: ReactNode[] }) {
  * visible without scrolling and screen matches PDF.
  */
 function useSlideFit() {
-	const stageRef = useRef<HTMLDivElement>(null);
-	const [scale, setScale] = useState(1);
-
-	useLayoutEffect(() => {
-		const stage = stageRef.current;
-		if (!stage) {
-			return;
-		}
-		const fit = () => {
-			const width = stage.clientWidth - 2 * SLIDE_FRAME_BORDER_PX;
-			const height = stage.clientHeight - 2 * SLIDE_FRAME_BORDER_PX;
-			setScale(Math.max(Math.min(width / STORY_SLIDE_SIZE.width, height / STORY_SLIDE_SIZE.height), 0));
-		};
-		const observer = new ResizeObserver(fit);
-		observer.observe(stage);
-		return () => observer.disconnect();
-	}, []);
-
-	return { stageRef, scale };
+	const { stageRef, stage } = useStageSize<HTMLDivElement>();
+	const available = {
+		width: stage.width - 2 * SLIDE_FRAME_BORDER_PX,
+		height: stage.height - 2 * SLIDE_FRAME_BORDER_PX,
+	};
+	return { stageRef, scale: fitScale(available, STORY_SLIDE_SIZE) };
 }
 
 function useFullscreen(): { rootRef: RefObject<HTMLDivElement | null>; fullscreen: Fullscreen } {

@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull } from 'drizzle-orm';
 
 import s, {
 	DBOrganization,
@@ -6,11 +6,12 @@ import s, {
 	DBStripeWebhookEvent,
 	NewStripeWebhookEvent,
 } from '../db/abstractSchema';
-import { db } from '../db/db';
-import { BillingStatus } from '../types/billing';
+import { db, type DBExecutor } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
+import { type BillingStatus, CLOUD_BILLING_TRIAL_DAYS } from '../types/billing';
 
 export interface SubscriptionProjection {
-	billingPlan: string;
+	billingPlan: string | null;
 	billingStatus: BillingStatus;
 	stripeCustomerId: string;
 	stripeSubscriptionId: string;
@@ -50,10 +51,94 @@ export async function getOrganizationBilling(orgId: string): Promise<DBOrganizat
 	return billing ?? null;
 }
 
+export function startOrganizationTrial(orgId: string, now: Date, executor: DBExecutor): boolean | Promise<boolean> {
+	const trialEndsAt = new Date(now);
+	trialEndsAt.setUTCDate(trialEndsAt.getUTCDate() + CLOUD_BILLING_TRIAL_DAYS);
+	const trial = {
+		orgId,
+		billingStatus: 'trialing' as const,
+		trialStartedAt: now,
+		trialEndsAt,
+		billingAccessEndsAt: trialEndsAt,
+		billingUpdatedAt: now,
+	};
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return startPostgresOrganizationTrial(trial, executor);
+	}
+	return startSqliteOrganizationTrial(trial, executor);
+}
+
+type OrganizationTrial = {
+	orgId: string;
+	billingStatus: 'trialing';
+	trialStartedAt: Date;
+	trialEndsAt: Date;
+	billingAccessEndsAt: Date;
+	billingUpdatedAt: Date;
+};
+
+function availableTrialBilling(orgId: string) {
+	return and(
+		eq(s.organizationBilling.orgId, orgId),
+		isNull(s.organizationBilling.billingStatus),
+		isNull(s.organizationBilling.trialStartedAt),
+		isNull(s.organizationBilling.trialEndsAt),
+		isNull(s.organizationBilling.stripeSubscriptionId),
+	);
+}
+
+function startSqliteOrganizationTrial(trial: OrganizationTrial, executor: DBExecutor): boolean {
+	const updateExisting = () =>
+		executor
+			.update(s.organizationBilling)
+			.set(trial)
+			.where(availableTrialBilling(trial.orgId))
+			.returning({ orgId: s.organizationBilling.orgId })
+			.all()[0];
+	if (updateExisting()) {
+		return true;
+	}
+	const [created] = executor
+		.insert(s.organizationBilling)
+		.values(trial)
+		.onConflictDoNothing()
+		.returning({ orgId: s.organizationBilling.orgId })
+		.all();
+	return Boolean(created || updateExisting());
+}
+
+async function startPostgresOrganizationTrial(trial: OrganizationTrial, executor: DBExecutor): Promise<boolean> {
+	const updateExisting = async () =>
+		(
+			await executor
+				.update(s.organizationBilling)
+				.set(trial)
+				.where(availableTrialBilling(trial.orgId))
+				.returning({ orgId: s.organizationBilling.orgId })
+				.execute()
+		)[0];
+	if (await updateExisting()) {
+		return true;
+	}
+	const [created] = await executor
+		.insert(s.organizationBilling)
+		.values(trial)
+		.onConflictDoNothing()
+		.returning({ orgId: s.organizationBilling.orgId })
+		.execute();
+	return Boolean(created || (await updateExisting()));
+}
+
 export async function attachStripeCustomer(orgId: string, stripeCustomerId: string): Promise<DBOrganizationBilling> {
+	const billingUpdatedAt = new Date();
+	await db
+		.update(s.organizationBilling)
+		.set({ stripeCustomerId, billingUpdatedAt })
+		.where(and(eq(s.organizationBilling.orgId, orgId), isNull(s.organizationBilling.stripeCustomerId)))
+		.execute();
 	await db
 		.insert(s.organizationBilling)
-		.values({ orgId, stripeCustomerId, billingUpdatedAt: new Date() })
+		.values({ orgId, stripeCustomerId, billingUpdatedAt })
 		.onConflictDoNothing()
 		.execute();
 
@@ -96,6 +181,20 @@ export async function getOrganizationBillingByStripeCustomerId(
 
 export async function listOrganizationBillingsWithStripeCustomers(): Promise<DBOrganizationBilling[]> {
 	return db.select().from(s.organizationBilling).where(isNotNull(s.organizationBilling.stripeCustomerId)).execute();
+}
+
+export async function listOrganizationTrialsPendingStripeProvisioning(now: Date): Promise<DBOrganizationBilling[]> {
+	return db
+		.select()
+		.from(s.organizationBilling)
+		.where(
+			and(
+				eq(s.organizationBilling.billingStatus, 'trialing'),
+				gt(s.organizationBilling.trialEndsAt, now),
+				isNull(s.organizationBilling.stripeSubscriptionId),
+			),
+		)
+		.execute();
 }
 
 export async function updateSubscriptionProjection(

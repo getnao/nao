@@ -1,6 +1,6 @@
 import type { MemberStatus } from '@nao/shared/types';
 import crypto from 'crypto';
-import { and, count, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -16,6 +16,16 @@ export const getUser = async (identifier: { id: string } | { email: string }): P
 	const [user] = await db.select().from(s.user).where(condition).execute();
 
 	return user ?? null;
+};
+
+export const hasUserSession = async (userId: string): Promise<boolean> => {
+	const [session] = await db
+		.select({ id: s.session.id })
+		.from(s.session)
+		.where(and(eq(s.session.userId, userId), gt(s.session.expiresAt, new Date())))
+		.limit(1)
+		.execute();
+	return Boolean(session);
 };
 
 export const getUserProfile = async (
@@ -83,6 +93,15 @@ export const isUserConfinedToOrganization = async (userId: string, orgId: string
 		.limit(1)
 		.execute();
 	return !foreignProjectMembership;
+};
+
+export const isUserDeactivated = async (userId: string): Promise<boolean> => {
+	const [user] = await db
+		.select({ deactivatedAt: s.user.deactivatedAt })
+		.from(s.user)
+		.where(eq(s.user.id, userId))
+		.execute();
+	return Boolean(user?.deactivatedAt);
 };
 
 export const getUserMemoryEnabled = async (userId: string): Promise<boolean> => {

@@ -8,7 +8,7 @@ import * as orgQueries from '../queries/organization.queries';
 import * as usageQueries from '../queries/usage.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
-import { putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
+import { addOrganizationMember, putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
 import { ORG_ROLES } from '../types/organization';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
@@ -112,7 +112,7 @@ export const organizationRoutes = {
 				name: input.name,
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(orgId, userId)),
 				addMember: async (userId) => {
-					await orgQueries.addOrgMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
+					await addOrganizationMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.org.name, 'organization', password, ctx.user.email),

@@ -1,11 +1,15 @@
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { JsonToSseTransformStream, UI_MESSAGE_STREAM_HEADERS } from 'ai';
 import type { IncomingHttpHeaders } from 'http';
 
+import { isManagedAiEnabled } from '../agents/managed-ai';
 import type { App } from '../app';
 import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
 import * as chatQueries from '../queries/chat.queries';
+import { consumeExampleChatRun, releaseExampleChatRun } from '../queries/example-chat-allowance.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as warehouseProvisioningJobQueries from '../queries/warehouse-provisioning-job.queries';
 import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import {
 	getExampleProjectForUser,
@@ -14,11 +18,13 @@ import {
 } from '../services/example-project';
 import { AgentRequestSchema } from '../types/chat';
 import { trackAgentStreamDisconnect } from '../utils/agent-stream-disconnect';
+import { ExampleChatAllowanceExhaustedError, OnboardingChatAllowanceExhaustedError } from '../utils/error';
 import { withQueryResultPreviewsInStream } from '../utils/query-result-preview';
 import { withSseKeepAlive } from '../utils/sse-keep-alive';
 
 const DEBUG_CHUNKS = false;
 const KEEP_ALIVE_INTERVAL_MS = 10_000;
+const EXAMPLE_ALLOWANCE_MODEL = { provider: 'nao', modelId: 'gpt-6-sol' } satisfies LlmSelectedModel;
 
 export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -90,15 +96,36 @@ export const agentRoutes = async (app: App) => {
 			await assertProjectCloudBillingAccess(projectId);
 		}
 
+		const usesExampleAllowance = await assertExampleChatAllowance({
+			userId: user.id,
+			projectId,
+			chatId: body.chatId,
+			isOnboarding,
+		});
+		if (isExampleProject && !usesExampleAllowance) {
+			return reply.status(403).send({
+				error: isOnboarding
+					? 'Onboarding conversations are unavailable after project setup'
+					: 'Example conversations are unavailable after project setup',
+			});
+		}
+
 		const result = await handleAgentRoute({
 			userId: user.id,
 			projectId,
 			...body,
+			model: isExampleProject ? (isManagedAiEnabled() ? EXAMPLE_ALLOWANCE_MODEL : undefined) : body.model,
 			isOnboarding,
+			unbilledManagedAiUsage: usesExampleAllowance,
 			billingAccessVerifiedProjectId: projectId,
 			adminMode: body.adminMode && canChatWithNaoData,
 			domainHost: getDomainHost(headers),
 			projectAccessAlreadyAuthorized: isExampleProject,
+		}).catch(async (error) => {
+			if (usesExampleAllowance) {
+				await releaseExampleChatRun(user.id, isOnboarding ? 'onboarding' : 'example');
+			}
+			throw error;
 		});
 
 		let stream = withQueryResultPreviewsInStream(result.stream);
@@ -125,17 +152,50 @@ export const agentRoutes = async (app: App) => {
 			modelId: result.modelId,
 		}).pipeThrough(new JsonToSseTransformStream());
 
-		return new Response(withSseKeepAlive(sseStream, KEEP_ALIVE_INTERVAL_MS).pipeThrough(new TextEncoderStream()), {
-			headers: {
-				...UI_MESSAGE_STREAM_HEADERS,
-				// Disable nginx buffering for streaming responses
-				// This is critical for proper stream termination behind reverse proxies
-				'x-accel-buffering': 'no',
-				'cache-control': 'no-cache, no-transform',
-			},
-		});
+		return createAgentStreamResponse(sseStream);
 	});
 };
+
+function createAgentStreamResponse(stream: ReadableStream): Response {
+	return new Response(withSseKeepAlive(stream, KEEP_ALIVE_INTERVAL_MS).pipeThrough(new TextEncoderStream()), {
+		headers: {
+			...UI_MESSAGE_STREAM_HEADERS,
+			'x-accel-buffering': 'no',
+			'cache-control': 'no-cache, no-transform',
+		},
+	});
+}
+
+export async function assertExampleChatAllowance({
+	userId,
+	projectId,
+	chatId,
+	isOnboarding,
+}: {
+	userId: string;
+	projectId: string | undefined;
+	chatId?: string;
+	isOnboarding: boolean;
+}): Promise<boolean> {
+	if (projectId !== SYSTEM_EXAMPLE_PROJECT_ID) {
+		return false;
+	}
+	const userHasProject = (await projectQueries.listUserProjects(userId)).length > 0;
+	if (userHasProject) {
+		const setupIsRunning =
+			isOnboarding &&
+			chatId !== undefined &&
+			Boolean(await warehouseProvisioningJobQueries.getActiveWarehouseProvisioningJob(userId, chatId));
+		if (!setupIsRunning) {
+			return false;
+		}
+	}
+	const scope = isOnboarding ? 'onboarding' : 'example';
+	if (!(await consumeExampleChatRun(userId, scope))) {
+		throw isOnboarding ? new OnboardingChatAllowanceExhaustedError() : new ExampleChatAllowanceExhaustedError();
+	}
+	return true;
+}
 
 function getDomainHost(headers: IncomingHttpHeaders): string | undefined {
 	const host = headers['x-forwarded-host'] || headers.host;

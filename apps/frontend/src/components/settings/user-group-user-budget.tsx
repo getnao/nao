@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { getNextPeriodStart } from '@nao/shared/date';
-import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
+import { DEFAULT_MEMBER_BUDGET_PERIOD, MEMBER_BUDGET_SOURCE_LABELS } from '@nao/shared/member-budget';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 
@@ -12,7 +12,7 @@ import { LockedFieldset } from '@/components/settings/locked-fieldset';
 import { MemberBudgetUsage } from '@/components/settings/member-budget-usage';
 import { UnsavedChangesFooter } from '@/components/settings/unsaved-changes-footer';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
-import { BUDGET_SOURCE_LABELS, PERIOD_LABELS } from '@/lib/member-budget';
+import { PERIOD_LABELS } from '@/lib/member-budget';
 import { trpc } from '@/main';
 
 export function UserGroupUserBudget({ userId, isLicensed }: { userId: string; isLicensed: boolean }) {
@@ -103,7 +103,7 @@ function PersonalBudgetEditor({ userId, isLicensed }: { userId: string; isLicens
 					limitUsd={effectiveLimitUsd}
 					period={period}
 					nextPeriodStart={data.nextPeriodStart}
-					sourceLabel={BUDGET_SOURCE_LABELS[draftLimitUsd === null ? inheritedSource : 'personal']}
+					sourceLabel={MEMBER_BUDGET_SOURCE_LABELS[draftLimitUsd === null ? inheritedSource : 'personal']}
 				/>
 			</div>
 			{isLicensed && (isDirty || saveMutation.isPending) && (

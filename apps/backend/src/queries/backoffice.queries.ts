@@ -52,7 +52,9 @@ export async function listOrganizations(input: SearchPaginationInput) {
 				googleClientSecret: s.organization.googleClientSecret,
 				googleAuthDomains: s.organization.googleAuthDomains,
 				bypassBilling: s.organization.bypassBilling,
+				license: s.organization.license,
 				billing: s.organizationBilling,
+				creditBalanceMicroUsd: s.creditWallet.balanceMicroUsd,
 				memberCount: memberCounts.count,
 				projectCount: projectCounts.count,
 				createdAt: s.organization.createdAt,
@@ -60,6 +62,7 @@ export async function listOrganizations(input: SearchPaginationInput) {
 			})
 			.from(s.organization)
 			.leftJoin(s.organizationBilling, eq(s.organizationBilling.orgId, s.organization.id))
+			.leftJoin(s.creditWallet, eq(s.creditWallet.orgId, s.organization.id))
 			.leftJoin(memberCounts, eq(memberCounts.orgId, s.organization.id))
 			.leftJoin(projectCounts, eq(projectCounts.orgId, s.organization.id))
 			.where(searchFilter)
@@ -78,7 +81,9 @@ export async function listOrganizations(input: SearchPaginationInput) {
 			googleAuthDomains: splitDomains(row.googleAuthDomains),
 			hasGoogleSso: isSet(row.googleClientId) && isSet(row.googleClientSecret),
 			bypassBilling: row.bypassBilling,
+			license: row.license,
 			billing: row.billing,
+			creditBalanceMicroUsd: Number(row.creditBalanceMicroUsd ?? 0),
 			memberCount: Number(row.memberCount ?? 0),
 			projectCount: Number(row.projectCount ?? 0),
 			createdAt: row.createdAt,
