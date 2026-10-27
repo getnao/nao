@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { stripAssistantTags } from '../src/assistant-tags';
+import { extractStoryReferenceTags, stripAssistantTags } from '../src/assistant-tags';
 
 describe('stripAssistantTags', () => {
 	it('keeps the text a citation wraps', () => {
@@ -26,5 +26,20 @@ describe('stripAssistantTags', () => {
 
 	it('leaves an answer without tags alone', () => {
 		expect(stripAssistantTags('Revenue grew 4% last quarter.')).toBe('Revenue grew 4% last quarter.');
+	});
+});
+
+describe('extractStoryReferenceTags', () => {
+	it('reads the stories an answer hands over, with their titles', () => {
+		const text =
+			'Here:\n<story-reference id="s1">Revenue</story-reference>\nand <story-reference id=\'s2\'> Churn </story-reference>.';
+		expect(extractStoryReferenceTags(text)).toEqual([
+			{ storyId: 's1', title: 'Revenue' },
+			{ storyId: 's2', title: 'Churn' },
+		]);
+	});
+
+	it('finds nothing in a text without story references', () => {
+		expect(extractStoryReferenceTags('See <saved-file path="/a.csv">a.csv</saved-file>')).toEqual([]);
 	});
 });

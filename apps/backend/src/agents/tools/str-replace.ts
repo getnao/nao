@@ -66,9 +66,9 @@ type Edited = Omit<strReplace.Output, '_version'>;
 
 const editStoryFile = async (filePath: string, edit: Edit, context: ToolContext): Promise<Edited> => {
 	return withKeyedLock(`str-replace:story:${context.chatId}:${filePath}`, async () => {
-		const current = await readStoryMountFile(context.chatId, filePath);
+		const current = await readStoryMountFile(context, filePath);
 		const { content, replacements } = strReplace.applyReplacement(current, edit);
-		return { ...(await writeStoryMountFile(context.chatId, filePath, content)), replacements };
+		return { ...(await writeStoryMountFile(context, filePath, content)), replacements };
 	});
 };
 

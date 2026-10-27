@@ -1,8 +1,7 @@
 import {
 	extractStoryFolderReferenceIds,
 	extractStoryReferenceIds,
-	replaceStoryFolderReferences,
-	replaceStoryReferences,
+	replaceStoryAndFolderReferences,
 	toStoryFolderMentionId,
 	toStoryReferenceMentionId,
 } from '@nao/shared';
@@ -30,7 +29,7 @@ type MessageLike = Omit<UIMessage, 'id'>;
 
 type ExpansionState = { expandedStoryIds: Set<string>; remainingLength: number };
 
-type FolderReference = { name: string; storyIds: string[] };
+type FolderReference = { name: string; storyIds: string[]; isPartial: boolean };
 
 /** References past the caps are not loaded, so a message mentioning many stories stays cheap to expand. */
 type References = {
@@ -48,6 +47,7 @@ const MAX_REFERENCED_CONTENT_LENGTH = 100_000;
 const MAX_TRUSTED_STORIES_IN_PROMPT = 20;
 const MAX_STORIES_PER_FOLDER_REFERENCE = 20;
 const MOST_VIEWED_PERIOD_MS = 7 * 24 * 60 * 60 * 1_000;
+const MAX_MOST_VIEWED_PAGES = 3;
 
 /** The pinned and certified stories named in the system prompt; none when they cannot be loaded. */
 export async function listTrustedStoriesForPrompt(scope: StoryReferenceScope): Promise<StorySummary[]> {
@@ -66,28 +66,25 @@ export async function listTrustedStoriesForPrompt(scope: StoryReferenceScope): P
 	}
 }
 
-/** Popular stories the user cannot see are skipped, so a few more are ranked than returned. */
+/** Popular stories the user cannot see are skipped, so the ranking is read page by page until enough remain. */
 export async function listMostViewedStories(
 	scope: StoryReferenceScope,
 	limit: number,
 ): Promise<storyReferenceQueries.ReferenceableStory[]> {
 	const since = new Date(Date.now() - MOST_VIEWED_PERIOD_MS);
-	const rankedStoryIds = await analyticsEventQueries.listMostViewedStoryIds(
-		scope.projectId,
-		since,
-		storyReferenceQueries.MAX_REFERENCEABLE_STORIES_LIMIT,
-	);
-	if (rankedStoryIds.length === 0) {
-		return [];
+	const pageSize = storyReferenceQueries.MAX_REFERENCEABLE_STORIES_LIMIT;
+	const stories: storyReferenceQueries.ReferenceableStory[] = [];
+	for (let page = 0; page < MAX_MOST_VIEWED_PAGES && stories.length < limit; page++) {
+		const rankedStoryIds = await analyticsEventQueries.listMostViewedStoryIds(scope.projectId, since, {
+			limit: pageSize,
+			offset: page * pageSize,
+		});
+		stories.push(...(await keepReferenceableInRankOrder(scope, rankedStoryIds)));
+		if (rankedStoryIds.length < pageSize) {
+			break;
+		}
 	}
-	const stories = await storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
-		storyIds: rankedStoryIds,
-		limit: rankedStoryIds.length,
-	});
-	const rankByStoryId = new Map(rankedStoryIds.map((storyId, rank) => [storyId, rank]));
-	return stories
-		.sort((a, b) => (rankByStoryId.get(a.storyId) ?? 0) - (rankByStoryId.get(b.storyId) ?? 0))
-		.slice(0, limit);
+	return stories.slice(0, limit);
 }
 
 /** Null when the story does not exist, is archived, or the user cannot see it. Long content is truncated. */
@@ -218,7 +215,10 @@ async function loadPublishedFiles(versionIds: string[]): Promise<Map<string, Sto
 function fitFilesInBudget(files: StoryFile[]): StoryFile[] {
 	let remaining = MAX_FILES_LENGTH;
 	return files.map((file) => {
-		const content = remaining > 0 ? truncateMiddle(file.content, remaining) : '';
+		if (remaining <= 0 && file.content.length > 0) {
+			return { path: file.path, content: '', omitted: true };
+		}
+		const content = truncateMiddle(file.content, Math.max(remaining, 0));
 		remaining -= content.length;
 		return { path: file.path, content };
 	});
@@ -272,9 +272,13 @@ async function resolveFolderReference(scope: StoryReferenceScope, folderId: stri
 	}
 	const stories = await storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
 		...folder.filters,
-		limit: MAX_STORIES_PER_FOLDER_REFERENCE,
+		limit: MAX_STORIES_PER_FOLDER_REFERENCE + 1,
 	});
-	return { name: folder.name, storyIds: stories.map((story) => story.storyId) };
+	return {
+		name: folder.name,
+		storyIds: stories.slice(0, MAX_STORIES_PER_FOLDER_REFERENCE).map((story) => story.storyId),
+		isPartial: stories.length > MAX_STORIES_PER_FOLDER_REFERENCE,
+	};
 }
 
 async function loadReferences(scope: StoryReferenceScope, storyIds: string[]): Promise<Map<string, StoryDetails>> {
@@ -350,8 +354,10 @@ function replaceReferenceTokens(part: UIMessagePart, references: References): UI
 	if (part.type !== 'text') {
 		return part;
 	}
-	const withStories = replaceStoryReferences(part.text, (storyId) => describeStory(storyId, references));
-	const text = replaceStoryFolderReferences(withStories, (folderId) => describeFolder(folderId, references));
+	const text = replaceStoryAndFolderReferences(part.text, {
+		story: (storyId) => describeStory(storyId, references),
+		folder: (folderId) => describeFolder(folderId, references),
+	});
 	return { ...part, text };
 }
 
@@ -376,6 +382,9 @@ function describeFolder(folderId: string, references: References): string {
 	}
 	if (folder.storyIds.length === 0) {
 		return `@${JSON.stringify(folder.name)} (a story folder with no story you can see)`;
+	}
+	if (folder.isPartial) {
+		return `@${JSON.stringify(folder.name)} (a story folder, its ${folder.storyIds.length} most trusted stories are referenced below, its other stories are left out)`;
 	}
 	return `@${JSON.stringify(folder.name)} (a story folder, its stories are referenced below)`;
 }
@@ -403,4 +412,19 @@ function textPartsOf(message: MessageLike): string[] {
 		return [];
 	}
 	return message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
+}
+
+async function keepReferenceableInRankOrder(
+	scope: StoryReferenceScope,
+	rankedStoryIds: string[],
+): Promise<storyReferenceQueries.ReferenceableStory[]> {
+	if (rankedStoryIds.length === 0) {
+		return [];
+	}
+	const stories = await storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
+		storyIds: rankedStoryIds,
+		limit: rankedStoryIds.length,
+	});
+	const rankByStoryId = new Map(rankedStoryIds.map((storyId, rank) => [storyId, rank]));
+	return stories.sort((a, b) => (rankByStoryId.get(a.storyId) ?? 0) - (rankByStoryId.get(b.storyId) ?? 0));
 }

@@ -1,5 +1,6 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Globe, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
+import { CopyPlus, Globe, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { FeedbackVote } from '@/components/chat-messages/assistant-message-actions';
@@ -9,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
 import { cn } from '@/lib/utils';
@@ -41,6 +43,36 @@ export function ShareButton({ isShared, onShare, disabled = false }: ShareButton
 			</TooltipTrigger>
 			<TooltipContent>Share</TooltipContent>
 		</Tooltip>
+	);
+}
+
+export function StoryDuplicateMenuItem({ storyId }: { storyId: string }) {
+	const navigate = useNavigate();
+	const queryClient = useQueryClient();
+	const { data: currentProject } = useQuery(trpc.project.getCurrent.queryOptions());
+	const switchProject = useProjectSwitch(currentProject?.id);
+	const { data: resolvedStory } = useQuery(trpc.story.resolve.queryOptions({ storyId }));
+	const duplicateMutation = useMutation(
+		trpc.chatFork.forkStory.mutationOptions({
+			onSuccess: async ({ chatId }) => {
+				if (resolvedStory?.projectId) {
+					await switchProject(resolvedStory.projectId);
+				}
+				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
+				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: resolvedStory?.slug } });
+			},
+		}),
+	);
+
+	return (
+		<DropdownMenuItem
+			onSelect={() => duplicateMutation.mutate({ storyId })}
+			disabled={!resolvedStory || duplicateMutation.isPending}
+		>
+			<CopyPlus strokeWidth={2.25} />
+			<span>Duplicate</span>
+		</DropdownMenuItem>
 	);
 }
 

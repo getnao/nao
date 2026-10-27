@@ -43,11 +43,15 @@ export function useHighlightedMention(owner: string): HighlightedMention | null 
 			}
 			refresh();
 		};
+		window.addEventListener('resize', refresh);
+		window.visualViewport?.addEventListener('resize', refresh);
 		const bodyObserver = new MutationObserver(trackOpenMenu);
 		bodyObserver.observe(document.body, { childList: true });
 		trackOpenMenu();
 
 		return () => {
+			window.removeEventListener('resize', refresh);
+			window.visualViewport?.removeEventListener('resize', refresh);
 			bodyObserver.disconnect();
 			menuObserver.disconnect();
 			menu?.removeEventListener('scroll', refresh);

@@ -122,6 +122,7 @@ export function StoryTabbedContent({
 							)}
 						/>
 					</div>
+					<div aria-hidden className='h-[var(--story-bottom-inset,0px)] shrink-0' />
 				</div>
 			</StoryThemeProvider>
 		</StoryQuerySqlProvider>

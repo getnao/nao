@@ -36,6 +36,7 @@ function recommendationTabForStatus(status: string): 'recommendations' | 'applie
 export function ChatMessagesReadonly({
 	messages,
 	className,
+	contentClassName,
 	forkMetadata,
 	conversationContextRef,
 	feedbackRecommendations,
@@ -43,6 +44,7 @@ export function ChatMessagesReadonly({
 }: {
 	messages: UIMessage[];
 	className?: string;
+	contentClassName?: string;
 	forkMetadata?: ForkMetadata;
 	conversationContextRef?: React.Ref<StickToBottomContext>;
 	feedbackRecommendations?: FeedbackRecommendationMap;
@@ -67,7 +69,10 @@ export function ChatMessagesReadonly({
 	return (
 		<div className={cn('h-full min-h-0 flex', className)}>
 			<Conversation contextRef={conversationContextRef}>
-				<ConversationContent className='max-w-3xl mx-auto gap-0' data-selection-container>
+				<ConversationContent
+					className={cn('max-w-3xl mx-auto gap-0', contentClassName)}
+					data-selection-container
+				>
 					{messageGroups.length === 0 ? (
 						<ConversationEmptyState title='No messages' description='' />
 					) : (

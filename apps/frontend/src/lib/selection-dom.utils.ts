@@ -3,12 +3,6 @@ export interface SelectionGeometry {
 	containerLeft: number;
 }
 
-export interface AnchorPosition {
-	top: number;
-	height: number;
-	containerLeft: number;
-}
-
 /**
  * Creates a DOM Range spanning the given character offsets within a container element.
  * Returns null if the offsets are out of range or the range cannot be created.
@@ -148,17 +142,6 @@ export function getContainerLeft(range: Range): number {
 		return container.getBoundingClientRect().left;
 	}
 	return el?.getBoundingClientRect().left ?? 0;
-}
-
-/** Measures the screen position of the range for a given start/end offset pair within a container. */
-export function measureRangePosition(container: Element, start: number, end: number): AnchorPosition | null {
-	const range = createRangeFromOffsets(container, start, end);
-	if (!range) {
-		return null;
-	}
-	const rect = getSelectionBoundingRect(range) ?? range.getBoundingClientRect();
-	const containerLeft = getContainerLeft(range);
-	return { top: rect.top, height: rect.height, containerLeft };
 }
 
 export function findTextRange(container: Element, searchText: string): Range | null {

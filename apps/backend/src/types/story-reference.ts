@@ -13,6 +13,8 @@ export interface StorySummary {
 export interface StoryFile {
 	path: string;
 	content: string;
+	/** Left out of a prompt that has no room for it, as opposed to a file that is empty. */
+	omitted?: boolean;
 }
 
 export interface StoryQuery {

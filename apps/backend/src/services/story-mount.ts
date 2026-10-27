@@ -7,6 +7,7 @@ import type { DBStory, DBStoryDraftFile } from '../db/abstractSchema';
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
+import type { ToolContext } from '../types/tools';
 import { formatStoryFile } from '../utils/story-file-format';
 import {
 	parsePublishedVersionPath,
@@ -17,6 +18,9 @@ import {
 	toStoriesVirtualPath,
 } from '../utils/story-mount';
 import { entriesInVirtualDirectory } from '../utils/virtual-directory';
+
+/** The chat whose custom stories are mounted, and the story a quick question is about, if any. */
+export type StoryMountScope = Pick<ToolContext, 'chatId' | 'linkedStory'>;
 
 /** The files of one story (its draft, or a published version), addressed by their path inside the story. */
 interface MountedStory {
@@ -41,16 +45,16 @@ export function customStoryAuthoringError(userGroupFeatures: UserGroupFeature[])
 	return null;
 }
 
-export async function listStoryMount(chatId: string, virtualPath: string): Promise<list.Entry[]> {
+export async function listStoryMount(scope: StoryMountScope, virtualPath: string): Promise<list.Entry[]> {
 	const target = parseStoriesPath(virtualPath);
 	if (target.kind === 'root') {
-		return listMountRoot(chatId);
+		return listMountRoot(scope);
 	}
 
 	const directory = target.kind === 'file' ? target.filePath : '';
 	const mounted = parsePublishedVersionPath(directory)
-		? await loadPublishedVersion(chatId, target.slug, directory)
-		: await loadMountedStory(chatId, target.slug);
+		? await loadPublishedVersion(scope, target.slug, directory)
+		: await loadMountedStory(scope, target.slug);
 	const entries = entriesInDirectory(mounted, directory);
 	if (entries.length === 0 && directory !== '') {
 		throw new Error(`No folder '${virtualPath}' in story "${target.slug}".`);
@@ -58,12 +62,12 @@ export async function listStoryMount(chatId: string, virtualPath: string): Promi
 	return entries;
 }
 
-export async function readStoryMountFile(chatId: string, virtualPath: string): Promise<string> {
+export async function readStoryMountFile(scope: StoryMountScope, virtualPath: string): Promise<string> {
 	const target = requireFilePath(virtualPath);
 	if (parsePublishedVersionPath(target.filePath)) {
-		return readPublishedVersionFile(chatId, target.slug, target.filePath, virtualPath);
+		return readPublishedVersionFile(scope, target.slug, target.filePath, virtualPath);
 	}
-	const story = await requireCustomStory(chatId, target.slug);
+	const story = await requireCustomStory(scope, target.slug);
 	const file = await storyFileQueries.getDraftFile(story.id, target.filePath);
 	if (!file) {
 		throw new Error(
@@ -74,7 +78,7 @@ export async function readStoryMountFile(chatId: string, virtualPath: string): P
 }
 
 export async function writeStoryMountFile(
-	chatId: string,
+	scope: StoryMountScope,
 	virtualPath: string,
 	content: string,
 ): Promise<{ path: string; size: number }> {
@@ -85,7 +89,7 @@ export async function writeStoryMountFile(
 			`Published versions are read-only. Edit the draft at ${toStoriesVirtualPath(target.slug, published.filePath)} instead.`,
 		);
 	}
-	const story = await requireCustomStory(chatId, target.slug);
+	const story = await requireCustomStory(scope, target.slug);
 	const file = await storyFileQueries.writeDraftFile(story.id, {
 		path: target.filePath,
 		content: await formatStoryFile(target.filePath, content),
@@ -94,10 +98,10 @@ export async function writeStoryMountFile(
 }
 
 export async function findStoryMountFiles(
-	chatId: string,
+	scope: StoryMountScope,
 	matches: (mountRelativePath: string) => boolean,
 ): Promise<searchFiles.File[]> {
-	const stories = await loadMountedStories(chatId);
+	const stories = await loadMountedStories(scope);
 	return stories.flatMap(({ story, files }) =>
 		files
 			.filter((file) => matches(toStoriesMountRelativePath(story.slug, file.path)))
@@ -107,12 +111,12 @@ export async function findStoryMountFiles(
 
 /** Draft files a grep over `virtualPath` covers, addressed by their virtual path. */
 export async function listStoryMountFilesToGrep(
-	chatId: string,
+	mountScope: StoryMountScope,
 	virtualPath: string | undefined,
 	glob: string | undefined,
 ): Promise<{ virtualPath: string; content: string }[]> {
 	const scope = virtualPath === undefined ? { kind: 'root' as const } : parseStoriesPath(virtualPath);
-	const stories = await loadGrepScope(chatId, scope);
+	const stories = await loadGrepScope(mountScope, scope);
 	return stories.flatMap(({ story, files }) =>
 		files
 			.filter((file) => isInGrepScope(file, scope) && matchesGlob(story.slug, file, glob))
@@ -121,18 +125,18 @@ export async function listStoryMountFilesToGrep(
 }
 
 /** A scope under `@vN/` searches that published version; any other scope searches the drafts. */
-async function loadGrepScope(chatId: string, scope: StoryMountPath): Promise<MountedStory[]> {
+async function loadGrepScope(mountScope: StoryMountScope, scope: StoryMountPath): Promise<MountedStory[]> {
 	if (scope.kind === 'root') {
-		return loadMountedStories(chatId);
+		return loadMountedStories(mountScope);
 	}
 	if (scope.kind === 'file' && parsePublishedVersionPath(scope.filePath)) {
-		return [await loadPublishedVersion(chatId, scope.slug, scope.filePath)];
+		return [await loadPublishedVersion(mountScope, scope.slug, scope.filePath)];
 	}
-	return [await loadMountedStory(chatId, scope.slug)];
+	return [await loadMountedStory(mountScope, scope.slug)];
 }
 
-async function listMountRoot(chatId: string): Promise<list.Entry[]> {
-	const stories = await loadMountedStories(chatId);
+async function listMountRoot(scope: StoryMountScope): Promise<list.Entry[]> {
+	const stories = await loadMountedStories(scope);
 	return stories.map(({ story, files }) => ({
 		path: toStoriesVirtualPath(story.slug),
 		name: story.slug,
@@ -155,8 +159,8 @@ function fileEntry(slug: string, file: MountedFile): searchFiles.File {
 }
 
 /** A published version's files, placed under their `@vN/` segment so folder listing works unchanged. */
-async function loadPublishedVersion(chatId: string, slug: string, directory: string): Promise<MountedStory> {
-	const story = await requireCustomStory(chatId, slug);
+async function loadPublishedVersion(scope: StoryMountScope, slug: string, directory: string): Promise<MountedStory> {
+	const story = await requireCustomStory(scope, slug);
 	const { versionNumber } = parsePublishedVersionPath(directory)!;
 	const version = await requirePublishedVersion(story, versionNumber);
 	const files = await storyFileQueries.listVersionFiles(version.id);
@@ -164,12 +168,12 @@ async function loadPublishedVersion(chatId: string, slug: string, directory: str
 }
 
 async function readPublishedVersionFile(
-	chatId: string,
+	scope: StoryMountScope,
 	slug: string,
 	filePath: string,
 	virtualPath: string,
 ): Promise<string> {
-	const story = await requireCustomStory(chatId, slug);
+	const story = await requireCustomStory(scope, slug);
 	const published = parsePublishedVersionPath(filePath)!;
 	const version = await requirePublishedVersion(story, published.versionNumber);
 	const file = await storyFileQueries.getVersionFile(version.id, published.filePath);
@@ -187,28 +191,41 @@ async function requirePublishedVersion(story: DBStory, versionNumber: number) {
 	return version;
 }
 
-async function loadMountedStories(chatId: string): Promise<MountedStory[]> {
+/** The custom stories of the chat, plus the one a quick question is about when its owner asks. */
+async function loadMountedStories(scope: StoryMountScope): Promise<MountedStory[]> {
 	assertCustomStoriesEnabled();
-	const stories = await storyQueries.listCustomStoriesInChat(chatId);
+	const linkedStory = await findEditableLinkedStory(scope);
+	const ownStories = await storyQueries.listCustomStoriesInChat(scope.chatId);
+	const stories = linkedStory
+		? [...ownStories.filter((story) => story.slug !== linkedStory.slug), linkedStory]
+		: ownStories;
 	return Promise.all(
 		stories.map(async (story) => ({ story, files: await storyFileQueries.listDraftFiles(story.id) })),
 	);
 }
 
-async function loadMountedStory(chatId: string, slug: string): Promise<MountedStory> {
-	const story = await requireCustomStory(chatId, slug);
+async function loadMountedStory(scope: StoryMountScope, slug: string): Promise<MountedStory> {
+	const story = await requireCustomStory(scope, slug);
 	return { story, files: await storyFileQueries.listDraftFiles(story.id) };
 }
 
-async function requireCustomStory(chatId: string, slug: string): Promise<DBStory> {
+async function requireCustomStory(scope: StoryMountScope, slug: string): Promise<DBStory> {
 	assertCustomStoriesEnabled();
-	const story = await storyQueries.getStoryByChatAndSlug(chatId, slug);
+	const linkedStory = scope.linkedStory?.slug === slug ? await findEditableLinkedStory(scope) : null;
+	const story = linkedStory ?? (await storyQueries.getStoryByChatAndSlug(scope.chatId, slug));
 	if (!story || story.format !== 'custom') {
 		throw new Error(
 			`No custom story "${slug}" in this chat. Create it first with the story tool (action "create", format "custom").`,
 		);
 	}
 	return story;
+}
+
+async function findEditableLinkedStory({ linkedStory }: StoryMountScope): Promise<DBStory | null> {
+	if (!linkedStory?.canEdit || linkedStory.format !== 'custom') {
+		return null;
+	}
+	return storyQueries.getStoryByChatAndSlug(linkedStory.chatId, linkedStory.slug);
 }
 
 function assertCustomStoriesEnabled(): void {

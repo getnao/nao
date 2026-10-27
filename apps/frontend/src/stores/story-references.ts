@@ -1,26 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { Store } from './abstract-store';
+import { ValueStore } from './value-store';
 import type { StoryReferences } from '@/lib/story-reference';
 import { NO_STORY_REFERENCES } from '@/lib/story-reference';
-
-class ValueStore<T> extends Store<T> {
-	protected state: T;
-
-	constructor(initialState: T) {
-		super();
-		this.state = initialState;
-	}
-
-	set = (value: T) => {
-		if (this.state === value) {
-			return;
-		}
-		this.state = value;
-		this.notify();
-	};
-
-	getSnapshot = () => this.state;
-}
 
 /** Stories and story folders to reference in the input of the next new chat. */
 export const pendingStoryReferencesStore = new ValueStore<StoryReferences>(NO_STORY_REFERENCES);

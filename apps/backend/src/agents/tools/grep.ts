@@ -188,7 +188,7 @@ const searchStories = async (
 	if (!covered || !isCustomStoriesEnabled()) {
 		return { matches: [], totalMatches: 0 };
 	}
-	const files = await listStoryMountFilesToGrep(context.chatId, options.path, options.glob);
+	const files = await listStoryMountFilesToGrep(context, options.path, options.glob);
 	return searchVirtualFiles(rgPath, files, options);
 };
 

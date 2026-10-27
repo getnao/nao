@@ -71,7 +71,7 @@ const searchStories = (recursivePattern: string, context: ToolContext): Promise<
 	if (!isCustomStoriesEnabled()) {
 		return Promise.resolve([]);
 	}
-	return findStoryMountFiles(context.chatId, (mountRelativePath) =>
+	return findStoryMountFiles(context, (mountRelativePath) =>
 		minimatch(mountRelativePath, recursivePattern, { dot: true }),
 	);
 };

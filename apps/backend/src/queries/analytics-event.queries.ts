@@ -109,7 +109,11 @@ export const countStoryViewsForUser = async (projectId: string, userId: string):
 };
 
 /** Story ids of the project ranked by how many people viewed them since the given date. */
-export const listMostViewedStoryIds = async (projectId: string, since: Date, limit: number): Promise<string[]> => {
+export const listMostViewedStoryIds = async (
+	projectId: string,
+	since: Date,
+	page: { limit: number; offset: number },
+): Promise<string[]> => {
 	const rows = await db
 		.select({ storyId: s.analyticsEvent.storyId })
 		.from(s.analyticsEvent)
@@ -124,8 +128,13 @@ export const listMostViewedStoryIds = async (projectId: string, since: Date, lim
 			),
 		)
 		.groupBy(s.analyticsEvent.storyId)
-		.orderBy(desc(countDistinct(s.analyticsEvent.actorUserId)), desc(max(s.analyticsEvent.createdAt)))
-		.limit(limit)
+		.orderBy(
+			desc(countDistinct(s.analyticsEvent.actorUserId)),
+			desc(max(s.analyticsEvent.createdAt)),
+			s.analyticsEvent.storyId,
+		)
+		.limit(page.limit)
+		.offset(page.offset)
 		.execute();
 
 	return rows.flatMap((row) => (row.storyId ? [row.storyId] : []));

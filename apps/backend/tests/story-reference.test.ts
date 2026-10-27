@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { createSharedStory } from '../src/queries/shared-story.queries';
-import { listReferenceableStories, listReferencingChats } from '../src/queries/story-reference.queries';
+import { listMentioningChats, listReferenceableStories } from '../src/queries/story-reference.queries';
 import {
 	findStoryLibraryFiles,
 	listStoryLibrary,
@@ -430,14 +430,22 @@ describe('referencing other stories', () => {
 			text: `Explain @[story:${CERTIFIED_STORY}]`,
 		});
 
-		const chats = await listReferencingChats(OWNER_ID, CERTIFIED_STORY, CHAT_ID);
+		await insertChat(
+			'chat-in-other-project',
+			OWNER_ID,
+			new Date('2026-02-06'),
+			{ role: 'user', text: `Explain @[story:${CERTIFIED_STORY}]` },
+			OTHER_PROJECT_ID,
+		);
+
+		const chats = await listMentioningChats(OWNER_ID, PROJECT_ID, CERTIFIED_STORY, CHAT_ID);
 
 		expect(chats.map((chat) => [chat.chatId, chat.isOrigin])).toEqual([
 			[CHAT_ID, true],
 			['chat-card', false],
 			['chat-mention', false],
 		]);
-		expect(await listReferencingChats(MEMBER_ID, CERTIFIED_STORY, CHAT_ID)).toMatchObject([
+		expect(await listMentioningChats(MEMBER_ID, PROJECT_ID, CERTIFIED_STORY, CHAT_ID)).toMatchObject([
 			{ chatId: 'chat-of-member', isOrigin: false },
 		]);
 	});
@@ -448,8 +456,9 @@ async function insertChat(
 	userId: string,
 	updatedAt: Date,
 	part: { role: 'user' | 'assistant'; text?: string; toolName?: string; toolInput?: unknown },
+	projectId = PROJECT_ID,
 ) {
-	await db.insert(s.chat).values({ id: chatId, userId, projectId: PROJECT_ID, title: chatId, updatedAt });
+	await db.insert(s.chat).values({ id: chatId, userId, projectId, title: chatId, updatedAt });
 	const messageId = `${chatId}-message`;
 	await db.insert(s.chatMessage).values({ id: messageId, chatId, role: part.role });
 	await db.insert(s.messagePart).values({

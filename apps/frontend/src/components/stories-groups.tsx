@@ -149,6 +149,10 @@ export function StoryCard({
 	}
 
 	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		if (showArchived) {
+			e.preventDefault();
+			return;
+		}
 		const selection = selectedStoryReferencesStore.getSnapshot();
 		setStoryDragData(
 			e,

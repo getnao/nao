@@ -4,6 +4,7 @@ export const STORY_DRAG_TYPE = 'application/x-nao-story';
 export const STORY_FOLDER_DRAG_TYPE = 'application/x-nao-story-folder';
 export const NEW_CHAT_DROP_TARGET_ATTRIBUTE = 'data-new-chat-drop-target';
 
+const LINK_TRANSFER_TYPES = ['text/uri-list', 'text/plain'];
 const STORY_PATH = /^\/stories\/([^/]+)\/?$/;
 const STORIES_PAGE_PATH = /^\/stories\/?$/;
 
@@ -22,7 +23,7 @@ export function isStoryDrag(dataTransfer: DataTransfer | null): boolean {
 
 /** Links are only readable on drop, so a dragged link may or may not point to a story. */
 export function mayCarryStories(dataTransfer: DataTransfer | null): boolean {
-	return isStoryDrag(dataTransfer) || (dataTransfer?.types.includes('text/uri-list') ?? false);
+	return isStoryDrag(dataTransfer) || LINK_TRANSFER_TYPES.some((type) => dataTransfer?.types.includes(type));
 }
 
 export type StoryReferences = { storyIds: string[]; folderIds: string[] };

@@ -8,10 +8,11 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { compactionService } from '../services/compaction';
+import { attachChatToStandaloneStory } from '../services/standalone-story';
 import { forkStoryIntoChat } from '../services/story-fork';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { buildQueryDataMessages, pinStoryMessageToChat } from '../utils/chat-message-story';
+import { buildQueryDataMessages } from '../utils/chat-message-story';
 import { canSendProcedure, cloudBillingMiddleware, projectProtectedProcedure, protectedProcedure } from './trpc';
 import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
 
@@ -22,6 +23,13 @@ const forkSourceSchema = z.discriminatedUnion('type', [
 ]);
 const forkInputSchema = z.object({ source: forkSourceSchema, selection: selectionSchema.optional() });
 const storyIdInputSchema = z.object({ storyId: z.string() });
+const MAX_QUICK_QUESTIONS = 10;
+const MAX_ASK_SELECTION_LENGTH = 4_000;
+/** A long selection is cut rather than refused, so the question is still asked. */
+const selectionTextSchema = z
+	.string()
+	.trim()
+	.transform((text) => text.slice(0, MAX_ASK_SELECTION_LENGTH));
 
 const resolvedForkProcedure = canSendProcedure.input(forkInputSchema).use(async ({ ctx, input, next }) => {
 	const source =
@@ -30,6 +38,19 @@ const resolvedForkProcedure = canSendProcedure.input(forkInputSchema).use(async 
 			: { type: 'story' as const, share: await resolveSharedStory(input.source.storyId, ctx.user.id) };
 	return next({ ctx: { source } });
 });
+
+const resolvedSharedChatProcedure = protectedProcedure
+	.input(z.object({ shareId: z.string() }))
+	.use(async ({ ctx, input, next }) => next({ ctx: { share: await resolveSharedChat(input.shareId, ctx.user.id) } }));
+
+const sharedChatQuestionProcedure = canSendProcedure
+	.input(z.object({ shareId: z.string(), selection: selectionSchema.optional() }))
+	.use(async ({ ctx, input, next }) => next({ ctx: { share: await resolveSharedChat(input.shareId, ctx.user.id) } }))
+	.use(
+		cloudBillingMiddleware<{ share: sharedChatQueries.SharedChatWithDetails }>(({ share }) => ({
+			projectId: share.projectId,
+		})),
+	);
 
 const cloudBillingForkProcedure = resolvedForkProcedure.use(
 	cloudBillingMiddleware<{
@@ -75,6 +96,8 @@ const openStandaloneProcedure = resolvedStandaloneStoryProcedure.use(
 	),
 );
 
+type SharedChatForkKind = 'fork' | 'question';
+
 export interface SelectionInfo {
 	start: number;
 	end: number;
@@ -84,10 +107,45 @@ export interface SelectionInfo {
 export const chatForkRoutes = {
 	fork: cloudBillingForkProcedure.mutation(async ({ input, ctx }): Promise<{ chatId: string }> => {
 		if (ctx.source.type === 'chat') {
-			return forkSharedChat(ctx.source.share, input.selection, ctx.user.id);
+			return forkSharedChat(ctx.source.share, input.selection, ctx.user.id, 'fork');
 		}
 		return forkSharedStoryItem(ctx.source.share, input.selection, ctx.user.id);
 	}),
+
+	/** A quick question about a shared chat: a fork of it, kept out of the chat history. */
+	askSharedChat: sharedChatQuestionProcedure.mutation(
+		async ({ input, ctx }): Promise<{ chatId: string }> =>
+			forkSharedChat(ctx.share, input.selection, ctx.user.id, 'question'),
+	),
+
+	listSharedChatQuickQuestions: resolvedSharedChatProcedure.query(async ({ ctx }) =>
+		chatQueries.listQuickQuestionChats(ctx.user.id, ctx.share.id, MAX_QUICK_QUESTIONS),
+	),
+
+	askStory: storyForkProcedure
+		.input(z.object({ selectionText: selectionTextSchema.optional() }))
+		.mutation(async ({ ctx, input }): Promise<{ chatId: string; hasAttachedStoryChat: boolean }> => {
+			const { story, projectId, user } = ctx;
+			const hasAttachedStoryChat = !story.chatId && story.ownerId === user.id;
+			if (hasAttachedStoryChat) {
+				await attachChatToStandaloneStory(
+					{ id: story.storyId, slug: story.slug, title: story.title, code: story.code },
+					{ userId: user.id, projectId },
+				);
+			}
+			const forkMetadata: ForkMetadata = {
+				type: 'story_question',
+				id: story.storyId,
+				title: story.title,
+				authorName: story.authorName ?? '',
+				...(input.selectionText && { selectionText: input.selectionText }),
+			};
+			const chat = await chatQueries.createForkedChat(
+				{ projectId, userId: user.id, title: story.title, forkMetadata },
+				[],
+			);
+			return { chatId: chat.id, hasAttachedStoryChat };
+		}),
 
 	forkStory: storyForkProcedure.mutation(async ({ ctx }): Promise<{ chatId: string }> => {
 		const { story, projectId, user } = ctx;
@@ -104,25 +162,7 @@ export const chatForkRoutes = {
 		if (story.chatId) {
 			return { chatId: story.chatId };
 		}
-		const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
-		const seedMessages = cache?.queryData
-			? buildQueryDataMessages(cache.queryData as Record<string, { data: unknown[]; columns: string[] }>)
-			: [];
-
-		const chat = await chatQueries.createForkedChat(
-			{ projectId: ctx.project.id, userId: ctx.user.id, title: story.title },
-			seedMessages,
-		);
-
-		const latestVersion = await storyQueries.getLatestVersionByStoryId(story.id);
-		await storyQueries.assignChatToStory(story.id, chat.id);
-		await pinStoryMessageToChat({
-			chatId: chat.id,
-			slug: story.slug,
-			title: story.title,
-			code: story.code,
-			version: latestVersion?.version ?? 1,
-		});
+		const { chatId } = await attachChatToStandaloneStory(story, { userId: ctx.user.id, projectId: ctx.project.id });
 
 		logAnalyticsEvent({
 			projectId: ctx.project.id,
@@ -130,31 +170,20 @@ export const chatForkRoutes = {
 			assetType: 'story',
 			actorUserId: ctx.user.id,
 			storyId: story.id,
-			metadata: { type: 'fork', resultId: chat.id, scope: 'full', versionNumber: story.version },
+			metadata: { type: 'fork', resultId: chatId, scope: 'full', versionNumber: story.version },
 		});
 
-		return { chatId: chat.id };
+		return { chatId };
 	}),
-
-	getSelectionForks: protectedProcedure
-		.input(z.object({ source: forkSourceSchema }))
-		.query(async ({ input, ctx }) => {
-			if (input.source.type === 'chat') {
-				return chatQueries.getSelectionForksBySourceId(ctx.user.id, input.source.shareId, 'chat_selection');
-			}
-			await resolveSharedStory(input.source.storyId, ctx.user.id);
-			return chatQueries.getSelectionForksBySourceId(ctx.user.id, input.source.storyId, 'story_selection');
-		}),
 };
 
 async function forkSharedChat(
 	share: sharedChatQueries.SharedChatWithDetails,
 	selection: SelectionInfo | undefined,
 	userId: string,
+	kind: SharedChatForkKind,
 ): Promise<{ chatId: string }> {
-	const forkMetadata: ForkMetadata = selection
-		? buildSelectionMetadata('chat_selection', share.id, share.title, share.authorName, selection)
-		: { type: 'chat', id: share.chatId, title: share.title, authorName: share.authorName };
+	const forkMetadata = buildSharedChatForkMetadata(share, selection, kind);
 
 	const rawMessages = await chatQueries.getChatMessages(share.chatId);
 	const seededMessages = compactionService.useLastCompaction(rawMessages);
@@ -278,8 +307,24 @@ async function resolveSharedStory(storyId: string, userId: string) {
 	return share;
 }
 
+/** A question is tied to the share, like a selection, so it is listed on the shared chat's page. */
+function buildSharedChatForkMetadata(
+	share: sharedChatQueries.SharedChatWithDetails,
+	selection: SelectionInfo | undefined,
+	kind: SharedChatForkKind,
+): ForkMetadata {
+	if (kind === 'question') {
+		return selection
+			? buildSelectionMetadata('chat_question', share.id, share.title, share.authorName, selection)
+			: { type: 'chat_question', id: share.id, title: share.title, authorName: share.authorName };
+	}
+	return selection
+		? buildSelectionMetadata('chat_selection', share.id, share.title, share.authorName, selection)
+		: { type: 'chat', id: share.chatId, title: share.title, authorName: share.authorName };
+}
+
 function buildSelectionMetadata(
-	type: 'chat_selection' | 'story_selection',
+	type: 'chat_selection' | 'chat_question' | 'story_selection',
 	sourceId: string,
 	title: string,
 	authorName: string,

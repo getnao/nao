@@ -7,6 +7,10 @@ const STORY_REFERENCE_PREFIX = 'story:';
 const STORY_REFERENCE_TOKEN = mentionToken(STORY_REFERENCE_PREFIX);
 const STORY_FOLDER_REFERENCE_PREFIX = 'story-folder:';
 const STORY_FOLDER_REFERENCE_TOKEN = mentionToken(STORY_FOLDER_REFERENCE_PREFIX);
+const STORY_OR_FOLDER_REFERENCE_TOKEN = new RegExp(
+	`@\\[(${STORY_FOLDER_REFERENCE_PREFIX}|${STORY_REFERENCE_PREFIX})([^\\]\\s]+)\\]`,
+	'g',
+);
 const SCHEMA_REFERENCE_PREFIX = 'schema:';
 
 export function toStoryReferenceMentionId(storyId: string): string {
@@ -26,8 +30,13 @@ export function extractStoryReferenceIds(text: string): string[] {
 	return extractTokenIds(text, STORY_REFERENCE_TOKEN);
 }
 
-export function replaceStoryReferences(text: string, replace: (storyId: string) => string): string {
-	return replaceTokens(text, STORY_REFERENCE_TOKEN, replace);
+export function replaceStoryAndFolderReferences(
+	text: string,
+	replace: { story: (storyId: string) => string; folder: (folderId: string) => string },
+): string {
+	return text.replace(STORY_OR_FOLDER_REFERENCE_TOKEN, (_token, prefix: string, id: string) =>
+		prefix === STORY_FOLDER_REFERENCE_PREFIX ? replace.folder(id) : replace.story(id),
+	);
 }
 
 /** A story folder mention references every story inside the folder and its subfolders. */
@@ -41,10 +50,6 @@ export function isStoryFolderMentionId(mentionId: string): boolean {
 
 export function extractStoryFolderReferenceIds(text: string): string[] {
 	return extractTokenIds(text, STORY_FOLDER_REFERENCE_TOKEN);
-}
-
-export function replaceStoryFolderReferences(text: string, replace: (folderId: string) => string): string {
-	return replaceTokens(text, STORY_FOLDER_REFERENCE_TOKEN, replace);
 }
 
 /** A schema mention references every table of the schema. */
@@ -68,8 +73,4 @@ function mentionToken(prefix: string): RegExp {
 
 function extractTokenIds(text: string, token: RegExp): string[] {
 	return [...new Set([...text.matchAll(token)].map((match) => match[1]))];
-}
-
-function replaceTokens(text: string, token: RegExp, replace: (id: string) => string): string {
-	return text.replace(token, (_token, id: string) => replace(id));
 }

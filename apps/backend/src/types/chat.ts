@@ -15,7 +15,7 @@ import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
 export interface ForkMetadata {
-	type: 'chat' | 'chat_selection' | 'story' | 'story_selection';
+	type: 'chat' | 'chat_selection' | 'chat_question' | 'story' | 'story_selection' | 'story_question';
 	id: string;
 	title: string;
 	authorName: string;

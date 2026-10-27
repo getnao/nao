@@ -562,7 +562,7 @@ function StoriesPage() {
 	}
 
 	function handleDragMove() {
-		storyDragOverNewChatStore.set(isDragOverNewChat(dragPointerRef.current));
+		storyDragOverNewChatStore.set(!showArchived && isDragOverNewChat(dragPointerRef.current));
 	}
 
 	function handleDragCancel() {
@@ -576,7 +576,7 @@ function StoriesPage() {
 		const { active, over } = event;
 		const activeStr = String(active.id);
 
-		if (isDragOverNewChat(dragPointerRef.current)) {
+		if (!showArchived && isDragOverNewChat(dragPointerRef.current)) {
 			startChatWithStories(toDraggedReferences(activeStr));
 			return;
 		}

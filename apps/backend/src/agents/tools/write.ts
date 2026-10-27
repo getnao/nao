@@ -48,7 +48,7 @@ export default createTool<writeFile.Input, writeFile.Output>({
 			if (authoringError) {
 				throw new Error(`Cannot write '${file_path}': ${authoringError}`);
 			}
-			return { _version: '1' as const, ...(await writeStoryMountFile(context.chatId, file_path, content)) };
+			return { _version: '1' as const, ...(await writeStoryMountFile(context, file_path, content)) };
 		}
 		if (isStoragePath(file_path)) {
 			return { _version: '1' as const, ...(await writeStorageFile(file_path, content, context)) };

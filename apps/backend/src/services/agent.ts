@@ -102,6 +102,7 @@ import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import { customStoryAuthoringError } from './story-mount';
+import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
 import {
 	keepStoryReferencesThroughCompaction,
 	listTrustedStoriesForPrompt,
@@ -173,6 +174,7 @@ export function resolveStoryMode(
 }
 
 const MAX_SCHEMA_TABLES_WITH_COLUMNS = 15;
+const MAX_SCHEMA_TABLES_NAMED = 200;
 
 const EXISTING_STORY_FIRST = `If a story in /${STORY_LIBRARY_MOUNT} already answers the request, whatever its format, hand it over instead of creating a duplicate and offer to build a new one`;
 
@@ -321,6 +323,7 @@ export class AgentService {
 			usageRunId: usageContext.runId,
 			managedAiBillingMode: usageContext.billingMode,
 		});
+		toolContext.linkedStory = await resolveLinkedStory(chat);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const agentTools = await profile.tools({ chat, agentSettings, toolContext, webTools, customBoundaries });
 		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, agentTools);
@@ -645,9 +648,10 @@ export class AgentManager {
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
+		const uiMessagesWithStoryQuestion = addStoryQuestionReference(uiMessagesWithDbContext, this.chat.forkMetadata);
 		const uiMessagesWithCompaction = keepStoryReferencesThroughCompaction(
-			uiMessagesWithDbContext,
-			compactionService.useLastCompaction(uiMessagesWithDbContext),
+			uiMessagesWithStoryQuestion,
+			compactionService.useLastCompaction(uiMessagesWithStoryQuestion),
 		);
 		const uiMessagesWithStoryReferences = await safeExpandStoryReferences(uiMessagesWithCompaction, {
 			userId: this.chat.userId,
@@ -743,7 +747,11 @@ export class AgentManager {
 			: basePrompt;
 		return this.chat.forkMetadata
 			? renderToMarkdown(
-					ChatForkContextPrompt({ basePrompt: renderedPrompt, forkMetadata: this.chat.forkMetadata }),
+					ChatForkContextPrompt({
+						basePrompt: renderedPrompt,
+						forkMetadata: this.chat.forkMetadata,
+						linkedStory: this._toolContext.linkedStory,
+					}),
 				)
 			: renderedPrompt;
 	}
@@ -1023,7 +1031,7 @@ export class AgentManager {
 		return content ? `[Table: ${fqdn}]\n${content}` : undefined;
 	}
 
-	/** Only the first tables of a large schema come with their columns, the others are named. */
+	/** Only the first tables of a large schema come with their columns, the next ones are named, the rest counted. */
 	private _schemaContext(schemaKey: string): string | undefined {
 		const fqdns = listSchemaTableFqdns(
 			this._toolContext.projectFolder,
@@ -1034,11 +1042,15 @@ export class AgentManager {
 			return undefined;
 		}
 		const detailedTables = fqdns.slice(0, MAX_SCHEMA_TABLES_WITH_COLUMNS).map((fqdn) => this._tableContext(fqdn));
-		const otherTables = fqdns.slice(MAX_SCHEMA_TABLES_WITH_COLUMNS);
+		const otherTables = fqdns.slice(MAX_SCHEMA_TABLES_WITH_COLUMNS, MAX_SCHEMA_TABLES_NAMED);
+		const unnamedCount = Math.max(fqdns.length - MAX_SCHEMA_TABLES_NAMED, 0);
 		return [
 			`[Schema: ${schemaKey}] ${fqdns.length} tables`,
 			...detailedTables,
 			otherTables.length > 0 ? `Other tables of ${schemaKey}: ${otherTables.join(', ')}` : undefined,
+			unnamedCount > 0
+				? `${unnamedCount} more tables of ${schemaKey} are not listed: search the context for them.`
+				: undefined,
 		]
 			.filter((part): part is string => part !== undefined)
 			.join('\n\n');

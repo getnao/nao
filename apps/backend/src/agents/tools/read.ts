@@ -40,7 +40,7 @@ export default createTool<readFile.Input, readFile.Output>({
 
 const readAnywhere = (filePath: string, context: ToolContext): Promise<string> => {
 	if (isStoriesPath(filePath)) {
-		return readStoryMountFile(context.chatId, filePath);
+		return readStoryMountFile(context, filePath);
 	}
 	if (isStoryLibraryPath(filePath)) {
 		return readStoryLibraryFile(context, filePath);

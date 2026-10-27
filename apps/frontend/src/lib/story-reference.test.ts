@@ -72,8 +72,15 @@ describe('dropping stories', () => {
 		expect(readDroppedReferences(dataTransfer)).toEqual({ storyIds: ['xyz'], folderIds: ['finance'] });
 	});
 
+	it('reads a story link dragged as plain text', () => {
+		const dataTransfer = fakeDataTransfer({ 'text/plain': `${ORIGIN}/stories/xyz` });
+
+		expect(mayCarryStories(dataTransfer)).toBe(true);
+		expect(readDroppedReferences(dataTransfer)).toEqual({ storyIds: ['xyz'], folderIds: [] });
+	});
+
 	it('ignores drops that carry no story', () => {
-		expect(mayCarryStories(fakeDataTransfer({ 'text/plain': 'hello' }))).toBe(false);
+		expect(mayCarryStories(fakeDataTransfer({ 'text/html': '<b>hello</b>' }))).toBe(false);
 		expect(readDroppedReferences(fakeDataTransfer({ 'text/plain': 'hello' }))).toEqual({
 			storyIds: [],
 			folderIds: [],

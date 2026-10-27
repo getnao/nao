@@ -21,6 +21,7 @@ import type { StoryRefreshFailure } from '@/components/story-page-header';
 import type { StoryDownloadOptions } from '@/components/story-download';
 import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
 import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
@@ -38,6 +39,8 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
@@ -144,13 +147,14 @@ export const StoryHeader = memo(function StoryHeader({
 }: StoryHeaderProps) {
 	const { viewMode } = viewModeControls;
 	const isMobile = useIsMobile();
-	const { data: persistedStories = [] } = useQuery({
-		...trpc.story.listStories.queryOptions({ chatId }),
-		enabled: !isReadonlyMode,
+	const { otherStories, switchToStory, mentionedStories, openMentionedStory } = useSwitchableStories({
+		chatId,
+		storySlug,
+		allStories,
+		onSwitchStory,
+		isReadonlyMode,
 	});
-	const stories = useMemo(() => mergeStorySummaries(allStories, persistedStories), [allStories, persistedStories]);
-	const otherStories = useMemo(() => stories.filter((story) => story.id !== storySlug), [stories, storySlug]);
-	const hasMultiple = otherStories.length > 0;
+	const hasMultiple = otherStories.length > 0 || mentionedStories.length > 0;
 	const isEditingCode = viewMode === 'code' && isCodeDirty && !isReadonlyMode;
 	const showSubHeader = viewMode === 'edit' || isEditingCode || !isViewingLatest;
 
@@ -178,10 +182,21 @@ export const StoryHeader = memo(function StoryHeader({
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align='start'>
 					{otherStories.map((story) => (
-						<DropdownMenuItem key={story.id} onClick={() => onSwitchStory(story.id)}>
+						<DropdownMenuItem key={story.id} onClick={() => switchToStory(story.id)}>
 							<span className='truncate'>{story.title}</span>
 						</DropdownMenuItem>
 					))}
+					{mentionedStories.length > 0 && (
+						<>
+							{otherStories.length > 0 && <DropdownMenuSeparator />}
+							<DropdownMenuLabel className='text-xs text-muted-foreground'>Mention</DropdownMenuLabel>
+							{mentionedStories.map((story) => (
+								<DropdownMenuItem key={story.storyId} onClick={() => openMentionedStory(story)}>
+									<span className='truncate'>{story.title}</span>
+								</DropdownMenuItem>
+							))}
+						</>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
@@ -450,6 +465,47 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 });
+
+interface SwitchableStoriesParams {
+	chatId: string;
+	storySlug: string;
+	allStories: StorySummary[];
+	onSwitchStory: (id: string) => void;
+	isReadonlyMode: boolean;
+}
+
+/** The stories of the conversation and the ones it mentions, even when the viewed story comes from another chat. */
+function useSwitchableStories({
+	chatId,
+	storySlug,
+	allStories,
+	onSwitchStory,
+	isReadonlyMode,
+}: SwitchableStoriesParams) {
+	const mentioned = useMentionedStoriesContext();
+	const conversationChatId = mentioned.conversationChatId ?? chatId;
+	const isConversationStory = conversationChatId === chatId;
+	const { data: persistedStories = [] } = useQuery({
+		...trpc.story.listStories.queryOptions({ chatId: conversationChatId }),
+		enabled: !isReadonlyMode,
+	});
+	const messageStories = isConversationStory ? allStories : mentioned.conversationStories;
+	const otherStories = useMemo(() => {
+		const stories = mergeStorySummaries(messageStories, persistedStories);
+		return isConversationStory ? stories.filter((story) => story.id !== storySlug) : stories;
+	}, [messageStories, persistedStories, isConversationStory, storySlug]);
+	const mentionedStories = useMemo(
+		() => mentioned.stories.filter((story) => story.chatId !== chatId || story.slug !== storySlug),
+		[mentioned.stories, chatId, storySlug],
+	);
+
+	return {
+		otherStories,
+		switchToStory: isConversationStory ? onSwitchStory : mentioned.openConversationStory,
+		mentionedStories,
+		openMentionedStory: mentioned.open,
+	};
+}
 
 interface ViewModeToggleProps {
 	controls: StoryViewModeControls | CustomStoryViewModeControls;

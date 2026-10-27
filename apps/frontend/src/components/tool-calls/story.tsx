@@ -28,10 +28,10 @@ const STORY_ACTION_LABELS = {
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
 	const { open: openSidePanel, isVisible, currentStorySlug, chatId: sidePanelChatId } = useSidePanel();
 	const contextOrUrlChatId = useChatId();
-	const chatId = contextOrUrlChatId ?? sidePanelChatId;
 	const input = toolPart.input;
 	const isStreaming = toolPart.state === 'input-streaming';
 	const output = toolPart.output;
+	const chatId = output?.story_chat_id ?? contextOrUrlChatId ?? sidePanelChatId;
 	const hasAutoOpenedRef = useRef(false);
 
 	const finalStorySlug = output?.id ?? input?.id;

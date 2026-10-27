@@ -117,6 +117,8 @@ const storyOwnerProjectProcedure = storyOwnerProcedure.use(async ({ ctx, getRawI
 
 const storyKitBlockComponent = z.enum(STORY_KIT_EDITABLE_BLOCKS);
 
+const MAX_QUICK_QUESTIONS = 10;
+
 const bulkStoryItemsInput = z.object({
 	items: z
 		.array(
@@ -244,13 +246,22 @@ export const storyRoutes = {
 		};
 	}),
 
-	listReferencingChats: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+	listQuickQuestions: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		await assertCanOpenStory(input.storyId, await storyQueries.getStoryProjectId(input.storyId), ctx.user.id);
+		return chatQueries.listQuickQuestionChats(ctx.user.id, input.storyId, MAX_QUICK_QUESTIONS);
+	}),
+
+	listMentioningChats: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
 		const story = await storyQueries.getStoryById(input.storyId);
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		await assertCanOpenStory(story.id, await storyQueries.getStoryProjectId(story.id), ctx.user.id);
-		const chats = await storyReferenceQueries.listReferencingChats(ctx.user.id, story.id, story.chatId);
+		const projectId = await assertCanOpenStory(
+			story.id,
+			await storyQueries.getStoryProjectId(story.id),
+			ctx.user.id,
+		);
+		const chats = await storyReferenceQueries.listMentioningChats(ctx.user.id, projectId, story.id, story.chatId);
 		return { storySlug: story.slug, chats };
 	}),
 
@@ -1240,11 +1251,12 @@ function toReferenceableStoryItem(story: storyReferenceQueries.ReferenceableStor
 	};
 }
 
-async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<void> {
+async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<string> {
 	const hasProjectAccess = projectId ? await canAccessStoryProject(projectId, userId) : false;
-	if (!hasProjectAccess || !(await storyQueries.canUserAccessStory(storyId, userId))) {
+	if (!projectId || !hasProjectAccess || !(await storyQueries.canUserAccessStory(storyId, userId))) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
+	return projectId;
 }
 
 async function getStoryInProject(storyId: string, projectId: string) {

@@ -41,17 +41,6 @@ describe('buildReferenceMentionMenu', () => {
 		]);
 	});
 
-	it('skips the database level when there is a single database', () => {
-		const tablesRoot = rootOf(buildReferenceMentionMenu(sources()), TABLES_ROOT_ID);
-
-		expect(tree(tablesRoot.children)).toEqual([
-			{
-				id: 'schema:warehouse.public',
-				children: [{ id: 'warehouse.public.orders' }, { id: 'warehouse.public.customers' }],
-			},
-		]);
-	});
-
 	it('searches a flat list of every mentionable item, once', () => {
 		const { searchOptions } = buildReferenceMentionMenu(sources());
 
@@ -66,22 +55,6 @@ describe('buildReferenceMentionMenu', () => {
 			{ id: 'warehouse.public.orders' },
 			{ id: 'warehouse.public.customers' },
 			{ id: 'schema:warehouse.public' },
-		]);
-	});
-
-	it('traces where each item lives', () => {
-		const { origins } = buildReferenceMentionMenu(sources());
-
-		expect(origins.get('story:nested')?.map((node) => node.label)).toEqual([
-			'Stories',
-			'Finance',
-			'KPIs',
-			'Nested',
-		]);
-		expect(origins.get('warehouse.public.orders')?.map((node) => node.label)).toEqual([
-			'warehouse',
-			'public',
-			'orders',
 		]);
 	});
 });

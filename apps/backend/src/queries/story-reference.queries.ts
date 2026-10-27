@@ -4,6 +4,7 @@ import { aliasedTable, and, desc, eq, exists, inArray, isNotNull, isNull, max, o
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import { isNotQuickQuestionChat } from './chat.queries';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
 export type ReferenceableStory = {
@@ -32,7 +33,7 @@ export type ReferenceableStoryFilters = {
 	limit?: number;
 };
 
-export type ReferencingChat = {
+export type MentioningChat = {
 	chatId: string;
 	title: string;
 	updatedAt: Date;
@@ -41,7 +42,7 @@ export type ReferencingChat = {
 
 const DEFAULT_LIMIT = 20;
 export const MAX_REFERENCEABLE_STORIES_LIMIT = 200;
-const MAX_REFERENCING_CHATS = 50;
+const MAX_MENTIONING_CHATS = 10;
 
 const storyOwner = aliasedTable(s.user, 'story_owner');
 
@@ -116,23 +117,26 @@ export async function getReferenceableStory(
 }
 
 /** Lists the chats that created the story then visibly referenced by mention or card. */
-export async function listReferencingChats(
+export async function listMentioningChats(
 	userId: string,
+	projectId: string,
 	storyId: string,
 	originChatId: string | null,
-): Promise<ReferencingChat[]> {
+): Promise<MentioningChat[]> {
 	const rows = await db
 		.select({ chatId: s.chat.id, title: s.chat.title, updatedAt: s.chat.updatedAt })
 		.from(s.chat)
 		.where(
 			and(
 				eq(s.chat.userId, userId),
+				eq(s.chat.projectId, projectId),
 				isNull(s.chat.deletedAt),
-				or(originChatId ? eq(s.chat.id, originChatId) : undefined, exists(referencingMessageParts(storyId))),
+				isNotQuickQuestionChat(),
+				or(originChatId ? eq(s.chat.id, originChatId) : undefined, exists(mentioningMessageParts(storyId))),
 			),
 		)
 		.orderBy(sql`case when ${s.chat.id} = ${originChatId} then 0 else 1 end`, desc(s.chat.updatedAt))
-		.limit(MAX_REFERENCING_CHATS)
+		.limit(MAX_MENTIONING_CHATS)
 		.execute();
 	return rows.map((row) => ({ ...row, isOrigin: row.chatId === originChatId }));
 }
@@ -166,7 +170,7 @@ function isSharedSpecificallyWith(userId: string): SQL {
 	return and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId))!;
 }
 
-function referencingMessageParts(storyId: string) {
+function mentioningMessageParts(storyId: string) {
 	const id = escapeLikePattern(storyId);
 	return db
 		.select({ id: s.messagePart.id })
@@ -175,6 +179,7 @@ function referencingMessageParts(storyId: string) {
 		.where(
 			and(
 				eq(s.chatMessage.chatId, s.chat.id),
+				isNull(s.chatMessage.supersededAt),
 				eq(s.messagePart.type, 'text'),
 				or(
 					and(

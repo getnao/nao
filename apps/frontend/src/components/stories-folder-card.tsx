@@ -109,6 +109,10 @@ export function FolderCard({
 	}
 
 	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		if (folder.archivedAt) {
+			e.preventDefault();
+			return;
+		}
 		const selection = selectedStoryReferencesStore.getSnapshot();
 		setStoryDragData(
 			e,

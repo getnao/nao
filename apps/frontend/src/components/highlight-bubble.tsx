@@ -1,10 +1,8 @@
 import { MessageCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Button } from './ui/button';
-import type { ShareSource } from '@nao/shared/types';
 
 import { useSelection } from '@/contexts/text-selection';
-import { useForkSelectionAsk } from '@/hooks/use-fork-selection-ask';
 import { useTrackedBubbleRect } from '@/hooks/use-tracked-bubble-rect';
 
 export interface SelectionData {
@@ -17,11 +15,6 @@ export interface SelectionData {
 export interface HighlightBubbleProps {
 	onAsk: (data: SelectionData) => void;
 	disabled?: boolean;
-}
-
-export function ForkBubble({ source }: { source: ShareSource }) {
-	const handleAsk = useForkSelectionAsk(source);
-	return <HighlightBubble onAsk={handleAsk} />;
 }
 
 export const HighlightBubble = ({ onAsk, disabled }: HighlightBubbleProps) => {

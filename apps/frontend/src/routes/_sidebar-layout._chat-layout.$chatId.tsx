@@ -45,6 +45,8 @@ import { getTextOffset } from '@/lib/selection-dom.utils';
 import { findStories } from '@/lib/story.utils';
 import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
 
+const SELECTION_FORK_TYPES: ForkMetadata['type'][] = ['chat_selection', 'chat_question', 'story_selection'];
+
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
 });
@@ -143,8 +145,7 @@ function ChatPage() {
 		[chatId, chatInputCallback, sidePanel.currentStorySlug],
 	);
 
-	const isSelectionFork =
-		chat.data?.forkMetadata?.type === 'chat_selection' || chat.data?.forkMetadata?.type === 'story_selection';
+	const isSelectionFork = SELECTION_FORK_TYPES.includes(chat.data?.forkMetadata?.type ?? 'chat');
 	const headerCitation = buildHeaderCitation(isSelectionFork ? chat.data?.forkMetadata : undefined);
 	const automationId = chat.data?.automationRun?.automationId;
 	const isAutomationRunning = chat.data?.automationRun?.status === 'running';

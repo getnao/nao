@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	assignChatToStory: vi.fn(),
 	createCustomStory: vi.fn(),
 	createForkedChat: vi.fn(),
 	deleteChat: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
 }));
 vi.mock('../src/queries/story.queries', () => ({
+	assignChatToStory: mocks.assignChatToStory,
 	createCustomStory: mocks.createCustomStory,
 	createStoryVersion: mocks.createStoryVersion,
 	getLatestVersionByStoryId: mocks.getLatestVersionByStoryId,
@@ -300,6 +302,23 @@ describe('chat fork Story creation permission', () => {
 		expect(mocks.getChatMessages).toHaveBeenCalledWith('source-chat-id');
 	});
 
+	it('asks a quick question about a shared chat as a fork tied to the share', async () => {
+		await expect(
+			createCaller().chatFork.askSharedChat({
+				shareId: 'chat-share-id',
+				selection: { start: 4, end: 18, text: 'Revenue dipped' },
+			}),
+		).resolves.toEqual({ chatId: 'fork-chat-id' });
+
+		const [{ forkMetadata }, seededMessages] = mocks.createForkedChat.mock.calls[0];
+		expect(forkMetadata).toMatchObject({
+			type: 'chat_question',
+			id: 'chat-share-id',
+			selectionText: 'Revenue dipped',
+		});
+		expect(JSON.stringify(seededMessages)).toContain('Revenue dipped');
+	});
+
 	it('opens an existing standalone Story without the creation grant', async () => {
 		await expect(createCaller().chatFork.openStandalone({ storyId: 'story-id' })).resolves.toEqual({
 			chatId: 'existing-chat-id',
@@ -320,6 +339,57 @@ describe('fork of any accessible Story', () => {
 		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({});
 		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({}));
 		mocks.getStoryProjectId.mockResolvedValue('project-id');
+	});
+
+	it('opens a quick question on a Story as an empty chat, without the story creation grant', async () => {
+		await expect(
+			createCaller().chatFork.askStory({ storyId: 'story-id', selectionText: 'Revenue dipped in May' }),
+		).resolves.toEqual({ chatId: 'fork-chat-id', hasAttachedStoryChat: false });
+
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.createForkedChat).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectId: 'project-id',
+				userId: 'user-id',
+				forkMetadata: {
+					type: 'story_question',
+					id: 'story-id',
+					title: 'Story',
+					authorName: 'Owner',
+					selectionText: 'Revenue dipped in May',
+				},
+			}),
+			[],
+		);
+		expect(mocks.createStoryVersion).not.toHaveBeenCalled();
+	});
+
+	it('gives a standalone Story of the user a chat first, so the quick question can edit it', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ chatId: null, ownerId: 'user-id' }));
+		mocks.createForkedChat
+			.mockResolvedValueOnce({ id: 'story-chat-id' })
+			.mockResolvedValueOnce({ id: 'question-id' });
+
+		await expect(createCaller().chatFork.askStory({ storyId: 'story-id' })).resolves.toEqual({
+			chatId: 'question-id',
+			hasAttachedStoryChat: true,
+		});
+
+		expect(mocks.assignChatToStory).toHaveBeenCalledWith('story-id', 'story-chat-id');
+		expect(mocks.createForkedChat).toHaveBeenLastCalledWith(
+			expect.objectContaining({ forkMetadata: expect.objectContaining({ type: 'story_question' }) }),
+			[],
+		);
+	});
+
+	it('leaves the standalone Story of someone else without a chat', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ chatId: null }));
+
+		await expect(createCaller().chatFork.askStory({ storyId: 'story-id' })).resolves.toEqual({
+			chatId: 'fork-chat-id',
+			hasAttachedStoryChat: false,
+		});
+		expect(mocks.assignChatToStory).not.toHaveBeenCalled();
 	});
 
 	it('forks the Story in its own project, whatever project is active', async () => {

@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react';
-import { Suspense } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SharedStoryPage } from './shared-story-page';
@@ -10,19 +9,12 @@ const mocks = vi.hoisted(() => ({
 	queryResult: {
 		data: undefined as SharedStory | undefined,
 	},
-	pendingQuery: new Promise<never>(() => {}),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
 	useMutation: () => ({ mutate: vi.fn(), isPending: false }),
 	useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-	useSuspenseQuery: () => {
-		if (!mocks.queryResult.data) {
-			throw mocks.pendingQuery;
-		}
-
-		return mocks.queryResult;
-	},
+	useSuspenseQuery: () => mocks.queryResult,
 }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -30,10 +22,11 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('@/components/highlight-bubble', () => ({
-	ForkBubble: () => <div>Fork selection</div>,
+	HighlightBubble: () => <div>Ask selection</div>,
 }));
-vi.mock('@/components/selection-chat-panel', () => ({
-	SelectionChatPanel: () => <div>Selection chat</div>,
+vi.mock('@/components/story-ask-bar', () => ({
+	STORY_ASK_BAR_INSET_STYLE: {},
+	StoryAskBar: () => <div>Ask bar</div>,
 }));
 vi.mock('@/components/side-panel/side-panel', () => ({ SidePanel: () => null }));
 vi.mock('@/components/side-panel/story-subscription-dialog', () => ({ StorySubscriptionDialog: () => null }));
@@ -44,8 +37,8 @@ vi.mock('@/components/story-embeds', () => ({
 }));
 vi.mock('@/components/story-page-body', () => ({ StoryPageBody: () => null }));
 vi.mock('@/components/story-page-header', () => ({
-	StoryPageHeader: ({ referencedChats }: { referencedChats?: { canFork: boolean } }) =>
-		referencedChats?.canFork ? <button>Fork this story</button> : null,
+	StoryPageHeader: ({ canDuplicate }: { canDuplicate?: boolean }) =>
+		canDuplicate ? <button>Duplicate</button> : null,
 }));
 vi.mock('@/components/story-tabbed-content', () => ({ StoryTabbedContent: () => null }));
 vi.mock('@/components/story-theme-provider', () => ({ useStoryThemeForCurrentMode: () => null }));
@@ -95,6 +88,7 @@ vi.mock('@/hooks/use-story-version-query-data', () => ({
 	useStoryVersionQueryData: () => ({ queryData: {}, isPending: false }),
 }));
 vi.mock('@/hooks/use-track-view-duration', () => ({ useTrackViewDuration: vi.fn() }));
+vi.mock('@/hooks/use-mentioned-stories', () => ({ useResolvedStory: () => ({ data: { isOwner: false } }) }));
 vi.mock('@/lib/auth-client', () => ({
 	useSession: () => ({ data: { user: { id: 'member-1' } } }),
 }));
@@ -107,41 +101,42 @@ vi.mock('@/main', () => ({
 	},
 }));
 
-describe('shared Story fork controls', () => {
+describe('shared Story chat controls', () => {
 	beforeEach(() => {
 		mocks.queryResult.data = undefined;
 	});
 
 	afterEach(cleanup);
 
-	it('keeps fork controls hidden while the Story is loading', () => {
-		render(
-			<Suspense fallback={<div>Loading story</div>}>
-				<SharedStoryPage storyId='story-1' />
-			</Suspense>,
-		);
-
-		expect(screen.getByText('Loading story')).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Fork this story' })).toBeNull();
-		expect(screen.queryByText('Fork selection')).toBeNull();
-	});
-
-	it('uses the fork capability returned with the shared Story', () => {
+	it('offers to duplicate the Story only when the share allows forking', () => {
 		mocks.queryResult.data = createStory({ canFork: true });
+		const { unmount } = render(<SharedStoryPage storyId='story-1' />);
+		expect(screen.getByRole('button', { name: 'Duplicate' })).toBeTruthy();
+		unmount();
 
+		mocks.queryResult.data = createStory({ canFork: false });
 		render(<SharedStoryPage storyId='story-1' />);
-
-		expect(screen.getByRole('button', { name: 'Fork this story' })).toBeTruthy();
-		expect(screen.getByText('Fork selection')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Duplicate' })).toBeNull();
 	});
 
-	it('hides fork controls when the shared Story denies forking', () => {
+	it('lets members ask about the Story, from the ask bar or a selection', () => {
 		mocks.queryResult.data = createStory({ canFork: false });
 
 		render(<SharedStoryPage storyId='story-1' />);
 
-		expect(screen.queryByRole('button', { name: 'Fork this story' })).toBeNull();
-		expect(screen.queryByText('Fork selection')).toBeNull();
+		expect(screen.getByText('Ask bar')).toBeTruthy();
+		expect(screen.getByText('Ask selection')).toBeTruthy();
+	});
+
+	it('keeps viewers and archived Stories read-only', () => {
+		mocks.queryResult.data = createStory({ userRole: 'viewer' });
+		const { unmount } = render(<SharedStoryPage storyId='story-1' />);
+		expect(screen.queryByText('Ask bar')).toBeNull();
+		unmount();
+
+		mocks.queryResult.data = createStory({ isArchived: true });
+		render(<SharedStoryPage storyId='story-1' />);
+		expect(screen.queryByText('Ask bar')).toBeNull();
 	});
 });
 
@@ -161,6 +156,7 @@ interface SharedStory {
 	cachedAt: Date | null;
 	lastRefreshFailure: null;
 	canRefresh: boolean;
+	isArchived: boolean;
 }
 
 function createStory(overrides: Partial<SharedStory>): SharedStory {
@@ -180,6 +176,7 @@ function createStory(overrides: Partial<SharedStory>): SharedStory {
 		cachedAt: null,
 		lastRefreshFailure: null,
 		canRefresh: false,
+		isArchived: false,
 		...overrides,
 	};
 }

@@ -28,6 +28,8 @@ interface CustomStoryBodyProps {
 	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
 	onAskBlock?: (block: StoryBlockReference) => void;
 	onRememberState?: () => void;
+	/** Room left under the story for an overlay such as the ask bar, filled with the story's own background. */
+	bottomInset?: string;
 }
 
 const MAX_RUNTIME_ERRORS = 5;
@@ -57,9 +59,16 @@ export function CustomStoryBody({
 	onEditTableFormat,
 	onAskBlock,
 	onRememberState,
+	bottomInset,
 }: CustomStoryBodyProps) {
 	const { runtimeErrors, runtimeErrorCount, handleRuntimeError } = useRuntimeErrors(content?.version.id);
-	const styles = useMemo(() => content?.styles.map((style) => style.content) ?? [], [content?.styles]);
+	const styles = useMemo(
+		() => [
+			...(content?.styles.map((style) => style.content) ?? []),
+			...(bottomInset ? [`body{padding-bottom:${bottomInset}}`] : []),
+		],
+		[content?.styles, bottomInset],
+	);
 	const theme = useActiveStoryTheme(content?.theme);
 
 	return (

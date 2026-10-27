@@ -1,20 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import type { inferRouterOutputs } from '@trpc/server';
-import type { TrpcRouter } from '@nao/backend/trpc';
+import type { ResolvedStory } from '@/hooks/use-mentioned-stories';
 
-import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { useOpenStoryInSidePanel } from '@/components/side-panel/open-story-in-side-panel';
 import { StoryCard } from '@/components/story-card';
-import { useSidePanel } from '@/contexts/side-panel';
-import { trpc } from '@/main';
-
-type ResolvedStory = inferRouterOutputs<TrpcRouter>['story']['resolve'];
+import { useOpenMentionedStory, useResolvedStory } from '@/hooks/use-mentioned-stories';
 
 /** An existing story the agent hands over in its answer. */
 export function StoryReferenceCard({ storyId, title }: { storyId: string; title: string }) {
 	const { data: story, isError } = useResolvedStory(storyId);
-	const openStory = useOpenReferencedStory();
+	const openStory = useOpenMentionedStory(useOpenStoryInSidePanel());
 
 	return (
 		<StoryCard
@@ -32,7 +26,7 @@ export function StoryReferenceCard({ storyId, title }: { storyId: string; title:
 /** A story the agent names in the middle of a sentence. */
 export function StoryReferenceLink({ storyId, children }: { storyId: string; children: ReactNode }) {
 	const { data: story } = useResolvedStory(storyId);
-	const openStory = useOpenReferencedStory();
+	const openStory = useOpenMentionedStory(useOpenStoryInSidePanel());
 
 	if (!story) {
 		return <>{children}</>;
@@ -56,23 +50,4 @@ function describeStatus(story: ResolvedStory | undefined, isError: boolean): str
 		return 'Loading story…';
 	}
 	return story.isArchived ? 'Archived story' : 'Existing story';
-}
-
-function useResolvedStory(storyId: string) {
-	return useQuery({ ...trpc.story.resolve.queryOptions({ storyId }), retry: false });
-}
-
-/** The owner opens the story beside the conversation; anyone else opens its page. */
-function useOpenReferencedStory() {
-	const sidePanel = useSidePanel();
-	const navigate = useNavigate();
-	const canOpenInSidePanel = Boolean(sidePanel.chatId) && !sidePanel.isReadonlyMode && !sidePanel.isReplay;
-
-	return (story: ResolvedStory) => {
-		if (canOpenInSidePanel && story.isOwner && story.chatId) {
-			sidePanel.open(<StoryViewer chatId={story.chatId} storySlug={story.slug} />, story.slug);
-			return;
-		}
-		navigate({ to: '/stories/$storyId', params: { storyId: story.storyId } });
-	};
 }

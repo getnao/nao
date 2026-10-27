@@ -41,7 +41,7 @@ export default createTool<list.Input, list.Output>({
 
 const listAnywhere = (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	if (isStoriesPath(virtualPath)) {
-		return listStoryMount(context.chatId, virtualPath);
+		return listStoryMount(context, virtualPath);
 	}
 	if (isStoryLibraryPath(virtualPath)) {
 		return listStoryLibrary(context, virtualPath);

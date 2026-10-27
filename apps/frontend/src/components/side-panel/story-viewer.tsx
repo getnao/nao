@@ -29,6 +29,7 @@ import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
+import { MentionedStoriesProvider } from '@/contexts/mentioned-stories';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
@@ -56,13 +57,25 @@ interface StoryViewerProps {
 }
 
 export function StoryViewer(props: StoryViewerProps) {
-	const { isReadonlyMode: contextReadonlyMode, isReplay, shareSource } = useSidePanel();
+	const {
+		isReadonlyMode: contextReadonlyMode,
+		isReplay,
+		shareSource,
+		open,
+		chatId: conversationChatId,
+	} = useSidePanel();
 	const isReadonlyMode = isReplay ? contextReadonlyMode : (props.isReadonlyMode ?? contextReadonlyMode);
 	const viewerAccess = useMemo(
 		() => (isReadonlyMode ? readonlyViewerAccess(props.chatId, shareSource, isReplay) : null),
 		[isReadonlyMode, isReplay, props.chatId, shareSource],
 	);
 	const format = useStoryFormat(props.chatId, props.storySlug, isReadonlyMode, viewerAccess);
+	const openStoryInSidePanel = useCallback(
+		(story: { chatId: string; slug: string }) => {
+			open(<StoryViewer chatId={story.chatId} storySlug={story.slug} />, story.slug);
+		},
+		[open],
+	);
 
 	if (format === null) {
 		return <StoryContentLoading />;
@@ -70,10 +83,18 @@ export function StoryViewer(props: StoryViewerProps) {
 	if (format === 'custom' && viewerAccess) {
 		return <ReadonlyCustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} access={viewerAccess} />;
 	}
-	if (format === 'custom' && !isReadonlyMode) {
-		return <CustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} />;
+	if (isReadonlyMode) {
+		return <ClassicStoryViewer {...props} />;
 	}
-	return <ClassicStoryViewer {...props} />;
+	return (
+		<MentionedStoriesProvider chatId={conversationChatId ?? props.chatId} openInSidePanel={openStoryInSidePanel}>
+			{format === 'custom' ? (
+				<CustomStoryViewer chatId={props.chatId} storySlug={props.storySlug} />
+			) : (
+				<ClassicStoryViewer {...props} />
+			)}
+		</MentionedStoriesProvider>
+	);
 }
 
 function useStoryFormat(
