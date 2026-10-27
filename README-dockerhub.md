@@ -1,6 +1,8 @@
-# nao - The #1 Open-Source Analytics Agent
+# nao - The #1 open-source analytics agent
 
-nao is a framework to build and deploy analytics agents. Create context for your analytics agent with the nao-core CLI, then deploy a chat UI for anyone to interact with your data.
+Your data team owns the context layer. Everyone in the company can build on data.
+
+nao is an open-source framework to build, evaluate and deploy analytics agents. Build your agent's context with the nao-core CLI (or let your coding agent do it with the nao skills), then deploy this chat UI for anyone in the company to analyze data in plain English.
 
 🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ) · 🐙 [GitHub](https://github.com/getnao/nao)
 
