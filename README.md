@@ -113,6 +113,8 @@ The nao chat opens at `http://localhost:5005`. Start asking questions.
     nao init
     ```
 
+    It asks for a project name, then optionally a database, a repo, an LLM key and a Slack connection (you can skip them and edit `nao_config.yaml` later). It creates your project folder with `nao_config.yaml`, `RULES.md` and the context structure.
+
 <br/>
 
 - **Step 3**: Verify your setup
