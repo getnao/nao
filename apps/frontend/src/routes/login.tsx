@@ -2,15 +2,11 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import { useForm } from '@tanstack/react-form';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { signIn } from '@/lib/auth-client';
+import { sendVerificationEmail, signIn } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
 import { EmailVerificationPending } from '@/components/email-verification-pending';
 import { useIsCloud } from '@/hooks/use-nao-mode';
-import {
-	buildEmailVerificationCallbackUrl,
-	getEmailVerificationErrorMessage,
-	isEmailNotVerifiedError,
-} from '@/lib/email-verification';
+import { buildEmailVerificationCallbackUrl, isEmailNotVerifiedError } from '@/lib/email-verification';
 import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
@@ -35,9 +31,7 @@ export function Login() {
 	const navigate = useNavigate();
 	const router = useRouter();
 	const { error: oauthError, redirect } = Route.useSearch();
-	const [serverError, setServerError] = useState<string | undefined>(
-		getEmailVerificationErrorMessage(oauthError) ?? oauthError,
-	);
+	const [serverError, setServerError] = useState<string | undefined>(oauthError);
 	const [pendingEmail, setPendingEmail] = useState<string>();
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
@@ -47,7 +41,6 @@ export function Login() {
 
 	const oauthAuthorizeUrl = buildOAuthAuthorizeUrl();
 	const safeRedirect = getSafeRedirectPath(redirect);
-	const signInCallbackURL = oauthAuthorizeUrl ?? safeRedirect ?? '/';
 	const verificationCallbackURL = buildEmailVerificationCallbackUrl(oauthAuthorizeUrl ?? safeRedirect);
 
 	const form = useForm({
@@ -57,9 +50,10 @@ export function Login() {
 				return;
 			}
 			setServerError(undefined);
-			const { error } = await signIn.email({ ...value, callbackURL: signInCallbackURL });
+			const { error } = await signIn.email(value);
 			if (error) {
 				if (isEmailNotVerifiedError(error)) {
+					await sendVerificationEmail({ email: value.email, callbackURL: verificationCallbackURL });
 					setPendingEmail(value.email);
 					return;
 				}

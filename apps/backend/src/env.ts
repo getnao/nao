@@ -21,6 +21,10 @@ const optionalNonEmptyString = z
 	.optional()
 	.transform((value) => value?.trim() || undefined);
 
+function blankToUndefined(value: unknown): unknown {
+	return typeof value === 'string' && value.trim() === '' ? undefined : value;
+}
+
 const emittedDeprecationWarnings = new Set<string>();
 
 function resolveOidcGroupNaoRoleMapping(
@@ -212,13 +216,16 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((value) => value || undefined),
 	SMTP_HOST: optionalNonEmptyString,
-	SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+	SMTP_PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65_535).default(587)),
 	SMTP_USER: optionalNonEmptyString,
 	SMTP_MAIL_FROM: optionalNonEmptyString,
-	SMTP_SSL: z
-		.enum(['true', 'false'])
-		.default('false')
-		.transform((value) => value === 'true'),
+	SMTP_SSL: z.preprocess(
+		blankToUndefined,
+		z
+			.enum(['true', 'false'])
+			.default('false')
+			.transform((value) => value === 'true'),
+	),
 
 	/**
 	 * Declarative Slack setup: when SLACK_BOT_TOKEN is set, these seed the default project's Slack

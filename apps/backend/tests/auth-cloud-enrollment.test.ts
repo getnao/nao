@@ -96,7 +96,6 @@ interface CapturedAuthOptions {
 		| {
 				sendVerificationEmail: (data: { user: { email: string; name: string }; url: string }) => Promise<void>;
 				sendOnSignUp: boolean;
-				sendOnSignIn: boolean;
 				autoSignInAfterVerification: boolean;
 				expiresIn: number;
 		  }
@@ -148,7 +147,6 @@ describe('Cloud Google organization enrollment', () => {
 		expect(options.emailAndPassword.requireEmailVerification).toBe(true);
 		expect(options.emailVerification).toMatchObject({
 			sendOnSignUp: true,
-			sendOnSignIn: true,
 			autoSignInAfterVerification: true,
 			expiresIn: 3600,
 		});

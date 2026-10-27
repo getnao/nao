@@ -96,6 +96,10 @@ describe('cloud SMTP environment', () => {
 		expect(result.stderr).toContain(`${variable} is required when NAO_MODE=cloud`);
 	});
 
+	it('treats blank SMTP_PORT and SMTP_SSL as their defaults', () => {
+		expect(loadEnvWithOverrides({ NAO_MODE: 'cloud', SMTP_PORT: '', SMTP_SSL: '' }).status).toBe(0);
+	});
+
 	it('allows self-hosted mode without SMTP configuration', () => {
 		expect(
 			loadEnvWithOverrides({

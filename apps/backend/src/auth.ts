@@ -237,7 +237,6 @@ async function createAuthInstance(baseURL: string) {
 						});
 					},
 					sendOnSignUp: true,
-					sendOnSignIn: true,
 					autoSignInAfterVerification: true,
 					expiresIn: 60 * 60,
 				}

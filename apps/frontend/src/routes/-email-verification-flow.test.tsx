@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	publicConfig: { enableUserLogin: true, enableUserSignup: true, naoMode: 'cloud' },
 	push: vi.fn(),
 	searchByPath: {} as Record<string, { error?: string; redirect?: string }>,
+	sendVerificationEmail: vi.fn(),
 	signInEmail: vi.fn(),
 	signUpEmail: vi.fn(),
 }));
@@ -74,7 +75,7 @@ vi.mock('@/hooks/use-nao-mode', () => ({
 }));
 
 vi.mock('@/lib/auth-client', () => ({
-	sendVerificationEmail: vi.fn(),
+	sendVerificationEmail: (...args: unknown[]) => mocks.sendVerificationEmail(...args),
 	signIn: { email: (...args: unknown[]) => mocks.signInEmail(...args) },
 	signUp: { email: (...args: unknown[]) => mocks.signUpEmail(...args) },
 }));
@@ -90,6 +91,7 @@ describe('email verification auth routes', () => {
 		mocks.searchByPath = {};
 		mocks.navigate.mockReset();
 		mocks.push.mockReset();
+		mocks.sendVerificationEmail.mockReset().mockResolvedValue({ error: null });
 		mocks.signInEmail.mockReset();
 		mocks.signUpEmail.mockReset();
 		window.history.replaceState({}, '', '/');
@@ -125,7 +127,7 @@ describe('email verification auth routes', () => {
 		expect(screen.getByRole('heading', { name: 'Sign up' })).toBeTruthy();
 	});
 
-	it('uses the post-login destination while showing check-inbox for an unverified user', async () => {
+	it('requests a verification email and shows check-inbox for an unverified login', async () => {
 		mocks.searchByPath['/login'] = { redirect: '/settings' };
 		mocks.formValues = { email: 'new@example.com', password: 'password123' };
 		mocks.signInEmail.mockResolvedValue({
@@ -136,12 +138,11 @@ describe('email verification auth routes', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
 		await waitFor(() => expect(screen.getByRole('heading', { name: 'Check your inbox' })).toBeTruthy());
-		expect(mocks.signInEmail).toHaveBeenCalledWith(
-			expect.objectContaining({
-				email: 'new@example.com',
-				callbackURL: '/settings',
-			}),
-		);
+		expect(mocks.signInEmail).toHaveBeenCalledWith(expect.not.objectContaining({ callbackURL: expect.anything() }));
+		expect(mocks.sendVerificationEmail).toHaveBeenCalledWith({
+			email: 'new@example.com',
+			callbackURL: '/email-verified?redirect=%2Fsettings',
+		});
 	});
 
 	it('keeps the verified email tab on a completion screen with a continue fallback', () => {
@@ -151,14 +152,5 @@ describe('email verification auth routes', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Continue to nao' }));
 
 		expect(mocks.push).toHaveBeenCalledWith('/settings');
-	});
-
-	it('shows friendly recovery copy for an expired verification link', () => {
-		mocks.searchByPath['/login'] = { error: 'TOKEN_EXPIRED', redirect: '/settings' };
-
-		render(<Login />);
-
-		expect(screen.getByRole('alert').textContent).toContain('verification link has expired');
-		expect(screen.queryByText('TOKEN_EXPIRED')).toBeNull();
 	});
 });
