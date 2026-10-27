@@ -36,6 +36,7 @@ export default defineConfig({
 		},
 	},
 	test: {
+		setupFiles: ['./tests/setup-env.ts'],
 		server: {
 			deps: {
 				inline: [/drizzle-orm\/bun-sqlite/],

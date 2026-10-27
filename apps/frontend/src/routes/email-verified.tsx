@@ -18,6 +18,7 @@ export function EmailVerified() {
 	const router = useRouter();
 	const { error, redirect } = Route.useSearch();
 	const safeRedirect = getSafeRedirectPath(redirect);
+	const isOAuthAuthorization = safeRedirect?.startsWith('/api/auth/oauth2/authorize?');
 	const errorMessage = getEmailVerificationErrorMessage(error);
 
 	if (error) {
@@ -55,14 +56,20 @@ export function EmailVerified() {
 							Return to your original tab, or continue here.
 						</p>
 					</div>
-					<Button
-						type='button'
-						variant='outline'
-						className='mt-6 h-11 w-full rounded-full'
-						onClick={() => router.history.push(safeRedirect ?? '/')}
-					>
-						Continue to nao
-					</Button>
+					{isOAuthAuthorization ? (
+						<Button asChild variant='outline' className='mt-6 h-11 w-full rounded-full'>
+							<a href={safeRedirect ?? '/'}>Continue to nao</a>
+						</Button>
+					) : (
+						<Button
+							type='button'
+							variant='outline'
+							className='mt-6 h-11 w-full rounded-full'
+							onClick={() => router.history.push(safeRedirect ?? '/')}
+						>
+							Continue to nao
+						</Button>
+					)}
 				</div>
 			}
 		/>

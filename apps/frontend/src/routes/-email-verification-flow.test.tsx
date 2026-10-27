@@ -145,6 +145,23 @@ describe('email verification auth routes', () => {
 		});
 	});
 
+	it.each([
+		[{ status: 429 }, 'Too many requests. Wait a minute before trying again.'],
+		[{ status: 500 }, 'We could not send a verification email. Please try again.'],
+	])('shows guidance when the initial verification email fails', async (error, message) => {
+		mocks.formValues = { email: 'new@example.com', password: 'password123' };
+		mocks.signInEmail.mockResolvedValue({
+			error: { code: 'EMAIL_NOT_VERIFIED', message: 'Email not verified' },
+		});
+		mocks.sendVerificationEmail.mockResolvedValue({ error });
+
+		render(<Login />);
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+		expect((await screen.findByRole('alert')).textContent).toContain(message);
+		expect(screen.queryByRole('heading', { name: 'Check your inbox' })).toBeNull();
+	});
+
 	it('keeps the verified email tab on a completion screen with a continue fallback', () => {
 		mocks.searchByPath['/email-verified'] = { redirect: '/settings' };
 
@@ -152,5 +169,14 @@ describe('email verification auth routes', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Continue to nao' }));
 
 		expect(mocks.push).toHaveBeenCalledWith('/settings');
+	});
+
+	it('uses a document navigation to continue OAuth authorization after verification', () => {
+		const oauthAuthorizeUrl = '/api/auth/oauth2/authorize?client_id=client&state=state';
+		mocks.searchByPath['/email-verified'] = { redirect: oauthAuthorizeUrl };
+
+		render(<EmailVerified />);
+
+		expect(screen.getByRole('link', { name: 'Continue to nao' }).getAttribute('href')).toBe(oauthAuthorizeUrl);
 	});
 });

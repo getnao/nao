@@ -53,7 +53,23 @@ export function Login() {
 			const { error } = await signIn.email(value);
 			if (error) {
 				if (isEmailNotVerifiedError(error)) {
-					await sendVerificationEmail({ email: value.email, callbackURL: verificationCallbackURL });
+					try {
+						const { error: verificationError } = await sendVerificationEmail({
+							email: value.email,
+							callbackURL: verificationCallbackURL,
+						});
+						if (verificationError) {
+							setServerError(
+								verificationError.status === 429
+									? 'Too many requests. Wait a minute before trying again.'
+									: 'We could not send a verification email. Please try again.',
+							);
+							return;
+						}
+					} catch {
+						setServerError('We could not send a verification email. Please try again.');
+						return;
+					}
 					setPendingEmail(value.email);
 					return;
 				}
