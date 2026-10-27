@@ -64,6 +64,7 @@ import {
 } from './chart-values';
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
 import type * as displayChart from './tools/display-chart';
+import { capitalizeWords } from './utils';
 
 export const DEFAULT_COLORS = [
 	'#104e64',
@@ -133,7 +134,7 @@ export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): 
 	if (isIsoDateLike(str)) {
 		return formatDateValue(str, dateFormat);
 	}
-	return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+	return capitalizeWords(str.replace(/_/g, ' '));
 }
 
 /**
