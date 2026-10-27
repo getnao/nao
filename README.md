@@ -45,7 +45,7 @@ Watch your whole company grow into analysts.
 
 **For data teams**
 
-- 🧱 **Build your data context layer**: sync your warehouse, dbt and docs into files your agent reads. Context work takes an agent from 15% to 85% reliability.
+- 🧱 **Build your data context layer**: sync your warehouse, dbt and docs into files your agent reads.
 - 🧪 **Evaluate offline**: `nao test` runs your key questions against the SQL you expect and scores every context change before it ships.
 - 🔭 **Observe online**: chat replay shows every conversation. Context recommendations turn errors and downvotes into fixes, opened as pull requests.
 - 🏳️ **Stack agnostic**: nao works with all warehouses, data stacks and LLMs. Anything missing? Contribute to build it!
