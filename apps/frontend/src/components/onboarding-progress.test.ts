@@ -38,6 +38,12 @@ describe('isOnboardingComplete', () => {
 			expect(isOnboardingComplete(hasProject, progress, warehouseReady)).toBe(expected);
 		},
 	);
+
+	it('finishes when a project exists and no warehouse setup is active', () => {
+		expect(isOnboardingComplete(true, null, false, false)).toBe(true);
+		expect(isOnboardingComplete(true, null, false, true)).toBe(false);
+		expect(isOnboardingComplete(false, null, false, false)).toBe(false);
+	});
 });
 
 describe('findCreatedOnboardingProject', () => {

@@ -2,10 +2,14 @@ import { isCloudBillingEnabled } from '../env';
 import { getOrganizationBilling } from '../queries/billing.queries';
 import { getOrganizationById } from '../queries/organization.queries';
 import { getProjectById } from '../queries/project.queries';
-import type { BillingStatus } from '../types/billing';
+import { type BillingStatus, isTrialAvailable } from '../types/billing';
 import { HandlerError } from '../utils/error';
 
 const ACTIVE_RECONCILIATION_GRACE_MS = 24 * 60 * 60 * 1000;
+const BILLING_ACCESS_RESTRICTED_MESSAGE =
+	'Cloud billing access is restricted. Ask an organization admin to update billing.';
+const PROJECT_SETUP_REQUIRED_MESSAGE =
+	'Cloud billing access is restricted. Finish setting up your project to start the free trial.';
 
 type CloudBillingEntitlement = {
 	billingPlan?: string | null;
@@ -20,8 +24,8 @@ type CloudBillingEntitlement = {
 };
 
 class CloudBillingAccessRestrictedError extends HandlerError {
-	constructor() {
-		super('FORBIDDEN', 'Cloud billing access is restricted. Ask an organization admin to update billing.');
+	constructor(message = BILLING_ACCESS_RESTRICTED_MESSAGE) {
+		super('FORBIDDEN', message);
 		this.name = 'CloudBillingAccessRestrictedError';
 	}
 }
@@ -120,14 +124,22 @@ export async function hasProjectCloudBillingAccess(projectId: string): Promise<b
 
 export async function assertOrganizationCloudBillingAccess(organizationId: string): Promise<void> {
 	if (!(await hasOrganizationCloudBillingAccess(organizationId))) {
-		throw new CloudBillingAccessRestrictedError();
+		const billing = await getOrganizationBilling(organizationId);
+		throw new CloudBillingAccessRestrictedError(
+			isTrialAvailable(billing) ? PROJECT_SETUP_REQUIRED_MESSAGE : BILLING_ACCESS_RESTRICTED_MESSAGE,
+		);
 	}
 }
 
 export async function assertProjectCloudBillingAccess(projectId: string): Promise<void> {
-	if (!(await hasProjectCloudBillingAccess(projectId))) {
+	if (!isCloudBillingEnabled()) {
+		return;
+	}
+	const project = await getProjectById(projectId);
+	if (!project?.orgId) {
 		throw new CloudBillingAccessRestrictedError();
 	}
+	await assertOrganizationCloudBillingAccess(project.orgId);
 }
 
 function addGrace(date: Date | null): Date | null {

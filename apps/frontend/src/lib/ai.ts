@@ -754,6 +754,12 @@ export function parseChatAllowanceExhaustedError(error: Error | undefined): Chat
 	return null;
 }
 
+const ONBOARDING_COMPLETE_ERROR = 'Onboarding conversations are unavailable after project setup';
+
+export function isOnboardingCompleteError(error: Error | undefined): boolean {
+	return error?.message.includes(ONBOARDING_COMPLETE_ERROR) === true;
+}
+
 function parseCodedError(error: Error | undefined, code: string): string | null {
 	const parsed = parseErrorPayload(error);
 	if (!error || parsed?.code !== code) {

@@ -179,9 +179,10 @@ export function isOnboardingComplete(
 	hasOnboardingProject: boolean,
 	progress: OnboardingProgressState | null,
 	warehouseReady: boolean,
+	warehouseProvisioningActive?: boolean,
 ): boolean {
 	const progressComplete = isDeployStepReached(progress) || (progress?.flow === 'github' && progress.step === 2);
-	return hasOnboardingProject && (warehouseReady || progressComplete);
+	return hasOnboardingProject && (warehouseReady || progressComplete || warehouseProvisioningActive === false);
 }
 
 export function findCreatedOnboardingProject<T extends { createdAt: Date }>(
