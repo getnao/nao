@@ -64,6 +64,7 @@ import { Route as SidebarLayoutSettingsProjectMattermostRouteImport } from './ro
 import { Route as SidebarLayoutSettingsProjectIntegrationsRouteImport } from './routes/_sidebar-layout.settings.project.integrations'
 import { Route as SidebarLayoutSettingsProjectDiscordRouteImport } from './routes/_sidebar-layout.settings.project.discord'
 import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
+import { Route as SidebarLayoutSettingsProjectAutomationsRouteImport } from './routes/_sidebar-layout.settings.project.automations'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
 import { Route as SidebarLayoutSettingsOrganizationMembersRouteImport } from './routes/_sidebar-layout.settings.organization.members'
 import { Route as SidebarLayoutSettingsOrganizationBillingRouteImport } from './routes/_sidebar-layout.settings.organization.billing'
@@ -389,6 +390,12 @@ const SidebarLayoutSettingsProjectBudgetsRoute =
     path: '/budgets',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectAutomationsRoute =
+  SidebarLayoutSettingsProjectAutomationsRouteImport.update({
+    id: '/automations',
+    path: '/automations',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectAgentRoute =
   SidebarLayoutSettingsProjectAgentRouteImport.update({
     id: '/agent',
@@ -501,6 +508,7 @@ export interface FileRoutesByFullPath {
   '/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
+  '/settings/project/automations': typeof SidebarLayoutSettingsProjectAutomationsRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
@@ -565,6 +573,7 @@ export interface FileRoutesByTo {
   '/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
+  '/settings/project/automations': typeof SidebarLayoutSettingsProjectAutomationsRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
@@ -633,6 +642,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/_sidebar-layout/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
+  '/_sidebar-layout/settings/project/automations': typeof SidebarLayoutSettingsProjectAutomationsRoute
   '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/_sidebar-layout/settings/project/discord': typeof SidebarLayoutSettingsProjectDiscordRoute
   '/_sidebar-layout/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
@@ -702,6 +712,7 @@ export interface FileRouteTypes {
     | '/settings/organization/billing'
     | '/settings/organization/members'
     | '/settings/project/agent'
+    | '/settings/project/automations'
     | '/settings/project/budgets'
     | '/settings/project/discord'
     | '/settings/project/integrations'
@@ -766,6 +777,7 @@ export interface FileRouteTypes {
     | '/settings/organization/billing'
     | '/settings/organization/members'
     | '/settings/project/agent'
+    | '/settings/project/automations'
     | '/settings/project/budgets'
     | '/settings/project/discord'
     | '/settings/project/mattermost'
@@ -833,6 +845,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/organization/billing'
     | '/_sidebar-layout/settings/organization/members'
     | '/_sidebar-layout/settings/project/agent'
+    | '/_sidebar-layout/settings/project/automations'
     | '/_sidebar-layout/settings/project/budgets'
     | '/_sidebar-layout/settings/project/discord'
     | '/_sidebar-layout/settings/project/integrations'
@@ -1261,6 +1274,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectBudgetsRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/automations': {
+      id: '/_sidebar-layout/settings/project/automations'
+      path: '/automations'
+      fullPath: '/settings/project/automations'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectAutomationsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/agent': {
       id: '/_sidebar-layout/settings/project/agent'
       path: '/agent'
@@ -1429,6 +1449,7 @@ const SidebarLayoutSettingsProjectUserGroupsRouteWithChildren =
 
 interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectAgentRoute: typeof SidebarLayoutSettingsProjectAgentRoute
+  SidebarLayoutSettingsProjectAutomationsRoute: typeof SidebarLayoutSettingsProjectAutomationsRoute
   SidebarLayoutSettingsProjectBudgetsRoute: typeof SidebarLayoutSettingsProjectBudgetsRoute
   SidebarLayoutSettingsProjectDiscordRoute: typeof SidebarLayoutSettingsProjectDiscordRoute
   SidebarLayoutSettingsProjectIntegrationsRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
@@ -1450,6 +1471,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
   {
     SidebarLayoutSettingsProjectAgentRoute:
       SidebarLayoutSettingsProjectAgentRoute,
+    SidebarLayoutSettingsProjectAutomationsRoute:
+      SidebarLayoutSettingsProjectAutomationsRoute,
     SidebarLayoutSettingsProjectBudgetsRoute:
       SidebarLayoutSettingsProjectBudgetsRoute,
     SidebarLayoutSettingsProjectDiscordRoute:

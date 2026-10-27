@@ -17,6 +17,7 @@ import type { MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 
 import type { StoryItem } from '@/lib/stories-page';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import {
 	AuthorDateLabel,
 	CertifiedBadge,
@@ -544,14 +545,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 	const { isViewer, isAdmin } = usePermissions();
 
 	function invalidateAfterArchive() {
-		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listSharedArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+		invalidateStoryArchiveCaches(queryClient);
 	}
 
 	const archiveChatStory = useMutation(trpc.story.archive.mutationOptions({ onSuccess: invalidateAfterArchive }));

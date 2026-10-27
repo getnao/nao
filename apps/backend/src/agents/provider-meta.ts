@@ -154,6 +154,11 @@ const OPENAI_REASONING: ModelCapabilities = {
 	extraParams: OPENAI_REASONING_EXTRAS,
 	serviceTierOptions: OPENAI_TIERS,
 };
+const BEDROCK_GEO_PREFIXED_ID = /^[a-z]+(?:-[a-z]+)?\.([a-z0-9-]+\..+)$/;
+const BEDROCK_GEO_TWIN_PREFIXES = ['us', 'global'];
+
+type KnownModel = { id: string; capabilities?: ModelCapabilities };
+
 /** Custom/unlisted OpenAI reasoning models: full effort surface incl. xhigh (e.g. Codex-Max variants). */
 const OPENAI_REASONING_CUSTOM: ModelCapabilities = {
 	...OPENAI_REASONING,
@@ -1177,7 +1182,7 @@ export function isAnthropicApiModel(provider: LlmProvider, modelId: string): boo
  * defaults for custom (unlisted) models so tuning still works for user-added model ids.
  */
 export function getModelCapabilities(provider: LlmProvider, modelId: string): ModelCapabilities | undefined {
-	const known = getProviderMeta(provider).models.find((m) => m.id === modelId);
+	const known = findKnownModel(provider, modelId);
 	if (known?.capabilities) {
 		return known.capabilities;
 	}
@@ -1217,6 +1222,33 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 		default:
 			return undefined;
 	}
+}
+
+function findKnownModel(provider: LlmProvider, modelId: string): KnownModel | undefined {
+	const models: readonly KnownModel[] = getProviderMeta(provider).models;
+	const exact = models.find((m) => m.id === modelId);
+	if (exact || providerKind(provider) !== 'bedrock') {
+		return exact;
+	}
+	return findBedrockGeoTwin(models, modelId);
+}
+
+/**
+ * Bedrock inference profiles share a model across geo prefixes (`eu.`, `apac.`, `us-gov.`...), but the
+ * catalog lists only some of them. An unlisted geo id takes the capabilities of its `us.` or `global.` twin.
+ */
+export function findBedrockGeoTwin(models: readonly KnownModel[], modelId: string): KnownModel | undefined {
+	const baseId = BEDROCK_GEO_PREFIXED_ID.exec(modelId)?.[1];
+	if (!baseId) {
+		return undefined;
+	}
+	for (const geo of BEDROCK_GEO_TWIN_PREFIXES) {
+		const twin = models.find((m) => m.id === `${geo}.${baseId}`);
+		if (twin) {
+			return twin;
+		}
+	}
+	return undefined;
 }
 
 /** Temperature upper bound when a model's capabilities don't declare one. */

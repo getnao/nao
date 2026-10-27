@@ -88,6 +88,33 @@ export const DIALECT_GUIDANCE: DialectGuidance[] = [
 				<Code>BOOL_OR()</Code>/<Code>BOOL_AND()</Code>. An <Code>ORDER BY</Code> that references a column not in
 				the <Code>GROUP BY</Code> and not aggregated raises a 400 error.
 			</>,
+			<>
+				Do not use <Code>ILIKE</Code> — it is not supported. For case-insensitive matching use{' '}
+				<Code>LOWER(col) LIKE LOWER('%pattern%')</Code> or <Code>REGEXP_CONTAINS(col, r'(?i)pattern')</Code>.
+			</>,
+			<>
+				<Code>GROUP BY ALL</Code> is supported — prefer it over listing every non-aggregated column.
+			</>,
+			<>
+				<Code>TIMESTAMP</Code>, <Code>DATETIME</Code> and <Code>DATE</Code> are distinct types, and comparing a{' '}
+				<Code>TIMESTAMP</Code> to a <Code>DATE</Code> or <Code>DATETIME</Code> fails: check the column type
+				first and match it. Wrong: <Code>ts_col &gt;= CURRENT_DATE()</Code>. Right:{' '}
+				<Code>ts_col &gt;= TIMESTAMP('2024-01-01')</Code> or <Code>DATE(ts_col) &gt;= CURRENT_DATE()</Code>. Use
+				the function family of the column type (<Code>TIMESTAMP_TRUNC</Code>/<Code>TIMESTAMP_DIFF</Code>,{' '}
+				<Code>DATETIME_TRUNC</Code>/<Code>DATETIME_DIFF</Code>, <Code>DATE_TRUNC</Code>/<Code>DATE_DIFF</Code>).
+			</>,
+			<>
+				<Code>TIMESTAMP_ADD</Code>/<Code>TIMESTAMP_SUB</Code> only accept intervals up to <Code>DAY</Code>. For{' '}
+				<Code>WEEK</Code>, <Code>MONTH</Code>, <Code>QUARTER</Code> or <Code>YEAR</Code>, work on dates, e.g.{' '}
+				<Code>DATE(ts_col) &gt;= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)</Code>.
+			</>,
+			<>
+				Do not use Postgres-style date syntax: use <Code>CURRENT_TIMESTAMP()</Code> instead of{' '}
+				<Code>NOW()</Code>, <Code>INTERVAL 30 DAY</Code> instead of <Code>INTERVAL '30 days'</Code>,{' '}
+				<Code>CAST(x AS TIMESTAMP)</Code> instead of <Code>x::timestamp</Code>,{' '}
+				<Code>DATE_TRUNC(col, MONTH)</Code> instead of <Code>DATE_TRUNC('month', col)</Code>, and{' '}
+				<Code>UNIX_SECONDS(ts_col)</Code> instead of <Code>EXTRACT(EPOCH FROM ts_col)</Code>.
+			</>,
 		],
 	},
 	{

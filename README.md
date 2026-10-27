@@ -330,4 +330,4 @@ nao Labs is a proud Y Combinator company!
 
 ## 📄 License
 
-nao is licensed under the Apache 2.0 License, except for files marked with `/* @license Enterprise */`, which are under the nao Labs Commercial License. See the [LICENSE](LICENSE) file for details.
+nao is licensed under the Apache 2.0 License (see [LICENSE](LICENSE)), except for files marked with `/* @license Enterprise */`, which are subject to the nao Labs Commercial License in [LICENSE-ENTERPRISE](LICENSE-ENTERPRISE).

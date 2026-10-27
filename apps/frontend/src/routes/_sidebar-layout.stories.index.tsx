@@ -44,6 +44,7 @@ import {
 	STORIES_DISPLAY_KEY,
 	writeStoredSort,
 } from '@/lib/stories-page';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -86,17 +87,6 @@ type DialogState =
 	| { kind: 'picker-story'; item: StoryItem }
 	| { kind: 'picker-folder'; folder: FolderItem }
 	| null;
-
-function invalidateFolderAndStoryCaches(queryClient: ReturnType<typeof useQueryClient>): void {
-	queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.story.listSharedArchived.queryKey() });
-	queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-}
 
 function StoriesPage() {
 	const { data: session } = useSession();
@@ -410,13 +400,13 @@ function StoriesPage() {
 
 	const archiveFolderMutation = useMutation(
 		trpc.storyFolder.archive.mutationOptions({
-			onSuccess: () => invalidateFolderAndStoryCaches(queryClient),
+			onSuccess: () => invalidateStoryArchiveCaches(queryClient),
 		}),
 	);
 
 	const unarchiveFolderMutation = useMutation(
 		trpc.storyFolder.unarchive.mutationOptions({
-			onSuccess: () => invalidateFolderAndStoryCaches(queryClient),
+			onSuccess: () => invalidateStoryArchiveCaches(queryClient),
 		}),
 	);
 
@@ -431,7 +421,7 @@ function StoriesPage() {
 	const bulkArchiveStoryMutation = useMutation(
 		trpc.story.bulkArchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectStoryIds(variables.items.map((item) => item.storyId));
 			},
 		}),
@@ -440,7 +430,7 @@ function StoriesPage() {
 	const bulkUnarchiveStoryMutation = useMutation(
 		trpc.story.bulkUnarchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectStoryIds(variables.items.map((item) => item.storyId));
 			},
 		}),
@@ -449,7 +439,7 @@ function StoriesPage() {
 	const bulkArchiveFolderMutation = useMutation(
 		trpc.storyFolder.bulkArchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectFolderIds(variables.ids);
 			},
 		}),
@@ -458,7 +448,7 @@ function StoriesPage() {
 	const bulkUnarchiveFolderMutation = useMutation(
 		trpc.storyFolder.bulkUnarchive.mutationOptions({
 			onSuccess: (_data, variables) => {
-				invalidateFolderAndStoryCaches(queryClient);
+				invalidateStoryArchiveCaches(queryClient);
 				deselectFolderIds(variables.ids);
 			},
 		}),

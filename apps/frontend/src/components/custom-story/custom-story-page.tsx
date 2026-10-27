@@ -55,7 +55,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
 	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
-	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning;
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived;
 
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
@@ -118,7 +118,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 				}}
 			/>
 
-			{Boolean(content?.archivedAt) && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
+			{story.isArchived && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
 			{story.restoreError && <ActionErrorBanner message={story.restoreError.message} />}
 
 			<CustomStoryViewLayers
