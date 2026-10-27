@@ -1,6 +1,6 @@
 import { isQueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { and, asc, count, desc, eq, inArray, isNull, lte, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm';
 
 import s, {
 	type DBAutomation,
@@ -47,6 +47,36 @@ export const listAutomations = async (projectId: string, userId: string): Promis
 	);
 };
 
+export type AutomationOwner = { id: string; name: string; email: string };
+
+export type ProjectAutomationListItem = AutomationListItem & {
+	owner: AutomationOwner | null;
+};
+
+export const listProjectAutomations = async (projectId: string): Promise<ProjectAutomationListItem[]> => {
+	await failStaleAutomationRuns();
+	const rows = await db
+		.select({
+			automation: s.automation,
+			scheduledJob: s.scheduledJob,
+			owner: { id: s.user.id, name: s.user.name, email: s.user.email },
+		})
+		.from(s.automation)
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.leftJoin(s.user, eq(s.user.id, s.automation.userId))
+		.where(eq(s.automation.projectId, projectId))
+		.orderBy(desc(s.automation.updatedAt))
+		.execute();
+
+	return Promise.all(
+		rows.map(async ({ automation, scheduledJob, owner }) => ({
+			...mapAutomationWithSchedule(automation, scheduledJob),
+			...(await getLatestRunSummary(automation.id)),
+			owner,
+		})),
+	);
+};
+
 async function getLatestRunSummary(
 	automationId: string,
 ): Promise<Pick<AutomationListItem, 'lastRunStatus' | 'lastRunStartedAt'>> {
@@ -77,6 +107,16 @@ export const getAutomation = async (
 		.from(s.automation)
 		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
 		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.execute();
+	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
+};
+
+export const getProjectAutomation = async (projectId: string, id: string): Promise<AutomationWithSchedule | null> => {
+	const [row] = await db
+		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
+		.from(s.automation)
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId)))
 		.execute();
 	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
 };
@@ -127,6 +167,23 @@ export const updateAutomation = async (
 		.returning()
 		.execute();
 	return updated ?? null;
+};
+
+export const setAutomationWebhookEnabled = async (id: string, webhookEnabled: boolean): Promise<void> => {
+	await db.update(s.automation).set({ webhookEnabled }).where(eq(s.automation.id, id)).execute();
+};
+
+/** Also hands over the chats of past runs so the new owner can open the run history. */
+export const transferAutomationOwnership = async (id: string, newOwnerId: string): Promise<void> => {
+	await db.transaction(async (tx) => {
+		await tx.update(s.automation).set({ userId: newOwnerId }).where(eq(s.automation.id, id)).execute();
+
+		const runChatIds = tx
+			.select({ chatId: s.automationRun.chatId })
+			.from(s.automationRun)
+			.where(and(eq(s.automationRun.automationId, id), isNotNull(s.automationRun.chatId)));
+		await tx.update(s.chat).set({ userId: newOwnerId }).where(inArray(s.chat.id, runChatIds)).execute();
+	});
 };
 
 export const deleteAutomation = async (projectId: string, userId: string, id: string): Promise<void> => {

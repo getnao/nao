@@ -286,6 +286,7 @@ export function Sidebar() {
 					isCollapsed={effectiveIsCollapsed}
 					canSeeAdvancedSettings={canSeeAdvancedSettings}
 					isAdmin={isAdmin}
+					isAutomationsEnabled={betaAutomationsEnabled}
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}

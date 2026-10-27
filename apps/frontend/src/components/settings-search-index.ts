@@ -20,6 +20,7 @@ export interface SettingsSearchEntry {
 	cloudOnly?: boolean;
 	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
+	betaAutomationsOnly?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -1101,6 +1102,29 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Mark sensitive tables and choose the constraint columns group row policies may use.',
 		keywords: ['security', 'rows', 'rls', 'predicates', 'where', 'constraint columns', 'sensitive tables'],
 		adminOnly: true,
+	},
+
+	// ── Project > Automations ────────────────────────────────
+	{
+		page: '/settings/project/automations',
+		pageLabel: 'Automations',
+		title: 'All automations',
+		description: 'Review, disable, reassign, and delete the automations created by every member of this project.',
+		keywords: [
+			'automations',
+			'schedules',
+			'cron',
+			'webhook',
+			'disable',
+			'pause',
+			'transfer',
+			'owner',
+			'orphaned',
+			'delete',
+			'remove',
+		],
+		adminOnly: true,
+		betaAutomationsOnly: true,
 	},
 
 	// ── Usage & Costs ──────────────────────────────────────────
