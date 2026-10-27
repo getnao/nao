@@ -80,6 +80,7 @@ export interface StripeAccountInvoice {
 	stripeCustomerId: string | null;
 	status: Stripe.Invoice.Status | null;
 	billingReason: Stripe.Invoice.BillingReason | null;
+	invoiceKind: 'subscription' | 'credit_top_up';
 	total: number;
 	amountPaid: number;
 	currency: string;
@@ -362,14 +363,13 @@ export async function listCloudInvoices(stripeCustomerId: string): Promise<Cloud
 	return invoices.map((invoice) => ({
 		id: invoice.id,
 		number: invoice.number,
-		invoiceKind:
-			invoice.metadata?.[CHECKOUT_KIND_METADATA_KEY] === CREDIT_TOP_UP_CHECKOUT_KIND
-				? 'credit_top_up'
-				: invoice.total !== 0
-					? 'subscription'
-					: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
-						? 'trial'
-						: 'no_charge',
+		invoiceKind: isCreditTopUpInvoice(invoice)
+			? 'credit_top_up'
+			: invoice.total !== 0
+				? 'subscription'
+				: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
+					? 'trial'
+					: 'no_charge',
 		promotionCodes: invoicePromotionCodes(invoice),
 		status: invoice.status,
 		createdAt: new Date(invoice.created * 1_000),
@@ -405,6 +405,7 @@ export async function listStripeInvoicesCreatedSince(createdSince: Date): Promis
 			stripeCustomerId: invoice.customer ? stripeCustomerId(invoice.customer) : null,
 			status: invoice.status,
 			billingReason: invoice.billing_reason,
+			invoiceKind: isCreditTopUpInvoice(invoice) ? 'credit_top_up' : 'subscription',
 			total: invoice.total,
 			amountPaid: invoice.amount_paid,
 			currency: invoice.currency,
@@ -993,6 +994,10 @@ async function findCheckoutSession(
 		}
 	}
 	return undefined;
+}
+
+function isCreditTopUpInvoice(invoice: Pick<Stripe.Invoice, 'metadata'>): boolean {
+	return invoice.metadata?.[CHECKOUT_KIND_METADATA_KEY] === CREDIT_TOP_UP_CHECKOUT_KIND;
 }
 
 function invoicePromotionCodes(invoice: Pick<Stripe.Invoice, 'discounts'>): string[] {

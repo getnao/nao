@@ -1,9 +1,9 @@
 import type { DBManagedAiUsage, NewManagedAiUsage } from '../db/abstractSchema';
-import type { CreditPurchase, CreditPurchaseMovement } from '../queries/credit-ledger.queries';
+import type { BackofficeCreditTopUp, CreditPurchase, CreditPurchaseMovement } from '../queries/credit-ledger.queries';
 import * as creditLedgerQueries from '../queries/credit-ledger.queries';
 import { creditGrantIdempotencyKey, type CreditGrantType } from '../types/managed-ai-usage';
 
-export type { CreditPurchase } from '../queries/credit-ledger.queries';
+export type { BackofficeCreditTopUp, CreditPurchase } from '../queries/credit-ledger.queries';
 
 export async function issueCreditGrant({
 	grantType,
@@ -32,6 +32,11 @@ export async function issueCreditGrant({
 export async function issueCreditPurchase(purchase: CreditPurchase): Promise<boolean> {
 	validatePositiveAmount(purchase.walletAmountMicroUsd, 'Credit purchase');
 	return creditLedgerQueries.issueCreditPurchase(purchase);
+}
+
+export async function issueBackofficeCreditTopUp(topUp: BackofficeCreditTopUp): Promise<boolean> {
+	validatePositiveAmount(topUp.amountMicroUsd, 'Backoffice credit top-up');
+	return creditLedgerQueries.issueBackofficeCreditTopUp(topUp);
 }
 
 export async function setCreditPurchaseMovement(input: CreditPurchaseMovement): Promise<boolean> {

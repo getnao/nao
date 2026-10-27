@@ -43,6 +43,14 @@ export interface CreditGrant {
 	projectId?: string;
 }
 
+export interface BackofficeCreditTopUp {
+	orgId: string;
+	amountMicroUsd: number;
+	requestId: string;
+	grantedBy: string;
+	reason: string;
+}
+
 type LedgerEntry = Omit<
 	NewCreditLedger,
 	'id' | 'walletId' | 'balanceAfterMicroUsd' | 'transactionSequence' | 'createdAt'
@@ -56,20 +64,11 @@ export async function issueCreditGrant(input: CreditGrant): Promise<boolean> {
 }
 
 export async function issueCreditPurchase(purchase: CreditPurchase): Promise<boolean> {
-	const entry = creditPurchaseEntry(purchase);
-	if (dbConfig.dialect === Dialect.Sqlite) {
-		return db.transaction(
-			(transaction) => {
-				const wallet = ensureSqliteWallet(transaction, purchase.orgId);
-				return appendSqliteLedgerEntry(transaction, wallet.id, entry);
-			},
-			{ behavior: 'immediate' },
-		);
-	}
-	return db.transaction(async (transaction) => {
-		const wallet = await ensurePostgresWallet(transaction, purchase.orgId);
-		return appendPostgresLedgerEntry(transaction, wallet.id, entry);
-	});
+	return appendOrganizationLedgerEntry(purchase.orgId, creditPurchaseEntry(purchase));
+}
+
+export async function issueBackofficeCreditTopUp(topUp: BackofficeCreditTopUp): Promise<boolean> {
+	return appendOrganizationLedgerEntry(topUp.orgId, backofficeCreditTopUpEntry(topUp));
 }
 
 export async function setCreditPurchaseMovement(input: CreditPurchaseMovement): Promise<boolean> {
@@ -142,6 +141,22 @@ export async function recordManagedAiUsageAndChargeWallet(
 	return db.transaction((transaction) =>
 		settlePostgresManagedAiUsage(transaction, usage, customerChargeMicroUsd, billedOrgId),
 	);
+}
+
+async function appendOrganizationLedgerEntry(orgId: string, entry: LedgerEntry): Promise<boolean> {
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		return db.transaction(
+			(transaction) => {
+				const wallet = ensureSqliteWallet(transaction, orgId);
+				return appendSqliteLedgerEntry(transaction, wallet.id, entry);
+			},
+			{ behavior: 'immediate' },
+		);
+	}
+	return db.transaction(async (transaction) => {
+		const wallet = await ensurePostgresWallet(transaction, orgId);
+		return appendPostgresLedgerEntry(transaction, wallet.id, entry);
+	});
 }
 
 function issueSqliteCreditGrant(transaction: DBTransaction, input: CreditGrant): boolean {
@@ -662,6 +677,20 @@ function creditPurchaseEntry(purchase: CreditPurchase): LedgerEntry {
 			walletAmountMicroUsd: purchase.walletAmountMicroUsd,
 			taxAmountCents: purchase.taxAmountCents,
 			totalAmountCents: purchase.totalAmountCents,
+		},
+	};
+}
+
+function backofficeCreditTopUpEntry(topUp: BackofficeCreditTopUp): LedgerEntry {
+	return {
+		entryType: 'gift',
+		deltaMicroUsd: topUp.amountMicroUsd,
+		idempotencyKey: `backoffice-top-up:${topUp.requestId}`,
+		metadata: {
+			source: 'backoffice',
+			amountMicroUsd: topUp.amountMicroUsd,
+			grantedBy: topUp.grantedBy,
+			reason: topUp.reason,
 		},
 	};
 }
