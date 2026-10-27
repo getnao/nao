@@ -9,8 +9,8 @@ import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 
 import type { StoryFilterApi } from '@/hooks/use-story-filters';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
-import { Button } from '@/components/ui/button';
 import { StoryFilterOptionPicker } from '@/components/story-filter-option-picker';
+import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -103,7 +103,7 @@ function StoryFilterControl({
 	onOptionError: (filterId: string, error: string | null) => void;
 	api?: StoryFilterApi | null;
 }) {
-	const { options, error, isLoading } = useFilterOptions(filter, api);
+	const { options, truncated, error, isLoading } = useFilterOptions(filter, api);
 
 	useEffect(() => {
 		onOptionError(filter.id, error);
@@ -131,10 +131,10 @@ function StoryFilterControl({
 					<FilterOptionsLoading />
 				) : (
 					<StoryFilterOptionPicker
-						filterId={filter.id}
 						label={filter.label}
 						mode='single'
-						sourceOptions={options}
+						options={options}
+						truncated={truncated}
 						value={typeof selection === 'string' && selection ? [selection] : []}
 						onChange={(value) => onChange(value[0] ?? '')}
 					/>
@@ -144,10 +144,10 @@ function StoryFilterControl({
 					<FilterOptionsLoading />
 				) : (
 					<StoryFilterOptionPicker
-						filterId={filter.id}
 						label={filter.label}
 						mode='multi'
-						sourceOptions={options}
+						options={options}
+						truncated={truncated}
 						value={Array.isArray(selection) ? selection : []}
 						onChange={onChange}
 					/>
@@ -296,7 +296,7 @@ function FilterOptionsErrorBanner({
 function useFilterOptions(
 	filter: ParsedFilterBlock,
 	api?: StoryFilterApi | null,
-): { options: string[]; error: string | null; isLoading: boolean } {
+): { options: string[]; truncated: boolean; error: string | null; isLoading: boolean } {
 	const usesHardcodedOptions = Boolean(filter.options?.length);
 	const needsRemoteOptions =
 		!usesHardcodedOptions && (filter.filterType === 'select' || filter.filterType === 'multi_select');
@@ -319,12 +319,13 @@ function useFilterOptions(
 	});
 
 	if (usesHardcodedOptions) {
-		return { options: filter.options ?? [], error: null, isLoading: false };
+		return { options: filter.options ?? [], truncated: false, error: null, isLoading: false };
 	}
 
 	const query = api?.kind === 'shared' ? sharedQuery : ownedQuery;
 	return {
 		options: query.data?.options ?? [],
+		truncated: query.data?.truncated ?? false,
 		error: query.error?.message ?? null,
 		isLoading: needsRemoteOptions && Boolean(api) && query.isPending,
 	};
