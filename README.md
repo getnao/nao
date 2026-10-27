@@ -262,4 +262,4 @@ nao Labs is a proud Y Combinator company!
 
 ## 📄 License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details. Files marked with `/* @license Enterprise */` are subject to the commercial terms in [LICENSE-ENTERPRISE](LICENSE-ENTERPRISE).
