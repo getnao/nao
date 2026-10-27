@@ -12,8 +12,9 @@ const slackInviteUrl = 'https://join.slack.com/t/naolabs/shared_invite/zt-4080jl
 
 export function RouteErrorPage({ error, fullScreen = false }: { error?: unknown; fullScreen?: boolean }) {
 	const isHomePage = window.location.pathname === '/';
+	const pageUrl = `${window.location.origin}${window.location.pathname}`;
 	const errorReport = getErrorReport(error);
-	const errorDetails = getErrorDetails(errorReport);
+	const errorDetails = getErrorDetails(errorReport, pageUrl);
 	const { copy } = useCopyToClipboard();
 	const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 	const [copyStatus, setCopyStatus] = useState<'idle' | 'copying' | 'failed'>('idle');
@@ -23,13 +24,15 @@ export function RouteErrorPage({ error, fullScreen = false }: { error?: unknown;
 			window.open(slackInviteUrl, '_blank', 'noopener,noreferrer');
 			return;
 		}
+		setCopyStatus('copying');
+		const copyPromise = copy(errorDetails);
 		const slackWindow = window.open('about:blank', '_blank');
 		if (slackWindow) {
 			slackWindow.opener = null;
 		}
-		setCopyStatus('copying');
 		try {
-			await copy(errorDetails);
+			await copyPromise;
+			setCopyStatus('idle');
 			if (slackWindow) {
 				slackWindow.location.replace(slackInviteUrl);
 			} else {
@@ -52,7 +55,7 @@ export function RouteErrorPage({ error, fullScreen = false }: { error?: unknown;
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
 					...errorReport,
-					pageUrl: `${window.location.origin}${window.location.pathname}`,
+					pageUrl,
 				}),
 			});
 			setSendStatus(response.ok ? 'sent' : 'failed');
@@ -158,14 +161,25 @@ function getErrorReport(error: unknown): { message: string; stack?: string } | u
 	return { message: `${error.name}: ${error.message}`, stack: error.stack };
 }
 
-function getErrorDetails(errorReport: { message: string; stack?: string } | undefined): string | undefined {
+function getErrorDetails(
+	errorReport: { message: string; stack?: string } | undefined,
+	pageUrl: string,
+): string | undefined {
 	if (!errorReport) {
 		return undefined;
 	}
-	if (!errorReport.stack || errorReport.stack.startsWith(errorReport.message)) {
-		return errorReport.stack ?? errorReport.message;
+
+	const details = [
+		'Nao error report',
+		'',
+		`Error: ${errorReport.message}`,
+		`Page: ${pageUrl}`,
+		`Occurred: ${new Date().toISOString()}`,
+	];
+	if (errorReport.stack) {
+		details.push('', 'Technical details:', errorReport.stack);
 	}
-	return `${errorReport.message}\n\n${errorReport.stack}`;
+	return details.join('\n');
 }
 
 function getSendStatusLabel(status: 'idle' | 'sending' | 'sent' | 'failed'): string {

@@ -23,7 +23,6 @@ describe('sendErrorReport', () => {
 
 	it('sends self-hosted reports without authorization', async () => {
 		process.env.NAO_MODE = 'self-hosted';
-		delete process.env.CLOUD_ERROR_INGEST_TOKEN;
 		__reloadEnvForTesting();
 		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
 		vi.stubGlobal('fetch', fetchMock);
@@ -47,7 +46,7 @@ describe('sendErrorReport', () => {
 		);
 	});
 
-	it('authenticates reports when a cloud token is configured', async () => {
+	it('sends cloud reports without authorization', async () => {
 		setCloudEnv();
 		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
 		vi.stubGlobal('fetch', fetchMock);
@@ -56,10 +55,7 @@ describe('sendErrorReport', () => {
 		expect(fetchMock).toHaveBeenCalledWith(
 			expect.any(String),
 			expect.objectContaining({
-				headers: {
-					'content-type': 'application/json',
-					authorization: 'Bearer cloud-token',
-				},
+				headers: { 'content-type': 'application/json' },
 			}),
 		);
 	});
@@ -76,7 +72,6 @@ function createErrorReport() {
 function setCloudEnv() {
 	Object.assign(process.env, {
 		NAO_MODE: 'cloud',
-		CLOUD_ERROR_INGEST_TOKEN: 'cloud-token',
 		CLOUD_GITHUB_PROJECT_ORG: 'test-org',
 		CLOUD_GITHUB_PROJECT_APP_ID: '123',
 		CLOUD_GITHUB_PROJECT_INSTALLATION_ID: '456',

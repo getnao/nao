@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { AppErrorBoundary } from './app-error-boundary';
@@ -8,6 +8,7 @@ import { AppErrorBoundary } from './app-error-boundary';
 const firefoxStack = 'TRPCClientError2@http://localhost:3000/chunk.js:1861:5';
 
 afterEach(() => {
+	cleanup();
 	vi.restoreAllMocks();
 	Reflect.deleteProperty(document, 'execCommand');
 });
@@ -15,13 +16,20 @@ afterEach(() => {
 it('shows the error page and reports the error when a child fails to render', async () => {
 	vi.spyOn(console, 'error').mockImplementation(() => undefined);
 	const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
-	const writeText = vi.fn().mockResolvedValue(undefined);
+	const slackActions: string[] = [];
+	const writeText = vi.fn().mockImplementation(() => {
+		slackActions.push('copy');
+		return Promise.resolve();
+	});
 	const replace = vi.fn();
-	vi.spyOn(window, 'open').mockReturnValue({
-		close: vi.fn(),
-		location: { replace },
-		opener: window,
-	} as unknown as Window);
+	vi.spyOn(window, 'open').mockImplementation(() => {
+		slackActions.push('open');
+		return {
+			close: vi.fn(),
+			location: { replace },
+			opener: window,
+		} as unknown as Window;
+	});
 	Object.defineProperty(navigator, 'clipboard', {
 		configurable: true,
 		value: { writeText },
@@ -47,8 +55,25 @@ it('shows the error page and reports the error when a child fails to render', as
 	});
 
 	fireEvent.click(screen.getByRole('button', { name: 'Copy error details and open Slack' }));
-	expect(writeText).toHaveBeenCalledWith(`TRPCClientError: Render failed\n\n${firefoxStack}`);
+	expect(writeText).toHaveBeenCalledWith(
+		expect.stringMatching(
+			new RegExp(
+				[
+					'^Nao error report',
+					'',
+					'Error: TRPCClientError: Render failed',
+					`Page: ${window.location.origin}${window.location.pathname}`,
+					'Occurred: .+',
+					'',
+					'Technical details:',
+					firefoxStack.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+				].join('\\n'),
+			),
+		),
+	);
+	expect(slackActions).toEqual(['copy', 'open']);
 	await waitFor(() => expect(replace).toHaveBeenCalledWith(expect.stringContaining('join.slack.com')));
+	expect(screen.getByRole('button', { name: 'Copy error details and open Slack' })).toBeTruthy();
 });
 
 it('shows manual error details when copying for Slack fails', async () => {
