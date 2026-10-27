@@ -212,7 +212,6 @@ The core of nao is open source under Apache 2.0. The [Enterprise license](https:
 | User groups | Up to 3 | Unlimited |
 | Multiple projects (separate data, context and access) | | ✅ |
 | Microsoft Entra ID and OIDC SSO | | ✅ |
-| Group mapping from your identity provider | | ✅ |
 | Row-level security | | ✅ |
 | Warehouse identity passthrough | | ✅ |
 | LLM budgets per member and per group | | ✅ |
