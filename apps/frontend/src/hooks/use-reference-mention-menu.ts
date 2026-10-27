@@ -43,7 +43,7 @@ export function useReferenceableStories(filter: ReferenceFilter = {}): {
 	return { stories: useFilteredStories(allStories, filter), isLoaded: isSuccess };
 }
 
-/** The referenceable list stops at its most trusted and recent stories, so older mentioned stories are resolved one by one. */
+/** Labels mentions in sent messages whose story is no longer referenceable, e.g. archived since, resolving them one by one. */
 export function useMentionedStoryOptions(text: string, knownOptions: MentionOption[]): MentionOption[] {
 	const missingStoryIds = useMemo(() => {
 		const knownIds = new Set(knownOptions.map((option) => option.id));

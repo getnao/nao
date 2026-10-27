@@ -20,6 +20,7 @@ import {
 import {
 	expandStoryReferences,
 	keepStoryReferencesThroughCompaction,
+	listAllReferenceableStories,
 	listMostViewedStories,
 	readReferencedStory,
 } from '../src/services/story-reference';
@@ -414,7 +415,7 @@ describe('referencing other stories', () => {
 		expect(oneFile).toEqual([{ virtualPath: `/story-library/${CERTIFIED_STORY}/story.md`, content: REVENUE_CODE }]);
 	});
 
-	it('pages a library grep through every story the user can see, past the listing cap', async () => {
+	it('pages a library grep and the mention list through every story the user can see, past the listing cap', async () => {
 		const ownerScope = { userId: OWNER_ID, projectId: PROJECT_ID };
 		const storyIds = Array.from(
 			{ length: MAX_REFERENCEABLE_STORIES_LIMIT + 5 },
@@ -433,11 +434,13 @@ describe('referencing other stories', () => {
 
 		const batches = await Array.fromAsync(storyLibraryFileBatchesToGrep(ownerScope, '/story-library', 'story.md'));
 		const libraryRoot = await listStoryLibrary(ownerScope, '/story-library');
+		const mentionable = new Set((await listAllReferenceableStories(ownerScope)).map((story) => story.storyId));
 
 		const grepped = new Set(batches.flat().map((file) => file.content));
 		expect(storyIds.every((storyId) => grepped.has(storyId))).toBe(true);
 		expect(batches.length).toBeGreaterThan(1);
 		expect(libraryRoot).toHaveLength(MAX_REFERENCEABLE_STORIES_LIMIT);
+		expect(storyIds.every((storyId) => mentionable.has(storyId))).toBe(true);
 
 		await db.delete(s.storyVersion).where(inArray(s.storyVersion.storyId, storyIds));
 		await db.delete(s.story).where(inArray(s.story.id, storyIds));

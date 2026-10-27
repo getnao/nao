@@ -60,7 +60,7 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
-import { listMostViewedStories } from '../services/story-reference';
+import { listAllReferenceableStories, listMostViewedStories } from '../services/story-reference';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -206,9 +206,7 @@ export const storyRoutes = {
 	}),
 
 	listReferenceable: projectProtectedProcedure.query(async ({ ctx }) => {
-		const stories = await storyReferenceQueries.listReferenceableStories(ctx.user.id, ctx.project.id, {
-			limit: storyReferenceQueries.MAX_REFERENCEABLE_STORIES_LIMIT,
-		});
+		const stories = await listAllReferenceableStories({ userId: ctx.user.id, projectId: ctx.project.id });
 		return stories.map(toReferenceableStoryItem);
 	}),
 
