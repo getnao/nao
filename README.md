@@ -61,8 +61,8 @@ Context work is what takes an analytics agent from 15% to 85% reliability. nao g
 **Secure by design**
 
 - 🔒 **Self-host it** on your own infrastructure, or run it on [nao Cloud](https://app.getnao.io/signup).
-- 🔑 **Bring your own LLM key**, with budgets per user and per team.
-- 🛡️ **Your SSO and warehouse permissions**: Okta, Google, Microsoft Entra ID or any OIDC. Your data is never used to train models. See our [Trust Center](https://compliance.getnao.io/).
+- 🔑 **Bring your own LLM key**, with budgets per user and per team (Enterprise).
+- 🛡️ **Your SSO and warehouse permissions** (Enterprise): Okta, Microsoft Entra ID or any OIDC, row-level security and identity passthrough. Your data is never used to train models. See our [Trust Center](https://compliance.getnao.io/).
 
 ## ⚡️ Quickstart
 
@@ -210,6 +210,28 @@ docker run -d \
 
 Access the UI at http://localhost:5005 (or at any URL you configured). See the [DockerHub page](https://hub.docker.com/r/getnao/nao) for more details.
 
+## 🏢 Open source vs Enterprise
+
+The core of nao is open source under Apache 2.0. The [Enterprise license](https://getnao.io/enterprise/) adds the controls large companies need, on the same self-hosted deployment. [nao Cloud](https://app.getnao.io/signup) includes the equivalent features.
+
+| Capability | Open source | Enterprise |
+| --- | :---: | :---: |
+| Open-source agent, chat UI and every LLM provider | ✅ | ✅ |
+| Slack, Teams, WhatsApp, Telegram and Mattermost bots | ✅ | ✅ |
+| Self-hosting on your infrastructure | ✅ | ✅ |
+| Google, GitHub and GitLab login | ✅ | ✅ |
+| User groups | Up to 3 | Unlimited |
+| Multiple projects (separate data, context and access) | | ✅ |
+| Microsoft Entra ID and OIDC SSO | | ✅ |
+| Group mapping from your identity provider | | ✅ |
+| Row-level security | | ✅ |
+| Warehouse identity passthrough | | ✅ |
+| LLM budgets per member and per group | | ✅ |
+| White-label branding | | ✅ |
+| Priority support and roadmap input | | ✅ |
+
+Yearly license per company. The license is verified offline at startup: your deployment never phones home. The nao team also helps with implementation, context engineering advisory and training. [Talk to us](https://getnao.io/enterprise/).
+
 ## Commands
 
 ```bash
@@ -306,4 +328,4 @@ nao Labs is a proud Y Combinator company!
 
 ## 📄 License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+nao is licensed under the Apache 2.0 License, except for files marked with `/* @license Enterprise */`, which are under the nao Labs Commercial License. See the [LICENSE](LICENSE) file for details.
