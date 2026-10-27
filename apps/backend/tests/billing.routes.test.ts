@@ -372,17 +372,14 @@ describe('billing.createTrialCheckoutSession', () => {
 		stripeMocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/trial');
 	});
 
-	it('opens a legacy trial Checkout with a stable duration in the selected currency', async () => {
+	it('requires project setup to start the trial before opening Checkout', async () => {
 		await expect(
 			caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly', currency: 'eur' }),
-		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
-		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
-			billingInterval: 'monthly',
-			currency: 'eur',
-			organizationId: 'org-id',
-			stripeCustomerId: 'cus_cloud',
-			trialDays: 14,
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'Finish setting up your first project before choosing a billing plan',
 		});
+		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
 	});
 
 	it('uses the remaining local trial when an admin chooses a plan', async () => {
@@ -465,6 +462,13 @@ describe('billing.createTrialCheckoutSession', () => {
 	});
 
 	it('maps unavailable Stripe trial Checkout to a conflict', async () => {
+		const trialEndsAt = new Date('2099-10-08T00:00:00.000Z');
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			billingAccessEndsAt: trialEndsAt,
+			trialStartedAt: new Date('2099-09-24T00:00:00.000Z'),
+			trialEndsAt,
+		});
 		stripeMocks.createCheckout.mockRejectedValueOnce(
 			new stripeService.CloudInitialCheckoutUnavailableError('Trial Checkout is unavailable'),
 		);
