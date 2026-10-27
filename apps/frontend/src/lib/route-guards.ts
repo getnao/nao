@@ -38,12 +38,6 @@ export async function requireOrganizationAdminCloudBilling() {
 	await requireOrganizationAdmin();
 }
 
-export async function requireOrganizationAdminCloud() {
-	const config = await requireCloud();
-	await requireOrganizationAdmin();
-	return config;
-}
-
 export async function requireCloud() {
 	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
 	if (config.naoMode !== 'cloud') {

@@ -75,7 +75,6 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudHidden || !isCloud) &&
 						(!entry.cloudOnly || isCloud) &&
 						(!entry.cloudBillingOnly || cloudBillingEnabled === true) &&
-						(!entry.cloudBillingDisabledOnly || cloudBillingEnabled === false) &&
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled),
 				)
 				.filter((entry) => canSeeAdvancedSettings || viewerVisiblePages.includes(entry.page)),

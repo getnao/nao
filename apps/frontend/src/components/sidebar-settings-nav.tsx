@@ -155,13 +155,6 @@ const settingsNavGroups: NavGroup[] = [
 				exact: true,
 			},
 			{
-				label: 'Organization credits',
-				to: '/settings/credits-wallet',
-				visible: ({ isCloud, isCloudBillingEnabled, isOrgAdmin }) =>
-					isCloud && !isCloudBillingEnabled && isOrgAdmin,
-				exact: true,
-			},
-			{
 				label: 'Storage',
 				to: '/settings/storage',
 				visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,

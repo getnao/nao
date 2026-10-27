@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { requireContextAdminOrAdmin, requireOrganizationAdminCloud } from './route-guards';
+import { requireContextAdminOrAdmin } from './route-guards';
 
 const mocks = vi.hoisted(() => ({
 	ensureQueryData: vi.fn(),
@@ -46,18 +46,5 @@ describe('requireContextAdminOrAdmin', () => {
 
 		await expect(requireContextAdminOrAdmin()).rejects.toBeDefined();
 		expect(mocks.ensureQueryData).toHaveBeenCalledTimes(1);
-	});
-});
-
-describe('requireOrganizationAdminCloud', () => {
-	beforeEach(() => {
-		mocks.ensureQueryData.mockReset();
-	});
-
-	it('allows a cloud organization admin when billing is disabled', async () => {
-		const config = { naoMode: 'cloud', cloudBillingEnabled: false };
-		mocks.ensureQueryData.mockResolvedValueOnce(config).mockResolvedValueOnce({ role: 'admin' });
-
-		await expect(requireOrganizationAdminCloud()).resolves.toBe(config);
 	});
 });

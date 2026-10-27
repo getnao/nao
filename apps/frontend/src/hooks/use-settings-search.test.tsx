@@ -86,16 +86,12 @@ describe('useSettingsSearch', () => {
 		expect(result.current.some((entry) => entry.title === title)).toBe(true);
 	});
 
-	it.each(['Balance', 'nao AI usage'])('targets the correct organization credit page for %s', (searchTitle) => {
+	it.each(['Balance', 'nao AI usage'])('only returns %s when cloud billing is enabled', (searchTitle) => {
 		mocks.isCloud = true;
 		Object.assign(mocks.permissions, { isOrgAdmin: true, isViewer: false });
 		const { result, rerender } = renderHook(() => useSettingsSearch(searchTitle));
 
-		const creditsOnlyEntry = result.current.find((entry) => entry.title === searchTitle);
-		expect(creditsOnlyEntry?.page).toBe('/settings/credits-wallet');
-		if (searchTitle === 'nao AI usage') {
-			expect(creditsOnlyEntry?.search).toEqual({ creditsTab: 'usage' });
-		}
+		expect(result.current.some((entry) => entry.title === searchTitle)).toBe(false);
 
 		mocks.config.cloudBillingEnabled = true;
 		rerender();
