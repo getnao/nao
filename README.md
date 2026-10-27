@@ -45,24 +45,26 @@ Context work is what takes an analytics agent from 15% to 85% reliability. nao g
 
 **For data teams**
 
-- 🧱 **Open context builder**: a file-system context for your agent. Data, metadata, dbt, semantic layer, docs, rules, tools, MCPs. No limit, all versioned in Git.
-- 🏳️ **Stack agnostic**: works with any warehouse (BigQuery, Snowflake, Databricks, Postgres, Redshift, DuckDB, ClickHouse, Athena, Trino, Fabric...) and any LLM (Claude, GPT, Gemini, Mistral, Bedrock, Ollama...).
-- 🧪 **Evaluate offline**: unit test your agent with `nao test` and track accuracy, consistency and cost of every context change.
-- 🔭 **Observe online**: replay every conversation, collect user feedback, and turn errors and downvotes into context recommendations opened as pull requests.
-- 🤖 **Agent-native setup**: install the nao skills and let Claude Code, Codex or Cursor set up, test and audit your context for you.
+- 🧱 **Build your data context layer**: sync your warehouse, dbt and docs into files your agent reads. Context work takes an agent from 15% to 85% reliability.
+- 🧪 **Evaluate offline**: `nao test` runs your key questions against the SQL you expect and scores every context change before it ships.
+- 🔭 **Observe online**: chat replay shows every conversation. Context recommendations turn errors and downvotes into fixes, opened as pull requests.
+- 🏳️ **Stack agnostic**: nao works with all warehouses, data stacks and LLMs. Anything missing? Contribute to build it!
+- 🤖 **Set up with your agent**: install the nao skills and let Claude Code, Codex or Cursor build your context.
 
 **For everyone in the company**
 
-- 💬 **Ask in plain English**: get answers straight away, from the web app, Slack, Teams or your favourite MCP client.
-- 📊 **Charts and stories**: build interactive charts, dashboards and live stories directly from a chat.
-- 🧊 **Transparent reasoning**: see the SQL, the files the agent read and the sources behind every answer.
+- 💬 **Analyze data from anywhere**: ask questions in plain English from the web app, Slack, Teams or any MCP client.
+- 📊 **Build your own stories**: turn chats into interactive, custom stories and share them with your team.
+- 🧊 **Transparent reasoning**: see the SQL and the files behind every answer.
 - 👍 **Easy feedback**: tell the data team when an answer is right or wrong.
 
 **Secure by design**
 
-- 🔒 **Self-host it** on your own infrastructure, or run it on [nao Cloud](https://app.getnao.io/signup).
-- 🔑 **Bring your own LLM key**, with budgets per user and per team (Enterprise).
-- 🛡️ **Your SSO and warehouse permissions** (Enterprise): Okta, Microsoft Entra ID or any OIDC, row-level security and identity passthrough. Your data is never used to train models. See our [Trust Center](https://compliance.getnao.io/).
+- 🔓 **Open source**: the whole core product is Apache 2.0. Self-host it, read the code, and shape the roadmap with the community.
+- 🏠 **Deploy in your own infrastructure**: self-host on your own cloud, or run on [nao Cloud](https://app.getnao.io/signup).
+- 🔑 **Bring your own LLM key**: any provider at your own price, with budgets per user and per team.
+- 🛡️ **Your SSO and warehouse permissions**: Okta, Google, Microsoft Entra ID or any OIDC. Row-level security and identity passthrough.
+- ✅ **SOC 2 Type II**: audited controls. Your data is never used to train models. See our [Trust Center](https://compliance.getnao.io/).
 
 ## ⚡️ Quickstart
 
