@@ -40,6 +40,15 @@ metabase:
   api_key:
 """
 
+NOTION_WITH_INVALID_FIELDS = """
+notion:
+  api_key: secret
+  page_trees:
+    - page-id
+  max_depth: 11
+  max_pages: 251
+"""
+
 
 def write_config(path: Path, content: str) -> None:
     (path / "nao_config.yaml").write_text(content)
@@ -79,6 +88,19 @@ def test_valid_sections_are_kept_with_flag(tmp_path):
 
     assert config.llm is not None
     assert config.llm.providers[0].api_key == "sk-test"
+
+
+def test_invalid_optional_section_warning_lists_every_field_error(tmp_path):
+    write_config(tmp_path, VALID_CORE + NOTION_WITH_INVALID_FIELDS)
+
+    with patch("nao_core.config.base.UI.warn") as mock_warn:
+        config = NaoConfig.load(tmp_path, drop_invalid_optional_sections=True)
+
+    assert config.notion is None
+    warning = mock_warn.call_args.args[0]
+    assert "notion → pages: field is required" in warning
+    assert "notion → max_depth: Input should be less than or equal to 10" in warning
+    assert "notion → max_pages: Input should be less than or equal to 250" in warning
 
 
 def test_core_errors_still_fail_with_flag(tmp_path):

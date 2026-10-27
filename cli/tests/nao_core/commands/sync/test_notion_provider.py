@@ -1,5 +1,6 @@
 """Unit tests for the Notion sync provider."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,7 +9,7 @@ import pytest
 import yaml
 from notion_client.errors import APIErrorCode, APIResponseError
 
-from nao_core.commands.sync.providers.notion.database import DatabaseExportError
+from nao_core.commands.sync.providers.notion.database import DatabaseExportError, DatabaseRows
 from nao_core.commands.sync.providers.notion.provider import (
     NotionSyncProvider,
     discover_documents,
@@ -49,7 +50,7 @@ def test_sync_pages_with_threads(mock_get_page, tmp_path: Path):
 def test_sync_writes_discovered_pages_separately_and_keeps_parent_links(mock_get_page, mock_discover, tmp_path: Path):
     parent, child = ("a" * 32, "b" * 32)
     parent_link = f"[Child](https://www.notion.so/{child})"
-    mock_discover.return_value = ([parent, child], False)
+    mock_discover.return_value = ([parent, child], {child: parent}, False)
     mock_get_page.side_effect = [
         ("Parent", f"# Parent\n\n{parent_link}"),
         ("Child", "# Child\n\nDetails"),
@@ -61,12 +62,12 @@ def test_sync_writes_discovered_pages_separately_and_keeps_parent_links(mock_get
     )
 
     assert result.items_synced == 2
-    assert {path.name for path in tmp_path.glob("*.md")} == {
+    assert {path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*.md")} == {
         "parent-aaaaaaaa.md",
-        "child-bbbbbbbb.md",
+        "parent-aaaaaaaa/child-bbbbbbbb.md",
     }
     assert parent_link in (tmp_path / "parent-aaaaaaaa.md").read_text()
-    assert (tmp_path / "child-bbbbbbbb.md").read_text() == "# Child\n\nDetails"
+    assert (tmp_path / "parent-aaaaaaaa" / "child-bbbbbbbb.md").read_text() == "# Child\n\nDetails"
 
 
 @patch("nao_core.commands.sync.providers.notion.provider.UI.print")
@@ -74,15 +75,20 @@ def test_sync_writes_discovered_pages_separately_and_keeps_parent_links(mock_get
 @patch("nao_core.commands.sync.providers.notion.provider.get_content_as_markdown")
 def test_sync_warns_when_recursive_discovery_is_truncated(mock_get_page, mock_discover, mock_print, tmp_path: Path):
     root = "a" * 32
-    mock_discover.return_value = ([root], True)
+    stale = tmp_path / "stale.md"
+    stale.write_text("keep me")
+    mock_discover.return_value = ([root], {}, True)
     mock_get_page.return_value = ("Root", "# Root")
 
-    NotionSyncProvider().sync(
+    result = NotionSyncProvider().sync(
         [NotionConfig(api_key="secret", pages=[root], max_pages=1)],
         tmp_path,
     )
 
     assert any("configured limit of 1 objects" in call.args[0] for call in mock_print.call_args_list)
+    assert stale.read_text() == "keep me"
+    assert result.details is not None
+    assert result.details["removed"] == 0
 
 
 @patch("nao_core.commands.sync.providers.notion.provider.discover_documents")
@@ -106,9 +112,10 @@ def test_sync_keeps_existing_files_when_recursive_discovery_fails(mock_discover,
 @patch("nao_core.commands.sync.providers.notion.provider.get_content_as_markdown")
 def test_sync_keeps_existing_descendants_when_one_fetch_fails(mock_get_page, mock_discover, tmp_path: Path):
     parent, child = ("a" * 32, "b" * 32)
-    existing_child = tmp_path / "child-bbbbbbbb.md"
+    existing_child = tmp_path / "parent-aaaaaaaa" / "child-bbbbbbbb.md"
+    existing_child.parent.mkdir()
     existing_child.write_text("previous child content")
-    mock_discover.return_value = ([parent, child], False)
+    mock_discover.return_value = ([parent, child], {child: parent}, False)
     mock_get_page.side_effect = [
         ("Parent", "# Parent"),
         RuntimeError("rate limited"),
@@ -132,9 +139,10 @@ def test_sync_removes_descendants_deleted_from_notion_after_a_successful_sync(
     mock_get_page, mock_discover, tmp_path: Path
 ):
     parent = "a" * 32
-    deleted_child = tmp_path / "child-bbbbbbbb.md"
+    deleted_child = tmp_path / "parent-aaaaaaaa" / "child-bbbbbbbb.md"
+    deleted_child.parent.mkdir()
     deleted_child.write_text("deleted child content")
-    mock_discover.return_value = ([parent], False)
+    mock_discover.return_value = ([parent], {}, False)
     mock_get_page.return_value = ("Parent", "# Parent")
 
     result = NotionSyncProvider().sync(
@@ -143,6 +151,7 @@ def test_sync_removes_descendants_deleted_from_notion_after_a_successful_sync(
     )
 
     assert not deleted_child.exists()
+    assert not deleted_child.parent.exists()
     assert result.items_synced == 1
     assert result.details is not None
     assert result.details["removed"] == 1
@@ -210,9 +219,10 @@ def test_discover_documents_walks_child_pages_breadth_first(mock_create_client):
     client.blocks.children.list.side_effect = list_children
     config = NotionConfig(api_key="secret", pages=[root], max_depth=2)
 
-    references, truncated = discover_documents(config)
+    references, parents, truncated = discover_documents(config)
 
     assert references == [root, first, second, grandchild]
+    assert parents == {first: root, second: root, grandchild: first}
     assert not truncated
 
 
@@ -234,9 +244,10 @@ def test_discover_documents_deduplicates_and_stops_at_the_page_limit(mock_create
     ]
     config = NotionConfig(api_key="secret", pages=[root], max_pages=1)
 
-    references, truncated = discover_documents(config)
+    references, parents, truncated = discover_documents(config)
 
     assert references == [root, child]
+    assert parents == {child: root}
     assert truncated
 
 
@@ -251,9 +262,10 @@ def test_discover_documents_stops_at_the_depth_limit(mock_create_client):
     }
     config = NotionConfig(api_key="secret", pages=[root], max_depth=1)
 
-    references, truncated = discover_documents(config)
+    references, parents, truncated = discover_documents(config)
 
     assert references == [root, child]
+    assert parents == {child: root}
     assert not truncated
     assert client.blocks.children.list.call_count == 1
 
@@ -286,10 +298,65 @@ def test_discover_documents_includes_database_entries(mock_create_client):
     client.blocks.children.list.return_value = {"results": [], "has_more": False}
     config = NotionConfig(api_key="secret", pages=[database])
 
-    references, truncated = discover_documents(config)
+    references, parents, truncated = discover_documents(config)
 
     assert references == [database, first, second]
+    assert parents == {first: database, second: database}
     assert not truncated
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.fetch_rows")
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_traverses_each_configured_database_view(mock_create_client, mock_fetch_rows):
+    database, first_view, second_view = ("a" * 32, "b" * 32, "c" * 32)
+    shared, first_only, second_only = ("d" * 32, "e" * 32, "f" * 32)
+    first_reference = f"https://notion.so/{database}?v={first_view}"
+    second_reference = f"https://notion.so/{database}?v={second_view}"
+    client = mock_create_client.return_value
+    client.pages.retrieve.side_effect = api_error(APIErrorCode.ValidationError, 400)
+    client.databases.retrieve.return_value = {"id": database, "data_sources": [{"id": "source"}]}
+
+    def database_rows(_client, _database, view_id):
+        row_ids = [shared, first_only] if view_id == first_view else [shared, second_only]
+        return DatabaseRows(
+            rows=[
+                {"id": row_id, "properties": {"Name": {"type": "title", "title": [{"plain_text": row_id}]}}}
+                for row_id in row_ids
+            ],
+            total=len(row_ids),
+            complete=True,
+        )
+
+    mock_fetch_rows.side_effect = database_rows
+
+    references, parents, truncated = discover_documents(
+        NotionConfig(api_key="secret", pages=[first_reference, second_reference])
+    )
+
+    assert references == [first_reference, second_reference, shared, first_only, second_only]
+    assert parents == {shared: first_reference, first_only: first_reference, second_only: second_reference}
+    assert not truncated
+    assert [call.args[2] for call in mock_fetch_rows.call_args_list] == [first_view, second_view]
+
+
+@patch("nao_core.commands.sync.providers.notion.provider.fetch_rows")
+@patch("nao_core.commands.sync.providers.notion.provider.create_client")
+def test_discover_documents_marks_an_incomplete_database_scan_as_truncated(mock_create_client, mock_fetch_rows):
+    database, row = ("a" * 32, "b" * 32)
+    client = mock_create_client.return_value
+    client.pages.retrieve.side_effect = api_error(APIErrorCode.ValidationError, 400)
+    client.databases.retrieve.return_value = {"id": database, "data_sources": [{"id": "source"}]}
+    mock_fetch_rows.return_value = DatabaseRows(
+        rows=[{"id": row, "properties": {"Name": {"type": "title", "title": [{"plain_text": "Row"}]}}}],
+        total=None,
+        complete=False,
+    )
+
+    references, parents, truncated = discover_documents(NotionConfig(api_key="secret", pages=[database]))
+
+    assert references == [database, row]
+    assert parents == {row: database}
+    assert truncated
 
 
 @patch("nao_core.commands.sync.providers.notion.provider.create_client")
@@ -319,9 +386,10 @@ def test_discover_documents_skips_only_completely_empty_database_rows(mock_creat
     }
     client.blocks.children.list.side_effect = list_children
 
-    references, truncated = discover_documents(NotionConfig(api_key="secret", pages=[database]))
+    references, parents, truncated = discover_documents(NotionConfig(api_key="secret", pages=[database]))
 
     assert references == [database, untitled_with_body]
+    assert parents == {untitled_with_body: database}
     assert not truncated
 
 
@@ -343,9 +411,10 @@ def test_discover_documents_does_not_follow_links_or_embedded_databases(mock_cre
         "has_more": False,
     }
 
-    references, truncated = discover_documents(NotionConfig(api_key="secret", pages=[root]))
+    references, parents, truncated = discover_documents(NotionConfig(api_key="secret", pages=[root]))
 
     assert references == [root]
+    assert parents == {}
     assert not truncated
     client.databases.retrieve.assert_not_called()
     client.data_sources.query.assert_not_called()
@@ -367,9 +436,10 @@ def test_discover_documents_expands_database_rows_only_for_tree_roots(mock_creat
         "has_more": False,
     }
 
-    references, truncated = discover_documents(NotionConfig(api_key="secret", pages=[root]))
+    references, parents, truncated = discover_documents(NotionConfig(api_key="secret", pages=[root]))
 
     assert references == [root, nested_database]
+    assert parents == {nested_database: root}
     assert not truncated
     client.databases.retrieve.assert_not_called()
     client.data_sources.query.assert_not_called()
@@ -380,6 +450,16 @@ def test_retrieve_page_reports_a_database_as_not_a_page():
     client.pages.retrieve.side_effect = api_error(APIErrorCode.ValidationError, 400)
 
     assert retrieve_page(client, "some-id") is None
+
+
+def test_expected_database_probe_warning_is_hidden(caplog):
+    logger = logging.getLogger("notion_client")
+
+    with caplog.at_level(logging.WARNING, logger="notion_client"):
+        logger.warning("Provided ID some-id is a database, not a page")
+        logger.warning("Notion request was rate limited")
+
+    assert caplog.messages == ["Notion request was rate limited"]
 
 
 def test_retrieve_page_raises_when_a_page_is_not_shared():
@@ -480,6 +560,28 @@ def test_write_documents_gives_colliding_titles_distinct_files(tmp_path: Path):
     assert (tmp_path / "overview-aaaaaaaa.md").read_text() == "first"
     assert (tmp_path / "overview-bbbbbbbb.md").read_text() == "second"
     assert titles == ["Overview", "Overview"]
+    assert failed == 0
+
+
+def test_write_documents_mirrors_nested_page_hierarchy(tmp_path: Path):
+    root, child, grandchild = ("a" * 32, "b" * 32, "c" * 32)
+    documents = [
+        (root, "Root", "root"),
+        (child, "Child", "child"),
+        (grandchild, "Grandchild", "grandchild"),
+    ]
+
+    written, _, failed = write_documents(
+        documents,
+        tmp_path,
+        {child: root, grandchild: child},
+    )
+
+    assert written == {
+        "root-aaaaaaaa.md",
+        "root-aaaaaaaa/child-bbbbbbbb.md",
+        "root-aaaaaaaa/child-bbbbbbbb/grandchild-cccccccc.md",
+    }
     assert failed == 0
 
 

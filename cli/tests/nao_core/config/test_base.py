@@ -9,7 +9,6 @@ from nao_core.config.base import LLM_OVERRIDE_NOTICE, NaoConfig, annotate_llm_ov
 from nao_core.config.databases.base import DatabaseTemplate, ProfilingRefreshPolicy
 from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
-from nao_core.config.notion import NotionConfig
 from nao_core.config.secrets import process_secrets
 
 
@@ -141,33 +140,27 @@ def test_apply_default_templates_with_llm():
     ]
 
 
-def test_fresh_prompt_flow_collects_business_context():
+def test_fresh_prompt_flow_only_collects_database_llm_and_repos():
     db = DuckDBConfig(name="test-db", path=":memory:")
     llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
-    notion = NotionConfig(api_key="secret", pages=["a" * 32])
     prompt_order = []
 
     with (
         patch.object(NaoConfig, "_prompt_databases", side_effect=lambda: prompt_order.append("database") or [db]),
         patch.object(NaoConfig, "_prompt_llm", side_effect=lambda: prompt_order.append("llm") or llm),
         patch.object(NaoConfig, "_prompt_repos", side_effect=lambda: prompt_order.append("repos") or []),
-        patch.object(
-            NaoConfig,
-            "_prompt_business_context_sources",
-            side_effect=lambda: prompt_order.append("context") or {"notion": notion},
-        ),
     ):
         config = NaoConfig.promptConfig("test-project")
 
-    assert prompt_order == ["database", "llm", "repos", "context"]
+    assert prompt_order == ["database", "llm", "repos"]
     assert config.databases[0].templates == [
         DatabaseTemplate.COLUMNS,
         DatabaseTemplate.PREVIEW,
         DatabaseTemplate.AI_SUMMARY,
     ]
-    assert config.notion == notion
     assert config.slack is None
     assert config.confluence is None
+    assert config.notion is None
     assert config.mcp is None
     assert config.skills is None
 
@@ -179,42 +172,12 @@ def test_extend_handles_no_databases_and_no_llm():
         patch.object(NaoConfig, "_prompt_databases", return_value=[]),
         patch.object(NaoConfig, "_prompt_repos", return_value=[]),
         patch.object(NaoConfig, "_prompt_llm", return_value=None),
-        patch.object(NaoConfig, "_prompt_business_context_sources", return_value={}),
         patch("nao_core.config.base.UI"),
     ):
         config = NaoConfig.promptConfig("ignored", existing=existing)
 
     assert config.databases == []
     assert config.llm is None
-
-
-@patch("nao_core.config.base.NotionConfig.promptConfig")
-@patch("nao_core.config.base.ask_select")
-@patch("nao_core.config.base.ask_confirm")
-def test_prompt_business_context_configures_notion(mock_confirm, mock_select, mock_prompt_config):
-    notion = NotionConfig(api_key="secret", pages=["a" * 32])
-    mock_confirm.return_value = True
-    mock_select.return_value = "Notion"
-    mock_prompt_config.return_value = notion
-
-    result = NaoConfig._prompt_business_context_sources()
-
-    assert result == {"notion": notion}
-    mock_confirm.assert_called_once_with("Sync business context sources?", default=False)
-    mock_select.assert_called_once_with(
-        "Select business context source:",
-        choices=["Notion", "Confluence", "Obsidian"],
-    )
-    mock_prompt_config.assert_called_once_with()
-
-
-@patch("nao_core.config.base.ask_select")
-@patch("nao_core.config.base.ask_confirm")
-def test_prompt_business_context_can_be_skipped(mock_confirm, mock_select):
-    mock_confirm.return_value = False
-
-    assert NaoConfig._prompt_business_context_sources() == {}
-    mock_select.assert_not_called()
 
 
 def test_annotate_optional_templates_adds_both_comments(tmp_path):

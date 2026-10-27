@@ -1,3 +1,4 @@
+import logging
 import re
 from collections import deque
 from collections.abc import Callable
@@ -19,6 +20,14 @@ from .database import fetch_rows, get_database_as_markdown, inject_child_databas
 
 console = Console()
 
+
+class _ExpectedDatabaseProbeFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "is a database, not a page" not in record.getMessage()
+
+
+logging.getLogger("notion_client").addFilter(_ExpectedDatabaseProbeFilter())
+
 # Notion object IDs appear both bare and as dashed UUIDs. Accepting only the bare form would
 # make a dashed ?v= silently ignored, widening an export that asked for one view.
 NOTION_ID = r"[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -39,7 +48,7 @@ def cleanup_stale_pages(synced_files: set[str], output_path: Path, verbose: bool
     """Remove markdown files that were not synced.
 
     Args:
-        synced_files: Set of filenames that were synced in this run.
+        synced_files: Set of relative file paths that were synced in this run.
         output_path: Path where synced markdown files are stored.
         verbose: Whether to print cleanup messages.
 
@@ -50,13 +59,20 @@ def cleanup_stale_pages(synced_files: set[str], output_path: Path, verbose: bool
         return 0
 
     removed_count = 0
-    for file_path in output_path.iterdir():
-        if file_path.is_file() and file_path.suffix == ".md":
-            if file_path.name not in synced_files:
-                file_path.unlink()
-                removed_count += 1
-                if verbose:
-                    UI.print(f"  [dim red]removing stale page:[/dim red] {file_path.name}")
+    for file_path in output_path.rglob("*.md"):
+        relative_path = file_path.relative_to(output_path).as_posix()
+        if relative_path not in synced_files:
+            file_path.unlink()
+            removed_count += 1
+            if verbose:
+                UI.print(f"  [dim red]removing stale page:[/dim red] {relative_path}")
+
+    directories = sorted((path for path in output_path.rglob("*") if path.is_dir()), key=lambda path: len(path.parts))
+    for directory in reversed(directories):
+        try:
+            directory.rmdir()
+        except OSError:
+            continue
 
     return removed_count
 
@@ -107,7 +123,13 @@ def normalise_id(raw: str) -> str:
     return raw.replace("-", "").lower()
 
 
-def cleanup_if_fully_synced(failed_pages: int, synced_files: set[str], output_path: Path) -> int:
+def cleanup_if_fully_synced(
+    failed_pages: int,
+    synced_files: set[str],
+    output_path: Path,
+    *,
+    discovery_complete: bool = True,
+) -> int:
     """Remove stale markdown only when every page synced.
 
     A page that failed is absent from the synced set, so cleaning up after a partial run would
@@ -120,37 +142,46 @@ def cleanup_if_fully_synced(failed_pages: int, synced_files: set[str], output_pa
             "left in place and will remain until a run succeeds in full"
         )
         return 0
+    if not discovery_complete:
+        UI.print("[yellow]⚠[/yellow]  Keeping existing files because recursive discovery was incomplete")
+        return 0
 
     return cleanup_stale_pages(synced_files, output_path, verbose=True)
 
 
-def discover_documents(config: NotionConfig) -> tuple[list[str], bool]:
-    """Add descendants of configured pages in breadth-first order."""
+def discover_documents(config: NotionConfig) -> tuple[list[str], dict[str, str], bool]:
+    """Add descendants in breadth-first order and record their parent references."""
     references = list(dict.fromkeys(config.pages))
     if config.max_depth == 0:
-        return references, False
+        return references, {}, False
 
     client = create_client(config.api_key)
     output_ids = extract_reference_ids(references)
-    visited: set[str] = set()
-    queue = deque((reference, 0) for reference in references)
+    visited: set[tuple[str, str | None]] = set()
+    parent_references: dict[str, str] = {}
+    queue: deque[tuple[str, int, str | None]] = deque((reference, 0, None) for reference in references)
     discovered = 0
+    truncated = False
 
     while queue:
-        reference, depth = queue.popleft()
+        reference, depth, parent_reference = queue.popleft()
         object_id = extract_notion_id(reference)
-        if object_id in visited:
+        traversal_key = (object_id, extract_view_id(reference) if depth == 0 else None)
+        if traversal_key in visited:
             continue
 
-        visited.add(object_id)
+        visited.add(traversal_key)
         if depth > 0:
             if discovered >= config.max_pages:
-                return references, True
+                return references, parent_references, True
             discovered += 1
 
         if depth > 0 and object_id not in output_ids:
+            if parent_reference is None:
+                raise ValueError(f"Discovered Notion page {object_id} without a parent")
             references.append(reference)
             output_ids.add(object_id)
+            parent_references[object_id] = parent_reference
 
         if depth >= config.max_depth:
             continue
@@ -160,14 +191,15 @@ def discover_documents(config: NotionConfig) -> tuple[list[str], bool]:
             if depth > 0:
                 continue
             database = cast(dict[str, Any], client.databases.retrieve(database_id=object_id))
-            rows = fetch_rows(client, database, extract_view_id(reference)).rows
-            child_ids = [cast(str, row["id"]) for row in rows if not is_empty_database_row(client, row)]
+            database_rows = fetch_rows(client, database, extract_view_id(reference))
+            truncated = truncated or not database_rows.complete
+            child_ids = [cast(str, row["id"]) for row in database_rows.rows if not is_empty_database_row(client, row)]
         else:
             child_ids = find_child_page_ids(client, object_id)
 
-        queue.extend((child_id, depth + 1) for child_id in child_ids)
+        queue.extend((child_id, depth + 1, reference) for child_id in child_ids)
 
-    return references, False
+    return references, parent_references, truncated
 
 
 def extract_reference_ids(references: list[str]) -> set[str]:
@@ -251,8 +283,12 @@ def fetch_documents(page_urls: list[str], api_key: str, threads: int) -> tuple[l
     return [documents[url] for url in page_urls if url in documents], failed
 
 
-def write_documents(documents: list[tuple[str, str, str]], output_path: Path) -> tuple[set[str], list[str], int]:
-    """Write fetched documents, keeping a write failure to the item it belongs to.
+def write_documents(
+    documents: list[tuple[str, str, str]],
+    output_path: Path,
+    parent_references: dict[str, str] | None = None,
+) -> tuple[set[str], list[str], int]:
+    """Write fetched documents under their parents, keeping failures to their own items.
 
     Notion content is written as UTF-8 rather than in the platform encoding, which would fail
     on the arrows, dashes and emoji it routinely contains. An encoding failure is not an
@@ -261,20 +297,59 @@ def write_documents(documents: list[tuple[str, str, str]], output_path: Path) ->
     written: set[str] = set()
     titles: list[str] = []
     failed = 0
+    document_titles = {reference: title for reference, title, _ in documents}
 
     for reference, title, markdown in documents:
-        filename = markdown_filename(title, reference)
         try:
-            (output_path / filename).write_text(markdown, encoding="utf-8")
-        except (OSError, UnicodeError) as error:
+            relative_path = document_relative_path(
+                reference,
+                title,
+                document_titles,
+                parent_references or {},
+            )
+            target = output_path / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(markdown, encoding="utf-8")
+        except (OSError, UnicodeError, ValueError) as error:
             failed += 1
-            UI.print(f"[bold red]✗[/bold red] Failed to write {escape(filename)}: {escape(str(error))}")
+            UI.print(
+                f"[bold red]✗[/bold red] Failed to write {escape(markdown_filename(title, reference))}: "
+                f"{escape(str(error))}"
+            )
             continue
 
-        written.add(filename)
+        written.add(relative_path.as_posix())
         titles.append(title)
 
     return written, titles, failed
+
+
+def document_relative_path(
+    reference: str,
+    title: str,
+    document_titles: dict[str, str],
+    parent_references: dict[str, str],
+) -> Path:
+    directories: list[str] = []
+    try:
+        parent_reference = parent_references.get(extract_notion_id(reference))
+    except ValueError:
+        return Path(markdown_filename(title, reference))
+    visited: set[str] = set()
+
+    while parent_reference:
+        parent_id = extract_notion_id(parent_reference)
+        if parent_id in visited:
+            raise ValueError(f"Notion parent cycle detected at {parent_id}")
+        visited.add(parent_id)
+
+        parent_title = document_titles.get(parent_reference)
+        if parent_title is None:
+            raise ValueError(f"parent page {parent_id} was not fetched")
+        directories.append(markdown_filename(parent_title, parent_reference).removesuffix(".md"))
+        parent_reference = parent_references.get(parent_id)
+
+    return Path(*reversed(directories), markdown_filename(title, reference))
 
 
 def short_reference(reference: str) -> str:
@@ -474,7 +549,7 @@ class NotionSyncProvider(SyncProvider):
         UI.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
 
         try:
-            references, truncated = discover_documents(notion_config)
+            references, parent_references, truncated = discover_documents(notion_config)
         except Exception as error:  # noqa: BLE001 - incomplete discovery must not delete existing context
             message = f"Failed to discover Notion pages: {error}"
             UI.print(f"[bold red]✗[/bold red] {escape(message)}")
@@ -497,11 +572,16 @@ class NotionSyncProvider(SyncProvider):
         api_key = notion_config.api_key
 
         documents, failed_pages = fetch_documents(references, api_key, threads)
-        synced_files, synced_pages, write_failures = write_documents(documents, output_path)
+        synced_files, synced_pages, write_failures = write_documents(documents, output_path, parent_references)
         pages_synced = len(synced_pages)
         failed_pages += write_failures
 
-        removed_count = cleanup_if_fully_synced(failed_pages, synced_files, output_path)
+        removed_count = cleanup_if_fully_synced(
+            failed_pages,
+            synced_files,
+            output_path,
+            discovery_complete=not truncated,
+        )
 
         summary = f"{pages_synced} pages synced as markdown"
         if removed_count > 0:

@@ -17,7 +17,7 @@ from nao_core.ui import UI, ask_confirm, ask_select
 
 from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
-from .error_handler import format_all_validation_errors
+from .error_handler import format_all_validation_errors, format_validation_error
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .metabase import MetabaseConfig
@@ -101,14 +101,12 @@ class NaoConfig(BaseModel):
         llm = cls._prompt_llm()
         cls._apply_default_templates(databases, llm)
         repos = cls._prompt_repos()
-        context_sources = cls._prompt_business_context_sources()
 
         return cls(
             project_name=project_name,
             databases=databases,
             repos=repos,
             llm=llm,
-            **context_sources,
         )
 
     @classmethod
@@ -151,9 +149,8 @@ class NaoConfig(BaseModel):
 
         cls._apply_default_templates(new_databases, llm)
         databases.extend(new_databases)
-        context_sources = cls._prompt_business_context_sources(existing)
 
-        return existing.model_copy(update={"databases": databases, "repos": repos, "llm": llm, **context_sources})
+        return existing.model_copy(update={"databases": databases, "repos": repos, "llm": llm})
 
     @staticmethod
     def _prompt_databases(has_existing: bool = False) -> list[AnyDatabaseConfig]:
@@ -196,27 +193,6 @@ class NaoConfig(BaseModel):
         if ask_confirm("Set up LLM configuration?", default=True):
             return LLMConfig.promptConfig(prompt_annotation_model=False)
         return None
-
-    @staticmethod
-    def _prompt_business_context_sources(existing: "NaoConfig | None" = None) -> dict[str, Any]:
-        providers = {
-            "Notion": ("notion", NotionConfig),
-            "Confluence": ("confluence", ConfluenceConfig),
-            "Obsidian": ("obsidian", ObsidianConfig),
-        }
-        configured = {name for name, (field, _) in providers.items() if existing and getattr(existing, field)}
-        available = [name for name in providers if name not in configured]
-        if not available:
-            return {}
-
-        prompt = "Add another business context source?" if configured else "Sync business context sources?"
-        if not ask_confirm(prompt, default=False):
-            return {}
-
-        UI.title("Business Context")
-        selected = ask_select("Select business context source:", choices=available)
-        field, config_class = providers[selected]
-        return {field: config_class.promptConfig()}
 
     @staticmethod
     def _apply_default_templates(databases: list[AnyDatabaseConfig], llm: LLMConfig | None) -> None:
@@ -276,20 +252,20 @@ class NaoConfig(BaseModel):
             if not isinstance(data, dict):
                 raise
 
-            dropped: dict[str, str] = {}
+            dropped: dict[str, list[str]] = {}
             for error in e.errors():
                 section = error["loc"][0] if error["loc"] else None
                 if not isinstance(section, str) or section not in OPTIONAL_SECTIONS:
                     raise
-                dropped.setdefault(section, str(error["msg"]))
+                dropped.setdefault(section, []).append(format_validation_error(error, cls))
 
             config = cls.model_validate({**data, **{section: None for section in dropped}})
-            for section, reason in dropped.items():
+            for section, reasons in dropped.items():
                 hint = ""
                 if cls._missing_secrets:
                     hint = f" (unset environment variables: {', '.join(cls._missing_secrets)})"
                 UI.warn(
-                    f"Ignoring invalid `{section}` config for this command: {reason}{hint}. "
+                    f"Ignoring invalid `{section}` config for this command: {'; '.join(reasons)}{hint}. "
                     f"Commands that use `{section}` will keep failing until it validates."
                 )
             return config
