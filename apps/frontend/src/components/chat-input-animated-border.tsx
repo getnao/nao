@@ -2,18 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 const CHAT_INPUT_BORDER_STROKE = 1;
 
+/** Static, the border is shown at once in its focused colors instead of being drawn in. */
 export function ChatInputAnimatedBorder({ isStatic = false }: { isStatic?: boolean }) {
-	if (isStatic) {
-		return <StaticChatInputBorder />;
-	}
-	return <DrawnChatInputBorder />;
-}
-
-function StaticChatInputBorder() {
-	return <span aria-hidden='true' className='chat-input-static-border pointer-events-none absolute inset-0 z-10' />;
-}
-
-function DrawnChatInputBorder() {
 	const containerRef = useRef<HTMLSpanElement>(null);
 	const gradientId = useId();
 	const [{ width, height, radius }, setGeometry] = useState({ width: 0, height: 0, radius: 0 });
@@ -60,7 +50,8 @@ function DrawnChatInputBorder() {
 	const hasSize = width > 0 && height > 0;
 	const inset = CHAT_INPUT_BORDER_STROKE / 2;
 	const strokeRadius = Math.max(Math.min(radius, width / 2, height / 2) - inset, 0);
-	const strokeColor = isFocused ? 'var(--primary)' : 'var(--muted-foreground)';
+	const isHighlighted = isStatic || isFocused;
+	const strokeColor = isHighlighted ? 'var(--primary)' : 'var(--muted-foreground)';
 
 	return (
 		<span ref={containerRef} aria-hidden='true' className='pointer-events-none absolute inset-0 z-10'>
@@ -77,17 +68,17 @@ function DrawnChatInputBorder() {
 							<stop
 								className='chat-input-border-stop'
 								offset='0%'
-								style={{ stopColor: strokeColor, stopOpacity: isFocused ? 0.35 : 0.25 }}
+								style={{ stopColor: strokeColor, stopOpacity: isHighlighted ? 0.35 : 0.25 }}
 							/>
 							<stop
 								className='chat-input-border-stop'
 								offset='100%'
-								style={{ stopColor: strokeColor, stopOpacity: isFocused ? 1 : 0.4 }}
+								style={{ stopColor: strokeColor, stopOpacity: isHighlighted ? 1 : 0.4 }}
 							/>
 						</linearGradient>
 					</defs>
 					<rect
-						className='chat-input-border-path'
+						className={isStatic ? undefined : 'chat-input-border-path'}
 						x={inset}
 						y={inset}
 						width={width - CHAT_INPUT_BORDER_STROKE}

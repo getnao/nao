@@ -927,17 +927,6 @@ code.dollar:before {
 	animation: chat-input-border-draw 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-.chat-input-static-border {
-	border: 1px solid transparent;
-	border-radius: inherit;
-	background: linear-gradient(to bottom, color-mix(in oklab, var(--primary) 35%, transparent), var(--primary))
-		border-box;
-	mask:
-		linear-gradient(#000 0 0) padding-box,
-		linear-gradient(#000 0 0) border-box;
-	mask-composite: exclude;
-}
-
 .chat-input-border-stop {
 	transition:
 		stop-color 0.3s ease,
