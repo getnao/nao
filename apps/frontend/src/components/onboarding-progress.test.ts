@@ -75,6 +75,16 @@ describe('onboarding initial project storage', () => {
 		});
 		expect(getOnboardingInitialProjectIds('chat-2')).toBeNull();
 	});
+
+	it('keeps onboarding usable when the project baseline cannot be saved', () => {
+		vi.stubGlobal('localStorage', {
+			setItem: () => {
+				throw new DOMException('Storage is full', 'QuotaExceededError');
+			},
+		});
+
+		expect(() => setOnboardingInitialProjectIds('chat-1', new Set(['existing']))).not.toThrow();
+	});
 });
 
 describe('getCompletedSteps', () => {

@@ -247,7 +247,11 @@ export function getOnboardingInitialProjectIds(chatId: string): ReadonlySet<stri
 }
 
 export function setOnboardingInitialProjectIds(chatId: string, projectIds: ReadonlySet<string>): void {
-	createLocalStorage<string[]>(`nao-onboarding-initial-project-ids:${chatId}`).set([...projectIds]);
+	try {
+		createLocalStorage<string[]>(`nao-onboarding-initial-project-ids:${chatId}`).set([...projectIds]);
+	} catch {
+		return;
+	}
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {
