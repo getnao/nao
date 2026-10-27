@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 
 import { env } from '../env';
 import { AUTOMATION_JOB_NAME, startAutomationRun } from '../handlers/automation.handler';
-import type { AutomationWithSchedule, ProjectAutomationListItem } from '../queries/automation.queries';
+import type { AutomationWithSchedule, ProjectAutomationSummary } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
@@ -193,7 +193,10 @@ export const automationRoutes = {
 		if (!automation) {
 			return { success: true };
 		}
-		await deleteAutomationWithSchedule(automation);
+		if (automation.scheduledJobId) {
+			await scheduledJobQueries.deleteJob(automation.scheduledJobId);
+		}
+		await automationQueries.deleteAutomation(ctx.project.id, ctx.user.id, input.id);
 		return { success: true };
 	}),
 
@@ -284,23 +287,20 @@ export const automationRoutes = {
 
 	deleteAsAdmin: automationAdminProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
 		const automation = await automationQueries.getProjectAutomation(ctx.project.id, input.id);
-		if (automation) {
-			await deleteAutomationWithSchedule(automation);
+		if (!automation) {
+			return { success: true as const };
 		}
+		if (automation.scheduledJobId) {
+			await scheduledJobQueries.deleteJob(automation.scheduledJobId);
+		}
+		await automationQueries.deleteProjectAutomation(ctx.project.id, input.id);
 		return { success: true as const };
 	}),
 };
 
-async function deleteAutomationWithSchedule(automation: AutomationWithSchedule): Promise<void> {
-	if (automation.scheduledJobId) {
-		await scheduledJobQueries.deleteJob(automation.scheduledJobId);
-	}
-	await automationQueries.deleteAutomation(automation.projectId, automation.userId, automation.id);
-}
-
 async function listProjectAutomationsWithOwnerAccess(
 	projectId: string,
-): Promise<Array<ProjectAutomationListItem & { ownerHasProjectAccess: boolean }>> {
+): Promise<Array<ProjectAutomationSummary & { ownerHasProjectAccess: boolean }>> {
 	const [automations, usersWithAccess] = await Promise.all([
 		automationQueries.listProjectAutomations(projectId),
 		projectQueries.listUsersWithProjectAccess(projectId),

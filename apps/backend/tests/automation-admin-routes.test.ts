@@ -1,7 +1,9 @@
+import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	deleteAutomation: vi.fn(),
+	assertOrganizationCloudBillingAccess: vi.fn(),
+	deleteProjectAutomation: vi.fn(),
 	deleteJob: vi.fn(),
 	getProjectAutomation: vi.fn(),
 	getAutomationById: vi.fn(),
@@ -23,7 +25,7 @@ vi.mock('../src/handlers/automation.handler', () => ({
 }));
 vi.mock('../src/queries/automation.queries', () => ({
 	automationJobUniqueKey: (id: string) => `automation:${id}`,
-	deleteAutomation: mocks.deleteAutomation,
+	deleteProjectAutomation: mocks.deleteProjectAutomation,
 	getAutomationById: mocks.getAutomationById,
 	getProjectAutomation: mocks.getProjectAutomation,
 	linkAutomationJob: mocks.linkAutomationJob,
@@ -42,7 +44,7 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
-	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
 }));
 
@@ -125,6 +127,37 @@ describe('automation admin routes', () => {
 		expect(result.webhookEnabled).toBe(false);
 	});
 
+	it('resumes the schedule of a paused automation after checking billing access', async () => {
+		mocks.getProjectAutomation.mockResolvedValue({ ...scheduledAutomation, enabled: false });
+
+		await createCaller('admin-id').automation.setEnabledAsAdmin({ id: 'scheduled-id', enabled: true });
+
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
+		expect(mocks.upsertRecurringJob).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending' }));
+	});
+
+	it('turns the webhook trigger back on for a disabled webhook-only automation', async () => {
+		mocks.getProjectAutomation.mockResolvedValue({ ...webhookAutomation, webhookEnabled: false });
+
+		const result = await createCaller('admin-id').automation.setEnabledAsAdmin({ id: 'webhook-id', enabled: true });
+
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
+		expect(mocks.setAutomationWebhookEnabled).toHaveBeenCalledWith('webhook-id', true);
+		expect(result.webhookEnabled).toBe(true);
+	});
+
+	it('refuses to enable an automation without billing access', async () => {
+		mocks.assertOrganizationCloudBillingAccess.mockRejectedValueOnce(
+			new TRPCError({ code: 'FORBIDDEN', message: 'Cloud billing access is restricted' }),
+		);
+		mocks.getProjectAutomation.mockResolvedValue({ ...scheduledAutomation, enabled: false });
+
+		await expect(
+			createCaller('admin-id').automation.setEnabledAsAdmin({ id: 'scheduled-id', enabled: true }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'Cloud billing access is restricted' });
+		expect(mocks.upsertRecurringJob).not.toHaveBeenCalled();
+	});
+
 	it('rejects admin actions on automations outside the project', async () => {
 		mocks.getProjectAutomation.mockResolvedValue(null);
 
@@ -167,7 +200,7 @@ describe('automation admin routes', () => {
 
 		expect(mocks.getProjectAutomation).toHaveBeenCalledWith('project-id', 'scheduled-id');
 		expect(mocks.deleteJob).toHaveBeenCalledWith('job-id');
-		expect(mocks.deleteAutomation).toHaveBeenCalledWith('project-id', 'owner-id', 'scheduled-id');
+		expect(mocks.deleteProjectAutomation).toHaveBeenCalledWith('project-id', 'scheduled-id');
 	});
 
 	it('does not delete automations outside the project', async () => {
@@ -176,14 +209,14 @@ describe('automation admin routes', () => {
 		await createCaller('admin-id').automation.deleteAsAdmin({ id: 'other-id' });
 
 		expect(mocks.deleteJob).not.toHaveBeenCalled();
-		expect(mocks.deleteAutomation).not.toHaveBeenCalled();
+		expect(mocks.deleteProjectAutomation).not.toHaveBeenCalled();
 	});
 
 	it('restricts deletion of other users automations to project admins', async () => {
 		await expect(createCaller('owner-id').automation.deleteAsAdmin({ id: 'scheduled-id' })).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
-		expect(mocks.deleteAutomation).not.toHaveBeenCalled();
+		expect(mocks.deleteProjectAutomation).not.toHaveBeenCalled();
 	});
 });
 

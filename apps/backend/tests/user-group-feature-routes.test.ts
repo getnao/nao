@@ -193,12 +193,7 @@ describe('user group feature route enforcement', () => {
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce(null)
-			.mockResolvedValueOnce({
-				id: 'automation-id',
-				projectId: 'project-id',
-				userId: 'user-id',
-				scheduledJobId: null,
-			});
+			.mockResolvedValueOnce({ id: 'automation-id', scheduledJobId: null });
 
 		await expect(createCaller().automation.list()).resolves.toEqual([]);
 		await expect(createCaller().automation.get({ id: 'automation-id' })).resolves.toBeNull();

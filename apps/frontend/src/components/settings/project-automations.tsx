@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, EllipsisVertical } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -215,20 +216,27 @@ function AutomationEnabledSwitch({ automation }: { automation: ProjectAutomation
 	const queryClient = useQueryClient();
 	const setEnabled = useMutation(
 		trpc.automation.setEnabledAsAdmin.mutationOptions({
-			onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.automation.listAllForAdmin.queryKey() }),
+			onSuccess: () => invalidateAutomationQueries(queryClient),
 		}),
 	);
 	const isActive = isAutomationActive(automation);
 
 	return (
-		<div className='flex items-center gap-2'>
-			<Switch
-				checked={isActive}
-				disabled={setEnabled.isPending}
-				aria-label={`${isActive ? 'Disable' : 'Enable'} ${automation.title}`}
-				onCheckedChange={(enabled) => setEnabled.mutate({ id: automation.id, enabled })}
-			/>
-			<span className='text-sm text-muted-foreground'>{isActive ? 'Enabled' : 'Disabled'}</span>
+		<div className='flex min-w-0 flex-col gap-1'>
+			<div className='flex items-center gap-2'>
+				<Switch
+					checked={isActive}
+					disabled={setEnabled.isPending}
+					aria-label={`${isActive ? 'Disable' : 'Enable'} ${automation.title}`}
+					onCheckedChange={(enabled) => setEnabled.mutate({ id: automation.id, enabled })}
+				/>
+				<span className='text-sm text-muted-foreground'>{isActive ? 'Enabled' : 'Disabled'}</span>
+			</div>
+			{setEnabled.error && (
+				<p className='text-xs text-destructive' role='alert'>
+					{setEnabled.error.message}
+				</p>
+			)}
 		</div>
 	);
 }
@@ -262,7 +270,7 @@ function TransferOwnershipDialog({
 			return;
 		}
 		await transfer.mutateAsync({ id: automation.id, newOwnerId });
-		await queryClient.invalidateQueries({ queryKey: trpc.automation.listAllForAdmin.queryKey() });
+		await invalidateAutomationQueries(queryClient);
 		onClose();
 	};
 
@@ -335,10 +343,7 @@ function DeleteAutomationDialog({
 			return;
 		}
 		await deleteAutomation.mutateAsync({ id: automation.id });
-		await Promise.all([
-			queryClient.invalidateQueries({ queryKey: trpc.automation.listAllForAdmin.queryKey() }),
-			queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() }),
-		]);
+		await invalidateAutomationQueries(queryClient);
 		onClose();
 	};
 
@@ -355,6 +360,11 @@ function DeleteAutomationDialog({
 			error={deleteAutomation.error?.message}
 		/>
 	);
+}
+
+/** Admin actions can change the current admin's own automations, so the sidebar, feed and badges refresh too. */
+function invalidateAutomationQueries(queryClient: QueryClient): Promise<void> {
+	return queryClient.invalidateQueries({ queryKey: trpc.automation.pathKey() });
 }
 
 function getTransferCandidates(users: ProjectUser[], automation: ProjectAutomation | null): ProjectUser[] {
