@@ -272,7 +272,8 @@ export function FolderCard({
 	}
 
 	const contentLeftPadding = !canSelect ? 'pl-3' : selected || selectionActive ? 'pl-9' : 'pl-3 group-hover:pl-9';
-	const contentRightPadding = selectionActive ? 'pr-3' : 'pr-8 group-hover:pr-14 group-has-data-[state=open]:pr-14';
+	const contentRightPadding =
+		selectionActive || isSystemFolder(folder) ? 'pr-3' : 'pr-8 group-hover:pr-14 group-has-data-[state=open]:pr-14';
 
 	return (
 		<div
