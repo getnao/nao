@@ -45,16 +45,7 @@ MAX_SLUG_LENGTH = 80
 
 
 def cleanup_stale_pages(synced_files: set[str], output_path: Path, verbose: bool = False) -> int:
-    """Remove markdown files that were not synced.
-
-    Args:
-        synced_files: Set of relative file paths that were synced in this run.
-        output_path: Path where synced markdown files are stored.
-        verbose: Whether to print cleanup messages.
-
-    Returns:
-        Number of stale files removed.
-    """
+    """Remove markdown files that were not synced."""
     if not output_path.exists():
         return 0
 
