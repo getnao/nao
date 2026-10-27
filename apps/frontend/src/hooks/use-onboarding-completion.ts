@@ -16,6 +16,12 @@ export function useOnboardingCompletion(chatId: string | undefined, enabled = tr
 		refetchOnMount: 'always',
 		enabled,
 	});
+	const projectSetupComplete = useQuery({
+		...trpc.project.isCurrentSetupComplete.queryOptions(),
+		staleTime: 0,
+		refetchOnMount: 'always',
+		enabled,
+	});
 	const canRestoreWarehouseJob = enabled && Boolean(chatId && chatId !== NEW_CHAT_ID);
 	const activeWarehouseJob = useQuery({
 		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
@@ -37,7 +43,12 @@ export function useOnboardingCompletion(chatId: string | undefined, enabled = tr
 	return {
 		complete:
 			rejectedByBackend ||
-			isOnboardingComplete(currentProject.data != null, progress, warehouseReady, warehouseProvisioningActive),
+			isOnboardingComplete(
+				projectSetupComplete.data === true,
+				progress,
+				warehouseReady,
+				warehouseProvisioningActive,
+			),
 		setupReportedComplete: rejectedByBackend || isOnboardingComplete(true, progress, warehouseReady),
 		projectIsMissing: currentProject.isSuccess && currentProject.data === null,
 		progress,

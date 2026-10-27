@@ -54,13 +54,17 @@ export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInp
 export async function createCloudTrialCheckoutForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
 	const organization = await loadReconciledCloudBillingOrganization(input.organizationId);
 	const trialWithoutPaidPlanActive = isActiveTrialWithoutPaidPlan(organization.billing);
-	if (!isTrialAvailable(organization.billing) && !trialWithoutPaidPlanActive) {
+	if (!trialWithoutPaidPlanActive) {
+		if (isTrialAvailable(organization.billing)) {
+			throw new CloudBillingManagementInputError(
+				'Finish setting up your first project before choosing a billing plan',
+			);
+		}
 		throw new CloudBillingManagementInputError('This organization has already used its free trial');
 	}
-	const trial =
-		trialWithoutPaidPlanActive && organization.billing?.trialEndsAt
-			? { trialEnd: organization.billing.trialEndsAt }
-			: { trialDays: CLOUD_BILLING_TRIAL_DAYS };
+	const trial = organization.billing?.trialEndsAt
+		? { trialEnd: organization.billing.trialEndsAt }
+		: { trialDays: CLOUD_BILLING_TRIAL_DAYS };
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudCheckoutSession({
 		billingInterval: input.billingInterval,

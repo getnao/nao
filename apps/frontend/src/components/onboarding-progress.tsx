@@ -176,13 +176,13 @@ export function getCompletedSteps(
 }
 
 export function isOnboardingComplete(
-	hasOnboardingProject: boolean,
+	projectSetupComplete: boolean,
 	progress: OnboardingProgressState | null,
 	warehouseReady: boolean,
 	warehouseProvisioningActive?: boolean,
 ): boolean {
 	const progressComplete = isDeployStepReached(progress) || (progress?.flow === 'github' && progress.step === 2);
-	return hasOnboardingProject && (warehouseReady || progressComplete || warehouseProvisioningActive === false);
+	return projectSetupComplete && (warehouseReady || progressComplete || warehouseProvisioningActive === false);
 }
 
 export function findCreatedOnboardingProject<T extends { createdAt: Date }>(

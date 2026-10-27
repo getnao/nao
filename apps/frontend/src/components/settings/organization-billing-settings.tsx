@@ -217,11 +217,16 @@ function UpcomingPaymentEstimate({ billingState }: { billingState: BillingState 
 
 function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 	const { billing, needsPaidPlanSelection, paidPlanSelected, plan } = billingState;
-	const trialCheckoutAvailable = billing.data?.trialAvailable === true || needsPaidPlanSelection;
-	if (!billing.data || paidPlanSelected || !plan || (!trialCheckoutAvailable && !billing.data.resubscribeAvailable)) {
+	const trialCheckoutAvailable = needsPaidPlanSelection;
+	if (
+		!billing.data ||
+		billing.data.trialAvailable ||
+		paidPlanSelected ||
+		!plan ||
+		(!trialCheckoutAvailable && !billing.data.resubscribeAvailable)
+	) {
 		return null;
 	}
-	const isTrialAvailable = billing.data.trialAvailable;
 	const wasTrialUsed = Boolean(billing.data.trialStartedAt || billing.data.trialEndsAt);
 
 	return (
@@ -249,11 +254,9 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 						value={
 							needsPaidPlanSelection
 								? `Ends ${formatBillingDate(billing.data.trialEndsAt)}`
-								: isTrialAvailable
-									? `${plan.trialDays} days, starting after Stripe Checkout`
-									: wasTrialUsed
-										? 'Already used'
-										: 'Unavailable'
+								: wasTrialUsed
+									? 'Already used'
+									: 'Unavailable'
 						}
 					/>
 					{trialCheckoutAvailable && <PlanDetail label='Due today' value='No charge' />}
@@ -263,9 +266,7 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 					<p className='text-sm text-muted-foreground'>
 						{needsPaidPlanSelection
 							? `Your trial is already active through ${formatBillingDate(billing.data.trialEndsAt)}. Choose monthly or yearly billing in Stripe, where you can enter a promotion code. Nothing is charged before the trial ends.`
-							: isTrialAvailable
-								? `Continue to Stripe to choose monthly or yearly billing, add a card, and start this organization's ${plan.trialDays}-day free trial. Nothing is charged today. Stripe applies promotion codes to the recurring price, which starts after the trial.`
-								: 'Continue to Stripe to restore billing for this organization. Billing starts immediately.'}
+							: 'Continue to Stripe to restore billing for this organization. Billing starts immediately.'}
 					</p>
 					<p className='text-xs text-muted-foreground'>
 						To create your organization&apos;s Stripe billing profile, nao shares an organization
@@ -290,11 +291,7 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 							}
 							disabled={billingState.isCheckoutPolling}
 						>
-							{needsPaidPlanSelection
-								? 'Choose plan in Stripe'
-								: isTrialAvailable
-									? 'Start your free trial in Stripe'
-									: 'Subscribe in Stripe'}
+							{needsPaidPlanSelection ? 'Choose plan in Stripe' : 'Subscribe in Stripe'}
 						</Button>
 					) : (
 						<p className='text-sm text-muted-foreground'>

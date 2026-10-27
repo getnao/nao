@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 const mocks = vi.hoisted(() => ({
 	handleAgentRoute: vi.fn(),
 	isManagedAiEnabled: vi.fn(() => true),
+	isProjectSetupComplete: vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock('../src/env', async (importOriginal) => ({
@@ -21,6 +22,11 @@ vi.mock('../src/handlers/agent', async (importOriginal) => {
 vi.mock('../src/agents/managed-ai', async (importOriginal) => {
 	const actual = (await importOriginal()) as Record<string, unknown>;
 	return { ...actual, isManagedAiEnabled: mocks.isManagedAiEnabled };
+});
+
+vi.mock('../src/services/project-readiness.service', async (importOriginal) => {
+	const actual = (await importOriginal()) as Record<string, unknown>;
+	return { ...actual, isProjectSetupComplete: mocks.isProjectSetupComplete };
 });
 
 import { exampleAgent } from '../src/agents/profiles/example';
@@ -96,6 +102,8 @@ describe('example chat allowance', () => {
 		mocks.handleAgentRoute.mockReset();
 		mocks.isManagedAiEnabled.mockReset();
 		mocks.isManagedAiEnabled.mockReturnValue(true);
+		mocks.isProjectSetupComplete.mockReset();
+		mocks.isProjectSetupComplete.mockResolvedValue(true);
 	});
 
 	it('keeps independent lifetime caps for example and onboarding submissions', async () => {
@@ -254,7 +262,7 @@ describe('example chat allowance', () => {
 		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 	});
 
-	it('allows onboarding while project setup is active and rejects it once setup is ready', async () => {
+	it('allows onboarding while project setup is active or incomplete and rejects it once ready', async () => {
 		const orgId = 'provisioning-org';
 		const projectId = 'provisioning-project';
 		const chatId = crypto.randomUUID();
@@ -308,6 +316,13 @@ describe('example chat allowance', () => {
 			.update(s.warehouseProvisioningJob)
 			.set({ status: 'ready', finishedAt: new Date() })
 			.where(eq(s.warehouseProvisioningJob.id, jobId));
+		mocks.isProjectSetupComplete.mockResolvedValue(false);
+		mocks.handleAgentRoute.mockReset();
+		mocks.handleAgentRoute.mockRejectedValue(setupError);
+
+		await expect(handler(request)).rejects.toBe(setupError);
+
+		mocks.isProjectSetupComplete.mockResolvedValue(true);
 		mocks.handleAgentRoute.mockReset();
 
 		await expect(handler(request)).rejects.toMatchObject({
