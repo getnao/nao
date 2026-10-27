@@ -10,10 +10,18 @@ import { cn } from '@/lib/utils';
 
 const slackInviteUrl = 'https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ';
 
-export function RouteErrorPage({ error, fullScreen = false }: { error?: unknown; fullScreen?: boolean }) {
+export function RouteErrorPage({
+	error,
+	componentStack,
+	fullScreen = false,
+}: {
+	error?: unknown;
+	componentStack?: string | null;
+	fullScreen?: boolean;
+}) {
 	const isHomePage = window.location.pathname === '/';
-	const pageUrl = `${window.location.origin}${window.location.pathname}`;
-	const errorReport = getErrorReport(error);
+	const pageUrl = window.location.href;
+	const errorReport = getErrorReport(error, componentStack);
 	const errorDetails = getErrorDetails(errorReport, pageUrl);
 	const { copy } = useCopyToClipboard();
 	const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
@@ -51,6 +59,7 @@ export function RouteErrorPage({ error, fullScreen = false }: { error?: unknown;
 		setSendStatus('sending');
 		try {
 			const response = await fetch('/api/error-reports', {
+				signal: AbortSignal.timeout(10_000),
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
@@ -154,11 +163,17 @@ export function RouteErrorPage({ error, fullScreen = false }: { error?: unknown;
 	);
 }
 
-function getErrorReport(error: unknown): { message: string; stack?: string } | undefined {
+function getErrorReport(
+	error: unknown,
+	componentStack?: string | null,
+): { message: string; stack?: string } | undefined {
 	if (!(error instanceof Error)) {
 		return undefined;
 	}
-	return { message: `${error.name}: ${error.message}`, stack: error.stack };
+
+	const reactStack = componentStack?.trim();
+	const stack = [error.stack, reactStack && `React component stack:\n${reactStack}`].filter(Boolean).join('\n\n');
+	return { message: `${error.name}: ${error.message}`, stack: stack || undefined };
 }
 
 function getErrorDetails(

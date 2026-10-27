@@ -70,6 +70,10 @@ describe('POST /api/error-reports', () => {
 		expect(response.statusCode).toBe(429);
 		expect(response.headers['retry-after']).toBeDefined();
 		expect(mocks.sendErrorReport).toHaveBeenCalledTimes(5);
+
+		mocks.authenticatedUserId = 'another-user';
+		expect((await sendReport()).statusCode).toBe(204);
+		expect(mocks.sendErrorReport).toHaveBeenCalledTimes(6);
 	});
 
 	it('keeps self-hosted reports public', async () => {
@@ -80,6 +84,21 @@ describe('POST /api/error-reports', () => {
 
 		expect(response.statusCode).toBe(204);
 		expect(mocks.sendErrorReport).toHaveBeenCalledOnce();
+	});
+
+	it('rate-limits each self-hosted IP address', async () => {
+		mocks.env.NAO_MODE = 'self-hosted';
+		mocks.authenticatedUserId = null;
+
+		for (let attempt = 0; attempt < 5; attempt++) {
+			expect((await sendReport()).statusCode).toBe(204);
+		}
+
+		const response = await sendReport();
+
+		expect(response.statusCode).toBe(429);
+		expect(response.headers['retry-after']).toBeDefined();
+		expect(mocks.sendErrorReport).toHaveBeenCalledTimes(5);
 	});
 
 	function sendReport() {

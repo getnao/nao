@@ -1,5 +1,3 @@
-import { createHmac } from 'node:crypto';
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __reloadEnvForTesting } from '../src/env';
@@ -35,15 +33,13 @@ describe('sendErrorReport', () => {
 			}),
 		);
 		const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
-		expect(JSON.parse(request.body as string)).toEqual(
-			expect.objectContaining({
-				message: 'Render failed',
-				installationId: createHmac('sha256', betterAuthSecret)
-					.update('nao-error-report-installation')
-					.digest('hex'),
-				pageUrl: 'http://localhost:3000/settings',
-			}),
-		);
+		expect(JSON.parse(request.body as string)).toEqual({
+			message: 'Render failed',
+			stack: 'Error: Render failed',
+			source: 'frontend',
+			naoVersion: expect.any(String),
+			metadata: { pageUrl: 'http://localhost:3000/settings' },
+		});
 	});
 
 	it('sends cloud reports without authorization', async () => {

@@ -44,15 +44,18 @@ it('shows the error page and reports the error when a child fails to render', as
 	expect(screen.getByRole('heading', { name: 'Something went wrong' })).toBeTruthy();
 	fireEvent.click(screen.getByRole('button', { name: 'Send an error report on our server' }));
 	expect(await screen.findByRole('button', { name: 'Error report sent' })).toBeTruthy();
-	expect(fetchMock).toHaveBeenCalledWith('/api/error-reports', {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
-			message: 'TRPCClientError: Render failed',
-			stack: firefoxStack,
-			pageUrl: `${window.location.origin}${window.location.pathname}`,
-		}),
+	const sentReport = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+		message: string;
+		stack: string;
+		pageUrl: string;
+	};
+	expect(sentReport).toEqual({
+		message: 'TRPCClientError: Render failed',
+		stack: expect.stringContaining(firefoxStack),
+		pageUrl: `${window.location.origin}${window.location.pathname}`,
 	});
+	expect(sentReport.stack).toContain('React component stack:');
+	expect(sentReport.stack).toContain('BrokenComponent');
 
 	fireEvent.click(screen.getByRole('button', { name: 'Copy error details and open Slack' }));
 	expect(writeText).toHaveBeenCalledWith(
@@ -71,9 +74,23 @@ it('shows the error page and reports the error when a child fails to render', as
 			),
 		),
 	);
+	expect(writeText).toHaveBeenCalledWith(expect.stringContaining('React component stack:'));
+	expect(writeText).toHaveBeenCalledWith(expect.stringContaining('BrokenComponent'));
 	expect(slackActions).toEqual(['copy', 'open']);
 	await waitFor(() => expect(replace).toHaveBeenCalledWith(expect.stringContaining('join.slack.com')));
 	expect(screen.getByRole('button', { name: 'Copy error details and open Slack' })).toBeTruthy();
+});
+
+it('shows the error page when a child throws a falsy value', () => {
+	vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+	render(
+		<AppErrorBoundary>
+			<NullThrowingComponent />
+		</AppErrorBoundary>,
+	);
+
+	expect(screen.getByRole('heading', { name: 'Something went wrong' })).toBeTruthy();
 });
 
 it('shows manual error details when copying for Slack fails', async () => {
@@ -112,4 +129,8 @@ function BrokenComponent(): never {
 	error.name = 'TRPCClientError';
 	error.stack = firefoxStack;
 	throw error;
+}
+
+function NullThrowingComponent(): never {
+	throw null;
 }

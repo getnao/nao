@@ -9,12 +9,15 @@ const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboar
 const execCommandDescriptor = Object.getOwnPropertyDescriptor(document, 'execCommand');
 
 afterEach(() => {
+	vi.clearAllTimers();
+	vi.useRealTimers();
 	restoreProperty(navigator, 'clipboard', clipboardDescriptor);
 	restoreProperty(document, 'execCommand', execCommandDescriptor);
 	vi.restoreAllMocks();
 });
 
 it('falls back to copying through a textarea when the Clipboard API fails', async () => {
+	vi.useFakeTimers();
 	const writeText = vi.fn().mockRejectedValue(new Error('Clipboard unavailable'));
 	const execCommand = vi.fn().mockReturnValue(true);
 	Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
@@ -27,6 +30,11 @@ it('falls back to copying through a textarea when the Clipboard API fails', asyn
 	expect(execCommand).toHaveBeenCalledWith('copy');
 	expect(result.current.isCopied).toBe(true);
 	expect(document.querySelector('textarea')).toBeNull();
+
+	act(() => {
+		vi.advanceTimersByTime(2000);
+	});
+	expect(result.current.isCopied).toBe(false);
 });
 
 function restoreProperty(target: object, property: string, descriptor: PropertyDescriptor | undefined) {
