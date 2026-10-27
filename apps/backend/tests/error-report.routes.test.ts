@@ -91,20 +91,24 @@ describe('POST /api/error-reports', () => {
 		mocks.authenticatedUserId = null;
 
 		for (let attempt = 0; attempt < 5; attempt++) {
-			expect((await sendReport()).statusCode).toBe(204);
+			expect((await sendReport('203.0.113.10')).statusCode).toBe(204);
 		}
 
-		const response = await sendReport();
+		const response = await sendReport('203.0.113.10');
 
 		expect(response.statusCode).toBe(429);
 		expect(response.headers['retry-after']).toBeDefined();
 		expect(mocks.sendErrorReport).toHaveBeenCalledTimes(5);
+
+		expect((await sendReport('203.0.113.11')).statusCode).toBe(204);
+		expect(mocks.sendErrorReport).toHaveBeenCalledTimes(6);
 	});
 
-	function sendReport() {
+	function sendReport(remoteAddress = '127.0.0.1') {
 		return app.inject({
 			method: 'POST',
 			url: '/api/error-reports',
+			remoteAddress,
 			payload: {
 				message: 'Render failed',
 				stack: 'Error: Render failed',

@@ -7,7 +7,7 @@ import { authMiddleware } from '../middleware/auth';
 import { sendErrorReport } from '../services/error-report';
 
 const REPORT_LIMIT = 5;
-const SELF_HOSTED_GLOBAL_REPORT_LIMIT = 100;
+const SELF_HOSTED_PROCESS_REPORT_LIMIT = 100;
 const REPORT_WINDOW_MS = 60_000;
 
 interface ReportWindow {
@@ -27,7 +27,7 @@ const errorReportSchema = z.object({
 });
 
 export const errorReportRoutes = async (app: App) => {
-	// ponytail: process-local limits protect one backend process; use a shared store before running replicas.
+	// ponytail: these limits protect one relay process; the licenses ingest service enforces shared limits.
 	const reportWindows = new Map<string, ReportWindow>();
 	const cleanupInterval = setInterval(() => removeExpiredReportWindows(reportWindows), REPORT_WINDOW_MS);
 	cleanupInterval.unref();
@@ -67,7 +67,7 @@ async function protectErrorReport(
 		limits = [{ key: `cloud:user:${request.user.id}`, limit: REPORT_LIMIT }];
 	} else {
 		limits = [
-			{ key: 'self-hosted:global', limit: SELF_HOSTED_GLOBAL_REPORT_LIMIT },
+			{ key: 'self-hosted:process', limit: SELF_HOSTED_PROCESS_REPORT_LIMIT },
 			{ key: `self-hosted:ip:${request.ip}`, limit: REPORT_LIMIT },
 		];
 	}

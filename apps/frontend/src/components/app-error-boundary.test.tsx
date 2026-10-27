@@ -44,6 +44,13 @@ it('shows the error page and reports the error when a child fails to render', as
 	expect(screen.getByRole('heading', { name: 'Something went wrong' })).toBeTruthy();
 	fireEvent.click(screen.getByRole('button', { name: 'Send an error report on our server' }));
 	expect(await screen.findByRole('button', { name: 'Error report sent' })).toBeTruthy();
+	expect(fetchMock).toHaveBeenCalledWith(
+		'/api/error-reports',
+		expect.objectContaining({
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+		}),
+	);
 	const sentReport = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
 		message: string;
 		stack: string;
