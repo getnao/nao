@@ -149,11 +149,11 @@ def cleanup_if_fully_synced(
     return cleanup_stale_pages(synced_files, output_path, verbose=True)
 
 
-def discover_documents(config: NotionConfig) -> tuple[list[str], dict[str, str], bool]:
+def discover_documents(config: NotionConfig) -> tuple[list[str], dict[str, str], bool, int]:
     """Add descendants in breadth-first order and record their parent references."""
     references = list(dict.fromkeys(config.pages))
     if config.max_depth == 0:
-        return references, {}, False
+        return references, {}, False, 0
 
     client = create_client(config.api_key)
     output_ids = extract_reference_ids(references)
@@ -162,18 +162,27 @@ def discover_documents(config: NotionConfig) -> tuple[list[str], dict[str, str],
     queue: deque[tuple[str, int, str | None]] = deque((reference, 0, None) for reference in references)
     discovered = 0
     truncated = False
+    failed = 0
 
     while queue:
         reference, depth, parent_reference = queue.popleft()
-        object_id = extract_notion_id(reference)
-        traversal_key = (object_id, extract_view_id(reference) if depth == 0 else None)
+        try:
+            object_id = extract_notion_id(reference)
+            traversal_key = (object_id, extract_view_id(reference) if depth == 0 else None)
+        except Exception as error:  # noqa: BLE001 - one invalid root must not stop the rest
+            failed += 1
+            UI.print(
+                f"[bold red]✗[/bold red] Failed to discover descendants of {escape(reference)}: {escape(str(error))}"
+            )
+            continue
+
         if traversal_key in visited:
             continue
 
         visited.add(traversal_key)
         if depth > 0:
             if discovered >= config.max_pages:
-                return references, parent_references, True
+                return references, parent_references, True, failed
             discovered += 1
 
         if depth > 0 and object_id not in output_ids:
@@ -186,20 +195,34 @@ def discover_documents(config: NotionConfig) -> tuple[list[str], dict[str, str],
         if depth >= config.max_depth:
             continue
 
-        page = retrieve_page(client, object_id)
-        if page is None:
-            if depth > 0:
-                continue
-            database = cast(dict[str, Any], client.databases.retrieve(database_id=object_id))
-            database_rows = fetch_rows(client, database, extract_view_id(reference))
-            truncated = truncated or not database_rows.complete
-            child_ids = [cast(str, row["id"]) for row in database_rows.rows if not is_empty_database_row(client, row)]
-        else:
-            child_ids = find_child_page_ids(client, object_id)
+        try:
+            page = retrieve_page(client, object_id)
+            if page is None:
+                if depth > 0:
+                    continue
+                database = cast(dict[str, Any], client.databases.retrieve(database_id=object_id))
+                database_rows = fetch_rows(client, database, extract_view_id(reference))
+                truncated = truncated or not database_rows.complete or database_rows.unmatched > 0
+                child_ids = []
+                remaining_pages = max(config.max_pages - discovered, 0)
+                for row in database_rows.rows:
+                    if len(child_ids) >= remaining_pages:
+                        truncated = True
+                        break
+                    if not is_empty_database_row(client, row):
+                        child_ids.append(cast(str, row["id"]))
+            else:
+                child_ids = find_child_page_ids(client, object_id)
+        except Exception as error:  # noqa: BLE001 - one unreadable branch must not stop the rest
+            failed += 1
+            UI.print(
+                f"[bold red]✗[/bold red] Failed to discover descendants of {escape(reference)}: {escape(str(error))}"
+            )
+            continue
 
         queue.extend((child_id, depth + 1, reference) for child_id in child_ids)
 
-    return references, parent_references, truncated
+    return references, parent_references, truncated, failed
 
 
 def extract_reference_ids(references: list[str]) -> set[str]:
@@ -233,7 +256,11 @@ def is_empty_database_row(client: Any, row: dict[str, Any]) -> bool:
         if prop.get("type") == "title"
         for part in prop.get("title", [])
     )
-    return not has_title and not list_children(client, row["id"])
+    if has_title:
+        return False
+
+    response = cast(dict[str, Any], client.blocks.children.list(row["id"], page_size=1))
+    return not response.get("results")
 
 
 def fetch_documents(page_urls: list[str], api_key: str, threads: int) -> tuple[list[tuple[str, str, str]], int]:
@@ -549,7 +576,7 @@ class NotionSyncProvider(SyncProvider):
         UI.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
 
         try:
-            references, parent_references, truncated = discover_documents(notion_config)
+            references, parent_references, truncated, discovery_failures = discover_documents(notion_config)
         except Exception as error:  # noqa: BLE001 - incomplete discovery must not delete existing context
             message = f"Failed to discover Notion pages: {error}"
             UI.print(f"[bold red]✗[/bold red] {escape(message)}")
@@ -580,7 +607,7 @@ class NotionSyncProvider(SyncProvider):
             failed_pages,
             synced_files,
             output_path,
-            discovery_complete=not truncated,
+            discovery_complete=not truncated and not discovery_failures,
         )
 
         summary = f"{pages_synced} pages synced as markdown"
@@ -588,6 +615,9 @@ class NotionSyncProvider(SyncProvider):
             summary += f", {removed_count} stale removed"
         page_label = "page" if failed_pages == 1 else "pages"
         error = f"Failed to sync {failed_pages} Notion {page_label}" if failed_pages else None
+        if discovery_failures and error is None:
+            branch_label = "branch" if discovery_failures == 1 else "branches"
+            error = f"Failed to discover {discovery_failures} Notion {branch_label}"
 
         return SyncResult(
             provider_name=self.name,
