@@ -113,21 +113,6 @@ The nao chat opens at `http://localhost:5005`. Start asking questions.
     nao init
     ```
 
-    It will ask you:
-    - To name your project
-    - If you want to connect a database _(optional)_
-    - If you want to add a repo in agent context _(optional)_
-    - To add an LLM key _(optional)_
-    - If you want to setup a Slack connection _(optional)_
-
-    💡 You can skip any optional question and configure them later in your `nao_config.yaml` file.
-
-    This will create:
-    - A new folder with your project name
-    - An architecture for your context files
-    - A `nao_config.yaml` configuration file
-    - A `RULES.md` file
-
 <br/>
 
 - **Step 3**: Verify your setup
