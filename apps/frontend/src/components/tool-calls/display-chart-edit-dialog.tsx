@@ -135,6 +135,7 @@ const FORM_PANEL_MIN_WIDTH = 320;
 const FORM_PANEL_MAX_WIDTH = 720;
 const CHART_PANEL_MIN_WIDTH = 320;
 const PANEL_OVERFLOW_HIDDEN = { overflow: 'hidden' } as const;
+const PANEL_SCROLL_Y = { overflowY: 'auto' } as const;
 
 /**
  * Chart editor dialog: the query result columns on the left, the configuration form in the
@@ -240,6 +241,7 @@ export function ChartConfigEditDialog({
 									minSize={FORM_PANEL_MIN_WIDTH}
 									maxSize={FORM_PANEL_MAX_WIDTH}
 									className='select-none'
+									style={PANEL_SCROLL_Y}
 								>
 									<ChartConfigEditForm
 										{...form}
