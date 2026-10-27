@@ -192,7 +192,7 @@ def test_extend_handles_no_databases_and_no_llm():
 @patch("nao_core.config.base.ask_select")
 @patch("nao_core.config.base.ask_confirm")
 def test_prompt_business_context_configures_notion(mock_confirm, mock_select, mock_prompt_config):
-    notion = NotionConfig(api_key="secret", page_trees=["a" * 32])
+    notion = NotionConfig(api_key="secret", pages=["a" * 32])
     mock_confirm.return_value = True
     mock_select.return_value = "Notion"
     mock_prompt_config.return_value = notion

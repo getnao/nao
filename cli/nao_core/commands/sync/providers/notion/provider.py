@@ -125,26 +125,30 @@ def cleanup_if_fully_synced(failed_pages: int, synced_files: set[str], output_pa
 
 
 def discover_documents(config: NotionConfig) -> tuple[list[str], bool]:
-    """Add descendants of configured page trees in breadth-first order."""
+    """Add descendants of configured pages in breadth-first order."""
     references = list(dict.fromkeys(config.pages))
-    if not config.page_trees:
+    if config.max_depth == 0:
         return references, False
 
     client = create_client(config.api_key)
     output_ids = extract_reference_ids(references)
     visited: set[str] = set()
-    queue = deque((reference, 0) for reference in config.page_trees)
+    queue = deque((reference, 0) for reference in references)
+    discovered = 0
 
     while queue:
         reference, depth = queue.popleft()
         object_id = extract_notion_id(reference)
         if object_id in visited:
             continue
-        if len(visited) >= config.max_pages:
-            return references, True
 
         visited.add(object_id)
-        if object_id not in output_ids:
+        if depth > 0:
+            if discovered >= config.max_pages:
+                return references, True
+            discovered += 1
+
+        if depth > 0 and object_id not in output_ids:
             references.append(reference)
             output_ids.add(object_id)
 
@@ -157,7 +161,7 @@ def discover_documents(config: NotionConfig) -> tuple[list[str], bool]:
                 continue
             database = cast(dict[str, Any], client.databases.retrieve(database_id=object_id))
             rows = fetch_rows(client, database, extract_view_id(reference)).rows
-            child_ids = [cast(str, row["id"]) for row in rows]
+            child_ids = [cast(str, row["id"]) for row in rows if not is_empty_database_row(client, row)]
         else:
             child_ids = find_child_page_ids(client, object_id)
 
@@ -188,6 +192,16 @@ def find_child_page_ids(client: Any, block_id: str) -> list[str]:
             page_ids.extend(find_child_page_ids(client, block["id"]))
 
     return page_ids
+
+
+def is_empty_database_row(client: Any, row: dict[str, Any]) -> bool:
+    has_title = any(
+        part.get("plain_text", "").strip()
+        for prop in row.get("properties", {}).values()
+        if prop.get("type") == "title"
+        for part in prop.get("title", [])
+    )
+    return not has_title and not list_children(client, row["id"])
 
 
 def fetch_documents(page_urls: list[str], api_key: str, threads: int) -> tuple[list[tuple[str, str, str]], int]:
