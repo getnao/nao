@@ -13,7 +13,7 @@ import * as storyQueries from '../queries/story.queries';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
 import { createStoryExecutionContext, executeRawSql, executeStoryQueries } from './live-story';
 
-const FILTER_OPTIONS_LIMIT = 100;
+export const FILTER_OPTIONS_LIMIT = 1000;
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
@@ -30,7 +30,7 @@ export async function getStoryFilterOptions(
 	storySlug: string,
 	filterId: string,
 	executionOptions: StoryFilterExecutionOptions = {},
-): Promise<{ options: string[] }> {
+): Promise<{ options: string[]; truncated: boolean }> {
 	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
 	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
 	if (!filter) {
@@ -38,7 +38,7 @@ export async function getStoryFilterOptions(
 	}
 
 	if (filter.options?.length) {
-		return { options: [...new Set(filter.options)] };
+		return { options: [...new Set(filter.options)], truncated: false };
 	}
 
 	if (!filter.table || !filter.column) {
@@ -50,13 +50,14 @@ export async function getStoryFilterOptions(
 
 	const table = assertSafeSqlIdentifier(filter.table, 'table');
 	const column = assertSafeSqlIdentifier(filter.column, 'column');
-	const sql = `SELECT DISTINCT ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${column} LIMIT ${FILTER_OPTIONS_LIMIT}`;
+	const sql = `SELECT DISTINCT ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${column} LIMIT ${FILTER_OPTIONS_LIMIT + 1}`;
 	const result = await executeRawSql(sql, {
 		executionContext,
 		databaseId: filter.databaseId ?? databaseId,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 	});
 	const options = result.data
+		.slice(0, FILTER_OPTIONS_LIMIT)
 		.map((row) => {
 			if (!row || typeof row !== 'object') {
 				return null;
@@ -66,7 +67,10 @@ export async function getStoryFilterOptions(
 		})
 		.filter((value): value is string => value !== null && value.trim() !== '');
 
-	return { options: [...new Set(options)].sort((a, b) => a.localeCompare(b)) };
+	return {
+		options: [...new Set(options)].sort((a, b) => a.localeCompare(b)),
+		truncated: result.data.length > FILTER_OPTIONS_LIMIT,
+	};
 }
 
 export async function getFilteredStoryQueryData(
