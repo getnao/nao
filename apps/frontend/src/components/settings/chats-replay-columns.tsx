@@ -195,8 +195,8 @@ const exactTokenFormatter = new Intl.NumberFormat('en-US');
 const costFormatter = new Intl.NumberFormat('en-US', {
 	style: 'currency',
 	currency: 'USD',
-	minimumFractionDigits: 1,
-	maximumFractionDigits: 1,
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 2,
 });
 
 function formatCompactTokens(value: number): string {

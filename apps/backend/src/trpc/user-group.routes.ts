@@ -5,6 +5,7 @@ import {
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
+	EMPTY_SKILLS_ACCESS,
 	FREE_CUSTOM_USER_GROUP_LIMIT,
 	isMicrosoftEntraGroupId,
 	MAX_PRELOADED_SKILLS,
@@ -14,6 +15,7 @@ import {
 	normalizeFileTreePath,
 	normalizeMcpAccess,
 	normalizeProjectRowSecurity,
+	normalizeSkillsAccess,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	PROJECT_SHARING_PERMISSIONS,
@@ -23,6 +25,7 @@ import {
 	ROW_SECURITY_MAX_VALUE_LENGTH,
 	ROW_SECURITY_OPERATORS,
 	rowSecurityTableKey,
+	type SkillsAccess,
 	stripRowSecurityWhereClause,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
@@ -66,7 +69,12 @@ const toolCallDensityPolicySchema = z.object({
 	canChange: z.boolean(),
 });
 const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
-const preloadedSkillsSchema = z.array(z.string().trim().min(1).max(200)).max(MAX_PRELOADED_SKILLS);
+const skillNameSchema = z.string().trim().min(1).max(200);
+const preloadedSkillsSchema = z.array(skillNameSchema).max(MAX_PRELOADED_SKILLS);
+const skillsAccessSchema = z.discriminatedUnion('mode', [
+	z.object({ mode: z.literal('all') }).strict(),
+	z.object({ mode: z.literal('restricted'), skills: z.array(skillNameSchema).max(10_000) }).strict(),
+]);
 const contextNameSchema = z.string().trim().min(1).max(255);
 const databaseContextGrantSchema = z.discriminatedUnion('kind', [
 	z
@@ -320,6 +328,7 @@ export const userGroupRoutes = {
 				docsAccess: fileTreeAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
 				filesAccess: fileTreeAccessSchema.default(EMPTY_FILES_CONTEXT_ACCESS),
 				mcpAccess: mcpAccessSchema.default(EMPTY_MCP_ACCESS),
+				skillsAccess: skillsAccessSchema.default(EMPTY_SKILLS_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
@@ -332,6 +341,8 @@ export const userGroupRoutes = {
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
 			const mcpAccess = normalizeMcpAccess(input.mcpAccess);
 			await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () => EMPTY_MCP_ACCESS);
+			const skillsAccess = normalizeSkillsAccess(input.skillsAccess);
+			await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () => EMPTY_SKILLS_ACCESS);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed(ctx.project.id);
@@ -359,6 +370,7 @@ export const userGroupRoutes = {
 					mcpAccess,
 					input.showAllSettings,
 					input.preloadedSkills,
+					skillsAccess,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -380,6 +392,7 @@ export const userGroupRoutes = {
 				docsAccess: fileTreeAccessSchema.optional(),
 				filesAccess: fileTreeAccessSchema.optional(),
 				mcpAccess: mcpAccessSchema.optional(),
+				skillsAccess: skillsAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
@@ -397,6 +410,13 @@ export const userGroupRoutes = {
 			if (mcpAccess !== undefined) {
 				await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () =>
 					getCurrentGroupMcpAccess(ctx.project.id, input.groupId),
+				);
+			}
+			const skillsAccess =
+				input.skillsAccess === undefined ? undefined : normalizeSkillsAccess(input.skillsAccess);
+			if (skillsAccess !== undefined) {
+				await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () =>
+					getCurrentGroupSkillsAccess(ctx.project.id, input.groupId),
 				);
 			}
 			let rowPolicies: UserGroupRowPolicies | undefined;
@@ -422,6 +442,7 @@ export const userGroupRoutes = {
 					...(docsAccess === undefined ? {} : { docsAccess }),
 					...(filesAccess === undefined ? {} : { filesAccess }),
 					...(mcpAccess === undefined ? {} : { mcpAccess }),
+					...(skillsAccess === undefined ? {} : { skillsAccess }),
 					...(input.ssoMappings === undefined
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
@@ -502,6 +523,32 @@ async function assertMcpAccessChangeAllowed(
 async function getCurrentGroupMcpAccess(projectId: string, groupId: string): Promise<McpAccess> {
 	const groups = await userGroupQueries.listUserGroups(projectId);
 	return groups.find((group) => group.id === groupId)?.mcpAccess ?? EMPTY_MCP_ACCESS;
+}
+
+/** Like MCP restrictions, lifting skill restrictions stays possible without the license. */
+async function assertSkillsAccessChangeAllowed(
+	projectId: string,
+	skillsAccess: SkillsAccess,
+	getCurrentSkillsAccess: () => SkillsAccess | Promise<SkillsAccess>,
+): Promise<void> {
+	if (skillsAccess.mode === 'all') {
+		return;
+	}
+	const currentSkillsAccess = normalizeSkillsAccess(await getCurrentSkillsAccess());
+	if (JSON.stringify(currentSkillsAccess) === JSON.stringify(skillsAccess)) {
+		return;
+	}
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }))) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Restricting skills per group requires an Enterprise license.',
+		});
+	}
+}
+
+async function getCurrentGroupSkillsAccess(projectId: string, groupId: string): Promise<SkillsAccess> {
+	const groups = await userGroupQueries.listUserGroups(projectId);
+	return groups.find((group) => group.id === groupId)?.skillsAccess ?? EMPTY_SKILLS_ACCESS;
 }
 
 async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: ProjectRowSecurity): Promise<void> {

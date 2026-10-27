@@ -15,8 +15,11 @@ import * as statsQueries from '../queries/backoffice-stats.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
+import * as creditsService from '../services/backoffice-credits.service';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
+
+const MAX_BACKOFFICE_TOP_UP_CENTS = 1_000_000;
 
 const paginationSchema = z.object({
 	limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -28,6 +31,14 @@ const projectParamsSchema = z.object({ projectId: z.string().min(1) });
 const userParamsSchema = z.object({ userId: z.string().min(1) });
 const orgMemberParamsSchema = idParamsSchema.extend({ userId: z.string().min(1) });
 const projectMemberParamsSchema = projectParamsSchema.extend({ userId: z.string().min(1) });
+const creditTopUpSchema = z
+	.object({
+		amountCents: z.number().int().min(1).max(MAX_BACKOFFICE_TOP_UP_CENTS),
+		reason: z.string().trim().min(1).max(500),
+		grantedBy: z.string().trim().toLowerCase().pipe(z.email()),
+		requestId: z.uuid(),
+	})
+	.strict();
 
 export const backofficeRoutes = async (app: App) => {
 	app.addHook('onRequest', async (request, reply) => {
@@ -74,6 +85,23 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => billingService.getOrganizationBillingDetail(params.orgId));
+	});
+
+	app.get('/organizations/:orgId/credits', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, () => creditsService.getOrganizationCredits(params.orgId));
+	});
+
+	app.post('/organizations/:orgId/credits', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		const body = parse(creditTopUpSchema, request.body, reply);
+		if (!params || !body) {
+			return;
+		}
+		return runService(reply, () => creditsService.topUpOrganizationCredits(params.orgId, body));
 	});
 
 	app.patch('/organizations/:orgId', async (request, reply) => {
@@ -192,6 +220,7 @@ export const backofficeRoutes = async (app: App) => {
 				.object({
 					name: z.string().trim().min(1).max(100).optional(),
 					email: z.string().trim().toLowerCase().pipe(z.email()).optional(),
+					deactivated: z.boolean().optional(),
 				})
 				.strict(),
 			request.body,

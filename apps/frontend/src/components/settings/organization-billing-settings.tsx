@@ -1,9 +1,12 @@
 import type { BillingInterval, OrganizationBillingSearch } from '@/hooks/use-organization-billing';
+import type { OrganizationCreditsTab } from '@/components/settings/credits-wallet-content';
 
+import { OrganizationCreditsContent } from '@/components/settings/credits-wallet-content';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { useOrganizationBilling } from '@/hooks/use-organization-billing';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
 	formatBillingDate,
 	formatBillingInterval,
@@ -16,14 +19,21 @@ import {
 
 type BillingState = ReturnType<typeof useOrganizationBilling>;
 
-export function OrganizationBillingSettings({ search }: { search: OrganizationBillingSearch }) {
+export function OrganizationBillingSettings({
+	search,
+	onCreditsTabChange,
+}: {
+	search: OrganizationBillingSearch;
+	onCreditsTabChange?: (tab: OrganizationCreditsTab) => void;
+}) {
 	const billingState = useOrganizationBilling(search);
+	const { canViewChatReplay } = usePermissions();
 
 	return (
-		<SettingsPageWrapper>
+		<SettingsPageWrapper wide>
 			<div className='flex flex-col gap-5'>
 				<div>
-					<h1 className='text-lg font-semibold text-foreground'>Plan & Billing</h1>
+					<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
 					<p className='text-sm text-muted-foreground'>
 						Review your current plan, subscription history, invoices, and billing actions.
 					</p>
@@ -34,6 +44,20 @@ export function OrganizationBillingSettings({ search }: { search: OrganizationBi
 				<div className='flex flex-col gap-12'>
 					<CurrentPlanCard billingState={billingState} />
 					<BillingSetupCard billingState={billingState} />
+					<section className='flex flex-col gap-4'>
+						<div>
+							<h2 className='text-base font-semibold text-foreground'>Organization credits</h2>
+							<p className='text-sm text-muted-foreground'>
+								Fund and review the shared nao AI wallet for this organization.
+							</p>
+						</div>
+						<OrganizationCreditsContent
+							creditCheckout={search.creditCheckout}
+							canViewReplay={canViewChatReplay}
+							activeTab={search.creditsTab ?? 'history'}
+							onTabChange={onCreditsTabChange}
+						/>
+					</section>
 					<PlanDetailsCard billingState={billingState} />
 					<InvoicesCard billingState={billingState} />
 					<BillingManagementCard billingState={billingState} />
@@ -66,8 +90,19 @@ function BillingFeedback({ billingState }: { billingState: BillingState }) {
 }
 
 function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
-	const { billing, hasStripeSubscription, isHistoricalSubscription, statusView } = billingState;
+	const {
+		billing,
+		hasStripeSubscription,
+		isHistoricalSubscription,
+		needsPaidPlanSelection,
+		paidPlanSelected,
+		statusView,
+	} = billingState;
 	const currentPlan = billing.data?.plan;
+	const trialEndedWithoutPaidPlan =
+		billing.data?.resubscribeAvailable === true &&
+		!paidPlanSelected &&
+		Boolean(billing.data.trialStartedAt || billing.data.trialEndsAt);
 
 	return (
 		<SettingsCard title='Current plan'>
@@ -82,7 +117,18 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 				</p>
 			)}
 			{billing.data &&
-				(currentPlan && !isHistoricalSubscription ? (
+				(needsPaidPlanSelection ? (
+					<div className='flex flex-col gap-2'>
+						<div className='flex flex-wrap items-center gap-2'>
+							<p className='font-medium text-foreground'>nao Cloud trial</p>
+							<Badge variant={statusView.variant}>{statusView.label}</Badge>
+						</div>
+						<p className='text-sm text-muted-foreground'>{statusView.description}</p>
+						<p className='text-sm text-muted-foreground'>
+							Trial ends {formatBillingDate(billing.data.trialEndsAt)}.
+						</p>
+					</div>
+				) : currentPlan && !isHistoricalSubscription ? (
 					<div className='flex flex-col gap-2'>
 						<div className='flex flex-wrap items-center gap-2'>
 							<p className='font-medium text-foreground'>{currentPlan.name}</p>
@@ -114,11 +160,13 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 							{isHistoricalSubscription && <Badge variant={statusView.variant}>{statusView.label}</Badge>}
 						</div>
 						<p className='text-sm text-muted-foreground'>
-							{hasStripeSubscription
-								? statusView.description
-								: billing.data.trialAvailable
-									? 'Start your free trial to unlock nao Cloud for this organization.'
-									: 'Subscribe to nao Cloud to restore access.'}
+							{trialEndedWithoutPaidPlan
+								? 'Your free trial has ended. Subscribe to restore access.'
+								: hasStripeSubscription
+									? statusView.description
+									: billing.data.trialAvailable
+										? 'Start your free trial to unlock nao Cloud for this organization.'
+										: 'Subscribe to nao Cloud to restore access.'}
 						</p>
 					</div>
 				))}
@@ -168,13 +216,9 @@ function UpcomingPaymentEstimate({ billingState }: { billingState: BillingState 
 }
 
 function BillingSetupCard({ billingState }: { billingState: BillingState }) {
-	const { billing, hasStripeSubscription, plan } = billingState;
-	if (
-		!billing.data ||
-		hasStripeSubscription ||
-		!plan ||
-		(!billing.data.trialAvailable && !billing.data.resubscribeAvailable)
-	) {
+	const { billing, needsPaidPlanSelection, paidPlanSelected, plan } = billingState;
+	const trialCheckoutAvailable = billing.data?.trialAvailable === true || needsPaidPlanSelection;
+	if (!billing.data || paidPlanSelected || !plan || (!trialCheckoutAvailable && !billing.data.resubscribeAvailable)) {
 		return null;
 	}
 	const isTrialAvailable = billing.data.trialAvailable;
@@ -203,44 +247,63 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 					<PlanDetail
 						label='Free trial'
 						value={
-							isTrialAvailable
-								? `${plan.trialDays} days, starting after Stripe Checkout`
-								: wasTrialUsed
-									? 'Already used'
-									: 'Unavailable'
+							needsPaidPlanSelection
+								? `Ends ${formatBillingDate(billing.data.trialEndsAt)}`
+								: isTrialAvailable
+									? `${plan.trialDays} days, starting after Stripe Checkout`
+									: wasTrialUsed
+										? 'Already used'
+										: 'Unavailable'
 						}
 					/>
-					{isTrialAvailable && <PlanDetail label='Due today' value='No charge' />}
+					{trialCheckoutAvailable && <PlanDetail label='Due today' value='No charge' />}
 				</dl>
 
 				<div className='flex flex-col items-start gap-3 border-t border-border pt-5'>
 					<p className='text-sm text-muted-foreground'>
-						{isTrialAvailable
-							? `Continue to Stripe to add a card and confirm this organization's ${plan.trialDays}-day free trial. Nothing is charged today. Stripe applies promotion codes to the recurring price, which starts after the trial.`
-							: 'Continue to Stripe to restore billing for this organization. Billing starts immediately.'}
+						{needsPaidPlanSelection
+							? `Your trial is already active through ${formatBillingDate(billing.data.trialEndsAt)}. Choose monthly or yearly billing in Stripe, where you can enter a promotion code. Nothing is charged before the trial ends.`
+							: isTrialAvailable
+								? `Continue to Stripe to choose monthly or yearly billing, add a card, and start this organization's ${plan.trialDays}-day free trial. Nothing is charged today. Stripe applies promotion codes to the recurring price, which starts after the trial.`
+								: 'Continue to Stripe to restore billing for this organization. Billing starts immediately.'}
+					</p>
+					<p className='text-xs text-muted-foreground'>
+						To create your organization&apos;s Stripe billing profile, nao shares an organization
+						admin&apos;s email address with Stripe.{' '}
+						<a
+							href='https://getnao.io/privacy'
+							target='_blank'
+							rel='noreferrer'
+							className='underline underline-offset-2'
+						>
+							Privacy policy
+						</a>
+						.
 					</p>
 					{billing.data.canManageBilling ? (
 						<Button
-							onClick={isTrialAvailable ? billingState.openTrialCheckout : billingState.resubscribe}
+							onClick={trialCheckoutAvailable ? billingState.openTrialCheckout : billingState.resubscribe}
 							isLoading={
-								isTrialAvailable
+								trialCheckoutAvailable
 									? billingState.isTrialCheckoutPending
 									: billingState.isResubscribePending
 							}
 							disabled={billingState.isCheckoutPolling}
 						>
-							{isTrialAvailable
-								? `Start ${plan.trialDays}-day free trial in Stripe`
-								: 'Subscribe in Stripe'}
+							{needsPaidPlanSelection
+								? 'Choose plan in Stripe'
+								: isTrialAvailable
+									? 'Start your free trial in Stripe'
+									: 'Subscribe in Stripe'}
 						</Button>
 					) : (
 						<p className='text-sm text-muted-foreground'>
 							Only an organization admin can subscribe or add billing details.
 						</p>
 					)}
-					{(isTrialAvailable ? billingState.trialCheckoutError : billingState.managementError) && (
+					{(trialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError) && (
 						<p className='text-sm text-destructive' role='alert'>
-							{isTrialAvailable ? billingState.trialCheckoutError : billingState.managementError}
+							{trialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError}
 						</p>
 					)}
 				</div>
@@ -325,8 +388,8 @@ function BillingIntervalOption({
 }
 
 function PlanDetailsCard({ billingState }: { billingState: BillingState }) {
-	const { billing, hasStripeSubscription, isHistoricalSubscription, plan, status } = billingState;
-	if (!billing.data || !hasStripeSubscription) {
+	const { billing, isHistoricalSubscription, paidPlanSelected, plan, status } = billingState;
+	if (!billing.data || !paidPlanSelected) {
 		return null;
 	}
 	if (billingState.isEndingAtPeriodEnd) {
@@ -398,7 +461,9 @@ function InvoicesCard({ billingState }: { billingState: BillingState }) {
 											? 'Trial'
 											: invoice.invoiceKind === 'no_charge'
 												? 'No charge'
-												: 'Subscription'}
+												: invoice.invoiceKind === 'credit_top_up'
+													? 'Nao credits'
+													: 'Subscription'}
 									</Badge>
 									{invoice.invoiceKind === 'subscription' &&
 										invoice.promotionCodes.map((code) => (
@@ -443,8 +508,8 @@ function InvoicesCard({ billingState }: { billingState: BillingState }) {
 }
 
 function BillingManagementCard({ billingState }: { billingState: BillingState }) {
-	const { billing, hasStripeSubscription, status } = billingState;
-	if (!billing.data || !hasStripeSubscription) {
+	const { billing, paidPlanSelected, status } = billingState;
+	if (!billing.data || !paidPlanSelected) {
 		return null;
 	}
 

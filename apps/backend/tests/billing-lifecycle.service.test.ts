@@ -2,16 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	listMappedOrganizations: vi.fn(),
+	listPendingTrials: vi.fn(),
 	logError: vi.fn(),
+	provisionTrial: vi.fn(),
 	reconcileCustomer: vi.fn(),
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
 	listOrganizationBillingsWithStripeCustomers: mocks.listMappedOrganizations,
+	listOrganizationTrialsPendingStripeProvisioning: mocks.listPendingTrials,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
 	reconcileCloudBillingCustomer: mocks.reconcileCustomer,
+}));
+
+vi.mock('../src/services/cloud-trial-provisioning.service', () => ({
+	provisionCloudTrial: mocks.provisionTrial,
 }));
 
 vi.mock('../src/utils/logger', () => ({
@@ -24,6 +31,45 @@ import { runCloudBillingLifecycle } from '../src/services/billing-lifecycle.serv
 describe('cloud billing lifecycle', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.listPendingTrials.mockResolvedValue([]);
+		mocks.provisionTrial.mockResolvedValue(undefined);
+	});
+
+	it('continues provisioning and reconciles a mapped organization after its provisioning fails', async () => {
+		mocks.listPendingTrials.mockResolvedValue([{ orgId: 'org-one' }, { orgId: 'org-two' }]);
+		mocks.listMappedOrganizations.mockResolvedValue([
+			{ orgId: 'org-one', stripeCustomerId: 'cus_one' },
+			{ orgId: 'org-two', stripeCustomerId: 'cus_two' },
+			{ orgId: 'org-three', stripeCustomerId: 'cus_three' },
+		]);
+		mocks.provisionTrial.mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce(undefined);
+		mocks.reconcileCustomer.mockResolvedValue({ applied: true, ignored: false });
+
+		await expect(runCloudBillingLifecycle()).resolves.toBeUndefined();
+
+		expect(mocks.provisionTrial).toHaveBeenCalledTimes(2);
+		expect(mocks.provisionTrial).toHaveBeenNthCalledWith(1, 'org-one');
+		expect(mocks.provisionTrial).toHaveBeenNthCalledWith(2, 'org-two');
+		expect(mocks.reconcileCustomer).toHaveBeenCalledTimes(2);
+		expect(mocks.reconcileCustomer).toHaveBeenNthCalledWith(1, {
+			stripeCustomerId: 'cus_one',
+			organizationIdHint: 'org-one',
+		});
+		expect(mocks.reconcileCustomer).toHaveBeenNthCalledWith(2, {
+			stripeCustomerId: 'cus_three',
+			organizationIdHint: 'org-three',
+		});
+		expect(mocks.reconcileCustomer).not.toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_two',
+			organizationIdHint: 'org-two',
+		});
+		expect(mocks.logError).toHaveBeenCalledWith(
+			'Cloud trial provisioning recovery failed for organization org-one',
+			{
+				source: 'system',
+				context: { error: 'Error: temporary' },
+			},
+		);
 	});
 
 	it('reconciles every mapped organization without aborting after one failure', async () => {

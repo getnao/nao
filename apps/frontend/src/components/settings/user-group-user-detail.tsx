@@ -10,7 +10,9 @@ import type {
 	DatabaseContextAccess,
 	DocsContextAccess,
 	FilesContextAccess,
+	McpAccess,
 	ProjectRowSecurity,
+	SkillsAccess,
 	ToolCallDensityPolicy,
 	UserGroupFeature,
 	UserGroupRowPolicies,
@@ -23,6 +25,8 @@ import type { UserGroupEditorGroup } from '@/components/settings/user-group-edit
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { getEffectiveUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UserGroupEffectiveContext } from '@/components/settings/user-group-effective-context';
+import { UserGroupEffectiveMcp } from '@/components/settings/user-group-effective-mcp';
+import { UserGroupEffectiveSkills } from '@/components/settings/user-group-effective-skills';
 import { UserGroupFeatureSummaryCard } from '@/components/settings/user-group-feature-card';
 import { UserGroupUserBudget } from '@/components/settings/user-group-user-budget';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
@@ -46,10 +50,13 @@ interface EffectiveUserGroupAccess {
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
+	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
+	preloadedSkills: string[];
 	rowPolicies: UserGroupRowPolicies[];
 }
 
-export type UserGroupUserDetailTab = 'features' | 'context' | 'security' | 'budget';
+export type UserGroupUserDetailTab = 'features' | 'context' | 'mcp' | 'skills' | 'security' | 'budget';
 
 interface UserGroupUserDetailProps {
 	user: UserGroupDetailUser;
@@ -78,6 +85,8 @@ interface UserGroupUserDetailProps {
 const tabs = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
+	{ id: 'mcp', label: 'MCP' },
+	{ id: 'skills', label: 'Skills' },
 	{ id: 'security', label: 'Security' },
 	{ id: 'budget', label: 'Budget' },
 ] satisfies Array<{ id: UserGroupUserDetailTab; label: string }>;
@@ -198,6 +207,13 @@ export function UserGroupUserDetail({
 							onRetryDatabaseCatalog={onRetryDatabaseCatalog}
 							onRetryDocsCatalog={onRetryDocsCatalog}
 							onRetryFilesCatalog={onRetryFilesCatalog}
+						/>
+					)}
+					{activeTab === 'mcp' && <UserGroupEffectiveMcp mcpAccess={effectiveAccess.mcpAccess} />}
+					{activeTab === 'skills' && (
+						<UserGroupEffectiveSkills
+							skillsAccess={effectiveAccess.skillsAccess}
+							preloadedSkills={effectiveAccess.preloadedSkills}
 						/>
 					)}
 					{activeTab === 'security' && (

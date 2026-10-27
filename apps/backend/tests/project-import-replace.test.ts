@@ -5,20 +5,61 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	createProject: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	touchProjectUpdatedAt: vi.fn(),
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
-	touchProjectUpdatedAt: mocks.touchProjectUpdatedAt,
 }));
 vi.mock('../src/handlers/context-recommendations.handler', () => ({
 	ensureContextRecommendationsScheduleForNewProject: vi.fn(),
 }));
+vi.mock('../src/services/project.service', () => ({
+	createProject: mocks.createProject,
+	touchProjectUpdatedAt: mocks.touchProjectUpdatedAt,
+}));
 
 import type { DBProject } from '../src/db/abstractSchema';
-import { replaceExistingProject } from '../src/utils/project-import.utils';
+import { env } from '../src/env';
+import { createNewProject, replaceExistingProject } from '../src/services/project-import.service';
+
+describe('createNewProject', () => {
+	let originalProjectsDir: string;
+	let root: string;
+	let sourceDir: string;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		originalProjectsDir = env.NAO_PROJECTS_DIR;
+		root = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-import-'));
+		env.NAO_PROJECTS_DIR = path.join(root, 'projects');
+		sourceDir = path.join(root, 'source');
+		fs.mkdirSync(sourceDir);
+		fs.writeFileSync(path.join(sourceDir, 'RULES.md'), 'imported');
+	});
+
+	afterEach(() => {
+		env.NAO_PROJECTS_DIR = originalProjectsDir;
+		fs.rmSync(root, { recursive: true, force: true });
+	});
+
+	it('removes the imported directory when project creation fails', async () => {
+		mocks.createProject.mockRejectedValue(new Error('Failed to create project'));
+
+		await expect(
+			createNewProject({
+				sourceDir,
+				projectName: 'Sales',
+				orgId: 'org-id',
+				projectId: 'project-id',
+			}),
+		).rejects.toThrow('Failed to create project');
+
+		expect(fs.existsSync(path.join(env.NAO_PROJECTS_DIR, 'project-id'))).toBe(false);
+	});
+});
 
 describe('replaceExistingProject', () => {
 	let root: string;
@@ -57,6 +98,7 @@ describe('replaceExistingProject', () => {
 			replaceExistingProject({ sourceDir, project, projectName: 'Sales', userId: 'context-admin-id' }),
 		).resolves.toMatchObject({ status: 'updated' });
 		expect(mocks.getUserRoleInProject).toHaveBeenCalledWith('project-id', 'context-admin-id');
+		expect(mocks.touchProjectUpdatedAt).toHaveBeenCalledWith('project-id');
 		expect(fs.readFileSync(path.join(project.path!, 'RULES.md'), 'utf-8')).toBe('imported');
 	});
 });

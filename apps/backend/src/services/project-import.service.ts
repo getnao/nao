@@ -8,6 +8,7 @@ import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
+import { createProject, touchProjectUpdatedAt } from './project.service';
 
 export function createTempProjectDir(prefix: string): string {
 	const dir = path.resolve(env.NAO_PROJECTS_DIR, `.${prefix}-${crypto.randomUUID()}`);
@@ -65,11 +66,13 @@ export async function createNewProject({
 	projectName,
 	orgId,
 	projectId = crypto.randomUUID(),
+	actingUserId,
 }: {
 	sourceDir: string;
 	projectName: string;
 	orgId: string;
 	projectId?: string;
+	actingUserId?: string;
 }) {
 	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
 
@@ -83,16 +86,24 @@ export async function createNewProject({
 		});
 	}
 
-	const project = await projectQueries.createProject({
-		id: projectId,
-		name: projectName,
-		type: 'local',
-		path: projectDir,
-		orgId,
-	});
+	let project: DBProject;
+	try {
+		project = await createProject(
+			{
+				id: projectId,
+				name: projectName,
+				type: 'local',
+				path: projectDir,
+				orgId,
+			},
+			actingUserId,
+		);
+	} catch (err) {
+		fs.rmSync(projectDir, { recursive: true, force: true });
+		throw err;
+	}
 
 	await ensureContextRecommendationsScheduleForNewProject(project.id);
-
 	return { projectId: project.id, projectName, status: 'created' as const };
 }
 
@@ -127,6 +138,6 @@ export async function replaceExistingProject({
 		});
 	}
 
-	await projectQueries.touchProjectUpdatedAt(project.id);
+	await touchProjectUpdatedAt(project.id);
 	return { projectId: project.id, projectName, status: 'updated' as const };
 }

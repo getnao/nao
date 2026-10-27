@@ -7,10 +7,18 @@ import { trpc } from '@/main';
 
 export function useModelSelection() {
 	const { selectedModel, usesDefaultModel, setSelectedModel } = useAgentContext();
-	const availableModelsQuery = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
-	const defaultModelQuery = useQuery(trpc.project.getDefaultChatModel.queryOptions());
-	const availableModels = availableModelsQuery.data;
-	const isPending = availableModelsQuery.isPending;
+	const currentProjectQuery = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = currentProjectQuery.isError || currentProjectQuery.data != null;
+	const availableModelsQuery = useQuery({
+		...trpc.project.listAvailableTranscribeModels.queryOptions(),
+		enabled: hasProject,
+	});
+	const defaultModelQuery = useQuery({
+		...trpc.project.getDefaultChatModel.queryOptions(),
+		enabled: hasProject,
+	});
+	const availableModels = hasProject ? availableModelsQuery.data : undefined;
+	const isPending = currentProjectQuery.isPending || (hasProject && availableModelsQuery.isPending);
 	const canCycleModels = (availableModels?.length ?? 0) > 1;
 
 	/** Cycles through "nao default" followed by every available model. */
@@ -29,14 +37,14 @@ export function useModelSelection() {
 
 	return {
 		availableModels,
-		defaultModel: defaultModelQuery.data ?? null,
-		isDefaultModelPending: defaultModelQuery.isPending,
+		defaultModel: hasProject ? (defaultModelQuery.data ?? null) : null,
 		selectedModel,
 		usesDefaultModel,
 		setSelectedModel,
 		isPending,
 		canCycleModels,
 		cycleModel,
+		hasProject,
 	};
 }
 

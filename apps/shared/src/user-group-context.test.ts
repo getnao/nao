@@ -26,6 +26,7 @@ import {
 	unionFileTreeAccess,
 } from './user-group-context';
 import { ALL_MCP_ACCESS, EMPTY_MCP_ACCESS } from './user-group-mcp';
+import { ALL_SKILLS_ACCESS, EMPTY_SKILLS_ACCESS } from './user-group-skills';
 
 describe('user group database context access', () => {
 	it('normalizes type casing, duplicates, and order while preserving source names', () => {
@@ -258,10 +259,11 @@ describe('user group docs and project file context access', () => {
 			},
 			filesAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: ' models ' }] },
 			mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: ' github ' }] },
+			skillsAccess: { mode: 'restricted', skills: [' revenue '] },
 		});
 
 		expect(stored).toEqual({
-			version: 6,
+			version: 7,
 			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: {
 				mode: 'restricted',
@@ -272,12 +274,14 @@ describe('user group docs and project file context access', () => {
 			},
 			filesAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'models' }] },
 			mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] },
+			skillsAccess: { mode: 'restricted', skills: ['revenue'] },
 		});
 		expect(parseStoredUserGroupContextAccess(stored, false)).toEqual({
 			databaseAccess: stored.databaseAccess,
 			docsAccess: stored.docsAccess,
 			filesAccess: stored.filesAccess,
 			mcpAccess: stored.mcpAccess,
+			skillsAccess: stored.skillsAccess,
 		});
 	});
 
@@ -292,12 +296,48 @@ describe('user group docs and project file context access', () => {
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: ALL_MCP_ACCESS,
+			skillsAccess: ALL_SKILLS_ACCESS,
 		});
 		expect(parseStoredUserGroupContextAccess(null, false)).toEqual({
 			databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: EMPTY_MCP_ACCESS,
+			skillsAccess: EMPTY_SKILLS_ACCESS,
+		});
+	});
+
+	it('keeps skills open for the default group when parsing v6 grants', () => {
+		const v6 = {
+			version: 6,
+			databaseAccess: { mode: 'all', strict: false },
+			docsAccess: { mode: 'all' },
+			filesAccess: { mode: 'all' },
+			mcpAccess: { mode: 'all' },
+		};
+		expect(parseStoredUserGroupContextAccess(v6, true).skillsAccess).toEqual(ALL_SKILLS_ACCESS);
+		expect(parseStoredUserGroupContextAccess(v6, false).skillsAccess).toEqual(EMPTY_SKILLS_ACCESS);
+	});
+
+	it('fails malformed v7 skill grants closed without touching the other sections', () => {
+		expect(
+			parseStoredUserGroupContextAccess(
+				{
+					version: 7,
+					databaseAccess: { mode: 'all', strict: false },
+					docsAccess: { mode: 'all' },
+					filesAccess: { mode: 'all' },
+					mcpAccess: { mode: 'all' },
+					skillsAccess: { mode: 'restricted', skills: [''] },
+				},
+				true,
+			),
+		).toEqual({
+			databaseAccess: { mode: 'all', strict: false },
+			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: ALL_MCP_ACCESS,
+			skillsAccess: EMPTY_SKILLS_ACCESS,
 		});
 	});
 
@@ -329,6 +369,7 @@ describe('user group docs and project file context access', () => {
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: EMPTY_MCP_ACCESS,
+			skillsAccess: ALL_SKILLS_ACCESS,
 		});
 	});
 
@@ -343,6 +384,7 @@ describe('user group docs and project file context access', () => {
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: EMPTY_MCP_ACCESS,
+			skillsAccess: EMPTY_SKILLS_ACCESS,
 		});
 	});
 
@@ -361,6 +403,7 @@ describe('user group docs and project file context access', () => {
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: ALL_MCP_ACCESS,
+			skillsAccess: ALL_SKILLS_ACCESS,
 		});
 	});
 
@@ -370,12 +413,14 @@ describe('user group docs and project file context access', () => {
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 			mcpAccess: EMPTY_MCP_ACCESS,
+			skillsAccess: EMPTY_SKILLS_ACCESS,
 		});
 		expect(parseStoredUserGroupContextAccess({ version: 99 }, true)).toEqual({
 			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 			mcpAccess: EMPTY_MCP_ACCESS,
+			skillsAccess: EMPTY_SKILLS_ACCESS,
 		});
 		expect(
 			parseStoredUserGroupContextAccess(
@@ -392,6 +437,7 @@ describe('user group docs and project file context access', () => {
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 			filesAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'models' }] },
 			mcpAccess: ALL_MCP_ACCESS,
+			skillsAccess: ALL_SKILLS_ACCESS,
 		});
 		expect(
 			parseStoredUserGroupContextAccess(
@@ -408,6 +454,7 @@ describe('user group docs and project file context access', () => {
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 			filesAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'models/orders.sql' }] },
 			mcpAccess: EMPTY_MCP_ACCESS,
+			skillsAccess: EMPTY_SKILLS_ACCESS,
 		});
 		expect(
 			parseStoredUserGroupContextAccess(
@@ -424,6 +471,7 @@ describe('user group docs and project file context access', () => {
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 			mcpAccess: EMPTY_MCP_ACCESS,
+			skillsAccess: EMPTY_SKILLS_ACCESS,
 		});
 	});
 

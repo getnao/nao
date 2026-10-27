@@ -101,6 +101,85 @@
 	}
 }
 
+.nyan-cat {
+	transform-origin: center;
+	animation: nyan-cat-bob 900ms steps(1, jump-end) infinite;
+	filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--violet) 22%, transparent));
+	will-change: transform;
+}
+
+@keyframes nyan-cat-bob {
+	0%,
+	100% {
+		transform: translateY(5px) rotate(-1deg);
+	}
+	25% {
+		transform: translateY(0) rotate(0.6deg);
+	}
+	50% {
+		transform: translateY(-5px) rotate(-0.4deg);
+	}
+	75% {
+		transform: translateY(0) rotate(1deg);
+	}
+}
+
+.nyan-cat-flight {
+	animation: nyan-cat-fly 4s linear infinite;
+	will-change: transform;
+}
+
+@keyframes nyan-cat-fly {
+	0% {
+		transform: translateX(calc(-1 * var(--cat-width)));
+	}
+	100% {
+		transform: translateX(100%);
+	}
+}
+
+.confetti-piece {
+	animation: confetti-burst 1.1s cubic-bezier(0.2, 0.8, 0.3, 1) var(--delay, 0ms) both;
+}
+
+@keyframes confetti-burst {
+	0% {
+		opacity: 1;
+		transform: translate(0, 0) scale(0) rotate(0deg);
+	}
+	30% {
+		opacity: 1;
+		transform: translate(
+				calc(cos(var(--angle)) * var(--distance) * 0.6),
+				calc(sin(var(--angle)) * var(--distance) * 0.6)
+			)
+			scale(1) rotate(180deg);
+	}
+	100% {
+		opacity: 0;
+		transform: translate(
+				calc(cos(var(--angle)) * var(--distance)),
+				calc(sin(var(--angle)) * var(--distance) + 24px)
+			)
+			scale(0.6) rotate(540deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.nyan-cat,
+	.nyan-cat-flight {
+		animation: none;
+	}
+
+	.nyan-cat-flight {
+		transform: translateX(calc(50% - var(--cat-width) / 2));
+	}
+
+	.confetti-piece {
+		display: none;
+	}
+}
+
 .graph-loader svg {
 	width: 100%;
 	height: 100%;

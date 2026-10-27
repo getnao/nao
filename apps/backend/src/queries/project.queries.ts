@@ -3,6 +3,7 @@ import {
 	ALL_DOCS_CONTEXT_ACCESS,
 	ALL_FILES_CONTEXT_ACCESS,
 	ALL_MCP_ACCESS,
+	ALL_SKILLS_ACCESS,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_NAME,
@@ -15,15 +16,18 @@ import {
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db, type DBExecutor, type DBTransaction } from '../db/db';
+import { db, type DBExecutor, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { env, isCloud } from '../env';
+import { env, isCloud, isCloudBillingEnabled } from '../env';
+import { CLOUD_TRIAL_PROVISIONING_JOB_NAME } from '../types/billing';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+import { startOrganizationTrial } from './billing.queries';
+import { enqueueOnceJob } from './scheduled-job.queries';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 import { userMemberStatus } from './user.queries';
 
@@ -57,6 +61,16 @@ export const getProjectByOrgAndName = async (orgId: string, name: string): Promi
 	return project ?? null;
 };
 
+export const organizationHasProjects = async (orgId: string): Promise<boolean> => {
+	const [project] = await db
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.limit(1)
+		.execute();
+	return Boolean(project);
+};
+
 export const touchProjectUpdatedAt = async (projectId: string): Promise<void> => {
 	await db.update(s.project).set({ updatedAt: new Date() }).where(eq(s.project.id, projectId)).execute();
 };
@@ -74,13 +88,17 @@ export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: 
 	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
-export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> => {
+export const createProject = async (
+	project: NewProject,
+	transaction?: DBTransaction,
+	actingUserId?: string,
+): Promise<DBProject> => {
 	if (isCloud && !project.orgId) {
 		throw new Error('Cloud projects must belong to an organization.');
 	}
 	return transaction
-		? createProjectWithDefaultGroup(project, transaction)
-		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
+		? createProjectWithDefaultGroup(project, transaction, actingUserId)
+		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx, actingUserId));
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {
@@ -441,28 +459,100 @@ const mutateCustomBoundaries = async (
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
 	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
 
-type Lockable<Query> = { for(strength: 'update'): Query };
-
 const createProjectWithDefaultGroup = (
 	project: NewProject,
 	transaction: DBTransaction,
-): DBProject | Promise<DBProject> => {
-	if (dbConfig.dialect === Dialect.Postgres) {
-		return createPostgresProjectWithDefaultGroup(project, transaction);
-	}
+	actingUserId?: string,
+): DBProject | Promise<DBProject> =>
+	dbConfig.dialect === Dialect.Postgres
+		? createPostgresProjectWithDefaultGroup(project, transaction, actingUserId)
+		: createSqliteProjectWithDefaultGroup(project, transaction, actingUserId);
+
+function createSqliteProjectWithDefaultGroup(
+	project: NewProject,
+	transaction: DBTransaction,
+	actingUserId?: string,
+): DBProject {
+	const shouldStartTrial = shouldStartSqliteOrganizationTrial(project.orgId, transaction);
 	const [created] = transaction.insert(s.project).values(project).returning().all();
 	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
+	if (shouldStartTrial && created.orgId) {
+		const started = startOrganizationTrial(created.orgId, new Date(), transaction) as boolean;
+		if (started) {
+			enqueueOnceJob(cloudTrialProvisioningJob(created.orgId, actingUserId), transaction);
+		}
+	}
 	return created;
-};
+}
+
+function shouldStartSqliteOrganizationTrial(orgId: string | null | undefined, executor: DBExecutor): boolean {
+	if (!orgId || !isCloudBillingEnabled()) {
+		return false;
+	}
+	const [organization] = executor
+		.select({ bypassBilling: s.organization.bypassBilling })
+		.from(s.organization)
+		.where(eq(s.organization.id, orgId))
+		.limit(1)
+		.all();
+	if (!organization || organization.bypassBilling) {
+		return false;
+	}
+	const [existingProject] = executor
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.limit(1)
+		.all();
+	return !existingProject;
+}
+
+async function shouldStartPostgresOrganizationTrial(
+	orgId: string | null | undefined,
+	executor: DBExecutor,
+): Promise<boolean> {
+	if (!orgId || !isCloudBillingEnabled()) {
+		return false;
+	}
+	const [organization] = await executor
+		.select({ bypassBilling: s.organization.bypassBilling })
+		.from(s.organization)
+		.where(eq(s.organization.id, orgId))
+		.limit(1)
+		.execute();
+	if (!organization || organization.bypassBilling) {
+		return false;
+	}
+	const [existingProject] = await executor
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.limit(1)
+		.execute();
+	return !existingProject;
+}
 
 const createPostgresProjectWithDefaultGroup = async (
 	project: NewProject,
 	transaction: DBTransaction,
+	actingUserId?: string,
 ): Promise<DBProject> => {
+	const shouldStartTrial = await shouldStartPostgresOrganizationTrial(project.orgId, transaction);
 	const [created] = await transaction.insert(s.project).values(project).returning().execute();
 	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
+	if (shouldStartTrial && created.orgId) {
+		if (await startOrganizationTrial(created.orgId, new Date(), transaction)) {
+			await enqueueOnceJob(cloudTrialProvisioningJob(created.orgId, actingUserId), transaction);
+		}
+	}
 	return created;
 };
+
+const cloudTrialProvisioningJob = (organizationId: string, actingUserId?: string) => ({
+	name: CLOUD_TRIAL_PROVISIONING_JOB_NAME,
+	payload: { organizationId, ...(actingUserId ? { actingUserId } : {}) },
+	uniqueKey: `billing-cloud-provision-trial:${organizationId}`,
+});
 
 const defaultUserGroupValues = (projectId: string) => ({
 	projectId,
@@ -474,6 +564,7 @@ const defaultUserGroupValues = (projectId: string) => ({
 		docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 		filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		mcpAccess: ALL_MCP_ACCESS,
+		skillsAccess: ALL_SKILLS_ACCESS,
 	}),
 });
 
@@ -538,6 +629,8 @@ export const listProjectChats = async (
 		page?: number;
 		pageSize?: number;
 		search?: string;
+		author?: string;
+		messageCount?: { min?: number; max?: number };
 		filters?: { id: ProjectChatsFacetKey; values: string[] }[];
 		updatedAtFilter?: UpdatedAtFilter;
 		sorting?: { id: string; desc?: boolean }[];
@@ -546,6 +639,8 @@ export const listProjectChats = async (
 	const page = Math.max(0, opts?.page ?? 0);
 	const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 30));
 	const search = opts?.search?.trim() ?? '';
+	const author = opts?.author?.trim() ?? '';
+	const messageCount = opts?.messageCount;
 	const filters = (opts?.filters ?? []).filter((f) => f.values?.length);
 	const updatedAtFilter = opts?.updatedAtFilter;
 	const sorting = opts?.sorting ?? [];
@@ -578,15 +673,25 @@ export const listProjectChats = async (
 	`;
 
 	const costLookup = await createCostLookup(projectId);
-	const totalCostExpr = sql<number>`
+	const estimatedByokCostExpr = sql<number>`
 		(
 			select coalesce(sum(${TOTAL_COST_EXPR}), 0)
 			from ${s.chatMessage}
 			left join ${costLookup.table} on ${costLookup.joinCondition}
 			where ${s.chatMessage.chatId} = ${s.chat.id}
 				and ${s.chatMessage.supersededAt} is null
+				and ${s.chatMessage.llmProvider} <> ${'nao'}
 		)
 	`;
+	const managedCreditsCostExpr = sql<number>`
+		(
+			select coalesce(sum(${s.managedAiUsage.customerChargeMicroUsd}), 0) / 1000000.0
+			from ${s.managedAiUsage}
+			where ${s.managedAiUsage.chatId} = ${s.chat.id}
+				and ${eq(s.managedAiUsage.isManaged, true)}
+		)
+	`;
+	const totalCostExpr = sql<number>`${estimatedByokCostExpr} + ${managedCreditsCostExpr}`;
 
 	const downvotesExpr = feedbackExpr('down', sql<number>`count(*)`);
 	const upvotesExpr = feedbackExpr('up', sql<number>`count(*)`);
@@ -609,7 +714,7 @@ export const listProjectChats = async (
 		limit 1
 	)`;
 
-	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
+	const baseWhereClauses = [eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt)];
 
 	if (updatedAtFilter) {
 		if (updatedAtFilter.mode === 'single') {
@@ -622,31 +727,42 @@ export const listProjectChats = async (
 	}
 
 	if (search) {
-		const escaped = search.toLowerCase().replace(/[%_\\]/g, '\\$&');
-		const like = `%${escaped}%`;
+		const like = toContainsLikePattern(search);
 		baseWhereClauses.push(sql`
 			(
-				lower(${s.chat.title}) like ${like}
-				or lower(${s.user.name}) like ${like}
-				or lower(coalesce(${s.projectMember.role}, 'Former member')) like ${like}
-				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like}
-				or CAST(${totalTokensExpr} AS TEXT) like ${like}
-				or CAST(${downvotesExpr} AS TEXT) like ${like}
-				or CAST(${upvotesExpr} AS TEXT) like ${like}
-				or CAST(${toolErrorCountExpr} AS TEXT) like ${like}
-				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like}
+				lower(${s.chat.title}) like ${like} escape '\\'
+				or lower(${s.user.name}) like ${like} escape '\\'
+				or lower(coalesce(${s.projectMember.role}, 'Former member')) like ${like} escape '\\'
+				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${totalTokensExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${downvotesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${upvotesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${toolErrorCountExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like} escape '\\'
 				or exists (
 					select 1
 					from ${s.chatMessage}
 					inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
 					where ${s.chatMessage.chatId} = ${s.chat.id}
 						and ${s.chatMessage.supersededAt} is null
-						and lower(${s.messagePart.text}) like ${like}
+						and lower(${s.messagePart.text}) like ${like} escape '\\'
 				)
 			)
 		`);
 	}
 	const filterWhereClauses: SQL<unknown>[] = [];
+	if (author) {
+		const like = toContainsLikePattern(author);
+		filterWhereClauses.push(
+			sql`(lower(${s.user.name}) like ${like} escape '\\' or lower(${s.user.email}) like ${like} escape '\\')`,
+		);
+	}
+	if (messageCount?.min !== undefined) {
+		filterWhereClauses.push(gte(numberOfMessagesExpr, messageCount.min));
+	}
+	if (messageCount?.max !== undefined) {
+		filterWhereClauses.push(lte(numberOfMessagesExpr, messageCount.max));
+	}
 	for (const filter of filters) {
 		if (filter.values.length === 0) {
 			continue;
@@ -796,6 +912,11 @@ export const listProjectChats = async (
 		facets,
 	};
 };
+
+function toContainsLikePattern(term: string): string {
+	const escaped = term.toLowerCase().replace(/[%_\\]/g, '\\$&');
+	return `%${escaped}%`;
+}
 
 function buildTieredSort(
 	dir: typeof asc | typeof desc,

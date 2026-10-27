@@ -27,6 +27,33 @@ export function serializeError(error: unknown): Record<string, unknown> {
 	return { value: redactCredentialedUrls(String(error)) };
 }
 
+const MAX_CAUSE_DEPTH = 5;
+
+/**
+ * Joins an error's message with those of its `cause` chain, so wrapper errors such as
+ * Drizzle's "Failed query" or a tRPC INTERNAL_SERVER_ERROR show the underlying driver error.
+ */
+export function describeError(error: unknown): string {
+	const messages: string[] = [];
+	let current: unknown = error;
+	for (let depth = 0; current !== undefined && current !== null && depth < MAX_CAUSE_DEPTH; depth++) {
+		const message = redactCredentialedUrls(getErrorLikeMessage(current));
+		if (!messages.includes(message)) {
+			messages.push(message);
+		}
+		current = typeof current === 'object' ? (current as { cause?: unknown }).cause : undefined;
+	}
+	return messages.join(' | caused by: ');
+}
+
+function getErrorLikeMessage(value: unknown): string {
+	if (value instanceof Error) {
+		return value.message;
+	}
+	const message = typeof value === 'object' && value !== null ? (value as { message?: unknown }).message : undefined;
+	return typeof message === 'string' ? message : String(value);
+}
+
 const SENSITIVE_KEYS = new Set(['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key']);
 
 function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {

@@ -49,6 +49,7 @@ export async function runContextRecommendations(
 	const periodEnd = period?.end ?? now;
 	const periodStart = period?.start ?? (await resolvePeriodStart(projectId, periodEnd));
 
+	const userId = options?.triggeredByUserId ?? (await crQueries.getFirstProjectAdminUserId(projectId));
 	const config = await crQueries.getConfig(projectId);
 	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation');
 	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);
@@ -81,7 +82,6 @@ export async function runContextRecommendations(
 			await crQueries.getContextFileReadCosts(projectId, periodStart, periodEnd),
 		);
 
-		const userId = options?.triggeredByUserId ?? (await crQueries.getFirstProjectAdminUserId(projectId));
 		const [chat] = await chatQueries.createChat(
 			{ title: 'Context recommendations run', userId, projectId },
 			{
@@ -110,6 +110,7 @@ export async function runContextRecommendations(
 		const agent = await agentService.create({ ...uiChat, id: chat.id, projectId, userId }, model, {
 			billingAccessVerifiedProjectId: options?.billingAccessVerifiedProjectId,
 			excludeFollowUps: true,
+			usageCategory: 'recommendation',
 			maxSteps: ANALYSIS_STEP_BUDGET,
 			systemPrompt: renderContextRecommendationsSystemPrompt({
 				proposeFixes,
@@ -159,6 +160,7 @@ export async function runContextRecommendations(
 		await ensureFeedbackCoverage(projectId, run.id, model, {
 			existing: existing.map(toExistingRec),
 			dismissedFingerprints,
+			userId,
 		});
 
 		await normalizeFeedbackLinks(projectId);

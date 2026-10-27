@@ -6,9 +6,11 @@ import {
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
+	EMPTY_SKILLS_ACCESS,
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	type FilesContextAccess,
 	filterUserGroupRowPoliciesByDatabaseContext,
+	isSkillGranted,
 	type McpAccess,
 	parseStoredProjectRowSecurity,
 	parseStoredUserGroupConfig,
@@ -23,12 +25,14 @@ import {
 	serializeUserGroupContextAccess,
 	serializeUserGroupRowPolicies,
 	serializeUserGroupSsoMappings,
+	type SkillsAccess,
 	type SsoGroupProvider,
 	type StoredProjectRowSecurity,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
 	unionFileTreeAccess,
 	unionMcpAccess,
+	unionSkillsAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
@@ -63,6 +67,7 @@ export interface UserGroup extends Omit<
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
 	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
 	ssoMappings: UserGroupSsoMappings;
 	rowPolicies: UserGroupRowPolicies;
 }
@@ -83,6 +88,7 @@ export interface EffectiveUserGroupAccess {
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
 	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
 	rowPolicies: UserGroupRowPolicies[];
 	preloadedSkills: string[];
 }
@@ -169,6 +175,7 @@ export const resolveUserGroupAccess = async (
 				left.id.localeCompare(right.id),
 		)[0];
 	const densitySource = newestExplicitGroup ?? defaultGroup;
+	const skillsAccess = unionSkillsAccess(applicableGroups.map((group) => group.contextAccess.skillsAccess));
 
 	return {
 		groupNames: applicableGroups.map((group) => group.name),
@@ -185,6 +192,7 @@ export const resolveUserGroupAccess = async (
 		docsAccess: unionFileTreeAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
 		filesAccess: unionFileTreeAccess(applicableGroups.map((group) => group.contextAccess.filesAccess)),
 		mcpAccess: unionMcpAccess(applicableGroups.map((group) => group.contextAccess.mcpAccess)),
+		skillsAccess,
 		rowPolicies: applicableGroups.map((group) =>
 			filterUserGroupRowPoliciesByDatabaseContext(
 				parseStoredUserGroupRowPolicies(group.rowPolicies),
@@ -195,7 +203,7 @@ export const resolveUserGroupAccess = async (
 			applicableGroups.map(({ isDefault, name, config }) => ({
 				isDefault,
 				name,
-				preloadedSkills: config.preloadedSkills,
+				preloadedSkills: config.preloadedSkills.filter((skill) => isSkillGranted(skillsAccess, skill)),
 			})),
 		),
 	};
@@ -259,6 +267,7 @@ export const createUserGroup = async (
 	mcpAccess: McpAccess = EMPTY_MCP_ACCESS,
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
+	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -274,6 +283,7 @@ export const createUserGroup = async (
 		mcpAccess,
 		showAllSettings,
 		preloadedSkills,
+		skillsAccess,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -311,6 +321,7 @@ export const createUserGroupWithinLimit = async (
 	mcpAccess: McpAccess = EMPTY_MCP_ACCESS,
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
+	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -326,6 +337,7 @@ export const createUserGroupWithinLimit = async (
 		mcpAccess,
 		showAllSettings,
 		preloadedSkills,
+		skillsAccess,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -372,6 +384,7 @@ export const updateUserGroup = async (
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
 		mcpAccess?: McpAccess;
+		skillsAccess?: SkillsAccess;
 		ssoMappings?: UserGroupSsoMappings;
 		rowPolicies?: UserGroupRowPolicies;
 		rowPoliciesRegistry?: ProjectRowSecurity;
@@ -417,7 +430,8 @@ export const updateUserGroup = async (
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
 		data.filesAccess === undefined &&
-		data.mcpAccess === undefined
+		data.mcpAccess === undefined &&
+		data.skillsAccess === undefined
 			? {}
 			: {
 					contextGrants: serializeUserGroupContextAccess({
@@ -425,6 +439,7 @@ export const updateUserGroup = async (
 						docsAccess: data.docsAccess ?? currentContext.docsAccess,
 						filesAccess: data.filesAccess ?? currentContext.filesAccess,
 						mcpAccess: data.mcpAccess ?? currentContext.mcpAccess,
+						skillsAccess: data.skillsAccess ?? currentContext.skillsAccess,
 					}),
 				}),
 		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
@@ -660,6 +675,7 @@ function createUserGroupValues(
 	mcpAccess: McpAccess = EMPTY_MCP_ACCESS,
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
+	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	return {
@@ -672,7 +688,13 @@ function createUserGroupValues(
 			showAllSettings,
 			preloadedSkills,
 		),
-		contextGrants: serializeUserGroupContextAccess({ databaseAccess, docsAccess, filesAccess, mcpAccess }),
+		contextGrants: serializeUserGroupContextAccess({
+			databaseAccess,
+			docsAccess,
+			filesAccess,
+			mcpAccess,
+			skillsAccess,
+		}),
 		ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
 		rowPolicies: serializeUserGroupRowPolicies(filteredRowPolicies),
 		isDefault: false,
@@ -811,6 +833,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		docsAccess: contextAccess.docsAccess,
 		filesAccess: contextAccess.filesAccess,
 		mcpAccess: contextAccess.mcpAccess,
+		skillsAccess: contextAccess.skillsAccess,
 		ssoMappings: parseStoredUserGroupSsoMappings(group.ssoMappings),
 		rowPolicies: parseStoredUserGroupRowPolicies(group.rowPolicies),
 	};

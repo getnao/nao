@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarIcon, FilterX, Loader2, X } from 'lucide-react';
+import { AlertTriangle, FilterX, Loader2, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -8,9 +8,9 @@ import type { DateRange } from 'react-day-picker';
 import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 
 import type { StoryFilterApi } from '@/hooks/use-story-filters';
+import { DateRangePicker } from '@/components/date-range-picker';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { Button } from '@/components/ui/button';
-import { Calendar } from '@/components/ui/calendar';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -18,9 +18,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 const CLEAR_SELECT_VALUE = '__nao_clear_filter__';
@@ -239,34 +237,13 @@ function MultiSelectFilter({
 }
 
 function RangeFilter({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
-	const selected = toDateRange(value);
-
 	return (
-		<Popover>
-			<PopoverTrigger asChild>
-				<Button
-					variant='outline'
-					size='sm'
-					className={cn(
-						'nao-filter__control h-8 min-w-56 justify-start bg-background font-normal',
-						!selected?.from && 'text-muted-foreground',
-					)}
-				>
-					<CalendarIcon className='size-3.5' />
-					{formatDateRangeLabel(selected)}
-				</Button>
-			</PopoverTrigger>
-			<PopoverContent className='w-auto overflow-hidden p-0' align='start'>
-				<Calendar
-					mode='range'
-					selected={selected}
-					onSelect={(range) => onChange(fromDateRange(range))}
-					defaultMonth={selected?.from}
-					navLayout='after'
-					numberOfMonths={1}
-				/>
-			</PopoverContent>
-		</Popover>
+		<DateRangePicker
+			value={toDateRange(value)}
+			onChange={(range) => onChange(fromDateRange(range))}
+			placeholder='All dates'
+			className='nao-filter__control'
+		/>
 	);
 }
 
@@ -294,16 +271,6 @@ function parseDateString(value: string | undefined): Date | undefined {
 	const date = new Date(year, month - 1, day);
 	const isSameCalendarDate = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 	return isSameCalendarDate ? date : undefined;
-}
-
-function formatDateRangeLabel(range: DateRange | undefined): string {
-	if (!range?.from) {
-		return 'Pick a date range';
-	}
-	if (!range.to) {
-		return format(range.from, 'LLL dd, y');
-	}
-	return `${format(range.from, 'LLL dd, y')} – ${format(range.to, 'LLL dd, y')}`;
 }
 
 function FilterOptionsErrorBanner({

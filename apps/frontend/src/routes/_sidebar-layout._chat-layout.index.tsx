@@ -68,6 +68,7 @@ function HomePage() {
 	const storiesProjectId = showExampleProject ? SYSTEM_EXAMPLE_PROJECT_ID : project.data?.id;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const isDark = useIsDarkMode();
+	const hasProject = !!project.data?.id;
 	const stories = useQuery({
 		...trpc.story.listAll.queryOptions({ projectId: storiesProjectId }),
 		enabled: isEmptyState && !!storiesProjectId,
@@ -78,15 +79,15 @@ function HomePage() {
 	});
 	const favorites = useQuery({
 		...trpc.favorite.list.queryOptions(),
-		enabled: isEmptyState && !!project.data?.id,
+		enabled: isEmptyState && hasProject,
 	});
 	const folderItems = useQuery({
 		...trpc.storyFolder.listItems.queryOptions(),
-		enabled: isEmptyState && !!project.data?.id,
+		enabled: isEmptyState && hasProject,
 	});
 	const folderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
-		enabled: isEmptyState && !!project.data?.id,
+		enabled: isEmptyState && hasProject,
 	});
 	const storiesGridRef = useRef<HTMLDivElement>(null);
 	const [storyCols, setStoryCols] = useState(STORY_CARD_MAX_COLS);

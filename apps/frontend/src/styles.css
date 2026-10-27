@@ -139,6 +139,11 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+/* Recharts sizes axis ticks with this span; an inherited body line-height makes labels look taller and get skipped. */
+#recharts_measurement_span {
+	line-height: normal;
+}
+
 code {
 	font-family: var(--font-mono);
 	font-size: 0.75rem;

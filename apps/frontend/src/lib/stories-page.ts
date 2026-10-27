@@ -7,14 +7,33 @@ import type { QueryDataMap } from '@/components/story-embeds';
 
 type RouterOutputs = inferRouterOutputs<TrpcRouter>;
 
-export type SortField = 'name' | 'owner' | 'updated';
+export type SortField = 'name' | 'owner' | 'updated' | 'created' | 'views';
 export type SortDirection = 'asc' | 'desc';
 export type SortState = { field: SortField; direction: SortDirection };
-export type StoriesScope = 'all' | 'certified';
+export type StoriesOwnerFilter = 'anyone' | 'me' | 'others';
+export type StoriesFormatFilter = 'any' | StoryFormat;
+export type StoriesFilters = {
+	certifiedOnly: boolean;
+	liveOnly: boolean;
+	favoritesOnly: boolean;
+	sharedOnly: boolean;
+	owner: StoriesOwnerFilter;
+	format: StoriesFormatFilter;
+};
 
 export const STORIES_DISPLAY_KEY = 'stories-display-mode';
 export const STORIES_SORT_KEY = 'stories-sort';
 export const DEFAULT_SORT: SortState = { field: 'updated', direction: 'desc' };
+export const DEFAULT_FILTERS: StoriesFilters = {
+	certifiedOnly: false,
+	liveOnly: false,
+	favoritesOnly: false,
+	sharedOnly: false,
+	owner: 'anyone',
+	format: 'any',
+};
+
+const SORT_FIELDS: SortField[] = ['name', 'owner', 'updated', 'created', 'views'];
 
 export function readStoredSort(): SortState {
 	const raw = localStorage.getItem(STORIES_SORT_KEY);
@@ -22,10 +41,7 @@ export function readStoredSort(): SortState {
 		return DEFAULT_SORT;
 	}
 	const [field, direction] = raw.split('-') as [SortField, SortDirection];
-	if (
-		(field === 'name' || field === 'owner' || field === 'updated') &&
-		(direction === 'asc' || direction === 'desc')
-	) {
+	if (SORT_FIELDS.includes(field) && (direction === 'asc' || direction === 'desc')) {
 		return { field, direction };
 	}
 	return DEFAULT_SORT;
@@ -33,6 +49,29 @@ export function readStoredSort(): SortState {
 
 export function writeStoredSort(sort: SortState): void {
 	localStorage.setItem(STORIES_SORT_KEY, `${sort.field}-${sort.direction}`);
+}
+
+export function isDateSortField(field: SortField): boolean {
+	return field === 'updated' || field === 'created';
+}
+
+export function isTextSortField(field: SortField): boolean {
+	return field === 'name' || field === 'owner';
+}
+
+export function defaultSortDirection(field: SortField): SortDirection {
+	return isTextSortField(field) ? 'asc' : 'desc';
+}
+
+export function countActiveFilters(filters: StoriesFilters): number {
+	return (
+		Number(filters.certifiedOnly) +
+		Number(filters.liveOnly) +
+		Number(filters.favoritesOnly) +
+		Number(filters.sharedOnly) +
+		Number(filters.owner !== 'anyone') +
+		Number(filters.format !== 'any')
+	);
 }
 
 export type StoryItem = {
@@ -55,6 +94,7 @@ export type StoryItem = {
 	isFavorited: boolean;
 	sharing: StorySharingInfo | null;
 	isShared: boolean;
+	viewCount: number | null;
 	folderId: string | null;
 	isInPrivateContext: boolean;
 	link: { to: '/stories/$storyId'; params: { storyId: string } };
@@ -106,6 +146,7 @@ export function buildStoryItems({
 	sharedStories,
 	currentUserName,
 	favoriteStoryIds,
+	viewCountByStoryId,
 	folderItemMap,
 	folders,
 }: {
@@ -114,6 +155,7 @@ export function buildStoryItems({
 	sharedStories: SharedStoryListItem[];
 	currentUserName: string;
 	favoriteStoryIds?: string[];
+	viewCountByStoryId?: Record<string, number>;
 	folderItemMap: Map<string, string>;
 	folders: FolderItem[];
 }): StoryItem[] {
@@ -154,6 +196,7 @@ export function buildStoryItems({
 			isFavorited,
 			sharing: story.sharing,
 			isShared: sharedEntry !== undefined,
+			viewCount: lookupViewCount(viewCountByStoryId, story.id),
 			folderId,
 			isInPrivateContext: isPrivateContext(folderId, folders),
 			link: storyLink(story.id),
@@ -182,6 +225,7 @@ export function buildStoryItems({
 			isFavorited,
 			sharing: null,
 			isShared: false,
+			viewCount: lookupViewCount(viewCountByStoryId, story.id),
 			folderId,
 			isInPrivateContext: isPrivateContext(folderId, folders),
 			link: storyLink(story.id),
@@ -211,6 +255,7 @@ export function buildStoryItems({
 				isFavorited,
 				sharing: story.sharing,
 				isShared: true,
+				viewCount: lookupViewCount(viewCountByStoryId, story.storyId),
 				folderId,
 				isInPrivateContext: false,
 				link: storyLink(story.storyId),
@@ -220,14 +265,18 @@ export function buildStoryItems({
 	return [...ownItems, ...standaloneItems, ...sharedItems];
 }
 
-export function filterStories(items: StoryItem[], query: string, scope: StoriesScope = 'all'): StoryItem[] {
-	const scopedItems = scope === 'certified' ? items.filter((item) => item.isCertified) : items;
+export function filterStories(
+	items: StoryItem[],
+	query: string,
+	filters: StoriesFilters = DEFAULT_FILTERS,
+): StoryItem[] {
+	const filteredItems = items.filter((item) => matchesFilters(item, filters));
 	if (!query.trim()) {
-		return scopedItems;
+		return filteredItems;
 	}
 
 	const lowerQuery = query.toLowerCase();
-	return scopedItems.filter(
+	return filteredItems.filter(
 		(item) =>
 			matchesStoryId(item, query) ||
 			item.title.toLowerCase().includes(lowerQuery) ||
@@ -252,7 +301,7 @@ export function buildCurrentLevelEntries({
 	currentUserName,
 	favoriteFolderIds,
 	searchQuery = '',
-	scope = 'all',
+	filters = DEFAULT_FILTERS,
 }: {
 	items: StoryItem[];
 	folders: FolderItem[];
@@ -261,10 +310,10 @@ export function buildCurrentLevelEntries({
 	currentUserName: string;
 	favoriteFolderIds?: string[];
 	searchQuery?: string;
-	scope?: StoriesScope;
+	filters?: StoriesFilters;
 }): { pinned: StoryItem[]; favorites: FavoriteEntry[]; entries: ExplorerEntry[] } {
-	if (scope === 'certified') {
-		return buildCertifiedEntries(items, sort, currentUserName);
+	if (searchQuery.trim() || countActiveFilters(filters) > 0) {
+		return buildResultEntries({ items, folders, currentFolderId, sort, currentUserName, searchQuery });
 	}
 
 	const favoriteFolderSet = new Set<string>(favoriteFolderIds ?? []);
@@ -288,38 +337,109 @@ export function buildCurrentLevelEntries({
 	const inSharedWithMe = currentFolderId === '__shared_with_me__';
 	const subfolders = inSharedWithMe ? [] : folders.filter((f) => f.parentId === currentFolderId);
 
-	const rest = items.filter((item) => isAtCurrentLevel(item, currentFolderId) || matchesStoryId(item, searchQuery));
-
 	const systemFolders = subfolders.filter(isSystemFolder).sort((a, b) => systemFolderRank(a) - systemFolderRank(b));
-	const regularFolders = subfolders.filter((f) => !isSystemFolder(f));
+	const regularFolders = subfolders.filter((f) => !isSystemFolder(f)).sort(compareFolderNames(sort));
 
-	const regularEntries: ExplorerEntry[] = [
-		...regularFolders.map((folder): ExplorerEntry => ({ kind: 'folder', folder })),
-		...rest.map((story): ExplorerEntry => ({ kind: 'story', story })),
-	];
-	regularEntries.sort(compareEntries(sort, currentUserName));
+	const storyEntries: ExplorerEntry[] = items
+		.filter((item) => isAtCurrentLevel(item, currentFolderId))
+		.map((story): ExplorerEntry => ({ kind: 'story', story }));
+	storyEntries.sort(compareEntries(sort, currentUserName));
 
 	const entries: ExplorerEntry[] = [
 		...systemFolders.map((folder): ExplorerEntry => ({ kind: 'folder', folder })),
-		...regularEntries,
+		...regularFolders.map((folder): ExplorerEntry => ({ kind: 'folder', folder })),
+		...storyEntries,
 	];
 
 	return { pinned, favorites, entries };
 }
 
 /**
- * The certified scope is a flat view: every certified story, regardless of folder.
+ * Searching or filtering shows a flat list of every matching story within the current folder and its subfolders.
+ * A pasted story or chat ID matches from anywhere.
  */
-function buildCertifiedEntries(
-	items: StoryItem[],
-	sort: SortState,
-	currentUserName: string,
-): { pinned: StoryItem[]; favorites: FavoriteEntry[]; entries: ExplorerEntry[] } {
+function buildResultEntries({
+	items,
+	folders,
+	currentFolderId,
+	sort,
+	currentUserName,
+	searchQuery,
+}: {
+	items: StoryItem[];
+	folders: FolderItem[];
+	currentFolderId: string | null;
+	sort: SortState;
+	currentUserName: string;
+	searchQuery: string;
+}): { pinned: StoryItem[]; favorites: FavoriteEntry[]; entries: ExplorerEntry[] } {
+	const isInScope = createFolderScopeMatcher(folders, currentFolderId);
 	const entries: ExplorerEntry[] = items
-		.filter((item) => item.isCertified)
+		.filter((item) => isInScope(item) || matchesStoryId(item, searchQuery))
 		.map((story): ExplorerEntry => ({ kind: 'story', story }));
 	entries.sort(compareEntries(sort, currentUserName));
 	return { pinned: [], favorites: [], entries };
+}
+
+function createFolderScopeMatcher(folders: FolderItem[], currentFolderId: string | null): (item: StoryItem) => boolean {
+	if (currentFolderId === null) {
+		return () => true;
+	}
+	if (currentFolderId === '__shared_with_me__') {
+		return (item) => item.kind === 'shared-with-me';
+	}
+	const scopeFolderIds = collectFolderSubtreeIds(folders, currentFolderId);
+	return (item) => item.folderId !== null && scopeFolderIds.has(item.folderId);
+}
+
+function collectFolderSubtreeIds(folders: FolderItem[], rootFolderId: string): Set<string> {
+	const folderIds = new Set<string>([rootFolderId]);
+	const queue = [rootFolderId];
+	while (queue.length > 0) {
+		const parentId = queue.shift();
+		for (const folder of folders) {
+			if (folder.parentId === parentId && !folderIds.has(folder.id)) {
+				folderIds.add(folder.id);
+				queue.push(folder.id);
+			}
+		}
+	}
+	return folderIds;
+}
+
+function matchesFilters(item: StoryItem, filters: StoriesFilters): boolean {
+	return (
+		(!filters.certifiedOnly || item.isCertified) &&
+		(!filters.liveOnly || item.isLive) &&
+		(!filters.favoritesOnly || item.isFavorited) &&
+		(!filters.sharedOnly || isSharedStory(item)) &&
+		(filters.format === 'any' || item.format === filters.format) &&
+		matchesOwnerFilter(item, filters.owner)
+	);
+}
+
+function isSharedStory(item: StoryItem): boolean {
+	return item.isShared || item.sharing !== null;
+}
+
+function matchesOwnerFilter(item: StoryItem, owner: StoriesOwnerFilter): boolean {
+	if (owner === 'anyone') {
+		return true;
+	}
+	const isOwnedByMe = item.kind === 'own' || item.kind === 'own-standalone';
+	return owner === 'me' ? isOwnedByMe : !isOwnedByMe;
+}
+
+/**
+ * Folders are always listed by name; only a name sort can flip their order.
+ */
+function compareFolderNames(sort: SortState): (a: FolderItem, b: FolderItem) => number {
+	const multiplier = sort.field === 'name' && sort.direction === 'desc' ? -1 : 1;
+	return (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) * multiplier;
+}
+
+function lookupViewCount(viewCountByStoryId: Record<string, number> | undefined, storyId: string): number | null {
+	return viewCountByStoryId ? (viewCountByStoryId[storyId] ?? 0) : null;
 }
 
 function storyLink(storyId: string): StoryItem['link'] {
@@ -364,24 +484,30 @@ function compareEntries(sort: SortState, currentUserName: string): (a: ExplorerE
 			return getNameFallback(a).localeCompare(getNameFallback(b));
 		}
 
-		if (aVal instanceof Date && bVal instanceof Date) {
-			const cmp = aVal.getTime() - bVal.getTime();
-			if (cmp !== 0) {
-				return cmp * mul;
-			}
-			return getNameFallback(a).localeCompare(getNameFallback(b));
+		const cmp = toComparableNumber(aVal) - toComparableNumber(bVal);
+		if (cmp !== 0) {
+			return cmp * mul;
 		}
-
-		return 0;
+		return getNameFallback(a).localeCompare(getNameFallback(b));
 	};
 }
 
-function getSortValue(entry: ExplorerEntry, field: SortField, currentUserName: string): string | Date {
+function toComparableNumber(value: string | number | Date): number {
+	return value instanceof Date ? value.getTime() : Number(value);
+}
+
+function getSortValue(entry: ExplorerEntry, field: SortField, currentUserName: string): string | number | Date {
 	if (field === 'name') {
 		return getNameFallback(entry);
 	}
+	if (field === 'views') {
+		return entry.kind === 'folder' ? 0 : (entry.story.viewCount ?? 0);
+	}
 	if (field === 'owner') {
 		return entry.kind === 'folder' ? currentUserName : entry.story.author;
+	}
+	if (field === 'created') {
+		return entry.kind === 'folder' ? entry.folder.createdAt : entry.story.createdAt;
 	}
 	return entry.kind === 'folder' ? entry.folder.updatedAt : entry.story.updatedAt;
 }

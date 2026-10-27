@@ -7,6 +7,7 @@ import type { WarehouseTableAccess } from '../services/context-access';
 import type {
 	ResolvedDocsContextAccess,
 	ResolvedFilesContextAccess,
+	ResolvedSkillsAccess,
 } from '../services/user-group-context-access.service';
 import { AgentSettings } from './agent-settings';
 
@@ -34,6 +35,8 @@ export interface ToolContext {
 	agentSettings: AgentSettings | null;
 	/** The model the run itself uses; subagents inherit it unless the project pins another one. */
 	modelSelection?: LlmSelectedModel;
+	usageRunId?: string;
+	managedAiBillingMode?: 'wallet' | 'unbilled';
 	/**
 	 * How the run may use the project's semantic layer, resolved once from nao_config.yaml
 	 * and the admin settings. Null (or absent) when the project declares no semantic layer.
@@ -46,6 +49,8 @@ export interface ToolContext {
 	filesContextAccess: ResolvedFilesContextAccess;
 	/** MCP servers and tools the user's groups grant; spec files of other servers are hidden too. */
 	mcpAccess: McpAccess;
+	/** Project skills the user's groups grant; files of other skills under agent/skills/ are hidden too. */
+	skillsAccess: ResolvedSkillsAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	/** Project skills the user's groups load in full into the system prompt. */

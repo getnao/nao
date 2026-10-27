@@ -10,6 +10,7 @@ export function getBillingStatusView(
 	status: string | null,
 	cancellationScheduled: boolean,
 	hasDefaultPaymentMethod: boolean,
+	hasPaidPlan: boolean,
 ): BillingStatusView {
 	switch (status) {
 		case 'trialing':
@@ -61,6 +62,13 @@ export function getBillingStatusView(
 				variant: 'outline',
 			};
 		case 'canceled':
+			if (!hasPaidPlan) {
+				return {
+					label: 'Free trial ended',
+					description: 'Your free trial has ended. Subscribe to restore access.',
+					variant: 'outline',
+				};
+			}
 			return {
 				label: 'Canceled',
 				description:

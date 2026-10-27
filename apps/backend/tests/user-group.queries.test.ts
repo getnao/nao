@@ -115,11 +115,12 @@ describe('user group queries', () => {
 				},
 			},
 			contextGrants: {
-				version: 6,
+				version: 7,
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: ALL_FILES_CONTEXT_ACCESS,
 				mcpAccess: { mode: 'all' },
+				skillsAccess: { mode: 'all' },
 			},
 		});
 
@@ -732,7 +733,7 @@ describe('user group queries', () => {
 			preloadedSkills: [],
 		});
 		expect(storedUpdated.contextGrants).toEqual({
-			version: 6,
+			version: 7,
 			databaseAccess: {
 				mode: 'restricted',
 				strict: false,
@@ -750,6 +751,7 @@ describe('user group queries', () => {
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 			mcpAccess: { mode: 'restricted', grants: [] },
+			skillsAccess: { mode: 'restricted', skills: [] },
 		});
 
 		await updateUserGroup(PROJECT_ID, group.id, {
@@ -1053,6 +1055,36 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('unions skill grants and only preloads the skills the user can access', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: [],
+			skillsAccess: { mode: 'restricted', skills: ['revenue'] },
+			preloadedSkills: ['revenue'],
+		});
+		const finance = await createUserGroup(PROJECT_ID, 'Finance', []);
+		await updateUserGroup(PROJECT_ID, finance.id, {
+			featureGrants: [],
+			skillsAccess: { mode: 'restricted', skills: ['forecast'] },
+			preloadedSkills: ['forecast', 'churn'],
+		});
+
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			skillsAccess: { mode: 'restricted', skills: ['revenue'] },
+			preloadedSkills: ['revenue'],
+		});
+
+		await setUserGroupMembership(PROJECT_ID, finance.id, DIRECT_USER_ID, true);
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			skillsAccess: { mode: 'restricted', skills: ['forecast', 'revenue'] },
+			preloadedSkills: ['revenue', 'forecast'],
+		});
+		expect(
+			(await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.id === finance.id)?.preloadedSkills,
+		).toEqual(['forecast', 'churn']);
+	});
+
 	it('excludes suspended groups from every effective access field without changing stored data', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
 		const defaultGroup = overview.groups[0];
@@ -1095,6 +1127,7 @@ describe('user group queries', () => {
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: { mode: 'restricted', grants: [] },
+			skillsAccess: { mode: 'all' },
 			rowPolicies: [
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },

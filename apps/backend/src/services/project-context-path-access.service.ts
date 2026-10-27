@@ -12,18 +12,19 @@ import path from 'path';
 
 import type { ToolContext } from '../types/tools';
 import { isContextPathAllowed } from './context-access';
-import type { ResolvedFileTreeAccess } from './user-group-context-access.service';
+import type { ResolvedFileTreeAccess, ResolvedSkillsAccess } from './user-group-context-access.service';
 
 export type ProjectPathKind = 'file' | 'directory';
 type ProjectPath = { kind: 'root' | 'docs' | 'files' | 'database'; relativePath: string } | { kind: 'invalid' };
 
 type ProjectPathAccessContext = Pick<
 	ToolContext,
-	'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess' | 'mcpAccess'
+	'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess' | 'mcpAccess' | 'skillsAccess'
 >;
 
 const MCP_SPECS_DIRECTORY = 'agent/mcps/';
 const MCP_CONFIG_PATH = `${MCP_SPECS_DIRECTORY}mcp.json`;
+const SKILLS_DIRECTORY = 'agent/skills/';
 
 export function assertProjectContextPathAllowed(
 	context: ProjectPathAccessContext,
@@ -80,7 +81,9 @@ export function isProjectContextPathAllowed(
 					kind,
 				) &&
 				isMcpSpecPathAllowed(context.mcpAccess, requestedPath.relativePath, kind) &&
-				isMcpSpecPathAllowed(context.mcpAccess, canonicalPath.relativePath, kind)
+				isMcpSpecPathAllowed(context.mcpAccess, canonicalPath.relativePath, kind) &&
+				isSkillPathAllowed(context.skillsAccess, requestedPath.relativePath, kind) &&
+				isSkillPathAllowed(context.skillsAccess, canonicalPath.relativePath, kind)
 			);
 	}
 }
@@ -141,6 +144,14 @@ function isMcpSpecPathAllowed(access: McpAccess, relativePath: string, kind: Pro
 	}
 	const tool = decodeSpecFileName(specFile.slice(0, -'.json'.length));
 	return tool !== null && isMcpToolGranted(access, server, tool);
+}
+
+/** Skills are granted by name, so a restricted run only reaches the files its granted skills were loaded from. */
+function isSkillPathAllowed(access: ResolvedSkillsAccess, relativePath: string, kind: ProjectPathKind): boolean {
+	if (!relativePath.toLowerCase().startsWith(SKILLS_DIRECTORY) || access.mode === 'all') {
+		return true;
+	}
+	return kind === 'file' && access.grantedFiles.includes(relativePath);
 }
 
 function decodeSpecFileName(fileName: string): string | null {

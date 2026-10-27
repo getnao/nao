@@ -495,7 +495,7 @@ async function proposeOrExplain(
 ): Promise<ThemeProposal | null> {
 	let model: ResolvedModel | null;
 	try {
-		model = await resolveModel(scope.projectId);
+		model = await resolveModel(scope);
 	} catch (error) {
 		warnings.push(`The configured model could not be loaded (${describeError(error)}), so ${consequence}.`);
 		return null;
@@ -846,14 +846,18 @@ async function proposeWithModel(
 	return toThemeProposal(output);
 }
 
-async function resolveModel(projectId: string): Promise<ResolvedModel | null> {
+async function resolveModel({ projectId, userId }: GenerationScope): Promise<ResolvedModel | null> {
 	const pinned = await resolveDefaultModelSelection(projectId, 'other');
 	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
 	if (!provider) {
 		return null;
 	}
 	const modelId = pinned?.modelId ?? getProviderMeta(provider).summaryModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false);
+	const model = await resolveProviderModel(projectId, provider, modelId, false, {
+		userId,
+		projectId,
+		category: 'story',
+	});
 	return model ? { provider, modelId, model } : null;
 }
 

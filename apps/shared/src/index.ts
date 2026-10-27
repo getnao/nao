@@ -27,5 +27,6 @@ export * from './user-group-context';
 export * from './user-group-features';
 export * from './user-group-mcp';
 export * from './user-group-row-security';
+export * from './user-group-skills';
 export * from './user-group-sso-mapping';
 export * from './utils';

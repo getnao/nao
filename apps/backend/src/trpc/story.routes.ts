@@ -988,7 +988,7 @@ export const storyRoutes = {
 	parseCronFromText: cloudBillingProjectProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ input, ctx }) => {
-			const cron = await naturalLanguageToCron(ctx.project.id, input.text);
+			const cron = await naturalLanguageToCron(ctx.project.id, ctx.user.id, input.text);
 			return { cron };
 		}),
 

@@ -1,9 +1,14 @@
 import { useEffect, useRef } from 'react';
+import { PROVIDER_META } from '@nao/backend/provider-meta';
+import { formatMicroUsd } from '@nao/shared/billing';
 import { providerLabel, providerLabels } from '@nao/shared/types';
+import { useQuery } from '@tanstack/react-query';
 import { ProviderCard } from './llm-provider-card';
 import { LlmProviderForm } from './llm-provider-form';
 import type { LlmProvider } from '@nao/shared/types';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
+import { usePermissions } from '@/hooks/use-permissions';
+import { trpc } from '@/main';
 
 export type ProviderToEdit = { provider: LlmProvider; modelId?: string };
 
@@ -13,7 +18,15 @@ interface LlmProvidersSectionProps {
 	onProviderToEditOpened?: () => void;
 }
 
+const managedModelIds = PROVIDER_META.nao.models.map((model) => model.id);
+
 export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditOpened }: LlmProvidersSectionProps) {
+	const { isOrgAdmin } = usePermissions();
+	const managedCreditStatus = useQuery(trpc.account.getManagedCreditStatus.queryOptions());
+	const managedCreditSummary = useQuery({
+		...trpc.account.getCreditSummary.queryOptions(),
+		enabled: isOrgAdmin,
+	});
 	const {
 		projectConfigs,
 		configProviders,
@@ -65,6 +78,25 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 
 	return (
 		<div className='grid gap-4'>
+			{managedCreditStatus.data?.enabled && (
+				<ProviderCard
+					provider='nao'
+					enabledModels={managedModelIds}
+					status={
+						managedCreditSummary.data
+							? `Remaining credits: ${formatMicroUsd(managedCreditSummary.data.balanceMicroUsd)} of ${formatMicroUsd(managedCreditSummary.data.lifetimeCreditedMicroUsd)}.`
+							: managedCreditStatus.data.hasCredits
+								? 'Credits available.'
+								: 'No credits remaining.'
+					}
+					linkStatusToWallet={isOrgAdmin}
+					badges={['MANAGED']}
+					isAdmin={isAdmin}
+					isFormActive={!!editingState}
+					getModelDisplayName={getModelDisplayName}
+				/>
+			)}
+
 			{/* Unconfigured env providers */}
 			{unconfiguredEnvProviders.map((provider) => {
 				if (editingState?.isEditing && editingState.provider === provider) {

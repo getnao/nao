@@ -19,11 +19,14 @@ import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
+import { DEACTIVATED_ACCOUNT_MESSAGE } from './services/account-status.service';
 import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
+import { activateUserJoinCandidates } from './services/credit-grant.service';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
 import * as gitlabService from './services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
+import { addOrganizationMemberIfMissing } from './services/membership.service';
 import {
 	augmentSocialProvidersWithMicrosoft,
 	getTrustedProvidersForMicrosoft,
@@ -33,20 +36,22 @@ import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
+import { memoizeUntilRejected } from './utils/memoize-until-rejected';
 import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
 
 type MetadataHandler = (request: Request) => Promise<Response>;
 
-let defaultAuthPromise: Promise<Awaited<ReturnType<typeof createAuthInstance>>> | null = null;
-let authServerMetadataPromise: Promise<MetadataHandler> | null = null;
-let openIdConfigMetadataPromise: Promise<MetadataHandler> | null = null;
+const defaultAuth = memoizeUntilRejected<Awaited<ReturnType<typeof createAuthInstance>>>(() =>
+	createAuthInstance(env.BETTER_AUTH_URL),
+);
+const authServerMetadata = memoizeUntilRejected<MetadataHandler>(async () =>
+	oauthProviderAuthServerMetadata(await getAuth()),
+);
+const openIdConfigMetadata = memoizeUntilRejected<MetadataHandler>(async () =>
+	oauthProviderOpenIdConfigMetadata(await getAuth()),
+);
 
-export const getAuth = async () => {
-	if (!defaultAuthPromise) {
-		defaultAuthPromise = createAuthInstance(env.BETTER_AUTH_URL);
-	}
-	return defaultAuthPromise;
-};
+export const getAuth = () => defaultAuth.get();
 
 export const getSession = async (headers: Headers) => {
 	const auth = await getAuth();
@@ -61,9 +66,9 @@ export const getSession = async (headers: Headers) => {
 };
 
 export function updateAuth() {
-	defaultAuthPromise = null;
-	authServerMetadataPromise = null;
-	openIdConfigMetadataPromise = null;
+	defaultAuth.reset();
+	authServerMetadata.reset();
+	openIdConfigMetadata.reset();
 }
 
 export async function verifyOAuthAccessToken(token: string, audience: string[]): Promise<JWTPayload> {
@@ -91,17 +96,11 @@ export async function buildProtectedResourceMetadata(
 }
 
 export function getAuthServerMetadataHandler(): Promise<MetadataHandler> {
-	if (!authServerMetadataPromise) {
-		authServerMetadataPromise = getAuth().then(oauthProviderAuthServerMetadata);
-	}
-	return authServerMetadataPromise;
+	return authServerMetadata.get();
 }
 
 export function getOpenIdConfigMetadataHandler(): Promise<MetadataHandler> {
-	if (!openIdConfigMetadataPromise) {
-		openIdConfigMetadataPromise = getAuth().then(oauthProviderOpenIdConfigMetadata);
-	}
-	return openIdConfigMetadataPromise;
+	return openIdConfigMetadata.get();
 }
 
 async function createAuthInstance(baseURL: string) {
@@ -295,7 +294,7 @@ async function createAuthInstance(baseURL: string) {
 										? await orgQueries.findOrganizationByEmailDomain(user.email)
 										: null;
 								if (matchedOrg) {
-									await orgQueries.addOrgMemberIfMissing({
+									await addOrganizationMemberIfMissing({
 										orgId: matchedOrg.id,
 										userId: user.id,
 										role: env.DEFAULT_USER_ROLE,
@@ -340,8 +339,15 @@ async function createAuthInstance(baseURL: string) {
 			},
 			session: {
 				create: {
+					before: async (session) => {
+						if (await userQueries.isUserDeactivated(session.userId)) {
+							throw new APIError('FORBIDDEN', { message: DEACTIVATED_ACCOUNT_MESSAGE });
+						}
+						return true;
+					},
 					async after(session, ctx) {
 						await syncSsoLoginGroups(session.userId, resolveProviderId(ctx));
+						await activateUserJoinCandidates(session.userId);
 					},
 				},
 			},

@@ -242,11 +242,12 @@ export const organizationProtectedProcedure = protectedProcedure.use(async ({ ct
 	return next({ ctx: { organization: membership.organization, orgRole: membership.role } });
 });
 
-export const cloudBillingOrganizationProcedure = organizationProtectedProcedure.use(
-	cloudBillingMiddleware<{ organization: { id: string } }>(({ organization }) => ({
-		organizationId: organization.id,
-	})),
-);
+export const cloudBillingProjectImportProcedure = organizationProtectedProcedure.use(async ({ ctx, next }) => {
+	if (await projectQueries.organizationHasProjects(ctx.organization.id)) {
+		await assertOrganizationCloudBillingAccess(ctx.organization.id);
+	}
+	return next({ ctx });
+});
 
 /** Organization roles mapped from identity provider groups are re-applied on every sign-in. */
 export async function assertOrganizationRolesAreEditable(): Promise<void> {

@@ -1,5 +1,7 @@
 import { IncomingHttpHeaders } from 'node:http';
 
+import { ManagedCreditsExhaustedError } from './error';
+
 /** Convert fastify headers to basic `Headers` for better-auth. */
 export const convertHeaders = (headers: IncomingHttpHeaders) => {
 	const convertedHeaders = new Headers();
@@ -26,6 +28,9 @@ export const getErrorMessage = (error: unknown): string | null => {
 };
 
 export const formatErrorMessageForUI = (error: unknown): string => {
+	if (error instanceof ManagedCreditsExhaustedError) {
+		return JSON.stringify({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+	}
 	if (isTypeValidationError(error)) {
 		const payload = error.value;
 		if (isProviderErrorPayload(payload)) {

@@ -1,5 +1,6 @@
 import '../src/env';
 
+import { eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
@@ -116,6 +117,7 @@ describe('expired invitation cleanup', () => {
 				updatedAt: eightDaysAgo,
 			},
 		]);
+		await db.insert(s.exampleChatAllowance).values({ userId: EXPIRED_ID, scope: 'example' });
 		await db.insert(s.session).values({
 			id: 'session-onboarding',
 			token: 'token-onboarding',
@@ -144,6 +146,9 @@ describe('expired invitation cleanup', () => {
 		const remaining = await db.select({ id: s.user.id }).from(s.user).execute();
 		const remainingIds = remaining.map((user) => user.id);
 		expect(remainingIds).not.toContain(EXPIRED_ID);
+		await expect(
+			db.select().from(s.exampleChatAllowance).where(eq(s.exampleChatAllowance.userId, EXPIRED_ID)),
+		).resolves.toHaveLength(0);
 		expect(remainingIds).toEqual(
 			expect.arrayContaining([
 				FRESH_ID,

@@ -6,6 +6,7 @@ import { useSidebar } from '@/contexts/sidebar';
 import {
 	SIDEBAR_DELTA,
 	SIDE_PANEL_ANIMATION_DURATION,
+	SIDE_PANEL_ANIMATION_EASING,
 	SIDE_PANEL_MIN_WIDTH,
 	loadPersistedWidthRatio,
 } from '@/lib/side-panel';
@@ -44,7 +45,11 @@ export const useSidePanel = ({
 	});
 
 	const animateSidePanel = useCallback(
-		({ onComplete, ...style }: { onComplete?: () => void } & React.CSSProperties) => {
+		({
+			onComplete,
+			contentWidth,
+			...style
+		}: { onComplete?: () => void; contentWidth: number } & React.CSSProperties) => {
 			const sidePanel = sidePanelRef.current;
 			if (!sidePanel) {
 				return;
@@ -55,9 +60,10 @@ export const useSidePanel = ({
 
 			setIsAnimating(true);
 
+			freezeContentWidth(sidePanel, contentWidth);
 			sidePanel.style.minWidth = '0px';
 			sidePanel.style.transitionProperty = 'width, opacity';
-			sidePanel.style.transitionTimingFunction = 'cubic-bezier(0.5, 0.5, 0, 1)';
+			sidePanel.style.transitionTimingFunction = SIDE_PANEL_ANIMATION_EASING;
 			sidePanel.style.transitionDuration = `${SIDE_PANEL_ANIMATION_DURATION}ms`;
 
 			const handleTransitionEnd = (e: TransitionEvent) => {
@@ -65,6 +71,7 @@ export const useSidePanel = ({
 					return;
 				}
 				setIsAnimating(false);
+				releaseContentWidth(sidePanel);
 				onComplete?.();
 				removeTransitionEndEventListener.current?.();
 			};
@@ -109,6 +116,7 @@ export const useSidePanel = ({
 		animateSidePanel({
 			width: `${targetWidth}px`,
 			opacity: '1',
+			contentWidth: targetWidth,
 			onComplete: () => {
 				sidePanel.style.minWidth = `${SIDE_PANEL_MIN_WIDTH}px`;
 			},
@@ -148,10 +156,11 @@ export const useSidePanel = ({
 			animateSidePanel({
 				width: '0px',
 				opacity: '0',
+				contentWidth: getContentWidth(sidePanelRef.current),
 				onComplete: () => setContent(null),
 			});
 		}
-	}, [isMobile, expandSidebarIfWasCollapsed, animateSidePanel]);
+	}, [isMobile, expandSidebarIfWasCollapsed, animateSidePanel, sidePanelRef]);
 
 	useEffect(() => {
 		expandSidebarIfWasCollapsed();
@@ -174,3 +183,26 @@ export const useSidePanel = ({
 		close,
 	};
 };
+
+/** Keeps the panel content at a fixed width while the panel animates, so it slides instead of reflowing every frame. */
+function freezeContentWidth(sidePanel: HTMLDivElement, width: number) {
+	const content = sidePanel.firstElementChild;
+	if (!(content instanceof HTMLElement)) {
+		return;
+	}
+	sidePanel.style.overflow = 'hidden';
+	content.style.width = `${width}px`;
+}
+
+function releaseContentWidth(sidePanel: HTMLDivElement) {
+	const content = sidePanel.firstElementChild;
+	if (!(content instanceof HTMLElement)) {
+		return;
+	}
+	sidePanel.style.overflow = '';
+	content.style.width = '';
+}
+
+function getContentWidth(sidePanel: HTMLDivElement | null): number {
+	return sidePanel?.firstElementChild?.getBoundingClientRect().width ?? 0;
+}

@@ -3,7 +3,6 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { buildChart } from '../src/chart-builder';
-import { boxesOverlap, labelBox } from '../src/chart-data-labels';
 
 describe('buildChart horizontal bars', () => {
 	it('builds one horizontal bar series with category and hidden value axes', () => {
@@ -357,16 +356,43 @@ describe('buildChart horizontal bars', () => {
 		});
 		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
 		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
-		const labels = readHorizontalBarValueLabels(html);
-		const boxes = labels.map((label) => labelBox(label.x, label.y, (label.text.length * 7) / 2, 'end', 12));
+		const valueLabels = readHorizontalBarValueLabels(html);
+		const categoryLabels = readHorizontalBarCategoryTicks(html);
+		const categoryLabelGaps = categoryLabels.slice(1).map((label, index) => label.y - categoryLabels[index].y);
 
-		expect(labels.length).toBeGreaterThan(0);
-		expect(labels.length).toBeLessThan(rowCount);
-		expect(labels[0].text).toBe('1');
-		expect(boxes.every((box, index) => boxes.slice(index + 1).every((other) => !boxesOverlap(box, other)))).toBe(
-			true,
+		expect(yAxis?.props.interval).toBe(0);
+		expect(categoryLabels.length).toBeGreaterThan(0);
+		expect(categoryLabels.length).toBeLessThan(rowCount);
+		expect(categoryLabels[0].text).toBe('Month 1');
+		expect(Math.min(...categoryLabelGaps)).toBeGreaterThanOrEqual(9);
+		expect(valueLabels[0].text).toBe('1');
+		expect(valueLabels.map((label) => label.text)).toEqual(
+			categoryLabels.map((label) => label.text.replace('Month ', '')),
 		);
-		expect(yAxis?.props.interval).toBe('preserveStartEnd');
+	});
+
+	it.each([
+		{ rowCount: 19, height: 390 },
+		{ rowCount: 30, height: 420 },
+		{ rowCount: 35, height: 420 },
+		{ rowCount: 40, height: 420 },
+	])('labels every category and value for $rowCount rows at $height px', ({ rowCount, height }) => {
+		const chart = buildChart({
+			data: Array.from({ length: rowCount }, (_, index) => ({
+				category: `User ${index + 1}`,
+				value: rowCount - index,
+			})),
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+		});
+		const html = renderToString(React.cloneElement(chart, { width: 760, height }));
+
+		expect(readHorizontalBarCategoryTicks(html).map((label) => label.text)).toEqual(
+			Array.from({ length: rowCount }, (_, index) => `User ${index + 1}`),
+		);
+		expect(readHorizontalBarValueLabels(html)).toHaveLength(rowCount);
 	});
 
 	it('keeps value labels inside a dense horizontal bar chart', () => {
@@ -447,6 +473,20 @@ function readHorizontalBarValueLabels(
 		labels.push({ text: match[2], textAnchor, x: Number(x), y: Number(y) });
 	}
 	return labels;
+}
+
+function readHorizontalBarCategoryTicks(html: string): Array<{ text: string; y: number }> {
+	const yAxisStart = html.indexOf('recharts-yAxis');
+	const ticks: Array<{ text: string; y: number }> = [];
+	const textPattern = /<text([^>]*)>([^<]*)<\/text>/g;
+	textPattern.lastIndex = yAxisStart;
+	for (let match = textPattern.exec(html); match !== null; match = textPattern.exec(html)) {
+		if (!match[1].includes('recharts-cartesian-axis-tick-value')) {
+			continue;
+		}
+		ticks.push({ text: match[2], y: Number(match[1].match(/\sy="([^"]+)"/)?.[1]) });
+	}
+	return ticks;
 }
 
 function readHorizontalBarValueAxisTicks(html: string): string[] {

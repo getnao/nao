@@ -1,8 +1,5 @@
 /* @license Enterprise */
 
-import fs from 'node:fs';
-import path from 'node:path';
-
 import type { UserRole } from '@nao/shared/types';
 
 import * as backofficeQueries from '../queries/backoffice.queries';
@@ -13,10 +10,11 @@ import * as orgQueries from '../queries/organization.queries';
 import type { SearchPaginationInput } from '../types/backoffice';
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
-import { extractConfiguredDatabases, extractRequiredEnvVars } from '../utils/nao-config';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { toBillingSummary } from './backoffice-billing.service';
 import { isLicenseExpired, verifyOrganizationLicense } from './license.service';
 import * as membershipService from './membership.service';
+import { assessProjectReadiness } from './project-readiness.service';
 
 export async function listOrganizations(input: SearchPaginationInput) {
 	const page = await backofficeQueries.listOrganizations(input);
@@ -137,7 +135,10 @@ export async function getUserDetail(userId: string) {
 	return { user: toUserSummary(user), organizations, projects, ...usage };
 }
 
-export async function updateUser(userId: string, values: { name?: string; email?: string }) {
+export async function updateUser(
+	userId: string,
+	{ deactivated, ...values }: { name?: string; email?: string; deactivated?: boolean },
+) {
 	const user = await requireUser(userId);
 	if (values.email !== undefined) {
 		const owner = await userQueries.getUserByEmail(values.email);
@@ -145,10 +146,11 @@ export async function updateUser(userId: string, values: { name?: string; email?
 			throw new HandlerError('CONFLICT', 'Email is already in use');
 		}
 	}
-	if (Object.keys(values).length === 0) {
-		return toUserSummary(user);
+	const changes = { ...values, ...resolveDeactivationChange(user.deactivatedAt, deactivated) };
+	const updated = Object.keys(changes).length ? await userQueries.updateUserForBackoffice(userId, changes) : user;
+	if (deactivated) {
+		await userQueries.revokeUserCredentials(userId);
 	}
-	const updated = await userQueries.updateUserForBackoffice(userId, values);
 	return toUserSummary(updated!);
 }
 
@@ -177,31 +179,25 @@ async function requireUser(userId: string) {
 }
 
 function inspectProject(project: Awaited<ReturnType<typeof requireProject>>) {
-	const hasPath = isSet(project.path);
-	const directoryExists = hasPath && isDirectory(project.path!);
-	const naoConfigExists = directoryExists && fs.existsSync(path.join(project.path!, 'nao_config.yaml'));
-	const requiredEnvVars = directoryExists ? extractRequiredEnvVars(project.path!) : [];
-	const setEnvVarNames = Object.keys(project.envVars).sort();
-	const missingEnvVars = requiredEnvVars.filter((name) => !isSet(project.envVars[name]));
-	const configuredDatabases = directoryExists ? extractConfiguredDatabases(project.path!) : [];
+	const readiness = assessProjectReadiness(project);
+	const configuredDatabases = readiness.directoryExists ? extractConfiguredDatabases(project.path!) : [];
 	return {
-		context: { hasPath, directoryExists, naoConfigExists, requiredEnvVars, setEnvVarNames, missingEnvVars },
+		context: {
+			hasPath: readiness.hasPath,
+			directoryExists: readiness.directoryExists,
+			naoConfigExists: readiness.naoConfigExists,
+			requiredEnvVars: readiness.requiredEnvVars,
+			setEnvVarNames: readiness.setEnvVarNames,
+			missingEnvVars: readiness.missingEnvVars,
+		},
 		databases: configuredDatabases.map((database) => ({
 			id: database.id,
 			type: database.type ?? '',
-			requiredEnvVars,
-			missingEnvVars,
-			configured: missingEnvVars.length === 0,
+			requiredEnvVars: readiness.requiredEnvVars,
+			missingEnvVars: readiness.missingEnvVars,
+			configured: readiness.missingEnvVars.length === 0,
 		})),
 	};
-}
-
-function isDirectory(directoryPath: string): boolean {
-	try {
-		return fs.statSync(directoryPath).isDirectory();
-	} catch {
-		return false;
-	}
 }
 
 async function assertActiveOrganizationLicense(orgId: string, token: string): Promise<void> {
@@ -261,9 +257,21 @@ function toUserSummary(user: NonNullable<Awaited<ReturnType<typeof userQueries.g
 		memoryEnabled: user.memoryEnabled,
 		hasGithubToken: isSet(user.githubAccessToken),
 		hasGitlabToken: isSet(user.gitlabAccessToken),
+		deactivatedAt: user.deactivatedAt,
 		createdAt: user.createdAt,
 		updatedAt: user.updatedAt,
 	};
+}
+
+/** Keeps the original deactivation date when an already deactivated user is deactivated again. */
+function resolveDeactivationChange(
+	currentDeactivatedAt: Date | null,
+	deactivated: boolean | undefined,
+): { deactivatedAt?: Date | null } {
+	if (deactivated === undefined || deactivated === (currentDeactivatedAt !== null)) {
+		return {};
+	}
+	return { deactivatedAt: deactivated ? new Date() : null };
 }
 
 function formatBudgetPeriod(period: 'day' | 'week' | 'month'): 'daily' | 'weekly' | 'monthly' {

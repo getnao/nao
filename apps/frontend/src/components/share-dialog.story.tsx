@@ -93,7 +93,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 
 	const currentUserId = session?.user?.id;
 	const audience = useShareAudience();
-	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, isLoading, reset } = useMemberPicker(
 		currentUserId,
 		undefined,
 		chatId,
@@ -195,7 +195,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
-							isLoading={membersQuery.isLoading || groupPicker.groupsQuery.isLoading}
+							isLoading={isLoading || groupPicker.groupsQuery.isLoading}
 							search={search}
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}
@@ -257,7 +257,7 @@ function ManageShareDialog({
 
 	const currentUserId = session?.user?.id;
 	const audience = useShareAudience();
-	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, membersQuery, reset } = useMemberPicker(
+	const { selectedUserIds, search, setSearch, filteredMembers, toggleUser, isLoading, reset } = useMemberPicker(
 		currentUserId,
 		allowedUserIds,
 		chatId,
@@ -345,7 +345,7 @@ function ManageShareDialog({
 						<MemberPicker
 							members={filteredMembers}
 							selectedUserIds={selectedUserIds}
-							isLoading={membersQuery.isLoading || groupPicker.groupsQuery.isLoading}
+							isLoading={isLoading || groupPicker.groupsQuery.isLoading}
 							search={search}
 							onSearchChange={setSearch}
 							onToggleUser={toggleUser}

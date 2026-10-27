@@ -1,11 +1,11 @@
 import { memo } from 'react';
 import { Streamdown } from 'streamdown';
-
 import { normalizeCitationMarkers, stripAssistantTags } from '@nao/shared';
 
 import { CitationPopover } from '@/components/citation-popover';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { StreamingMarkdown } from '@/components/chat-messages/streaming-markdown';
+import { ContactSupportButton } from '@/components/contact-support-dialog';
 import { FileChip } from '@/components/file-chip';
 import { isStoredFilePath } from '@/lib/attachments';
 import { markdownPlugins } from '@/lib/markdown';
@@ -14,25 +14,38 @@ import { markdownLinkSafety } from '@/components/external-link-dialog';
 const CLOBBER_PREFIX = 'user-content-';
 const SETTLED_COMPONENTS = {
 	table: MarkdownTableRenderer,
+	'contact-support': ContactSupportRenderer,
 	'citation-number': CitationNumberRenderer,
 	'saved-file': SavedFileRenderer,
 };
 const STREAMING_COMPONENTS = {
 	table: MarkdownTableRenderer,
+	'contact-support': ContactSupportRenderer,
 };
 const ALLOWED_TAGS = {
+	'contact-support': [],
 	'citation-number': ['id', 'column'],
 	'saved-file': ['path'],
 };
-const LITERAL_TAG_CONTENT = ['citation-number', 'saved-file'];
+const LITERAL_TAG_CONTENT = ['contact-support', 'citation-number', 'saved-file'];
 const INLINE_CODE_PATTERN = /(?<![\\`])`([^`\r\n]+)`(?!`)/g;
+const SUPPORT_LINK_PATTERN =
+	/\[([^\]\r\n]+)\]\(\s*<?mailto:support@getnao\.io>?(?:\s+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^)\r\n]*\)))?\s*\)/gi;
 const SAVED_FILE_ELEMENT_PATTERN =
 	/^<saved-file\s+path\s*=\s*(?:"[^"\r\n]+"|'[^'\r\n]+')\s*>[^`\r\n]*?<\/saved-file\s*>$/;
 const SAVED_FILE_TAG_START = '<saved-file';
 
 export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
 	if (isStreaming) {
-		return <StreamingMarkdown components={STREAMING_COMPONENTS} text={text} transform={prepareStreamingMarkdown} />;
+		return (
+			<StreamingMarkdown
+				allowedTags={ALLOWED_TAGS}
+				components={STREAMING_COMPONENTS}
+				literalTagContent={LITERAL_TAG_CONTENT}
+				text={text}
+				transform={prepareStreamingMarkdown}
+			/>
+		);
 	}
 
 	return (
@@ -44,10 +57,22 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 			literalTagContent={LITERAL_TAG_CONTENT}
 			components={SETTLED_COMPONENTS}
 		>
-			{unwrapBacktickedSavedFiles(normalizeCitationMarkers(text))}
+			{replaceSupportLinks(unwrapBacktickedSavedFiles(normalizeCitationMarkers(placeMessageActionsLast(text))))}
 		</Streamdown>
 	);
 });
+
+function placeMessageActionsLast(markdown: string): string {
+	return markdown
+		.replace(
+			'You’ve finished the Jaffle Shop preview. [Set up your own project](/onboarding) to keep chatting. This conversation is saved.',
+			'You’ve used all the requests available for this example project. Let’s set up your own project and chat with your own data!',
+		)
+		.replace(
+			'Your progress is safe, and the setup actions on this page still work. [Contact support](mailto:support@getnao.io) if you need help debugging your setup.',
+			'Your progress is safe. If you need help completing setup.\n\n[Contact support](mailto:support@getnao.io)',
+		);
+}
 
 function unwrapBacktickedSavedFiles(markdown: string): string {
 	return transformMarkdownOutsideCodeBlocks(markdown, (line) =>
@@ -55,8 +80,16 @@ function unwrapBacktickedSavedFiles(markdown: string): string {
 	);
 }
 
+function replaceSupportLinks(markdown: string): string {
+	return transformMarkdownOutsideCodeBlocks(markdown, (line) =>
+		transformOutsideInlineCode(line, (text) =>
+			text.replace(SUPPORT_LINK_PATTERN, '<contact-support>$1</contact-support>'),
+		),
+	);
+}
+
 function prepareStreamingMarkdown(markdown: string): string {
-	return transformMarkdownOutsideCodeBlocks(markdown, suppressBacktickedSavedFiles);
+	return replaceSupportLinks(transformMarkdownOutsideCodeBlocks(markdown, suppressBacktickedSavedFiles));
 }
 
 function suppressBacktickedSavedFiles(line: string): string {
@@ -127,6 +160,18 @@ function isSingleUnescapedBacktick(line: string, offset: number): boolean {
 	return line[offset - 1] !== '\\' && line[offset - 1] !== '`' && line[offset + 1] !== '`';
 }
 
+function transformOutsideInlineCode(line: string, transform: (text: string) => string): string {
+	let result = '';
+	let offset = 0;
+	for (const match of line.matchAll(INLINE_CODE_PATTERN)) {
+		const matchOffset = match.index;
+		result += transform(line.slice(offset, matchOffset));
+		result += match[0];
+		offset = matchOffset + match[0].length;
+	}
+	return result + transform(line.slice(offset));
+}
+
 function transformMarkdownOutsideCodeBlocks(markdown: string, transformLine: (line: string) => string): string {
 	let fence: { marker: string; length: number } | undefined;
 
@@ -188,6 +233,10 @@ const asText = (value: unknown): string => (typeof value === 'string' ? value.tr
 
 function MarkdownTableRenderer({ node, className }: any) {
 	return <MarkdownTable node={node} className={className} />;
+}
+
+function ContactSupportRenderer({ children }: any) {
+	return <ContactSupportButton>{children}</ContactSupportButton>;
 }
 
 function CitationNumberRenderer({ id, column, children }: any) {

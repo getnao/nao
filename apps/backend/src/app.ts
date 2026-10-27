@@ -13,6 +13,10 @@ import { env, isCloud, isCloudBillingEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
+	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
+	cloudTrialProvisioningHandler,
+} from './handlers/cloud-trial-provisioning.handler';
+import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
 } from './handlers/context-branch-cleanup.handler';
@@ -28,6 +32,10 @@ import {
 	runInvitationCleanup,
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
+import {
+	MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+	managedCreditLifecycleHandler,
+} from './handlers/managed-credit-lifecycle.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import {
@@ -72,6 +80,8 @@ import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
+import { reconcileOrganizationSetupGrants } from './services/credit-grant.service';
+import { validateCreditTopUpConfiguration } from './services/credit-top-up.service';
 import { discordService } from './services/discord';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
@@ -86,9 +96,15 @@ import { validateCloudBillingConfiguration } from './services/stripe.service';
 import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
-import { BudgetExceededError, HandlerError } from './utils/error';
+import {
+	BudgetExceededError,
+	ExampleChatAllowanceExhaustedError,
+	HandlerError,
+	ManagedCreditsExhaustedError,
+	OnboardingChatAllowanceExhaustedError,
+} from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
-import { logger } from './utils/logger';
+import { describeError, logger } from './utils/logger';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
 import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
@@ -126,17 +142,25 @@ trackInFlightRequests(app);
 
 // Map HandlerError to HTTP status code
 app.setErrorHandler((error, request, reply) => {
-	const message = error instanceof Error ? error.message : String(error);
 	const statusCode =
 		typeof (error as Record<string, unknown>).statusCode === 'number'
 			? (error as Record<string, unknown>).statusCode
 			: undefined;
-	logger.error(message, {
+	logger.error(describeError(error), {
 		source: 'http',
 		context: { method: request.method, url: request.url, statusCode },
 	});
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
+	}
+	if (error instanceof ManagedCreditsExhaustedError) {
+		return reply.status(error.code).send({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+	}
+	if (error instanceof ExampleChatAllowanceExhaustedError) {
+		return reply.status(error.code).send({ error: error.message, code: 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED' });
+	}
+	if (error instanceof OnboardingChatAllowanceExhaustedError) {
+		return reply.status(error.code).send({ error: error.message, code: 'ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED' });
 	}
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });
@@ -181,7 +205,7 @@ app.register(fastifyTRPCPlugin, {
 		router: trpcRouter,
 		createContext,
 		onError({ path, error }) {
-			logger.error(`tRPC error on ${path}: ${error.message}`, {
+			logger.error(`tRPC error on ${path}: ${describeError(error)}`, {
 				source: 'http',
 				context: { path, code: error.code },
 			});
@@ -431,7 +455,7 @@ app.setNotFoundHandler((request, reply) => {
 export const startServer = async (opts: { port: number; host: string }) => {
 	if (isCloud) {
 		if (isCloudBillingEnabled()) {
-			await validateCloudBillingConfiguration();
+			await Promise.all([validateCloudBillingConfiguration(), validateCreditTopUpConfiguration()]);
 		}
 		try {
 			await ensureSystemExampleProject();
@@ -447,6 +471,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		await ensureOrganizationSetup();
 	}
 	await logLicenseStatus();
+	await reconcileOrganizationSetupGrants();
 
 	void runLogCleanup().catch((err) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
@@ -470,10 +495,19 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
+	if (isCloud) {
+		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
+		await ensureRecurring({
+			name: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+			cron: '15 * * * *',
+			uniqueKey: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+		});
+	}
 	if (isCloudBillingEnabled()) {
 		// Process accepted webhooks in the background so Stripe receives an immediate response.
 		registerJob(STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler);
 		registerJob(BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler);
+		registerJob(CLOUD_TRIAL_PROVISIONING_JOB_NAME, cloudTrialProvisioningHandler);
 		await ensureRecurring({
 			name: BILLING_LIFECYCLE_JOB_NAME,
 			cron: '0 * * * *',

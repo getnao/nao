@@ -28,6 +28,10 @@ vi.mock('../src/db/db', async () => {
 vi.mock('../src/services/context-explorer-git.service', () => ({
 	cleanupContextWorktree: vi.fn(),
 }));
+vi.mock('../src/services/credit-grant.service', () => ({
+	recordOrganizationJoinCandidate: vi.fn(),
+	recordProjectJoinCandidate: vi.fn(),
+}));
 
 import { and, eq } from 'drizzle-orm';
 
@@ -257,6 +261,56 @@ describe('cloud backoffice routes', () => {
 		expect(bypassed.json().billing).toMatchObject({ state: 'bypassed', status: null, hasAccess: true });
 	});
 
+	it('tops up an organization wallet once per request and reports it everywhere', async () => {
+		const empty = await get(`/organizations/${ORG_ID}/credits`);
+		expect(empty.statusCode).toBe(200);
+		expect(empty.json()).toMatchObject({ balanceMicroUsd: 0, purchasedMicroUsd: 0, movements: [] });
+
+		const topUp = {
+			amountCents: 2_500,
+			reason: 'Design partner',
+			grantedBy: 'Ops@GetNao.io',
+			requestId: '6f1d8c1e-2f4b-4c8e-9a51-6f0e4f3c2a10',
+		};
+		const created = await request('POST', `/organizations/${ORG_ID}/credits`, topUp);
+		expect(created.statusCode, created.body).toBe(200);
+		expect(created.json()).toMatchObject({
+			balanceMicroUsd: 25_000_000,
+			giftedMicroUsd: 25_000_000,
+			movements: [
+				{
+					kind: 'backoffice_top_up',
+					deltaMicroUsd: 25_000_000,
+					balanceAfterMicroUsd: 25_000_000,
+					grantedBy: 'ops@getnao.io',
+					reason: 'Design partner',
+				},
+			],
+		});
+
+		const replayed = await request('POST', `/organizations/${ORG_ID}/credits`, topUp);
+		expect(replayed.json().balanceMicroUsd).toBe(25_000_000);
+		expect(replayed.json().movements).toHaveLength(1);
+
+		const invalid = await request('POST', `/organizations/${ORG_ID}/credits`, { ...topUp, amountCents: 0 });
+		expect(invalid.statusCode).toBe(400);
+		const unknown = await request('POST', '/organizations/org-missing/credits', topUp);
+		expect(unknown.statusCode).toBe(404);
+
+		const organizations = await get('/organizations');
+		expect(organizations.json().items[0]).toMatchObject({ id: ORG_ID, creditBalanceMicroUsd: 25_000_000 });
+
+		const overview = await get('/billing');
+		expect(overview.json().organizations[0]).toMatchObject({ creditBalanceMicroUsd: 25_000_000 });
+		expect(overview.json().credits).toMatchObject({
+			outstandingBalanceMicroUsd: 25_000_000,
+			fundedOrganizations: 1,
+			purchased12mMicroUsd: 0,
+			backofficeTopUps30dMicroUsd: 25_000_000,
+			recentTopUps: [{ kind: 'backoffice_top_up', orgId: ORG_ID, amountMicroUsd: 25_000_000 }],
+		});
+	});
+
 	it('stores a verified organization license without ever returning the token', async () => {
 		const { privateKey, publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
 		__setBundledPublicKeyForTesting(await exportSPKI(publicKey));
@@ -350,6 +404,24 @@ describe('cloud backoffice routes', () => {
 		expect(untouched.json()).toMatchObject({ id: MEMBER_ID, email: 'renamed@example.com' });
 	});
 
+	it('deactivates a user, revokes their sessions, and reactivates them', async () => {
+		const deactivated = await request('PATCH', `/users/${MEMBER_ID}`, { deactivated: true });
+		expect(deactivated.statusCode).toBe(200);
+		const deactivatedAt = deactivated.json().deactivatedAt;
+		expect(deactivatedAt).toEqual(expect.any(String));
+		expect(await db.select().from(s.session).where(eq(s.session.userId, MEMBER_ID))).toEqual([]);
+
+		const deactivatedAgain = await request('PATCH', `/users/${MEMBER_ID}`, { deactivated: true });
+		expect(deactivatedAgain.json().deactivatedAt).toBe(deactivatedAt);
+
+		const users = await get('/users?search=member');
+		expect(users.json().items[0].deactivatedAt).toBe(deactivatedAt);
+
+		const reactivated = await request('PATCH', `/users/${MEMBER_ID}`, { deactivated: false });
+		expect(reactivated.statusCode).toBe(200);
+		expect(reactivated.json().deactivatedAt).toBeNull();
+	});
+
 	it('cleans up the context worktree when a direct role removes inherited context access', async () => {
 		const added = await request('PUT', `/projects/${PROJECT_ID}/members/${ADMIN_ID}`, { role: 'viewer' });
 		expect(added.statusCode).toBe(200);
@@ -373,7 +445,7 @@ describe('cloud backoffice routes', () => {
 		return app.inject({ method: 'GET', url: `/api/backoffice${url}`, headers: AUTHORIZATION });
 	}
 
-	async function request(method: 'PATCH' | 'PUT' | 'DELETE', url: string, payload?: unknown) {
+	async function request(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', url: string, payload?: unknown) {
 		return app.inject({ method, url: `/api/backoffice${url}`, headers: AUTHORIZATION, payload });
 	}
 });
@@ -392,6 +464,8 @@ async function clearData() {
 	await db.delete(s.orgMember);
 	await db.delete(s.project);
 	await db.delete(s.stripeWebhookEvent);
+	await db.delete(s.creditLedger);
+	await db.delete(s.creditWallet);
 	await db.delete(s.organizationBilling);
 	await db.delete(s.organization);
 	await db.delete(s.user);

@@ -86,6 +86,7 @@ export function SystemPrompt({
 	const dialectToolCallRules = getDialectToolCallRules(connections);
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
 	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
+	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]);
 
 	return (
 		<Block>
@@ -363,7 +364,14 @@ export function SystemPrompt({
 					<Block>
 						<Title level={2}>Skills</Title>
 						<Span>
-							You have access to pre-defined skills. Use these as guidance for relevant questions.
+							You have access to pre-defined skills. Use these as guidance for relevant questions.{' '}
+							{hasTool('load_skill') ? (
+								<>
+									To use a skill, call <Bold>load_skill</Bold> with its name.
+								</>
+							) : (
+								'To use a skill, read its file at the location below.'
+							)}
 						</Span>
 						{listedSkills.map((skill) => (
 							<>
@@ -377,7 +385,7 @@ export function SystemPrompt({
 					</Block>
 				)}
 
-				{hasTool('load_skill') && internalSkills.length > 0 && <BuiltInSkillsBlock skills={internalSkills} />}
+				{hasTool('load_skill') && builtInSkills.length > 0 && <BuiltInSkillsBlock skills={builtInSkills} />}
 
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
 
@@ -423,6 +431,12 @@ function formatConfiguredDatabaseDetails(database: ConfiguredDatabase): string {
 function excludePreloadedSkills(skills: Skill[], preloadedSkills: PreloadedSkill[]): Skill[] {
 	const preloadedNames = new Set(preloadedSkills.map((skill) => skill.name));
 	return skills.filter((skill) => !preloadedNames.has(skill.name));
+}
+
+/** load_skill serves the project skill over a built-in one of the same name. */
+function excludeShadowedInternalSkills(internalSkills: InternalSkill[], projectSkills: Skill[]): InternalSkill[] {
+	const projectSkillNames = new Set(projectSkills.map((skill) => skill.name));
+	return internalSkills.filter((skill) => !projectSkillNames.has(skill.name));
 }
 
 function PreloadedSkillsBlock({ skills }: { skills: PreloadedSkill[] }) {

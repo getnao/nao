@@ -32,6 +32,7 @@ import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
 import { getOnboardingChatIdStorage } from '@/hooks/use-agent';
 import { ChatIdContext } from '@/hooks/use-chat-id';
+import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useHeight } from '@/hooks/use-height';
 import { usePermissions } from '@/hooks/use-permissions';
 import { setActiveProjectId } from '@/lib/active-project';
@@ -105,6 +106,11 @@ function OnboardingPage() {
 		},
 		refetchOnWindowFocus: 'always',
 	});
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const billingAccess = useCloudBillingAccess({
+		enabled: config.data?.cloudBillingEnabled === true,
+		pollWhileRestricted: true,
+	});
 	const search = Route.useSearch();
 	const inputAreaRef = useRef<HTMLDivElement>(null);
 	const actionAreaRef = useRef<HTMLDivElement>(null);
@@ -128,6 +134,7 @@ function OnboardingPage() {
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
 	const onboardingComplete = isOnboardingComplete(currentProject.data != null, progress, warehouseReady);
+	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
@@ -305,7 +312,9 @@ function OnboardingPage() {
 							{onboardingComplete ? (
 								<div className='flex flex-col items-center gap-2 pb-4 pt-2 shadow-[0_-12px_24px_-16px_rgb(0_0_0/0.35)]'>
 									<p className='text-center text-sm font-medium text-violet'>
-										Project setup successful!
+										{trialActive
+											? 'Project created! Your free trial is active.'
+											: 'Project setup successful!'}
 									</p>
 									<Button
 										asChild

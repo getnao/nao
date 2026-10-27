@@ -249,6 +249,7 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.string().min(32).optional()),
+	NAO_MANAGED_OPENAI_API_KEY: optionalNonEmptyString,
 	NAO_CORE_VERSION: z.string().optional(),
 	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
 	NAO_CONTEXT_GIT_URL: z.string().optional(),
@@ -275,11 +276,27 @@ const baseRawEnvSchema = z.object({
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 	STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: z
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
 	STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CREDIT_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: z
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
@@ -465,8 +482,12 @@ const envSchema = rawEnvSchema
 				'STRIPE_SECRET_KEY',
 				'STRIPE_WEBHOOK_SECRET',
 				'STRIPE_CLOUD_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
 				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
 				'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CREDIT_PRODUCT_ID',
+				'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
 			] as const) {
 				if (!data[variable]) {
 					ctx.addIssue({

@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const stripeMocks = vi.hoisted(() => ({
 	construct: vi.fn(),
+	cancelSubscription: vi.fn(),
 	createCheckoutSession: vi.fn(),
 	createCustomer: vi.fn(),
 	createInvoicePreview: vi.fn(),
 	createPortalSession: vi.fn(),
+	createSubscription: vi.fn(),
 	expireCheckoutSession: vi.fn(),
 	listCheckoutSessions: vi.fn(),
 	listInvoices: vi.fn(),
@@ -13,10 +15,12 @@ const stripeMocks = vi.hoisted(() => ({
 	listSubscriptions: vi.fn(),
 	retrieveCheckoutSession: vi.fn(),
 	retrievePrice: vi.fn(),
+	retrieveProduct: vi.fn(),
 	resumeSubscription: vi.fn(),
 	retrieveCustomer: vi.fn(),
 	retrieveSubscription: vi.fn(),
 	retrieveTaxSettings: vi.fn(),
+	updateSubscription: vi.fn(),
 }));
 
 vi.mock('stripe', () => ({
@@ -46,10 +50,16 @@ vi.mock('stripe', () => ({
 			list: stripeMocks.listPrices,
 			retrieve: stripeMocks.retrievePrice,
 		};
+		products = {
+			retrieve: stripeMocks.retrieveProduct,
+		};
 		subscriptions = {
+			cancel: stripeMocks.cancelSubscription,
+			create: stripeMocks.createSubscription,
 			list: stripeMocks.listSubscriptions,
 			resume: stripeMocks.resumeSubscription,
 			retrieve: stripeMocks.retrieveSubscription,
+			update: stripeMocks.updateSubscription,
 		};
 		tax = { settings: { retrieve: stripeMocks.retrieveTaxSettings } };
 	},
@@ -59,6 +69,11 @@ import type Stripe from 'stripe';
 
 import { __reloadEnvForTesting } from '../src/env';
 import {
+	createCreditTopUpCheckoutSession,
+	getCreditTopUpPurchase,
+	validateCreditTopUpConfiguration,
+} from '../src/services/credit-top-up.service';
+import {
 	__resetStripeForTesting,
 	cloudSubscriptionProjection,
 	createCloudCheckoutSession,
@@ -66,7 +81,9 @@ import {
 	createCloudPaymentMethodSession,
 	createCloudPortalSession,
 	createCloudResubscribeSession,
+	createCloudTrialPlaceholderSubscription,
 	findCloudSubscription,
+	findManagedCloudSubscription,
 	getCloudBillingPlans,
 	getCloudPrice,
 	getCloudSubscriptionCurrency,
@@ -78,6 +95,13 @@ import {
 	resumeCloudSubscription,
 	validateCloudBillingConfiguration,
 } from '../src/services/stripe.service';
+
+const TRIAL_END = new Date('2099-01-15T00:00:00.000Z');
+const TRIAL_END_TIMESTAMP = Math.floor(TRIAL_END.getTime() / 1_000);
+const TRIAL_MESSAGE =
+	'Nothing is charged today. Your recurring price, including any promotion code discount, starts when your trial ends on January 15, 2099.';
+const TRIAL_DAYS_MESSAGE =
+	'Nothing is charged today. Your 14-day free trial starts when you confirm. The recurring price shown, including any promotion code discount, starts after the trial.';
 
 let originalEnv: typeof process.env;
 
@@ -91,15 +115,25 @@ beforeEach(() => {
 	process.env.CLOUD_GITHUB_PROJECT_PRIVATE_KEY = 'test-private-key';
 	process.env.NAO_MODE = 'cloud';
 	process.env.STRIPE_CLOUD_PRODUCT_ID = 'prod_cloud';
+	process.env.STRIPE_CLOUD_TRIAL_PRODUCT_ID = 'prod_cloud_trial';
+	process.env.STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY = 'nao_trial';
 	process.env.STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY = 'nao_cloud_monthly_v2';
 	process.env.STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY = 'yearly_sub';
+	process.env.STRIPE_CREDIT_PRODUCT_ID = 'prod_credits';
+	process.env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID = 'prod_platform_fee';
 	process.env.STRIPE_SECRET_KEY = 'sk_test_example';
 	process.env.STRIPE_WEBHOOK_SECRET = 'whsec_example';
 	__reloadEnvForTesting();
 	__resetStripeForTesting();
 	vi.clearAllMocks();
 	stripeMocks.listPrices.mockImplementation(({ lookup_keys }: Stripe.PriceListParams) => ({
-		data: [lookup_keys?.[0] === 'yearly_sub' ? cloudYearlyPrice() : cloudMonthlyPrice()],
+		data: [
+			lookup_keys?.[0] === 'nao_trial'
+				? cloudTrialPrice()
+				: lookup_keys?.[0] === 'yearly_sub'
+					? cloudYearlyPrice()
+					: cloudMonthlyPrice(),
+		],
 	}));
 	stripeMocks.listCheckoutSessions.mockReturnValue(paginatedList([]));
 	stripeMocks.listSubscriptions.mockReturnValue(paginatedList([]));
@@ -113,6 +147,7 @@ beforeEach(() => {
 		status: 'active',
 		status_details: { active: {} },
 	});
+	stripeMocks.retrieveProduct.mockImplementation((id: string) => ({ id, active: true }));
 });
 
 afterEach(() => {
@@ -273,14 +308,18 @@ describe('validateCloudBillingConfiguration', () => {
 	it('validates the configured Price and active Stripe Tax settings', async () => {
 		await expect(validateCloudBillingConfiguration()).resolves.toBeUndefined();
 
-		expect(stripeMocks.listPrices).toHaveBeenCalledTimes(2);
+		expect(stripeMocks.listPrices).toHaveBeenCalledTimes(3);
 		expect(stripeMocks.retrieveTaxSettings).toHaveBeenCalledOnce();
 	});
 
 	it('accepts a yearly Price without a discount', async () => {
 		stripeMocks.listPrices.mockImplementation(({ lookup_keys }: Stripe.PriceListParams) => ({
 			data: [
-				lookup_keys?.[0] === 'yearly_sub' ? cloudYearlyPrice({ unit_amount: 2_400_000 }) : cloudMonthlyPrice(),
+				lookup_keys?.[0] === 'nao_trial'
+					? cloudTrialPrice()
+					: lookup_keys?.[0] === 'yearly_sub'
+						? cloudYearlyPrice({ unit_amount: 2_400_000 })
+						: cloudMonthlyPrice(),
 			],
 		}));
 
@@ -298,9 +337,278 @@ describe('validateCloudBillingConfiguration', () => {
 			'Stripe Tax must be active; missing: head_office',
 		);
 	});
+
+	it('rejects a non-zero placeholder Price', async () => {
+		stripeMocks.listPrices.mockImplementation(({ lookup_keys }: Stripe.PriceListParams) => ({
+			data: [
+				lookup_keys?.[0] === 'nao_trial'
+					? cloudTrialPrice({ unit_amount: 1 })
+					: lookup_keys?.[0] === 'yearly_sub'
+						? cloudYearlyPrice()
+						: cloudMonthlyPrice(),
+			],
+		}));
+
+		await expect(validateCloudBillingConfiguration()).rejects.toThrow('fixed $0 recurring licensed Price');
+	});
+});
+
+describe('validateCreditTopUpConfiguration', () => {
+	it('validates distinct active credit Products', async () => {
+		await expect(validateCreditTopUpConfiguration()).resolves.toBeUndefined();
+
+		expect(stripeMocks.retrieveProduct).toHaveBeenCalledWith('prod_credits');
+		expect(stripeMocks.retrieveProduct).toHaveBeenCalledWith('prod_platform_fee');
+	});
+});
+
+describe('cloud trial placeholder', () => {
+	it('creates a no-card Subscription with the configured absolute trial end', async () => {
+		stripeMocks.createSubscription.mockResolvedValue(cloudTrialSubscription());
+
+		await expect(
+			createCloudTrialPlaceholderSubscription({
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				trialEnd: TRIAL_END,
+			}),
+		).resolves.toMatchObject({ id: 'sub_cloud_trial' });
+
+		expect(stripeMocks.createSubscription).toHaveBeenCalledWith(
+			{
+				customer: 'cus_cloud',
+				items: [{ price: 'price_cloud_trial', quantity: 1 }],
+				metadata: { nao_org_id: 'org-id', nao_subscription_kind: 'trial-placeholder' },
+				cancel_at: TRIAL_END_TIMESTAMP,
+				trial_end: TRIAL_END_TIMESTAMP,
+				trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
+			},
+			{ idempotencyKey: 'cloud-trial-placeholder-v1:org-id' },
+		);
+	});
 });
 
 describe('cloud Checkout', () => {
+	it('creates an idempotent USD credit Checkout with a separate 5% platform fee', async () => {
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/credits',
+		});
+
+		await expect(
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId: 'request-id',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/credits');
+
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: 'payment',
+				currency: 'usd',
+				customer: 'cus_cloud',
+				allow_promotion_codes: false,
+				line_items: [
+					{
+						price_data: {
+							currency: 'usd',
+							product: 'prod_credits',
+							unit_amount: 2_000,
+						},
+						quantity: 1,
+					},
+					{
+						price_data: {
+							currency: 'usd',
+							product: 'prod_platform_fee',
+							unit_amount: 100,
+						},
+						quantity: 1,
+					},
+				],
+				success_url:
+					'https://cloud.getnao.io/settings/organization/billing?creditCheckout={CHECKOUT_SESSION_ID}',
+				cancel_url: 'https://cloud.getnao.io/settings/organization/billing?creditCheckout=canceled',
+				expires_at: expect.any(Number),
+			}),
+			{ idempotencyKey: 'credit-top-up-v1:org-id:request-id' },
+		);
+	});
+
+	it('reuses an open credit Checkout for the same purchase', async () => {
+		stripeMocks.listCheckoutSessions.mockReturnValue(
+			paginatedList([
+				{
+					id: 'cs_open',
+					mode: 'payment',
+					status: 'open',
+					url: 'https://checkout.stripe.com/open-credits',
+					metadata: {
+						nao_org_id: 'org-id',
+						nao_checkout_kind: 'credit_top_up',
+						nao_credit_amount_cents: '2000',
+						nao_wallet_amount_micro_usd: '20000000',
+						nao_platform_fee_cents: '100',
+						nao_initiating_user_id: 'user-id',
+					},
+				} as Stripe.Checkout.Session,
+			]),
+		);
+
+		await expect(
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId: 'new-request-id',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/open-credits');
+
+		expect(stripeMocks.createCheckoutSession).not.toHaveBeenCalled();
+		expect(stripeMocks.expireCheckoutSession).not.toHaveBeenCalled();
+	});
+
+	it('serializes concurrent credit Checkout creation for an organization', async () => {
+		const sessions: Stripe.Checkout.Session[] = [];
+		stripeMocks.listCheckoutSessions.mockImplementation(() => paginatedList(sessions));
+		stripeMocks.createCheckoutSession.mockImplementation((params: Stripe.Checkout.SessionCreateParams) => {
+			const session = {
+				id: 'cs_created',
+				mode: 'payment',
+				status: 'open',
+				url: 'https://checkout.stripe.com/created-credits',
+				metadata: params.metadata,
+			} as Stripe.Checkout.Session;
+			sessions.push(session);
+			return session;
+		});
+
+		const createSession = (requestId: string) =>
+			createCreditTopUpCheckoutSession({
+				creditAmountCents: 2_000,
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				initiatingUserId: 'user-id',
+				requestId,
+			});
+
+		await expect(Promise.all([createSession('request-1'), createSession('request-2')])).resolves.toEqual([
+			'https://checkout.stripe.com/created-credits',
+			'https://checkout.stripe.com/created-credits',
+		]);
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledOnce();
+	});
+
+	it('expires a superseded credit Checkout before creating another', async () => {
+		stripeMocks.listCheckoutSessions.mockReturnValue(
+			paginatedList([
+				{
+					id: 'cs_open',
+					mode: 'payment',
+					status: 'open',
+					url: 'https://checkout.stripe.com/open-credits',
+					metadata: {
+						nao_org_id: 'org-id',
+						nao_checkout_kind: 'credit_top_up',
+						nao_credit_amount_cents: '3000',
+					},
+				} as Stripe.Checkout.Session,
+			]),
+		);
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/new-credits',
+		});
+
+		await createCreditTopUpCheckoutSession({
+			creditAmountCents: 2_000,
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			initiatingUserId: 'user-id',
+			requestId: 'new-request-id',
+		});
+
+		expect(stripeMocks.expireCheckoutSession).toHaveBeenCalledWith('cs_open');
+		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledOnce();
+	});
+
+	it('honours the platform fee the customer paid even after the fee rate changes', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_050, amount_total: 2_250 }),
+		);
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual(
+			expect.objectContaining({ creditAmountCents: 2_000, platformFeeCents: 50, totalAmountCents: 2_250 }),
+		);
+	});
+
+	it('rejects a paid top-up whose line items disagree with its metadata', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_100, amount_total: 2_300 }),
+		);
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).rejects.toThrow('has invalid credit top-up amounts');
+	});
+
+	it('accepts a paid top-up only after canonical amounts and Products are verified', async () => {
+		stripeMocks.retrieveCheckoutSession.mockResolvedValue({
+			id: 'cs_top_up',
+			mode: 'payment',
+			payment_status: 'paid',
+			currency: 'usd',
+			customer: 'cus_cloud',
+			client_reference_id: 'org-id',
+			payment_intent: 'pi_top_up',
+			invoice: 'in_top_up',
+			metadata: {
+				nao_checkout_kind: 'credit_top_up',
+				nao_org_id: 'org-id',
+				nao_initiating_user_id: 'user-id',
+				nao_credit_amount_cents: '2000',
+				nao_wallet_amount_micro_usd: '20000000',
+				nao_platform_fee_cents: '100',
+			},
+			amount_subtotal: 2_100,
+			amount_total: 2_300,
+			total_details: { amount_discount: 0, amount_tax: 200 },
+			line_items: {
+				data: [
+					{
+						quantity: 1,
+						currency: 'usd',
+						amount_subtotal: 2_000,
+						price: { product: 'prod_credits' },
+					},
+					{
+						quantity: 1,
+						currency: 'usd',
+						amount_subtotal: 100,
+						price: { product: 'prod_platform_fee' },
+					},
+				],
+			},
+		});
+
+		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual({
+			checkoutSessionId: 'cs_top_up',
+			paymentIntentId: 'pi_top_up',
+			invoiceId: 'in_top_up',
+			organizationId: 'org-id',
+			initiatingUserId: 'user-id',
+			stripeCustomerId: 'cus_cloud',
+			creditAmountCents: 2_000,
+			platformFeeCents: 100,
+			walletAmountMicroUsd: 20_000_000,
+			taxAmountCents: 200,
+			totalAmountCents: 2_300,
+		});
+		expect(stripeMocks.retrieveCheckoutSession).toHaveBeenCalledWith('cs_top_up', {
+			expand: ['line_items.data.price.product', 'payment_intent', 'invoice'],
+		});
+	});
+
 	it('requires a saved card and tax details before starting a new trial', async () => {
 		stripeMocks.createCheckoutSession.mockResolvedValue({
 			url: 'https://checkout.stripe.com/trial',
@@ -322,8 +630,7 @@ describe('cloud Checkout', () => {
 				allow_promotion_codes: true,
 				custom_text: {
 					submit: {
-						message:
-							'Nothing is charged today. Your 14-day free trial starts when you confirm. The recurring price shown, including any promotion code discount, starts after the trial.',
+						message: TRIAL_DAYS_MESSAGE,
 					},
 				},
 				payment_method_collection: 'always',
@@ -337,7 +644,9 @@ describe('cloud Checkout', () => {
 					trial_settings: { end_behavior: { missing_payment_method: 'pause' } },
 				},
 			}),
-			{ idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_monthly_v2:usd:trial-14' },
+			{
+				idempotencyKey: 'cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-14',
+			},
 		);
 	});
 
@@ -352,7 +661,7 @@ describe('cloud Checkout', () => {
 				currency: 'eur',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).resolves.toBe('https://checkout.stripe.com/yearly-trial');
 
@@ -363,11 +672,49 @@ describe('cloud Checkout', () => {
 				metadata: expect.objectContaining({ nao_plan_key: 'cloud_yearly_v1' }),
 				subscription_data: expect.objectContaining({
 					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_yearly_v1' },
-					trial_period_days: 14,
+					trial_end: TRIAL_END_TIMESTAMP,
 				}),
 			}),
-			{ idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_yearly_v1:eur:trial-14' },
+			{
+				idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_yearly_v1:eur:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
+			},
 		);
+	});
+
+	it('starts the subscription immediately when Stripe cannot preserve the remaining trial', async () => {
+		const now = new Date('2026-10-01T00:00:00.000Z');
+		const localTrialEnd = new Date('2026-10-03T00:02:00.000Z');
+		vi.useFakeTimers();
+		vi.setSystemTime(now);
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/immediate',
+		});
+
+		try {
+			await expect(
+				createCloudCheckoutSession({
+					billingInterval: 'monthly',
+					organizationId: 'org-id',
+					stripeCustomerId: 'cus_cloud',
+					trialEnd: localTrialEnd,
+				}),
+			).resolves.toBe('https://checkout.stripe.com/immediate');
+		} finally {
+			vi.useRealTimers();
+		}
+
+		const [params, options] = stripeMocks.createCheckoutSession.mock.calls[0] as [
+			Stripe.Checkout.SessionCreateParams,
+			{ idempotencyKey: string },
+		];
+		expect(params.subscription_data).toEqual({
+			metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+		});
+		expect(params.metadata).not.toHaveProperty('nao_trial_end');
+		expect(params.custom_text?.submit?.message).toBe(
+			'Not enough time remains to preserve your free trial in Checkout, so your subscription starts when you confirm. The recurring price shown, including any promotion code discount, is charged today.',
+		);
+		expect(options.idempotencyKey).toBe('cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:immediate');
 	});
 
 	it('expires an open monthly Checkout before creating a yearly Checkout', async () => {
@@ -393,7 +740,7 @@ describe('cloud Checkout', () => {
 			billingInterval: 'yearly',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
-			trialDays: 14,
+			trialEnd: TRIAL_END,
 		});
 
 		expect(stripeMocks.expireCheckoutSession).toHaveBeenCalledWith('cs_monthly');
@@ -430,7 +777,7 @@ describe('cloud Checkout', () => {
 				billingInterval: 'yearly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).resolves.toBe('https://checkout.stripe.com/yearly');
 	});
@@ -456,7 +803,7 @@ describe('cloud Checkout', () => {
 				billingInterval: 'yearly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).rejects.toThrow('A Stripe Checkout completed while the billing interval was changing');
 		expect(stripeMocks.createCheckoutSession).not.toHaveBeenCalled();
@@ -486,13 +833,15 @@ describe('cloud Checkout', () => {
 				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).resolves.toBe('https://checkout.stripe.com/promotion-codes');
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({ allow_promotion_codes: true }),
-			{ idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_monthly_v2:usd:trial-14' },
+			{
+				idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
+			},
 		);
 	});
 
@@ -508,8 +857,7 @@ describe('cloud Checkout', () => {
 			allow_promotion_codes: true,
 			custom_text: {
 				submit: {
-					message:
-						'Nothing is charged today. Your 14-day free trial starts when you confirm. The recurring price shown, including any promotion code discount, starts after the trial.',
+					message: TRIAL_DAYS_MESSAGE,
 				},
 			},
 			metadata: {
@@ -559,14 +907,14 @@ describe('cloud Checkout', () => {
 					allow_promotion_codes: true,
 					custom_text: {
 						submit: {
-							message:
-								'Nothing is charged today. Your 14-day free trial starts when you confirm. The recurring price shown, including any promotion code discount, starts after the trial.',
+							message: TRIAL_MESSAGE,
 						},
 					},
 					metadata: {
 						nao_org_id: 'org-id',
 						nao_plan_key: 'cloud_monthly_v2',
 						nao_checkout_kind: 'initial',
+						nao_trial_end: String(TRIAL_END_TIMESTAMP),
 					},
 				},
 			]),
@@ -580,12 +928,12 @@ describe('cloud Checkout', () => {
 				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).resolves.toBe('https://checkout.stripe.com/replacement');
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(expect.anything(), {
-			idempotencyKey: 'cloud-checkout-initial-v11:org-id:cloud_monthly_v2:usd:trial-14:cs_expired',
+			idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}:cs_expired`,
 		});
 	});
 
@@ -597,10 +945,24 @@ describe('cloud Checkout', () => {
 				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).rejects.toThrow('already has cloud subscription history');
 		expect(stripeMocks.createCheckoutSession).not.toHaveBeenCalled();
+	});
+
+	it('allows initial paid Checkout while the trial placeholder is current', async () => {
+		stripeMocks.listSubscriptions.mockReturnValue(paginatedList([cloudTrialSubscription()]));
+		stripeMocks.createCheckoutSession.mockResolvedValue({ url: 'https://checkout.stripe.com/paid-plan' });
+
+		await expect(
+			createCloudCheckoutSession({
+				billingInterval: 'monthly',
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+				trialEnd: TRIAL_END,
+			}),
+		).resolves.toBe('https://checkout.stripe.com/paid-plan');
 	});
 
 	it('recognizes a historical Price on the configured cloud Product', async () => {
@@ -612,7 +974,7 @@ describe('cloud Checkout', () => {
 		stripeMocks.listPrices.mockRejectedValue(new Error('Current Price is unavailable'));
 		stripeMocks.listSubscriptions.mockReturnValue(paginatedList([subscription]));
 
-		await expect(listCloudSubscriptions('cus_cloud')).resolves.toEqual([subscription]);
+		await expect(listCloudSubscriptions('cus_cloud')).resolves.toEqual([{ kind: 'paid-cloud', subscription }]);
 		expect(stripeMocks.listPrices).not.toHaveBeenCalled();
 	});
 
@@ -621,7 +983,7 @@ describe('cloud Checkout', () => {
 		subscription.items.data[0].quantity = 2;
 		stripeMocks.listSubscriptions.mockReturnValue(paginatedList([subscription]));
 
-		await expect(listCloudSubscriptions('cus_cloud')).resolves.toEqual([subscription]);
+		await expect(listCloudSubscriptions('cus_cloud')).resolves.toEqual([{ kind: 'paid-cloud', subscription }]);
 	});
 
 	it('finds only subscriptions on the configured cloud Product', async () => {
@@ -632,6 +994,21 @@ describe('cloud Checkout', () => {
 
 		await expect(findCloudSubscription('sub_cloud')).resolves.toBe(cloud);
 		await expect(findCloudSubscription('sub_unrelated')).resolves.toBeNull();
+	});
+
+	it('finds paid and trial-placeholder managed subscriptions', async () => {
+		const paid = cloudSubscription();
+		const placeholder = cloudTrialSubscription();
+		const unrelated = cloudSubscription({ id: 'sub_unrelated' });
+		unrelated.items.data[0].price = cloudMonthlyPrice({ product: 'prod_unrelated' });
+		stripeMocks.retrieveSubscription
+			.mockResolvedValueOnce(paid)
+			.mockResolvedValueOnce(placeholder)
+			.mockResolvedValueOnce(unrelated);
+
+		await expect(findManagedCloudSubscription('sub_cloud')).resolves.toBe(paid);
+		await expect(findManagedCloudSubscription('sub_cloud_trial')).resolves.toBe(placeholder);
+		await expect(findManagedCloudSubscription('sub_unrelated')).resolves.toBeNull();
 	});
 
 	it('retrieves a subscription currency from Stripe once and drops failed lookups', async () => {
@@ -694,7 +1071,7 @@ describe('cloud Checkout', () => {
 				},
 				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed',
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v11:org-id:cloud_monthly_v2:usd:sub_cloud' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v12:org-id:cloud_monthly_v2:usd:sub_cloud' },
 		);
 	});
 
@@ -730,7 +1107,7 @@ describe('cloud Checkout', () => {
 					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
 				},
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v11:org-id:cloud_monthly_v2:usd:missing-subscription' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v12:org-id:cloud_monthly_v2:usd:missing-subscription' },
 		);
 	});
 
@@ -851,6 +1228,36 @@ describe('cloud subscription projection', () => {
 		await expect(cloudSubscriptionProjection(cloudSubscription())).resolves.toMatchObject({
 			currentPeriodStartsAt: new Date(1_799_000_000_000),
 			hasDefaultPaymentMethod: true,
+		});
+	});
+
+	it('projects a trial placeholder with its cancellation and Customer payment method', async () => {
+		const cancellationEndsAt = 1_800_000_000;
+		stripeMocks.retrieveCustomer.mockResolvedValue({
+			deleted: false,
+			default_source: null,
+			invoice_settings: { default_payment_method: 'pm_cloud' },
+		});
+
+		await expect(
+			cloudSubscriptionProjection(cloudTrialSubscription({ cancel_at: cancellationEndsAt })),
+		).resolves.toMatchObject({
+			billingPlan: null,
+			billingStatus: 'trialing',
+			cancellationScheduled: true,
+			hasDefaultPaymentMethod: true,
+			billingAccessEndsAt: new Date(cancellationEndsAt * 1_000),
+		});
+	});
+
+	it('projects a canceled trial placeholder without billing access', async () => {
+		await expect(
+			cloudSubscriptionProjection(cloudTrialSubscription({ status: 'canceled', cancel_at: 1_800_000_000 })),
+		).resolves.toMatchObject({
+			billingPlan: null,
+			billingStatus: 'canceled',
+			cancellationScheduled: false,
+			billingAccessEndsAt: null,
 		});
 	});
 });
@@ -1170,6 +1577,17 @@ function cloudYearlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
 	});
 }
 
+function cloudTrialPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
+	return cloudMonthlyPrice({
+		currency_options: undefined,
+		id: 'price_cloud_trial',
+		lookup_key: 'nao_trial',
+		product: cloudProduct({ id: 'prod_cloud_trial' }),
+		unit_amount: 0,
+		...overrides,
+	});
+}
+
 function cloudProduct(overrides: Partial<Stripe.Product> = {}): Stripe.Product {
 	return {
 		active: true,
@@ -1211,6 +1629,51 @@ function cloudSubscription(overrides: Partial<Stripe.Subscription> = {}): Stripe
 		trial_start: 1_799_000_000,
 		...overrides,
 	} as Stripe.Subscription;
+}
+
+function paidCreditTopUpSession(input: { platformFeeCents: number; amount_subtotal: number; amount_total: number }) {
+	return {
+		id: 'cs_top_up',
+		mode: 'payment',
+		payment_status: 'paid',
+		currency: 'usd',
+		customer: 'cus_cloud',
+		client_reference_id: 'org-id',
+		payment_intent: 'pi_top_up',
+		invoice: 'in_top_up',
+		metadata: {
+			nao_checkout_kind: 'credit_top_up',
+			nao_org_id: 'org-id',
+			nao_initiating_user_id: 'user-id',
+			nao_credit_amount_cents: '2000',
+			nao_wallet_amount_micro_usd: '20000000',
+			nao_platform_fee_cents: String(input.platformFeeCents),
+		},
+		amount_subtotal: input.amount_subtotal,
+		amount_total: input.amount_total,
+		total_details: { amount_discount: 0, amount_tax: 200 },
+		line_items: {
+			data: [
+				{ quantity: 1, currency: 'usd', amount_subtotal: 2_000, price: { product: 'prod_credits' } },
+				{
+					quantity: 1,
+					currency: 'usd',
+					amount_subtotal: input.platformFeeCents,
+					price: { product: 'prod_platform_fee' },
+				},
+			],
+		},
+	};
+}
+
+function cloudTrialSubscription(overrides: Partial<Stripe.Subscription> = {}): Stripe.Subscription {
+	const subscription = cloudSubscription({
+		id: 'sub_cloud_trial',
+		metadata: { nao_org_id: 'org-id', nao_subscription_kind: 'trial-placeholder' },
+		...overrides,
+	});
+	subscription.items.data[0].price = cloudTrialPrice();
+	return subscription;
 }
 
 function paginatedList<T>(items: T[], nextPage?: () => AsyncIterable<T>): AsyncIterable<T> & { data: T[] } {

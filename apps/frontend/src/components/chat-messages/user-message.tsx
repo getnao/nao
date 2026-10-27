@@ -75,8 +75,15 @@ function MessageSourceBadge({ source }: { source: UIMessage['source'] }) {
 }
 
 function useMentionConfigs(): MessageMentionConfig[] {
-	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
-	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = project.data != null;
+	const skillsQuery = useQuery({ ...trpc.skill.list.queryOptions(), enabled: hasProject });
+	const databaseObjectsQuery = useQuery({
+		...trpc.project.getDatabaseObjects.queryOptions(),
+		enabled: hasProject,
+	});
+	const skills = hasProject ? skillsQuery.data : undefined;
+	const databaseObjects = hasProject ? databaseObjectsQuery.data : undefined;
 
 	return useMemo(() => {
 		const dbOptions: MentionOption[] = (databaseObjects ?? []).map((obj) => ({

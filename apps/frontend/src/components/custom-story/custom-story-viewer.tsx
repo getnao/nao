@@ -39,7 +39,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
-	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !isReadonlyMode;
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !isReadonlyMode;
 
 	const sharing = useStoryViewerSharing({ chatId, storySlug });
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
@@ -159,7 +159,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				onDownload={story.download}
 			/>
 
-			{Boolean(content?.archivedAt) && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
+			{story.isArchived && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
 			{story.restoreError && <ActionErrorBanner message={story.restoreError.message} />}
 
 			<CustomStoryViewLayers
