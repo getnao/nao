@@ -218,7 +218,7 @@ function StoryFeedbackButton({ Icon, label, isActive, activeClassName, disabled,
 					aria-label={label}
 					aria-pressed={isActive}
 				>
-					<Icon className='size-3.5' strokeWidth={2.25} />
+					<Icon className='size-4' strokeWidth={1.75} />
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>{label}</TooltipContent>
