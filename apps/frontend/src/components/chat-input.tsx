@@ -13,7 +13,7 @@ import {
 	KeyRound,
 	MessageCircleOff,
 } from 'lucide-react';
-import { ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
+import { ALLOWED_IMAGE_MEDIA_TYPES, ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, useStoryMentionOptions } from './chat-input-prompt';
@@ -61,6 +61,8 @@ import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts
 import { useIsCloud } from '@/hooks/use-nao-mode';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
+const TRIAL_ATTACHMENT_ACCEPT = ALLOWED_IMAGE_MEDIA_TYPES.join(',');
+const TRIAL_DOCUMENTS_DISABLED_REASON = 'Documents can be attached once your project is set up. Images work now.';
 
 type ChatInputVariant = 'default' | 'onboarding';
 
@@ -162,7 +164,8 @@ function ChatInputBase({
 		enabled: hasProject,
 	});
 	const attachmentUpload = useAttachmentUpload({
-		documentsEnabled: uploadLimits.data?.enabled,
+		documentsEnabled: isTrial ? false : uploadLimits.data?.enabled,
+		documentsDisabledReason: isTrial ? TRIAL_DOCUMENTS_DISABLED_REASON : undefined,
 		maxDocumentSizeMb: uploadLimits.data?.maxFileSizeMb ?? 0,
 	});
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
@@ -490,7 +493,7 @@ function ChatInputBase({
 					<input
 						ref={attachmentUpload.fileInputRef}
 						type='file'
-						accept={ATTACHMENT_ACCEPT}
+						accept={isTrial ? TRIAL_ATTACHMENT_ACCEPT : ATTACHMENT_ACCEPT}
 						multiple
 						className='hidden'
 						onChange={attachmentUpload.handleFileInputChange}

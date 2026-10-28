@@ -25,6 +25,7 @@ vi.mock('@/main', () => ({
 		project: {
 			getCurrent: { queryOptions: () => ({ queryKey: ['current-project'] }) },
 			getSavedPrompts: { queryOptions: () => ({ queryKey: ['saved-prompts'] }) },
+			getProjectSavedPrompts: { queryOptions: () => ({ queryKey: ['project-saved-prompts'] }) },
 		},
 	},
 }));
@@ -57,4 +58,14 @@ it('hides cached saved prompts when there is no current project', () => {
 	const { result } = renderHook(() => useSavedPromptsQuery());
 
 	expect(result.current.data).toBeUndefined();
+});
+
+it('reads the given project saved prompts without a current project', () => {
+	mocks.projectQuery = { data: null, isPending: false, isError: false, isLoading: false };
+
+	const { result } = renderHook(() => useSavedPromptsQuery('example-project'));
+
+	expect(mocks.queries.find((query) => query.queryKey[0] === 'saved-prompts')?.enabled).toBe(false);
+	expect(mocks.queries.find((query) => query.queryKey[0] === 'project-saved-prompts')?.enabled).toBe(true);
+	expect(result.current.data).toEqual([{ id: 'prompt-id' }]);
 });

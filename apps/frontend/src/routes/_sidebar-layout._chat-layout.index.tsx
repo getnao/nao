@@ -223,7 +223,7 @@ function HomePage() {
 										className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
 									/>
 									<ChatInput />
-									<SavedPromptSuggestions />
+									<SavedPromptSuggestions projectId={SYSTEM_EXAMPLE_PROJECT_ID} />
 								</div>
 								{storiesGrid}
 							</>

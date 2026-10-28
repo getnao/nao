@@ -8,12 +8,10 @@ import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
 import {
 	findCreatedOnboardingProject,
-	getOnboardingInitialProjectIds,
 	findWarehouseJobId,
 	isDeployStepReached,
 	isOnboardingComplete,
 	OnboardingProgress,
-	setOnboardingInitialProjectIds,
 	useOnboardingProgress,
 	WarehouseCommandProgress,
 } from '@/components/onboarding-progress';
@@ -84,12 +82,12 @@ function OnboardingPage() {
 	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
 	const progress = useOnboardingProgress();
 	const messageWarehouseJobId = useMemo(() => findWarehouseJobId(messages), [messages]);
-	const canRestoreWarehouseJob = Boolean(chatId && chatId !== NEW_CHAT_ID);
+	const isSavedChat = Boolean(chatId && chatId !== NEW_CHAT_ID);
 	const activeWarehouseJob = useQuery({
 		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
-			onboardingChatId: canRestoreWarehouseJob ? chatId! : '',
+			onboardingChatId: isSavedChat ? chatId! : '',
 		}),
-		enabled: canRestoreWarehouseJob,
+		enabled: isSavedChat,
 	});
 	const warehouseJobId = activeWarehouseJob.data?.id ?? messageWarehouseJobId;
 	const warehouseJob = useWarehouseProvisioningJob(warehouseJobId);
@@ -97,21 +95,19 @@ function OnboardingPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const waitingForDeployment = isDeployStepReached(progress);
-	const canRestoreInitialProjects = Boolean(chatId && chatId !== NEW_CHAT_ID);
-	const restoredInitialProjectIds = useMemo(
-		() => (canRestoreInitialProjects ? getOnboardingInitialProjectIds(chatId!) : null),
-		[canRestoreInitialProjects, chatId],
-	);
-	const [capturedInitialProjectIds, setCapturedInitialProjectIds] = useState<ReadonlySet<string> | null>(null);
-	const initialProjectIds = restoredInitialProjectIds ?? capturedInitialProjectIds;
+	const onboardingChat = useQuery({
+		...trpc.chat.get.queryOptions({ chatId: isSavedChat ? chatId! : '' }),
+		enabled: isSavedChat,
+	});
+	const onboardingStartedAt = onboardingChat.data?.createdAt;
 	const projects = useQuery({
 		...trpc.project.listForCurrentUser.queryOptions(),
 		refetchInterval: (query) => {
 			if (
 				!waitingForDeployment ||
-				!initialProjectIds ||
+				onboardingStartedAt === undefined ||
 				query.state.status === 'error' ||
-				findCreatedOnboardingProject(query.state.data, initialProjectIds)
+				findCreatedOnboardingProject(query.state.data, onboardingStartedAt)
 			) {
 				return false;
 			}
@@ -141,7 +137,7 @@ function OnboardingPage() {
 		enabled: githubAvailable.data === true,
 		refetchOnWindowFocus: 'always',
 	});
-	const createdProject = findCreatedOnboardingProject(projects.data, initialProjectIds);
+	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
 	const projectIsMissing = currentProject.isSuccess && currentProject.data === null;
 	const showDeployKey =
 		(progress?.flow === 'new' || progress?.flow === 'local') &&
@@ -158,17 +154,10 @@ function OnboardingPage() {
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
 
 	useEffect(() => {
-		if (initialProjectIds === null && projects.isSuccess) {
-			setCapturedInitialProjectIds(new Set(projects.data.map((project) => project.id)));
+		if (warehouseReady) {
+			queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() }).catch(console.error);
 		}
-	}, [initialProjectIds, projects.data, projects.isSuccess]);
-
-	useEffect(() => {
-		if (!canRestoreInitialProjects || !chatId || !initialProjectIds || restoredInitialProjectIds) {
-			return;
-		}
-		setOnboardingInitialProjectIds(chatId, initialProjectIds);
-	}, [canRestoreInitialProjects, chatId, initialProjectIds, restoredInitialProjectIds]);
+	}, [queryClient, warehouseReady]);
 
 	useEffect(() => {
 		if (search.github !== 'connected') {

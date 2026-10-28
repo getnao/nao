@@ -6,7 +6,6 @@ import type { TrpcRouter } from '@nao/backend/trpc';
 import type { UIMessage } from '@nao/backend/chat';
 
 import { useAgentMessages } from '@/contexts/agent.provider';
-import { createLocalStorage } from '@/lib/local-storage';
 import { cn } from '@/lib/utils';
 
 const ONBOARDING_STEPS = {
@@ -231,27 +230,14 @@ export function isOnboardingComplete(
 	return hasOnboardingProject && (warehouseReady || progressComplete);
 }
 
-export function findCreatedOnboardingProject<T extends { id: string }>(
+export function findCreatedOnboardingProject<T extends { createdAt: Date }>(
 	projects: T[] | undefined,
-	initialProjectIds: ReadonlySet<string> | null,
+	onboardingStartedAt: number | undefined,
 ): T | null {
-	if (!initialProjectIds) {
+	if (onboardingStartedAt === undefined) {
 		return null;
 	}
-	return projects?.find((project) => !initialProjectIds.has(project.id)) ?? null;
-}
-
-export function getOnboardingInitialProjectIds(chatId: string): ReadonlySet<string> | null {
-	const stored = createLocalStorage<unknown>(`nao-onboarding-initial-project-ids:${chatId}`).get();
-	return Array.isArray(stored) && stored.every((projectId) => typeof projectId === 'string') ? new Set(stored) : null;
-}
-
-export function setOnboardingInitialProjectIds(chatId: string, projectIds: ReadonlySet<string>): void {
-	try {
-		createLocalStorage<string[]>(`nao-onboarding-initial-project-ids:${chatId}`).set([...projectIds]);
-	} catch {
-		return;
-	}
+	return projects?.find((project) => project.createdAt.getTime() >= onboardingStartedAt) ?? null;
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

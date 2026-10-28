@@ -964,6 +964,15 @@ export const projectRoutes = {
 		return savedPromptQueries.listSavedPrompts(ctx.project.id);
 	}),
 
+	getProjectSavedPrompts: protectedProcedure
+		.input(z.object({ projectId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			if (!(await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id))) {
+				return [];
+			}
+			return savedPromptQueries.listSavedPrompts(input.projectId);
+		}),
+
 	createSavedPrompt: adminProtectedProcedure
 		.input(
 			z.object({
