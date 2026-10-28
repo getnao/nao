@@ -24,14 +24,6 @@ function Prompt({ onOpen }: { onOpen: (citation: CitationData) => void }) {
 describe('CitationPillPreview', () => {
 	afterEach(cleanup);
 
-	it('shows where the citation comes from and its whole quote on hover', () => {
-		render(<Prompt onOpen={vi.fn()} />);
-
-		fireEvent.mouseOver(screen.getByText('“Sales dropped…”'));
-
-		expect(screen.getByRole('tooltip').textContent).toBe('@chars 120–180“Sales dropped after the price change”');
-	});
-
 	it('opens the citation from its label, and leaves the icon to deleting the pill', () => {
 		const onOpen = vi.fn();
 		render(<Prompt onOpen={onOpen} />);

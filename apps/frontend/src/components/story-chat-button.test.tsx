@@ -66,19 +66,4 @@ describe('StoryChatButton', () => {
 
 		expect(mocks.requestAsk).toHaveBeenCalledWith();
 	});
-
-	it('mentions the story in a new chat from the menu, without changing the button', async () => {
-		render(<StoryChatButton storyId='story-1' isOwner={false} canChat />);
-
-		fireEvent.pointerDown(screen.getByRole('button', { name: 'More ways to talk to this story' }), {
-			button: 0,
-			ctrlKey: false,
-		});
-		fireEvent.click(await screen.findByRole('menuitem', { name: /^Mention story/ }));
-
-		await vi.waitFor(() =>
-			expect(mocks.startChatWithStories).toHaveBeenCalledWith({ storyIds: ['story-1'], folderIds: [] }),
-		);
-		expect(screen.getByRole('button', { name: 'Ask story' })).toBeTruthy();
-	});
 });

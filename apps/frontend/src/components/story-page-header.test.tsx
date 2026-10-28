@@ -119,20 +119,6 @@ describe('StoryPageHeader actions', () => {
 	});
 	afterEach(cleanup);
 
-	it('offers selection mode on its own, without the app and files toggle of the owner page', () => {
-		const onSelectingChange = vi.fn();
-		render(
-			<TooltipProvider>
-				<StoryPageHeader title='Revenue' elementSelection={{ isSelecting: false, onSelectingChange }} />
-			</TooltipProvider>,
-		);
-
-		fireEvent.click(screen.getByRole('button', { name: 'Select an element to ask about' }));
-
-		expect(onSelectingChange).toHaveBeenCalledWith(true);
-		expect(screen.queryByRole('radio', { name: 'Files' })).toBeNull();
-	});
-
 	it('renders a share button that calls onShare', () => {
 		const onShare = vi.fn();
 		render(

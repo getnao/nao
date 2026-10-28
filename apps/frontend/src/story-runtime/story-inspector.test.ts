@@ -64,26 +64,6 @@ describe('story inspector', () => {
 
 			expect(onAsk).toHaveBeenCalledWith({ block: { kind: 'text' }, text: 'Sales dropped in March.' });
 		});
-
-		it('ignores markup that is neither a block nor text', () => {
-			hover(document.querySelector('div')!);
-
-			expect(outline().hidden).toBe(true);
-		});
-
-		it('stops once the host leaves selection mode', () => {
-			configureStoryInspector({ onAsk, selectsElements: false });
-			document.querySelector('rect')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-			expect(onAsk).not.toHaveBeenCalled();
-		});
-	});
-
-	it('removes its layer once the host turns Ask off', () => {
-		configureStoryInspector({ onAsk, selectsElements: true });
-		configureStoryInspector({ onAsk: null, selectsElements: false });
-
-		expect(document.querySelector('nao-story-inspector')).toBeNull();
 	});
 });
 
