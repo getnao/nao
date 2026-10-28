@@ -520,7 +520,7 @@ export const chatMessage = sqliteTable(
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: integer('isForked', { mode: 'boolean' }),
-		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
+		citations: text('citations', { mode: 'json' }).$type<CitationData[]>(),
 		discordMessageId: text('discord_message_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

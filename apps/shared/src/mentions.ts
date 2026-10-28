@@ -1,6 +1,8 @@
 export const SKILL_MENTION_TRIGGER = '/';
 export const DATABASE_MENTION_TRIGGER = '@';
 export const STORY_REFERENCE_MENTION_TRIGGER = DATABASE_MENTION_TRIGGER;
+/** Marks a cited story element in a message: `❝[n]` stands for the message's n-th citation. */
+export const CITATION_MENTION_TRIGGER = '❝';
 export const SHARED_WITH_ME_FOLDER_ID = '__shared_with_me__';
 
 const STORY_REFERENCE_PREFIX = 'story:';

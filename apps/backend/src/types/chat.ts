@@ -1,5 +1,5 @@
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
-import { type CitationData, type LlmProvider } from '@nao/shared/types';
+import { type CitationData, type LlmProvider, MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -76,7 +76,7 @@ export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITool
 	feedback?: MessageFeedback;
 	source?: MessageSource;
 	isForked?: boolean;
-	citation?: CitationData;
+	citations?: CitationData[];
 	stopReason?: StopReason;
 	/** Provider that generated an assistant message. */
 	llmProvider?: LlmProvider;
@@ -192,7 +192,15 @@ const CitationDataSchema = z.object({
 	end: z.number(),
 	text: z.string(),
 	storySlug: z.string().optional(),
-	block: z.object({ kind: z.string(), title: z.string().optional(), queryId: z.string().optional() }).optional(),
+	block: z
+		.object({
+			kind: z.string(),
+			title: z.string().optional(),
+			queryId: z.string().optional(),
+			lines: z.object({ start: z.number().int(), end: z.number().int() }).optional(),
+		})
+		.optional(),
+	intent: z.enum(['ask', 'edit']).optional(),
 });
 
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
@@ -200,7 +208,7 @@ export const AgentRequestUserMessageSchema = z.object({
 	text: z.string(),
 	images: z.array(AgentRequestImageSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
 	documents: z.array(AgentRequestDocumentPathSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
-	citation: CitationDataSchema.optional(),
+	citations: z.array(CitationDataSchema).max(MAX_CITATIONS_PER_MESSAGE).optional(),
 });
 
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;

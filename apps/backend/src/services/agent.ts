@@ -1,4 +1,5 @@
 import {
+	CITATION_MENTION_TRIGGER,
 	type CustomBoundarySet,
 	getSchemaKeyFromMentionId,
 	isSchemaMentionId,
@@ -10,7 +11,8 @@ import {
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
-import type { CitationData, LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { CitationData, LlmProvider, LlmSelectedModel, StoryBlockReference } from '@nao/shared/types';
+import { CODE_CITATION_KIND } from '@nao/shared/types';
 import {
 	convertToModelMessages,
 	createUIMessageStream,
@@ -974,12 +976,15 @@ export class AgentManager {
 
 	private _addCitationContext(messages: UIMessage[]): UIMessage[] {
 		const [lastUserMessage] = findLastUserMessage(messages);
-		if (!lastUserMessage?.citation) {
+		const citations = lastUserMessage?.citations;
+		if (!citations?.length) {
 			return messages;
 		}
 
-		const context = describeCitation(lastUserMessage.citation);
-		return this._transformLastUserMessageText(messages, (text) => (text ? `${context}\n\n${text}` : context));
+		return this._transformLastUserMessageText(messages, (text) => {
+			const context = describeCitations(citations, text);
+			return text ? `${context}\n\n${text}` : context;
+		});
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
@@ -1189,13 +1194,54 @@ function describeStoredAttachment(part: { url: string; mediaType: string; filena
 	return `[The user attached ${name} (${part.mediaType}) to this message. It is saved at ${part.url}. Its contents are not included here: read that path when you need them.${workbookHint}]`;
 }
 
-function describeCitation({ start, end, text, storySlug, block }: CitationData): string {
+/** Citations placed inline appear in the text as `❝[n]`; older messages carry them apart from the text. */
+function describeCitations(citations: CitationData[], text: string): string {
+	const isPlacedInline = text.includes(`${CITATION_MENTION_TRIGGER}[`);
+	if (citations.length === 1 && !isPlacedInline) {
+		return describeCitation(citations[0]);
+	}
+	const numbered = citations.map((citation, index) => `${index + 1}. ${describeCitation(citation)}`);
+	const reference = isPlacedInline
+		? `In their message, ${CITATION_MENTION_TRIGGER}[n] stands for element n`
+		: 'They may refer to them by number';
+	return `The user cites ${citations.length} story elements. ${reference}:\n${numbered.join('\n')}`;
+}
+
+function describeCitation({ start, end, text, storySlug, block, intent }: CitationData): string {
 	if (!block) {
-		return `[The user is referring to the following text selection (chars ${start}–${end}):\n"${text}"]`;
+		const position = end > start ? ` (chars ${start}–${end})` : '';
+		return `[The user is referring to the following text selection${position}:\n"${text}"]`;
+	}
+	if (block.kind === CODE_CITATION_KIND) {
+		return `[The user is asking about ${describeCode(block)} of ${describeStory(storySlug)}:\n\`\`\`\n${text}\n\`\`\`]`;
+	}
+	if (intent === 'ask') {
+		const quote = text && text !== block.title ? `:\n"${text}"` : '';
+		return `[The user is asking about ${describeStoryElement(block)} of ${describeStory(storySlug)}${quote}]`;
+	}
+	return `[The user is referring to ${describeStoryElement(block)} of ${describeStory(storySlug)}. Apply their request to that block in the story's source and publish again.]`;
+}
+
+function describeStory(storySlug: string | undefined): string {
+	return storySlug ? `the story "${storySlug}"` : 'the story they are looking at';
+}
+
+function describeCode({ title, lines }: StoryBlockReference): string {
+	const source = title ? `the file ${title}` : 'the source';
+	if (!lines) {
+		return `code from ${source}`;
+	}
+	const range = lines.start === lines.end ? `line ${lines.start}` : `lines ${lines.start}–${lines.end}`;
+	return `${range} of ${source}`;
+}
+
+function describeStoryElement(block: StoryBlockReference): string {
+	if (block.kind === 'text') {
+		return 'a passage of text';
 	}
 	const title = block.title ? ` "${block.title}"` : '';
 	const query = block.queryId ? `, reading ${block.queryId}` : '';
-	return `[The user is referring to the ${block.kind} block${title}${query} of the custom story "${storySlug}". Apply their request to that block in the story's source and publish again.]`;
+	return `the ${block.kind} block${title}${query}`;
 }
 
 /** Messaging and automation entry points may be the first to reach a project after a restart. */
