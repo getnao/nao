@@ -8,7 +8,6 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { compactionService } from '../services/compaction';
-import { canUserAccessSystemExampleProject } from '../services/example-project';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
@@ -238,7 +237,7 @@ async function resolveSharedStory(storyId: string, userId: string) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
 	}
 	const userRole = await projectQueries.getUserRoleInProject(share.projectId, userId);
-	if (!userRole && !(await canUserAccessSystemExampleProject(userId, share.projectId))) {
+	if (!userRole) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
 	if (share.visibility === 'specific' && share.userId !== userId) {

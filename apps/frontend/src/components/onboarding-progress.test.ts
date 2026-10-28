@@ -1,38 +1,13 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import {
-	findCreatedOnboardingProject,
-	getOnboardingInitialProjectIds,
-	getCompletedSteps,
-	isDeployStepReached,
-	isOnboardingComplete,
-	setOnboardingInitialProjectIds,
-} from './onboarding-progress';
+import { getCompletedSteps, isOnboardingComplete } from './onboarding-progress';
 
 vi.mock('@/main', () => ({ trpc: {} }));
-
-afterEach(() => {
-	vi.unstubAllGlobals();
-});
-
-describe('isDeployStepReached', () => {
-	it.each([
-		[null, false],
-		[{ flow: 'new', step: 2 }, false],
-		[{ flow: 'new', step: 3 }, true],
-		[{ flow: 'local', step: 3 }, true],
-		[{ flow: 'github', step: 3 }, false],
-		[{ flow: 'database', step: 3 }, false],
-	] as const)('detects the new and local deployment milestone', (progress, expected) => {
-		expect(isDeployStepReached(progress)).toBe(expected);
-	});
-});
 
 describe('isOnboardingComplete', () => {
 	it.each([
 		[false, { flow: 'local', step: 4 }, false, false],
-		[true, { flow: 'local', step: 2 }, false, false],
-		[true, { flow: 'local', step: 3 }, false, true],
+		[true, { flow: 'local', step: 3 }, false, false],
 		[true, { flow: 'local', step: 4 }, false, true],
 		[true, { flow: 'github', step: 2 }, false, true],
 		[true, { flow: 'github', step: 4 }, false, false],
@@ -44,47 +19,6 @@ describe('isOnboardingComplete', () => {
 			expect(isOnboardingComplete(hasProject, progress, warehouseReady)).toBe(expected);
 		},
 	);
-});
-
-describe('findCreatedOnboardingProject', () => {
-	it('returns the project added after onboarding started', () => {
-		const projects = [{ id: 'existing' }, { id: 'created' }];
-
-		expect(findCreatedOnboardingProject(projects, new Set(['existing']))).toEqual({ id: 'created' });
-	});
-
-	it('does not treat an existing project as the onboarding project', () => {
-		expect(findCreatedOnboardingProject([{ id: 'existing' }], new Set(['existing']))).toBeNull();
-	});
-});
-
-describe('onboarding initial project storage', () => {
-	it('restores the project baseline for the same conversation', () => {
-		const storedValues = new Map<string, string>();
-		vi.stubGlobal('localStorage', {
-			getItem: (key: string) => storedValues.get(key) ?? null,
-			setItem: (key: string, value: string) => storedValues.set(key, value),
-		});
-
-		setOnboardingInitialProjectIds('chat-1', new Set(['existing']));
-
-		const restoredProjectIds = getOnboardingInitialProjectIds('chat-1');
-		expect([...restoredProjectIds!]).toEqual(['existing']);
-		expect(findCreatedOnboardingProject([{ id: 'existing' }, { id: 'deployed' }], restoredProjectIds)).toEqual({
-			id: 'deployed',
-		});
-		expect(getOnboardingInitialProjectIds('chat-2')).toBeNull();
-	});
-
-	it('keeps onboarding usable when the project baseline cannot be saved', () => {
-		vi.stubGlobal('localStorage', {
-			setItem: () => {
-				throw new DOMException('Storage is full', 'QuotaExceededError');
-			},
-		});
-
-		expect(() => setOnboardingInitialProjectIds('chat-1', new Set(['existing']))).not.toThrow();
-	});
 });
 
 describe('getCompletedSteps', () => {

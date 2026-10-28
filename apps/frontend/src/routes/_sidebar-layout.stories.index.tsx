@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Archive, Folder, Home } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { BULK_ITEMS_LIMIT, SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
+import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import type { BulkStoryItem, StoryPanelDisplayMode } from '@nao/shared/types';
 import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
 
@@ -31,7 +31,6 @@ import { SortHeader } from '@/components/stories-sort-header';
 import { StoriesExplorer } from '@/components/stories-explorer';
 import { PromotedSections } from '@/components/stories-pinned-favorites';
 import { StoriesToolbar } from '@/components/stories-toolbar';
-import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSession } from '@/lib/auth-client';
 import {
@@ -114,21 +113,13 @@ function StoriesPage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const activeProjectId = project.data?.id;
-	const isTrial = useIsCloud() && project.isSuccess && project.data === null;
-	const storiesProjectId = activeProjectId ?? (isTrial ? SYSTEM_EXAMPLE_PROJECT_ID : undefined);
 	const switchProject = useProjectSwitch(activeProjectId);
 
-	const userStories = useQuery({
-		...trpc.story.listAll.queryOptions({ projectId: storiesProjectId }),
-		enabled: !!storiesProjectId,
-	});
-	const standaloneStories = useQuery({
-		...trpc.story.listStandalone.queryOptions(),
-		enabled: !!activeProjectId,
-	});
+	const userStories = useQuery(trpc.story.listAll.queryOptions({ projectId: activeProjectId }));
+	const standaloneStories = useQuery(trpc.story.listStandalone.queryOptions());
 	const sharedStories = useQuery({
-		...trpc.storyShare.list.queryOptions({ projectId: storiesProjectId ?? '' }),
-		enabled: !!storiesProjectId,
+		...trpc.storyShare.list.queryOptions({ projectId: activeProjectId ?? '' }),
+		enabled: !!activeProjectId,
 	});
 	const favorites = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: !!activeProjectId });
 	const storyViewCounts = useQuery({
@@ -137,29 +128,23 @@ function StoriesPage() {
 	});
 	const archivedStories = useQuery({
 		...trpc.story.listArchived.queryOptions({ projectId: activeProjectId }),
-		enabled: showArchived && !!activeProjectId,
+		enabled: showArchived,
 	});
 	const archivedStandaloneStories = useQuery({
 		...trpc.story.listStandaloneArchived.queryOptions(),
-		enabled: showArchived && !!activeProjectId,
+		enabled: showArchived,
 	});
 	const archivedSharedStories = useQuery({
 		...trpc.story.listSharedArchived.queryOptions(),
 		enabled: showArchived && !!activeProjectId,
 	});
 
-	const folderTree = useQuery({
-		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
-		enabled: !!activeProjectId,
-	});
+	const folderTree = useQuery(trpc.storyFolder.listTree.queryOptions({ archived: false }));
 	const archivedFolderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: true }),
-		enabled: showArchived && !!activeProjectId,
+		enabled: showArchived,
 	});
-	const folderItems = useQuery({
-		...trpc.storyFolder.listItems.queryOptions(),
-		enabled: !!activeProjectId,
-	});
+	const folderItems = useQuery(trpc.storyFolder.listItems.queryOptions());
 
 	const currentUserName = session?.user?.name ?? 'Me';
 
@@ -289,8 +274,8 @@ function StoriesPage() {
 	}, [currentFolderId, folders, showArchived]);
 
 	const isLoading = showArchived
-		? project.isLoading || archivedStories.isLoading || archivedStandaloneStories.isLoading
-		: project.isLoading || userStories.isLoading || standaloneStories.isLoading || sharedStories.isLoading;
+		? archivedStories.isLoading || archivedStandaloneStories.isLoading
+		: userStories.isLoading || standaloneStories.isLoading || sharedStories.isLoading;
 	const isEmpty = allItems.length === 0 && folders.length === 0 && !isLoading;
 
 	function handleDisplayChange(mode: StoryPanelDisplayMode) {

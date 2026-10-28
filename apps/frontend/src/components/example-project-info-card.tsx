@@ -1,7 +1,8 @@
-import { BookOpenText, ChevronDown, ShieldCheck } from 'lucide-react';
+import { ArrowRight, BookOpenText, ChevronDown, ShieldCheck } from 'lucide-react';
 
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 
 export function ExampleProjectInfoCard({ compact = false }: { compact?: boolean }) {
 	return (
@@ -49,5 +50,71 @@ export function ExampleProjectInfoCard({ compact = false }: { compact?: boolean 
 				</div>
 			</PopoverContent>
 		</Popover>
+	);
+}
+
+export function ExampleProjectPromptCard() {
+	return (
+		<div className='flex min-h-36 w-full max-w-md flex-col rounded-xl border border-violet/20 bg-background p-4 shadow-xs'>
+			<h2 className='font-borna text-base font-medium tracking-tight text-foreground text-violet'>
+				Chat with our example project
+			</h2>
+			<div className='mt-2 divide-y divide-border/60'>
+				<ExamplePromptButtons />
+			</div>
+		</div>
+	);
+}
+
+function ExamplePromptButtons() {
+	const setChatInput = useSetChatInputCallback();
+
+	return (
+		<>
+			<button
+				type='button'
+				onClick={() => {
+					setChatInput.fire('How is monthly revenue trending?');
+				}}
+				className='group flex w-full cursor-pointer items-center justify-between gap-3 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+			>
+				<span className='truncate text-xs text-muted-foreground transition-colors group-hover:text-foreground'>
+					How is monthly revenue trending?
+				</span>
+				<PromptArrow />
+			</button>
+			<button
+				type='button'
+				onClick={() => {
+					setChatInput.fire('Make a chart of our top 5 customers by total revenue.');
+				}}
+				className='group flex w-full cursor-pointer items-center justify-between gap-3 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+			>
+				<span className='truncate text-xs text-muted-foreground transition-colors group-hover:text-foreground'>
+					Make a chart of our top 5 customers by total revenue.
+				</span>
+				<PromptArrow />
+			</button>
+			<button
+				type='button'
+				onClick={() => {
+					setChatInput.fire(
+						'Create a story, using chart blocks, summarizing our sales performance and key customer trends.',
+					);
+				}}
+				className='group flex w-full cursor-pointer items-center justify-between gap-3 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+			>
+				<span className='truncate text-xs text-muted-foreground transition-colors group-hover:text-foreground'>
+					Create a story, using chart blocks, summarizing our sales performance and key customer trends.
+				</span>
+				<PromptArrow />
+			</button>
+		</>
+	);
+}
+
+function PromptArrow() {
+	return (
+		<ArrowRight className='size-3.5 shrink-0 translate-x-1 text-muted-foreground opacity-0 transition-[opacity,transform] group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100' />
 	);
 }

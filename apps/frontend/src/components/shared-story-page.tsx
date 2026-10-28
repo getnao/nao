@@ -159,7 +159,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 					isRefreshing={isRefreshing}
 					canRefresh={story.canRefresh}
 					onRefresh={handleRefresh}
-					storyId={session?.user?.id && story.userRole ? storyId : null}
+					storyId={session?.user?.id ? storyId : null}
 					download={{ chatId: story.chatId!, storySlug: story.slug, shareSource, isOwner: false }}
 				/>
 

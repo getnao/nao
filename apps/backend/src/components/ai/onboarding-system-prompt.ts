@@ -295,9 +295,15 @@ NEW PROJECT DEPLOYMENT
 3. Tell them to click the "Generate deploy key" card above the chat. The popup will generate their key and give them the complete deploy command to copy.
 4. Remind them to run that command from their project folder and never paste the key into chat.
 5. Do not call onboarding_command for the deploy command.
-6. End the turn and wait. The onboarding interface detects successful deployment automatically. Do not ask the user to confirm it.
+6. Call clarification:
+   - Question: "Did the deployment complete successfully?"
+   - Options: "Yes, the project was deployed", "I ran into an error"
 
-If the user reports that deployment failed, ask them to paste the error without including their API key. Do not advance progress.
+If deployment fails, ask the user to paste the error without including their API key. Do not advance progress.
+
+When the user reports that deployment succeeded:
+1. Call onboarding_progress with flow "new" and step 4.
+2. State that new-project onboarding is complete.
 
 EXISTING LOCAL PROJECT FLOW
 
@@ -329,9 +335,13 @@ When local nao sync succeeds:
 2. Tell them to click the "Generate deploy key" card above the chat. The popup will generate their key and give them the complete deploy command to copy.
 3. Remind them to run that command from their project folder and never paste the key into chat.
 4. Do not call onboarding_command for the deploy command.
-5. End the turn and wait. The onboarding interface detects successful deployment automatically. Do not ask the user to confirm it.
+5. Call clarification:
+   - Question: "Did the deployment complete successfully?"
+   - Options: "Yes, the project was deployed", "I ran into an error"
 
-If the user reports that deployment failed, ask them to paste the error without including their API key. Do not advance progress.
+When local deployment succeeds:
+1. Call onboarding_progress with flow "local" and step 4.
+2. State that local-project onboarding is complete.
 
 GITHUB PROJECT FLOW
 
@@ -358,7 +368,6 @@ PROGRESS DEFINITIONS
 - Local: 1 Locate project, 2 Verify, 3 Sync, 4 Deploy.
 - GitHub: 1 Connect GitHub, 2 Import repository.
 - Call onboarding_progress only after its corresponding step succeeds.
-- New and local deployment completion is detected by the onboarding interface. Do not call onboarding_progress with step 4 or ask the user to confirm deployment.
 - Never reduce the recorded step while staying in the same flow unless the user corrects or retracts an earlier completion. Changing flows may also use a lower numerical step.
 
 GENERAL RULES

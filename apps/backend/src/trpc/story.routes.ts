@@ -26,11 +26,7 @@ import {
 	getCustomStoryVersion,
 } from '../services/custom-story';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
-import {
-	canUserAccessSystemExampleProject,
-	SYSTEM_EXAMPLE_PROJECT_ID,
-	SYSTEM_EXAMPLE_STORY_ID,
-} from '../services/example-project';
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '../services/example-project';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -1199,9 +1195,6 @@ export const storyRoutes = {
 
 async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<void> {
 	const hasProjectAccess = projectId ? await canAccessStoryProject(projectId, userId) : false;
-	if (hasProjectAccess && storyId === SYSTEM_EXAMPLE_STORY_ID) {
-		return;
-	}
 	if (!hasProjectAccess || !(await storyQueries.canUserAccessStory(storyId, userId))) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
@@ -1246,10 +1239,9 @@ async function filterStoriesByProjectAccess(
 }
 
 async function canAccessStoryProject(projectId: string, userId: string): Promise<boolean> {
-	if (projectId === SYSTEM_EXAMPLE_PROJECT_ID) {
-		return canUserAccessSystemExampleProject(userId, projectId);
-	}
-	return Boolean(await projectQueries.getUserRoleInProject(projectId, userId));
+	return (
+		projectId === SYSTEM_EXAMPLE_PROJECT_ID || Boolean(await projectQueries.getUserRoleInProject(projectId, userId))
+	);
 }
 
 /**

@@ -2,12 +2,10 @@ import { documentMediaType, toSafeFileName } from '@nao/shared/attachments';
 import { z } from 'zod/v4';
 
 import type { App } from '../app';
-import type { DBProject } from '../db/abstractSchema';
 import { env, noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
 import * as projectQueries from '../queries/project.queries';
 import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
-import { getExampleProjectForUser } from '../services/example-project';
 import {
 	isStorageEnabled,
 	relativePathFromKey,
@@ -35,15 +33,16 @@ export const attachmentRoutes = async (app: App) => {
 			throw new HandlerError('BAD_REQUEST', STORAGE_DISABLED_MESSAGE);
 		}
 
-		const { user } = request;
-		const project = await resolveAttachmentProject(user.id, request.project);
-		if (request.project) {
-			const role = await projectQueries.getUserRoleInProject(project.id, user.id);
-			if (!role || role === 'viewer') {
-				throw new HandlerError('FORBIDDEN', 'Viewers cannot upload files');
-			}
-			await assertProjectCloudBillingAccess(project.id);
+		const { user, project } = request;
+		if (!project) {
+			throw new HandlerError('BAD_REQUEST', noProjectMessage());
 		}
+
+		const role = await projectQueries.getUserRoleInProject(project.id, user.id);
+		if (!role || role === 'viewer') {
+			throw new HandlerError('FORBIDDEN', 'Viewers cannot upload files');
+		}
+		await assertProjectCloudBillingAccess(project.id);
 
 		const maxBytes = env.NAO_STORAGE_MAX_FILE_SIZE_MB * 1024 * 1024;
 		// Truncating rather than throwing keeps the size error phrased like every other one here.
@@ -92,8 +91,10 @@ export const attachmentRoutes = async (app: App) => {
 				throw new HandlerError('BAD_REQUEST', STORAGE_DISABLED_MESSAGE);
 			}
 
-			const { user } = request;
-			const project = await resolveAttachmentProject(user.id, request.project);
+			const { user, project } = request;
+			if (!project) {
+				throw new HandlerError('BAD_REQUEST', noProjectMessage());
+			}
 
 			const { path } = request.query;
 			const relativePath = isStoragePath(path) ? toStorageRelativePath(path) : '';
@@ -123,14 +124,6 @@ export const attachmentRoutes = async (app: App) => {
 		},
 	});
 };
-
-export async function resolveAttachmentProject(userId: string, selectedProject: DBProject | null): Promise<DBProject> {
-	const project = selectedProject ?? (await getExampleProjectForUser(userId));
-	if (!project) {
-		throw new HandlerError('BAD_REQUEST', noProjectMessage());
-	}
-	return project;
-}
 
 const fileNameOf = (relativePath: string): string => {
 	return relativePath.slice(relativePath.lastIndexOf('/') + 1);

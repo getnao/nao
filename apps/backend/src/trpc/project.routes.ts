@@ -38,7 +38,6 @@ import {
 } from '../services/default-models.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
-import { getSystemExampleProject } from '../services/example-project';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -961,11 +960,8 @@ export const projectRoutes = {
 			await removeProjectMember(ctx.project.id, input.userId);
 		}),
 
-	getSavedPrompts: protectedProcedure.query(async ({ ctx }) => {
-		const project =
-			(await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId)) ??
-			(await getSystemExampleProject());
-		return project ? savedPromptQueries.listSavedPrompts(project.id) : [];
+	getSavedPrompts: projectProtectedProcedure.query(async ({ ctx }) => {
+		return savedPromptQueries.listSavedPrompts(ctx.project.id);
 	}),
 
 	createSavedPrompt: adminProtectedProcedure

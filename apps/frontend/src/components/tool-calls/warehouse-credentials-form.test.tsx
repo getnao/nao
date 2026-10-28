@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { WarehouseCredentialsForm } from './warehouse-credentials-form';
-import { getWarehouseCredentialsDefaults } from './warehouse-credentials';
 import type { WarehouseCredentialsFormValues } from './warehouse-credentials';
 
 afterEach(cleanup);
@@ -50,26 +49,6 @@ describe('WarehouseCredentialsForm', () => {
 		expect((screen.getByLabelText(/Access Token/) as HTMLInputElement).value).toBe('saved-token');
 		expect(screen.getByText('Check Access Token.')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
-	});
-
-	it('shows credentials in a locked state', () => {
-		render(
-			<WarehouseCredentialsForm
-				provider='motherduck'
-				onValidate={vi.fn()}
-				onSubmit={vi.fn()}
-				onCancel={vi.fn()}
-				isValidating={false}
-				isPending={false}
-				error={null}
-				initialValues={{ ...getWarehouseCredentialsDefaults('motherduck'), accessToken: 'saved-token' }}
-				locked={true}
-			/>,
-		);
-
-		expect((screen.getByLabelText(/Access Token/).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
-		expect(screen.getByText('Credentials are locked once the connection setup has started.')).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull();
 	});
 });
 

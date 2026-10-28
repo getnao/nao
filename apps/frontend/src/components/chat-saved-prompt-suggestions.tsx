@@ -59,8 +59,7 @@ function usePromptRotation(savedPrompts: SavedPrompt[] | undefined, n: number) {
 	const [hidePrompts, setHidePrompts] = useState(false);
 
 	useEffect(() => {
-		if (!savedPrompts || savedPrompts.length <= n) {
-			setHidePrompts(false);
+		if (!savedPrompts || savedPrompts.length < n) {
 			return setDisplayedPrompts(savedPrompts ?? []);
 		}
 

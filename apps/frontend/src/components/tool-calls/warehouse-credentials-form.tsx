@@ -1,5 +1,5 @@
 import { useForm } from '@tanstack/react-form';
-import { CircleCheck, Lock } from 'lucide-react';
+import { CircleCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import {
@@ -16,7 +16,6 @@ import { Callout } from '@/components/ui/callout';
 import { Checkbox } from '@/components/ui/checkbox';
 import { PasswordField, TextareaField, TextField } from '@/components/ui/form-fields';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 
 interface WarehouseCredentialsFormProps {
 	provider: SqlProvider;
@@ -30,7 +29,6 @@ interface WarehouseCredentialsFormProps {
 	onValuesChange?: (values: WarehouseCredentialsFormValues) => void;
 	initialValidatedFingerprint?: string | null;
 	onValidatedFingerprintChange?: (fingerprint: string) => void;
-	locked?: boolean;
 }
 
 export function WarehouseCredentialsForm({
@@ -45,7 +43,6 @@ export function WarehouseCredentialsForm({
 	onValuesChange,
 	initialValidatedFingerprint = null,
 	onValidatedFingerprintChange,
-	locked = false,
 }: WarehouseCredentialsFormProps) {
 	const [validatedFingerprint, setValidatedFingerprint] = useState<string | null>(initialValidatedFingerprint);
 	const settings = SQL_PROVIDER_SETTINGS[provider];
@@ -73,9 +70,6 @@ export function WarehouseCredentialsForm({
 		<form
 			onSubmit={(event) => {
 				event.preventDefault();
-				if (locked) {
-					return;
-				}
 				form.handleSubmit();
 			}}
 			className='flex flex-col gap-5'
@@ -83,10 +77,7 @@ export function WarehouseCredentialsForm({
 			<form.Subscribe selector={(state) => state.values}>
 				{(values) => <FormValuesObserver values={values} onChange={onValuesChange} />}
 			</form.Subscribe>
-			<fieldset
-				disabled={locked}
-				className={cn('space-y-3 rounded-xl border bg-muted/20 p-4', locked && 'opacity-70')}
-			>
+			<section className='space-y-3 rounded-xl border bg-muted/20 p-4'>
 				<div>
 					<h3 className='text-sm font-medium text-foreground'>Connection details</h3>
 					<p className='text-[11px] leading-relaxed text-muted-foreground'>
@@ -397,7 +388,7 @@ export function WarehouseCredentialsForm({
 						</>
 					)}
 				</div>
-			</fieldset>
+			</section>
 			{error && (
 				<Callout
 					variant='destructive'
@@ -407,49 +398,42 @@ export function WarehouseCredentialsForm({
 					{error.message}
 				</Callout>
 			)}
-			{locked ? (
-				<div className='flex items-center gap-2 text-sm text-muted-foreground'>
-					<Lock className='size-4' />
-					<span>Credentials are locked once the connection setup has started.</span>
-				</div>
-			) : (
-				<form.Subscribe selector={(state) => [state.canSubmit, state.values] as const}>
-					{([canSubmit, values]) => {
-						const credentialsAreValid =
-							validatedFingerprint !== null && validatedFingerprint === getCredentialsFingerprint(values);
+			<form.Subscribe selector={(state) => [state.canSubmit, state.values] as const}>
+				{([canSubmit, values]) => {
+					const credentialsAreValid =
+						validatedFingerprint !== null && validatedFingerprint === getCredentialsFingerprint(values);
 
-						return (
-							<>
-								{credentialsAreValid && (
-									<div className='flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400'>
-										<CircleCheck className='size-4' />
-										<span>Credentials OK!</span>
-									</div>
-								)}
-								<div className='flex justify-end gap-2 border-t pt-4'>
-									<Button variant='ghost' size='sm' type='button' onClick={onCancel}>
-										Cancel
-									</Button>
-									<Button
-										size='sm'
-										type='submit'
-										disabled={!canSubmit || isValidating || isPending}
-										isLoading={isValidating || isPending}
-									>
-										{isValidating
-											? 'Checking…'
-											: isPending
-												? 'Continuing…'
-												: credentialsAreValid
-													? 'Continue'
-													: 'Connect'}
-									</Button>
+					return (
+						<>
+							{credentialsAreValid && (
+								<div className='flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400'>
+									<CircleCheck className='size-4' />
+									<span>Credentials OK!</span>
 								</div>
-							</>
-						);
-					}}
-				</form.Subscribe>
-			)}
+							)}
+							<div className='flex justify-end gap-2 border-t pt-4'>
+								<Button variant='ghost' size='sm' type='button' onClick={onCancel}>
+									Cancel
+								</Button>
+								<Button
+									size='sm'
+									type='submit'
+									disabled={!canSubmit || isValidating || isPending}
+									isLoading={isValidating || isPending}
+								>
+									{isValidating
+										? 'Checking…'
+										: isPending
+											? 'Continuing…'
+											: credentialsAreValid
+												? 'Continue'
+												: 'Connect'}
+								</Button>
+							</div>
+						</>
+					);
+				}}
+			</form.Subscribe>
 		</form>
 	);
 }
