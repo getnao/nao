@@ -614,6 +614,13 @@ code.dollar:before {
 	box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
+/* The library fades a hovered pill, which promotes it to its own layer and makes the input border redraw */
+.prompt-container .mention-pill:hover,
+.message-container .mention-pill:hover {
+	opacity: 1;
+	background: var(--accent);
+}
+
 .prompt-container .mention-pill-with-icon,
 .message-container .mention-pill-with-icon {
 	padding-left: 1.75rem;
@@ -624,6 +631,21 @@ code.dollar:before {
 	left: 0.5rem;
 	width: 0.75rem;
 	height: 0.75rem;
+}
+
+/* The icon and the delete cross swap in place on hover, so both take the exact box of the icon */
+.prompt-container .mention-pill-icon-original,
+.message-container .mention-pill-icon-original,
+.prompt-container .mention-pill .mention-pill-icon svg,
+.message-container .mention-pill .mention-pill-icon svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+/* Fading the icons promotes them to their own layer, which rounds them to other pixels and makes them jump */
+.prompt-container .mention-pill-icon-original,
+.prompt-container .mention-pill-icon-delete {
+	transition: none;
 }
 
 .dark .mention-pill {

@@ -5,7 +5,8 @@ import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { UserMessageBubble } from './user-message';
 import type { StickToBottomContext } from 'use-stick-to-bottom';
 import type { ForkMetadata, MessageModel, UIMessage } from '@nao/backend/chat';
-import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
+import type { CitationData } from '@nao/shared/types';
+import { CitationPill } from '@/components/citation-pill';
 import { MessageModelLabel } from '@/components/chat-messages/message-model-label';
 import { checkAssistantMessageHasContent, groupMessages, groupToolCalls } from '@/lib/ai';
 import { cn } from '@/lib/utils';
@@ -60,10 +61,12 @@ export function ChatMessagesReadonly({
 		if (!isForkedMessage) {
 			return null;
 		}
-		const rawText = forkMetadata.selectionText;
-		const text = rawText.length > 200 ? `${rawText.slice(0, 200)}\u2026` : rawText;
-		const citationLabel = `@chars ${forkMetadata.selectionStart}–${forkMetadata.selectionEnd}`;
-		return { id: isForkedMessage.id, citation: citationLabel, text };
+		return {
+			id: isForkedMessage.id,
+			start: forkMetadata.selectionStart,
+			end: forkMetadata.selectionEnd,
+			text: forkMetadata.selectionText,
+		};
 	}, [messages, forkMetadata]);
 
 	return (
@@ -104,7 +107,7 @@ const MessageGroupReadonly = ({
 }: {
 	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
-	citation: { id: string; citation: string; text: string } | null;
+	citation: ForkCitation | null;
 	feedbackRecommendations?: FeedbackRecommendationMap;
 	messageModels?: MessageModelMap;
 }) => {
@@ -131,7 +134,7 @@ const MessageBlockReadonly = ({
 	messageModels,
 }: {
 	message: UIMessage;
-	citation: { id: string; citation: string; text: string } | null;
+	citation: ForkCitation | null;
 	feedbackRecommendations?: FeedbackRecommendationMap;
 	messageModels?: MessageModelMap;
 }) => {
@@ -229,10 +232,12 @@ const AssistantMessageReadonly = memo(
 	},
 );
 
-const CitationBlockReadonly = ({ citation }: { citation: { id: string; citation: string; text: string } }) => {
+type ForkCitation = CitationData & { id: string };
+
+const CitationBlockReadonly = ({ citation }: { citation: ForkCitation }) => {
 	return (
-		<div className='px-4 py-3 border border-border bg-background shrink-0 rounded-xl'>
-			<SelectionCitationExcerpt label={citation.citation} text={citation.text} maxLength={0} />
+		<div className='flex shrink-0 justify-end'>
+			<CitationPill citation={citation} />
 		</div>
 	);
 };

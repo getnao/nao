@@ -124,13 +124,15 @@ export function getSelectionBoundingRect(range: Range): DOMRect | null {
 }
 
 /** Returns true when the range lives inside `[data-selection-ignore]` (e.g. chat suggestion popups, side-panel story headers). */
-export function isRangeInIgnoredRegion(range: Range): boolean {
-	return isNodeInIgnoredRegion(range.startContainer) || isNodeInIgnoredRegion(range.endContainer);
+/** A region ignored by a selection scope is one inside it: a scope nested in an ignored region still selects. */
+export function isRangeInIgnoredRegion(range: Range, scope?: Element): boolean {
+	return isNodeInIgnoredRegion(range.startContainer, scope) || isNodeInIgnoredRegion(range.endContainer, scope);
 }
 
-function isNodeInIgnoredRegion(node: Node): boolean {
+function isNodeInIgnoredRegion(node: Node, scope?: Element): boolean {
 	const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node instanceof Element ? node : null;
-	return Boolean(el?.closest('[data-selection-ignore]'));
+	const ignoredRegion = el?.closest('[data-selection-ignore]');
+	return Boolean(ignoredRegion && (!scope || scope.contains(ignoredRegion)));
 }
 
 /** Returns the left edge of the nearest `[data-selection-container]` ancestor of the range. */
@@ -142,6 +144,34 @@ export function getContainerLeft(range: Range): number {
 		return container.getBoundingClientRect().left;
 	}
 	return el?.getBoundingClientRect().left ?? 0;
+}
+
+/**
+ * The passage a citation quotes. Its offsets were counted over the page as it was laid out when it was selected,
+ * so they only hold while the text there still matches; otherwise the occurrence nearest to them wins.
+ */
+export function findQuotedRange(container: Element, start: number, end: number, quote: string): Range | null {
+	const atOffsets = createRangeFromOffsets(container, start, end);
+	if (atOffsets && atOffsets.toString().trim() === quote.trim()) {
+		return atOffsets;
+	}
+	const fullText = collectText(container);
+	let nearest = -1;
+	for (let index = fullText.indexOf(quote); index !== -1; index = fullText.indexOf(quote, index + 1)) {
+		if (nearest === -1 || Math.abs(index - start) < Math.abs(nearest - start)) {
+			nearest = index;
+		}
+	}
+	return nearest === -1 ? null : createRangeFromOffsets(container, nearest, nearest + quote.length);
+}
+
+function collectText(container: Element): string {
+	const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+	let fullText = '';
+	while (walker.nextNode()) {
+		fullText += walker.currentNode.textContent ?? '';
+	}
+	return fullText;
 }
 
 export function findTextRange(container: Element, searchText: string): Range | null {

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { Pencil, Check, Copy, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Message } from 'prompt-mentions';
 import { useQuery } from '@tanstack/react-query';
@@ -6,6 +6,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { createPortal } from 'react-dom';
 import { getStoryIdFromMentionId } from '@nao/shared';
 import type { UIMessage } from '@nao/backend/chat';
+import type { CitationData } from '@nao/shared/types';
 import type { MessageMentionConfig, MentionOption, PromptTheme } from 'prompt-mentions';
 import { cn } from '@/lib/utils';
 import { useAgentContext } from '@/contexts/agent.provider';
@@ -13,11 +14,18 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { ChatInputInline } from '@/components/chat-input';
-import { ChatMessagesCitationChip } from '@/components/chat-messages/chat-messages-citation-chip';
 import { FileChip } from '@/components/file-chip';
 import { ImageLightbox } from '@/components/image-lightbox';
 import { getMessageText, getMessageImages, getMessageDocuments } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
+import {
+	CITATION_MENTION_TRIGGER,
+	placeCitationsInline,
+	quoteCitations,
+	toSentCitationOptions,
+} from '@/lib/citation-mention';
+import { useOpenCitation } from '@/hooks/use-open-citation';
+import { CitationPillPreview } from '@/components/citation-pill-preview';
 import { Button } from '@/components/ui/button';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
@@ -113,30 +121,46 @@ function useOpenMentionedStory() {
 	};
 }
 
+function useMentionClick(citations: CitationData[]) {
+	const openMentionedStory = useOpenMentionedStory();
+	const openCitation = useOpenCitation();
+	return (mention: { id: string; trigger: string }) => {
+		const citation = citations[Number(mention.id) - 1];
+		if (mention.trigger === CITATION_MENTION_TRIGGER && citation) {
+			openCitation(citation);
+			return;
+		}
+		openMentionedStory(mention);
+	};
+}
+
 export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const rawText = useMemo(() => getMessageText(message), [message]);
 	const images = useMemo(() => getMessageImages(message), [message]);
 	const documents = useMemo(() => getMessageDocuments(message), [message]);
 	const mentionConfigs = useMentionConfigs(rawText);
-	const openMentionedStory = useOpenMentionedStory();
 	const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
 	const legacyCitation = useMemo(() => parseChatMessageCitation(rawText), [rawText]);
-	const citation = message.citation ?? legacyCitation;
-	const displayText = legacyCitation ? legacyCitation.question : rawText;
+	const citations = useMemo(
+		() => message.citations ?? (legacyCitation ? [legacyCitation] : []),
+		[message.citations, legacyCitation],
+	);
+	const displayText = placeCitationsInline(legacyCitation ? legacyCitation.question : rawText, citations.length);
+	const messageMentionConfigs = useMemo(
+		() => [
+			...mentionConfigs,
+			{ trigger: CITATION_MENTION_TRIGGER, options: toSentCitationOptions(citations, displayText) },
+		],
+		[mentionConfigs, citations, displayText],
+	);
+	const handleMentionClick = useMentionClick(citations);
+	const messageRef = useRef<HTMLDivElement>(null);
+	const findSentCitation = useCallback((id: string) => citations[Number(id) - 1], [citations]);
 
 	return (
 		<div className='rounded-2xl px-3 py-2 bg-panel text-card-foreground ml-auto max-w-xl'>
 			<MessageSourceBadge source={message.source} />
-			{citation && (
-				<ChatMessagesCitationChip
-					start={citation.start}
-					end={citation.end}
-					text={citation.text}
-					storySlug={citation.storySlug}
-					block={'block' in citation ? citation.block : undefined}
-				/>
-			)}
 			{images.length > 0 && (
 				<div className='flex gap-2 flex-wrap mb-2'>
 					{images.map((img, idx) => (
@@ -159,13 +183,16 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 				</div>
 			)}
 			{displayText && (
-				<Message
-					value={displayText}
-					mentionConfigs={mentionConfigs}
-					theme={messageTheme}
-					className='flex items-center justify-end'
-					onMentionClick={openMentionedStory}
-				/>
+				<div ref={messageRef}>
+					<CitationPillPreview containerRef={messageRef} findCitation={findSentCitation} />
+					<Message
+						value={displayText}
+						mentionConfigs={messageMentionConfigs}
+						theme={messageTheme}
+						className='flex items-center justify-end'
+						onMentionClick={handleMentionClick}
+					/>
+				</div>
 			)}
 			{lightboxSrc &&
 				createPortal(<ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />, document.body)}
@@ -246,7 +273,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 							size='icon-sm'
 							className='hover:rounded-full'
 							aria-label='Copy'
-							onClick={() => copy(getMessageText(message))}
+							onClick={() => copy(quoteCitations(getMessageText(message), message.citations ?? []))}
 						>
 							{isCopied ? <Check className='size-4' /> : <Copy />}
 						</Button>

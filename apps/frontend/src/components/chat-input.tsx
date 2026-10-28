@@ -78,10 +78,13 @@ import { hasAnyStoryReference, mayCarryStories, readDroppedReferences } from '@/
 import { takePendingStoryReferences, usePendingStoryReferences } from '@/stores/story-references';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
-import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
+import { chatPendingCitationStore, toMessageCitations } from '@/stores/chat-pending-citation';
+import { useChatPendingCitations } from '@/hooks/use-chat-pending-citation';
+import { CITATION_MENTION_TRIGGER, removeCitationTokens } from '@/lib/citation-mention';
+import { useCitationPills } from '@/hooks/use-citation-pills';
+import { useOpenCitation } from '@/hooks/use-open-citation';
+import { CitationPillPreview } from '@/components/citation-pill-preview';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
-import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions, SuggestionCard } from '@/components/chat-input-suggestions';
 import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { useIsCloud } from '@/hooks/use-nao-mode';
@@ -373,13 +376,14 @@ function ChatInputBase({
 
 		chatInputRestoreStore.clear();
 		promptRef.current?.clear();
-		promptRef.current?.insertText(chatInputRestore.text);
-		setInputText(chatInputRestore.text);
+		const restoredText = removeCitationTokens(chatInputRestore.text);
+		promptRef.current?.insertText(restoredText);
+		setInputText(restoredText);
 		attachmentUpload.clearAttachments();
 		attachmentUpload.restoreDocuments(chatInputRestore.documents);
 
-		if (chatInputRestore.citation && chatId) {
-			chatPendingCitationStore.set({ ...chatInputRestore.citation, chatId });
+		if (chatInputRestore.citations && chatId) {
+			chatPendingCitationStore.restore(chatId, chatInputRestore.citations);
 		}
 
 		const restoreImages = async () => {
@@ -484,7 +488,9 @@ function ChatInputBase({
 		async (text: string, currentMentions: SelectedMention[] = []) => {
 			const trimmedInput = text.trim();
 			const citationSnapshot = chatPendingCitationStore.getSnapshot();
-			const hasCitation = !!citationSnapshot && citationSnapshot.chatId === chatId;
+			const pendingCitations =
+				citationSnapshot && citationSnapshot.chatId === chatId ? citationSnapshot.citations : [];
+			const hasCitation = pendingCitations.length > 0;
 
 			if (!trimmedInput && !attachmentUpload.hasAttachments && !hasCitation) {
 				if (isRunning && allowQueueing) {
@@ -506,27 +512,24 @@ function ChatInputBase({
 			}
 
 			await runGuardedAgentSend(() => {
-				const citation = hasCitation
-					? {
-							start: citationSnapshot.start,
-							end: citationSnapshot.end,
-							text: citationSnapshot.text,
-							storySlug: citationSnapshot.storySlug,
-							block: citationSnapshot.block,
-						}
-					: undefined;
+				const message = toMessageCitations(pendingCitations, trimmedInput);
+				const citations = message.citations.length > 0 ? message.citations : undefined;
 				if (hasCitation) {
 					chatPendingCitationStore.clear();
 				}
 
-				setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
+				setMentions(
+					currentMentions
+						.filter((m) => m.trigger !== CITATION_MENTION_TRIGGER)
+						.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })),
+				);
 				promptRef.current?.clear();
 				setInputText('');
 
 				const { images, documents } = attachmentUpload.getPayload();
 				attachmentUpload.clearAttachments();
 
-				return onSubmitMessage({ text: trimmedInput, images, documents, citation });
+				return onSubmitMessage({ text: message.text, images, documents, citations });
 			});
 		},
 		[
@@ -566,8 +569,29 @@ function ChatInputBase({
 		const mentions = promptRef.current?.getMentions() ?? [];
 		await submitMessage(inputText, mentions);
 	};
-	const pendingCitation = useChatPendingCitation(chatId);
-	const isInputEmpty = !inputText.trim() && !attachmentUpload.hasAttachments && !pendingCitation;
+	const citationChatId = allowQueueing ? chatId : undefined;
+	const pendingCitations = useChatPendingCitations(citationChatId);
+	const removePendingCitation = useCallback(
+		(id: string) => {
+			if (citationChatId) {
+				chatPendingCitationStore.remove(citationChatId, id);
+			}
+		},
+		[citationChatId],
+	);
+	const citationPills = useCitationPills({
+		promptRef,
+		containerRef: dropZoneRef,
+		citations: pendingCitations,
+		scope: citationChatId,
+		onRemove: removePendingCitation,
+	});
+	const findPendingCitation = useCallback(
+		(id: string) => pendingCitations.find((citation) => citation.id === id),
+		[pendingCitations],
+	);
+	const openCitation = useOpenCitation();
+	const isInputEmpty = !inputText.trim() && !attachmentUpload.hasAttachments;
 
 	const skills = useQuery({ ...trpc.skill.list.queryOptions(), enabled: hasProject });
 	const databaseObjects = useQuery({ ...trpc.project.getDatabaseObjects.queryOptions(), enabled: hasProject });
@@ -634,7 +658,6 @@ function ChatInputBase({
 						onEditMessage={handleEditQueuedMessage}
 						onSubmitNow={submitQueuedMessageWithGuard}
 					/>
-					<SelectionCitationBanner />
 					<BudgetBanner />
 					{allowQueueing && !isAdminMode && (
 						<ChatInputSuggestions
@@ -679,12 +702,19 @@ function ChatInputBase({
 						rejection={attachmentUpload.rejection}
 						onRemove={attachmentUpload.removeAttachment}
 					/>
+					<CitationPillPreview
+						containerRef={dropZoneRef}
+						findCitation={findPendingCitation}
+						onOpen={openCitation}
+					/>
 					<ChatPrompt
 						promptRef={promptRef}
 						placeholder={effectivePlaceholder}
 						storyCreationEnabled={storyCreationEnabled}
+						citationOptions={citationPills.options}
 						onChange={(value) => setInputText(value)}
 						onEnter={(value, mentions) => submitMessage(value, mentions)}
+						onMentionDeleted={citationPills.handleMentionDeleted}
 					/>
 
 					<input

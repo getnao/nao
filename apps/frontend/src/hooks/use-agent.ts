@@ -81,7 +81,7 @@ export interface SendMessageArgs {
 	images?: ImageUploadData[];
 	/** Files already uploaded to permanent storage, so the message only has to name them. */
 	documents?: DocumentAttachment[];
-	citation?: CitationData;
+	citations?: CitationData[];
 }
 
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
@@ -89,7 +89,7 @@ export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-se
 export const getOnboardingChatIdStorage = (userId: string) =>
 	createLocalStorage<string>(`nao-onboarding-chat-id:${userId}`);
 
-const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData | undefined>();
+const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData[] | undefined>();
 /** Admin mode captured at send time, so an ack-time toggle cannot mislabel the message. */
 const agentAdminModeStore = new WeakMap<Agent<UIMessage>, boolean>();
 
@@ -197,7 +197,7 @@ export const useAgent = ({
 
 			if (dataPart.type === 'data-newUserMessage') {
 				const { newId } = dataPart.data;
-				const citation = agentCitationStore.get(newAgent);
+				const citations = agentCitationStore.get(newAgent);
 				agentCitationStore.delete(newAgent);
 				const sentInAdminMode = agentAdminModeStore.get(newAgent) ?? false;
 				agentAdminModeStore.delete(newAgent);
@@ -207,7 +207,7 @@ export const useAgent = ({
 						? {
 								...message,
 								id: newId,
-								...(citation && { citation }),
+								...(citations && { citations }),
 								...(activeMode === 'onboarding'
 									? { source: 'onboarding' as const }
 									: sentInAdminMode && { source: 'admin' as const }),
@@ -235,7 +235,7 @@ export const useAgent = ({
 
 					const mentions = activeMentionsRef.current;
 					activeMentionsRef.current = [];
-					const citation = agentCitationStore.get(newAgent);
+					const citations = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
 					const documents = extractDocumentPathsFromMessage(messageToSend);
 					const model =
@@ -255,7 +255,7 @@ export const useAgent = ({
 								text: getTextFromUserMessageOrThrow(messageToSend),
 								images: images.length > 0 ? images : undefined,
 								documents: documents.length > 0 ? documents : undefined,
-								citation,
+								citations,
 							},
 							model,
 							mentions: mentions.length > 0 ? mentions : undefined,
@@ -282,6 +282,7 @@ export const useAgent = ({
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
+					agentCitationStore.set(newAgent, next.citations);
 					const files = attachmentsToFileUIParts(next);
 					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 				} else {
@@ -413,7 +414,7 @@ export const useAgent = ({
 						text: getMessageText(lastUserMessage),
 						images: getMessageImages(lastUserMessage),
 						documents: getMessageDocuments(lastUserMessage),
-						citation: lastUserMessage.citation,
+						citations: lastUserMessage.citations,
 					}
 				: undefined;
 
@@ -443,14 +444,14 @@ export const useAgent = ({
 	);
 
 	const queueOrSendMessage = useCallback(
-		async ({ text, images, documents, citation }: SendMessageArgs) => {
+		async ({ text, images, documents, citations }: SendMessageArgs) => {
 			const prompt = text.trim() || defaultAttachmentPrompt({ images, documents });
 			if (!prompt) {
 				return;
 			}
 
 			if (!isRunning) {
-				agentCitationStore.set(agentInstance, citation);
+				agentCitationStore.set(agentInstance, citations);
 				const files = attachmentsToFileUIParts({ images, documents });
 				return handleSendMessage({ text: prompt, files: files.length > 0 ? files : undefined });
 			}
@@ -463,6 +464,7 @@ export const useAgent = ({
 				mentions,
 				images,
 				documents,
+				citations,
 			});
 		},
 		[isRunning, handleSendMessage, agentInstance],
@@ -475,11 +477,12 @@ export const useAgent = ({
 			const next = messageQueueStore.dequeue(chatIdRef.current ?? NEW_CHAT_ID);
 			if (next) {
 				mentionsRef.current = next.mentions;
+				agentCitationStore.set(agentInstance, next.citations);
 				const files = attachmentsToFileUIParts(next);
 				await handleSendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 			}
 		},
-		[stopCurrentGeneration, handleSendMessage],
+		[stopCurrentGeneration, handleSendMessage, agentInstance],
 	);
 
 	const editMessage = useCallback(
@@ -508,7 +511,7 @@ export const useAgent = ({
 				return;
 			}
 
-			agentCitationStore.set(agentInstance, original.citation);
+			agentCitationStore.set(agentInstance, original.citations);
 			setMessages(currentMessages.slice(0, messageIndex));
 			const files = attachmentsToFileUIParts({ images, documents });
 			return handleSendMessage(
@@ -539,7 +542,7 @@ export const useAgent = ({
 				return;
 			}
 
-			agentCitationStore.set(agentInstance, original.citation);
+			agentCitationStore.set(agentInstance, original.citations);
 			setMessages(currentMessages.slice(0, messageIndex));
 			const files = attachmentsToFileUIParts({ images, documents });
 			return handleSendMessage(
