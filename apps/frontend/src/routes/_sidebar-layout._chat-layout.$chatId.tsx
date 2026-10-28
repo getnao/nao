@@ -36,7 +36,6 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
 import { findStories } from '@/lib/story.utils';
@@ -120,7 +119,6 @@ function ChatPage() {
 	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-	const chatInputCallback = useSetChatInputCallback();
 
 	useTrackViewDuration({ assetType: 'chat', chatId });
 
@@ -128,10 +126,9 @@ function ChatPage() {
 		(data: SelectionData) => {
 			const { range, ...selection } = data;
 			const storyMeta = resolveStoryCitationMeta(sidePanel.currentStorySlug, range);
-			chatPendingCitationStore.set({ chatId, ...selection, ...storyMeta });
-			chatInputCallback.fire('');
+			chatPendingCitationStore.add(chatId, { ...selection, ...storyMeta });
 		},
-		[chatId, chatInputCallback, sidePanel.currentStorySlug],
+		[chatId, sidePanel.currentStorySlug],
 	);
 
 	const isSelectionFork = SELECTION_FORK_TYPES.includes(chat.data?.forkMetadata?.type ?? 'chat');

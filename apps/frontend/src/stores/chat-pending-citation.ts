@@ -1,20 +1,46 @@
+import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import { Store } from './abstract-store';
-import type { CitationData, StoryBlockReference } from '@nao/shared/types';
+import type { StoryElementCitation } from '@nao/shared/story-app';
+import type { CitationData } from '@nao/shared/types';
+import { extractCitationIds, isSameCitation, numberCitationTokens } from '@/lib/citation-mention';
 
-export interface ChatPendingCitationData extends CitationData {
-	chatId: string;
+export interface PendingCitation extends CitationData {
+	id: string;
 }
 
-class ChatPendingCitationStore extends Store<ChatPendingCitationData | null> {
-	protected state: ChatPendingCitationData | null = null;
+interface ChatPendingCitations {
+	chatId: string;
+	citations: PendingCitation[];
+}
 
-	set = (citation: ChatPendingCitationData) => {
-		this.state = citation;
-		this.notify();
+class ChatPendingCitationStore extends Store<ChatPendingCitations | null> {
+	protected state: ChatPendingCitations | null = null;
+
+	add = (chatId: string, citation: CitationData) => {
+		const citations = this.citationsOf(chatId);
+		const isDuplicate = citations.some((pending) => isSameCitation(pending, citation));
+		if (isDuplicate || citations.length >= MAX_CITATIONS_PER_MESSAGE) {
+			return;
+		}
+		this.update(chatId, [...citations, withId(citation)]);
 	};
 
-	setBlock = (chatId: string, storySlug: string, block: StoryBlockReference) => {
-		this.set({ chatId, storySlug, start: 0, end: 0, text: block.title ?? '', block });
+	addStoryElement = (chatId: string, storySlug: string, { block, text, intent }: StoryElementCitation) => {
+		this.add(chatId, { storySlug, start: 0, end: 0, text, block, intent });
+	};
+
+	restore = (chatId: string, citations: CitationData[]) => {
+		this.update(chatId, citations.map(withId));
+	};
+
+	remove = (chatId: string, id: string) => {
+		if (this.state?.chatId !== chatId) {
+			return;
+		}
+		this.update(
+			chatId,
+			this.state.citations.filter((citation) => citation.id !== id),
+		);
 	};
 
 	clear = (chatId?: string) => {
@@ -26,6 +52,46 @@ class ChatPendingCitationStore extends Store<ChatPendingCitationData | null> {
 	};
 
 	getSnapshot = () => this.state;
+
+	private citationsOf(chatId: string): PendingCitation[] {
+		return this.state?.chatId === chatId ? this.state.citations : [];
+	}
+
+	private update(chatId: string, citations: PendingCitation[]) {
+		this.state = citations.length > 0 ? { chatId, citations } : null;
+		this.notify();
+	}
 }
 
 export const chatPendingCitationStore = new ChatPendingCitationStore();
+
+/**
+ * The citations whose pill is still in the text, in reading order, with the text numbering them `❝[1]`, `❝[2]`…
+ * Only the fields a message carries are kept: a selection can bring along its DOM range, which must not be sent.
+ */
+export function toMessageCitations(
+	pending: PendingCitation[],
+	text: string,
+): { text: string; citations: CitationData[] } {
+	const placed = extractCitationIds(text)
+		.map((id) => pending.find((citation) => citation.id === id))
+		.filter((citation): citation is PendingCitation => citation !== undefined);
+	return {
+		text: numberCitationTokens(
+			text,
+			placed.map((citation) => citation.id),
+		),
+		citations: placed.map(({ start, end, text: quote, storySlug, block, intent }) => ({
+			start,
+			end,
+			text: quote,
+			storySlug,
+			block,
+			intent,
+		})),
+	};
+}
+
+function withId(citation: CitationData): PendingCitation {
+	return { ...citation, id: crypto.randomUUID() };
+}
