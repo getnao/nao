@@ -66,6 +66,7 @@ export function FolderCard({
 }) {
 	const { isViewer, isAdmin } = usePermissions();
 	const { data: session } = useSession();
+	const isFolderFavorited = useToggleFavorite('folder').isFavorited(folder.id);
 	const storyTheme = useActiveStoryTheme();
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
@@ -289,7 +290,9 @@ export function FolderCard({
 
 	const contentLeftPadding = !canSelect ? 'pl-3' : selected || selectionActive ? 'pl-9' : 'pl-3 group-hover:pl-9';
 	const contentRightPadding =
-		selectionActive || isSystemFolder(folder) ? 'pr-3' : 'pr-8 group-hover:pr-14 group-has-data-[state=open]:pr-14';
+		selectionActive || isSystemFolder(folder)
+			? 'pr-3'
+			: cn(isFolderFavorited ? 'pr-7.5' : 'pr-3', 'group-hover:pr-12.5 group-has-data-[state=open]:pr-12.5');
 
 	return (
 		<div
