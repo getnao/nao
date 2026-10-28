@@ -144,16 +144,6 @@ async function resolveDiscordFallbackUser(projectId: string, email: string) {
 	return user;
 }
 
-async function assertProjectNameAvailable(project: { id: string; orgId: string | null }, name: string) {
-	if (!project.orgId) {
-		return;
-	}
-	const existing = await projectQueries.getProjectByOrgAndName(project.orgId, name);
-	if (existing && existing.id !== project.id) {
-		throw new TRPCError({ code: 'CONFLICT', message: `A project named "${name}" already exists.` });
-	}
-}
-
 async function validateBoundarySource(url: string): Promise<number> {
 	try {
 		const text = await safeFetch(url);
@@ -191,10 +181,18 @@ export const projectRoutes = {
 	}),
 
 	rename: adminProtectedProcedure
-		.input(z.object({ name: z.string().trim().min(1).max(100) }))
+		.input(z.object({ projectId: z.string(), name: z.string().trim().min(1).max(100) }))
 		.mutation(async ({ ctx, input }) => {
-			await assertProjectNameAvailable(ctx.project, input.name);
-			await projectQueries.updateProjectName(ctx.project.id, input.name);
+			if (input.projectId !== ctx.project.id) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The selected project changed. Reload the page and try again.',
+				});
+			}
+			const renamed = await projectQueries.renameProject(ctx.project.id, ctx.project.orgId, input.name);
+			if (!renamed) {
+				throw new TRPCError({ code: 'CONFLICT', message: `A project named "${input.name}" already exists.` });
+			}
 		}),
 
 	getDatabaseObjects: projectProtectedProcedure

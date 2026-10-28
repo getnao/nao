@@ -2,15 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
-	getProjectByOrgAndName: vi.fn(),
-	updateProjectName: vi.fn(),
+	renameProject: vi.fn(),
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', orgId: 'org-id', name: "Ada's project", path: null })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
-	getProjectByOrgAndName: mocks.getProjectByOrgAndName,
-	updateProjectName: mocks.updateProjectName,
+	renameProject: mocks.renameProject,
 }));
 vi.mock('../src/queries/user.queries', () => ({}));
 vi.mock('../src/queries/chat.queries', () => ({}));
@@ -39,41 +37,44 @@ describe('project.rename', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
-		mocks.getProjectByOrgAndName.mockResolvedValue(null);
+		mocks.renameProject.mockResolvedValue(true);
 	});
 
 	it('renames the project with the trimmed name', async () => {
-		await createCaller().rename({ name: '  Revenue analytics  ' });
+		await createCaller().rename({ projectId: 'project-id', name: '  Revenue analytics  ' });
 
-		expect(mocks.getProjectByOrgAndName).toHaveBeenCalledWith('org-id', 'Revenue analytics');
-		expect(mocks.updateProjectName).toHaveBeenCalledWith('project-id', 'Revenue analytics');
+		expect(mocks.renameProject).toHaveBeenCalledWith('project-id', 'org-id', 'Revenue analytics');
 	});
 
-	it('refuses a name already used by another project of the organization', async () => {
-		mocks.getProjectByOrgAndName.mockResolvedValue({ id: 'other-project-id' });
+	it('reports a conflict when the organization already has a project with that name', async () => {
+		mocks.renameProject.mockResolvedValue(false);
 
-		await expect(createCaller().rename({ name: 'Taken' })).rejects.toMatchObject({ code: 'CONFLICT' });
-		expect(mocks.updateProjectName).not.toHaveBeenCalled();
+		await expect(createCaller().rename({ projectId: 'project-id', name: 'Taken' })).rejects.toMatchObject({
+			code: 'CONFLICT',
+		});
 	});
 
-	it('accepts the current name of the project itself', async () => {
-		mocks.getProjectByOrgAndName.mockResolvedValue({ id: 'project-id' });
-
-		await createCaller().rename({ name: "Ada's project" });
-
-		expect(mocks.updateProjectName).toHaveBeenCalledWith('project-id', "Ada's project");
+	it('refuses to rename when the edited project is no longer the selected one', async () => {
+		await expect(createCaller().rename({ projectId: 'other-project-id', name: 'New name' })).rejects.toMatchObject({
+			code: 'CONFLICT',
+		});
+		expect(mocks.renameProject).not.toHaveBeenCalled();
 	});
 
 	it('rejects a blank name', async () => {
-		await expect(createCaller().rename({ name: '   ' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-		expect(mocks.updateProjectName).not.toHaveBeenCalled();
+		await expect(createCaller().rename({ projectId: 'project-id', name: '   ' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+		expect(mocks.renameProject).not.toHaveBeenCalled();
 	});
 
 	it('only lets project admins rename the project', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 
-		await expect(createCaller().rename({ name: 'New name' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-		expect(mocks.updateProjectName).not.toHaveBeenCalled();
+		await expect(createCaller().rename({ projectId: 'project-id', name: 'New name' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.renameProject).not.toHaveBeenCalled();
 	});
 });
 

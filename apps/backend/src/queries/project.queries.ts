@@ -16,7 +16,7 @@ import {
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -71,9 +71,15 @@ export const organizationHasProjects = async (orgId: string): Promise<boolean> =
 	return Boolean(project);
 };
 
-export const updateProjectName = async (projectId: string, name: string): Promise<void> => {
-	await db.update(s.project).set({ name }).where(eq(s.project.id, projectId)).execute();
-};
+/**
+ * Renames the project unless another project of its organization already uses the name.
+ * On Postgres the organization row lock serializes concurrent renames; on SQLite the
+ * conditional update is atomic on its own.
+ */
+export const renameProject = async (projectId: string, orgId: string | null, name: string): Promise<boolean> =>
+	dbConfig.dialect === Dialect.Postgres
+		? db.transaction((tx) => renameProjectIfNameAvailable(tx, projectId, orgId, name))
+		: renameProjectIfNameAvailable(db, projectId, orgId, name);
 
 export const touchProjectUpdatedAt = async (projectId: string): Promise<void> => {
 	await db.update(s.project).set({ updatedAt: new Date() }).where(eq(s.project.id, projectId)).execute();
@@ -462,6 +468,33 @@ const mutateCustomBoundaries = async (
 
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
 	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
+
+const renameProjectIfNameAvailable = async (
+	executor: DBExecutor,
+	projectId: string,
+	orgId: string | null,
+	name: string,
+): Promise<boolean> => {
+	let nameAvailable: SQL | undefined;
+	if (orgId) {
+		await lockForUpdate(
+			executor.select({ id: s.organization.id }).from(s.organization).where(eq(s.organization.id, orgId)),
+		).execute();
+		nameAvailable = notExists(
+			executor
+				.select({ id: s.project.id })
+				.from(s.project)
+				.where(and(eq(s.project.orgId, orgId), eq(s.project.name, name), ne(s.project.id, projectId))),
+		);
+	}
+	const renamed = await executor
+		.update(s.project)
+		.set({ name })
+		.where(and(eq(s.project.id, projectId), nameAvailable))
+		.returning({ id: s.project.id })
+		.execute();
+	return renamed.length > 0;
+};
 
 const createProjectWithDefaultGroup = (
 	project: NewProject,

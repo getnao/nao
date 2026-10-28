@@ -12,6 +12,7 @@ const sharedSqliteTestFiles = [
 	'tests/context-recommendation-schema.test.ts',
 	'tests/project-accessible-users.test.ts',
 	'tests/project-chats-filters.test.ts',
+	'tests/project-rename.queries.test.ts',
 	'tests/project-selection.test.ts',
 	'tests/query-app-db.test.ts',
 	'tests/readonly-app-db.test.ts',
