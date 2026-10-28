@@ -7,10 +7,18 @@ const mocks = vi.hoisted(() => ({
 	getStoryById: vi.fn(),
 	getStoryOwnerId: vi.fn(),
 	getStoryProjectId: vi.fn(),
-	moveFolder: vi.fn(),
-	moveStoryToFolder: vi.fn(),
+	moveItemsToFolder: vi.fn(),
 	proposedParentChainContains: vi.fn(),
 }));
+
+const SystemFolderError = vi.hoisted(
+	() =>
+		class extends Error {
+			constructor() {
+				super('System folders cannot be modified.');
+			}
+		},
+);
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -29,10 +37,9 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 			super('Moving this folder would create a cycle.');
 		}
 	},
-	SystemFolderError: class extends Error {},
+	SystemFolderError,
 	getFolderById: mocks.getFolderById,
-	moveFolder: mocks.moveFolder,
-	moveStoryToFolder: mocks.moveStoryToFolder,
+	moveItemsToFolder: mocks.moveItemsToFolder,
 	proposedParentChainContains: mocks.proposedParentChainContains,
 }));
 vi.mock('../src/services/agent', () => ({ agentService: { get: mocks.getAgent } }));
@@ -56,19 +63,26 @@ describe('storyFolder.bulkMove', () => {
 		mocks.proposedParentChainContains.mockResolvedValue(false);
 	});
 
-	it('moves every selected folder and story into the target folder', async () => {
+	it('moves every selected folder and story into the target folder in one batch', async () => {
 		await createCaller().storyFolder.bulkMove({
 			storyIds: ['story-a', 'story-b'],
 			folderIds: ['folder-a'],
 			targetFolderId: 'target',
 		});
 
-		expect(mocks.moveFolder).toHaveBeenCalledWith('user-id', 'project-id', 'folder-a', 'target');
-		expect(mocks.moveStoryToFolder).toHaveBeenCalledTimes(2);
-		expect(mocks.moveStoryToFolder).toHaveBeenCalledWith('story-b', 'target', {
-			storyOwnerId: 'user-id',
-			projectId: 'project-id',
-		});
+		expect(mocks.moveItemsToFolder).toHaveBeenCalledTimes(1);
+		expect(mocks.moveItemsToFolder).toHaveBeenCalledWith(
+			'user-id',
+			'project-id',
+			{
+				folderIds: ['folder-a'],
+				stories: [
+					{ storyId: 'story-a', storyOwnerId: 'user-id' },
+					{ storyId: 'story-b', storyOwnerId: 'user-id' },
+				],
+			},
+			'target',
+		);
 	});
 
 	it('moves nothing when the target sits inside a selected folder', async () => {
@@ -84,8 +98,7 @@ describe('storyFolder.bulkMove', () => {
 			}),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 
-		expect(mocks.moveFolder).not.toHaveBeenCalled();
-		expect(mocks.moveStoryToFolder).not.toHaveBeenCalled();
+		expect(mocks.moveItemsToFolder).not.toHaveBeenCalled();
 	});
 
 	it('moves nothing when the agent is editing a selected story', async () => {
@@ -99,8 +112,19 @@ describe('storyFolder.bulkMove', () => {
 			}),
 		).rejects.toMatchObject({ code: 'CONFLICT' });
 
-		expect(mocks.moveFolder).not.toHaveBeenCalled();
-		expect(mocks.moveStoryToFolder).not.toHaveBeenCalled();
+		expect(mocks.moveItemsToFolder).not.toHaveBeenCalled();
+	});
+
+	it('reports a system folder in the selection as forbidden', async () => {
+		mocks.moveItemsToFolder.mockRejectedValue(new SystemFolderError());
+
+		await expect(
+			createCaller().storyFolder.bulkMove({
+				storyIds: [],
+				folderIds: ['folder-a', 'private-root'],
+				targetFolderId: null,
+			}),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
 	});
 
 	it('rejects an empty selection', async () => {

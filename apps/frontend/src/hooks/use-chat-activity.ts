@@ -41,3 +41,23 @@ export const useSectionActivity = (chatIds: string[]): ChatActivity => {
 	const encoded = useSyncExternalStore(subscribe, getSnapshot);
 	return useMemo(() => ({ running: (encoded & 1) !== 0, unread: (encoded & 2) !== 0 }), [encoded]);
 };
+
+export const useRunningChatIds = (chatIds: string[]): Set<string> => {
+	const idsKey = chatIds.join(',');
+
+	const subscribe = useCallback(
+		(cb: () => void) => {
+			const unsubs = chatIds.map((id) => chatActivityStore.subscribe(id, cb));
+			return () => unsubs.forEach((unsub) => unsub());
+		},
+		[idsKey], // eslint-disable-line react-hooks/exhaustive-deps
+	);
+
+	const getSnapshot = useCallback(
+		() => chatIds.filter((id) => chatActivityStore.getActivity(id).running).join(','),
+		[idsKey], // eslint-disable-line react-hooks/exhaustive-deps
+	);
+
+	const runningKey = useSyncExternalStore(subscribe, getSnapshot);
+	return useMemo(() => new Set(runningKey ? runningKey.split(',') : []), [runningKey]);
+};

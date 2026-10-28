@@ -34,6 +34,7 @@ import { StoriesExplorer } from '@/components/stories-explorer';
 import { PromotedSections } from '@/components/stories-pinned-favorites';
 import { StoriesToolbar } from '@/components/stories-toolbar';
 import { useIsCloud } from '@/hooks/use-nao-mode';
+import { useRunningChatIds } from '@/hooks/use-chat-activity';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useDragPointer } from '@/hooks/use-drag-pointer';
@@ -56,7 +57,6 @@ import {
 import { invalidateStoryArchiveCaches, invalidateStoryPlacementCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
-import { chatActivityStore } from '@/stores/chat-activity';
 import { selectedStoryReferencesStore, storyDragOverNewChatStore } from '@/stores/story-references';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/')({
@@ -268,6 +268,11 @@ function StoriesPage() {
 		(): StoryReferences => ({ storyIds: [...selectedStoryIds], folderIds: [...selectedFolderIds] }),
 		[selectedStoryIds, selectedFolderIds],
 	);
+
+	const selectedChatIds = allItems.flatMap((item) =>
+		selectedStoryIds.has(item.storyId) && item.chatId ? [item.chatId] : [],
+	);
+	const runningChatIds = useRunningChatIds(selectedChatIds);
 
 	useEffect(() => {
 		selectedStoryReferencesStore.set(selectedStoryReferences);
@@ -572,7 +577,7 @@ function StoriesPage() {
 		const storyIds = allItems
 			.filter((item) => selectedStoryIds.has(item.storyId))
 			.filter((item) => item.kind !== 'shared-with-me' && (isOwnStory(item) || isAdmin))
-			.filter((item) => !isAgentEditingStory(item))
+			.filter((item) => !item.chatId || !runningChatIds.has(item.chatId))
 			.map((item) => item.storyId);
 		const folderIds = folders
 			.filter((folder) => selectedFolderIds.has(folder.id))
@@ -911,10 +916,6 @@ function parseDragStoryId(activeStr: string): string {
 
 function isOwnStory(item: StoryItem): boolean {
 	return item.kind === 'own' || item.kind === 'own-standalone';
-}
-
-function isAgentEditingStory(item: StoryItem): boolean {
-	return !!item.chatId && chatActivityStore.getActivity(item.chatId).running;
 }
 
 function DragOverlayCard({ item, count }: { item: StoryItem | FolderItem; count: number }) {

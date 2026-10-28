@@ -15,6 +15,8 @@ type PickerTarget =
 	| { type: 'folder'; folderId: string; currentVisibility?: string }
 	| { type: 'selection'; storyIds: string[]; folderIds: string[] };
 
+type FolderPlacement = { storyId: string; folderId: string };
+
 export function FolderPickerDialog({
 	open,
 	onOpenChange,
@@ -32,6 +34,7 @@ export function FolderPickerDialog({
 	const queryClient = useQueryClient();
 
 	const { data: tree = [] } = useQuery(trpc.storyFolder.listTree.queryOptions());
+	const { data: folderItems = [] } = useQuery(trpc.storyFolder.listItems.queryOptions());
 
 	function handleMoved() {
 		invalidateStoryPlacementCaches(queryClient);
@@ -49,7 +52,7 @@ export function FolderPickerDialog({
 	const disabledIds = getFolderSubtreeIds(getMovedFolderIds(target), tree);
 
 	const selectedVisibility = getTargetVisibility(selectedId, tree);
-	const visibilityWillChange = getSourceVisibilities(target, tree).some(
+	const visibilityWillChange = getSourceVisibilities(target, tree, folderItems).some(
 		(visibility) => visibility !== selectedVisibility,
 	);
 
@@ -91,9 +94,7 @@ export function FolderPickerDialog({
 				{visibilityWillChange && (
 					<p className='flex items-center gap-1.5 text-xs text-amber-600'>
 						<TriangleAlert className='size-3.5 shrink-0' />
-						{selectedVisibility === 'public'
-							? 'Moving here will make the folder and its stories public.'
-							: 'Moving here will make the folder and its stories private.'}
+						{getVisibilityWarning(target, selectedVisibility)}
 					</p>
 				)}
 
@@ -132,12 +133,27 @@ function getMovedFolderIds(target: PickerTarget): string[] {
 	return [];
 }
 
-function getSourceVisibilities(target: PickerTarget, tree: FolderItem[]): string[] {
+function getSourceVisibilities(target: PickerTarget, tree: FolderItem[], folderItems: FolderPlacement[]): string[] {
 	if (target.type === 'folder') {
 		return [target.currentVisibility ?? 'public'];
 	}
 	if (target.type === 'selection') {
-		return tree.filter((folder) => target.folderIds.includes(folder.id)).map((folder) => folder.visibility);
+		const folderVisibilities = tree
+			.filter((folder) => target.folderIds.includes(folder.id))
+			.map((folder) => folder.visibility);
+		const storyVisibilities = target.storyIds.map((storyId) =>
+			getTargetVisibility(getStoryFolderId(storyId, folderItems), tree),
+		);
+		return [...folderVisibilities, ...storyVisibilities];
 	}
 	return [];
+}
+
+function getStoryFolderId(storyId: string, folderItems: FolderPlacement[]): string | null {
+	return folderItems.find((item) => item.storyId === storyId)?.folderId ?? null;
+}
+
+function getVisibilityWarning(target: PickerTarget, visibility: string): string {
+	const subject = target.type === 'selection' ? 'the selected items' : 'the folder and its stories';
+	return `Moving here will make ${subject} ${visibility === 'public' ? 'public' : 'private'}.`;
 }

@@ -121,9 +121,9 @@ async function assertTargetOutsideMovedFolders(folderIds: string[], targetFolder
 	}
 }
 
-async function moveFolderOrThrow(ctx: MoveContext, folderId: string, newParentId: string | null) {
+async function runFolderMove(move: () => Promise<void>) {
 	try {
-		await storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, folderId, newParentId);
+		await move();
 	} catch (err) {
 		if (err instanceof storyFolderQueries.MoveFolderCycleError) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
@@ -250,7 +250,9 @@ export const storyFolderRoutes = {
 			if (folder.visibility === 'private' && resolveDestinationVisibility(target) === 'public') {
 				await assertCanShareToProject(ctx.project.id, ctx.user.id);
 			}
-			await moveFolderOrThrow(ctx, input.id, input.newParentId);
+			await runFolderMove(() =>
+				storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId),
+			);
 		}),
 
 	moveStory: canSendProcedure
@@ -292,14 +294,14 @@ export const storyFolderRoutes = {
 				await assertCanShareToProject(ctx.project.id, ctx.user.id);
 			}
 
-			for (const folder of folders) {
-				await moveFolderOrThrow(ctx, folder.id, input.targetFolderId);
-			}
-			for (const [index, storyId] of input.storyIds.entries()) {
-				await storyFolderQueries.moveStoryToFolder(storyId, input.targetFolderId, {
-					storyOwnerId: storyOwnerIds[index],
-					projectId: ctx.project.id,
-				});
-			}
+			const stories = input.storyIds.map((storyId, index) => ({ storyId, storyOwnerId: storyOwnerIds[index] }));
+			await runFolderMove(() =>
+				storyFolderQueries.moveItemsToFolder(
+					ctx.user.id,
+					ctx.project.id,
+					{ folderIds: input.folderIds, stories },
+					input.targetFolderId,
+				),
+			);
 		}),
 };
