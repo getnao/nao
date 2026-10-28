@@ -9,7 +9,14 @@ import type { StoryFilterApi } from '@/hooks/use-story-filters';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryTabsBar } from '@/components/side-panel/story-tabs-bar';
-import { StoryBlock, StoryMapFrame, StoryTableFrame } from '@/components/story-block';
+import {
+	chartBlockReference,
+	mapBlockReference,
+	StoryBlock,
+	StoryMapFrame,
+	StoryTableFrame,
+	tableBlockReference,
+} from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
@@ -91,7 +98,7 @@ export function StoryTabbedContent({
 						<SegmentList
 							segments={segments}
 							renderChart={(chart, key) => (
-								<StoryBlock>
+								<StoryBlock block={chartBlockReference(chart)}>
 									{renderChart(chart, {
 										queryData: storyFilters.queryData,
 										hasActiveFilters: storyFilters.hasActiveFilters,
@@ -101,7 +108,7 @@ export function StoryTabbedContent({
 								</StoryBlock>
 							)}
 							renderTable={(table, key) => (
-								<StoryTableFrame>
+								<StoryTableFrame block={tableBlockReference(table)}>
 									{renderTable(table, {
 										queryData: storyFilters.queryData,
 										hasActiveFilters: storyFilters.hasActiveFilters,
@@ -111,7 +118,7 @@ export function StoryTabbedContent({
 								</StoryTableFrame>
 							)}
 							renderMap={(map, key) => (
-								<StoryMapFrame>
+								<StoryMapFrame block={mapBlockReference(map)}>
 									{renderMap(map, {
 										queryData: storyFilters.queryData,
 										hasActiveFilters: storyFilters.hasActiveFilters,
