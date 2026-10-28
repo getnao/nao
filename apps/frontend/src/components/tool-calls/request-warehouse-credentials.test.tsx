@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	isRunning: true,
 	jobStatus: 'awaiting_context',
 	jobError: null as Error | null,
+	jobSetupError: undefined as string | undefined,
 	latestJobId: 'job-1' as string | undefined,
 	latestJobIsFetched: true,
 	messages: [] as never[],
@@ -32,7 +33,7 @@ vi.mock('@tanstack/react-query', () => ({
 			: {
 					data:
 						options.queryKey[1] && !mocks.jobError
-							? { provider: 'postgres', status: mocks.jobStatus }
+							? { provider: 'postgres', status: mocks.jobStatus, error: mocks.jobSetupError }
 							: undefined,
 					isError: Boolean(options.queryKey[1] && mocks.jobError),
 					error: options.queryKey[1] ? mocks.jobError : null,
@@ -96,6 +97,7 @@ afterEach(() => {
 	mocks.isRunning = true;
 	mocks.jobStatus = 'awaiting_context';
 	mocks.jobError = null;
+	mocks.jobSetupError = undefined;
 	mocks.latestJobId = 'job-1';
 	mocks.latestJobIsFetched = true;
 	mocks.messages = [];
@@ -179,6 +181,7 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 
 	it('keeps a failed warehouse setup available for review', async () => {
 		mocks.jobStatus = 'failed';
+		mocks.jobSetupError = 'nao sync failed. Check the logs for details.';
 		const toolPart = {
 			type: 'tool-request_warehouse_credentials',
 			toolCallId: 'tool-1',
@@ -191,9 +194,7 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 		expect(await screen.findByText('Postgres setup needs attention')).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', { name: 'Review setup' }));
 		expect(await screen.findByText('Project setup stopped')).toBeTruthy();
-		expect(
-			screen.getByText('Your credentials were accepted, but nao could not complete the project setup.'),
-		).toBeTruthy();
+		expect(screen.getByText('nao sync failed. Check the logs for details.')).toBeTruthy();
 	});
 
 	it('waits for the latest job before falling back to a persisted job ID', async () => {
