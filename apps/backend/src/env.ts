@@ -490,18 +490,6 @@ const baseRawEnvSchema = z.object({
 const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema);
 const envSchema = rawEnvSchema
 	.superRefine((data, ctx) => {
-		if (data.NAO_MODE === 'cloud') {
-			for (const variable of ['SMTP_HOST', 'SMTP_MAIL_FROM', 'SMTP_PASSWORD'] as const) {
-				if (!data[variable]) {
-					ctx.addIssue({
-						code: 'custom',
-						path: [variable],
-						message: `${variable} is required when NAO_MODE=cloud`,
-					});
-				}
-			}
-		}
-
 		if (isCloudBillingEnabled(data)) {
 			for (const variable of [
 				'STRIPE_SECRET_KEY',

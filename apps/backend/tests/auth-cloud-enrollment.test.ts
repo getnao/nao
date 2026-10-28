@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	buildAccountExistsEmail: vi.fn(),
 	buildVerifyEmail: vi.fn(),
 	emailSend: vi.fn(),
+	emailIsEnabled: vi.fn(),
 	env: {
 		BETTER_AUTH_SECRET: 'test-secret-at-least-twenty-characters',
 		DEFAULT_USER_ROLE: 'user',
@@ -63,7 +64,9 @@ vi.mock('../src/services/auth-user-onboarding.service', () => ({
 vi.mock('../src/services/credit-grant.service', () => ({
 	activateUserJoinCandidates: vi.fn(),
 }));
-vi.mock('../src/services/email', () => ({ emailService: { sendEmail: mocks.emailSend } }));
+vi.mock('../src/services/email', () => ({
+	emailService: { isEnabled: mocks.emailIsEnabled, sendEmail: mocks.emailSend },
+}));
 vi.mock('../src/services/github', () => ({ githubOAuthConfig: vi.fn(() => null) }));
 vi.mock('../src/services/gitlab', () => ({ gitlabOAuthConfig: vi.fn(() => null) }));
 vi.mock('../src/services/license.service', () => ({
@@ -136,6 +139,7 @@ describe('Cloud Google organization enrollment', () => {
 		mocks.addOrgMemberIfMissing.mockReset();
 		mocks.betterAuth.mockReset().mockReturnValue({});
 		mocks.buildVerifyEmail.mockReset().mockResolvedValue({ subject: 'Verify', html: '<p>Verify</p>' });
+		mocks.emailIsEnabled.mockReset().mockReturnValue(true);
 		mocks.emailSend.mockReset().mockResolvedValue(undefined);
 		mocks.findOrganizationByEmailDomain.mockReset().mockResolvedValue({ id: 'matched-org' });
 	});
@@ -207,6 +211,15 @@ describe('Cloud Google organization enrollment', () => {
 		await expect(
 			options.emailVerification.sendVerificationEmail({ user, url: 'https://nao.test/verify' }),
 		).rejects.toThrow('SMTP unavailable');
+	});
+
+	it('does not require email verification when SMTP is not configured', async () => {
+		mocks.emailIsEnabled.mockReturnValue(false);
+
+		const options = await getAuthOptions();
+
+		expect(options.emailAndPassword.requireEmailVerification).toBe(false);
+		expect(options.emailVerification).toBeUndefined();
 	});
 
 	it('treats a completed password reset as proof of email ownership', async () => {

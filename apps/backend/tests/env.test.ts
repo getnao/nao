@@ -89,11 +89,15 @@ describe('cloud billing environment', () => {
 });
 
 describe('cloud SMTP environment', () => {
-	it.each(['SMTP_HOST', 'SMTP_MAIL_FROM', 'SMTP_PASSWORD'] as const)('requires %s in cloud mode', (variable) => {
-		const result = loadEnvWithOverrides({ NAO_MODE: 'cloud', [variable]: '' });
-
-		expect(result.status).toBe(1);
-		expect(result.stderr).toContain(`${variable} is required when NAO_MODE=cloud`);
+	it('allows cloud mode without SMTP configuration', () => {
+		expect(
+			loadEnvWithOverrides({
+				NAO_MODE: 'cloud',
+				SMTP_HOST: '',
+				SMTP_MAIL_FROM: '',
+				SMTP_PASSWORD: '',
+			}).status,
+		).toBe(0);
 	});
 
 	it('treats blank SMTP_PORT and SMTP_SSL as their defaults', () => {
