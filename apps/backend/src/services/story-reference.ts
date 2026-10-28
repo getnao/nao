@@ -87,28 +87,6 @@ export async function listMostViewedStories(
 	return stories.slice(0, limit);
 }
 
-/** Every story the user can mention, read page by page past the listing cap. */
-export async function listAllReferenceableStories(
-	scope: StoryReferenceScope,
-): Promise<storyReferenceQueries.ReferenceableStory[]> {
-	const pageSize = storyReferenceQueries.MAX_REFERENCEABLE_STORIES_LIMIT;
-	const storiesById = new Map<string, storyReferenceQueries.ReferenceableStory>();
-	for (let offset = 0; ; offset += pageSize) {
-		const page = await storyReferenceQueries.listReferenceableStories(scope.userId, scope.projectId, {
-			limit: pageSize,
-			offset,
-		});
-		for (const story of page) {
-			if (!storiesById.has(story.storyId)) {
-				storiesById.set(story.storyId, story);
-			}
-		}
-		if (page.length < pageSize) {
-			return [...storiesById.values()];
-		}
-	}
-}
-
 /** Null when the story does not exist, is archived, or the user cannot see it. Long content is truncated. */
 export async function readReferencedStory(scope: StoryReferenceScope, storyId: string): Promise<StoryDetails | null> {
 	const story = await storyReferenceQueries.getReferenceableStory(scope.userId, scope.projectId, storyId);

@@ -7,6 +7,7 @@ import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { createSharedStory } from '../src/queries/shared-story.queries';
 import {
+	listAllReferenceableStoryListings,
 	listMentioningChats,
 	listReferenceableStories,
 	MAX_REFERENCEABLE_STORIES_LIMIT,
@@ -20,7 +21,6 @@ import {
 import {
 	expandStoryReferences,
 	keepStoryReferencesThroughCompaction,
-	listAllReferenceableStories,
 	listMostViewedStories,
 	readReferencedStory,
 } from '../src/services/story-reference';
@@ -93,6 +93,14 @@ describe('referencing other stories', () => {
 		expect(await listIds(OWNER_ID)).toEqual([PINNED_STORY, CERTIFIED_STORY, GROUP_STORY, PRIVATE_STORY]);
 		expect(await listIds(MEMBER_ID)).toEqual([PINNED_STORY, CERTIFIED_STORY]);
 		expect(await listIds(GROUP_MEMBER_ID)).toEqual([PINNED_STORY, CERTIFIED_STORY, GROUP_STORY]);
+	});
+
+	it('lists the same stories without their content for the mention menu', async () => {
+		for (const userId of [OWNER_ID, MEMBER_ID, GROUP_MEMBER_ID]) {
+			const listings = await listAllReferenceableStoryListings(userId, PROJECT_ID);
+			expect(listings.map((story) => story.storyId)).toEqual(await listIds(userId));
+			expect(listings.every((story) => !('code' in story))).toBe(true);
+		}
 	});
 
 	it('filters on trusted stories', async () => {
@@ -415,7 +423,7 @@ describe('referencing other stories', () => {
 		expect(oneFile).toEqual([{ virtualPath: `/story-library/${CERTIFIED_STORY}/story.md`, content: REVENUE_CODE }]);
 	});
 
-	it('pages a library grep and the mention list through every story the user can see, past the listing cap', async () => {
+	it('reaches every story the user can see past the listing cap, in a library grep and the mention list', async () => {
 		const ownerScope = { userId: OWNER_ID, projectId: PROJECT_ID };
 		const storyIds = Array.from(
 			{ length: MAX_REFERENCEABLE_STORIES_LIMIT + 5 },
@@ -434,7 +442,9 @@ describe('referencing other stories', () => {
 
 		const batches = await Array.fromAsync(storyLibraryFileBatchesToGrep(ownerScope, '/story-library', 'story.md'));
 		const libraryRoot = await listStoryLibrary(ownerScope, '/story-library');
-		const mentionable = new Set((await listAllReferenceableStories(ownerScope)).map((story) => story.storyId));
+		const mentionable = new Set(
+			(await listAllReferenceableStoryListings(OWNER_ID, PROJECT_ID)).map((story) => story.storyId),
+		);
 
 		const grepped = new Set(batches.flat().map((file) => file.content));
 		expect(storyIds.every((storyId) => grepped.has(storyId))).toBe(true);

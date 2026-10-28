@@ -21,7 +21,7 @@ import { db } from '../db/db';
 import { isNotQuickQuestionChat } from './chat.queries';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
-export type ReferenceableStory = {
+export type ReferenceableStoryListing = {
 	storyId: string;
 	chatId: string | null;
 	chatTitle: string | null;
@@ -34,6 +34,9 @@ export type ReferenceableStory = {
 	isCertified: boolean;
 	isSharedWithMe: boolean;
 	updatedAt: Date;
+};
+
+export type ReferenceableStory = ReferenceableStoryListing & {
 	versionId: string;
 	version: number;
 	code: string;
@@ -70,18 +73,7 @@ export async function listReferenceableStories(
 	const latestVersions = latestVersionsSubquery();
 	const rows = await db
 		.select({
-			storyId: s.story.id,
-			chatId: s.story.chatId,
-			chatTitle: s.chat.title,
-			slug: s.story.slug,
-			title: s.story.title,
-			format: s.story.format,
-			authorName: storyOwner.name,
-			ownerId: storyOwner.id,
-			isPinned: s.sharedStory.isPinned,
-			shareVisibility: s.sharedStory.visibility,
-			certifiedAt: s.story.certifiedAt,
-			updatedAt: s.story.updatedAt,
+			...listingColumns(),
 			versionId: s.storyVersion.id,
 			version: s.storyVersion.version,
 			code: s.storyVersion.code,
@@ -95,33 +87,31 @@ export async function listReferenceableStories(
 			s.storyVersion,
 			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
 		)
-		.where(
-			and(
-				sql`coalesce(${s.story.projectId}, ${s.chat.projectId}) = ${projectId}`,
-				isNull(s.story.archivedAt),
-				or(isOwnedBy(userId), isSharedWith(userId)),
-				filters.trustedOnly ? isTrusted() : undefined,
-				filters.storyIds ? inArray(s.story.id, filters.storyIds) : undefined,
-				filters.folderIds ? isInFolders(filters.folderIds) : undefined,
-				filters.sharedWithMeOnly ? isSharedSpecificallyWith(userId) : undefined,
-			),
-		)
-		.orderBy(
-			sql`case when ${eq(s.sharedStory.isPinned, true)} then 0 else 1 end`,
-			sql`case when ${isNotNull(s.story.certifiedAt)} then 0 else 1 end`,
-			desc(s.story.updatedAt),
-			asc(s.story.id),
-		)
+		.where(isReferenceable(userId, projectId, filters))
+		.orderBy(...trustedThenRecent())
 		.limit(Math.min(filters.limit ?? DEFAULT_LIMIT, MAX_REFERENCEABLE_STORIES_LIMIT))
 		.offset(filters.offset ?? 0)
 		.execute();
 
-	return rows.map(({ isPinned, certifiedAt, shareVisibility, ...row }) => ({
-		...row,
-		isPinned: isPinned === true,
-		isCertified: certifiedAt !== null,
-		isSharedWithMe: shareVisibility === 'specific' && row.ownerId !== userId,
-	}));
+	return rows.map((row) => toReferenceableStory(row, userId));
+}
+
+/** Every story the user can mention, in the same order, without the content of their latest version. */
+export async function listAllReferenceableStoryListings(
+	userId: string,
+	projectId: string,
+): Promise<ReferenceableStoryListing[]> {
+	const rows = await db
+		.select(listingColumns())
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.leftJoin(s.sharedStory, and(eq(s.sharedStory.storyId, s.story.id), eq(s.sharedStory.projectId, projectId)))
+		.leftJoin(storyOwner, eq(storyOwner.id, sql`coalesce(${s.chat.userId}, ${s.story.userId})`))
+		.where(and(isReferenceable(userId, projectId), exists(storyVersions())))
+		.orderBy(...trustedThenRecent())
+		.execute();
+
+	return rows.map((row) => toReferenceableStory(row, userId));
 }
 
 export async function getReferenceableStory(
@@ -156,6 +146,67 @@ export async function listMentioningChats(
 		.limit(MAX_MENTIONING_CHATS)
 		.execute();
 	return rows.map((row) => ({ ...row, isOrigin: row.chatId === originChatId }));
+}
+
+function listingColumns() {
+	return {
+		storyId: s.story.id,
+		chatId: s.story.chatId,
+		chatTitle: s.chat.title,
+		slug: s.story.slug,
+		title: s.story.title,
+		format: s.story.format,
+		authorName: storyOwner.name,
+		ownerId: storyOwner.id,
+		isPinned: s.sharedStory.isPinned,
+		shareVisibility: s.sharedStory.visibility,
+		certifiedAt: s.story.certifiedAt,
+		updatedAt: s.story.updatedAt,
+	};
+}
+
+function toReferenceableStory<Row extends ListingRow>(
+	{ isPinned, certifiedAt, shareVisibility, ...row }: Row,
+	userId: string,
+) {
+	return {
+		...row,
+		isPinned: isPinned === true,
+		isCertified: certifiedAt !== null,
+		isSharedWithMe: shareVisibility === 'specific' && row.ownerId !== userId,
+	};
+}
+
+type ListingRow = {
+	ownerId: string | null;
+	isPinned: boolean | null;
+	certifiedAt: Date | null;
+	shareVisibility: string | null;
+};
+
+function isReferenceable(userId: string, projectId: string, filters: ReferenceableStoryFilters = {}): SQL | undefined {
+	return and(
+		sql`coalesce(${s.story.projectId}, ${s.chat.projectId}) = ${projectId}`,
+		isNull(s.story.archivedAt),
+		or(isOwnedBy(userId), isSharedWith(userId)),
+		filters.trustedOnly ? isTrusted() : undefined,
+		filters.storyIds ? inArray(s.story.id, filters.storyIds) : undefined,
+		filters.folderIds ? isInFolders(filters.folderIds) : undefined,
+		filters.sharedWithMeOnly ? isSharedSpecificallyWith(userId) : undefined,
+	);
+}
+
+function trustedThenRecent(): SQL[] {
+	return [
+		sql`case when ${eq(s.sharedStory.isPinned, true)} then 0 else 1 end`,
+		sql`case when ${isNotNull(s.story.certifiedAt)} then 0 else 1 end`,
+		desc(s.story.updatedAt),
+		asc(s.story.id),
+	];
+}
+
+function storyVersions() {
+	return db.select({ id: s.storyVersion.id }).from(s.storyVersion).where(eq(s.storyVersion.storyId, s.story.id));
 }
 
 function isOwnedBy(userId: string): SQL {
