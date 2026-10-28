@@ -1,8 +1,9 @@
-import { MessageCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { MessageCircleQuestionIcon } from 'lucide-react';
 import { Button } from './ui/button';
 
 import { useSelection } from '@/contexts/text-selection';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTrackedBubbleRect } from '@/hooks/use-tracked-bubble-rect';
 
 export interface SelectionData {
@@ -40,6 +41,8 @@ function BubbleContent({ onAsk }: { onAsk: (data: SelectionData) => void }) {
 		window.getSelection()?.removeAllRanges();
 	};
 
+	useKeyboardShortcuts({ 'add-selection-to-chat': handleAsk });
+
 	if (!selection || !position) {
 		return null;
 	}
@@ -55,13 +58,13 @@ function BubbleContent({ onAsk }: { onAsk: (data: SelectionData) => void }) {
 			}}
 			onMouseDown={(e) => e.stopPropagation()}
 		>
-			<Button
-				type='button'
-				onClick={handleAsk}
-				className='inline-flex items-center gap-1.5 rounded-lg border border-border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground'
-			>
-				<MessageCircle className='size-3.5' />
-				Ask
+			<Button type='button' variant='outline' size='sm' className='shadow-none' onClick={handleAsk}>
+				<span className='flex items-center gap-2'>
+					<span className='size-4'>
+						<MessageCircleQuestionIcon className='size-4' />
+					</span>
+					<span>Ask</span>
+				</span>
 			</Button>
 		</div>
 	);
