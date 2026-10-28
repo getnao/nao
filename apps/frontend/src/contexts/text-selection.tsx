@@ -56,7 +56,7 @@ export const SelectionProvider = ({ children, resetKey }: { children: React.Reac
 			return;
 		}
 
-		if (isRangeInIgnoredRegion(range)) {
+		if (isRangeInIgnoredRegion(range, containerRef.current)) {
 			return;
 		}
 

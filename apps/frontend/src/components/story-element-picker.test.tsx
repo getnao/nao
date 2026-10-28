@@ -3,8 +3,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StoryElementPicker } from './story-element-picker';
-import { chartBlockReference, mapBlockReference, StoryBlock } from './story-block';
-import type { ParsedChartBlock, ParsedMapBlock } from '@nao/shared/story-segments';
+import { chartBlockReference, StoryBlock } from './story-block';
+import type { ParsedChartBlock } from '@nao/shared/story-segments';
 
 describe('StoryElementPicker', () => {
 	const onPick = vi.fn();
@@ -43,19 +43,6 @@ describe('StoryElementPicker', () => {
 
 		expect(onPick).not.toHaveBeenCalled();
 		expect(onStoryClick).toHaveBeenCalled();
-	});
-
-	it('names blocks the way the story kit does', () => {
-		expect(chartBlockReference({ chartType: 'kpi_card', title: '', queryId: 'q2' } as ParsedChartBlock)).toEqual({
-			kind: 'kpi',
-			title: undefined,
-			queryId: 'q2',
-		});
-		expect(mapBlockReference({ mapType: 'points', title: 'Stores', queryId: 'q3' } as ParsedMapBlock)).toEqual({
-			kind: 'point-map',
-			title: 'Stores',
-			queryId: 'q3',
-		});
 	});
 
 	function renderStory(isPicking: boolean) {

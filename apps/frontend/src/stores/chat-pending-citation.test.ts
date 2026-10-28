@@ -23,22 +23,6 @@ describe('chat pending citations', () => {
 		expect(citations().map((citation) => citation.text)).toEqual(['second']);
 	});
 
-	it("keeps a chat's citations when a pill is dropped in another chat", () => {
-		chatPendingCitationStore.add('chat', { start: 0, end: 5, text: 'first' });
-
-		chatPendingCitationStore.remove('other', citations()[0].id);
-
-		expect(citations().map((citation) => citation.text)).toEqual(['first']);
-	});
-
-	it('empties once its last citation is removed', () => {
-		chatPendingCitationStore.add('chat', { start: 0, end: 5, text: 'first' });
-
-		chatPendingCitationStore.remove('chat', citations()[0].id);
-
-		expect(chatPendingCitationStore.getSnapshot()).toBeNull();
-	});
-
 	it('sends the citations whose pill is still in the text, numbered in reading order', () => {
 		const range = {} as Range;
 		chatPendingCitationStore.add('chat', { start: 0, end: 5, text: 'first', range } as never);

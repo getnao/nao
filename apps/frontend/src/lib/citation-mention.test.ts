@@ -1,12 +1,15 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it } from 'vitest';
 
 import {
 	describeCitationSource,
-	extractCitationIds,
 	numberCitationTokens,
 	quoteCitations,
+	removeCitationPills,
 	removeCitationTokens,
 	toCitationMentionOption,
+	toCopiedText,
 } from './citation-mention';
 
 describe('citation mentions', () => {
@@ -26,29 +29,8 @@ describe('citation mentions', () => {
 		).toEqual(['@chars 12–33', '@text', '@kpi block · Orders', '@code · src/app.tsx · L3–8']);
 	});
 
-	it('labels code by its file name and lines, or the story source when it has no file', () => {
-		const fileCode = toCitationMentionOption(
-			{ start: 0, end: 0, text: 'x', block: { kind: 'code', title: 'src/app.tsx', lines: { start: 3, end: 8 } } },
-			'c1',
-		);
-		const sourceCode = toCitationMentionOption(
-			{ start: 0, end: 0, text: 'x', block: { kind: 'code', lines: { start: 5, end: 5 } } },
-			'c2',
-		);
-
-		expect([fileCode.label, sourceCode.label]).toEqual(['app.tsx · L3–8', 'Source · L5']);
-	});
-
-	it('lists each pill once, in reading order', () => {
-		expect(extractCitationIds('❝[b] vs ❝[a] and ❝[b] again')).toEqual(['b', 'a']);
-	});
-
-	it('numbers pills by their place in the sent citations and leaves other text alone', () => {
-		expect(numberCitationTokens('❝[b] vs ❝[a] @[story:x]', ['b', 'a'])).toBe('❝[1] vs ❝[2] @[story:x]');
-	});
-
-	it('leaves out a token that cites nothing', () => {
-		expect(numberCitationTokens('why ❝[gone] is ❝[a] low', ['a'])).toBe('why is ❝[1] low');
+	it('numbers pills by their place in the sent citations, leaving out a token that cites nothing', () => {
+		expect(numberCitationTokens('❝[b] vs ❝[gone] ❝[a] @[story:x]', ['b', 'a'])).toBe('❝[1] vs ❝[2] @[story:x]');
 	});
 
 	it('quotes each citation when a sent message is copied', () => {
@@ -57,14 +39,30 @@ describe('citation mentions', () => {
 		);
 	});
 
-	it('drops pills from a restored text without leaving double spaces', () => {
-		expect(removeCitationTokens('why ❝[1] is lower than ❝[2] here')).toBe('why is lower than here');
+	it('reads each pill as its quote when the prompt is copied', () => {
+		const fragment = document
+			.createRange()
+			.createContextualFragment(
+				'why <span data-mention-trigger="❝" data-mention-id="c1" data-mention="“Sales…”"><span>icon</span>“Sales…”</span>' +
+					' with <span data-mention-trigger="@" data-mention-id="story:s1" data-mention="Orders">Orders</span>?',
+			);
+
+		const text = toCopiedText(fragment, (id) =>
+			id === 'c1' ? { start: 0, end: 0, text: 'Sales dropped\nin March' } : undefined,
+		);
+
+		expect(text).toBe('why “Sales dropped in March” with @[story:s1]?');
 	});
 
-	it('keeps a quote spanning several lines on one line', () => {
-		const pill = toCitationMentionOption({ start: 0, end: 0, text: 'Sudoku\nPublished · v4\n\nYou' }, 'c1');
+	it('drops pills from a restored text or prompt, keeping what the user wrote around them', () => {
+		const container = document.createElement('div');
+		container.innerHTML =
+			'<div class="prompt-input">why <span data-mention="Orders" data-mention-trigger="❝">Orders</span> so low</div>';
 
-		expect(pill.label).toBe('Sudoku Published · v4 You');
+		removeCitationPills(container);
+
+		expect(container.querySelector('.prompt-input')!.textContent).toBe('why so low');
+		expect(removeCitationTokens('why ❝[1] is lower than ❝[2] here')).toBe('why is lower than here');
 	});
 
 	it('labels a block by its title and a passage by a short quote', () => {

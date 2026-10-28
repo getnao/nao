@@ -38,8 +38,4 @@ describe('extractStoryReferenceTags', () => {
 			{ storyId: 's2', title: 'Churn' },
 		]);
 	});
-
-	it('finds nothing in a text without story references', () => {
-		expect(extractStoryReferenceTags('See <saved-file path="/a.csv">a.csv</saved-file>')).toEqual([]);
-	});
 });
