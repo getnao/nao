@@ -3,8 +3,8 @@ import { Link } from '@tanstack/react-router';
 import { ArrowRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatMicroUsd } from '@nao/shared/billing';
-import type { CSSProperties } from 'react';
 
+import { ConfettiBurst } from '@/components/confetti-burst';
 import { NyanCat } from '@/components/icons/nyan-cat';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -15,16 +15,6 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 const COUNT_UP_DURATION_MS = 900;
-const CONFETTI_COLORS = [
-	'var(--chart-1)',
-	'var(--chart-2)',
-	'var(--chart-3)',
-	'var(--chart-4)',
-	'var(--chart-5)',
-	'var(--chart-6)',
-	'var(--chart-7)',
-];
-const CONFETTI_COUNT = 14;
 const seenSetupCreditGrantsStorage = createLocalStorage<string[]>('nao-seen-setup-credit-grants', []);
 
 interface TrialStartedDialogProps {
@@ -133,31 +123,6 @@ function NyanCatSky() {
 			<div className='nyan-cat-flight absolute bottom-0 left-0 top-3 flex w-full items-center [--cat-width:7rem]'>
 				<NyanCat className='h-auto w-[var(--cat-width)] shrink-0' />
 			</div>
-		</div>
-	);
-}
-
-function ConfettiBurst({ delayMs }: { delayMs: number }) {
-	return (
-		<div aria-hidden='true' className='pointer-events-none absolute left-1/2 top-1/2'>
-			{Array.from({ length: CONFETTI_COUNT }, (_, index) => {
-				const style = {
-					'--angle': `${(360 / CONFETTI_COUNT) * index}deg`,
-					'--distance': `${70 + (index % 3) * 18}px`,
-					'--delay': `${delayMs + (index % 4) * 40}ms`,
-					backgroundColor: CONFETTI_COLORS[index % CONFETTI_COLORS.length],
-				} as CSSProperties;
-				return (
-					<span
-						key={index}
-						style={style}
-						className={cn(
-							'confetti-piece absolute -ml-1 -mt-1 size-2',
-							index % 2 ? 'rounded-full' : 'rounded-xs',
-						)}
-					/>
-				);
-			})}
 		</div>
 	);
 }
