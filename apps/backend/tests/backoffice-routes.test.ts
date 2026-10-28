@@ -51,6 +51,8 @@ const ORG_ID = 'org-1';
 const PROJECT_ID = 'project-1';
 const ADMIN_ID = 'user-admin';
 const MEMBER_ID = 'user-member';
+const ONBOARDING_USER_ID = 'user-onboarding';
+const ONBOARDING_ORG_ID = 'org-onboarding';
 
 describe('cloud backoffice routes', () => {
 	let app: FastifyInstance;
@@ -453,15 +455,16 @@ describe('cloud backoffice routes', () => {
 		const summaries = new Map(
 			(funnel.json().items as Array<{ userId: string }>).map((summary) => [summary.userId, summary]),
 		);
-		expect(summaries.get(ADMIN_ID)).toMatchObject({
-			stage: 'connected',
+		expect(summaries.get(ONBOARDING_USER_ID)).toMatchObject({
+			stage: 'nao_sync',
 			path: 'cloud',
 			provider: 'snowflake',
-			blocker: { kind: 'nao_init_failed', message: 'Warehouse setup failed.' },
+			blocker: null,
 		});
+		expect(summaries.get(ADMIN_ID)).toMatchObject({ stage: 'project_ready', path: 'direct', blocker: null });
 		expect(summaries.get(MEMBER_ID)).toMatchObject({ stage: 'project_ready', path: 'direct', blocker: null });
 
-		const journey = await get(`/users/${ADMIN_ID}/onboarding`);
+		const journey = await get(`/users/${ONBOARDING_USER_ID}/onboarding`);
 		expect(journey.statusCode).toBe(200);
 		expect(journey.json().events.map((event: { title: string }) => event.title)).toEqual([
 			'Signed up',
@@ -471,6 +474,8 @@ describe('cloud backoffice routes', () => {
 			'Snowflake connection OK',
 			'Started the Snowflake cloud setup',
 			'Snowflake cloud setup failed during nao init',
+			'Started the Snowflake cloud setup',
+			'Snowflake cloud setup waiting for business context',
 		]);
 
 		const missing = await get('/users/missing-user/onboarding');
@@ -488,15 +493,21 @@ describe('cloud backoffice routes', () => {
 
 async function seedOnboarding(projectPath: string) {
 	const minutesFromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000);
-	await db.insert(s.project).values({
-		id: SYSTEM_EXAMPLE_PROJECT_ID,
-		name: 'Jaffle shop',
-		type: 'local',
-		path: projectPath,
+	await db.insert(s.user).values({
+		id: ONBOARDING_USER_ID,
+		name: 'Onboarding User',
+		email: 'onboarding@example.com',
+		emailVerified: true,
 	});
+	await db.insert(s.organization).values({ id: ONBOARDING_ORG_ID, name: 'Onboarding', slug: 'onboarding' });
+	await db.insert(s.orgMember).values({ orgId: ONBOARDING_ORG_ID, userId: ONBOARDING_USER_ID, role: 'admin' });
+	await db.insert(s.project).values([
+		{ id: SYSTEM_EXAMPLE_PROJECT_ID, name: 'Jaffle shop', type: 'local', path: projectPath },
+		{ id: 'project-onboarding', orgId: ONBOARDING_ORG_ID, name: 'Setting up', type: 'local', path: projectPath },
+	]);
 	await db.insert(s.chat).values([
-		{ id: 'chat-example', projectId: SYSTEM_EXAMPLE_PROJECT_ID, userId: ADMIN_ID },
-		{ id: 'chat-onboarding', projectId: SYSTEM_EXAMPLE_PROJECT_ID, userId: ADMIN_ID },
+		{ id: 'chat-example', projectId: SYSTEM_EXAMPLE_PROJECT_ID, userId: ONBOARDING_USER_ID },
+		{ id: 'chat-onboarding', projectId: SYSTEM_EXAMPLE_PROJECT_ID, userId: ONBOARDING_USER_ID },
 	]);
 	await db.insert(s.chatMessage).values([
 		{ id: 'example-user', chatId: 'chat-example', role: 'user', source: 'web', createdAt: minutesFromNow(1) },
@@ -528,22 +539,34 @@ async function seedOnboarding(projectPath: string) {
 		},
 	]);
 	await db.insert(s.warehouseConnectionCheck).values({
-		userId: ADMIN_ID,
+		userId: ONBOARDING_USER_ID,
 		provider: 'snowflake',
 		outcome: 'ok',
 		createdAt: minutesFromNow(4),
 	});
-	await db.insert(s.warehouseProvisioningJob).values({
-		userId: ADMIN_ID,
-		orgId: ORG_ID,
-		projectName: "Admin User's project",
-		provider: 'snowflake',
-		status: 'failed',
-		failedStatus: 'initializing',
-		error: 'Warehouse setup failed.',
-		createdAt: minutesFromNow(5),
-		finishedAt: minutesFromNow(6),
-	});
+	await db.insert(s.warehouseProvisioningJob).values([
+		{
+			userId: ONBOARDING_USER_ID,
+			orgId: ONBOARDING_ORG_ID,
+			projectName: 'Setting up',
+			provider: 'snowflake',
+			status: 'failed',
+			failedStatus: 'initializing',
+			error: 'Warehouse setup failed.',
+			createdAt: minutesFromNow(5),
+			finishedAt: minutesFromNow(6),
+		},
+		{
+			userId: ONBOARDING_USER_ID,
+			orgId: ONBOARDING_ORG_ID,
+			projectId: 'project-onboarding',
+			projectName: 'Setting up',
+			provider: 'snowflake',
+			status: 'awaiting_context',
+			createdAt: minutesFromNow(7),
+			updatedAt: minutesFromNow(8),
+		},
+	]);
 }
 
 async function clearData() {

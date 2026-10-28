@@ -51,7 +51,7 @@ export interface ProvisioningJobRow {
 	finishedAt: Date | null;
 }
 
-export interface ProjectMembershipRow {
+export interface ProjectAccessRow {
 	projectName: string;
 	createdAt: Date;
 }
@@ -283,10 +283,10 @@ export function agentErrorEvent(agentError: OnboardingAgentErrorRow): Onboarding
 	});
 }
 
-export function projectMembershipEvent(membership: ProjectMembershipRow): OnboardingEvent {
+export function projectAccessEvent(access: ProjectAccessRow): OnboardingEvent {
 	return buildEvent({
-		at: membership.createdAt,
-		title: `Got access to ${membership.projectName}`,
+		at: access.createdAt,
+		title: `Got access to ${access.projectName}`,
 		outcome: 'success',
 		stage: 'project_ready',
 	});

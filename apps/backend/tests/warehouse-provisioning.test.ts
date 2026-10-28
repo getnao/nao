@@ -296,6 +296,21 @@ describe('warehouse provisioning', () => {
 		);
 	});
 
+	it('records a failed check when the validation service cannot be reached', async () => {
+		const unreachable = new TypeError('fetch failed');
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(unreachable));
+
+		await expect(
+			validateWarehouseCredentials('user-1', { provider: 'postgres', credentials: { host: 'warehouse' } }),
+		).rejects.toBe(unreachable);
+		expect(warehouseConnectionCheckQueries.createWarehouseConnectionCheck).toHaveBeenCalledWith({
+			userId: 'user-1',
+			provider: 'postgres',
+			outcome: 'connection_error',
+			error: 'The connection could not be checked because the validation service failed.',
+		});
+	});
+
 	it('still answers the user when the connection check cannot be recorded', async () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ valid: true })));
 		vi.mocked(warehouseConnectionCheckQueries.createWarehouseConnectionCheck).mockRejectedValueOnce(

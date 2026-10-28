@@ -9,7 +9,7 @@ import {
 	connectionCheckEvent,
 	jaffleShopEvent,
 	onboardingMessageEvent,
-	projectMembershipEvent,
+	projectAccessEvent,
 	provisioningJobEvents,
 	signedUpEvent,
 	sortEvents,
@@ -34,7 +34,7 @@ export async function getUserOnboarding(userId: string) {
 }
 
 async function loadOnboardingEvents(userId?: string): Promise<EventsByUser> {
-	const [signups, jaffleShopActivity, messages, toolCalls, agentErrors, connectionChecks, jobs, memberships] =
+	const [signups, jaffleShopActivity, messages, toolCalls, agentErrors, connectionChecks, jobs, projectAccess] =
 		await Promise.all([
 			onboardingQueries.listUserSignups(userId),
 			onboardingQueries.listJaffleShopActivity(userId),
@@ -43,7 +43,7 @@ async function loadOnboardingEvents(userId?: string): Promise<EventsByUser> {
 			onboardingQueries.listOnboardingAgentErrors(userId),
 			onboardingQueries.listConnectionChecks(userId),
 			onboardingQueries.listProvisioningJobs(userId),
-			onboardingQueries.listProjectMemberships(userId),
+			onboardingQueries.listProjectAccess(userId),
 		]);
 
 	const eventsByUser: EventsByUser = new Map(signups.map((user) => [user.userId, [signedUpEvent(user.createdAt)]]));
@@ -56,7 +56,7 @@ async function loadOnboardingEvents(userId?: string): Promise<EventsByUser> {
 		addEvents(activity.userId, jaffleShopEvent(activity));
 	}
 	for (const message of messages) {
-		addEvents(message.userId, onboardingMessageEvent({ createdAt: message.createdAt, text: message.text ?? '' }));
+		addEvents(message.userId, onboardingMessageEvent(message));
 	}
 	for (const toolCall of toolCalls) {
 		addEvents(toolCall.userId, toolCallEvent({ ...toolCall, toolName: toolCall.toolName ?? '' }));
@@ -70,8 +70,8 @@ async function loadOnboardingEvents(userId?: string): Promise<EventsByUser> {
 	for (const job of jobs) {
 		addEvents(job.userId, ...provisioningJobEvents(job));
 	}
-	for (const membership of memberships) {
-		addEvents(membership.userId, projectMembershipEvent(membership));
+	for (const access of projectAccess) {
+		addEvents(access.userId, projectAccessEvent(access));
 	}
 	return eventsByUser;
 }

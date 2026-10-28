@@ -5,7 +5,7 @@ import {
 	connectionCheckEvent,
 	jaffleShopEvent,
 	onboardingMessageEvent,
-	projectMembershipEvent,
+	projectAccessEvent,
 	provisioningJobEvents,
 	signedUpEvent,
 	summarizeOnboarding,
@@ -90,7 +90,7 @@ describe('onboarding funnel', () => {
 	});
 
 	it('marks users with a project but no onboarding as direct', () => {
-		const events = [signedUpEvent(at(0)), projectMembershipEvent({ projectName: 'Analytics', createdAt: at(1) })];
+		const events = [signedUpEvent(at(0)), projectAccessEvent({ projectName: 'Analytics', createdAt: at(1) })];
 
 		expect(summarizeOnboarding('user-1', events)).toMatchObject({ stage: 'project_ready', path: 'direct' });
 	});

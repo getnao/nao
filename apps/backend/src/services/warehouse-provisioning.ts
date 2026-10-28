@@ -151,6 +151,12 @@ export async function validateWarehouseCredentials(
 			await recordConnectionCheck(userId, connection.provider, error.outcome, error.message);
 			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 		}
+		await recordConnectionCheck(
+			userId,
+			connection.provider,
+			'connection_error',
+			'The connection could not be checked because the validation service failed.',
+		);
 		throw error;
 	}
 }
