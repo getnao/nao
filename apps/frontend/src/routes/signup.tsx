@@ -27,6 +27,7 @@ export function SignUp() {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isUserSignupEnabled = config.data?.enableUserSignup === true;
 	const isCloud = config.data?.naoMode === 'cloud';
+	const emailVerificationEnabled = config.data?.emailVerificationEnabled === true;
 	const safeRedirect = getSafeRedirectPath(redirect);
 	const verificationCallbackURL = buildEmailVerificationCallbackUrl(safeRedirect);
 
@@ -44,7 +45,7 @@ export function SignUp() {
 			}
 
 			rememberSignInMethod('email');
-			if (isCloud) {
+			if (emailVerificationEnabled) {
 				setPendingEmail(value.email);
 				return;
 			}

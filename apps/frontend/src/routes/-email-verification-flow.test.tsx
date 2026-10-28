@@ -11,7 +11,12 @@ import type { ReactNode } from 'react';
 const mocks = vi.hoisted(() => ({
 	formValues: {} as Record<string, string | boolean>,
 	navigate: vi.fn(),
-	publicConfig: { enableUserLogin: true, enableUserSignup: true, naoMode: 'cloud' },
+	publicConfig: {
+		emailVerificationEnabled: true,
+		enableUserLogin: true,
+		enableUserSignup: true,
+		naoMode: 'cloud',
+	},
 	push: vi.fn(),
 	searchByPath: {} as Record<string, { error?: string; redirect?: string }>,
 	sendVerificationEmail: vi.fn(),
@@ -87,7 +92,12 @@ vi.mock('@/lib/last-sign-in-method', () => ({
 describe('email verification auth routes', () => {
 	beforeEach(() => {
 		mocks.formValues = {};
-		mocks.publicConfig = { enableUserLogin: true, enableUserSignup: true, naoMode: 'cloud' };
+		mocks.publicConfig = {
+			emailVerificationEnabled: true,
+			enableUserLogin: true,
+			enableUserSignup: true,
+			naoMode: 'cloud',
+		};
 		mocks.searchByPath = {};
 		mocks.navigate.mockReset();
 		mocks.push.mockReset();
@@ -125,6 +135,25 @@ describe('email verification auth routes', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }));
 		expect(screen.getByRole('heading', { name: 'Sign up' })).toBeTruthy();
+	});
+
+	it('continues after cloud sign-up when email verification is disabled', async () => {
+		mocks.publicConfig.emailVerificationEnabled = false;
+		mocks.searchByPath['/signup'] = { redirect: '/settings' };
+		mocks.formValues = {
+			name: 'New User',
+			email: 'new@example.com',
+			password: 'password123',
+			requiresPasswordReset: false,
+			messagingProviderCode: '',
+		};
+		mocks.signUpEmail.mockResolvedValue({ error: null });
+
+		render(<SignUp />);
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+		await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/settings'));
+		expect(screen.queryByRole('heading', { name: 'Check your inbox' })).toBeNull();
 	});
 
 	it('requests a verification email and shows check-inbox for an unverified login', async () => {
