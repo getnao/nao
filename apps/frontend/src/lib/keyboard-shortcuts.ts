@@ -90,7 +90,6 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		shortcut: ADD_SELECTION_TO_CHAT_SHORTCUT,
 		isHandledInStory: true,
 	},
-	// Holding the mod key turns on block selection; it is listed here only for the shortcuts dialog.
 	{
 		id: 'add-block-to-chat',
 		label: 'Add story block to chat',

@@ -1,8 +1,8 @@
 import { ChartColumn, ChartLine, ChartPie, Code, Gauge, LayoutPanelTop, MapPin, Quote, Table } from 'lucide-react';
 import { CITATION_MENTION_TRIGGER } from '@nao/shared';
-import { CODE_CITATION_KIND } from '@nao/shared/types';
+import { CODE_CITATION_KIND, MAX_CITATION_TEXT_LENGTH } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
-import type { MentionOption } from 'prompt-mentions';
+import type { MentionOption, PromptHandle } from 'prompt-mentions';
 import type { CitationData, StoryBlockReference } from '@nao/shared/types';
 
 export { CITATION_MENTION_TRIGGER };
@@ -11,6 +11,7 @@ export const CITATION_PILL_SELECTOR = `[data-mention-trigger="${CITATION_MENTION
 type CitationFinder = (id: string) => CitationData | undefined;
 
 const CITATION_TOKEN = new RegExp(`${CITATION_MENTION_TRIGGER}\\[([^\\]\\s]+)\\]`, 'g');
+const CITATION_TOKEN_WITH_BLANKS = new RegExp(`( ?)${CITATION_TOKEN.source}( ?)`, 'g');
 const MAX_PILL_QUOTE_LENGTH = 32;
 
 const BLOCK_ICONS: Record<string, LucideIcon> = {
@@ -54,13 +55,10 @@ export function extractCitationIds(text: string): string[] {
 }
 
 export function numberCitationTokens(text: string, orderedIds: string[]): string {
-	return text
-		.replace(CITATION_TOKEN, (_token, id: string) => {
-			const position = orderedIds.indexOf(id);
-			return position < 0 ? '' : `${CITATION_MENTION_TRIGGER}[${position + 1}]`;
-		})
-		.replace(/ {2,}/g, ' ')
-		.trim();
+	return replaceCitationTokens(text, (id) => {
+		const position = orderedIds.indexOf(id);
+		return position < 0 ? null : `${CITATION_MENTION_TRIGGER}[${position + 1}]`;
+	});
 }
 
 export function placeCitationsInline(text: string, citationCount: number): string {
@@ -69,10 +67,6 @@ export function placeCitationsInline(text: string, citationCount: number): strin
 	}
 	const pills = Array.from({ length: citationCount }, (_, index) => `${CITATION_MENTION_TRIGGER}[${index + 1}]`);
 	return [...pills, text].join(' ').trim();
-}
-
-function toMissingCitationOption(id: string): MentionOption {
-	return { id, label: 'Citation', icon: <Quote className='size-3.5' strokeWidth={2.25} /> };
 }
 
 /**
@@ -99,15 +93,30 @@ export function toCopiedText(fragment: DocumentFragment, findCitation: CitationF
 	return readCopiedNodes(fragment.childNodes, findCitation).replace(/\u200b/g, '');
 }
 
-export function quoteCitations(text: string, citations: CitationData[]): string {
-	return text.replace(CITATION_TOKEN, (token, id: string) => {
-		const citation = citations[Number(id) - 1];
-		return citation ? `“${toSingleLine(citation.text)}”` : token;
-	});
+export function writeCitedText(prompt: PromptHandle, text: string, citations: (CitationData & { id: string })[]): void {
+	let writtenUpTo = 0;
+	let isAfterPill = false;
+	for (const match of text.matchAll(CITATION_TOKEN)) {
+		const citation = citations[Number(match[1]) - 1];
+		insertNonEmptyText(prompt, text.slice(writtenUpTo, match.index), isAfterPill);
+		if (citation) {
+			prompt.appendMention(toCitationMentionOption(citation, citation.id), CITATION_MENTION_TRIGGER);
+		}
+		isAfterPill = citation !== undefined;
+		writtenUpTo = match.index + match[0].length;
+	}
+	insertNonEmptyText(prompt, text.slice(writtenUpTo), isAfterPill);
 }
 
 export function removeCitationTokens(text: string): string {
-	return text.replace(CITATION_TOKEN, '').replace(/ {2,}/g, ' ').trim();
+	return replaceCitationTokens(text, () => null);
+}
+
+export function capCitationText<T extends CitationData>(citation: T): T {
+	if (citation.text.length <= MAX_CITATION_TEXT_LENGTH) {
+		return citation;
+	}
+	return { ...citation, text: `${citation.text.slice(0, MAX_CITATION_TEXT_LENGTH - 1)}…` };
 }
 
 export function isSameCitation(left: CitationData, right: CitationData): boolean {
@@ -166,6 +175,27 @@ function citationIcon({ block }: CitationData): LucideIcon {
 		return ChartColumn;
 	}
 	return BLOCK_ICONS[kind] ?? LayoutPanelTop;
+}
+
+function toMissingCitationOption(id: string): MentionOption {
+	return { id, label: 'Citation', icon: <Quote className='size-3.5' strokeWidth={2.25} /> };
+}
+
+function replaceCitationTokens(text: string, replace: (id: string) => string | null): string {
+	return text.replace(CITATION_TOKEN_WITH_BLANKS, (_token, before: string, id: string, after: string) => {
+		const replacement = replace(id);
+		if (replacement !== null) {
+			return `${before}${replacement}${after}`;
+		}
+		return before && after ? ' ' : '';
+	});
+}
+
+function insertNonEmptyText(prompt: PromptHandle, text: string, isAfterPill: boolean): void {
+	const written = isAfterPill ? text.replace(/^ /, '') : text;
+	if (written) {
+		prompt.insertText(written);
+	}
 }
 
 function removeLeadingBlank(node: ChildNode | null): void {

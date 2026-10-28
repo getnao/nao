@@ -125,7 +125,8 @@ class StoryInspector {
 		document.addEventListener('pointerover', (event) => this.handlePointerOver(event), options);
 		document.documentElement.addEventListener('pointerleave', () => this.handlePointerLeave(), options);
 		document.addEventListener('click', (event) => this.handleClick(event), { ...options, capture: true });
-		document.addEventListener('mouseup', () => this.handleMouseUp(), options);
+		document.addEventListener('mouseup', () => this.showTextAsk(), options);
+		document.addEventListener('keyup', () => this.showTextAsk(), options);
 		document.addEventListener('selectionchange', () => this.handleSelectionChange(), options);
 		document.addEventListener('scroll', () => this.schedulePlacement(), passive);
 		window.addEventListener('resize', () => this.schedulePlacement(), passive);
@@ -139,7 +140,13 @@ class StoryInspector {
 	}
 
 	private handleKeyDown(event: KeyboardEvent): void {
-		if (this.isShowingTextAsk && matchesShortcut(event, ADD_SELECTION_TO_CHAT_SHORTCUT)) {
+		if (!matchesShortcut(event, ADD_SELECTION_TO_CHAT_SHORTCUT)) {
+			return;
+		}
+		if (!this.isShowingTextAsk) {
+			this.showTextAsk();
+		}
+		if (this.isShowingTextAsk) {
 			event.preventDefault();
 			this.askAboutTextSelection();
 		}
@@ -185,7 +192,7 @@ class StoryInspector {
 		this.onAsk(describeElement(element));
 	}
 
-	private handleMouseUp(): void {
+	private showTextAsk(): void {
 		const selection = readTextSelection();
 		if (!selection) {
 			return;

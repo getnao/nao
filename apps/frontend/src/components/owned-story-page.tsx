@@ -6,6 +6,7 @@ import type { StoryElementAsk } from '@nao/shared/story-app';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import type { CodeSelection } from '@/stores/ask-bar';
+import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryElementPicker } from '@/components/story-element-picker';
@@ -95,6 +96,10 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	const isAskInputHidden = editor.viewMode === 'edit';
 	const canSelectElements = showAskBar && editor.viewMode === 'preview';
 	const askAboutElement = useCallback((ask: StoryElementAsk) => requestAskAboutElement(ask, storySlug), [storySlug]);
+	const askAboutSelection = useCallback(
+		(selection: SelectionData) => requestAskAboutSelection(selection, storySlug),
+		[storySlug],
+	);
 	const askAboutCode = useCallback(
 		(selection: CodeSelection) => requestAskAboutCode(selection, { storySlug }),
 		[storySlug],
@@ -175,7 +180,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 						onAskAboutCode={showAskBar ? askAboutCode : undefined}
 						preview={
 							<>
-								<HighlightBubble onAsk={requestAskAboutSelection} disabled={isChatRunning} />
+								<HighlightBubble onAsk={askAboutSelection} disabled={isChatRunning} />
 								<StoryElementPicker
 									isPicking={canSelectElements && isSelectingElements}
 									storySlug={storySlug}

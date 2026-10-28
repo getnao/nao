@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CitationData } from '@nao/shared/types';
 import type { RefObject } from 'react';
@@ -13,6 +13,7 @@ interface CitationPillPreviewProps {
 }
 
 interface Preview {
+	pill: HTMLElement;
 	citation: CitationData;
 	rect: DOMRect;
 }
@@ -33,7 +34,7 @@ export function CitationPillPreview({ containerRef, findCitation, onOpen }: Cita
 		const handleMouseOver = (event: MouseEvent) => {
 			const pill = findPill(event.target);
 			const citation = citationOf(pill);
-			setPreview(pill && citation ? { citation, rect: pill.getBoundingClientRect() } : null);
+			setPreview(pill && citation ? { pill, citation, rect: pill.getBoundingClientRect() } : null);
 		};
 		const handleMouseOut = (event: MouseEvent) => {
 			if (findPill(event.target) !== findPill(event.relatedTarget)) {
@@ -58,10 +59,35 @@ export function CitationPillPreview({ containerRef, findCitation, onOpen }: Cita
 		};
 	}, [containerRef, findCitation, onOpen]);
 
+	useHideWhenPillRemoved(containerRef, preview?.pill, () => setPreview(null));
+
 	if (!preview) {
 		return null;
 	}
 	return createPortal(<CitationCard {...preview} />, document.body);
+}
+
+/** A pill deleted or sent while hovered never fires `mouseout`, so its removal hides the preview instead. */
+function useHideWhenPillRemoved(
+	containerRef: RefObject<HTMLElement | null>,
+	pill: HTMLElement | undefined,
+	onRemoved: () => void,
+) {
+	const handleRemoved = useEffectEvent(onRemoved);
+
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container || !pill) {
+			return;
+		}
+		const observer = new MutationObserver(() => {
+			if (!pill.isConnected) {
+				handleRemoved();
+			}
+		});
+		observer.observe(container, { childList: true, subtree: true });
+		return () => observer.disconnect();
+	}, [containerRef, pill]);
 }
 
 function CitationCard({ citation, rect }: Preview) {

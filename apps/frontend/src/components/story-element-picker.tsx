@@ -1,14 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { MouseEvent, PointerEvent, ReactNode, RefObject } from 'react';
+import type { MouseEvent, PointerEvent, ReactNode } from 'react';
 import type { StoryElementAsk } from '@nao/shared/story-app';
 
+import { STORY_OVERLAY_Z_INDEX, useCitedElementHighlight } from '@/hooks/use-cited-element-highlight';
 import { cn } from '@/lib/utils';
-import { STORY_HIGHLIGHT_TTL_MS, useStoryHighlightRequest } from '@/stores/story-highlight';
 import { describeElement, findInspectableElement } from '@/story-runtime/story-elements';
-import { highlightStoryElement } from '@/story-runtime/story-highlight';
-
-const STORY_OVERLAY_Z_INDEX = 10;
 
 interface StoryElementPickerProps {
 	isPicking: boolean;
@@ -62,16 +59,22 @@ function PickOutline({ element }: { element: Element }) {
 	const outlineRef = useRef<HTMLDivElement>(null);
 
 	useLayoutEffect(() => {
-		let frame = 0;
-		const follow = () => {
-			const outline = outlineRef.current;
-			if (outline) {
-				placeOver(outline, element.getBoundingClientRect());
-			}
-			frame = requestAnimationFrame(follow);
+		const outline = outlineRef.current;
+		if (!outline) {
+			return;
+		}
+		const place = () => placeOver(outline, element.getBoundingClientRect());
+		const options = { capture: true, passive: true };
+		const resizeObserver = new ResizeObserver(place);
+		place();
+		resizeObserver.observe(element);
+		window.addEventListener('scroll', place, options);
+		window.addEventListener('resize', place, options);
+		return () => {
+			resizeObserver.disconnect();
+			window.removeEventListener('scroll', place, options);
+			window.removeEventListener('resize', place, options);
 		};
-		follow();
-		return () => cancelAnimationFrame(frame);
 	}, [element]);
 
 	return createPortal(
@@ -82,24 +85,6 @@ function PickOutline({ element }: { element: Element }) {
 		/>,
 		document.body,
 	);
-}
-
-function useCitedElementHighlight(containerRef: RefObject<HTMLElement | null>, storySlug: string | undefined) {
-	const request = useStoryHighlightRequest();
-	const handledRequestId = useRef<number | null>(null);
-
-	useEffect(() => {
-		const container = containerRef.current;
-		const isForThisStory =
-			request &&
-			(!request.storySlug || !storySlug || request.storySlug === storySlug) &&
-			Date.now() - request.requestedAt < STORY_HIGHLIGHT_TTL_MS;
-		if (!isForThisStory || !container || handledRequestId.current === request.id) {
-			return;
-		}
-		handledRequestId.current = request.id;
-		highlightStoryElement(request.element, { root: container, zIndex: STORY_OVERLAY_Z_INDEX });
-	}, [containerRef, request, storySlug]);
 }
 
 function placeOver(element: HTMLElement, rect: DOMRect) {

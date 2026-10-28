@@ -45,22 +45,39 @@ export function useCitationPills({ promptRef, containerRef, citations, scope, on
 				appendedIds.current.delete(id);
 			}
 		}
+		const shownIds = readShownPillIds(containerRef.current);
 		const newOptions = options.filter((option) => !appendedIds.current.has(option.id));
 		for (const option of newOptions) {
-			promptRef.current?.appendMention(option, CITATION_MENTION_TRIGGER);
+			if (!shownIds.has(option.id)) {
+				promptRef.current?.appendMention(option, CITATION_MENTION_TRIGGER);
+			}
 			appendedIds.current.add(option.id);
 		}
 		if (newOptions.length > 0) {
 			requestAnimationFrame(() => promptRef.current?.focus());
 		}
-	}, [citations, options, promptRef]);
+	}, [citations, options, promptRef, containerRef]);
 
 	useEffect(() => {
 		const container = containerRef.current;
 		if (!container) {
 			return;
 		}
-		const handleCopy = (event: ClipboardEvent) => {
+		const handleInput = () => {
+			const shownIds = readShownPillIds(container);
+			const goneIds = [...appendedIds.current].filter((id) => !shownIds.has(id));
+			goneIds.forEach(onRemove);
+		};
+		container.addEventListener('input', handleInput);
+		return () => container.removeEventListener('input', handleInput);
+	}, [containerRef, onRemove]);
+
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container) {
+			return;
+		}
+		const handleClipboard = (event: ClipboardEvent) => {
 			const selection = document.getSelection();
 			if (!selection || selection.isCollapsed || !event.clipboardData) {
 				return;
@@ -73,9 +90,17 @@ export function useCitationPills({ promptRef, containerRef, citations, scope, on
 			event.clipboardData.setData('text/plain', toCopiedText(fragment, findCitation));
 			event.preventDefault();
 			event.stopPropagation();
+			if (event.type === 'cut') {
+				selection.deleteFromDocument();
+				container.querySelector('.prompt-input')?.dispatchEvent(new Event('input', { bubbles: true }));
+			}
 		};
-		container.addEventListener('copy', handleCopy);
-		return () => container.removeEventListener('copy', handleCopy);
+		container.addEventListener('copy', handleClipboard);
+		container.addEventListener('cut', handleClipboard);
+		return () => {
+			container.removeEventListener('copy', handleClipboard);
+			container.removeEventListener('cut', handleClipboard);
+		};
 	}, [containerRef, citations]);
 
 	const handleMentionDeleted = useCallback(
@@ -88,4 +113,9 @@ export function useCitationPills({ promptRef, containerRef, citations, scope, on
 	);
 
 	return { options, handleMentionDeleted };
+}
+
+function readShownPillIds(container: HTMLElement | null): Set<string | undefined> {
+	const pills = container?.querySelectorAll<HTMLElement>(CITATION_PILL_SELECTOR) ?? [];
+	return new Set([...pills].map((pill) => pill.dataset.mentionId));
 }

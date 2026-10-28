@@ -470,6 +470,10 @@ describe('fork of any accessible Story', () => {
 	});
 
 	it('copies the files of a custom Story and publishes them', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['customStoryCreation'],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+		});
 		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
 		mocks.getLatestVersionByStoryId.mockResolvedValue({ id: 'version-id' });
 		mocks.listVersionFiles.mockResolvedValue([
@@ -492,7 +496,20 @@ describe('fork of any accessible Story', () => {
 		);
 	});
 
+	it('denies the fork of a custom Story without the custom story creation grant', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
+
+		await expect(createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' })).rejects.toThrow(
+			'Custom story creation is not enabled',
+		);
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
 	it('deletes the forked chat when the copy of a custom Story does not build', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['customStoryCreation'],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+		});
 		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
 		mocks.getLatestVersionByStoryId.mockResolvedValue({ id: 'version-id' });
 		mocks.listVersionFiles.mockResolvedValue([
@@ -512,7 +529,6 @@ function createReferenceableStory(overrides: Record<string, unknown>) {
 	return {
 		storyId: 'story-id',
 		chatId: 'source-chat-id',
-		chatTitle: 'Source chat',
 		slug: 'story',
 		title: 'Story',
 		format: 'classic',

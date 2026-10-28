@@ -1,5 +1,10 @@
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
-import { type CitationData, type LlmProvider, MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
+import {
+	type CitationData,
+	type LlmProvider,
+	MAX_CITATION_TEXT_LENGTH,
+	MAX_CITATIONS_PER_MESSAGE,
+} from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -190,7 +195,7 @@ const AgentRequestDocumentPathSchema = z.string().min(1).max(1024);
 const CitationDataSchema = z.object({
 	start: z.number(),
 	end: z.number(),
-	text: z.string(),
+	text: z.string().max(MAX_CITATION_TEXT_LENGTH),
 	storySlug: z.string().optional(),
 	block: z
 		.object({

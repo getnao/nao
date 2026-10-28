@@ -146,23 +146,62 @@ export function getContainerLeft(range: Range): number {
 	return el?.getBoundingClientRect().left ?? 0;
 }
 
-/**
- * The passage a citation quotes. Its offsets were counted over the page as it was laid out when it was selected,
- * so they only hold while the text there still matches; otherwise the occurrence nearest to them wins.
- */
 export function findQuotedRange(container: Element, start: number, end: number, quote: string): Range | null {
+	const wanted = toQuotedCharacters(quote);
+	if (!wanted.characters) {
+		return null;
+	}
 	const atOffsets = createRangeFromOffsets(container, start, end);
-	if (atOffsets && atOffsets.toString().trim() === quote.trim()) {
+	if (atOffsets && holdsQuote(atOffsets.toString(), wanted)) {
 		return atOffsets;
 	}
-	const fullText = collectText(container);
+	const passage = findNearestPassage(collectText(container), wanted.characters, start);
+	return passage && createRangeFromOffsets(container, passage.start, passage.end);
+}
+
+interface QuotedCharacters {
+	characters: string;
+	isCut: boolean;
+}
+
+function toQuotedCharacters(quote: string): QuotedCharacters {
+	const trimmed = quote.trim();
+	const isCut = trimmed.endsWith('…');
+	return { characters: withoutWhitespace(isCut ? trimmed.slice(0, -1) : trimmed), isCut };
+}
+
+function holdsQuote(text: string, { characters, isCut }: QuotedCharacters): boolean {
+	const compact = withoutWhitespace(text);
+	return isCut ? compact.startsWith(characters) : compact === characters;
+}
+
+function findNearestPassage(
+	fullText: string,
+	characters: string,
+	start: number,
+): { start: number; end: number } | null {
+	const textOffsets: number[] = [];
+	let compact = '';
+	for (let offset = 0; offset < fullText.length; offset++) {
+		if (!/\s/.test(fullText[offset])) {
+			compact += fullText[offset];
+			textOffsets.push(offset);
+		}
+	}
 	let nearest = -1;
-	for (let index = fullText.indexOf(quote); index !== -1; index = fullText.indexOf(quote, index + 1)) {
-		if (nearest === -1 || Math.abs(index - start) < Math.abs(nearest - start)) {
+	for (let index = compact.indexOf(characters); index !== -1; index = compact.indexOf(characters, index + 1)) {
+		if (nearest === -1 || Math.abs(textOffsets[index] - start) < Math.abs(textOffsets[nearest] - start)) {
 			nearest = index;
 		}
 	}
-	return nearest === -1 ? null : createRangeFromOffsets(container, nearest, nearest + quote.length);
+	if (nearest === -1) {
+		return null;
+	}
+	return { start: textOffsets[nearest], end: textOffsets[nearest + characters.length - 1] + 1 };
+}
+
+function withoutWhitespace(text: string): string {
+	return text.replace(/\s+/g, '');
 }
 
 function collectText(container: Element): string {

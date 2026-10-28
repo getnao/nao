@@ -80,7 +80,7 @@ import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
 import { chatPendingCitationStore, toMessageCitations } from '@/stores/chat-pending-citation';
 import { useChatPendingCitations } from '@/hooks/use-chat-pending-citation';
-import { CITATION_MENTION_TRIGGER, removeCitationTokens } from '@/lib/citation-mention';
+import { CITATION_MENTION_TRIGGER, removeCitationTokens, writeCitedText } from '@/lib/citation-mention';
 import { useCitationPills } from '@/hooks/use-citation-pills';
 import { useOpenCitation } from '@/hooks/use-open-citation';
 import { CitationPillPreview } from '@/components/citation-pill-preview';
@@ -376,15 +376,16 @@ function ChatInputBase({
 
 		chatInputRestoreStore.clear();
 		promptRef.current?.clear();
-		const restoredText = removeCitationTokens(chatInputRestore.text);
-		promptRef.current?.insertText(restoredText);
-		setInputText(restoredText);
+		const restoredCitations =
+			chatInputRestore.citations && chatId
+				? chatPendingCitationStore.restore(chatId, chatInputRestore.citations)
+				: [];
+		if (promptRef.current) {
+			writeCitedText(promptRef.current, chatInputRestore.text, restoredCitations);
+		}
+		setInputText(promptRef.current?.getValue() ?? removeCitationTokens(chatInputRestore.text));
 		attachmentUpload.clearAttachments();
 		attachmentUpload.restoreDocuments(chatInputRestore.documents);
-
-		if (chatInputRestore.citations && chatId) {
-			chatPendingCitationStore.restore(chatId, chatInputRestore.citations);
-		}
 
 		const restoreImages = async () => {
 			const files = await Promise.all(

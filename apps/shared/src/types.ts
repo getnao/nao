@@ -460,6 +460,7 @@ export type AnalyticsEventMetadata =
 	| { type: 'view_duration'; durationMs: number; startedAt: number; versionNumber?: number };
 
 export const MAX_CITATIONS_PER_MESSAGE = 100;
+export const MAX_CITATION_TEXT_LENGTH = 10_000;
 
 export interface CitationData {
 	start: number;

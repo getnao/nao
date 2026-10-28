@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest';
-
 import {
 	describeCitationSource,
 	numberCitationTokens,
-	quoteCitations,
 	removeCitationPills,
 	removeCitationTokens,
 	toCitationMentionOption,
 	toCopiedText,
+	writeCitedText,
 } from './citation-mention';
+import type { PromptHandle } from 'prompt-mentions';
 
 describe('citation mentions', () => {
 	it('names where a citation comes from', () => {
@@ -33,10 +33,11 @@ describe('citation mentions', () => {
 		expect(numberCitationTokens('❝[b] vs ❝[gone] ❝[a] @[story:x]', ['b', 'a'])).toBe('❝[1] vs ❝[2] @[story:x]');
 	});
 
-	it('quotes each citation when a sent message is copied', () => {
-		expect(quoteCitations('❝[1] vs ❝[2]?', [{ start: 0, end: 0, text: 'Revenue\nin May' }])).toBe(
-			'“Revenue in May” vs ❝[2]?',
-		);
+	it('keeps the spacing the user typed, such as indented code', () => {
+		const code = 'run:\n    select *\n        from orders';
+
+		expect(numberCitationTokens(`${code} ❝[a]`, ['a'])).toBe(`${code} ❝[1]`);
+		expect(removeCitationTokens(`❝[a] ${code}`)).toBe(code);
 	});
 
 	it('reads each pill as its quote when the prompt is copied', () => {
@@ -86,5 +87,20 @@ describe('citation mentions', () => {
 			'Sales dropped sharply after the…',
 			'data table',
 		]);
+	});
+
+	it('puts each pill of a restored message back where it was written', () => {
+		const written: string[] = [];
+		const prompt = {
+			insertText: (text: string) => written.push(text),
+			appendMention: ({ id }: { id: string }) => written.push(`[${id}]`),
+		} as unknown as PromptHandle;
+
+		writeCitedText(prompt, 'compare ❝[1] with ❝[2] please', [
+			{ id: 'a', start: 0, end: 0, text: 'Revenue' },
+			{ id: 'b', start: 0, end: 0, text: 'Orders' },
+		]);
+
+		expect(written).toEqual(['compare ', '[a]', 'with ', '[b]', 'please']);
 	});
 });

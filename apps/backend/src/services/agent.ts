@@ -7,6 +7,7 @@ import {
 	isStoryFolderMentionId,
 	isStoryReferenceMentionId,
 	normalizeCitationMarkers,
+	quoteCitationTokens,
 } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
@@ -975,13 +976,14 @@ export class AgentManager {
 	}
 
 	private _addCitationContext(messages: UIMessage[]): UIMessage[] {
-		const [lastUserMessage] = findLastUserMessage(messages);
+		const messagesWithQuotes = quoteEarlierCitations(messages);
+		const [lastUserMessage] = findLastUserMessage(messagesWithQuotes);
 		const citations = lastUserMessage?.citations;
 		if (!citations?.length) {
-			return messages;
+			return messagesWithQuotes;
 		}
 
-		return this._transformLastUserMessageText(messages, (text) => {
+		return this._transformLastUserMessageText(messagesWithQuotes, (text) => {
 			const context = describeCitations(citations, text);
 			return text ? `${context}\n\n${text}` : context;
 		});
@@ -1192,6 +1194,21 @@ function describeStoredAttachment(part: { url: string; mediaType: string; filena
 			: '';
 
 	return `[The user attached ${name} (${part.mediaType}) to this message. It is saved at ${part.url}. Its contents are not included here: read that path when you need them.${workbookHint}]`;
+}
+
+/** Only the last message has its citations described in full; earlier ones read with each quote in place of `❝[n]`. */
+function quoteEarlierCitations(messages: UIMessage[]): UIMessage[] {
+	const [, lastUserMessageIndex] = findLastUserMessage(messages);
+	return messages.map((message, index) => {
+		const citations = message.citations;
+		if (index === lastUserMessageIndex || message.role !== 'user' || !citations?.length) {
+			return message;
+		}
+		const parts = message.parts.map((part) =>
+			part.type === 'text' ? { ...part, text: quoteCitationTokens(part.text, citations) } : part,
+		);
+		return { ...message, parts };
+	});
 }
 
 /** Citations placed inline appear in the text as `❝[n]`; older messages carry them apart from the text. */

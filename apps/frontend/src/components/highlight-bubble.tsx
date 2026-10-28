@@ -41,7 +41,13 @@ function BubbleContent({ onAsk }: { onAsk: (data: SelectionData) => void }) {
 		window.getSelection()?.removeAllRanges();
 	};
 
-	useKeyboardShortcuts({ 'add-selection-to-chat': handleAsk });
+	useKeyboardShortcuts({
+		'add-selection-to-chat': () => {
+			if (selection && isStillSelected(selection.range)) {
+				handleAsk();
+			}
+		},
+	});
 
 	if (!selection || !position) {
 		return null;
@@ -67,5 +73,17 @@ function BubbleContent({ onAsk }: { onAsk: (data: SelectionData) => void }) {
 				</span>
 			</Button>
 		</div>
+	);
+}
+
+function isStillSelected(range: Range): boolean {
+	const current = window.getSelection();
+	if (!current || current.isCollapsed || current.rangeCount === 0) {
+		return false;
+	}
+	const live = current.getRangeAt(0);
+	return (
+		live.compareBoundaryPoints(Range.START_TO_START, range) === 0 &&
+		live.compareBoundaryPoints(Range.END_TO_END, range) === 0
 	);
 }

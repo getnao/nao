@@ -12,7 +12,8 @@ describe('highlightStoryElement', () => {
 			<section data-nao-block-kind="bar-chart" data-nao-block-title="Revenue" data-nao-block-query="q1"><h3>Revenue</h3></section>
 			<section data-nao-block-kind="bar-chart" data-nao-block-title="Orders" data-nao-block-query="q2"><h3>Orders</h3></section>
 			<div><p id="passage">Sales dropped
-				sharply in March.</p></div>`;
+				sharply in March.</p></div>
+			<div><h2 id="churn-title">Churn</h2><p>Customers left in May.</p></div>`;
 		Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
 			scrolled.push(this);
 		});
@@ -32,5 +33,25 @@ describe('highlightStoryElement', () => {
 		highlightStoryElement({ block: { kind: 'text' }, text: 'Sales dropped sharply in March.' });
 
 		expect(scrolled.map((element) => element.id)).toEqual(['passage']);
+	});
+
+	it('finds where a quote spanning two blocks starts', () => {
+		highlightStoryElement({ block: { kind: 'text' }, text: 'Churn Customers left in May.' });
+
+		expect(scrolled.map((element) => element.id)).toEqual(['churn-title']);
+	});
+
+	it('waits for a cited block the story has not rendered yet', async () => {
+		highlightStoryElement({ block: { kind: 'kpi', title: 'Margin', queryId: 'q3' }, text: 'Margin' });
+		expect(scrolled).toEqual([]);
+
+		document.body.insertAdjacentHTML(
+			'beforeend',
+			'<section data-nao-block-kind="kpi" data-nao-block-title="Margin" data-nao-block-query="q3"></section>',
+		);
+
+		await vi.waitFor(() =>
+			expect(scrolled.map((element) => element.getAttribute('data-nao-block-title'))).toEqual(['Margin']),
+		);
 	});
 });
