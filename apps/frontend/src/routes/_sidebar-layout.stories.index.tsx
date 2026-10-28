@@ -39,13 +39,14 @@ import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useDragPointer } from '@/hooks/use-drag-pointer';
 import { useStartChatWithStories } from '@/hooks/use-start-chat-with-stories';
 import { useSession } from '@/lib/auth-client';
-import { isOverNewChatDropTarget, NO_STORY_REFERENCES } from '@/lib/story-reference';
+import { hasAnyStoryReference, isOverNewChatDropTarget, NO_STORY_REFERENCES } from '@/lib/story-reference';
 import {
 	buildCurrentLevelEntries,
 	buildStoryItems,
 	countActiveFilters,
 	DEFAULT_FILTERS,
 	filterStories,
+	getFolderSubtreeIds,
 	getStoredSetting,
 	isSystemFolder,
 	readStoredSort,
@@ -55,6 +56,7 @@ import {
 import { invalidateStoryArchiveCaches, invalidateStoryPlacementCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { chatActivityStore } from '@/stores/chat-activity';
 import { selectedStoryReferencesStore, storyDragOverNewChatStore } from '@/stores/story-references';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/')({
@@ -565,11 +567,12 @@ function StoriesPage() {
 		}),
 	);
 
-	/** Only the selected items the user is allowed to move, so one forbidden item doesn't block the whole move. */
+	/** Only the selected items the user can move right now, so one forbidden item doesn't block the whole move. */
 	function buildMovableSelection(): StoryReferences {
 		const storyIds = allItems
 			.filter((item) => selectedStoryIds.has(item.storyId))
 			.filter((item) => item.kind !== 'shared-with-me' && (isOwnStory(item) || isAdmin))
+			.filter((item) => !isAgentEditingStory(item))
 			.map((item) => item.storyId);
 		const folderIds = folders
 			.filter((folder) => selectedFolderIds.has(folder.id))
@@ -580,11 +583,13 @@ function StoriesPage() {
 
 	function handleBulkMoveToFolder(targetFolderId: string | null) {
 		const { storyIds, folderIds } = buildMovableSelection();
-		const movedFolderIds = folderIds.filter((id) => id !== targetFolderId);
-		if (storyIds.length === 0 && movedFolderIds.length === 0) {
+		if (targetFolderId && getFolderSubtreeIds(folderIds, folders).has(targetFolderId)) {
 			return;
 		}
-		bulkMoveMutation.mutate({ storyIds, folderIds: movedFolderIds, targetFolderId });
+		if (storyIds.length === 0 && folderIds.length === 0) {
+			return;
+		}
+		bulkMoveMutation.mutate({ storyIds, folderIds, targetFolderId });
 	}
 
 	function isSelectionDrag(activeStr: string): boolean {
@@ -596,6 +601,8 @@ function StoriesPage() {
 		}
 		return false;
 	}
+
+	const movableSelection = buildMovableSelection();
 
 	const isBulkPending =
 		bulkMoveMutation.isPending ||
@@ -793,9 +800,10 @@ function StoriesPage() {
 				limitReached={selectedStoryIds.size >= BULK_ITEMS_LIMIT || selectedFolderIds.size >= BULK_ITEMS_LIMIT}
 				showArchived={showArchived}
 				isPending={isBulkPending}
+				canMove={hasAnyStoryReference(movableSelection)}
 				onArchive={handleBulkArchive}
 				onUnarchive={handleBulkUnarchive}
-				onMove={() => setDialog({ kind: 'picker-selection', selection: buildMovableSelection() })}
+				onMove={() => setDialog({ kind: 'picker-selection', selection: movableSelection })}
 				onStartChat={() => startChatWithStories(selectedStoryReferences)}
 				onCancel={clearSelection}
 			/>
@@ -903,6 +911,10 @@ function parseDragStoryId(activeStr: string): string {
 
 function isOwnStory(item: StoryItem): boolean {
 	return item.kind === 'own' || item.kind === 'own-standalone';
+}
+
+function isAgentEditingStory(item: StoryItem): boolean {
+	return !!item.chatId && chatActivityStore.getActivity(item.chatId).running;
 }
 
 function DragOverlayCard({ item, count }: { item: StoryItem | FolderItem; count: number }) {

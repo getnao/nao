@@ -312,7 +312,7 @@ export async function moveFolder(
 	await db.transaction(async (tx) => {
 		await serializeFolderMovesInProject(tx, projectId);
 
-		if (newParentId !== null && (await proposedParentChainContains(tx, newParentId, id))) {
+		if (newParentId !== null && (await proposedParentChainContains(newParentId, id, tx))) {
 			throw new MoveFolderCycleError();
 		}
 
@@ -534,10 +534,10 @@ async function serializeFolderMovesInProject(tx: FolderMoveTx, projectId: string
 	);
 }
 
-async function proposedParentChainContains(
-	tx: FolderMoveTx,
+export async function proposedParentChainContains(
 	startParentId: string,
 	folderId: string,
+	executor: DBExecutor = db,
 ): Promise<boolean> {
 	let currentId: string | null = startParentId;
 	const visited = new Set<string>();
@@ -548,7 +548,7 @@ async function proposedParentChainContains(
 		}
 		visited.add(currentId);
 
-		const [row] = await tx
+		const [row] = await executor
 			.select({ parentId: s.storyFolder.parentId })
 			.from(s.storyFolder)
 			.where(eq(s.storyFolder.id, currentId))

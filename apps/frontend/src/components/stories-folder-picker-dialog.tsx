@@ -3,6 +3,7 @@ import { TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 
 import type { FolderItem } from '@/lib/stories-page';
+import { getFolderSubtreeIds } from '@/lib/stories-page';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FolderTreeSelect, getTargetVisibility } from '@/components/stories-folder-tree-select';
@@ -45,22 +46,7 @@ export function FolderPickerDialog({
 	const isPending = moveStoryMutation.isPending || moveFolderMutation.isPending || bulkMoveMutation.isPending;
 	const moveError = moveStoryMutation.error ?? moveFolderMutation.error ?? bulkMoveMutation.error;
 
-	function getDescendantIds(folderIds: string[], folders: FolderItem[]): Set<string> {
-		const result = new Set<string>();
-		const queue = [...folderIds];
-		while (queue.length > 0) {
-			const current = queue.shift()!;
-			result.add(current);
-			for (const f of folders) {
-				if (f.parentId === current) {
-					queue.push(f.id);
-				}
-			}
-		}
-		return result;
-	}
-
-	const disabledIds = getDescendantIds(getMovedFolderIds(target), tree);
+	const disabledIds = getFolderSubtreeIds(getMovedFolderIds(target), tree);
 
 	const selectedVisibility = getTargetVisibility(selectedId, tree);
 	const visibilityWillChange = getSourceVisibilities(target, tree).some(

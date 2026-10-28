@@ -9,6 +9,7 @@ export function StoriesSelectionBar({
 	limitReached = false,
 	showArchived,
 	isPending,
+	canMove,
 	onArchive,
 	onUnarchive,
 	onMove,
@@ -19,6 +20,7 @@ export function StoriesSelectionBar({
 	limitReached?: boolean;
 	showArchived: boolean;
 	isPending: boolean;
+	canMove: boolean;
 	onArchive: () => void;
 	onUnarchive: () => void;
 	onMove: () => void;
@@ -74,7 +76,7 @@ export function StoriesSelectionBar({
 						size='sm'
 						variant='ghost'
 						onClick={onMove}
-						disabled={isPending}
+						disabled={isPending || !canMove}
 						className='gap-1.5 h-7 text-xs rounded-full'
 					>
 						<FolderInput className='size-3.5' />

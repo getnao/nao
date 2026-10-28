@@ -107,6 +107,20 @@ async function assertCanMoveStory(storyId: string, ctx: MoveContext): Promise<st
 	return storyOwnerId;
 }
 
+async function assertTargetOutsideMovedFolders(folderIds: string[], targetFolderId: string | null) {
+	if (!targetFolderId) {
+		return;
+	}
+	for (const folderId of folderIds) {
+		if (await storyFolderQueries.proposedParentChainContains(targetFolderId, folderId)) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: new storyFolderQueries.MoveFolderCycleError().message,
+			});
+		}
+	}
+}
+
 async function moveFolderOrThrow(ctx: MoveContext, folderId: string, newParentId: string | null) {
 	try {
 		await storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, folderId, newParentId);
@@ -255,16 +269,21 @@ export const storyFolderRoutes = {
 
 	bulkMove: canSendProcedure
 		.input(
-			z.object({
-				storyIds: z.array(z.string()).max(BULK_ITEMS_LIMIT),
-				folderIds: z.array(z.string()).max(BULK_ITEMS_LIMIT),
-				targetFolderId: z.string().nullable(),
-			}),
+			z
+				.object({
+					storyIds: z.array(z.string()).max(BULK_ITEMS_LIMIT),
+					folderIds: z.array(z.string()).max(BULK_ITEMS_LIMIT),
+					targetFolderId: z.string().nullable(),
+				})
+				.refine((input) => input.storyIds.length + input.folderIds.length > 0, {
+					message: 'Select at least one story or folder to move.',
+				}),
 		)
 		.mutation(async ({ input, ctx }) => {
 			const target = await resolveMoveTarget(input.targetFolderId, ctx);
 			const folders = await Promise.all(input.folderIds.map((id) => assertCanMoveFolder(id, target, ctx)));
 			const storyOwnerIds = await Promise.all(input.storyIds.map((id) => assertCanMoveStory(id, ctx)));
+			await assertTargetOutsideMovedFolders(input.folderIds, input.targetFolderId);
 
 			const makesItemsPublic =
 				resolveDestinationVisibility(target) === 'public' &&
