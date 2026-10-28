@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 
 import {
 	getActiveWarehouseProvisioningJob,
+	getLatestWarehouseProvisioningJob,
 	getWarehouseProvisioningJob,
 	startWarehouseProvisioning,
 	validateWarehouseCredentials,
@@ -49,6 +50,10 @@ export const onboardingRoutes = router({
 	getActiveWarehouseProvisioningJob: protectedProcedure
 		.input(z.object({ onboardingChatId: z.uuid() }))
 		.query(({ ctx, input }) => getActiveWarehouseProvisioningJob(ctx.user.id, input.onboardingChatId)),
+
+	getLatestWarehouseProvisioningJob: protectedProcedure
+		.input(z.object({ onboardingChatId: z.uuid() }))
+		.query(({ ctx, input }) => getLatestWarehouseProvisioningJob(ctx.user.id, input.onboardingChatId)),
 });
 
 function buildOnboardingProjectName(userName: string): string {

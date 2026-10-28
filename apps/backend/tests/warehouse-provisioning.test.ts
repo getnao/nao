@@ -107,6 +107,13 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 				) ?? null
 		);
 	}),
+	getLatestWarehouseProvisioningJob: vi.fn(async (userId: string, chatId: string) => {
+		return (
+			[...warehouseJobs.values()]
+				.reverse()
+				.find((job) => job.userId === userId && job.onboardingChatId === chatId) ?? null
+		);
+	}),
 	updateWarehouseProvisioningJob: vi.fn(async (jobId: string, changes: Partial<MockWarehouseJob>) => {
 		if (controls.failReadyUpdate && changes.status === 'ready') {
 			throw new Error('Database unavailable');
@@ -198,6 +205,7 @@ import { reconcileProjectReadiness } from '../src/services/project.service';
 import { createNewProject, createTempProjectDir } from '../src/services/project-import.service';
 import { saveProjectWarehouseEnvVars } from '../src/services/warehouse-credentials';
 import {
+	getLatestWarehouseProvisioningJob,
 	getPublicProvisioningError,
 	getWarehouseProvisioningJob,
 	queueWarehouseFinalization,
@@ -314,6 +322,35 @@ describe('warehouse provisioning', () => {
 		});
 		expect(await getWarehouseProvisioningJob(jobId, 'another-user')).toBeNull();
 		expect(JSON.stringify(await getWarehouseProvisioningJob(jobId, 'user-1'))).not.toContain('super-secret');
+	});
+
+	it('restores the latest failed job for an onboarding chat', async () => {
+		vi.useFakeTimers();
+
+		const { jobId } = await startWarehouseProvisioning({
+			userId: 'user-1',
+			orgId: 'org-1',
+			projectName: 'analytics',
+			onboardingChatId: 'chat-1',
+			provider: 'postgres',
+			credentials: {
+				host: 'warehouse.example.com',
+				password: 'super-secret',
+				schemaName: 'public',
+			},
+		});
+		await warehouseProvisioningJobQueries.updateWarehouseProvisioningJob(jobId, {
+			status: 'failed',
+			logs: 'Sync failed',
+			error: 'nao sync failed. Check the logs for details.',
+		});
+
+		await expect(getLatestWarehouseProvisioningJob('user-1', 'chat-1')).resolves.toMatchObject({
+			id: jobId,
+			status: 'failed',
+			logs: 'Sync failed',
+		});
+		await expect(getLatestWarehouseProvisioningJob('another-user', 'chat-1')).resolves.toBeNull();
 	});
 
 	it('rejects concurrent provisioning jobs for the same user', async () => {
@@ -802,6 +839,22 @@ describe('warehouse provisioning', () => {
 	});
 
 	it.each([
+		{
+			error: new Error('nao init failed: unexpected init output'),
+			expected: 'nao init failed. Check the logs for details.',
+		},
+		{
+			error: new Error('nao debug failed: password authentication failed for user "nao"'),
+			expected: 'nao debug failed. Check the logs for details.',
+		},
+		{
+			error: new Error('nao sync failed: unexpected sync output'),
+			expected: 'nao sync failed. Check the logs for details.',
+		},
+		{
+			error: new Error('nao sync timed out'),
+			expected: 'nao sync failed. Check the logs for details.',
+		},
 		{
 			error: new Error('password authentication failed for user "nao"'),
 			expected: 'The warehouse rejected these credentials. Check them and try again.',

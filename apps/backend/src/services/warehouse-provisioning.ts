@@ -371,6 +371,14 @@ export async function getActiveWarehouseProvisioningJob(
 	return job ? toPublicWarehouseProvisioningJob(job) : null;
 }
 
+export async function getLatestWarehouseProvisioningJob(
+	userId: string,
+	onboardingChatId: string,
+): Promise<PublicWarehouseProvisioningJob | null> {
+	const job = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId);
+	return job ? toPublicWarehouseProvisioningJob(job) : null;
+}
+
 function toPublicWarehouseProvisioningJob(job: DBWarehouseProvisioningJob): PublicWarehouseProvisioningJob {
 	return {
 		id: job.id,
@@ -425,7 +433,9 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		await updateJob(jobId, { status: 'initializing' });
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
-		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS);
+		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, (logs) =>
+			updateJob(jobId, { logs }),
+		);
 
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 
@@ -709,7 +719,7 @@ function runNaoCommand(
 			}
 			settled = true;
 			child.kill('SIGTERM');
-			void flushOutput().finally(() => reject(new Error('nao command timed out')));
+			void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
 		}, timeoutMs);
 
 		child.once('error', async (error) => {
@@ -947,6 +957,11 @@ export function getPublicProvisioningError(error: unknown): string {
 	}
 
 	const message = error instanceof Error ? error.message : String(error);
+	const failedCommand = message.match(/^nao (init|debug|sync) (?:failed|timed out)\b/i)?.[1]?.toLowerCase();
+	if (failedCommand) {
+		return `nao ${failedCommand} failed. Check the logs for details.`;
+	}
+
 	const connector = message.match(/nao-core\[([^\]]+)\]/i)?.[1];
 
 	if (connector && /missing package|no module named|module not found/i.test(message)) {

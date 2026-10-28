@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, CircleAlert, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { buildWarehouseCredentials } from './warehouse-credentials';
@@ -18,7 +18,6 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from '@/components/ui/dialog';
-import { FormError } from '@/components/ui/form-fields';
 import { findWarehouseJobId } from '@/components/onboarding-progress';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { getMessageText, NEW_CHAT_ID, ONBOARDING_CONTEXT_REQUEST_PREFIX } from '@/lib/ai';
@@ -46,8 +45,8 @@ export function RequestWarehouseCredentialsToolCall({
 		const cardBounds = cardRef.current?.getBoundingClientRect();
 		setDialogCenter(cardBounds ? cardBounds.left + cardBounds.width / 2 : undefined);
 	}, []);
-	const activeJob = useQuery({
-		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+	const latestJob = useQuery({
+		...trpc.onboarding.getLatestWarehouseProvisioningJob.queryOptions({
 			onboardingChatId: canRestoreJob ? chatId! : '',
 		}),
 		enabled: canRestoreJob,
@@ -71,7 +70,7 @@ export function RequestWarehouseCredentialsToolCall({
 				setOpen(false);
 				if (canRestoreJob) {
 					void queryClient.invalidateQueries({
-						queryKey: trpc.onboarding.getActiveWarehouseProvisioningJob.queryKey({
+						queryKey: trpc.onboarding.getLatestWarehouseProvisioningJob.queryKey({
 							onboardingChatId: chatId!,
 						}),
 					});
@@ -81,16 +80,16 @@ export function RequestWarehouseCredentialsToolCall({
 	);
 
 	useEffect(() => {
-		if (canRestoreJob && !activeJob.isFetched) {
+		if (canRestoreJob && !latestJob.isFetched) {
 			return;
 		}
-		const restoredId = activeJob.data && activeJob.data.provider === provider ? activeJob.data.id : persistedJobId;
+		const restoredId = latestJob.data && latestJob.data.provider === provider ? latestJob.data.id : persistedJobId;
 		if (restoredJobId.current || !restoredId) {
 			return;
 		}
 		restoredJobId.current = true;
 		setJobId(restoredId);
-	}, [activeJob.data, activeJob.isFetched, canRestoreJob, persistedJobId, provider]);
+	}, [latestJob.data, latestJob.isFetched, canRestoreJob, persistedJobId, provider]);
 
 	useEffect(() => {
 		if (job.data && job.data.provider !== provider) {
@@ -146,6 +145,8 @@ export function RequestWarehouseCredentialsToolCall({
 		validatedCredentialFingerprint === JSON.stringify(credentialValues);
 	const credentialsAccepted = credentialsVerified || setupInProgress || setupReady;
 	const credentialDetailsUnavailable = jobId !== null && credentialValues === undefined;
+	const cardState = setupFailed ? 'failed' : credentialsAccepted ? 'verified' : 'required';
+	const isVerified = cardState === 'verified';
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -153,36 +154,30 @@ export function RequestWarehouseCredentialsToolCall({
 				ref={cardRef}
 				className={cn(
 					'animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-xl border bg-background p-5 shadow-xs sm:flex-row sm:items-center',
-					setupFailed
-						? 'border-destructive/20'
-						: credentialsAccepted
-							? 'border-emerald-500/25'
-							: 'border-violet/20',
+					isVerified ? 'border-emerald-500/25' : 'border-violet/20',
 				)}
 			>
 				<div className='flex min-w-0 items-center gap-3'>
 					<div
 						className={cn(
 							'flex size-10 shrink-0 items-center justify-center rounded-lg border',
-							setupFailed
-								? 'border-destructive/20 bg-destructive/5 text-destructive'
-								: credentialsAccepted
-									? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-									: 'border-violet/20 bg-violet/10 text-primary',
+							isVerified
+								? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+								: 'border-violet/20 bg-violet/10 text-primary',
 						)}
 					>
 						<DatabaseIcon dialect={provider} className='size-5' />
 					</div>
 					<div className='min-w-0'>
 						<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
-							{setupFailed
+							{cardState === 'failed'
 								? `${WAREHOUSE_PROVIDER_LABELS[provider]} setup needs attention`
-								: credentialsAccepted
+								: cardState === 'verified'
 									? `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials verified`
 									: `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials required`}
 						</div>
 						<p className='text-xs text-muted-foreground'>
-							{setupFailed
+							{cardState === 'failed'
 								? 'Open the setup to review the problem and try again.'
 								: setupReady
 									? 'Your warehouse connection is ready.'
@@ -196,16 +191,14 @@ export function RequestWarehouseCredentialsToolCall({
 				</div>
 				<DialogTrigger asChild>
 					<Button
-						variant={credentialsAccepted || setupFailed ? 'outline' : 'default'}
+						variant={cardState === 'required' ? 'default' : 'outline'}
 						className={cn(
 							'w-full shrink-0 rounded-full sm:w-auto',
-							setupFailed &&
-								'border-destructive/25 text-destructive hover:bg-destructive/5 hover:text-destructive',
-							credentialsAccepted &&
+							isVerified &&
 								'border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-400',
 						)}
 					>
-						{setupFailed
+						{cardState === 'failed'
 							? 'Review setup'
 							: setupReady || setupInProgress
 								? credentialDetailsUnavailable
@@ -318,9 +311,15 @@ function WarehouseProvisioningProgress({
 			: null;
 	if (setupError) {
 		return (
-			<div className='flex flex-col gap-3 rounded-lg border border-destructive/50 bg-destructive/5 p-4'>
-				<FormError error={setupError} />
-				<Button variant='outline' size='sm' onClick={onRetry}>
+			<div className='flex flex-col gap-4 rounded-lg border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between'>
+				<div className='flex items-start gap-3'>
+					<CircleAlert className='mt-0.5 size-4 shrink-0' />
+					<div className='space-y-1'>
+						<p className='text-sm font-medium'>Project setup stopped</p>
+						<p className='text-xs text-muted-foreground'>{setupError}</p>
+					</div>
+				</div>
+				<Button variant='outline' size='sm' className='w-full rounded-full sm:w-auto' onClick={onRetry}>
 					Try again
 				</Button>
 			</div>
