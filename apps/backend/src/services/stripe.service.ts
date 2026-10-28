@@ -345,24 +345,26 @@ export async function listCloudInvoices(stripeCustomerId: string): Promise<Cloud
 	})) {
 		invoices.push(invoice);
 	}
-	return invoices.map((invoice) => ({
-		id: invoice.id,
-		number: invoice.number,
-		invoiceKind: isCreditTopUpInvoice(invoice)
-			? 'credit_top_up'
-			: invoice.total !== 0
-				? 'subscription'
-				: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
-					? 'trial'
-					: 'no_charge',
-		promotionCodes: invoicePromotionCodes(invoice),
-		status: invoice.status,
-		createdAt: new Date(invoice.created * 1_000),
-		total: invoice.total,
-		currency: invoice.currency,
-		hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
-		invoicePdf: invoice.invoice_pdf ?? null,
-	}));
+	return invoices
+		.filter((invoice) => !isCloudTrialPlaceholderInvoice(invoice))
+		.map((invoice) => ({
+			id: invoice.id,
+			number: invoice.number,
+			invoiceKind: isCreditTopUpInvoice(invoice)
+				? 'credit_top_up'
+				: invoice.total !== 0
+					? 'subscription'
+					: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
+						? 'trial'
+						: 'no_charge',
+			promotionCodes: invoicePromotionCodes(invoice),
+			status: invoice.status,
+			createdAt: new Date(invoice.created * 1_000),
+			total: invoice.total,
+			currency: invoice.currency,
+			hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
+			invoicePdf: invoice.invoice_pdf ?? null,
+		}));
 }
 
 export async function getCloudUpcomingInvoice(stripeSubscriptionId: string): Promise<CloudUpcomingInvoice> {
@@ -384,6 +386,9 @@ export async function listStripeInvoicesCreatedSince(createdSince: Date): Promis
 		created: { gte: Math.floor(createdSince.getTime() / 1_000) },
 		limit: 100,
 	})) {
+		if (isCloudTrialPlaceholderInvoice(invoice)) {
+			continue;
+		}
 		invoices.push({
 			id: invoice.id,
 			number: invoice.number,
@@ -979,6 +984,11 @@ async function findCheckoutSession(
 
 function isCreditTopUpInvoice(invoice: Pick<Stripe.Invoice, 'metadata'>): boolean {
 	return invoice.metadata?.[CHECKOUT_KIND_METADATA_KEY] === CREDIT_TOP_UP_CHECKOUT_KIND;
+}
+
+function isCloudTrialPlaceholderInvoice(invoice: Pick<Stripe.Invoice, 'lines'>): boolean {
+	const trialProductId = configuredCloudTrialProductId();
+	return invoice.lines.data.some((line) => line.pricing?.price_details?.product === trialProductId);
 }
 
 function invoicePromotionCodes(invoice: Pick<Stripe.Invoice, 'discounts'>): string[] {

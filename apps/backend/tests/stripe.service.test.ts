@@ -92,6 +92,7 @@ import {
 	listCloudInvoices,
 	listCloudSubscriptions,
 	listCurrentCloudSubscriptions,
+	listStripeInvoicesCreatedSince,
 	resumeCloudSubscription,
 	validateCloudBillingConfiguration,
 } from '../src/services/stripe.service';
@@ -1307,6 +1308,7 @@ describe('cloud billing recovery', () => {
 						promotion_code: { code: 'EARLY50' },
 					},
 				],
+				lines: { data: [{ pricing: { price_details: { product: 'prod_cloud' } } }] },
 				hosted_invoice_url: 'https://invoice.stripe.com/in_cloud',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_cloud/pdf',
 			},
@@ -1320,12 +1322,27 @@ describe('cloud billing recovery', () => {
 				total: 0,
 				currency: 'usd',
 				discounts: [],
+				lines: { data: [{ pricing: { price_details: { product: 'prod_cloud' } } }] },
 				hosted_invoice_url: 'https://invoice.stripe.com/in_trial',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_trial/pdf',
 			},
 			{
-				id: 'in_trial_extension',
+				id: 'in_trial_placeholder',
 				number: 'NAO-0003',
+				billing_reason: 'subscription_create',
+				status: 'paid',
+				created: 1_793_500_000,
+				subtotal: 0,
+				total: 0,
+				currency: 'usd',
+				discounts: [],
+				lines: { data: [{ pricing: { price_details: { product: 'prod_cloud_trial' } } }] },
+				hosted_invoice_url: 'https://invoice.stripe.com/in_trial_placeholder',
+				invoice_pdf: 'https://pay.stripe.com/invoice/in_trial_placeholder/pdf',
+			},
+			{
+				id: 'in_trial_extension',
+				number: 'NAO-0004',
 				billing_reason: 'subscription_update',
 				status: 'paid',
 				created: 1_793_000_000,
@@ -1333,12 +1350,13 @@ describe('cloud billing recovery', () => {
 				total: 0,
 				currency: 'usd',
 				discounts: [],
+				lines: { data: [{ pricing: { price_details: { product: 'prod_cloud' } } }] },
 				hosted_invoice_url: 'https://invoice.stripe.com/in_trial_extension',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_trial_extension/pdf',
 			},
 			{
 				id: 'in_discounted_resubscription',
-				number: 'NAO-0004',
+				number: 'NAO-0005',
 				billing_reason: 'subscription_create',
 				status: 'paid',
 				created: 1_792_000_000,
@@ -1351,6 +1369,7 @@ describe('cloud billing recovery', () => {
 						promotion_code: { code: 'FREE100' },
 					},
 				],
+				lines: { data: [{ pricing: { price_details: { product: 'prod_cloud' } } }] },
 				hosted_invoice_url: 'https://invoice.stripe.com/in_discounted_resubscription',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_discounted_resubscription/pdf',
 			},
@@ -1389,7 +1408,7 @@ describe('cloud billing recovery', () => {
 			},
 			{
 				id: 'in_trial_extension',
-				number: 'NAO-0003',
+				number: 'NAO-0004',
 				invoiceKind: 'no_charge',
 				promotionCodes: [],
 				status: 'paid',
@@ -1401,7 +1420,7 @@ describe('cloud billing recovery', () => {
 			},
 			{
 				id: 'in_discounted_resubscription',
-				number: 'NAO-0004',
+				number: 'NAO-0005',
 				invoiceKind: 'no_charge',
 				promotionCodes: ['FREE100'],
 				status: 'paid',
@@ -1417,6 +1436,67 @@ describe('cloud billing recovery', () => {
 			expand: ['data.discounts.promotion_code'],
 			limit: 100,
 		});
+	});
+
+	it('omits standalone trial product invoices from the Stripe account history', async () => {
+		const stripeInvoices = [
+			{
+				id: 'in_trial_placeholder',
+				number: 'NAO-0001',
+				customer: 'cus_cloud',
+				status: 'paid',
+				billing_reason: 'subscription_create',
+				metadata: {},
+				total: 0,
+				amount_paid: 0,
+				currency: 'usd',
+				attempt_count: 0,
+				created: 1_795_000_000,
+				status_transitions: { paid_at: 1_795_000_000 },
+				hosted_invoice_url: 'https://invoice.stripe.com/in_trial_placeholder',
+				lines: { data: [{ pricing: { price_details: { product: 'prod_cloud_trial' } } }] },
+			},
+			{
+				id: 'in_subscription_trial',
+				number: 'NAO-0002',
+				customer: 'cus_cloud',
+				status: 'paid',
+				billing_reason: 'subscription_create',
+				metadata: {},
+				total: 0,
+				amount_paid: 0,
+				currency: 'usd',
+				attempt_count: 0,
+				created: 1_794_000_000,
+				status_transitions: { paid_at: 1_794_000_000 },
+				hosted_invoice_url: 'https://invoice.stripe.com/in_subscription_trial',
+				lines: { data: [{ pricing: { price_details: { product: 'prod_cloud' } } }] },
+			},
+		];
+		stripeMocks.listInvoices.mockReturnValue({
+			data: stripeInvoices,
+			async *[Symbol.asyncIterator]() {
+				yield* stripeInvoices;
+			},
+		});
+
+		await expect(listStripeInvoicesCreatedSince(new Date(1_793_000_000_000))).resolves.toEqual([
+			{
+				id: 'in_subscription_trial',
+				number: 'NAO-0002',
+				stripeCustomerId: 'cus_cloud',
+				status: 'paid',
+				billingReason: 'subscription_create',
+				invoiceKind: 'subscription',
+				total: 0,
+				amountPaid: 0,
+				currency: 'usd',
+				attemptCount: 0,
+				createdAt: new Date(1_794_000_000_000),
+				paidAt: new Date(1_794_000_000_000),
+				hostedInvoiceUrl: 'https://invoice.stripe.com/in_subscription_trial',
+			},
+		]);
 	});
 
 	it('creates a Customer Portal Session with a trusted return URL', async () => {
