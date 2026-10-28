@@ -8,11 +8,12 @@ import { Input } from '@/components/ui/input';
 import { trpc } from '@/main';
 
 interface EditableProjectNameProps {
+	projectId: string;
 	name: string;
 	canEdit: boolean;
 }
 
-export function EditableProjectName({ name, canEdit }: EditableProjectNameProps) {
+export function EditableProjectName({ projectId, name, canEdit }: EditableProjectNameProps) {
 	const queryClient = useQueryClient();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [isEditing, setIsEditing] = useState(false);
@@ -45,7 +46,7 @@ export function EditableProjectName({ name, canEdit }: EditableProjectNameProps)
 		const nextName = draft.trim();
 		setIsEditing(false);
 		if (nextName && nextName !== name) {
-			rename.mutate({ name: nextName });
+			rename.mutate({ projectId, name: nextName });
 		}
 	};
 

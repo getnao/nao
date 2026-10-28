@@ -33,7 +33,14 @@ function ProjectSettingsPage() {
 					<>
 						<DetailRow
 							label='Name'
-							value={<EditableProjectName name={project.data.name} canEdit={isAdmin} />}
+							value={
+								<EditableProjectName
+									key={project.data.id}
+									projectId={project.data.id}
+									name={project.data.name}
+									canEdit={isAdmin}
+								/>
+							}
 						/>
 						{project.data.path && (
 							<DetailRow
