@@ -25,7 +25,7 @@ import { ChatIdContext, useChatId } from '@/hooks/use-chat-id';
 import { useCitationPills } from '@/hooks/use-citation-pills';
 import { useIsPromptMultiline } from '@/hooks/use-is-prompt-multiline';
 import { useOpenCitation } from '@/hooks/use-open-citation';
-import { isSameCitation } from '@/lib/citation-mention';
+import { capCitationText, isSameCitation } from '@/lib/citation-mention';
 import { cn } from '@/lib/utils';
 import { toAskCitation, useAskRequest } from '@/stores/ask-bar';
 import { toMessageCitations } from '@/stores/chat-pending-citation';
@@ -513,7 +513,8 @@ function countQuestions(messages: UIMessage[]): number {
 	return messages.filter((message) => message.role === 'user' && !message.isForked).length;
 }
 
-function withCitation(session: AskSession, citation: CitationData): AskSession {
+function withCitation(session: AskSession, incoming: CitationData): AskSession {
+	const citation = capCitationText(incoming);
 	const isDuplicate = session.citations.some((cited) => isSameCitation(cited, citation));
 	if (isDuplicate || session.citations.length >= MAX_CITATIONS_PER_MESSAGE) {
 		return session;

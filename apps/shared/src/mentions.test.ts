@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractStoryFolderReferenceIds, extractStoryReferenceIds, replaceStoryAndFolderReferences } from './mentions';
+import {
+	extractStoryFolderReferenceIds,
+	extractStoryReferenceIds,
+	quoteCitationTokens,
+	replaceStoryAndFolderReferences,
+} from './mentions';
 
 describe('story reference mentions', () => {
 	it('extracts referenced stories once, in order, ignoring table mentions', () => {
@@ -45,5 +50,11 @@ describe('story folder mentions', () => {
 				folder: (folderId) => `<${folderId}>`,
 			}),
 		).toBe('Sum up <f1> and a then <__shared_with_me__> and <f1>');
+	});
+});
+
+describe('citation tokens', () => {
+	it('quotes each citation of a sent message, keeping a token that cites nothing', () => {
+		expect(quoteCitationTokens('❝[1] vs ❝[2]?', [{ text: 'Revenue\nin May' }])).toBe('“Revenue in May” vs ❝[2]?');
 	});
 });

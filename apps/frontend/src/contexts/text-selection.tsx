@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 
 import { getTextOffset, isRangeInIgnoredRegion } from '@/lib/selection-dom.utils';
 import { useMemoObject } from '@/hooks/useMemoObject';
+import { isTypingTarget } from '@/lib/keyboard-shortcuts';
 
 export interface SelectionState {
 	text: string;
@@ -14,6 +15,7 @@ interface SelectionContextValue {
 	selection: SelectionState | null;
 	clearSelection: () => void;
 	containerRef: React.RefObject<HTMLDivElement | null>;
+	pageContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
 const SelectionContext = createContext<SelectionContextValue | null>(null);
@@ -32,6 +34,7 @@ export const SelectionProvider = ({ children, resetKey }: { children: React.Reac
 	const [selection, setSelection] = useState<SelectionState | null>(null);
 	const [prevResetKey, setPrevResetKey] = useState(resetKey);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const pageContainerRef = useContext(SelectionContext)?.pageContainerRef ?? containerRef;
 
 	if (resetKey !== prevResetKey) {
 		setPrevResetKey(resetKey);
@@ -66,12 +69,28 @@ export const SelectionProvider = ({ children, resetKey }: { children: React.Reac
 		setSelection({ text, start, end, range });
 	}, []);
 
+	useEffect(() => {
+		const handleKeyUp = (event: KeyboardEvent) => {
+			if (isTypingTarget(event)) {
+				return;
+			}
+			if (window.getSelection()?.isCollapsed) {
+				setSelection(null);
+			} else {
+				handleMouseUp();
+			}
+		};
+		document.addEventListener('keyup', handleKeyUp);
+		return () => document.removeEventListener('keyup', handleKeyUp);
+	}, [handleMouseUp]);
+
 	const clearSelection = useCallback(() => setSelection(null), []);
 
 	const value = useMemoObject({
 		selection,
 		clearSelection,
 		containerRef,
+		pageContainerRef,
 	});
 
 	return (

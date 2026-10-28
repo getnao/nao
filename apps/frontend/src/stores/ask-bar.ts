@@ -29,8 +29,8 @@ export function requestAsk(request: Omit<AskRequest, 'id'> = { chatId: null }): 
 	askRequestStore.set({ ...request, id: nextRequestId });
 }
 
-export function requestAskAboutSelection({ text, start, end }: Omit<AskSelection, 'block'>): void {
-	requestAsk({ chatId: null, selection: { text, start, end } });
+export function requestAskAboutSelection({ text, start, end }: Omit<AskSelection, 'block'>, storySlug?: string): void {
+	requestAsk({ chatId: null, selection: { text, start, end, storySlug } });
 }
 
 export function requestAskAboutElement({ text, block }: StoryElementAsk, storySlug?: string): void {

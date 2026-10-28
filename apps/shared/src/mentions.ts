@@ -5,6 +5,8 @@ export const STORY_REFERENCE_MENTION_TRIGGER = DATABASE_MENTION_TRIGGER;
 export const CITATION_MENTION_TRIGGER = '❝';
 export const SHARED_WITH_ME_FOLDER_ID = '__shared_with_me__';
 
+const CITATION_TOKEN = new RegExp(`${CITATION_MENTION_TRIGGER}\\[([^\\]\\s]+)\\]`, 'g');
+
 const STORY_REFERENCE_PREFIX = 'story:';
 const STORY_REFERENCE_TOKEN = mentionToken(STORY_REFERENCE_PREFIX);
 const STORY_FOLDER_REFERENCE_PREFIX = 'story-folder:';
@@ -14,6 +16,13 @@ const STORY_OR_FOLDER_REFERENCE_TOKEN = new RegExp(
 	'g',
 );
 const SCHEMA_REFERENCE_PREFIX = 'schema:';
+
+export function quoteCitationTokens(text: string, citations: { text: string }[]): string {
+	return text.replace(CITATION_TOKEN, (token, position: string) => {
+		const citation = citations[Number(position) - 1];
+		return citation ? `“${citation.text.replace(/\s+/g, ' ').trim()}”` : token;
+	});
+}
 
 export function toStoryReferenceMentionId(storyId: string): string {
 	return `${STORY_REFERENCE_PREFIX}${storyId}`;

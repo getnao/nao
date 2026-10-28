@@ -1,12 +1,17 @@
 import { useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { CitationData } from '@nao/shared/types';
+import type { Chat } from '@/queries/use-chat-query';
+import type { ResolvedStory } from '@/hooks/use-mentioned-stories';
 import { useOptionalSelection } from '@/contexts/text-selection';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useOpenMentionedStory } from '@/hooks/use-mentioned-stories';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { isCodeCitation } from '@/lib/citation-mention';
 import { findQuotedRange } from '@/lib/selection-dom.utils';
 import { requestStoryHighlight } from '@/stores/story-highlight';
+import { trpc } from '@/main';
 
 /**
  * Shows what a citation points at: its story in the side panel, scrolled to the quoted text,
@@ -16,11 +21,33 @@ export function useOpenCitation() {
 	const selectionCtx = useOptionalSelection();
 	const sidePanel = useSidePanel();
 	const chatId = useChatId();
+	const questionStory = useQuickQuestionStory(chatId, !sidePanel.isReplay);
+	const openStoryInSidePanel = useCallback(
+		(story: { chatId: string; slug: string }) =>
+			sidePanel.open(<StoryViewer chatId={story.chatId} storySlug={story.slug} />, story.slug),
+		[sidePanel],
+	);
+	const openQuestionStory = useOpenMentionedStory(openStoryInSidePanel);
 
 	return useCallback(
 		(citation: CitationData) => {
 			const { start, end, text, storySlug, block } = citation;
 			if (isCodeCitation(citation)) {
+				return;
+			}
+			const pageContainer = selectionCtx?.pageContainerRef.current;
+			const revealInQuestionStory = (story: ResolvedStory) => {
+				if (!isStoryShown(story, sidePanel)) {
+					openQuestionStory(story);
+				}
+				revealInStory(citation);
+			};
+			if (questionStory && storySlug === questionStory.slug) {
+				if (!block && pageContainer && isStoryPage(questionStory, sidePanel)) {
+					highlightQuoteIn([pageContainer], citation);
+					return;
+				}
+				revealInQuestionStory(questionStory);
 				return;
 			}
 			if (block) {
@@ -41,19 +68,68 @@ export function useOpenCitation() {
 				return;
 			}
 
-			const container =
-				selectionCtx?.containerRef.current ?? document.querySelector<HTMLElement>('[data-selection-container]');
-			if (!container) {
-				return;
-			}
-
-			const range = findQuotedRange(container, start, end, text);
-			if (range) {
-				highlightRange(range);
+			const isQuoteShown = highlightQuoteIn(
+				[
+					selectionCtx?.containerRef.current,
+					pageContainer,
+					document.querySelector<HTMLElement>('[data-selection-container]'),
+				],
+				citation,
+			);
+			if (!isQuoteShown && questionStory && !storySlug) {
+				revealInQuestionStory(questionStory);
 			}
 		},
-		[selectionCtx, sidePanel, chatId],
+		[selectionCtx, sidePanel, chatId, questionStory, openQuestionStory],
 	);
+}
+
+/** The story a quick question is about: it lives in its own chat, not in the chat of the question. */
+function useQuickQuestionStory(chatId: string | undefined, isEnabled: boolean): ResolvedStory | undefined {
+	const questionStoryId = useQuery({
+		...trpc.chat.get.queryOptions({ chatId: chatId ?? '' }),
+		enabled: Boolean(chatId) && isEnabled,
+		select: selectQuestionStoryId,
+	}).data;
+	return useQuery({
+		...trpc.story.resolve.queryOptions({ storyId: questionStoryId ?? '' }),
+		enabled: Boolean(questionStoryId),
+		retry: false,
+	}).data;
+}
+
+function selectQuestionStoryId(chat: Chat): string | undefined {
+	return chat.forkMetadata?.type === 'story_question' ? chat.forkMetadata.id : undefined;
+}
+
+type SidePanelState = { chatId: string | null; currentStorySlug: string | null; isVisible: boolean };
+
+/** On the story page, the quick question is asked beside the story itself. */
+function isStoryPage(story: ResolvedStory, sidePanel: SidePanelState): boolean {
+	return !sidePanel.chatId || sidePanel.chatId === story.chatId;
+}
+
+function isStoryShown(story: ResolvedStory, sidePanel: SidePanelState): boolean {
+	return isStoryPage(story, sidePanel) || (sidePanel.isVisible && sidePanel.currentStorySlug === story.slug);
+}
+
+function highlightQuoteIn(containers: (Element | null | undefined)[], { start, end, text }: CitationData): boolean {
+	for (const container of new Set(containers)) {
+		const range = container ? findQuotedRange(container, start, end, text) : null;
+		if (range) {
+			highlightRange(range);
+			return true;
+		}
+	}
+	return false;
+}
+
+function revealInStory(citation: CitationData) {
+	if (citation.block) {
+		requestStoryHighlight(citation);
+		return;
+	}
+	pollAndScrollToStoryText(citation.start, citation.end, citation.text);
 }
 
 function pollAndScrollToStoryText(start: number, end: number, text: string) {

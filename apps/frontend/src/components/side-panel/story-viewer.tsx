@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { X } from 'lucide-react';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareStoryDialog } from '../share-dialog.story';
 import { StoryUnsavedChangesDialog } from '../story-unsaved-changes-dialog';
@@ -44,6 +45,7 @@ import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
+import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { StoryThemeProvider, useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
@@ -361,7 +363,16 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			);
 		}
 		return (
-			<div className='flex h-full items-center justify-center text-muted-foreground text-sm'>
+			<div className='relative flex h-full items-center justify-center text-muted-foreground text-sm'>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className='absolute top-2 left-4 hover:rounded-full'
+					onClick={closeSidePanel}
+					aria-label='Close'
+				>
+					<X className='size-3.5' strokeWidth={2.25} />
+				</Button>
 				{isAgentRunning ? 'Waiting for story stream...' : 'No Story content available.'}
 			</div>
 		);

@@ -12,9 +12,17 @@ import {
 } from '@/components/story-embeds';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
-import { StoryBlock, StoryMapFrame, StoryTableFrame } from '@/components/story-block';
+import {
+	chartBlockReference,
+	mapBlockReference,
+	StoryBlock,
+	StoryMapFrame,
+	StoryTableFrame,
+	tableBlockReference,
+} from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
+import { useCitedElementHighlight } from '@/hooks/use-cited-element-highlight';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
@@ -48,6 +56,8 @@ export const StoryPreview = memo(function StoryPreview({
 	isViewingLatest = true,
 	theme,
 }: StoryPreviewProps) {
+	const contentRef = useRef<HTMLDivElement>(null);
+	useCitedElementHighlight(contentRef, storySlug);
 	const previousSegmentsRef = useRef<ReturnType<typeof splitCodeIntoSegments>>([]);
 	const segments = useMemo(() => {
 		const nextSegments = stabilizeStorySegments(splitCodeIntoSegments(code), previousSegmentsRef.current);
@@ -87,7 +97,7 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => (
-			<StoryBlock>
+			<StoryBlock block={chartBlockReference(chart)}>
 				<LiveChartEmbed
 					chart={chart}
 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
@@ -112,7 +122,7 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderTable = useCallback(
 		(table: ParsedTableBlock) => (
-			<StoryTableFrame>
+			<StoryTableFrame block={tableBlockReference(table)}>
 				<LiveTableEmbed
 					table={table}
 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
@@ -137,7 +147,7 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderMap = useCallback(
 		(map: ParsedMapBlock) => (
-			<StoryMapFrame>
+			<StoryMapFrame block={mapBlockReference(map)}>
 				<LiveMapEmbed
 					map={map}
 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
@@ -163,7 +173,7 @@ export const StoryPreview = memo(function StoryPreview({
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
-				<div data-story-content className='p-6 flex flex-col gap-4'>
+				<div ref={contentRef} data-story-content className='p-6 flex flex-col gap-4'>
 					<StoryFilterBar
 						filters={storyFilters.filters}
 						selections={storyFilters.selections}

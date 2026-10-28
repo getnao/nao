@@ -2,7 +2,7 @@ import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import { Store } from './abstract-store';
 import type { StoryElementCitation } from '@nao/shared/story-app';
 import type { CitationData } from '@nao/shared/types';
-import { extractCitationIds, isSameCitation, numberCitationTokens } from '@/lib/citation-mention';
+import { capCitationText, extractCitationIds, isSameCitation, numberCitationTokens } from '@/lib/citation-mention';
 
 export interface PendingCitation extends CitationData {
 	id: string;
@@ -16,7 +16,8 @@ interface ChatPendingCitations {
 class ChatPendingCitationStore extends Store<ChatPendingCitations | null> {
 	protected state: ChatPendingCitations | null = null;
 
-	add = (chatId: string, citation: CitationData) => {
+	add = (chatId: string, cited: CitationData) => {
+		const citation = capCitationText(cited);
 		const citations = this.citationsOf(chatId);
 		const isDuplicate = citations.some((pending) => isSameCitation(pending, citation));
 		if (isDuplicate || citations.length >= MAX_CITATIONS_PER_MESSAGE) {
@@ -29,8 +30,10 @@ class ChatPendingCitationStore extends Store<ChatPendingCitations | null> {
 		this.add(chatId, { storySlug, start: 0, end: 0, text, block, intent });
 	};
 
-	restore = (chatId: string, citations: CitationData[]) => {
-		this.update(chatId, citations.map(withId));
+	restore = (chatId: string, citations: CitationData[]): PendingCitation[] => {
+		const restored = citations.map(withId);
+		this.update(chatId, restored);
+		return restored;
 	};
 
 	remove = (chatId: string, id: string) => {

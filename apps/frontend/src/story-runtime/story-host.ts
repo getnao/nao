@@ -60,6 +60,7 @@ let exportData: StoryExportData | null = null;
 let frameChannel: string | undefined;
 let hostPort: MessagePort | null = null;
 let hostShortcuts: Shortcut[] = [];
+let stopPendingHighlight: () => void = () => {};
 
 export async function bootStory({
 	kind = 'react',
@@ -259,7 +260,8 @@ function handleHostMessage(message: unknown): void {
 		return;
 	}
 	if (message.type === 'nao-story:highlight') {
-		highlightStoryElement({ block: message.block, text: message.text });
+		stopPendingHighlight();
+		stopPendingHighlight = highlightStoryElement({ block: message.block, text: message.text });
 		return;
 	}
 	if (message.type === 'nao-story:theme') {

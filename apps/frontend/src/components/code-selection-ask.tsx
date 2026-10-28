@@ -1,5 +1,5 @@
 import { MessageCircleQuestionIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Monaco } from '@monaco-editor/react';
 import type { editor, IPosition } from 'monaco-editor';
@@ -53,6 +53,13 @@ export function CodeSelectionAsk({ codeEditor, onAsk }: CodeSelectionAskProps) {
 		};
 	}, [codeEditor, widgetNode]);
 
+	const askAboutSelection = useEffectEvent((instance: editor.IStandaloneCodeEditor) => {
+		const current = readCodeSelection(instance);
+		if (current) {
+			askAboutCode(instance, current, onAsk);
+		}
+	});
+
 	useEffect(() => {
 		if (!codeEditor) {
 			return;
@@ -63,15 +70,10 @@ export function CodeSelectionAsk({ codeEditor, onAsk }: CodeSelectionAskProps) {
 			label: 'Add selection to chat',
 			keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL],
 			precondition: 'editorHasSelection',
-			run: () => {
-				const current = readCodeSelection(instance);
-				if (current) {
-					askAboutCode(instance, current, onAsk);
-				}
-			},
+			run: () => askAboutSelection(instance),
 		});
 		return () => action.dispose();
-	}, [codeEditor, onAsk]);
+	}, [codeEditor]);
 
 	if (!selection || !codeEditor) {
 		return null;

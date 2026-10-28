@@ -92,7 +92,10 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 			/>
 			<div className='relative flex min-h-0 flex-1 flex-col'>
 				<SelectionProvider key={storyId}>
-					<HighlightBubble onAsk={requestAskAboutSelection} disabled={isArchived} />
+					<HighlightBubble
+						onAsk={(selection) => requestAskAboutSelection(selection, story.slug)}
+						disabled={isArchived}
+					/>
 					<StoryElementPicker
 						isPicking={!isArchived && isSelectingElements}
 						storySlug={story.slug}

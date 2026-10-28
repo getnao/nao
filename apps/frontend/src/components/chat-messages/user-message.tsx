@@ -4,7 +4,7 @@ import { Message } from 'prompt-mentions';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { createPortal } from 'react-dom';
-import { getStoryIdFromMentionId } from '@nao/shared';
+import { getStoryIdFromMentionId, quoteCitationTokens } from '@nao/shared';
 import type { UIMessage } from '@nao/backend/chat';
 import type { CitationData } from '@nao/shared/types';
 import type { MessageMentionConfig, MentionOption, PromptTheme } from 'prompt-mentions';
@@ -18,12 +18,7 @@ import { FileChip } from '@/components/file-chip';
 import { ImageLightbox } from '@/components/image-lightbox';
 import { getMessageText, getMessageImages, getMessageDocuments } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
-import {
-	CITATION_MENTION_TRIGGER,
-	placeCitationsInline,
-	quoteCitations,
-	toSentCitationOptions,
-} from '@/lib/citation-mention';
+import { CITATION_MENTION_TRIGGER, placeCitationsInline, toSentCitationOptions } from '@/lib/citation-mention';
 import { useOpenCitation } from '@/hooks/use-open-citation';
 import { CitationPillPreview } from '@/components/citation-pill-preview';
 import { Button } from '@/components/ui/button';
@@ -273,7 +268,7 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 							size='icon-sm'
 							className='hover:rounded-full'
 							aria-label='Copy'
-							onClick={() => copy(quoteCitations(getMessageText(message), message.citations ?? []))}
+							onClick={() => copy(quoteCitationTokens(getMessageText(message), message.citations ?? []))}
 						>
 							{isCopied ? <Check className='size-4' /> : <Copy />}
 						</Button>

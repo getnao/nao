@@ -17,6 +17,24 @@ describe('findQuotedRange', () => {
 		expect(range.toString()).toBe('today');
 		expect(range.startContainer.parentElement!.textContent).toContain('Data ends');
 	});
+
+	it('finds a quote spanning blocks, whose line breaks the page text lacks', () => {
+		const range = findQuotedRange(container, 0, 0, 'Is it today?\nSide panel text')!;
+
+		expect(range.toString()).toBe('Is it today?Side panel text');
+	});
+
+	it('finds a quote cut with an ellipsis from where it starts', () => {
+		const range = findQuotedRange(container, 0, 0, 'Side panel text\n\nData ends bef…')!;
+
+		expect(range.toString()).toBe('Side panel textData ends bef');
+	});
+
+	it('keeps the quoted offsets when only whitespace differs there', () => {
+		const range = findQuotedRange(container, 0, 27, 'Is it today?\n\nSide panel text')!;
+
+		expect(range.toString()).toBe('Is it today?Side panel text');
+	});
 });
 
 describe('isRangeInIgnoredRegion', () => {
