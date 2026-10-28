@@ -2,6 +2,7 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
 import { z } from 'zod/v4';
 
+import { testRunAgent } from '../agents/profiles/test-run';
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
@@ -57,10 +58,7 @@ export class TestAgentService extends AgentService {
 			projectId,
 		};
 
-		const agent = await this.create(tempChat, modelSelection, {
-			usageCategory: 'test',
-			attributeUsageToChat: false,
-		});
+		const agent = await this.create(tempChat, modelSelection, testRunAgent, { attributeUsageToChat: false });
 		return agent.generate([userMessage], { costs });
 	}
 

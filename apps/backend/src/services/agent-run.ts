@@ -1,5 +1,8 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 
+import { adminAgent } from '../agents/profiles/admin';
+import { analyticsAgent } from '../agents/profiles/analytics';
+import type { AgentProfile } from '../agents/profiles/types';
 import type { DBProject } from '../db/abstractSchema';
 import { noProjectMessage } from '../env';
 import * as chatQueries from '../queries/chat.queries';
@@ -20,11 +23,11 @@ export interface AuthorizedAgentRunRequest extends AgentRunRequest {
 	projectId: string;
 }
 
-/** A run whose project access and billing are already checked. */
+/** A run whose project access and billing are already checked, with the agent profile it may use. */
 export interface AgentRun {
 	projectId: string;
+	profile: AgentProfile;
 	model: LlmSelectedModel | undefined;
-	canChatWithNaoData: boolean;
 	unbilledManagedAiUsage: boolean;
 	/** Gives back what the run reserved when it fails before streaming. */
 	release?: () => Promise<void>;
@@ -84,10 +87,11 @@ async function authorizeMemberAgentRun({ userId, body, projectId }: AuthorizedAg
 		throw new HandlerError('FORBIDDEN', 'Viewers cannot send messages');
 	}
 	await assertProjectCloudBillingAccess(projectId);
+	const canUseAdminAgent = userRole === 'admin' || userRole === 'context_admin';
 	return {
 		projectId,
+		profile: body.adminMode && canUseAdminAgent ? adminAgent : analyticsAgent,
 		model: body.model,
-		canChatWithNaoData: userRole === 'admin' || userRole === 'context_admin',
 		unbilledManagedAiUsage: false,
 	};
 }

@@ -16,6 +16,7 @@ import {
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import type { User } from '../db/abstractSchema';
 import * as chartImageQueries from '../queries/chart-image';
@@ -64,7 +65,7 @@ import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
-import { agentService, defaultAgentToolsExcluding } from './agent';
+import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { SlackSocketBridge } from './slack-socket-bridge';
@@ -80,8 +81,6 @@ const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;
 const CODE_SPAN_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/;
 const RESERVED_SLACK_MENTIONS = new Set(['channel', 'everyone', 'here']);
 /** Every file written to storage is posted to the thread, so edits go through a full `write` that re-sends the new version. */
-const SLACK_EXCLUDED_TOOLS = ['str_replace'];
-
 type SlackReplyMessage = NonNullable<Awaited<ReturnType<WebClient['conversations']['replies']>>['messages']>[number];
 type SlackUser = NonNullable<Awaited<ReturnType<WebClient['users']['list']>>['members']>[number];
 
@@ -1235,19 +1234,15 @@ export class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
-			{
-				billingAccessVerifiedProjectId: this.projectId,
-				supportsCustomCharts: false,
-				tools: defaultAgentToolsExcluding(SLACK_EXCLUDED_TOOLS),
-			},
+			messagingAgent('slack'),
+			{ billingAccessVerifiedProjectId: this.projectId },
 		);
 		ctx.modelId = agent.getModelId();
 		return {
 			agent,
 			stream: agent.stream(chat.messages, {
-				provider: 'slack',
 				timezone: ctx.timezone,
-				tracking: { source: 'slack', isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
+				tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
 			}),
 		};
 	}

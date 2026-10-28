@@ -23,6 +23,8 @@ vi.mock('../src/agents/managed-ai', async (importOriginal) => {
 	return { ...actual, isManagedAiEnabled: mocks.isManagedAiEnabled };
 });
 
+import { exampleAgent } from '../src/agents/profiles/example';
+import { onboardingAgent } from '../src/agents/profiles/onboarding';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import * as chatQueries from '../src/queries/chat.queries';
@@ -160,30 +162,34 @@ describe('example chat allowance', () => {
 	});
 
 	it.each([
-		{ mode: 'example' as const, userId: FALLBACK_EXAMPLE_USER_ID },
-		{ mode: 'onboarding' as const, userId: FALLBACK_ONBOARDING_USER_ID },
-	])('uses the configured default model for $mode when managed AI is unavailable', async ({ mode, userId }) => {
-		const setupError = new Error('Fallback model reached agent setup');
-		mocks.isManagedAiEnabled.mockReturnValue(false);
-		mocks.handleAgentRoute.mockRejectedValue(setupError);
-		const handler = await getAgentRouteHandler();
+		{ mode: 'example' as const, userId: FALLBACK_EXAMPLE_USER_ID, profile: exampleAgent },
+		{ mode: 'onboarding' as const, userId: FALLBACK_ONBOARDING_USER_ID, profile: onboardingAgent },
+	])(
+		'runs the $mode agent on the configured default model when managed AI is unavailable',
+		async ({ mode, userId, profile }) => {
+			const setupError = new Error('Fallback model reached agent setup');
+			mocks.isManagedAiEnabled.mockReturnValue(false);
+			mocks.handleAgentRoute.mockRejectedValue(setupError);
+			const handler = await getAgentRouteHandler();
 
-		await expect(
-			handler({
-				user: { id: userId },
-				project: undefined,
-				body: { message: { text: 'Use the fallback model' }, mode },
-				headers: {},
-			}),
-		).rejects.toBe(setupError);
-		expect(mocks.handleAgentRoute).toHaveBeenCalledWith(
-			expect.objectContaining({
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				model: undefined,
-				unbilledManagedAiUsage: true,
-			}),
-		);
-	});
+			await expect(
+				handler({
+					user: { id: userId },
+					project: undefined,
+					body: { message: { text: 'Use the fallback model' }, mode },
+					headers: {},
+				}),
+			).rejects.toBe(setupError);
+			expect(mocks.handleAgentRoute).toHaveBeenCalledWith(
+				expect.objectContaining({
+					projectId: SYSTEM_EXAMPLE_PROJECT_ID,
+					profile,
+					model: undefined,
+					unbilledManagedAiUsage: true,
+				}),
+			);
+		},
+	);
 
 	it("rejects continuing another user's example chat", async () => {
 		vi.spyOn(chatQueries, 'isOnboardingChat').mockResolvedValue(false);

@@ -6,6 +6,7 @@ import { displayChart } from '@nao/shared/tools';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Chat, type Logger as ChatLogger, Message, type SentMessage, Thread } from 'chat';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import type { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
@@ -471,17 +472,13 @@ class ProjectDiscordBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._config.projectId },
 			this._config.modelSelection,
-			{ billingAccessVerifiedProjectId: this._config.projectId, supportsCustomCharts: false },
+			messagingAgent('discord'),
+			{ billingAccessVerifiedProjectId: this._config.projectId },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, {
-			provider: 'discord',
 			timezone: ctx.timezone,
-			tracking: {
-				source: 'discord',
-				isNewChat: ctx.isNewChat,
-				domainHost: new URL(this._config.redirectUrl).host,
-			},
+			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(this._config.redirectUrl).host },
 		});
 	}
 

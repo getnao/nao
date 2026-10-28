@@ -4,10 +4,10 @@ import { type LlmSelectedModel, STORY_FORMATS } from '@nao/shared/types';
 import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
-import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
+import { mcpAgent } from '../../agents/profiles/mcp';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
-import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
+import { agentService } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
@@ -188,9 +188,8 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 			const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 			const naoChatUrl = chatUrl(chat.id);
 
-			const agent = await agentService.create(chat, modelSelection, {
+			const agent = await agentService.create(chat, modelSelection, mcpAgent, {
 				billingAccessVerifiedProjectId: ctx.projectId,
-				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
 			askNaoRuns.start(chat.id, modelLabel);
 			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl, modelLabel);

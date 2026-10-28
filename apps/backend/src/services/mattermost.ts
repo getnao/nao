@@ -6,6 +6,7 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Chat, deriveChannelId, type Logger as ChatLogger, Message, Thread, ThreadImpl } from 'chat';
 import { createMattermostAdapter, type MattermostAdapter } from 'chat-adapter-mattermost';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import type { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
@@ -463,17 +464,13 @@ class ProjectMattermostBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._config.projectId },
 			this._config.modelSelection,
-			{ billingAccessVerifiedProjectId: this._config.projectId, supportsCustomCharts: false },
+			messagingAgent('mattermost'),
+			{ billingAccessVerifiedProjectId: this._config.projectId },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, {
-			provider: 'mattermost',
 			timezone: ctx.timezone,
-			tracking: {
-				source: 'mattermost',
-				isNewChat: ctx.isNewChat,
-				domainHost: new URL(this._config.redirectUrl).host,
-			},
+			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(this._config.redirectUrl).host },
 		});
 	}
 

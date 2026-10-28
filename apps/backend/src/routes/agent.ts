@@ -24,11 +24,10 @@ export const agentRoutes = async (app: App) => {
 			...body,
 			userId: user.id,
 			projectId: run.projectId,
+			profile: run.profile,
 			model: run.model,
-			isOnboarding: body.mode === 'onboarding',
 			unbilledManagedAiUsage: run.unbilledManagedAiUsage,
 			billingAccessVerifiedProjectId: run.projectId,
-			adminMode: body.adminMode && run.canChatWithNaoData,
 			domainHost: getDomainHost(headers),
 		}).catch(async (error) => {
 			await run.release?.();

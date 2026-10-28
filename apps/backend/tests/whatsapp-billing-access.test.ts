@@ -107,7 +107,7 @@ describe('WhatsApp billing access', () => {
 		expect(mocks.createAgent).toHaveBeenCalledWith(
 			{ id: 'chat-1', messages: [], projectId: 'project-1', userId: 'user-1' },
 			undefined,
-			{ supportsCustomCharts: false },
+			expect.objectContaining({ source: 'whatsapp', messagingProvider: 'whatsapp', supportsCustomCharts: false }),
 		);
 	});
 });

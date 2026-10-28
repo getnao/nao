@@ -19,21 +19,17 @@ import {
 } from 'ai';
 
 import type { ManagedAiUsageContext } from '../agents/managed-ai';
+import type { AgentProfile } from '../agents/profiles/types';
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
-import {
-	appendCloudExampleScope,
-	getSystemPromptOverride,
-	hasNaoPromptPlaceholder,
-	injectNaoPrompt,
-} from '../agents/system-prompts';
+import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
-import { env, isCloud } from '../env';
+import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
@@ -44,14 +40,12 @@ import {
 	ForkMetadata,
 	Mention,
 	MessageCustomDataParts,
-	MessageSource,
 	TokenCost,
 	TokenUsage,
 	UIMessage,
 	UIMessagePart,
 } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
-import type { ManagedAiUsageCategory } from '../types/managed-ai-usage';
 import { Provider } from '../types/messaging-provider';
 import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
@@ -128,7 +122,6 @@ export interface AgentRunResult {
 
 /** Context of a user-sent message, reported with the `message_sent` event once the answer is finished. */
 export interface MessageSentTracking {
-	source: MessageSource;
 	isNewChat: boolean;
 	domainHost: string | undefined;
 }
@@ -170,66 +163,6 @@ const STORY_MODE_INSTRUCTIONS = {
 		'[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts]',
 	custom: '[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks]',
 } as const;
-
-/** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
-	getTools(agentSettings, webTools ?? {}, {
-		customBoundaries,
-		mcpAccess: toolContext.mcpAccess,
-		semanticLayerMode: toolContext.semanticLayerMode,
-		customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
-	});
-
-/** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
-export const defaultAgentToolsExcluding =
-	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ agentSettings, toolContext, webTools, customBoundaries }) =>
-		getTools(agentSettings, webTools ?? {}, {
-			excludeBuiltinTools,
-			customBoundaries,
-			mcpAccess: toolContext.mcpAccess,
-			semanticLayerMode: toolContext.semanticLayerMode,
-			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
-		});
-
-export const onboardingAgentTools: AgentToolsResolver = ({ agentSettings }) =>
-	getTools(
-		agentSettings,
-		{},
-		{
-			onboarding: true,
-			builtinToolAllowlist: [
-				'clarification',
-				'onboarding_agent_prompt',
-				'onboarding_command',
-				'onboarding_progress',
-				'request_warehouse_credentials',
-				'request_warehouse_selection',
-				'generate_onboarding_rules',
-			],
-		},
-	);
-
-/**
- * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
- * runs against nao's own app database when `ToolContext.adminMode` is set),
- * plus charting and follow-ups. Excludes the filesystem context tools.
- */
-export const adminAgentTools: AgentToolsResolver = ({ agentSettings }) =>
-	getTools(
-		agentSettings,
-		{},
-		{
-			builtinToolAllowlist: [
-				'execute_sql',
-				'read_query_result',
-				'display_chart',
-				'suggest_follow_ups',
-				'story',
-				'clarification',
-			],
-		},
-	);
 
 export async function buildToolContext(opts: {
 	projectId: string;
@@ -325,44 +258,10 @@ export class AgentService {
 
 	async create(
 		chat: AgentChat,
-		modelSelection?: LlmSelectedModel,
+		modelSelection: LlmSelectedModel | undefined,
+		profile: AgentProfile,
 		options: {
-			/**
-			 * Resolves the tool set the run exposes. Defaults to `defaultAgentTools`
-			 * (all built-ins, MCP and web search). Pass a custom resolver to restrict
-			 * or extend the tools (e.g. automations, context recommendations).
-			 */
-			tools?: AgentToolsResolver;
-			/**
-			 * Removes `suggest_follow_ups` and switches the loop's stop condition
-			 * to a step counter. Used by non-interactive runs (e.g. automations)
-			 * where suggesting follow-ups would prematurely end the loop
-			 * before outbound integration tools fire.
-			 */
-			excludeFollowUps?: boolean;
-			/**
-			 * Step budget for the `excludeFollowUps` stop condition. Defaults to 20.
-			 * Longer analyses (e.g. context recommendations) raise this so the loop
-			 * is not cut off before it finishes recording.
-			 */
-			maxSteps?: number;
-			/**
-			 * Replaces the standard system prompt with a fully formed prompt. Skips the
-			 * default instructions, user rules (RULES.md), memories and connections —
-			 * used by runs where that context is the subject of the task rather than
-			 * authoritative guidance (e.g. context recommendations).
-			 */
-			systemPrompt?: string;
-			/**
-			 * Admin mode: routes `execute_sql` to nao's own app-database views instead
-			 * of the user's warehouse (see `ToolContext.adminMode`).
-			 */
-			adminMode?: boolean;
-			/** Enables project-defined charts that render only in the web client. */
-			supportsCustomCharts?: boolean;
 			billingAccessVerifiedProjectId?: string;
-			/** Attributes model calls made by non-interactive agent runs. */
-			usageCategory?: ManagedAiUsageCategory;
 			/** Omits chat attribution when the run uses a transient, unpersisted chat. */
 			attributeUsageToChat?: boolean;
 			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
@@ -385,7 +284,7 @@ export class AgentService {
 			projectId: chat.projectId,
 			chatId: options.attributeUsageToChat === false ? undefined : chat.id,
 			runId: crypto.randomUUID(),
-			category: options.usageCategory ?? 'chat',
+			category: profile.usageCategory ?? 'chat',
 			billingMode: options.unbilledManagedAiUsage ? 'unbilled' : 'wallet',
 		};
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, usageContext);
@@ -399,22 +298,18 @@ export class AgentService {
 			chatId: chat.id,
 			userId: chat.userId,
 			agentSettings,
-			adminMode: options.adminMode,
-			supportsCustomCharts: options.supportsCustomCharts,
+			adminMode: profile.queriesAppDatabase,
+			supportsCustomCharts: profile.supportsCustomCharts,
 			modelSelection: resolvedLlmSelectedModel,
 			usageRunId: usageContext.runId,
 			managedAiBillingMode: usageContext.billingMode,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
-		const resolveTools = options.tools ?? defaultAgentTools;
-		const resolvedTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
-		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, resolvedTools);
-		const agentTools = resolvedTools;
-		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
-			? [stepCountIs(options.maxSteps ?? 20)]
-			: interactiveStopConditions;
+		const agentTools = await profile.tools({ chat, agentSettings, toolContext, webTools, customBoundaries });
+		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, agentTools);
 		const agent = new AgentManager(
 			chat,
+			profile,
 			modelConfig,
 			resolvedLlmSelectedModel,
 			() => this._agents.delete(chat.id),
@@ -423,8 +318,6 @@ export class AgentService {
 			toolContext,
 			userGroupAccess,
 			usageContext,
-			stopWhen,
-			options.systemPrompt,
 		);
 		this._agents.set(chat.id, agent);
 		return agent;
@@ -509,6 +402,7 @@ export class AgentManager {
 
 	constructor(
 		readonly chat: AgentChat,
+		private readonly _profile: AgentProfile,
 		private readonly _modelConfig: ProviderModelResult,
 		private readonly _modelSelection: LlmSelectedModel,
 		private readonly _onDispose: () => void,
@@ -517,8 +411,6 @@ export class AgentManager {
 		private readonly _toolContext: ToolContext,
 		private readonly _userGroupAccess: AgentUserGroupAccess,
 		private readonly _usageContext: ManagedAiUsageContext,
-		stopWhen: StopCondition<AgentTools>[] = interactiveStopConditions,
-		private readonly _systemPromptOverride?: string,
 	) {
 		this._finished = new Promise((resolve) => {
 			this._resolveFinished = resolve;
@@ -540,7 +432,7 @@ export class AgentManager {
 				instructions: cachedSystemInstructions(this._systemPrompt, this._modelSelection),
 			}),
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
-			stopWhen,
+			stopWhen: this._stopConditions,
 			experimental_context: this._toolContext,
 			experimental_telemetry: llmTelemetry('nao-agent', {
 				sessionId: this.chat.id,
@@ -560,6 +452,10 @@ export class AgentManager {
 
 	private get _maxOutputTokens(): number {
 		return this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
+	}
+
+	private get _stopConditions(): StopCondition<AgentTools>[] {
+		return this._profile.maxSteps ? [stepCountIs(this._profile.maxSteps)] : interactiveStopConditions;
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
@@ -622,11 +518,9 @@ export class AgentManager {
 		opts: {
 			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
-			provider?: Provider;
 			timezone?: string;
 			chatUrl?: string;
 			tracking?: MessageSentTracking;
-			source?: MessageSource;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
@@ -662,13 +556,7 @@ export class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(
-					uiMessages,
-					opts.mentions,
-					opts.provider,
-					opts.timezone,
-					opts.chatUrl,
-				);
+				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.timezone, opts.chatUrl);
 
 				result = await this._agent.stream({
 					messages,
@@ -703,7 +591,7 @@ export class AgentManager {
 						...settledMessage,
 						chatId: this.chat.id,
 						senderUserId: this.chat.userId,
-						source: opts.source ?? (this._toolContext.adminMode ? 'admin' : settledMessage.source),
+						source: this._profile.source,
 						stopReason,
 						error,
 						tokenUsage,
@@ -723,7 +611,6 @@ export class AgentManager {
 	private async _buildModelMessages(
 		uiMessages: UIMessage[],
 		mentions?: Mention[],
-		provider?: Provider,
 		timezone?: string,
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
@@ -748,7 +635,7 @@ export class AgentManager {
 		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithArtifacts);
 
 		const selectedSystemPrompt =
-			this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
+			this._profile.systemPrompt?.({ timezone }) ?? (await this._buildProjectSystemPrompt(timezone, chatUrl));
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
 		this._runCompaction = new RunCompaction(compactionService);
@@ -761,7 +648,8 @@ export class AgentManager {
 		return sanitizeToolCalls(modelMessages, this._modelSelection.provider);
 	}
 
-	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
+	private async _buildProjectSystemPrompt(timezone?: string, chatUrl?: string): Promise<string> {
+		const provider = this._profile.messagingProvider;
 		const override = getSystemPromptOverride(this._toolContext.projectFolder, provider);
 		let systemPrompt: string;
 		if (override && !hasNaoPromptPlaceholder(override)) {
@@ -771,7 +659,7 @@ export class AgentManager {
 			systemPrompt = override ? injectNaoPrompt(override, defaultPrompt) : defaultPrompt;
 		}
 
-		return appendCloudExampleScope(systemPrompt, isCloud, this.chat.projectId);
+		return this._profile.promptAppendix ? `${systemPrompt}\n\n${this._profile.promptAppendix}` : systemPrompt;
 	}
 
 	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
@@ -843,7 +731,7 @@ export class AgentManager {
 			chat_id: this.chat.id,
 			model_id: this._modelSelection.modelId,
 			is_new_chat: tracking.isNewChat,
-			source: tracking.source,
+			source: this._profile.source,
 			domain_host: tracking.domainHost,
 			stop_reason: stopReason,
 			...getAssistantMessageTrackingProperties(assistantMessage, error),
@@ -959,20 +847,13 @@ export class AgentManager {
 	async generate(
 		uiMessages: UIMessage[],
 		opts: {
-			provider?: Provider;
 			timezone?: string;
 			chatUrl?: string;
 			costs?: ModelCosts;
 		} = {},
 	): Promise<AgentRunResult> {
 		const startTime = performance.now();
-		const messages = await this._buildModelMessages(
-			uiMessages,
-			undefined,
-			opts.provider,
-			opts.timezone,
-			opts.chatUrl,
-		);
+		const messages = await this._buildModelMessages(uiMessages, undefined, opts.timezone, opts.chatUrl);
 		try {
 			const result = await this._agent.generate({
 				messages,

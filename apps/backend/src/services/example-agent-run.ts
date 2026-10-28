@@ -1,6 +1,8 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 
 import { isManagedAiEnabled } from '../agents/managed-ai';
+import { exampleAgent } from '../agents/profiles/example';
+import { onboardingAgent } from '../agents/profiles/onboarding';
 import type { DBProject } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import { consumeExampleChatRun, releaseExampleChatRun } from '../queries/example-chat-allowance.queries';
@@ -46,8 +48,8 @@ export async function authorizeExampleAgentRun({
 
 	return {
 		projectId,
+		profile: body.mode === 'onboarding' ? onboardingAgent : exampleAgent,
 		model: isManagedAiEnabled() ? EXAMPLE_MODEL : undefined,
-		canChatWithNaoData: false,
 		unbilledManagedAiUsage: true,
 		release: () => releaseExampleChatRun(userId, scope),
 	};
