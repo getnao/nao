@@ -9,6 +9,7 @@ interface TrialStartedProps {
 	docsUrl: string;
 	slackUrl: string;
 	creditAmount: string;
+	userJoinCreditAmount?: string;
 	trialDays: number;
 	trialEndDate: string;
 	branding: EmailBranding;
@@ -20,6 +21,7 @@ export function TrialStarted({
 	docsUrl,
 	slackUrl,
 	creditAmount,
+	userJoinCreditAmount,
 	trialDays,
 	trialEndDate,
 	branding,
@@ -39,10 +41,13 @@ export function TrialStarted({
 				Cloud, so choose a paid plan before it ends to keep using the service without interruption.
 			</EmailParagraph>
 
-			<EmailParagraph>
-				Each new user who verifies their email and joins a configured project adds another <strong>$5</strong>{' '}
-				to your organization's shared credit pool.
-			</EmailParagraph>
+			{userJoinCreditAmount && (
+				<EmailParagraph>
+					Invite your team and earn an extra <strong>{userJoinCreditAmount}</strong> in shared credits for
+					each eligible new user who verifies their email and joins a configured project. Subject to the
+					current grant policy and organization limits.
+				</EmailParagraph>
+			)}
 
 			<EmailButton href={appUrl} color={branding.brandColor}>
 				Start using {branding.appName}

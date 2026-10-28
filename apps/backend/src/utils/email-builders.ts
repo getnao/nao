@@ -38,6 +38,7 @@ export async function buildTrialStartedEmail(
 	user: { name: string },
 	creditAmountMicroUsd: number,
 	trialEndsAt: Date,
+	userJoinCreditAmountMicroUsd?: number,
 ): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
 	return createEmail(
@@ -48,6 +49,10 @@ export async function buildTrialStartedEmail(
 			docsUrl: DOCS_URL,
 			slackUrl: SLACK_URL,
 			creditAmount: formatCreditAmount(creditAmountMicroUsd),
+			userJoinCreditAmount:
+				userJoinCreditAmountMicroUsd === undefined
+					? undefined
+					: formatCreditAmount(userJoinCreditAmountMicroUsd),
 			trialDays: CLOUD_BILLING_TRIAL_DAYS,
 			trialEndDate: new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(trialEndsAt),
 			branding,
