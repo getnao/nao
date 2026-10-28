@@ -2,6 +2,15 @@ import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({ isCloud: true }));
+
+vi.mock('../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/env')>()),
+	get isCloud() {
+		return mocks.isCloud;
+	},
+}));
+
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
@@ -21,6 +30,7 @@ vi.mock('../src/db/db', async () => {
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
+import { JAFFLE_SHOP_SAVED_PROMPTS } from '../src/fixtures/jaffle-shop-saved-prompts';
 import { JAFFLE_SHOP_STORY } from '../src/fixtures/jaffle-shop-story';
 import {
 	SYSTEM_EXAMPLE_CHAT_ID,
@@ -29,8 +39,9 @@ import {
 	upsertSystemExampleStory,
 } from '../src/queries/example-story.queries';
 import { getLatestSqlQueryDataByIds } from '../src/queries/execute-sql.queries';
-import { upsertSystemExampleProject } from '../src/queries/project.queries';
-import { upsertSystemExampleSavedPrompts } from '../src/queries/project-saved-prompt.queries';
+import { getUserRoleInProject, upsertSystemExampleProject } from '../src/queries/project.queries';
+import { upsertSavedPrompts } from '../src/queries/project-saved-prompt.queries';
+import { canUserAccessStory } from '../src/queries/story.queries';
 
 describe('system example project', () => {
 	afterAll(() => db.$client.close());
@@ -57,6 +68,27 @@ describe('system example project', () => {
 				skillsAccess: { mode: 'all' },
 			},
 		});
+	});
+
+	it('grants every user a viewer role on cloud only', async () => {
+		await upsertSystemExampleProject('/tmp/example');
+
+		mocks.isCloud = true;
+		expect(await getUserRoleInProject('system-example-project', 'any-user')).toBe('viewer');
+
+		mocks.isCloud = false;
+		expect(await getUserRoleInProject('system-example-project', 'any-user')).toBeNull();
+	});
+
+	it('lets every user open the example story on cloud only', async () => {
+		await upsertSystemExampleProject('/tmp/example');
+		await upsertSystemExampleStory();
+
+		mocks.isCloud = true;
+		expect(await canUserAccessStory(SYSTEM_EXAMPLE_STORY_ID, 'any-user')).toBe(true);
+
+		mocks.isCloud = false;
+		expect(await canUserAccessStory(SYSTEM_EXAMPLE_STORY_ID, 'any-user')).toBe(false);
 	});
 
 	it('upserts one pinned Jaffle Shop story owned by the system user', async () => {
@@ -105,8 +137,8 @@ describe('system example project', () => {
 
 	it('upserts the Jaffle Shop saved prompts', async () => {
 		await upsertSystemExampleProject('/tmp/example');
-		await upsertSystemExampleSavedPrompts();
-		await upsertSystemExampleSavedPrompts();
+		await upsertSavedPrompts(JAFFLE_SHOP_SAVED_PROMPTS);
+		await upsertSavedPrompts(JAFFLE_SHOP_SAVED_PROMPTS);
 
 		const prompts = await db
 			.select()

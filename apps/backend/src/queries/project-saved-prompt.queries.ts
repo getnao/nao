@@ -1,30 +1,8 @@
-import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import { and, desc, eq } from 'drizzle-orm';
 
 import s, { DBProjectSavedPrompt, NewProjectSavedPrompt } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { SavedPrompt } from '../types/saved-prompt';
-
-const SYSTEM_EXAMPLE_SAVED_PROMPTS: NewProjectSavedPrompt[] = [
-	{
-		id: 'system-example-monthly-revenue',
-		projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-		title: 'How is monthly revenue trending?',
-		prompt: 'How is monthly revenue trending?',
-	},
-	{
-		id: 'system-example-top-customers',
-		projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-		title: 'Make a chart of our top 5 customers by total revenue.',
-		prompt: 'Make a chart of our top 5 customers by total revenue.',
-	},
-	{
-		id: 'system-example-sales-performance-story',
-		projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-		title: 'Create a story, using chart blocks, summarizing our sales performance and key customer trends.',
-		prompt: 'Create a story, using chart blocks, summarizing our sales performance and key customer trends.',
-	},
-];
 
 export const listSavedPrompts = async (projectId: string): Promise<SavedPrompt[]> => {
 	return db
@@ -41,8 +19,8 @@ export const listSavedPrompts = async (projectId: string): Promise<SavedPrompt[]
 		.execute();
 };
 
-export const upsertSystemExampleSavedPrompts = async (): Promise<void> => {
-	for (const savedPrompt of SYSTEM_EXAMPLE_SAVED_PROMPTS) {
+export const upsertSavedPrompts = async (savedPrompts: NewProjectSavedPrompt[]): Promise<void> => {
+	for (const savedPrompt of savedPrompts) {
 		await db
 			.insert(s.projectSavedPrompt)
 			.values(savedPrompt)

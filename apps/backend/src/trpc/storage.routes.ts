@@ -2,7 +2,7 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import { getStorageConfig, getStorageHealth, isStorageEnabled } from '../services/storage';
 import { getProjectUsageByUser, getScopeUsage } from '../services/storage/usage';
-import { adminProtectedProcedure, advancedSettingsProtectedProcedure, protectedProcedure } from './trpc';
+import { adminProtectedProcedure, advancedSettingsProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const storageRoutes = {
 	getConfig: adminProtectedProcedure.query(() => getStorageConfig()),
@@ -13,7 +13,7 @@ export const storageRoutes = {
 	}),
 
 	/** What the chat input needs to know before letting someone attach a file. */
-	getUploadLimits: protectedProcedure.query(() => ({
+	getUploadLimits: projectProtectedProcedure.query(() => ({
 		enabled: isStorageEnabled(),
 		maxFileSizeMb: env.NAO_STORAGE_MAX_FILE_SIZE_MB,
 	})),

@@ -26,6 +26,7 @@ import { env, isCloud, isCloudBillingEnabled } from '../env';
 import { CLOUD_TRIAL_PROVISIONING_JOB_NAME } from '../types/billing';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+import { isOpenProject } from '../utils/open-projects';
 import { startOrganizationTrial } from './billing.queries';
 import { enqueueOnceJob } from './scheduled-job.queries';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
@@ -181,6 +182,10 @@ export const getUserRoleInProject = async (projectId: string, userId: string): P
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;
+	}
+
+	if (isOpenProject(projectId)) {
+		return 'viewer';
 	}
 
 	const project = await getProjectById(projectId);

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
-	canUserAccessSystemExampleProject: vi.fn(),
 	createForkedChat: vi.fn(),
 	createStoryVersion: vi.fn(),
 	getChatMessages: vi.fn(),
@@ -10,7 +9,6 @@ const mocks = vi.hoisted(() => ({
 	getQueryDataFromCode: vi.fn(),
 	getSharedChatInfo: vi.fn(),
 	getSharedStoryByStoryId: vi.fn(),
-	getUserRoleInProject: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
 	saveStoryInPrivateRoot: vi.fn(),
 	upsertMessage: vi.fn(),
@@ -25,7 +23,7 @@ vi.mock('../src/queries/chat.queries', () => ({
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project' })),
-	getUserRoleInProject: mocks.getUserRoleInProject,
+	getUserRoleInProject: vi.fn(async () => 'user'),
 }));
 vi.mock('../src/queries/shared-chat.queries', () => ({
 	canUserAccessSharedChat: vi.fn(async () => true),
@@ -46,9 +44,6 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
-vi.mock('../src/services/example-project', () => ({
-	canUserAccessSystemExampleProject: mocks.canUserAccessSystemExampleProject,
-}));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
@@ -67,8 +62,6 @@ const testRouter = router({ chatFork: chatForkRoutes });
 describe('chat fork Story creation permission', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.canUserAccessSystemExampleProject.mockResolvedValue(false);
-		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.resolveUserGroupAccess.mockResolvedValue({
 			features: [],
 			toolCallDensityPolicy: {
@@ -173,39 +166,6 @@ describe('chat fork Story creation permission', () => {
 		);
 		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 		expect(mocks.createStoryVersion).toHaveBeenCalled();
-	});
-
-	it('allows an example Story fork without project membership', async () => {
-		mocks.getSharedStoryByStoryId.mockResolvedValue({
-			id: 'share-id',
-			projectId: 'example-project-id',
-			storyId: 'story-id',
-			chatId: 'source-chat-id',
-			slug: 'story',
-			title: 'Story',
-			code: '# Story',
-			version: 1,
-			visibility: 'project',
-			userId: 'owner-id',
-			authorName: 'Owner',
-		});
-		mocks.getUserRoleInProject.mockImplementation(async (projectId) =>
-			projectId === 'project-id' ? 'user' : null,
-		);
-		mocks.canUserAccessSystemExampleProject.mockResolvedValue(true);
-		mocks.resolveUserGroupAccess.mockResolvedValue({
-			features: ['storyCreation'],
-			toolCallDensityPolicy: {
-				defaultDensity: 'detailed',
-				canChange: true,
-			},
-		});
-
-		await expect(createCaller().chatFork.fork({ source: { type: 'story', storyId: 'story-id' } })).resolves.toEqual(
-			{ chatId: 'fork-chat-id' },
-		);
-		expect(mocks.canUserAccessSystemExampleProject).toHaveBeenCalledWith('user-id', 'example-project-id');
-		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('example-project-id', 'user-id');
 	});
 
 	it('seeds a Story selection fork with the original tool outputs unchanged', async () => {

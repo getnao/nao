@@ -106,15 +106,7 @@ export function sharedStoryGrantsUser(userId: string): SQL {
 	))`;
 }
 
-export async function listUserSharedStories(
-	projectIds: string[],
-	userId: string,
-	projectId: string,
-): Promise<SharedStoryWithLatest[]> {
-	if (!projectIds.includes(projectId)) {
-		return [];
-	}
-
+export async function listUserSharedStories(projectId: string, userId: string): Promise<SharedStoryWithLatest[]> {
 	return querySharedStories(
 		and(
 			eq(s.sharedStory.projectId, projectId),

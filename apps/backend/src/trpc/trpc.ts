@@ -167,7 +167,6 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 	fetch: (id: string) => Promise<T | null>,
 	label: string,
 	checkAccess?: (resource: T, userId: string) => Promise<boolean>,
-	allowWithoutProjectMembership?: (resource: T, userId: string) => Promise<boolean>,
 ) {
 	return protectedProcedure.use(async ({ ctx, getRawInput, next }) => {
 		const rawInput = (await getRawInput()) as Record<string, unknown>;
@@ -182,7 +181,7 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 		}
 
 		const userRole: UserRole | null = await projectQueries.getUserRoleInProject(resource.projectId, ctx.user.id);
-		if (!userRole && !(await allowWithoutProjectMembership?.(resource, ctx.user.id))) {
+		if (!userRole) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 		}
 
