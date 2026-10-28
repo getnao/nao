@@ -5,6 +5,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StoryValidationError } from '@nao/shared/story-validation';
 import type { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
+import type { MountedCodeEditor } from '@/components/code-selection-ask';
+import type { CodeSelection } from '@/stores/ask-bar';
+import { CodeSelectionAsk } from '@/components/code-selection-ask';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
 
@@ -32,6 +35,7 @@ interface StoryCodeViewProps {
 	onCodeChange?: (code: string) => void;
 	onValidChange?: (valid: boolean) => void;
 	onSave?: () => void;
+	onAskAboutCode?: (selection: CodeSelection) => void;
 }
 
 const MARKER_OWNER = 'nao-story-validation';
@@ -44,9 +48,11 @@ export const StoryCodeView = memo(function StoryCodeView({
 	onCodeChange,
 	onValidChange,
 	onSave,
+	onAskAboutCode,
 }: StoryCodeViewProps) {
 	const editorTheme = useEditorTheme();
 	const [draft, setDraft] = useState(code);
+	const [codeEditor, setCodeEditor] = useState<MountedCodeEditor | null>(null);
 	const [errors, setErrors] = useState<StoryValidationError[]>(() => (readOnly ? [] : validateStoryCode(code)));
 	const draftRef = useRef(draft);
 	const errorsRef = useRef(errors);
@@ -108,6 +114,7 @@ export const StoryCodeView = memo(function StoryCodeView({
 	const handleMount = useCallback((instance: editor.IStandaloneCodeEditor, monaco: Monaco) => {
 		editorInstanceRef.current = instance;
 		monacoRef.current = monaco;
+		setCodeEditor({ editor: instance, monaco });
 
 		instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
 			onSaveRef.current?.();
@@ -160,6 +167,7 @@ export const StoryCodeView = memo(function StoryCodeView({
 					onMount={handleMount}
 					onChange={handleChange}
 				/>
+				{onAskAboutCode && <CodeSelectionAsk codeEditor={codeEditor} onAsk={onAskAboutCode} />}
 			</div>
 		</div>
 	);

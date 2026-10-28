@@ -6,6 +6,7 @@ import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { CustomStoryFileSummary } from '@/components/custom-story/custom-story-body';
 import type { CustomStoryFileSource } from '@/components/custom-story/story-data-options';
+import type { CodeSelection } from '@/stores/ask-bar';
 import { fileOptions } from '@/components/custom-story/story-data-options';
 import { buildStoryFileTree, findContentMatches } from '@/components/custom-story/story-file-tree';
 import {
@@ -28,12 +29,19 @@ interface CustomStoryFilesProps {
 	versionNumber: number;
 	files: CustomStoryFileSummary[];
 	editable?: boolean;
+	onAskAboutCode?: (filePath: string, selection: CodeSelection) => void;
 }
 
 const MIN_CONTENT_SEARCH_LENGTH = 2;
 
 /** Explorer over the files of the viewed version; editable by the owner on the latest version. */
-export function CustomStoryFiles({ source, versionNumber, files, editable = false }: CustomStoryFilesProps) {
+export function CustomStoryFiles({
+	source,
+	versionNumber,
+	files,
+	editable = false,
+	onAskAboutCode,
+}: CustomStoryFilesProps) {
 	const [selectedPath, setSelectedPath] = useState<string | null>(() => defaultFilePath(files));
 	const edits = useStoryFileEdits(source, versionNumber);
 	const [search, setSearch] = useState('');
@@ -117,6 +125,7 @@ export function CustomStoryFiles({ source, versionNumber, files, editable = fals
 							editable={editable && !isKitFileSelected && !edits.isSaving}
 							draft={selectedPath ? edits.drafts[selectedPath] : undefined}
 							onChange={edits.setDraft}
+							onAskAboutCode={onAskAboutCode}
 						/>
 					</div>
 				</ResizablePanel>
@@ -134,6 +143,7 @@ interface StoryFileContentProps {
 	editable: boolean;
 	draft: string | undefined;
 	onChange: (path: string, content: string, original: string) => void;
+	onAskAboutCode?: (filePath: string, selection: CodeSelection) => void;
 }
 
 function StoryFileContent({
@@ -145,6 +155,7 @@ function StoryFileContent({
 	editable,
 	draft,
 	onChange,
+	onAskAboutCode,
 }: StoryFileContentProps) {
 	if (!path) {
 		return (
@@ -200,6 +211,7 @@ function StoryFileContent({
 					searchQuery={searchQuery}
 					readOnly={!editable}
 					onChange={(content) => onChange(file.path, content, file.content)}
+					onAskAboutCode={onAskAboutCode && ((selection) => onAskAboutCode(file.path, selection))}
 				/>
 			</div>
 		</div>
