@@ -11,47 +11,43 @@ import { trpc } from '@/main';
 
 type PickerTarget =
 	| { type: 'story'; storyId: string }
-	| { type: 'folder'; folderId: string; currentVisibility?: string };
+	| { type: 'folder'; folderId: string; currentVisibility?: string }
+	| { type: 'selection'; storyIds: string[]; folderIds: string[] };
 
 export function FolderPickerDialog({
 	open,
 	onOpenChange,
 	target,
 	isOwner,
+	onMoved,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	target: PickerTarget;
 	isOwner: boolean;
+	onMoved?: () => void;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const queryClient = useQueryClient();
 
 	const { data: tree = [] } = useQuery(trpc.storyFolder.listTree.queryOptions());
 
-	const moveStoryMutation = useMutation(
-		trpc.storyFolder.moveStory.mutationOptions({
-			onSuccess: () => {
-				invalidateStoryPlacementCaches(queryClient);
-				onOpenChange(false);
-			},
-		}),
-	);
+	function handleMoved() {
+		invalidateStoryPlacementCaches(queryClient);
+		onMoved?.();
+		onOpenChange(false);
+	}
 
-	const moveFolderMutation = useMutation(
-		trpc.storyFolder.move.mutationOptions({
-			onSuccess: () => {
-				invalidateStoryPlacementCaches(queryClient);
-				onOpenChange(false);
-			},
-		}),
-	);
+	const moveStoryMutation = useMutation(trpc.storyFolder.moveStory.mutationOptions({ onSuccess: handleMoved }));
+	const moveFolderMutation = useMutation(trpc.storyFolder.move.mutationOptions({ onSuccess: handleMoved }));
+	const bulkMoveMutation = useMutation(trpc.storyFolder.bulkMove.mutationOptions({ onSuccess: handleMoved }));
 
-	const isPending = moveStoryMutation.isPending || moveFolderMutation.isPending;
+	const isPending = moveStoryMutation.isPending || moveFolderMutation.isPending || bulkMoveMutation.isPending;
+	const moveError = moveStoryMutation.error ?? moveFolderMutation.error ?? bulkMoveMutation.error;
 
-	function getDescendantIds(folderId: string, folders: FolderItem[]): Set<string> {
+	function getDescendantIds(folderIds: string[], folders: FolderItem[]): Set<string> {
 		const result = new Set<string>();
-		const queue = [folderId];
+		const queue = [...folderIds];
 		while (queue.length > 0) {
 			const current = queue.shift()!;
 			result.add(current);
@@ -64,20 +60,27 @@ export function FolderPickerDialog({
 		return result;
 	}
 
-	const disabledIds = target.type === 'folder' ? getDescendantIds(target.folderId, tree) : new Set<string>();
+	const disabledIds = getDescendantIds(getMovedFolderIds(target), tree);
 
 	const selectedVisibility = getTargetVisibility(selectedId, tree);
-	const sourceVisibility = target.type === 'folder' ? (target.currentVisibility ?? 'public') : null;
-	const visibilityWillChange = sourceVisibility !== null && selectedVisibility !== sourceVisibility;
+	const visibilityWillChange = getSourceVisibilities(target, tree).some(
+		(visibility) => visibility !== selectedVisibility,
+	);
 
 	function handleMove() {
+		if (disabledIds.has(selectedId ?? '')) {
+			return;
+		}
 		if (target.type === 'story') {
 			moveStoryMutation.mutate({ storyId: target.storyId, folderId: selectedId });
-		} else {
-			if (disabledIds.has(selectedId ?? '')) {
-				return;
-			}
+		} else if (target.type === 'folder') {
 			moveFolderMutation.mutate({ id: target.folderId, newParentId: selectedId });
+		} else {
+			bulkMoveMutation.mutate({
+				storyIds: target.storyIds,
+				folderIds: target.folderIds,
+				targetFolderId: selectedId,
+			});
 		}
 	}
 
@@ -108,6 +111,8 @@ export function FolderPickerDialog({
 					</p>
 				)}
 
+				{moveError && <p className='text-xs text-destructive'>{moveError.message}</p>}
+
 				<DialogFooter>
 					<Button
 						variant='ghost'
@@ -129,4 +134,24 @@ export function FolderPickerDialog({
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function getMovedFolderIds(target: PickerTarget): string[] {
+	if (target.type === 'folder') {
+		return [target.folderId];
+	}
+	if (target.type === 'selection') {
+		return target.folderIds;
+	}
+	return [];
+}
+
+function getSourceVisibilities(target: PickerTarget, tree: FolderItem[]): string[] {
+	if (target.type === 'folder') {
+		return [target.currentVisibility ?? 'public'];
+	}
+	if (target.type === 'selection') {
+		return tree.filter((folder) => target.folderIds.includes(folder.id)).map((folder) => folder.visibility);
+	}
+	return [];
 }

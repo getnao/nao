@@ -1,5 +1,5 @@
 import { BULK_ITEMS_LIMIT } from '@nao/shared';
-import { ArchiveIcon, ArchiveRestoreIcon, MessageSquarePlus, X } from 'lucide-react';
+import { ArchiveIcon, ArchiveRestoreIcon, FolderInput, MessageSquarePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useContentCenteredStyle } from '@/hooks/use-sidebar-content-offset';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ export function StoriesSelectionBar({
 	isPending,
 	onArchive,
 	onUnarchive,
+	onMove,
 	onStartChat,
 	onCancel,
 }: {
@@ -20,6 +21,7 @@ export function StoriesSelectionBar({
 	isPending: boolean;
 	onArchive: () => void;
 	onUnarchive: () => void;
+	onMove: () => void;
 	onStartChat: () => void;
 	onCancel: () => void;
 }) {
@@ -67,6 +69,16 @@ export function StoriesSelectionBar({
 					>
 						<MessageSquarePlus className='size-3.5' />
 						New chat
+					</Button>
+					<Button
+						size='sm'
+						variant='ghost'
+						onClick={onMove}
+						disabled={isPending}
+						className='gap-1.5 h-7 text-xs rounded-full'
+					>
+						<FolderInput className='size-3.5' />
+						Move
 					</Button>
 					<Button
 						size='sm'

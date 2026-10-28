@@ -85,7 +85,7 @@ export function FolderCard({
 		isDragging,
 	} = useDraggable({
 		id: draggableId,
-		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage || selectionActive,
+		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage || (selectionActive && !selected),
 	});
 	const { setNodeRef: setDropRef, isOver } = useDroppable({
 		id: droppableId,
