@@ -241,7 +241,6 @@ export async function buildToolContext(opts: {
 	modelSelection?: LlmSelectedModel;
 	usageRunId?: string;
 	managedAiBillingMode?: ManagedAiUsageContext['billingMode'];
-	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -272,7 +271,6 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
-	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
@@ -283,9 +281,7 @@ async function _buildContextBase(opts: {
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
-		resolveProjectContextAccess(opts.projectId, opts.userId, project.path, {
-			projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
-		}),
+		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
 	]);
 	return {
 		projectFolder: project.path,
@@ -371,8 +367,6 @@ export class AgentService {
 			attributeUsageToChat?: boolean;
 			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
 			isBudgetChecked?: boolean;
-			/** The request boundary has already authorized access to an internal system project. */
-			projectAccessAlreadyAuthorized?: boolean;
 			/** Records managed usage without charging an organization wallet. */
 			unbilledManagedAiUsage?: boolean;
 		} = {},
@@ -410,7 +404,6 @@ export class AgentService {
 			modelSelection: resolvedLlmSelectedModel,
 			usageRunId: usageContext.runId,
 			managedAiBillingMode: usageContext.billingMode,
-			projectAccessAlreadyAuthorized: options.projectAccessAlreadyAuthorized,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;

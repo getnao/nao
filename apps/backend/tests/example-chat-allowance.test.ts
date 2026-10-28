@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
 	isManagedAiEnabled: vi.fn(() => true),
 }));
 
+vi.mock('../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/env')>()),
+	isCloud: true,
+}));
+
 vi.mock('../src/handlers/agent', async (importOriginal) => {
 	const actual = (await importOriginal()) as Record<string, unknown>;
 	return { ...actual, handleAgentRoute: mocks.handleAgentRoute };
@@ -22,8 +27,8 @@ import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import * as chatQueries from '../src/queries/chat.queries';
 import { EXAMPLE_CHAT_RUN_CAP, ONBOARDING_CHAT_RUN_CAP } from '../src/queries/example-chat-allowance.queries';
-import { agentRoutes, assertExampleChatAllowance } from '../src/routes/agent';
-import * as exampleProjectService from '../src/services/example-project';
+import { agentRoutes } from '../src/routes/agent';
+import { reserveExampleChatRun } from '../src/services/example-agent-run';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '../src/services/example-project';
 import { ExampleChatAllowanceExhaustedError, OnboardingChatAllowanceExhaustedError } from '../src/utils/error';
 
@@ -53,6 +58,7 @@ const RECOVERABLE_USER_ID = 'recoverable-user';
 const FALLBACK_EXAMPLE_USER_ID = 'fallback-example-user';
 const FALLBACK_ONBOARDING_USER_ID = 'fallback-onboarding-user';
 const PROVISIONING_USER_ID = 'provisioning-user';
+const OTHER_USER_ID = 'other-user';
 
 describe('example chat allowance', () => {
 	beforeAll(async () => {
@@ -68,6 +74,7 @@ describe('example chat allowance', () => {
 				email: 'fallback-onboarding@example.com',
 			},
 			{ id: PROVISIONING_USER_ID, name: 'Provisioning User', email: 'provisioning@example.com' },
+			{ id: OTHER_USER_ID, name: 'Other User', email: 'other@example.com' },
 		]);
 		await db.insert(s.project).values({
 			id: SYSTEM_EXAMPLE_PROJECT_ID,
@@ -93,79 +100,39 @@ describe('example chat allowance', () => {
 		expect(EXAMPLE_CHAT_RUN_CAP).toBe(30);
 		expect(ONBOARDING_CHAT_RUN_CAP).toBe(100);
 
-		await expect(
-			assertExampleChatAllowance({
-				userId: ALLOWANCE_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: false,
-			}),
-		).resolves.toBe(true);
+		await expect(reserveExampleChatRun(ALLOWANCE_USER_ID, 'example')).resolves.toBe(true);
 		for (let run = 1; run < EXAMPLE_CHAT_RUN_CAP; run += 1) {
-			await assertExampleChatAllowance({
-				userId: ALLOWANCE_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: false,
-			});
+			await reserveExampleChatRun(ALLOWANCE_USER_ID, 'example');
 		}
-		await expect(
-			assertExampleChatAllowance({
-				userId: ALLOWANCE_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: false,
-			}),
-		).rejects.toBeInstanceOf(ExampleChatAllowanceExhaustedError);
+		await expect(reserveExampleChatRun(ALLOWANCE_USER_ID, 'example')).rejects.toBeInstanceOf(
+			ExampleChatAllowanceExhaustedError,
+		);
 
 		for (let run = 0; run < ONBOARDING_CHAT_RUN_CAP; run += 1) {
-			await assertExampleChatAllowance({
-				userId: ALLOWANCE_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: true,
-			});
+			await reserveExampleChatRun(ALLOWANCE_USER_ID, 'onboarding');
 		}
-		await expect(
-			assertExampleChatAllowance({
-				userId: ALLOWANCE_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: true,
-			}),
-		).rejects.toBeInstanceOf(OnboardingChatAllowanceExhaustedError);
+		await expect(reserveExampleChatRun(ALLOWANCE_USER_ID, 'onboarding')).rejects.toBeInstanceOf(
+			OnboardingChatAllowanceExhaustedError,
+		);
 	});
 
 	it('restores a reserved run when setup fails before streaming', async () => {
 		for (let run = 1; run < EXAMPLE_CHAT_RUN_CAP; run += 1) {
-			await assertExampleChatAllowance({
-				userId: RECOVERABLE_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: false,
-			});
+			await reserveExampleChatRun(RECOVERABLE_USER_ID, 'example');
 		}
 		const setupError = new Error('Agent setup failed');
-		vi.spyOn(exampleProjectService, 'getSystemExampleProject').mockResolvedValue({
-			id: SYSTEM_EXAMPLE_PROJECT_ID,
-		} as never);
 		mocks.handleAgentRoute.mockRejectedValue(setupError);
-		const post = vi.fn();
-		await agentRoutes({ addHook: vi.fn(), post } as never);
-		const handler = post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
+		const handler = await getAgentRouteHandler();
 
 		await expect(
-			handler(
-				{
-					user: { id: RECOVERABLE_USER_ID },
-					project: undefined,
-					body: { message: { text: 'Reserved prompt' }, mode: 'example' },
-					headers: {},
-				},
-				{},
-			),
-		).rejects.toBe(setupError);
-		await expect(
-			assertExampleChatAllowance({
-				userId: RECOVERABLE_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: false,
+			handler({
+				user: { id: RECOVERABLE_USER_ID },
+				project: undefined,
+				body: { message: { text: 'Reserved prompt' }, mode: 'example' },
+				headers: {},
 			}),
-		).resolves.toBe(true);
+		).rejects.toBe(setupError);
+		await expect(reserveExampleChatRun(RECOVERABLE_USER_ID, 'example')).resolves.toBe(true);
 	});
 
 	it.each([
@@ -173,31 +140,19 @@ describe('example chat allowance', () => {
 		{ mode: 'onboarding' as const, error: OnboardingChatAllowanceExhaustedError, cap: ONBOARDING_CHAT_RUN_CAP },
 	])('rejects exhausted $mode submissions before agent setup or persistence', async ({ mode, error, cap }) => {
 		for (let run = 0; run < cap; run += 1) {
-			await assertExampleChatAllowance({
-				userId: EXHAUSTED_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: mode === 'onboarding',
-			});
+			await reserveExampleChatRun(EXHAUSTED_USER_ID, mode);
 		}
-		vi.spyOn(exampleProjectService, 'getSystemExampleProject').mockResolvedValue({
-			id: SYSTEM_EXAMPLE_PROJECT_ID,
-		} as never);
 		const createChat = vi.spyOn(chatQueries, 'createChat');
 		const upsertMessage = vi.spyOn(chatQueries, 'upsertMessage');
-		const post = vi.fn();
-		await agentRoutes({ addHook: vi.fn(), post } as never);
-		const handler = post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
+		const handler = await getAgentRouteHandler();
 
 		await expect(
-			handler(
-				{
-					user: { id: EXHAUSTED_USER_ID },
-					project: undefined,
-					body: { message: { text: 'Rejected prompt' }, mode },
-					headers: {},
-				},
-				{},
-			),
+			handler({
+				user: { id: EXHAUSTED_USER_ID },
+				project: undefined,
+				body: { message: { text: 'Rejected prompt' }, mode },
+				headers: {},
+			}),
 		).rejects.toBeInstanceOf(error);
 		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 		expect(createChat).not.toHaveBeenCalled();
@@ -210,24 +165,16 @@ describe('example chat allowance', () => {
 	])('uses the configured default model for $mode when managed AI is unavailable', async ({ mode, userId }) => {
 		const setupError = new Error('Fallback model reached agent setup');
 		mocks.isManagedAiEnabled.mockReturnValue(false);
-		vi.spyOn(exampleProjectService, 'getSystemExampleProject').mockResolvedValue({
-			id: SYSTEM_EXAMPLE_PROJECT_ID,
-		} as never);
 		mocks.handleAgentRoute.mockRejectedValue(setupError);
-		const post = vi.fn();
-		await agentRoutes({ addHook: vi.fn(), post } as never);
-		const handler = post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
+		const handler = await getAgentRouteHandler();
 
 		await expect(
-			handler(
-				{
-					user: { id: userId },
-					project: undefined,
-					body: { message: { text: 'Use the fallback model' }, mode },
-					headers: {},
-				},
-				{},
-			),
+			handler({
+				user: { id: userId },
+				project: undefined,
+				body: { message: { text: 'Use the fallback model' }, mode },
+				headers: {},
+			}),
 		).rejects.toBe(setupError);
 		expect(mocks.handleAgentRoute).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -236,6 +183,27 @@ describe('example chat allowance', () => {
 				unbilledManagedAiUsage: true,
 			}),
 		);
+	});
+
+	it("rejects continuing another user's example chat", async () => {
+		vi.spyOn(chatQueries, 'isOnboardingChat').mockResolvedValue(false);
+		vi.spyOn(chatQueries, 'getChatProjectId').mockResolvedValue(SYSTEM_EXAMPLE_PROJECT_ID);
+		vi.spyOn(chatQueries, 'getChatOwnerId').mockResolvedValue(ALLOWANCE_USER_ID);
+		const handler = await getAgentRouteHandler();
+
+		await expect(
+			handler({
+				user: { id: OTHER_USER_ID },
+				project: undefined,
+				body: {
+					chatId: 'someone-else-example-chat',
+					message: { text: 'Continue their conversation' },
+					mode: 'example',
+				},
+				headers: {},
+			}),
+		).rejects.toMatchObject({ code: 403, message: 'Example project access is unavailable' });
+		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 	});
 
 	it('rejects example chat continuations after project setup', async () => {
@@ -250,13 +218,7 @@ describe('example chat allowance', () => {
 			path: '/tmp/real-project',
 		});
 
-		await expect(
-			assertExampleChatAllowance({
-				userId: PROJECT_USER_ID,
-				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
-				isOnboarding: false,
-			}),
-		).resolves.toBe(false);
+		await expect(reserveExampleChatRun(PROJECT_USER_ID, 'example')).resolves.toBe(false);
 
 		const rows = await db
 			.select()
@@ -269,14 +231,10 @@ describe('example chat allowance', () => {
 		vi.spyOn(chatQueries, 'isOnboardingChat').mockResolvedValue(false);
 		vi.spyOn(chatQueries, 'getChatProjectId').mockResolvedValue(SYSTEM_EXAMPLE_PROJECT_ID);
 		vi.spyOn(chatQueries, 'getChatOwnerId').mockResolvedValue(PROJECT_USER_ID);
-		const post = vi.fn();
-		await agentRoutes({ addHook: vi.fn(), post } as never);
-		const handler = post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
-		const send = vi.fn();
-		const reply = { status: vi.fn().mockReturnValue({ send }) };
+		const handler = await getAgentRouteHandler();
 
-		await handler(
-			{
+		await expect(
+			handler({
 				user: { id: PROJECT_USER_ID },
 				project: { id: 'real-project' },
 				body: {
@@ -285,11 +243,8 @@ describe('example chat allowance', () => {
 					mode: 'example',
 				},
 				headers: {},
-			},
-			reply,
-		);
-		expect(reply.status).toHaveBeenCalledWith(403);
-		expect(send).toHaveBeenCalledWith({ error: 'Example conversations are unavailable after project setup' });
+			}),
+		).rejects.toMatchObject({ code: 403, message: 'Example conversations are unavailable after project setup' });
 		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 	});
 
@@ -321,10 +276,9 @@ describe('example chat allowance', () => {
 		const setupError = new Error('Active onboarding reached agent setup');
 		vi.spyOn(chatQueries, 'isOnboardingChat').mockResolvedValue(true);
 		vi.spyOn(chatQueries, 'getChatProjectId').mockResolvedValue(SYSTEM_EXAMPLE_PROJECT_ID);
+		vi.spyOn(chatQueries, 'getChatOwnerId').mockResolvedValue(PROVISIONING_USER_ID);
 		mocks.handleAgentRoute.mockRejectedValue(setupError);
-		const post = vi.fn();
-		await agentRoutes({ addHook: vi.fn(), post } as never);
-		const handler = post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
+		const handler = await getAgentRouteHandler();
 		const request = {
 			user: { id: PROVISIONING_USER_ID },
 			project: { id: projectId },
@@ -336,7 +290,7 @@ describe('example chat allowance', () => {
 			headers: {},
 		};
 
-		await expect(handler(request, {})).rejects.toBe(setupError);
+		await expect(handler(request)).rejects.toBe(setupError);
 		expect(mocks.handleAgentRoute).toHaveBeenCalledWith(
 			expect.objectContaining({
 				projectId: SYSTEM_EXAMPLE_PROJECT_ID,
@@ -349,12 +303,18 @@ describe('example chat allowance', () => {
 			.set({ status: 'ready', finishedAt: new Date() })
 			.where(eq(s.warehouseProvisioningJob.id, jobId));
 		mocks.handleAgentRoute.mockReset();
-		const send = vi.fn();
-		const reply = { status: vi.fn().mockReturnValue({ send }) };
 
-		await handler(request, reply);
-		expect(reply.status).toHaveBeenCalledWith(403);
-		expect(send).toHaveBeenCalledWith({ error: 'Onboarding conversations are unavailable after project setup' });
+		await expect(handler(request)).rejects.toMatchObject({
+			code: 403,
+			message: 'Onboarding conversations are unavailable after project setup',
+		});
 		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 	});
 });
+
+async function getAgentRouteHandler(): Promise<(request: unknown) => Promise<unknown>> {
+	const post = vi.fn();
+	await agentRoutes({ addHook: vi.fn(), post } as never);
+	const handler = post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
+	return (request) => handler(request, {});
+}

@@ -97,10 +97,16 @@ describe('agent route billing access', () => {
 	});
 
 	it.each([
-		['new message', { message: { text: 'Hello' }, adminMode: false }],
+		['new message', { message: { text: 'Hello' }, mode: 'default', adminMode: false }],
 		[
 			'message edit',
-			{ chatId: 'chat-1', messageToEditId: 'message-1', message: { text: 'Edited' }, adminMode: false },
+			{
+				chatId: 'chat-1',
+				messageToEditId: 'message-1',
+				message: { text: 'Edited' },
+				mode: 'default',
+				adminMode: false,
+			},
 		],
 	])('checks billing access before handling a %s', async (_label, body) => {
 		const accessError = new Error('Cloud billing access is restricted');

@@ -2,7 +2,6 @@ import { documentMediaType, type ImageUploadData } from '@nao/shared/attachments
 
 import { renderAdminSystemPrompt } from '../components/ai';
 import { renderOnboardingSystemPrompt } from '../components/ai/onboarding-system-prompt';
-import { noProjectMessage } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import { adminAgentTools, type AgentManager, agentService, onboardingAgentTools } from '../services/agent';
@@ -19,10 +18,9 @@ import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from '../u
 interface HandleAgentMessageInput extends Omit<AgentRequest, 'mode'> {
 	isOnboarding: boolean;
 	userId: string;
-	projectId: string | undefined;
+	projectId: string;
 	billingAccessVerifiedProjectId?: string;
 	domainHost: string | undefined;
-	projectAccessAlreadyAuthorized?: boolean;
 	unbilledManagedAiUsage?: boolean;
 }
 
@@ -57,10 +55,6 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		unbilledManagedAiUsage,
 	} = opts;
 
-	if (!projectId) {
-		throw new HandlerError('BAD_REQUEST', noProjectMessage());
-	}
-
 	await agentService.assertBudget(projectId, model, userId);
 
 	const source: MessageSource = isOnboarding ? 'onboarding' : adminMode ? 'admin' : 'web';
@@ -93,7 +87,6 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		...agentOptions,
 		billingAccessVerifiedProjectId,
 		isBudgetChecked: true,
-		projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
 		unbilledManagedAiUsage,
 	});
 
