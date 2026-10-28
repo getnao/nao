@@ -375,6 +375,24 @@ describe('user management API', () => {
 		expect(await selectOrgMember(MEMBER_ID)).toHaveLength(1);
 	});
 
+	it('cancels an invitation even when the account also belongs to another organization', async () => {
+		const invited = await post('/user-management/users', { email: 'elsewhere@example.com', name: 'Elsewhere' });
+		const invitedId = invited.json().user.id;
+		await db.insert(s.orgMember).values({ orgId: OTHER_ORG_ID, userId: invitedId, role: 'user' }).execute();
+
+		expect((await del(`/user-management/users/${invitedId}`)).statusCode).toBe(204);
+
+		expect(await selectOrgMember(invitedId)).toHaveLength(0);
+		expect(await db.select().from(s.user).where(eq(s.user.id, invitedId)).execute()).toHaveLength(1);
+		expect(
+			await db
+				.select()
+				.from(s.orgMember)
+				.where(and(eq(s.orgMember.orgId, OTHER_ORG_ID), eq(s.orgMember.userId, invitedId)))
+				.execute(),
+		).toHaveLength(1);
+	});
+
 	it('manages groups and their members', async () => {
 		const created = await post(`/user-management/projects/${PROJECT_ID}/groups`, { name: 'GEHB Members' });
 		expect(created.statusCode).toBe(201);
@@ -409,6 +427,53 @@ describe('user management API', () => {
 		).not.toContain(groupId);
 	});
 
+	it('unshares a project-wide chat when a group membership takes project sharing away', async () => {
+		await db
+			.insert(s.userGroup)
+			.values({
+				id: 'group-sharing-blocked',
+				projectId: PROJECT_ID,
+				name: 'Restricted',
+				featureGrants: sharingConfig('blocked'),
+			})
+			.execute();
+		await shareProjectWideChat('chat-member-wide', MEMBER_ID);
+		await shareProjectWideChat('chat-admin-wide', ADMIN_ID);
+
+		const added = await put(
+			`/user-management/projects/${PROJECT_ID}/groups/group-sharing-blocked/members/${MEMBER_ID}`,
+		);
+		expect(added.statusCode).toBe(204);
+
+		// The admin still may share project-wide; only the member who lost the grant is unshared.
+		expect(await sharedChatIds()).toEqual(['chat-admin-wide-share']);
+	});
+
+	it('unshares a project-wide chat when the group granting project sharing is deleted', async () => {
+		await db
+			.update(s.userGroup)
+			.set({ featureGrants: sharingConfig('blocked') })
+			.where(eq(s.userGroup.id, DEFAULT_GROUP_ID))
+			.execute();
+		await db
+			.insert(s.userGroup)
+			.values({
+				id: 'group-sharing-allowed',
+				projectId: PROJECT_ID,
+				name: 'Sharers',
+				featureGrants: sharingConfig('allowed'),
+			})
+			.execute();
+		await db.insert(s.userGroupMember).values({ groupId: 'group-sharing-allowed', userId: MEMBER_ID }).execute();
+		await shareProjectWideChat('chat-member-wide', MEMBER_ID);
+
+		expect((await del(`/user-management/projects/${PROJECT_ID}/groups/group-sharing-allowed`)).statusCode).toBe(
+			204,
+		);
+
+		expect(await sharedChatIds()).toEqual([]);
+	});
+
 	it('sets a project role and refuses projects from another organization', async () => {
 		const updated = await put(`/user-management/projects/${PROJECT_ID}/members/${MEMBER_ID}`, { role: 'admin' });
 		expect(updated.statusCode).toBe(200);
@@ -435,6 +500,8 @@ describe('user management API', () => {
 });
 
 async function clearData() {
+	await db.delete(s.sharedChat);
+	await db.delete(s.chat);
 	await db.delete(s.userGroupMember);
 	await db.delete(s.userGroup);
 	await db.delete(s.projectMember);
@@ -456,6 +523,26 @@ const selectOrgMember = (userId: string) =>
 		.from(s.orgMember)
 		.where(and(eq(s.orgMember.orgId, ORG_ID), eq(s.orgMember.userId, userId)))
 		.execute();
+
+function sharingConfig(projectSharing: 'allowed' | 'blocked') {
+	return {
+		version: 2,
+		features: [],
+		toolCallDensity: { defaultDensity: 'detailed', canChange: false },
+		projectSharing,
+	};
+}
+
+async function shareProjectWideChat(chatId: string, userId: string) {
+	await db.insert(s.chat).values({ id: chatId, userId, projectId: PROJECT_ID }).execute();
+	await db
+		.insert(s.sharedChat)
+		.values({ id: `${chatId}-share`, chatId, visibility: 'project' })
+		.execute();
+}
+
+const sharedChatIds = async () =>
+	(await db.select({ id: s.sharedChat.id }).from(s.sharedChat).execute()).map((row) => row.id);
 
 async function seedData() {
 	await db.insert(s.user).values([
