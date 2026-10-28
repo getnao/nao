@@ -102,6 +102,9 @@ describe('DISABLED_PROVIDERS', () => {
 		process.env.CLOUD_GITHUB_PROJECT_APP_ID = '123';
 		process.env.CLOUD_GITHUB_PROJECT_INSTALLATION_ID = '456';
 		process.env.CLOUD_GITHUB_PROJECT_PRIVATE_KEY = 'test-private-key';
+		process.env.SMTP_HOST = 'smtp.example.com';
+		process.env.SMTP_MAIL_FROM = 'hello@example.com';
+		process.env.SMTP_PASSWORD = 'secret';
 		setDisabledProviders(undefined);
 		expect(env.NAO_MANAGED_OPENAI_API_KEY).toBe('managed-key');
 		expect(isManagedAiEnabled()).toBe(true);

@@ -1,6 +1,7 @@
 import type { DBManagedAiUsage, NewManagedAiUsage } from '../db/abstractSchema';
 import type { CreditPurchase, CreditPurchaseMovement } from '../queries/credit-ledger.queries';
 import * as creditLedgerQueries from '../queries/credit-ledger.queries';
+import * as userQueries from '../queries/user.queries';
 import { creditGrantIdempotencyKey, type CreditGrantType } from '../types/managed-ai-usage';
 
 export type { CreditPurchase } from '../queries/credit-ledger.queries';
@@ -19,6 +20,9 @@ export async function issueCreditGrant({
 	const subjectId = grantType === 'organization_setup' ? orgId : userId;
 	if (!subjectId) {
 		throw new Error('User join credit grant requires a user.');
+	}
+	if (grantType === 'user_join' && !(await isEmailVerified(subjectId))) {
+		return false;
 	}
 	return creditLedgerQueries.issueCreditGrant({
 		grantType,
@@ -71,6 +75,10 @@ export async function recordManagedAiUsageAndChargeWallet(
 		throw new Error('Managed AI usage requires a billed organization.');
 	}
 	return creditLedgerQueries.recordManagedAiUsageAndChargeWallet(usage, customerChargeMicroUsd, usage.orgId);
+}
+
+async function isEmailVerified(userId: string): Promise<boolean> {
+	return (await userQueries.getUser({ id: userId }))?.emailVerified === true;
 }
 
 function validatePositiveAmount(amountMicroUsd: number, label: string): void {

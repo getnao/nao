@@ -155,6 +155,7 @@ describe('automatic credit grants', () => {
 			id: 'deduplicated-user',
 			name: 'Deduplicated User',
 			email: 'deduplicated@example.com',
+			emailVerified: true,
 		});
 		await db.insert(s.projectMember).values({
 			projectId: 'deduplicated-first-project',
@@ -236,6 +237,7 @@ describe('automatic credit grants', () => {
 			id: 'pending-project-user',
 			name: 'Pending Project User',
 			email: 'pending-project@example.com',
+			emailVerified: true,
 		});
 		await db.insert(s.projectMember).values({
 			projectId: 'pending-project',
@@ -262,6 +264,7 @@ describe('automatic credit grants', () => {
 			id: 'active-user',
 			name: 'Active User',
 			email: 'active@example.com',
+			emailVerified: true,
 		});
 		await db.insert(s.orgMember).values({
 			orgId: 'active-org',
@@ -276,7 +279,7 @@ describe('automatic credit grants', () => {
 		expect((await getCreditSummary('active-org')).balanceMicroUsd).toBe(25_000_000);
 	});
 
-	it('keeps a provisioned project member pending until authentication', async () => {
+	it('keeps a provisioned project member pending until email verification and authentication', async () => {
 		await insertReadyFundedOrganization('invited-org', 'invited-project');
 		await db.insert(s.user).values({
 			id: 'invited-user',
@@ -294,7 +297,10 @@ describe('automatic credit grants', () => {
 		expect(await getCreditGrant('user_join', 'invited-user')).toBeNull();
 
 		await activateUserJoinCandidates('invited-user');
+		expect(await getCreditGrant('user_join', 'invited-user')).toBeNull();
 
+		await userQueries.markEmailVerified('invited-user');
+		await activateUserJoinCandidates('invited-user');
 		expect(await getCreditGrant('user_join', 'invited-user')).toEqual({ orgId: 'invited-org' });
 		expect((await getCreditSummary('invited-org')).balanceMicroUsd).toBe(25_000_000);
 	});
@@ -344,8 +350,8 @@ describe('automatic credit grants', () => {
 			throw new Error('Expected concurrent user to exist.');
 		}
 		vi.spyOn(userQueries, 'getUser')
-			.mockResolvedValueOnce(user)
-			.mockResolvedValueOnce({ ...user, requiresPasswordReset: false });
+			.mockResolvedValue({ ...user, emailVerified: true, requiresPasswordReset: false })
+			.mockResolvedValueOnce(user);
 
 		await recordProjectJoinCandidate('concurrent-project', 'concurrent-user');
 
@@ -357,7 +363,9 @@ describe('automatic credit grants', () => {
 		const sweepStartedAt = new Date();
 		const candidateCreatedAt = new Date(sweepStartedAt.getTime() + 1_000);
 		for (const userId of ['000-lifecycle-user-1', '000-lifecycle-user-2']) {
-			await db.insert(s.user).values({ id: userId, name: userId, email: `${userId}@example.com` });
+			await db
+				.insert(s.user)
+				.values({ id: userId, name: userId, email: `${userId}@example.com`, emailVerified: true });
 			await db.insert(s.orgMember).values({ orgId: 'lifecycle-org', userId, role: 'user' });
 			await db.insert(s.creditGrantCandidate).values({
 				id: userId,
@@ -410,6 +418,7 @@ describe('automatic credit grants', () => {
 			id: 'later-user',
 			name: 'Later User',
 			email: 'later@example.com',
+			emailVerified: true,
 		});
 		await db.insert(s.orgMember).values({
 			orgId: 'policy-org',
@@ -438,7 +447,9 @@ describe('automatic credit grants', () => {
 			.where(eq(s.creditGrantPolicy.grantType, 'user_join'));
 		try {
 			for (const userId of ['capped-user-1', 'capped-user-2', 'capped-user-3']) {
-				await db.insert(s.user).values({ id: userId, name: userId, email: `${userId}@example.com` });
+				await db
+					.insert(s.user)
+					.values({ id: userId, name: userId, email: `${userId}@example.com`, emailVerified: true });
 				await db.insert(s.orgMember).values({ orgId: 'capped-org', userId, role: 'user' });
 				await recordOrganizationJoinCandidate('capped-org', userId);
 			}

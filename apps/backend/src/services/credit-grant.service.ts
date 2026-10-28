@@ -294,7 +294,7 @@ async function isUserActive(userId: string): Promise<boolean> {
 		userQueries.getUser({ id: userId }),
 		userQueries.hasUserSession(userId),
 	]);
-	return !!user && (!user.requiresPasswordReset || hasSession);
+	return user?.emailVerified === true && (!user.requiresPasswordReset || hasSession);
 }
 
 function toReconciliationCursor(

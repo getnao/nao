@@ -64,6 +64,9 @@ describe('cloud backoffice routes', () => {
 		process.env.CLOUD_GITHUB_PROJECT_APP_ID = '123';
 		process.env.CLOUD_GITHUB_PROJECT_INSTALLATION_ID = '456';
 		process.env.CLOUD_GITHUB_PROJECT_PRIVATE_KEY = 'test-private-key';
+		process.env.SMTP_HOST = 'smtp.example.com';
+		process.env.SMTP_MAIL_FROM = 'hello@example.com';
+		process.env.SMTP_PASSWORD = 'secret';
 		__reloadEnvForTesting();
 		projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-backoffice-test-'));
 		await fs.writeFile(
