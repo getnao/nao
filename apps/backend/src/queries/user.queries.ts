@@ -116,6 +116,10 @@ export const setUserMemoryEnabled = async (userId: string, memoryEnabled: boolea
 	await db.update(s.user).set({ memoryEnabled }).where(eq(s.user.id, userId)).execute();
 };
 
+export const markEmailVerified = async (userId: string): Promise<void> => {
+	await db.update(s.user).set({ emailVerified: true }).where(eq(s.user.id, userId)).execute();
+};
+
 export const countUsers = async (): Promise<number> => {
 	const [result] = await db.select({ count: count() }).from(s.user).execute();
 	return result?.count ?? 0;

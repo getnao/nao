@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	buildEmailVerificationCallbackUrl,
 	getEmailVerificationErrorMessage,
+	getSignInErrorMessage,
 	isEmailNotVerifiedError,
 } from './email-verification';
 
@@ -19,5 +20,10 @@ describe('email verification flow helpers', () => {
 		expect(getEmailVerificationErrorMessage('TOKEN_EXPIRED')).toContain('expired');
 		expect(getEmailVerificationErrorMessage('invalid_token')).toContain('invalid');
 		expect(getEmailVerificationErrorMessage('OAUTH_ERROR')).toBeUndefined();
+	});
+
+	it('explains why a social sign-in could not link to an unverified account', () => {
+		expect(getSignInErrorMessage('account_not_linked')).toContain('already exists');
+		expect(getSignInErrorMessage('Sign up is disabled.')).toBe('Sign up is disabled.');
 	});
 });

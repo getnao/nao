@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	addOrgMemberIfMissing: vi.fn(),
 	betterAuth: vi.fn(),
+	buildAccountExistsEmail: vi.fn(),
 	buildVerifyEmail: vi.fn(),
 	emailSend: vi.fn(),
 	env: {
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 		NAO_MODE: 'cloud',
 	},
 	findOrganizationByEmailDomain: vi.fn(),
+	markEmailVerified: vi.fn(),
 }));
 
 vi.mock('better-auth', () => ({
@@ -51,7 +53,10 @@ vi.mock('../src/queries/organization.queries', () => ({
 	initializePersonalOrganization: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({ listUserProjects: vi.fn() }));
-vi.mock('../src/queries/user.queries', () => ({ countUsers: vi.fn().mockResolvedValue(0) }));
+vi.mock('../src/queries/user.queries', () => ({
+	countUsers: vi.fn().mockResolvedValue(0),
+	markEmailVerified: mocks.markEmailVerified,
+}));
 vi.mock('../src/services/auth-user-onboarding.service', () => ({
 	initializeSelfHostedUserAfterCreation: vi.fn(),
 }));
@@ -80,6 +85,7 @@ vi.mock('../src/services/oidc-auth.service', () => ({
 vi.mock('../src/services/sso-login-sync.service', () => ({ syncSsoLoginGroups: vi.fn() }));
 vi.mock('../src/services/sso-session.service', () => ({ shouldExpireSsoSession: vi.fn() }));
 vi.mock('../src/utils/email-builders', () => ({
+	buildAccountExistsEmail: mocks.buildAccountExistsEmail,
 	buildForgotPasswordEmail: vi.fn(),
 	buildVerifyEmail: mocks.buildVerifyEmail,
 }));
@@ -90,8 +96,28 @@ vi.mock('../src/utils/logger', () => ({
 
 import { getAuth, updateAuth } from '../src/auth';
 
+interface ExistingUser {
+	email: string;
+	name: string;
+	emailVerified: boolean;
+}
+
 interface CapturedAuthOptions {
-	emailAndPassword: { requireEmailVerification: boolean };
+	emailAndPassword: {
+		requireEmailVerification: boolean;
+		onPasswordReset: (data: { user: { id: string; emailVerified: boolean } }) => Promise<void>;
+		onExistingUserSignUp: (data: { user: ExistingUser }, request?: Request) => Promise<void>;
+	};
+	hooks: {
+		after: (ctx: {
+			path: string;
+			body: { email: string };
+			context: {
+				returned: unknown;
+				internalAdapter: { findUserByEmail: (email: string) => Promise<{ user: ExistingUser } | null> };
+			};
+		}) => Promise<void>;
+	};
 	emailVerification:
 		| {
 				sendVerificationEmail: (data: { user: { email: string; name: string }; url: string }) => Promise<void>;
@@ -181,6 +207,46 @@ describe('Cloud Google organization enrollment', () => {
 		await expect(
 			options.emailVerification.sendVerificationEmail({ user, url: 'https://nao.test/verify' }),
 		).rejects.toThrow('SMTP unavailable');
+	});
+
+	it('treats a completed password reset as proof of email ownership', async () => {
+		const options = await getAuthOptions();
+		mocks.markEmailVerified.mockReset();
+
+		await options.emailAndPassword.onPasswordReset({ user: { id: 'unverified-user', emailVerified: false } });
+		await options.emailAndPassword.onPasswordReset({ user: { id: 'verified-user', emailVerified: true } });
+
+		expect(mocks.markEmailVerified).toHaveBeenCalledExactlyOnceWith('unverified-user');
+	});
+
+	it('always emails the owner of an existing account who signs up again or asks for another email', async () => {
+		const sendVerificationEmail = vi.fn();
+		mocks.betterAuth.mockReturnValue({ api: { sendVerificationEmail } });
+		mocks.buildAccountExistsEmail.mockResolvedValue({ subject: 'Exists', html: '<p>Exists</p>' });
+		const options = await getAuthOptions();
+		const unverified = { email: 'pending@example.com', name: 'Pending', emailVerified: false };
+		const verified = { email: 'known@example.com', name: 'Known', emailVerified: true };
+
+		const signUpRequest = new Request('https://nao.test/api/auth/sign-up/email', {
+			method: 'POST',
+			body: JSON.stringify({ callbackURL: '/email-verified?redirect=%2Fsettings' }),
+		});
+		await options.emailAndPassword.onExistingUserSignUp({ user: unverified }, signUpRequest);
+		await options.emailAndPassword.onExistingUserSignUp({ user: verified });
+		await options.hooks.after({
+			path: '/send-verification-email',
+			body: { email: verified.email },
+			context: {
+				returned: { status: true },
+				internalAdapter: { findUserByEmail: async () => ({ user: verified }) },
+			},
+		});
+
+		expect(sendVerificationEmail).toHaveBeenCalledExactlyOnceWith({
+			body: { email: 'pending@example.com', callbackURL: '/email-verified?redirect=%2Fsettings' },
+		});
+		expect(mocks.emailSend).toHaveBeenCalledTimes(2);
+		expect(mocks.emailSend).toHaveBeenCalledWith('known@example.com', { subject: 'Exists', html: '<p>Exists</p>' });
 	});
 
 	it('leaves self-hosted email authentication unchanged', async () => {

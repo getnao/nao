@@ -32,7 +32,7 @@ describe('EmailVerificationPending', () => {
 		expect(countdownButton.disabled).toBe(true);
 		await finishResendCooldown();
 
-		const resendButton = screen.getByRole('button', { name: 'Resend verification email' }) as HTMLButtonElement;
+		const resendButton = screen.getByRole('button', { name: 'Resend email' }) as HTMLButtonElement;
 		expect(resendButton.disabled).toBe(false);
 
 		await act(async () => {
@@ -43,7 +43,7 @@ describe('EmailVerificationPending', () => {
 			email: 'user@example.com',
 			callbackURL: '/email-verified?redirect=%2Fsettings',
 		});
-		expect(screen.getByRole('status').textContent).toContain('If this address still needs verification');
+		expect(screen.getByRole('status').textContent).toContain('Another email is on its way');
 		expect((screen.getByRole('button', { name: 'Resend in 15s' }) as HTMLButtonElement).disabled).toBe(true);
 	});
 
@@ -52,7 +52,7 @@ describe('EmailVerificationPending', () => {
 		render(<EmailVerificationPending email='user@example.com' callbackURL='/login' />);
 
 		await finishResendCooldown();
-		const resendButton = screen.getByRole('button', { name: 'Resend verification email' });
+		const resendButton = screen.getByRole('button', { name: 'Resend email' });
 		await act(async () => {
 			fireEvent.click(resendButton);
 		});

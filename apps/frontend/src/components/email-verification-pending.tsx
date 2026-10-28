@@ -42,7 +42,7 @@ export function EmailVerificationPending({ email, callbackURL, onChangeEmail }: 
 					? error.status === 429
 						? 'Too many requests. Wait a minute before trying again.'
 						: 'We could not send another verification email. Please try again.'
-					: 'If this address still needs verification, another email is on its way.',
+					: 'Another email is on its way.',
 			});
 		} catch {
 			setFeedback({
@@ -57,10 +57,10 @@ export function EmailVerificationPending({ email, callbackURL, onChangeEmail }: 
 	return (
 		<div className='flex flex-col items-center text-center'>
 			<div className='max-w-sm'>
-				<p className='text-sm text-muted-foreground'>We sent a verification link to</p>
+				<p className='text-sm text-muted-foreground'>We sent an email to</p>
 				<p className='mt-1 break-all text-sm font-semibold text-foreground'>{email}</p>
 				<p className='mt-3 text-sm leading-6 text-muted-foreground'>
-					Click the link to verify your address and continue to nao. It expires in one hour.
+					Click the link in it to continue to nao. Verification links expire in one hour.
 				</p>
 			</div>
 
@@ -72,7 +72,7 @@ export function EmailVerificationPending({ email, callbackURL, onChangeEmail }: 
 				disabled={isSending || resendCooldown > 0}
 				onClick={resend}
 			>
-				{resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend verification email'}
+				{resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend email'}
 			</Button>
 			{feedback && (
 				<div

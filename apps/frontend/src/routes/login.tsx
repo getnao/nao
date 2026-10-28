@@ -6,7 +6,11 @@ import { sendVerificationEmail, signIn } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
 import { EmailVerificationPending } from '@/components/email-verification-pending';
 import { useIsCloud } from '@/hooks/use-nao-mode';
-import { buildEmailVerificationCallbackUrl, isEmailNotVerifiedError } from '@/lib/email-verification';
+import {
+	buildEmailVerificationCallbackUrl,
+	getSignInErrorMessage,
+	isEmailNotVerifiedError,
+} from '@/lib/email-verification';
 import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
@@ -31,7 +35,7 @@ export function Login() {
 	const navigate = useNavigate();
 	const router = useRouter();
 	const { error: oauthError, redirect } = Route.useSearch();
-	const [serverError, setServerError] = useState<string | undefined>(oauthError);
+	const [serverError, setServerError] = useState<string | undefined>(getSignInErrorMessage(oauthError));
 	const [pendingEmail, setPendingEmail] = useState<string>();
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 
+import { AccountExists } from '../components/email/account-exists';
 import { BudgetLimitReached } from '../components/email/budget-limit-reached';
 import { ForgotPassword } from '../components/email/forgot-password';
 import { NotificationEmail } from '../components/email/notification-email';
@@ -66,6 +67,15 @@ export async function buildVerifyEmail(user: { name: string }, verificationUrl: 
 	return createEmail(
 		`Verify your email on ${branding.appName}`,
 		VerifyEmail({ userName: user.name, verificationUrl, branding }),
+		branding,
+	);
+}
+
+export async function buildAccountExistsEmail(user: { name: string }, loginUrl: string): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	return createEmail(
+		`You already have an account on ${branding.appName}`,
+		AccountExists({ userName: user.name, loginUrl, branding }),
 		branding,
 	);
 }

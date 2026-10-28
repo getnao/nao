@@ -17,6 +17,13 @@ export function isEmailNotVerifiedError(error: AuthError): boolean {
 	return error.code?.toUpperCase() === 'EMAIL_NOT_VERIFIED';
 }
 
+export function getSignInErrorMessage(error: string | undefined): string | undefined {
+	if (error?.toLowerCase() === 'account_not_linked') {
+		return 'An account with this email already exists. Log in with your email and password to verify it, then try again.';
+	}
+	return error;
+}
+
 export function getEmailVerificationErrorMessage(error: string | undefined): string | undefined {
 	switch (error?.toUpperCase()) {
 		case 'TOKEN_EXPIRED':
