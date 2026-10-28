@@ -354,6 +354,7 @@ jobs:
                           -e "BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true" \
                           -e "BETA_STORY_FILTERS_ENABLED=true" \
                           -e "BETA_CUSTOM_STORIES_ENABLED=true" \
+                          -e "BETA_SUBAGENTS_ENABLED=true" \
                           -e "CLOUD_BILLING_ENABLED=true" \
                           -e "STRIPE_SECRET_KEY=${{ secrets.NAOCLOUD_STRIPE_SECRET_KEY }}" \
                           -e "STRIPE_WEBHOOK_SECRET=${{ secrets.NAOCLOUD_STRIPE_WEBHOOK_SECRET }}" \
