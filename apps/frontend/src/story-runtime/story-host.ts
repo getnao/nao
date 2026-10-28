@@ -10,6 +10,8 @@ import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { resolveBlockColors } from './story-colors';
+import { highlightStoryElement } from './story-highlight';
+import { configureStoryInspector } from './story-inspector';
 import { initStoryState, readStoryState, writeStoryState } from './story-state';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { Shortcut } from '@nao/shared/keyboard-shortcut';
@@ -18,6 +20,7 @@ import type { StoryBlockReference } from '@nao/shared/types';
 import type {
 	StoryAppKind,
 	StoryBlockEditRequest,
+	StoryElementAsk,
 	StoryTableFormatEditRequest,
 	StoryExportData,
 	StoryFrameMessage,
@@ -210,6 +213,10 @@ export function requestBlockAsk(block: StoryBlockReference): void {
 	send({ type: 'nao-story:ask-block', block });
 }
 
+function requestElementAsk({ block, text }: StoryElementAsk): void {
+	send({ type: 'nao-story:ask', block: toJsonSafe(block), text });
+}
+
 export function requestQuerySql(queryId: string): Promise<string> {
 	return awaitReply(pendingQuerySql, (requestId) => ({ type: 'nao-story:query-sql', requestId, queryId }));
 }
@@ -242,6 +249,17 @@ function handleHostMessage(message: unknown): void {
 	if (message.type === 'nao-story:editing') {
 		editingEnabled = message.enabled;
 		editingListeners.forEach((listener) => listener());
+		return;
+	}
+	if (message.type === 'nao-story:inspector') {
+		configureStoryInspector({
+			onAsk: message.enabled ? requestElementAsk : null,
+			selectsElements: message.selectsElements,
+		});
+		return;
+	}
+	if (message.type === 'nao-story:highlight') {
+		highlightStoryElement({ block: message.block, text: message.text });
 		return;
 	}
 	if (message.type === 'nao-story:theme') {

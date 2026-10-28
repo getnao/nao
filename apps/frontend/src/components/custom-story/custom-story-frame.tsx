@@ -16,13 +16,13 @@ import { useStoryStateRecorder } from './use-story-state-recorder';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
+	StoryElementCitation,
 	StoryFrameMessage,
 	StoryHostMessage,
 	StoryStateSnapshot,
 	StoryTableFormatEditRequest,
 } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
-import type { StoryBlockReference } from '@nao/shared/types';
 
 import type { CustomStoryDataSource } from './story-data-options';
 import type { StoryRuntimeLocation } from './story-frame-document';
@@ -30,6 +30,7 @@ import { useDateFormat } from '@/hooks/use-date-format';
 import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
+import { STORY_HIGHLIGHT_TTL_MS, useStoryHighlightRequest } from '@/stores/story-highlight';
 
 export interface CustomStoryRuntimeError {
 	message: string;
@@ -46,7 +47,8 @@ interface CustomStoryFrameProps {
 	editable?: boolean;
 	onEditBlock?: (request: StoryBlockEditPayload) => void;
 	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
-	onAskBlock?: (block: StoryBlockReference) => void;
+	onAsk?: (citation: StoryElementCitation) => void;
+	isSelectingElements?: boolean;
 	onReady?: () => void;
 	onError?: (error: CustomStoryRuntimeError) => void;
 	stateControls?: StoryStateControls;
@@ -70,7 +72,8 @@ export function CustomStoryFrame({
 	editable = false,
 	onEditBlock,
 	onEditTableFormat,
-	onAskBlock,
+	onAsk,
+	isSelectingElements = false,
 	onReady,
 	onError,
 	stateControls,
@@ -85,6 +88,7 @@ export function CustomStoryFrame({
 	const queryClient = useQueryClient();
 	const dateFormat = useDateFormat();
 	const usesState = stateControls?.usesState ?? false;
+	const isAskable = onAsk !== undefined;
 	const frameDocument = useStoryFrameDocument(app, styles, theme, dataSource, usesState, onError);
 	const srcDoc = frameDocument?.html ?? null;
 	const channel = frameDocument?.channel;
@@ -96,6 +100,24 @@ export function CustomStoryFrame({
 
 	const reportStateError = useCallback((message: string) => onError?.({ message }), [onError]);
 	const recordStateChange = useStoryStateRecorder(dataSource, reportStateError);
+
+	const highlightRequest = useStoryHighlightRequest();
+	const handledHighlightId = useRef<number | null>(null);
+	const forwardHighlight = useEffectEvent(() => {
+		const isForThisStory =
+			highlightRequest &&
+			(!highlightRequest.storySlug || highlightRequest.storySlug === storySlugOf(dataSource)) &&
+			Date.now() - highlightRequest.requestedAt < STORY_HIGHLIGHT_TTL_MS;
+		if (!isForThisStory || !isFrameReadyRef.current || handledHighlightId.current === highlightRequest.id) {
+			return;
+		}
+		handledHighlightId.current = highlightRequest.id;
+		reply({ type: 'nao-story:highlight', ...highlightRequest.element });
+	});
+
+	useEffect(() => {
+		forwardHighlight();
+	}, [highlightRequest]);
 
 	const syncThemeOnReady = useEffectEvent(() => {
 		if (theme !== bootTheme) {
@@ -172,8 +194,10 @@ export function CustomStoryFrame({
 					isFrameReadyRef.current = true;
 					connectPort(handlePortMessage);
 					reply({ type: 'nao-story:editing', enabled: editable });
+					reply({ type: 'nao-story:inspector', enabled: isAskable, selectsElements: isSelectingElements });
 					reply({ type: 'nao-story:shortcuts', shortcuts: getAppWideShortcuts() });
 					syncThemeOnReady();
+					forwardHighlight();
 					onReady?.();
 					break;
 				case 'nao-story:query':
@@ -218,8 +242,11 @@ export function CustomStoryFrame({
 					break;
 				case 'nao-story:ask-block':
 					if (editable) {
-						onAskBlock?.(message.block);
+						onAsk?.({ block: message.block, text: message.block.title ?? '', intent: 'edit' });
 					}
+					break;
+				case 'nao-story:ask':
+					onAsk?.({ block: message.block, text: message.text, intent: 'ask' });
 					break;
 				case 'nao-story:query-sql':
 					void answerQuerySql(message.requestId, message.queryId);
@@ -245,7 +272,9 @@ export function CustomStoryFrame({
 		connectPort,
 		dateFormat,
 		editable,
-		onAskBlock,
+		isAskable,
+		isSelectingElements,
+		onAsk,
 		onEditBlock,
 		onEditTableFormat,
 		onError,
@@ -259,6 +288,12 @@ export function CustomStoryFrame({
 			reply({ type: 'nao-story:editing', enabled: editable });
 		}
 	}, [editable, reply]);
+
+	useEffect(() => {
+		if (isFrameReadyRef.current) {
+			reply({ type: 'nao-story:inspector', enabled: isAskable, selectsElements: isSelectingElements });
+		}
+	}, [isAskable, isSelectingElements, reply]);
 
 	useEffect(() => {
 		if (isFrameReadyRef.current) {
@@ -394,6 +429,10 @@ function useForwardHostKeydown(reply: (message: StoryHostMessage) => void) {
 		document.addEventListener('keydown', handleKeyDown);
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, [reply]);
+}
+
+function storySlugOf(dataSource: CustomStoryDataSource): string | undefined {
+	return 'storySlug' in dataSource ? dataSource.storySlug : undefined;
 }
 
 function storyRuntimeLocation(): StoryRuntimeLocation {
