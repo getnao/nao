@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
-import type { DownloadFormat, StoryBlockReference } from '@nao/shared/types';
-import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
+import type { DownloadFormat } from '@nao/shared/types';
+import type { StoryBlockEditPayload, StoryTableFormatEditRequest, StoryElementCitation } from '@nao/shared/story-app';
 import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/story-block-edit';
+import type { CodeSelection } from '@/stores/ask-bar';
 
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
@@ -28,8 +29,9 @@ import { StoryPageHeader } from '@/components/story-page-header';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 import { trpc, trpcClient } from '@/main';
-import { requestAsk } from '@/stores/ask-bar';
+import { requestAsk, requestAskAboutCode } from '@/stores/ask-bar';
 
 interface CustomStoryPreviewPageProps {
 	chatId: string;
@@ -52,6 +54,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 		refresh: live.handleRefreshData,
 	});
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
@@ -74,13 +77,19 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 		},
 		[chatId, content, storySlug],
 	);
-	const handleAskBlock = useCallback((block: StoryBlockReference) => {
-		requestAsk({ chatId: null, selection: { text: block.title ?? '', block } });
-	}, []);
+	const handleAsk = useCallback(
+		({ text, block, intent }: StoryElementCitation) => {
+			requestAsk({ chatId: null, selection: { text, block, intent, storySlug } });
+		},
+		[storySlug],
+	);
+	const handleAskAboutCode = useCallback(
+		(filePath: string, selection: CodeSelection) => requestAskAboutCode(selection, { storySlug, filePath }),
+		[storySlug],
+	);
 
 	useTrackViewDuration({ assetType: 'story', chatId, storyId, versionNumber: story.viewedVersion ?? undefined });
 	const showAskBar = Boolean(storyId) && !story.isArchived;
-	const isAskInputHidden = viewMode !== 'app';
 
 	return (
 		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
@@ -105,6 +114,11 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 				onShare={() => sharing.setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
+				elementSelection={
+					showAskBar && viewMode === 'app'
+						? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+						: undefined
+				}
 				versionControls={{
 					currentVersion: story.currentVersionIndex,
 					versionDates: story.versionDates,
@@ -123,7 +137,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 					viewMode={viewMode}
 					app={
 						<CustomStoryBody
-							bottomInset={showAskBar && !isAskInputHidden ? STORY_ASK_BAR_INSET : undefined}
+							bottomInset={showAskBar ? STORY_ASK_BAR_INSET : undefined}
 							dataSource={story.dataSource}
 							content={content}
 							isLoading={story.isLoading}
@@ -132,22 +146,29 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 							editable={canEditBlocks && viewMode === 'app'}
 							onEditBlock={handleEditBlock}
 							onEditTableFormat={handleEditTableFormat}
-							onAskBlock={handleAskBlock}
+							onAsk={showAskBar ? handleAsk : undefined}
+							isSelectingElements={isSelectingElements && viewMode === 'app'}
 						/>
 					}
 					files={
 						content && (
-							<CustomStoryFiles
-								key={content.version.id}
-								source={story.dataSource}
-								versionNumber={content.version.number}
-								files={content.files}
-								editable={canEditBlocks && customStoryCreationEnabled}
-							/>
+							<div
+								className='h-full'
+								style={showAskBar ? { paddingBottom: STORY_ASK_BAR_INSET } : undefined}
+							>
+								<CustomStoryFiles
+									key={content.version.id}
+									source={story.dataSource}
+									versionNumber={content.version.number}
+									files={content.files}
+									editable={canEditBlocks && customStoryCreationEnabled}
+									onAskAboutCode={showAskBar ? handleAskAboutCode : undefined}
+								/>
+							</div>
 						)
 					}
 				/>
-				{showAskBar && storyId && <StoryAskBar storyId={storyId} isOwner isInputHidden={isAskInputHidden} />}
+				{showAskBar && storyId && <StoryAskBar storyId={storyId} isOwner />}
 			</div>
 
 			<CustomStoryBlockEditDialog
@@ -237,6 +258,8 @@ export function SharedCustomStoryPage({
 		[storyId],
 	);
 	const download = useCustomStoryDownload(content, dataSource, renderExport);
+	const canAsk = Boolean(storyChatHeader?.storyChat?.canChat);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 
 	return (
 		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
@@ -252,15 +275,20 @@ export function SharedCustomStoryPage({
 				onRefresh={() => refreshMutation.mutate({ storyId })}
 				storyId={isSignedIn ? storyId : null}
 				download={{ shareSource: { type: 'story', storyId }, isOwner: false, onDownload: download }}
+				elementSelection={
+					canAsk ? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements } : undefined
+				}
 			/>
 			<div className='relative flex min-h-0 flex-1 flex-col'>
 				<CustomStoryBody
-					bottomInset={storyChatHeader?.storyChat?.canChat ? STORY_ASK_BAR_INSET : undefined}
+					bottomInset={canAsk ? STORY_ASK_BAR_INSET : undefined}
 					dataSource={dataSource}
 					content={content}
 					isLoading={contentQuery.isLoading}
 					error={contentQuery.error}
 					hasPublishedVersion
+					onAsk={canAsk ? askAboutSharedStoryElement : undefined}
+					isSelectingElements={canAsk && isSelectingElements}
 				/>
 				{storyChatHeader?.storyChat?.canChat && (
 					<StoryAskBar storyId={storyId} isOwner={storyChatHeader.storyChat.isOwner} />
@@ -268,4 +296,9 @@ export function SharedCustomStoryPage({
 			</div>
 		</div>
 	);
+}
+
+/** A reader of a shared story asks about it in a quick question: the story has no chat of theirs to quote it in. */
+function askAboutSharedStoryElement({ text, block, intent }: StoryElementCitation) {
+	requestAsk({ chatId: null, selection: { text, block, intent } });
 }

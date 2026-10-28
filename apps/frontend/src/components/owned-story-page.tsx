@@ -2,10 +2,13 @@ import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tansta
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
+import type { StoryElementAsk } from '@nao/shared/story-app';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
+import type { CodeSelection } from '@/stores/ask-bar';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
+import { StoryElementPicker } from '@/components/story-element-picker';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
@@ -21,12 +24,13 @@ import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
-import { requestAskAboutSelection } from '@/stores/ask-bar';
+import { requestAskAboutCode, requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 
 export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlug: string }) {
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
@@ -35,6 +39,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 
 	const {
 		storyId,
@@ -87,7 +92,13 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	const canEditCharts = !isArchived;
 	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 	const showAskBar = Boolean(storyId) && !isArchived;
-	const isAskInputHidden = editor.viewMode !== 'preview';
+	const isAskInputHidden = editor.viewMode === 'edit';
+	const canSelectElements = showAskBar && editor.viewMode === 'preview';
+	const askAboutElement = useCallback((ask: StoryElementAsk) => requestAskAboutElement(ask, storySlug), [storySlug]);
+	const askAboutCode = useCallback(
+		(selection: CodeSelection) => requestAskAboutCode(selection, { storySlug }),
+		[storySlug],
+	);
 
 	return (
 		<div
@@ -132,6 +143,11 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					onSelectVersion: editor.versionNav.goToVersion,
 					onRestore: editor.handleRestore,
 				}}
+				elementSelection={
+					canSelectElements
+						? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+						: undefined
+				}
 			/>
 
 			{story.archivedAt && (
@@ -151,33 +167,44 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 			)}
 
 			<div className='relative flex min-h-0 flex-1 flex-col'>
-				<StoryPageBody
-					editor={editor}
-					queryData={queryData}
-					theme={storyTheme}
-					preview={
-						<SelectionProvider key={storySlug}>
-							<HighlightBubble onAsk={requestAskAboutSelection} disabled={isChatRunning} />
-							{renderWithChartEditProvider(
-								canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
-								{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
-								<PreviewContent
-									code={editor.code}
-									queryData={queryData}
-									theme={storyTheme}
-									chatId={chatId}
+				<SelectionProvider resetKey={storySlug}>
+					<StoryPageBody
+						editor={editor}
+						queryData={queryData}
+						theme={storyTheme}
+						onAskAboutCode={showAskBar ? askAboutCode : undefined}
+						preview={
+							<>
+								<HighlightBubble onAsk={requestAskAboutSelection} disabled={isChatRunning} />
+								<StoryElementPicker
+									isPicking={canSelectElements && isSelectingElements}
 									storySlug={storySlug}
-									cacheSchedule={story.cacheSchedule}
-									filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
-									isDataPending={isQueryDataPending}
-									isViewingLatest={editor.versionNav.isViewingLatest}
-								/>,
-							)}
-						</SelectionProvider>
-					}
-				/>
+									onPick={askAboutElement}
+								>
+									{renderWithChartEditProvider(
+										canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
+										{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
+										<PreviewContent
+											code={editor.code}
+											queryData={queryData}
+											theme={storyTheme}
+											chatId={chatId}
+											storySlug={storySlug}
+											cacheSchedule={story.cacheSchedule}
+											filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
+											isDataPending={isQueryDataPending}
+											isViewingLatest={editor.versionNav.isViewingLatest}
+										/>,
+									)}
+								</StoryElementPicker>
+							</>
+						}
+					/>
 
-				{showAskBar && storyId && <StoryAskBar storyId={storyId} isOwner isInputHidden={isAskInputHidden} />}
+					{showAskBar && storyId && (
+						<StoryAskBar storyId={storyId} isOwner isInputHidden={isAskInputHidden} />
+					)}
+				</SelectionProvider>
 			</div>
 
 			<LiveStorySettingsDialog

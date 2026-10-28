@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
-import type { StoryBlockReference } from '@nao/shared/types';
+import type { StoryBlockEditPayload, StoryTableFormatEditRequest, StoryElementCitation } from '@nao/shared/story-app';
 
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
 import { ActionErrorBanner, CustomStoryBody } from '@/components/custom-story/custom-story-body';
@@ -19,11 +18,11 @@ import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
 import { StoryHeader } from '@/components/side-panel/story-header';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
-import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { storyBlockEditStore } from '@/stores/story-block-edit';
 
@@ -51,6 +50,8 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	});
 	const { handleEnlarge } = useStoryViewerEnlarge({ storyId });
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+	const canAsk = !isReadonlyMode;
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const renderStoryViewer = useCallback(
@@ -58,7 +59,6 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 		[chatId],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
-	const chatInput = useSetChatInputCallback();
 	const agent = useOptionalAgentContext();
 
 	const handleEditBlock = useCallback(
@@ -90,12 +90,11 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 		[chatId, content, storySlug],
 	);
 
-	const handleAskBlock = useCallback(
-		(block: StoryBlockReference) => {
-			chatPendingCitationStore.setBlock(chatId, storySlug, block);
-			chatInput?.fire('');
+	const handleAsk = useCallback(
+		(citation: StoryElementCitation) => {
+			chatPendingCitationStore.addStoryElement(chatId, storySlug, citation);
 		},
-		[chatId, chatInput, storySlug],
+		[chatId, storySlug],
 	);
 
 	const handleRememberState = useCallback(() => {
@@ -132,6 +131,9 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				onSwitchStory={switchStory}
 				viewMode={viewMode}
 				onViewModeChange={setViewMode}
+				elementSelection={
+					canAsk ? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements } : undefined
+				}
 				currentVersion={story.currentVersionIndex}
 				versionDates={story.versionDates}
 				versionNumber={story.viewedVersion ?? undefined}
@@ -174,7 +176,8 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 						editable={canEditBlocks && viewMode === 'app'}
 						onEditBlock={handleEditBlock}
 						onEditTableFormat={handleEditTableFormat}
-						onAskBlock={handleAskBlock}
+						onAsk={canAsk ? handleAsk : undefined}
+						isSelectingElements={isSelectingElements && viewMode === 'app'}
 						onRememberState={
 							canEditBlocks && customStoryCreationEnabled && agent ? handleRememberState : undefined
 						}
