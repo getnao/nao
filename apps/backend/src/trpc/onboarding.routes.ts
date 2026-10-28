@@ -14,7 +14,7 @@ export const onboardingRoutes = router({
 	validateWarehouseCredentials: organizationProtectedProcedure
 		.input(warehouseCredentialsSchema)
 		.output(z.object({ valid: z.literal(true) }))
-		.mutation(({ input }) => validateWarehouseCredentials(input)),
+		.mutation(({ ctx, input }) => validateWarehouseCredentials(ctx.user.id, input)),
 
 	startWarehouseProvisioning: organizationProtectedProcedure
 		.input(warehouseProvisioningInputSchema)

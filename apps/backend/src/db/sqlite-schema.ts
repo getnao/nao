@@ -101,6 +101,7 @@ import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
 import type { StoredUserPreferences } from '../types/usage';
 import {
+	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
 	WAREHOUSE_PROVISIONING_STATUSES,
 	type WarehouseProvider,
 	type WarehouseProvisioningBusinessContext,
@@ -411,6 +412,7 @@ export const warehouseProvisioningJob = sqliteTable(
 		modelSelection: text('model_selection', { mode: 'json' }).$type<WarehouseProvisioningModelSelection>(),
 		modelProjectId: text('model_project_id'),
 		status: text('status', { enum: WAREHOUSE_PROVISIONING_STATUSES }).notNull().default('queued'),
+		failedStatus: text('failed_status', { enum: WAREHOUSE_PROVISIONING_STATUSES }),
 		logs: text('logs'),
 		error: text('error'),
 		temporaryDirectory: text('temporary_directory'),
@@ -433,6 +435,25 @@ export const warehouseProvisioningJob = sqliteTable(
 			.on(t.userId)
 			.where(sql`${t.status} NOT IN ('ready', 'failed', 'cancelled')`),
 	],
+);
+
+export const warehouseConnectionCheck = sqliteTable(
+	'warehouse_connection_check',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<WarehouseProvider>().notNull(),
+		outcome: text('outcome', { enum: WAREHOUSE_CONNECTION_CHECK_OUTCOMES }).notNull(),
+		error: text('error'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [index('warehouse_connection_check_userId_idx').on(t.userId)],
 );
 
 export const chat = sqliteTable(

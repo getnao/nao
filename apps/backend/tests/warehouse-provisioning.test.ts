@@ -12,6 +12,7 @@ type MockWarehouseJob = {
 	projectName: string;
 	provider: string;
 	status: string;
+	failedStatus?: string | null;
 	onboardingChatId: string | null;
 	projectId: string | null;
 	encryptedCredentials: string | null;
@@ -43,6 +44,9 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/queries/scheduled-job.queries', () => ({
 	deleteJobByUniqueKey: vi.fn(),
+}));
+vi.mock('../src/queries/warehouse-connection-check.queries', () => ({
+	createWarehouseConnectionCheck: vi.fn(),
 }));
 vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 	createWarehouseProvisioningJob: vi.fn(async (input: Partial<MockWarehouseJob> & { id: string }) => {
@@ -187,6 +191,7 @@ import { spawn } from 'node:child_process';
 
 import * as projectQueries from '../src/queries/project.queries';
 import * as scheduledJobQueries from '../src/queries/scheduled-job.queries';
+import * as warehouseConnectionCheckQueries from '../src/queries/warehouse-connection-check.queries';
 import * as warehouseProvisioningJobQueries from '../src/queries/warehouse-provisioning-job.queries';
 import {
 	deleteManagedGithubRepository,
@@ -230,7 +235,7 @@ describe('warehouse provisioning', () => {
 		vi.stubGlobal('fetch', fetchMock);
 
 		await expect(
-			validateWarehouseCredentials({
+			validateWarehouseCredentials('user-1', {
 				provider: 'postgres',
 				credentials: { host: 'warehouse.example.com', password: 'secret', schemaName: 'public' },
 			}),
@@ -242,13 +247,19 @@ describe('warehouse provisioning', () => {
 		expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string).credentials).toMatchObject({
 			schema_name: 'public',
 		});
+		expect(warehouseConnectionCheckQueries.createWarehouseConnectionCheck).toHaveBeenCalledWith({
+			userId: 'user-1',
+			provider: 'postgres',
+			outcome: 'ok',
+			error: undefined,
+		});
 	});
 
 	it('returns a safe error when credential validation fails', async () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 422 })));
 
 		await expect(
-			validateWarehouseCredentials({
+			validateWarehouseCredentials('user-1', {
 				provider: 'postgres',
 				credentials: { host: 'warehouse.example.com', password: 'wrong' },
 			}),
@@ -256,6 +267,44 @@ describe('warehouse provisioning', () => {
 			code: 'BAD_REQUEST',
 			message: 'The warehouse rejected these credentials. Check them and try again.',
 		});
+		expect(warehouseConnectionCheckQueries.createWarehouseConnectionCheck).toHaveBeenCalledWith({
+			userId: 'user-1',
+			provider: 'postgres',
+			outcome: 'connection_error',
+			error: 'The warehouse rejected these credentials. Check them and try again.',
+		});
+	});
+
+	it('records missing credentials separately from connection errors', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValue(
+					Response.json(
+						{ detail: { code: 'invalid_warehouse_credentials', fields: ['host'] } },
+						{ status: 422 },
+					),
+				),
+		);
+
+		await expect(
+			validateWarehouseCredentials('user-1', { provider: 'postgres', credentials: { password: 'secret' } }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Could not connect. Check Host.' });
+		expect(warehouseConnectionCheckQueries.createWarehouseConnectionCheck).toHaveBeenCalledWith(
+			expect.objectContaining({ outcome: 'missing_credentials' }),
+		);
+	});
+
+	it('still answers the user when the connection check cannot be recorded', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ valid: true })));
+		vi.mocked(warehouseConnectionCheckQueries.createWarehouseConnectionCheck).mockRejectedValueOnce(
+			new Error('Database unavailable'),
+		);
+
+		await expect(
+			validateWarehouseCredentials('user-1', { provider: 'postgres', credentials: { host: 'warehouse' } }),
+		).resolves.toEqual({ valid: true });
 	});
 
 	it('points users to the credentials that need checking', async () => {
@@ -275,7 +324,7 @@ describe('warehouse provisioning', () => {
 		);
 
 		await expect(
-			validateWarehouseCredentials({
+			validateWarehouseCredentials('user-1', {
 				provider: 'postgres',
 				credentials: { host: 'warehouse.example.com', password: 'wrong' },
 			}),
@@ -431,6 +480,7 @@ describe('warehouse provisioning', () => {
 		await vi.waitFor(async () => {
 			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
 		});
+		expect(warehouseJobs.get(jobId)?.failedStatus).toBe('registering');
 		const [creationInput] = vi.mocked(createNewProject).mock.calls[0];
 		expect(creationInput.projectId).toEqual(expect.any(String));
 		expect(warehouseProvisioningJobQueries.updateWarehouseProvisioningJob).toHaveBeenCalledWith(jobId, {
@@ -672,6 +722,7 @@ describe('warehouse provisioning', () => {
 
 		expect(warehouseJobs.get(jobId)).toMatchObject({
 			status: 'failed',
+			failedStatus: 'syncing',
 			attempts: 5,
 			encryptedCredentials: null,
 			temporaryDirectory: null,

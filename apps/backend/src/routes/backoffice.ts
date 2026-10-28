@@ -16,6 +16,7 @@ import * as userQueries from '../queries/backoffice-user.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
 import * as creditsService from '../services/backoffice-credits.service';
+import * as onboardingService from '../services/backoffice-onboarding.service';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
 
@@ -211,6 +212,16 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.getUserDetail(params.userId));
+	});
+
+	app.get('/onboarding', async () => onboardingService.listOnboardingSummaries());
+
+	app.get('/users/:userId/onboarding', async (request, reply) => {
+		const params = parse(userParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, () => onboardingService.getUserOnboarding(params.userId));
 	});
 
 	app.patch('/users/:userId', async (request, reply) => {

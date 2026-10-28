@@ -31,6 +31,10 @@ export const WAREHOUSE_PROVISIONING_STATUSES = [
 ] as const;
 
 export type WarehouseProvisioningStatus = (typeof WAREHOUSE_PROVISIONING_STATUSES)[number];
+
+export const WAREHOUSE_CONNECTION_CHECK_OUTCOMES = ['ok', 'connection_error', 'missing_credentials'] as const;
+
+export type WarehouseConnectionCheckOutcome = (typeof WAREHOUSE_CONNECTION_CHECK_OUTCOMES)[number];
 export type WarehouseProvisioningBusinessContext = generateOnboardingRules.Input['businessContext'];
 export type WarehouseProvisioningModelSelection = LlmSelectedModel;
 export type WarehouseProvider = z.infer<typeof warehouseProviderSchema>;

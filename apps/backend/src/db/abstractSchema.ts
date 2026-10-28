@@ -36,6 +36,9 @@ export type NewProjectWarehouseCredentials = typeof sqliteSchema.projectWarehous
 export type DBWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferSelect;
 export type NewWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferInsert;
 
+export type DBWarehouseConnectionCheck = typeof sqliteSchema.warehouseConnectionCheck.$inferSelect;
+export type NewWarehouseConnectionCheck = typeof sqliteSchema.warehouseConnectionCheck.$inferInsert;
+
 export type DBProjectMember = typeof sqliteSchema.projectMember.$inferSelect;
 export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 
