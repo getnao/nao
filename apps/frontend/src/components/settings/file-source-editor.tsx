@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
 import type { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
+import type { MountedCodeEditor } from '@/components/code-selection-ask';
+import type { CodeSelection } from '@/stores/ask-bar';
+import { CodeSelectionAsk } from '@/components/code-selection-ask';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
 import { isMac } from '@/lib/platform';
@@ -13,6 +16,7 @@ interface FileSourceEditorProps {
 	readOnly: boolean;
 	onChange: (value: string) => void;
 	onSave?: () => void;
+	onAskAboutCode?: (selection: CodeSelection) => void;
 }
 
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -40,9 +44,18 @@ const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
 	'.csv': 'plaintext',
 };
 
-export function FileSourceEditor({ filePath, value, searchQuery, readOnly, onChange, onSave }: FileSourceEditorProps) {
+export function FileSourceEditor({
+	filePath,
+	value,
+	searchQuery,
+	readOnly,
+	onChange,
+	onSave,
+	onAskAboutCode,
+}: FileSourceEditorProps) {
 	const editorTheme = useEditorTheme();
 	const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+	const [codeEditor, setCodeEditor] = useState<MountedCodeEditor | null>(null);
 	const decorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null);
 	const [isEditorReady, setIsEditorReady] = useState(false);
 	const searchQueryRef = useRef(searchQuery);
@@ -62,6 +75,7 @@ export function FileSourceEditor({ filePath, value, searchQuery, readOnly, onCha
 			const decorations = editorInstance.createDecorationsCollection();
 			decorationsRef.current = decorations;
 			setIsEditorReady(true);
+			setCodeEditor({ editor: editorInstance, monaco });
 
 			if (!readOnly) {
 				editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -122,25 +136,28 @@ export function FileSourceEditor({ filePath, value, searchQuery, readOnly, onCha
 	useEffect(() => handleUnmount, [handleUnmount]);
 
 	return (
-		<Editor
-			value={value}
-			language={getLanguageFromPath(filePath)}
-			theme={editorTheme === 'vs-dark' ? 'nao-dark' : 'nao-light'}
-			beforeMount={handleBeforeMount}
-			onMount={handleMount}
-			onChange={readOnly ? undefined : handleChange}
-			options={{
-				readOnly,
-				domReadOnly: readOnly,
-				minimap: { enabled: false },
-				scrollBeyondLastLine: false,
-				fontSize: 13,
-				lineNumbers: 'on',
-				renderLineHighlight: 'line',
-				padding: { top: 8, bottom: 8 },
-				wordWrap: 'on',
-			}}
-		/>
+		<>
+			<Editor
+				value={value}
+				language={getLanguageFromPath(filePath)}
+				theme={editorTheme === 'vs-dark' ? 'nao-dark' : 'nao-light'}
+				beforeMount={handleBeforeMount}
+				onMount={handleMount}
+				onChange={readOnly ? undefined : handleChange}
+				options={{
+					readOnly,
+					domReadOnly: readOnly,
+					minimap: { enabled: false },
+					scrollBeyondLastLine: false,
+					fontSize: 13,
+					lineNumbers: 'on',
+					renderLineHighlight: 'line',
+					padding: { top: 8, bottom: 8 },
+					wordWrap: 'on',
+				}}
+			/>
+			{onAskAboutCode && <CodeSelectionAsk codeEditor={codeEditor} onAsk={onAskAboutCode} />}
+		</>
 	);
 }
 
