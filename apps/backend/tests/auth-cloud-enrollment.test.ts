@@ -7,8 +7,10 @@ const mocks = vi.hoisted(() => ({
 	buildVerifyEmail: vi.fn(),
 	emailSend: vi.fn(),
 	emailIsEnabled: vi.fn(),
+	enqueueOnce: vi.fn(),
 	env: {
 		BETTER_AUTH_SECRET: 'test-secret-at-least-twenty-characters',
+		CLOUD_BILLING_ENABLED: true,
 		DEFAULT_USER_ROLE: 'user',
 		ENABLE_USER_LOGIN: true,
 		ENABLE_USER_SIGNUP: true,
@@ -16,8 +18,12 @@ const mocks = vi.hoisted(() => ({
 		GOOGLE_CLIENT_SECRET: 'google-secret',
 		MODE: 'test',
 		NAO_MODE: 'cloud',
+		SMTP_HOST: 'smtp.example.com',
+		SMTP_MAIL_FROM: 'hello@example.com',
+		SMTP_PASSWORD: 'secret',
 	},
 	findOrganizationByEmailDomain: vi.fn(),
+	getUser: vi.fn(),
 	markEmailVerified: vi.fn(),
 }));
 
@@ -46,6 +52,10 @@ vi.mock('../src/env', () => ({
 	get isCloud() {
 		return mocks.env.NAO_MODE === 'cloud';
 	},
+	isCloudWelcomeEmailEnabled: () =>
+		mocks.env.NAO_MODE === 'cloud' &&
+		mocks.env.CLOUD_BILLING_ENABLED &&
+		Boolean(mocks.env.SMTP_HOST && mocks.env.SMTP_MAIL_FROM && mocks.env.SMTP_PASSWORD),
 	MCP_VALID_AUDIENCES: [],
 	MCP_PUBLIC_ORIGIN: undefined,
 	MCP_PUBLIC_SERVER_URL: undefined,
@@ -59,6 +69,7 @@ vi.mock('../src/queries/organization.queries', () => ({
 vi.mock('../src/queries/project.queries', () => ({ listUserProjects: vi.fn() }));
 vi.mock('../src/queries/user.queries', () => ({
 	countUsers: vi.fn().mockResolvedValue(0),
+	getUser: mocks.getUser,
 	markEmailVerified: mocks.markEmailVerified,
 }));
 vi.mock('../src/services/auth-user-onboarding.service', () => ({
@@ -88,6 +99,7 @@ vi.mock('../src/services/oidc-auth.service', () => ({
 	getOidcProviderId: vi.fn(() => 'oidc'),
 	getTrustedProvidersForOidc: vi.fn(() => []),
 }));
+vi.mock('../src/services/scheduler.service', () => ({ enqueueOnce: mocks.enqueueOnce }));
 vi.mock('../src/services/sso-login-sync.service', () => ({ syncSsoLoginGroups: vi.fn() }));
 vi.mock('../src/services/sso-session.service', () => ({ shouldExpireSsoSession: vi.fn() }));
 vi.mock('../src/utils/email-builders', () => ({
@@ -109,6 +121,13 @@ interface ExistingUser {
 }
 
 interface CapturedAuthOptions {
+	databaseHooks: {
+		user: {
+			create: {
+				after: (user: { id: string; email: string }, context: { params: { id: string } }) => Promise<void>;
+			};
+		};
+	};
 	emailAndPassword: {
 		requireEmailVerification: boolean;
 		onPasswordReset: (data: { user: { id: string; emailVerified: boolean } }) => Promise<void>;
@@ -130,6 +149,7 @@ interface CapturedAuthOptions {
 				sendOnSignUp: boolean;
 				autoSignInAfterVerification: boolean;
 				expiresIn: number;
+				afterEmailVerification: (user: { id: string }) => Promise<void>;
 		  }
 		| undefined;
 	rateLimit: unknown;
@@ -144,23 +164,19 @@ describe('Cloud Google organization enrollment', () => {
 		mocks.buildVerifyEmail.mockReset().mockResolvedValue({ subject: 'Verify', html: '<p>Verify</p>' });
 		mocks.emailIsEnabled.mockReset().mockReturnValue(true);
 		mocks.emailSend.mockReset().mockResolvedValue(undefined);
+		mocks.enqueueOnce.mockReset().mockResolvedValue(undefined);
 		mocks.findOrganizationByEmailDomain.mockReset().mockResolvedValue({ id: 'matched-org' });
+		mocks.getUser.mockReset().mockImplementation(async ({ id }: { id: string }) => ({
+			id,
+			email: `${id}@example.com`,
+			emailVerified: true,
+			requiresPasswordReset: false,
+		}));
+		mocks.markEmailVerified.mockReset().mockResolvedValue(true);
 	});
 
-	it('adds a matched organization member through the membership service', async () => {
-		await getAuth();
-		const options = mocks.betterAuth.mock.calls[0]?.[0] as {
-			databaseHooks: {
-				user: {
-					create: {
-						after: (
-							user: { id: string; email: string },
-							context: { params: { id: string } },
-						) => Promise<void>;
-					};
-				};
-			};
-		};
+	it('adds a matched organization member and queues a welcome for a verified social user', async () => {
+		const options = await getAuthOptions();
 
 		await options.databaseHooks.user.create.after(
 			{ id: 'google-user', email: 'user@example.com' },
@@ -171,6 +187,11 @@ describe('Cloud Google organization enrollment', () => {
 			orgId: 'matched-org',
 			userId: 'google-user',
 			role: 'user',
+		});
+		expect(mocks.enqueueOnce).toHaveBeenCalledWith({
+			name: 'email.cloud.welcome',
+			payload: { kind: 'user', userId: 'google-user' },
+			uniqueKey: 'email-cloud-welcome-user:google-user',
 		});
 	});
 
@@ -191,6 +212,13 @@ describe('Cloud Google organization enrollment', () => {
 					max: 3,
 				},
 			},
+		});
+
+		await options.emailVerification?.afterEmailVerification({ id: 'verified-user' });
+		expect(mocks.enqueueOnce).toHaveBeenCalledWith({
+			name: 'email.cloud.welcome',
+			payload: { kind: 'user', userId: 'verified-user' },
+			uniqueKey: 'email-cloud-welcome-user:verified-user',
 		});
 	});
 
@@ -225,14 +253,28 @@ describe('Cloud Google organization enrollment', () => {
 		expect(options.emailVerification).toBeUndefined();
 	});
 
-	it('treats a completed password reset as proof of email ownership', async () => {
+	it('welcomes a self-signed-up user only when password reset first verifies their email', async () => {
 		const options = await getAuthOptions();
-		mocks.markEmailVerified.mockReset();
 
 		await options.emailAndPassword.onPasswordReset({ user: { id: 'unverified-user', emailVerified: false } });
 		await options.emailAndPassword.onPasswordReset({ user: { id: 'verified-user', emailVerified: true } });
 
 		expect(mocks.markEmailVerified).toHaveBeenCalledExactlyOnceWith('unverified-user');
+		expect(mocks.enqueueOnce).toHaveBeenCalledExactlyOnceWith({
+			name: 'email.cloud.welcome',
+			payload: { kind: 'user', userId: 'unverified-user' },
+			uniqueKey: 'email-cloud-welcome-user:unverified-user',
+		});
+
+		mocks.getUser.mockResolvedValueOnce({
+			id: 'invited-user',
+			email: 'invited@example.com',
+			emailVerified: true,
+			requiresPasswordReset: true,
+		});
+		await options.emailAndPassword.onPasswordReset({ user: { id: 'invited-user', emailVerified: false } });
+
+		expect(mocks.enqueueOnce).toHaveBeenCalledTimes(1);
 	});
 
 	it('always emails the owner of an existing account who signs up again or asks for another email', async () => {
@@ -273,6 +315,12 @@ describe('Cloud Google organization enrollment', () => {
 		expect(options.emailAndPassword.requireEmailVerification).toBe(false);
 		expect(options.emailVerification).toBeUndefined();
 		expect(options.rateLimit).toBeUndefined();
+
+		await options.databaseHooks.user.create.after(
+			{ id: 'self-hosted-user', email: 'user@example.com' },
+			{ params: { id: 'credential' } },
+		);
+		expect(mocks.enqueueOnce).not.toHaveBeenCalled();
 	});
 });
 

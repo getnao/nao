@@ -627,6 +627,15 @@ export function isCloudBillingEnabled(
 	return data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED;
 }
 
+export function isCloudWelcomeEmailEnabled(
+	data: Pick<
+		z.output<typeof baseRawEnvSchema>,
+		'NAO_MODE' | 'CLOUD_BILLING_ENABLED' | 'SMTP_HOST' | 'SMTP_MAIL_FROM' | 'SMTP_PASSWORD'
+	> = env,
+): boolean {
+	return isCloudBillingEnabled(data) && Boolean(data.SMTP_HOST && data.SMTP_MAIL_FROM && data.SMTP_PASSWORD);
+}
+
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
 

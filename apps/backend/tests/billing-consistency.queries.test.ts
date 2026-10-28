@@ -167,6 +167,7 @@ describe('billing consistency queries', () => {
 			await expect(getOrganizationBilling('automatic-trial-org')).resolves.toBeNull();
 			await expect(getCreditGrant('organization_setup', 'automatic-trial-org')).resolves.toBeNull();
 			expect(await listTrialProvisioningJobs('automatic-trial-org')).toHaveLength(0);
+			expect(await listTrialWelcomeEmailJobs('automatic-trial-org')).toHaveLength(0);
 
 			await updateProjectEnvVars('automatic-trial-project-1', {
 				DATABASE_URL: 'postgres://warehouse',
@@ -192,6 +193,13 @@ describe('billing consistency queries', () => {
 				payload: { organizationId: 'automatic-trial-org' },
 				status: 'pending',
 			});
+			expect(await listTrialWelcomeEmailJobs('automatic-trial-org')).toMatchObject([
+				{
+					name: 'email.cloud.welcome',
+					payload: { kind: 'trial', organizationId: 'automatic-trial-org' },
+					status: 'pending',
+				},
+			]);
 
 			await createProject({
 				id: 'automatic-trial-project-2',
@@ -203,6 +211,7 @@ describe('billing consistency queries', () => {
 			});
 			expect(await getOrganizationBilling('automatic-trial-org')).toEqual(firstBilling);
 			expect(await listTrialProvisioningJobs('automatic-trial-org')).toHaveLength(1);
+			expect(await listTrialWelcomeEmailJobs('automatic-trial-org')).toHaveLength(1);
 
 			await db.insert(s.organization).values({
 				id: 'customer-first-trial-org',
@@ -227,6 +236,7 @@ describe('billing consistency queries', () => {
 			expect(customerFirstBilling?.trialStartedAt).toBeInstanceOf(Date);
 			expect(customerFirstBilling?.trialEndsAt).toBeInstanceOf(Date);
 			expect(await listTrialProvisioningJobs('customer-first-trial-org')).toHaveLength(1);
+			expect(await listTrialWelcomeEmailJobs('customer-first-trial-org')).toHaveLength(1);
 		} finally {
 			restoreEnv(originalEnv);
 		}
@@ -255,6 +265,7 @@ describe('billing consistency queries', () => {
 				orgId: 'bypass-trial-org',
 			});
 			expect(await listTrialProvisioningJobs('bypass-trial-org')).toHaveLength(0);
+			expect(await listTrialWelcomeEmailJobs('bypass-trial-org')).toHaveLength(0);
 		} finally {
 			restoreEnv(originalEnv);
 		}
@@ -287,6 +298,7 @@ describe('billing consistency queries', () => {
 				billingStatus: 'trialing',
 			});
 			expect(await listTrialProvisioningJobs('disabled-setup-grant-org')).toHaveLength(1);
+			expect(await listTrialWelcomeEmailJobs('disabled-setup-grant-org')).toHaveLength(0);
 		} finally {
 			await db
 				.update(s.creditGrantPolicy)
@@ -430,6 +442,13 @@ async function listTrialProvisioningJobs(organizationId: string) {
 		.select()
 		.from(s.scheduledJob)
 		.where(eq(s.scheduledJob.uniqueKey, `billing-cloud-provision-trial:${organizationId}`));
+}
+
+async function listTrialWelcomeEmailJobs(organizationId: string) {
+	return db
+		.select()
+		.from(s.scheduledJob)
+		.where(eq(s.scheduledJob.uniqueKey, `email-cloud-welcome-trial:${organizationId}`));
 }
 
 function enableCloudBillingForTest(): NodeJS.ProcessEnv {
