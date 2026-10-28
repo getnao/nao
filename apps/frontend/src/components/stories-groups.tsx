@@ -102,7 +102,7 @@ export function StoryCard({
 	selectionActive?: boolean;
 	onToggleSelect?: (storyId: string) => void;
 }) {
-	const { isAdmin, isViewer } = usePermissions();
+	const { role, isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
 	const storyTheme = useActiveStoryTheme();
@@ -121,6 +121,7 @@ export function StoryCard({
 	const canOpenPinShareDialog = isAdmin && !item.isShared && item.kind === 'own' && !!item.chatId && !!item.storySlug;
 
 	const canSelect =
+		!!role &&
 		!isViewer &&
 		!isHomePage &&
 		((item.kind === 'own' && !!item.chatId && !!item.storySlug) ||

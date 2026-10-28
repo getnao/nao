@@ -28,4 +28,12 @@ describe('WarehouseCommandProgress', () => {
 		expect(screen.getByText('In progress')).toBeTruthy();
 		expect(screen.getByText('View nao debug logs')).toBeTruthy();
 	});
+
+	it('keeps the completed connection visible', () => {
+		render(<WarehouseCommandProgress status='ready' />);
+
+		const progress = screen.getByRole('progressbar', { name: 'Warehouse connection ready' });
+		expect(progress.getAttribute('aria-valuenow')).toBe('100');
+		expect(screen.getByText('Complete')).toBeTruthy();
+	});
 });
