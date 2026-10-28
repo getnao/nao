@@ -99,7 +99,7 @@ const integrationSchema = z
 
 const writeAutomationSchema = z.object({
 	title: z.string().trim().min(1).max(255),
-	prompt: z.string().trim().min(1).max(20_000),
+	prompt: z.string().trim().min(1).max(40_000),
 	cron: z.string().trim().default(''),
 	scheduleDescription: z.string().trim().max(255).optional(),
 	timezone: z.string().trim().max(100).optional(),
