@@ -23,7 +23,6 @@ const forkSourceSchema = z.discriminatedUnion('type', [
 ]);
 const forkInputSchema = z.object({ source: forkSourceSchema, selection: selectionSchema.optional() });
 const storyIdInputSchema = z.object({ storyId: z.string() });
-const MAX_QUICK_QUESTIONS = 10;
 const MAX_ASK_SELECTION_LENGTH = 4_000;
 /** A long selection is cut rather than refused, so the question is still asked. */
 const selectionTextSchema = z
@@ -119,7 +118,7 @@ export const chatForkRoutes = {
 	),
 
 	listSharedChatQuickQuestions: resolvedSharedChatProcedure.query(async ({ ctx }) =>
-		chatQueries.listQuickQuestionChats(ctx.user.id, ctx.share.id, MAX_QUICK_QUESTIONS),
+		chatQueries.listQuickQuestionChats(ctx.user.id, ctx.share.id),
 	),
 
 	askStory: storyForkProcedure

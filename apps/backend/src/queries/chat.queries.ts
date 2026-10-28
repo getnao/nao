@@ -1020,7 +1020,6 @@ export const isNotQuickQuestionChat = () => {
 export const listQuickQuestionChats = async (
 	userId: string,
 	sourceId: string,
-	limit: number,
 ): Promise<{ chatId: string; title: string; updatedAt: Date }[]> => {
 	return db
 		.select({ chatId: s.chat.id, title: s.chat.title, updatedAt: s.chat.updatedAt })
@@ -1034,7 +1033,6 @@ export const listQuickQuestionChats = async (
 			),
 		)
 		.orderBy(desc(s.chat.updatedAt))
-		.limit(limit)
 		.execute();
 };
 

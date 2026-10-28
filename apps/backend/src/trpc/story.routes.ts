@@ -117,8 +117,6 @@ const storyOwnerProjectProcedure = storyOwnerProcedure.use(async ({ ctx, getRawI
 
 const storyKitBlockComponent = z.enum(STORY_KIT_EDITABLE_BLOCKS);
 
-const MAX_QUICK_QUESTIONS = 10;
-
 const bulkStoryItemsInput = z.object({
 	items: z
 		.array(
@@ -246,7 +244,7 @@ export const storyRoutes = {
 
 	listQuickQuestions: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
 		await assertCanOpenStory(input.storyId, await storyQueries.getStoryProjectId(input.storyId), ctx.user.id);
-		return chatQueries.listQuickQuestionChats(ctx.user.id, input.storyId, MAX_QUICK_QUESTIONS);
+		return chatQueries.listQuickQuestionChats(ctx.user.id, input.storyId);
 	}),
 
 	listMentioningChats: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {

@@ -66,10 +66,10 @@ describe('quick questions on a story', () => {
 		expect(historyIds).not.toContain(QUESTION_CHAT_ID);
 		expect(historyIds).not.toContain(SHARED_CHAT_QUESTION_ID);
 		expect((await searchUserChats(OWNER_ID, 'Ask about')).map((chat) => chat.id)).toEqual([]);
-		expect((await listQuickQuestionChats(OWNER_ID, STORY_ID, 10)).map((chat) => chat.chatId)).toEqual([
+		expect((await listQuickQuestionChats(OWNER_ID, STORY_ID)).map((chat) => chat.chatId)).toEqual([
 			QUESTION_CHAT_ID,
 		]);
-		expect((await listQuickQuestionChats(OWNER_ID, SHARE_ID, 10)).map((chat) => chat.chatId)).toEqual([
+		expect((await listQuickQuestionChats(OWNER_ID, SHARE_ID)).map((chat) => chat.chatId)).toEqual([
 			SHARED_CHAT_QUESTION_ID,
 		]);
 	});
