@@ -1,9 +1,9 @@
 import type { UserRole } from '@nao/shared/types';
-import { and, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, ne, or, sql } from 'drizzle-orm';
 
 import type { DBOrgMember, DBProjectMember, NewOrgMember, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -41,16 +41,16 @@ export async function putOrganizationMember(
 		return { userId, role };
 	}
 	await requireUser(userId);
-	if (existing?.role === 'admin' && role !== 'admin' && (await orgQueries.countOrgAdmins(orgId)) <= 1) {
-		throw new HandlerError('BAD_REQUEST', 'The organization must have at least one admin.');
-	}
-	if (existing) {
+	const demotesAdmin = existing?.role === 'admin' && role !== 'admin';
+	if (demotesAdmin) {
+		await demoteOrganizationAdmin(orgId, userId, role);
+	} else if (existing) {
 		await orgQueries.updateOrgMemberRole(orgId, userId, role);
-		if (existing.role === 'admin' && role !== 'admin') {
-			await cleanupLostOrgContextAccess(orgId, userId);
-		}
 	} else {
 		await createOrganizationMember({ orgId, userId, role });
+	}
+	if (demotesAdmin) {
+		await cleanupLostOrgContextAccess(orgId, userId);
 	}
 	return { userId, role };
 }
@@ -58,8 +58,9 @@ export async function putOrganizationMember(
 /**
  * Removes an organization membership, refusing to leave the organization without an admin.
  *
- * The admin guard is part of the DELETE: a count-then-delete would let two concurrent removals both
- * pass while the organization has two admins and then remove both. Sessions are deleted in the same
+ * The admin guard is folded into the DELETE, and on PostgreSQL the decision is serialised by a lock
+ * on the organization row taken before the guard runs: a bare count-then-delete lets two concurrent
+ * removals both see the other admin and then delete both. Sessions are deleted in the same
  * transaction, so a failed removal cannot sign the member out and a removed member cannot keep a
  * live session.
  */
@@ -82,6 +83,7 @@ export async function removeOrganizationMember(
 
 		if (dbConfig.dialect === Dialect.Postgres) {
 			return (async () => {
+				await lockOrganizationRow(tx, orgId);
 				const [row] = await tx.delete(s.orgMember).where(guard).returning().execute();
 				if (!row) {
 					return false;
@@ -180,6 +182,47 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
 		await cleanupContextWorktree(projectId, project.path, userId);
 	}
 }
+
+/** Demotes an admin only while another one remains, under the same organization-row lock as a removal. */
+async function demoteOrganizationAdmin(orgId: string, userId: string, role: OrgRole): Promise<void> {
+	const demote = (executor: DBExecutor) =>
+		executor
+			.update(s.orgMember)
+			.set({ role })
+			.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+			.execute();
+	const assertAdminRemains = (admins: number): void => {
+		if (admins <= 1) {
+			throw new HandlerError('BAD_REQUEST', 'The organization must have at least one admin.');
+		}
+	};
+
+	if (dbConfig.dialect !== Dialect.Postgres) {
+		assertAdminRemains(await orgQueries.countOrgAdmins(orgId));
+		await demote(db);
+		return;
+	}
+
+	await db.transaction(async (tx) => {
+		await lockOrganizationRow(tx, orgId);
+		const [row] = await tx
+			.select({ count: count() })
+			.from(s.orgMember)
+			.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.role, 'admin')))
+			.execute();
+		assertAdminRemains(row?.count ?? 0);
+		await demote(tx);
+	});
+}
+
+async function lockOrganizationRow(tx: DBExecutor, orgId: string): Promise<void> {
+	await lockForUpdate(
+		tx.select({ id: s.organization.id }).from(s.organization).where(eq(s.organization.id, orgId)),
+	).execute();
+}
+
+const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
+	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
 
 async function createOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
 	return persistOrganizationMember(member, () => orgQueries.addOrgMember(member));

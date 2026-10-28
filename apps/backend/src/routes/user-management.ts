@@ -13,6 +13,7 @@ import * as userGroupQueries from '../queries/user-group.queries';
 import { checkApiKey } from '../services/api-key.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { putOrganizationMember, putProjectMember, removeOrganizationMember } from '../services/membership.service';
+import { revokeUnauthorizedProjectWideShares } from '../services/project-sharing.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { addTeamMember } from '../services/team-member';
 import { assertUserGroupManageable, validateAssignableUserGroupIds } from '../services/user-group-availability.service';
@@ -73,7 +74,7 @@ export const userManagementRoutes = async (app: App) => {
 		return run(reply, async () => {
 			const org = requireOrg(request);
 			const members = await orgQueries.listOrgMembersWithUsers(org.id);
-			// ponytail: paged in memory; move to a SQL limit/offset if an org ever holds thousands of members.
+			// shortcut: in-memory paging, move to SQL limit/offset if an org ever holds thousands of members.
 			const search = query.search?.toLowerCase();
 			const matching = search
 				? members.filter(
@@ -145,15 +146,16 @@ export const userManagementRoutes = async (app: App) => {
 			await requireOrgMember(org.id, params.userId);
 			// An invitation nobody accepted is not an account at all — it IS the invitation, so the row
 			// goes with it (that is what cancels the temporary password already sitting in their inbox).
-			const deletesAccount = query.purge || (await userQueries.isPendingInvitation(params.userId));
-			// The account is global, so deleting it from one organization also drops every other
-			// organization's access — including project-only grants. Reach for revoke instead.
-			if (deletesAccount && !(await userQueries.isUserConfinedToOrganization(params.userId, org.id))) {
+			// The account is global, so it is only deleted while confined to this organization: a user
+			// who also belongs elsewhere keeps the account and loses only this membership.
+			const confined = await userQueries.isUserConfinedToOrganization(params.userId, org.id);
+			if (query.purge && !confined) {
 				throw new HandlerError(
 					'CONFLICT',
 					'This user belongs to another organization: revoke without purge to keep the account.',
 				);
 			}
+			const deletesAccount = confined && (query.purge || (await userQueries.isPendingInvitation(params.userId)));
 			// Sessions die in the same transaction as the membership row: a failed removal cannot sign
 			// the member out, and a removed member cannot keep a live session.
 			await removeOrganizationMember(org.id, params.userId, { deleteSessions: true });
@@ -210,10 +212,12 @@ export const userManagementRoutes = async (app: App) => {
 			const project = await requireProjectInOrg(request, params.projectId);
 			await assertUserGroupManageable(project.id, params.groupId);
 			const group = await requireGroup(project.id, params.groupId);
-			return userGroupQueries.updateUserGroup(project.id, params.groupId, {
+			const updated = await userGroupQueries.updateUserGroup(project.id, params.groupId, {
 				name: body.name,
 				featureGrants: group.featureGrants,
 			});
+			await revokeUnauthorizedProjectWideShares(project.id);
+			return updated;
 		});
 	});
 
@@ -226,6 +230,7 @@ export const userManagementRoutes = async (app: App) => {
 			const project = await requireProjectInOrg(request, params.projectId);
 			await assertUserGroupManageable(project.id, params.groupId);
 			await userGroupQueries.deleteUserGroup(project.id, params.groupId);
+			await revokeUnauthorizedProjectWideShares(project.id);
 			return true;
 		});
 		if (deleted === SERVICE_ERROR) {
@@ -299,6 +304,7 @@ async function setGroupMembership(
 		const project = await requireProjectInOrg(request, params.projectId);
 		await assertUserGroupManageable(project.id, params.groupId);
 		await userGroupQueries.setUserGroupMembership(project.id, params.groupId, params.userId, isMember);
+		await revokeUnauthorizedProjectWideShares(project.id);
 		return true;
 	});
 	if (changed !== SERVICE_ERROR) {
