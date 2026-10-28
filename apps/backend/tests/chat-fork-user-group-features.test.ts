@@ -71,6 +71,10 @@ vi.mock('../src/queries/execute-sql.queries', () => ({
 vi.mock('../src/services/custom-story-authoring', () => ({
 	publishCustomStoryDraft: mocks.publishCustomStoryDraft,
 }));
+vi.mock('../src/services/story-mount', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/story-mount')>()),
+	isCustomStoriesEnabled: () => true,
+}));
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
