@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 
+import { EditableProjectName } from '@/components/settings/editable-project-name';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { ProjectIdentifier } from '@/components/settings/project-identifier';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -30,7 +31,10 @@ function ProjectSettingsPage() {
 					</>
 				) : project.data ? (
 					<>
-						<DetailRow label='Name' value={project.data.name} />
+						<DetailRow
+							label='Name'
+							value={<EditableProjectName name={project.data.name} canEdit={isAdmin} />}
+						/>
 						{project.data.path && (
 							<DetailRow
 								label='Path'

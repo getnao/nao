@@ -71,6 +71,10 @@ export const organizationHasProjects = async (orgId: string): Promise<boolean> =
 	return Boolean(project);
 };
 
+export const updateProjectName = async (projectId: string, name: string): Promise<void> => {
+	await db.update(s.project).set({ name }).where(eq(s.project.id, projectId)).execute();
+};
+
 export const touchProjectUpdatedAt = async (projectId: string): Promise<void> => {
 	await db.update(s.project).set({ updatedAt: new Date() }).where(eq(s.project.id, projectId)).execute();
 };

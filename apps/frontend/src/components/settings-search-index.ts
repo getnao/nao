@@ -264,8 +264,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project',
 		pageLabel: 'Project Settings',
 		title: 'Information',
-		description: 'View your project name and filesystem path.',
-		keywords: ['project name', 'project path'],
+		description: 'View or rename your project and see its filesystem path.',
+		keywords: ['project name', 'rename project', 'project path'],
 	},
 	{
 		page: '/settings/project',
