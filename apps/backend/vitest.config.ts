@@ -36,7 +36,10 @@ export default defineConfig({
 		},
 	},
 	test: {
-		setupFiles: ['./tests/setup-env.ts'],
+		env: {
+			MODE: 'test',
+			NAO_MODE: 'self-hosted',
+		},
 		server: {
 			deps: {
 				inline: [/drizzle-orm\/bun-sqlite/],
