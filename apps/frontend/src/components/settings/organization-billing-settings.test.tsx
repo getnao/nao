@@ -261,7 +261,6 @@ function billingState(): BillingState {
 		intervalCount: 1,
 		key: 'cloud_monthly_v2',
 		name: 'nao Cloud',
-		trialDays: 14,
 		userLimit: null,
 	} satisfies NonNullable<BillingState['plan']>;
 	const yearlyPlan = {

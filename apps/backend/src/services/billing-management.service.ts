@@ -3,7 +3,6 @@ import * as billingQueries from '../queries/billing.queries';
 import { getCreditPurchaseByCheckoutSession } from '../queries/credit-wallet.queries';
 import * as userQueries from '../queries/user.queries';
 import {
-	CLOUD_BILLING_TRIAL_DAYS,
 	type CloudBillingCurrency,
 	type CloudBillingInterval,
 	isTerminalBillingStatus,
@@ -53,8 +52,8 @@ export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInp
 
 export async function createCloudTrialCheckoutForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
 	const organization = await loadReconciledCloudBillingOrganization(input.organizationId);
-	const trialWithoutPaidPlanActive = isActiveTrialWithoutPaidPlan(organization.billing);
-	if (!trialWithoutPaidPlanActive) {
+	const trialEndsAt = organization.billing?.trialEndsAt;
+	if (!isActiveTrialWithoutPaidPlan(organization.billing) || !trialEndsAt) {
 		if (isTrialAvailable(organization.billing)) {
 			throw new CloudBillingManagementInputError(
 				'Finish setting up your first project before choosing a billing plan',
@@ -62,16 +61,13 @@ export async function createCloudTrialCheckoutForAdmin(input: AdminBillingChecko
 		}
 		throw new CloudBillingManagementInputError('This organization has already used its free trial');
 	}
-	const trial = organization.billing?.trialEndsAt
-		? { trialEnd: organization.billing.trialEndsAt }
-		: { trialDays: CLOUD_BILLING_TRIAL_DAYS };
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudCheckoutSession({
 		billingInterval: input.billingInterval,
 		currency: input.currency,
 		organizationId: organization.id,
 		stripeCustomerId,
-		...trial,
+		trialEnd: trialEndsAt,
 	});
 }
 

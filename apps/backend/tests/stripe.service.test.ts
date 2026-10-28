@@ -100,9 +100,6 @@ const TRIAL_END = new Date('2099-01-15T00:00:00.000Z');
 const TRIAL_END_TIMESTAMP = Math.floor(TRIAL_END.getTime() / 1_000);
 const TRIAL_MESSAGE =
 	'Nothing is charged today. Your recurring price, including any promotion code discount, starts when your trial ends on January 15, 2099.';
-const TRIAL_DAYS_MESSAGE =
-	'Nothing is charged today. Your 14-day free trial starts when you confirm. The recurring price shown, including any promotion code discount, starts after the trial.';
-
 let originalEnv: typeof process.env;
 
 beforeEach(() => {
@@ -612,7 +609,7 @@ describe('cloud Checkout', () => {
 		});
 	});
 
-	it('requires a saved card and tax details before starting a new trial', async () => {
+	it('requires a saved card and tax details while preserving the active trial', async () => {
 		stripeMocks.createCheckoutSession.mockResolvedValue({
 			url: 'https://checkout.stripe.com/trial',
 		});
@@ -622,7 +619,7 @@ describe('cloud Checkout', () => {
 				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).resolves.toBe('https://checkout.stripe.com/trial');
 
@@ -633,7 +630,7 @@ describe('cloud Checkout', () => {
 				allow_promotion_codes: true,
 				custom_text: {
 					submit: {
-						message: TRIAL_DAYS_MESSAGE,
+						message: TRIAL_MESSAGE,
 					},
 				},
 				payment_method_collection: 'always',
@@ -643,12 +640,12 @@ describe('cloud Checkout', () => {
 				billing_address_collection: 'required',
 				subscription_data: {
 					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
-					trial_period_days: 14,
+					trial_end: TRIAL_END_TIMESTAMP,
 					trial_settings: { end_behavior: { missing_payment_method: 'pause' } },
 				},
 			}),
 			{
-				idempotencyKey: 'cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-14',
+				idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
 			},
 		);
 	});
@@ -860,13 +857,14 @@ describe('cloud Checkout', () => {
 			allow_promotion_codes: true,
 			custom_text: {
 				submit: {
-					message: TRIAL_DAYS_MESSAGE,
+					message: TRIAL_MESSAGE,
 				},
 			},
 			metadata: {
 				nao_org_id: 'org-id',
 				nao_plan_key: 'cloud_monthly_v2',
 				nao_checkout_kind: 'initial',
+				nao_trial_end: String(TRIAL_END_TIMESTAMP),
 			},
 			url: 'https://checkout.stripe.com/existing',
 		};
@@ -887,7 +885,7 @@ describe('cloud Checkout', () => {
 				billingInterval: 'monthly',
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
-				trialDays: 14,
+				trialEnd: TRIAL_END,
 			}),
 		).resolves.toBe('https://checkout.stripe.com/existing');
 

@@ -788,7 +788,6 @@ function cloudPlan(amount: number, billingInterval: 'monthly' | 'yearly' = 'mont
 		currency: 'usd',
 		interval: billingInterval === 'monthly' ? 'month' : 'year',
 		intervalCount: 1,
-		trialDays: 14,
 		userLimit: null,
 	};
 }
