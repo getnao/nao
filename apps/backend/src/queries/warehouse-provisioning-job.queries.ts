@@ -18,7 +18,10 @@ export async function createWarehouseProvisioningJob(
 ): Promise<DBWarehouseProvisioningJob> {
 	const [created] = await db
 		.insert(s.warehouseProvisioningJob)
-		.values({ ...job, steps: [{ status: job.status ?? 'queued', at: new Date().toISOString() }] })
+		.values({
+			...job,
+			steps: [{ status: job.status ?? 'queued', at: new Date().toISOString(), attempt: job.attempts ?? 0 }],
+		})
 		.returning()
 		.execute();
 
@@ -131,7 +134,11 @@ export async function updateWarehouseProvisioningJob(
 ): Promise<DBWarehouseProvisioningJob | null> {
 	const [updated] = await db
 		.update(s.warehouseProvisioningJob)
-		.set({ ...changes, ...(changes.status && { steps: appendStep(changes.status) }), updatedAt: new Date() })
+		.set({
+			...changes,
+			...(changes.status && { steps: appendStep(changes.status, changes.attempts) }),
+			updatedAt: new Date(),
+		})
 		.where(and(eq(s.warehouseProvisioningJob.id, jobId), ne(s.warehouseProvisioningJob.status, 'cancelled')))
 		.returning()
 		.execute();
@@ -267,10 +274,11 @@ export async function listRecoverableWarehouseProvisioningJobs(
 }
 
 /** Appends to the stored steps within the update itself, so two workers updating the job cannot drop a step. */
-function appendStep(status: WarehouseProvisioningStatus): SQL {
-	const steps = s.warehouseProvisioningJob.steps;
+function appendStep(status: WarehouseProvisioningStatus, attempt?: number): SQL {
+	const { steps, attempts } = s.warehouseProvisioningJob;
 	const at = new Date().toISOString();
+	const stepAttempt = attempt ?? attempts;
 	return dbConfig.dialect === Dialect.Postgres
-		? sql`coalesce(${steps}, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('status', ${status}::text, 'at', ${at}::text))`
-		: sql`json_insert(coalesce(${steps}, '[]'), '$[#]', json_object('status', ${status}, 'at', ${at}))`;
+		? sql`coalesce(${steps}, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('status', ${status}::text, 'at', ${at}::text, 'attempt', ${stepAttempt}::int))`
+		: sql`json_insert(coalesce(${steps}, '[]'), '$[#]', json_object('status', ${status}, 'at', ${at}, 'attempt', ${stepAttempt}))`;
 }

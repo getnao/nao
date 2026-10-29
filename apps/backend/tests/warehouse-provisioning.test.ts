@@ -1132,6 +1132,23 @@ describe('warehouse provisioning', () => {
 		});
 	});
 
+	it('keeps the cause of a setup whose workers stopped while a command was running', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		const errorDetail =
+			'Abandoned 5 times while syncing: each worker stopped before finishing, for example on a server restart.';
+		markJobFailed(jobId, {
+			failedStatus: 'syncing',
+			error: 'Warehouse setup stopped unexpectedly several times. Please try again.',
+			errorDetail,
+			logs: 'Synced 12 tables',
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			setup: { cause: errorDetail, logs: 'Synced 12 tables' },
+		});
+	});
+
 	it('reports a verified connection once metadata syncs without business context', async () => {
 		vi.useFakeTimers();
 		const { jobId } = await startOnboardingSetup();

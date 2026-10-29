@@ -20,6 +20,7 @@ import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import {
 	cancelWarehouseProvisioningJob,
+	claimWarehouseProvisioningJob,
 	createWarehouseProvisioningJob,
 	getWarehouseProvisioningJobById,
 	updateWarehouseProvisioningJob,
@@ -56,6 +57,22 @@ describe('warehouse provisioning job steps', () => {
 		expect(job?.steps?.every((step) => !Number.isNaN(Date.parse(step.at)))).toBe(true);
 	});
 
+	it('records the worker attempt that reached each step', async () => {
+		await updateWarehouseProvisioningJob(JOB_ID, { status: 'syncing' });
+		await claimWarehouseProvisioningJob(JOB_ID, 'worker-2', ['syncing'], new Date());
+		await updateWarehouseProvisioningJob(JOB_ID, { status: 'queued' });
+		await updateWarehouseProvisioningJob(JOB_ID, { status: 'awaiting_context', attempts: 0 });
+
+		const job = await getWarehouseProvisioningJobById(JOB_ID);
+
+		expect(job?.steps?.map(({ status, attempt }) => ({ status, attempt }))).toEqual([
+			{ status: 'queued', attempt: 0 },
+			{ status: 'syncing', attempt: 0 },
+			{ status: 'queued', attempt: 1 },
+			{ status: 'awaiting_context', attempt: 0 },
+		]);
+	});
+
 	it('keeps the steps of a job created before they were recorded', async () => {
 		await db.update(s.warehouseProvisioningJob).set({ steps: null });
 
@@ -64,7 +81,7 @@ describe('warehouse provisioning job steps', () => {
 		expect(await getWarehouseProvisioningJobById(JOB_ID)).toMatchObject({
 			status: 'failed',
 			errorDetail: 'nao init failed: boom',
-			steps: [{ status: 'failed', at: expect.any(String) }],
+			steps: [{ status: 'failed', at: expect.any(String), attempt: 0 }],
 		});
 	});
 });

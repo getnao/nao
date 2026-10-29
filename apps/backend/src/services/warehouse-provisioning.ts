@@ -81,6 +81,7 @@ const RECOVERABLE_STATUSES: WarehouseProvisioningStatus[] = [
 ];
 const CONNECTION_VERIFIED_STATUSES: WarehouseProvisioningStatus[] = ['syncing', 'registering', 'awaiting_context'];
 const COMMAND_STATUSES: WarehouseProvisioningStatus[] = ['initializing', 'debugging', 'syncing'];
+const COMMAND_FAILURE_PATTERN = /^nao (init|debug|sync) (failed|timed out)\b/i;
 
 const preparedWarehouseSchema = z.object({
 	database_config: z.record(z.string(), z.unknown()),
@@ -625,12 +626,16 @@ function toWarehouseSetup(job: DBWarehouseProvisioningJob): WarehouseSetup {
 	};
 }
 
-/** A failed command is explained by its logs, which its cause would only repeat. */
 function getFailureCause(job: DBWarehouseProvisioningJob): string | null {
-	if (job.status !== 'failed' || !job.errorDetail || job.errorDetail === job.error || getCommandLogs(job)) {
+	if (job.status !== 'failed' || !job.errorDetail || job.errorDetail === job.error || isExplainedByLogs(job)) {
 		return null;
 	}
 	return job.errorDetail.slice(0, FAILURE_CAUSE_LIMIT);
+}
+
+/** A failed command is explained by its logs, which its cause would only repeat. */
+function isExplainedByLogs(job: DBWarehouseProvisioningJob): boolean {
+	return COMMAND_FAILURE_PATTERN.test(job.errorDetail ?? '') && getCommandLogs(job) !== null;
 }
 
 /** Logs belong to the last command, so they would mislead about a step that runs no command. */
@@ -1278,7 +1283,7 @@ export function getPublicProvisioningError(error: unknown): string {
 	}
 
 	const message = error instanceof Error ? error.message : String(error);
-	const commandFailure = message.match(/^nao (init|debug|sync) (failed|timed out)\b/i);
+	const commandFailure = message.match(COMMAND_FAILURE_PATTERN);
 	if (commandFailure) {
 		return `nao ${commandFailure[1].toLowerCase()} ${commandFailure[2].toLowerCase()}. Check the logs for details.`;
 	}

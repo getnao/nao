@@ -192,14 +192,21 @@ async function createInstallationToken(config: ManagedGithubConfig): Promise<str
 	return body.token;
 }
 
-function createAppJwt(config: ManagedGithubConfig): Promise<string> {
+async function createAppJwt(config: ManagedGithubConfig): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
-	return new SignJWT({})
-		.setProtectedHeader({ alg: 'RS256' })
-		.setIssuer(config.appId)
-		.setIssuedAt(now - 60)
-		.setExpirationTime(now + 9 * 60)
-		.sign(createPrivateKey(config.privateKey));
+	try {
+		return await new SignJWT({})
+			.setProtectedHeader({ alg: 'RS256' })
+			.setIssuer(config.appId)
+			.setIssuedAt(now - 60)
+			.setExpirationTime(now + 9 * 60)
+			.sign(createPrivateKey(config.privateKey));
+	} catch (error) {
+		throw new ManagedGithubConfigurationError(
+			`Failed to sign a GitHub App token with the configured private key: ${getErrorMessage(error)}`,
+			{ cause: error },
+		);
+	}
 }
 
 async function appRequestError(action: string, response: Response): Promise<Error> {

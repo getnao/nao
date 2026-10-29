@@ -157,6 +157,20 @@ describe('managed GitHub repository provisioning', () => {
 		);
 	});
 
+	it('blames the configuration for a private key that cannot sign the app token', async () => {
+		mocks.createPrivateKey.mockImplementation(() => {
+			throw new Error('error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE');
+		});
+
+		const publishing = provisionManagedGithubRepository(project);
+
+		await expect(publishing).rejects.toThrow(ManagedGithubConfigurationError);
+		await expect(publishing).rejects.toThrow(
+			'Failed to sign a GitHub App token with the configured private key: error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE',
+		);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
 	it('does not blame the configuration for a GitHub outage', async () => {
 		vi.mocked(fetch).mockResolvedValueOnce(new Response('Bad gateway', { status: 502 }));
 
