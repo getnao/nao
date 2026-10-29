@@ -29,7 +29,11 @@ export function WaitForWarehouseSetupToolCall({ toolPart }: ToolCallComponentPro
 			/>
 		);
 	}
-	return isSettled ? <OnboardingStatusLine tone='neutral' label='Stopped following the warehouse setup' /> : null;
+	return isSettled ? (
+		<OnboardingStatusLine tone='neutral' label='Stopped following the warehouse setup' />
+	) : (
+		<OnboardingStatusLine tone='running' label='Waiting for the warehouse setup' />
+	);
 }
 
 export function RetryWarehouseSetupToolCall({ toolPart }: ToolCallComponentProps<'retry_warehouse_setup'>) {
