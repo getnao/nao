@@ -93,6 +93,46 @@ export async function getLatestCustomStoryVersionByStoryId(storyId: string): Pro
 	return buildCustomStoryVersionView(story, version);
 }
 
+export async function getStandaloneCustomStoryVersion(
+	storyId: string,
+	versionNumber?: number,
+): Promise<CustomStoryVersionView> {
+	const story = await getStandaloneCustomStory(storyId);
+	return buildCustomStoryVersionView(story, await getStandaloneVersionRow(storyId, versionNumber));
+}
+
+export async function getStandaloneCustomStoryFile(
+	storyId: string,
+	path: string,
+	versionNumber?: number,
+): Promise<CustomStoryFileSummary & { content: string }> {
+	await getStandaloneCustomStory(storyId);
+	const version = await getStandaloneVersionRow(storyId, versionNumber);
+	return readVersionFile(version.id, path);
+}
+
+/** A standalone story has no chat to run its queries in: it serves the rows saved in its data cache. */
+export async function getStandaloneCustomStoryQueryData(
+	storyId: string,
+	queryId: string,
+	versionNumber?: number,
+): Promise<StoryQueryResult> {
+	await getStandaloneCustomStory(storyId);
+	const version = await getStandaloneVersionRow(storyId, versionNumber);
+	await assertQueryReferencedByVersion(version.id, queryId);
+	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
+	const result = cache?.queryData?.[queryId];
+	if (!result) {
+		throw new CustomStoryQueryNotFoundError(queryId);
+	}
+	return result;
+}
+
+export async function getStandaloneCustomStoryNarratives(storyId: string): Promise<StoryNarratives> {
+	await getStandaloneCustomStory(storyId);
+	return (await storyQueries.getStoryDataCacheByStoryId(storyId))?.analysisResults ?? {};
+}
+
 async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersion): Promise<CustomStoryVersionView> {
 	const [bundle, files, theme, cache, lastRefreshFailure] = await Promise.all([
 		storyFileQueries.getVersionBundle(version.id),
@@ -204,7 +244,7 @@ export async function getStoredCustomStoryQueryDataByStoryId(
 	queryIds: string[],
 ): Promise<Record<string, StoryQueryResult>> {
 	const story = await getCustomStoryById(storyId);
-	const usesCache = story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
+	const usesCache = !story.chatId || usesStoryCache(story);
 	const cached = usesCache ? ((await storyQueries.getStoryDataCacheByStoryId(story.id))?.queryData ?? {}) : {};
 	const uncachedIds = new Set(queryIds.filter((queryId) => !cached[queryId]));
 	const fromChat =
@@ -222,7 +262,7 @@ export async function getStoredCustomStoryQueryDataByStoryId(
 /** The narratives already saved for the story, without refreshing it. */
 export async function getStoredCustomStoryNarrativesByStoryId(storyId: string): Promise<StoryNarratives> {
 	const story = await getCustomStoryById(storyId);
-	if (!story.isLive || !story.isLiveTextDynamic) {
+	if (story.chatId && (!story.isLive || !story.isLiveTextDynamic)) {
 		return {};
 	}
 	return (await storyQueries.getStoryDataCacheByStoryId(story.id))?.analysisResults ?? {};
@@ -236,10 +276,7 @@ export async function getSharedCustomStoryQueryData(
 	versionNumber?: number,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
-	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(version.id));
-	if (!referencedIds.has(queryId)) {
-		throw new CustomStoryQueryNotAllowedError(queryId);
-	}
+	await assertQueryReferencedByVersion(version.id, queryId);
 	return getCustomStoryQueryData(chatId, storySlug, queryId);
 }
 
@@ -260,10 +297,7 @@ export async function getSharedCustomStoryQuerySql(
 	versionNumber?: number,
 ): Promise<string> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
-	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(version.id));
-	if (!referencedIds.has(queryId)) {
-		throw new CustomStoryQueryNotAllowedError(queryId);
-	}
+	await assertQueryReferencedByVersion(version.id, queryId);
 	return getCustomStoryQuerySql(chatId, storySlug, queryId);
 }
 
@@ -275,11 +309,22 @@ export async function getCustomStoryFile(
 ): Promise<CustomStoryFileSummary & { content: string }> {
 	await getCustomStory(chatId, storySlug);
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
-	const file = isViewableStoryFile(path) ? await storyFileQueries.getVersionFile(version.id, path) : null;
+	return readVersionFile(version.id, path);
+}
+
+async function readVersionFile(versionId: string, path: string): Promise<CustomStoryFileSummary & { content: string }> {
+	const file = isViewableStoryFile(path) ? await storyFileQueries.getVersionFile(versionId, path) : null;
 	if (!file) {
 		throw new CustomStoryFileNotFoundError(path);
 	}
 	return { path: file.path, size: Buffer.byteLength(file.content, 'utf8'), content: file.content };
+}
+
+async function assertQueryReferencedByVersion(versionId: string, queryId: string): Promise<void> {
+	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(versionId));
+	if (!referencedIds.has(queryId)) {
+		throw new CustomStoryQueryNotAllowedError(queryId);
+	}
 }
 
 function usesStoryCache(story: DBStory): boolean {
@@ -309,6 +354,25 @@ async function getCustomStoryById(storyId: string): Promise<DBStory> {
 		throw new CustomStoryNotFoundError();
 	}
 	return story;
+}
+
+async function getStandaloneCustomStory(storyId: string): Promise<DBStory> {
+	const story = await getCustomStoryById(storyId);
+	if (story.chatId) {
+		throw new CustomStoryNotFoundError();
+	}
+	return story;
+}
+
+async function getStandaloneVersionRow(storyId: string, versionNumber?: number) {
+	const version =
+		versionNumber === undefined
+			? await storyQueries.getLatestVersionByStoryId(storyId)
+			: await storyQueries.getVersionByStoryIdAndNumber(storyId, versionNumber);
+	if (!version) {
+		throw new CustomStoryNotFoundError();
+	}
+	return version;
 }
 
 async function getCustomStoryVersionRow(chatId: string, storySlug: string, versionNumber?: number) {
