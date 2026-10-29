@@ -1437,7 +1437,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Stories',
 		title: 'Start from a brand',
 		description:
-			'Read colours, fonts and shapes from a website, an image or a ZIP of brand assets — or several together.',
+			'Read colours, fonts and shapes from a website, an image, a PDF, brand guidelines in Markdown or text, or a ZIP of brand assets — or several together.',
 		keywords: [
 			'inspiration',
 			'generate',
@@ -1446,7 +1446,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'url',
 			'screenshot',
 			'image',
+			'pdf',
 			'zip',
+			'markdown',
+			'md',
+			'text',
+			'txt',
+			'document',
+			'guidelines',
 			'paste',
 			'drop',
 			'upload',
