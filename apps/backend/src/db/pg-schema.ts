@@ -1742,6 +1742,7 @@ export const log = pgTable(
 		context: jsonb('context').$type<Record<string, unknown>>(),
 		source: text('source', { enum: LOG_SOURCES }).notNull(),
 		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

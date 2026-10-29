@@ -1,0 +1,1 @@
+ALTER TABLE `log` ADD `user_id` text;

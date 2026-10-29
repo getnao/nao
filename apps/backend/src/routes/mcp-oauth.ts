@@ -137,6 +137,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 		if (!session?.user) {
 			return sendConnectError(reply.status(401), server, returnTo, 'Sign in to nao, then try again.');
 		}
+		request.actorUserId = session.user.id;
 
 		const project = await projectQueries.getProjectByUserId(session.user.id, projectId ?? null);
 		if (!project) {
@@ -227,6 +228,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 					),
 				);
 		}
+		request.actorUserId = session.user.id;
 
 		try {
 			const role = await projectQueries.getUserRoleInProject(decoded.projectId, decoded.userId);

@@ -652,6 +652,13 @@
       "when": 1793275903231,
       "tag": "0092_onboarding_setup_tracing",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1793281513485,
+      "tag": "0093_log_user",
+      "breakpoints": true
     }
   ]
 }

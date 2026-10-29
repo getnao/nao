@@ -22,6 +22,7 @@ export type MiddlewareFunction = Parameters<typeof t.procedure.use>[0];
 export const createContext = async (opts: CreateFastifyContextOptions) => {
 	const headers = convertHeaders(opts.req.headers);
 	const session = await getSession(headers);
+	opts.req.actorUserId = session?.user.id;
 	return {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),

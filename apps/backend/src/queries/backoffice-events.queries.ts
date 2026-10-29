@@ -106,11 +106,15 @@ export async function listInstanceLogs(input: InstanceLogsInput): Promise<Pagina
 				projectName: s.project.name,
 				orgId: s.organization.id,
 				orgName: s.organization.name,
+				userId: s.log.userId,
+				userEmail: s.user.email,
+				userName: s.user.name,
 				createdAt: s.log.createdAt,
 			})
 			.from(s.log)
 			.leftJoin(s.project, eq(s.project.id, s.log.projectId))
 			.leftJoin(s.organization, eq(s.organization.id, s.project.orgId))
+			.leftJoin(s.user, eq(s.user.id, s.log.userId))
 			.where(where)
 			.orderBy(direction(instanceLogSortExpression(input.sort)), desc(s.log.createdAt), desc(s.log.id))
 			.limit(input.limit)
@@ -121,6 +125,7 @@ export async function listInstanceLogs(input: InstanceLogsInput): Promise<Pagina
 			.from(s.log)
 			.leftJoin(s.project, eq(s.project.id, s.log.projectId))
 			.leftJoin(s.organization, eq(s.organization.id, s.project.orgId))
+			.leftJoin(s.user, eq(s.user.id, s.log.userId))
 			.where(where)
 			.execute(),
 	]);
@@ -179,6 +184,8 @@ function instanceLogTextExpression(column: InstanceLogTextColumn): SQL {
 			return sql`${s.project.name}`;
 		case 'organization':
 			return sql`${s.organization.name}`;
+		case 'user':
+			return sql`${s.user.email}`;
 	}
 }
 
@@ -219,6 +226,8 @@ function instanceLogSortExpression(key: InstanceLogSortKey): SQL {
 			return sql`${s.project.name}`;
 		case 'organization':
 			return sql`${s.organization.name}`;
+		case 'user':
+			return sql`${s.user.email}`;
 	}
 }
 

@@ -23,5 +23,6 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
 	request.user = session.user;
 	request.session = session.session;
+	request.actorUserId = session.user.id;
 	request.project = await projectQueries.getProjectByUserId(session.user.id, headers.get('x-nao-project-id'));
 }

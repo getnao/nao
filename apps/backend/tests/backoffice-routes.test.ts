@@ -242,6 +242,7 @@ describe('cloud backoffice routes', () => {
 				source: 'http',
 				message: 'GET /api/chats 200',
 				context: { method: 'GET', statusCode: 200 },
+				userId: ADMIN_ID,
 				createdAt: new Date(now - 60_000),
 			},
 			{
@@ -252,25 +253,50 @@ describe('cloud backoffice routes', () => {
 				projectId: PROJECT_ID,
 				createdAt: new Date(now - 120_000),
 			},
+			{
+				id: 'log-deploy',
+				level: 'info',
+				source: 'http',
+				message: 'POST /api/deploy 202',
+				userId: MEMBER_ID,
+				createdAt: new Date(now - 180_000),
+			},
 		]);
 
 		const logs = await listLogs();
 		expect(logs.statusCode, logs.body).toBe(200);
-		expect(logs.json().total).toBe(3);
-		expect(logIds(logs)).toEqual(['log-1', 'log-http', 'log-agent']);
+		expect(logs.json().total).toBe(4);
+		expect(logIds(logs)).toEqual(['log-1', 'log-http', 'log-agent', 'log-deploy']);
 		expect(logs.json().items[0]).toMatchObject({
 			projectName: 'Backoffice Project',
 			orgId: ORG_ID,
 			orgName: 'Backoffice Organization',
+			userId: null,
+			userEmail: null,
 			context: { secret: '[REDACTED]' },
 		});
-		expect(logs.json().items[1]).toMatchObject({ projectId: null, projectName: null, orgName: null });
+		expect(logs.json().items[1]).toMatchObject({
+			projectId: null,
+			projectName: null,
+			orgName: null,
+			userId: ADMIN_ID,
+			userEmail: 'admin@example.com',
+			userName: 'Admin User',
+		});
+		expect(logs.json().items[3]).toMatchObject({ userId: MEMBER_ID, userEmail: 'member@example.com' });
+		expect(logs.json().items[3]).not.toHaveProperty('apiKeyId');
 		expect(logs.body).not.toContain(SECRET);
 
 		const levelFilter = [{ column: 'level', operator: 'in', values: ['error', 'warn'] }];
 		expect(logIds(await listLogs({ filters: levelFilter }))).toEqual(['log-1', 'log-agent']);
 		const projectlessFilter = [{ column: 'project', operator: 'isEmpty' }];
-		expect(logIds(await listLogs({ filters: projectlessFilter }))).toEqual(['log-http']);
+		expect(logIds(await listLogs({ filters: projectlessFilter }))).toEqual(['log-http', 'log-deploy']);
+		const userFilter = [{ column: 'user', operator: 'contains', value: 'ADMIN@' }];
+		expect(logIds(await listLogs({ filters: userFilter }))).toEqual(['log-http']);
+		const memberFilter = [{ column: 'user', operator: 'equals', value: 'Member@Example.com' }];
+		expect(logIds(await listLogs({ filters: memberFilter }))).toEqual(['log-deploy']);
+		const anonymousFilter = [{ column: 'user', operator: 'isEmpty' }];
+		expect(logIds(await listLogs({ filters: anonymousFilter }))).toEqual(['log-1', 'log-agent']);
 		const messageFilter = [{ column: 'message', operator: 'contains', value: 'API/CHATS' }];
 		expect(logIds(await listLogs({ filters: messageFilter }))).toEqual(['log-http']);
 		const accentedFilter = [{ column: 'message', operator: 'startsWith', value: 'Échec' }];
@@ -282,13 +308,19 @@ describe('cloud backoffice routes', () => {
 		const redactedKeyFilter = [{ column: 'context', operator: 'contains', value: '"secret":"[REDACTED]"' }];
 		expect(logIds(await listLogs({ filters: redactedKeyFilter }))).toEqual(['log-1']);
 		const organizationFilter = [{ column: 'organization', operator: 'notContains', value: 'backoffice' }];
-		expect(logIds(await listLogs({ filters: organizationFilter }))).toEqual(['log-http']);
+		expect(logIds(await listLogs({ filters: organizationFilter }))).toEqual(['log-http', 'log-deploy']);
 		const combinedFilters = [
 			{ column: 'createdAt', operator: 'after', value: new Date(now - 90_000).toISOString() },
 			{ column: 'source', operator: 'notIn', values: ['system'] },
 		];
 		expect(logIds(await listLogs({ filters: combinedFilters }))).toEqual(['log-http']);
-		expect(logIds(await listLogs({ sort: 'level', direction: 'asc' }))).toEqual(['log-http', 'log-agent', 'log-1']);
+		expect(logIds(await listLogs({ sort: 'level', direction: 'asc' }))).toEqual([
+			'log-http',
+			'log-deploy',
+			'log-agent',
+			'log-1',
+		]);
+		expect((await listLogs({ sort: 'user', direction: 'asc' })).statusCode).toBe(200);
 
 		expect((await get('/logs?filters=not-json')).statusCode).toBe(400);
 		const missingValue = await listLogs({ filters: [{ column: 'message', operator: 'contains' }] });

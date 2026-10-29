@@ -30,7 +30,7 @@ import { deployRoutes } from '../src/routes/deploy';
 describe('deploy route cloud billing access', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
-		mocks.validateApiKey.mockResolvedValue({ id: 'organization-id' });
+		mocks.validateApiKey.mockResolvedValue({ createdBy: 'user-id', organization: { id: 'organization-id' } });
 		mocks.assertOrganizationCloudBillingAccess.mockRejectedValue(new Error('Cloud billing access is restricted'));
 		await deployRoutes({ post: mocks.post } as never);
 	});
@@ -61,7 +61,7 @@ describe('deploy route archive validation', () => {
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
-		mocks.validateApiKey.mockResolvedValue({ id: 'organization-id' });
+		mocks.validateApiKey.mockResolvedValue({ createdBy: 'user-id', organization: { id: 'organization-id' } });
 		await deployRoutes({ post: mocks.post } as never);
 	});
 

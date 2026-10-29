@@ -5,6 +5,7 @@ import { scheduleTask } from './schedule-task';
 interface LogOptions {
 	source: LogSource;
 	projectId?: string;
+	userId?: string;
 	context?: Record<string, unknown>;
 }
 
@@ -83,6 +84,7 @@ function writeLog(level: LogLevel, message: string, opts: LogOptions): void {
 			message,
 			source: opts.source,
 			projectId: opts.projectId,
+			userId: opts.userId,
 			context,
 		}),
 	);

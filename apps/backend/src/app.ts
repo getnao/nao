@@ -150,6 +150,7 @@ app.setErrorHandler((error, request, reply) => {
 			: undefined;
 	logger.error(describeError(error), {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
 	if (error instanceof BudgetExceededError) {
@@ -190,6 +191,7 @@ app.addHook('onResponse', (request, reply, done) => {
 	}
 	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
 	});
 	done();
@@ -214,9 +216,10 @@ app.register(fastifyTRPCPlugin, {
 	trpcOptions: {
 		router: trpcRouter,
 		createContext,
-		onError({ path, error }) {
+		onError({ path, error, req }) {
 			logger.error(`tRPC error on ${path}: ${describeError(error)}`, {
 				source: 'http',
+				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
 		},

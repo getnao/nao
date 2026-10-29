@@ -21,6 +21,7 @@ export const gitlabRoutes = async (app: App) => {
 		if (!session?.user) {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}
+		request.actorUserId = session.user.id;
 
 		const { returnTo } = request.query as { returnTo?: string };
 		const payload = Buffer.from(
@@ -42,6 +43,7 @@ export const gitlabRoutes = async (app: App) => {
 		if (!session?.user) {
 			return reply.redirect('/settings/organization?gitlab=error&reason=unauthorized');
 		}
+		request.actorUserId = session.user.id;
 
 		let userId: string;
 		let returnTo = '/settings/organization';
