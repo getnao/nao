@@ -349,7 +349,7 @@ function reserveSqliteManagedAiCredits(
 		.returning()
 		.get();
 	if (!wallet) {
-		throw new ManagedCreditsExhaustedError();
+		throw new ManagedCreditsExhaustedError(reservationMicroUsd);
 	}
 	transaction
 		.insert(s.creditLedger)
@@ -374,7 +374,7 @@ async function reservePostgresManagedAiCredits(
 		.returning()
 		.execute();
 	if (!wallet) {
-		throw new ManagedCreditsExhaustedError();
+		throw new ManagedCreditsExhaustedError(reservationMicroUsd);
 	}
 	await transaction
 		.insert(s.creditLedger)

@@ -57,6 +57,7 @@ describe('generateOnboardingRules', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'model-project-1',
+			'user-1',
 		);
 
 		const systemPrompt = mocks.generateText.mock.calls[0]?.[0].system as string;
@@ -79,6 +80,7 @@ describe('generateOnboardingRules', () => {
 			{},
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'model-project-1',
+			'user-1',
 		);
 
 		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
@@ -101,6 +103,7 @@ describe('generateOnboardingRules', () => {
 			{},
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'model-project-1',
+			'user-1',
 		);
 
 		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
@@ -120,9 +123,27 @@ describe('generateOnboardingRules', () => {
 			{},
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'model-project-1',
+			'user-1',
 		);
 
 		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
 		expect(userPrompt).toContain('Important uploaded business context.');
+	});
+
+	it('resolves managed models as unbilled usage for the onboarding user', async () => {
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'nao', modelId: 'gpt-6-sol' },
+			'model-project-1',
+			'user-1',
+		);
+
+		expect(mocks.resolveProviderModel).toHaveBeenCalledWith('model-project-1', 'nao', 'gpt-6-sol', false, {
+			userId: 'user-1',
+			projectId: 'model-project-1',
+			category: 'chat',
+			billingMode: 'unbilled',
+		});
 	});
 });

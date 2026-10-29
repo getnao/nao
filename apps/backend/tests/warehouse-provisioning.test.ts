@@ -23,6 +23,7 @@ type MockWarehouseJob = {
 	logs: string | null;
 	error: string | null;
 	warnings: Array<{ source: 'notion' | 'confluence' | 'github'; message: string }> | null;
+	errorDetail?: string | null;
 	temporaryDirectory: string | null;
 	lockedBy: string | null;
 	lockedAt: Date | null;
@@ -52,6 +53,7 @@ vi.mock('../src/queries/user.queries', () => ({
 }));
 vi.mock('../src/queries/warehouse-connection-check.queries', () => ({
 	createWarehouseConnectionCheck: vi.fn(),
+	getLatestWarehouseConnectionCheck: vi.fn(async () => null),
 }));
 vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 	createWarehouseProvisioningJob: vi.fn(async (input: Partial<MockWarehouseJob> & { id: string }) => {
@@ -69,6 +71,7 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 			projectName: 'analytics',
 			provider: 'postgres',
 			status: 'queued',
+			failedStatus: null,
 			onboardingChatId: null,
 			projectId: null,
 			encryptedCredentials: null,
@@ -95,15 +98,17 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 		return job?.userId === userId ? job : null;
 	}),
 	getWarehouseProvisioningJobById: vi.fn(async (jobId: string) => warehouseJobs.get(jobId) ?? null),
+	listStoppedSetupProjectIds: vi.fn(async (userId: string) =>
+		[...warehouseJobs.values()]
+			.filter((job) => job.userId === userId && ['failed', 'cancelled'].includes(job.status) && job.projectId)
+			.map((job) => job.projectId as string),
+	),
 	getActiveWarehouseProvisioningJobByUser: vi.fn(async (userId: string) => {
 		return (
 			[...warehouseJobs.values()]
 				.reverse()
 				.find((job) => job.userId === userId && !['ready', 'failed', 'cancelled'].includes(job.status)) ?? null
 		);
-	}),
-	getLatestWarehouseProvisioningJobByUser: vi.fn(async (userId: string) => {
-		return [...warehouseJobs.values()].reverse().find((job) => job.userId === userId) ?? null;
 	}),
 	getActiveWarehouseProvisioningJob: vi.fn(async (userId: string, chatId: string) => {
 		return (
@@ -129,12 +134,28 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 			throw new Error('Database unavailable');
 		}
 		const job = warehouseJobs.get(jobId);
-		if (!job) {
+		if (!job || job.status === 'cancelled') {
 			return null;
 		}
 		const updated = { ...job, ...changes, updatedAt: new Date() };
 		warehouseJobs.set(jobId, updated);
 		return updated;
+	}),
+	cancelWarehouseProvisioningJob: vi.fn(async (jobId: string, error: string) => {
+		const job = warehouseJobs.get(jobId);
+		if (!job || ['ready', 'failed', 'cancelled'].includes(job.status)) {
+			return null;
+		}
+		const cancelled = {
+			...job,
+			status: 'cancelled',
+			failedStatus: job.status,
+			error,
+			encryptedCredentials: null,
+			finishedAt: new Date(),
+		};
+		warehouseJobs.set(jobId, cancelled);
+		return cancelled;
 	}),
 	claimWarehouseProvisioningJob: vi.fn(
 		async (jobId: string, workerId: string, statuses: string[], staleBefore: Date) => {
@@ -172,11 +193,29 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 			warehouseJobs.set(jobId, { ...job, lockedBy: null, lockedAt: null });
 		}
 	}),
+	clearFinishedWarehouseProvisioningCredentials: vi.fn(async (finishedBefore: Date) => {
+		for (const job of warehouseJobs.values()) {
+			if (['failed', 'cancelled'].includes(job.status) && job.finishedAt && job.finishedAt < finishedBefore) {
+				warehouseJobs.set(job.id, { ...job, encryptedCredentials: null });
+			}
+		}
+	}),
 	listRecoverableWarehouseProvisioningJobs: vi.fn(async (statuses: string[], staleBefore: Date) =>
 		[...warehouseJobs.values()].filter(
 			(job) => statuses.includes(job.status) && (job.lockedAt === null || job.lockedAt < staleBefore),
 		),
 	),
+	listAbandonedCancelledWarehouseProvisioningJobs: vi.fn(async (staleBefore: Date) =>
+		[...warehouseJobs.values()].filter(
+			(job) => job.status === 'cancelled' && job.lockedAt !== null && job.lockedAt < staleBefore,
+		),
+	),
+	clearWarehouseProvisioningJobLock: vi.fn(async (jobId: string) => {
+		const job = warehouseJobs.get(jobId);
+		if (job) {
+			warehouseJobs.set(jobId, { ...job, lockedBy: null, lockedAt: null });
+		}
+	}),
 }));
 vi.mock('../src/services/project-import.service', () => ({
 	createNewProject: vi.fn(),
@@ -188,6 +227,7 @@ vi.mock('../src/services/project.service', () => ({
 vi.mock('../src/services/managed-github-repository', () => ({
 	deleteManagedGithubRepository: vi.fn(),
 	getManagedGithubRepositoryFullName: vi.fn(() => 'nao-org/nao-analytics-owned-project'),
+	ManagedGithubConfigurationError: class extends Error {},
 	provisionManagedGithubRepository: vi.fn(),
 }));
 vi.mock('../src/services/onboarding-rules', () => ({
@@ -202,6 +242,12 @@ vi.mock('../src/utils/logger', () => ({
 	serializeError: (error: unknown) => ({
 		message: error instanceof Error ? error.message : String(error),
 	}),
+	describeError: (error: unknown): string => {
+		if (!(error instanceof Error)) {
+			return String(error);
+		}
+		return error.cause instanceof Error ? `${error.message} | caused by: ${error.cause.message}` : error.message;
+	},
 }));
 vi.mock('node:child_process', () => ({
 	spawn: vi.fn(),
@@ -217,6 +263,7 @@ import * as warehouseProvisioningJobQueries from '../src/queries/warehouse-provi
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
+	ManagedGithubConfigurationError,
 	provisionManagedGithubRepository,
 } from '../src/services/managed-github-repository';
 import { generateOnboardingRules } from '../src/services/onboarding-rules';
@@ -224,17 +271,22 @@ import { reconcileProjectReadiness } from '../src/services/project.service';
 import { createNewProject, createTempProjectDir } from '../src/services/project-import.service';
 import { saveProjectWarehouseEnvVars } from '../src/services/warehouse-credentials';
 import {
+	cancelWarehouseProvisioning,
 	getLatestWarehouseProvisioningJob,
+	getOnboardingWarehouseState,
 	getPublicProvisioningError,
 	getWarehouseProvisioningJob,
-	queueWarehouseFinalization,
 	reconcileWarehouseProvisioningJobs,
+	retryWarehouseProvisioning,
 	startWarehouseProvisioning,
+	submitWarehouseBusinessContext,
 	submitWarehouseContextSources,
 	validateConfluenceContext,
 	validateNotionContext,
 	validateWarehouseCredentials,
+	waitForWarehouseSetup,
 } from '../src/services/warehouse-provisioning';
+import { logger } from '../src/utils/logger';
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -514,11 +566,15 @@ describe('warehouse provisioning', () => {
 			id: jobId,
 			provider: 'postgres',
 			status: 'queued',
+			failedStatus: null,
 			projectId: null,
 			projectName: 'analytics',
 			logs: null,
 			error: null,
 			warnings: null,
+			cause: null,
+			businessContextProvided: false,
+			canRetry: false,
 		});
 		expect(await getWarehouseProvisioningJob(jobId, 'another-user')).toBeNull();
 		expect(JSON.stringify(await getWarehouseProvisioningJob(jobId, 'user-1'))).not.toContain('super-secret');
@@ -572,8 +628,7 @@ describe('warehouse provisioning', () => {
 		expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
 	});
 
-	it('requires a cooldown after a failed provisioning attempt', async () => {
-		vi.useFakeTimers();
+	it('starts a new setup right after a failed one', async () => {
 		const input = {
 			userId: 'user-1',
 			orgId: 'org-1',
@@ -588,9 +643,7 @@ describe('warehouse provisioning', () => {
 		}
 		warehouseJobs.set(jobId, { ...job, status: 'failed', finishedAt: new Date() });
 
-		await expect(startWarehouseProvisioning(input)).rejects.toMatchObject({
-			code: 'TOO_MANY_REQUESTS',
-		});
+		await expect(startWarehouseProvisioning(input)).resolves.toMatchObject({ status: 'queued' });
 	});
 
 	it('rejects provisioning when the user already has a connected project', async () => {
@@ -605,6 +658,25 @@ describe('warehouse provisioning', () => {
 				credentials: { host: 'warehouse.example.com', password: 'secret' },
 			}),
 		).rejects.toMatchObject({ code: 'CONFLICT' });
+	});
+
+	it('ignores the project of a cancelled setup that is still being rolled back', async () => {
+		const input = {
+			userId: 'user-1',
+			orgId: 'org-1',
+			projectName: 'analytics',
+			provider: 'postgres' as const,
+			credentials: { host: 'warehouse.example.com', password: 'secret' },
+		};
+		const { jobId } = await startWarehouseProvisioning(input);
+		const job = warehouseJobs.get(jobId);
+		if (!job) {
+			throw new Error('Expected provisioning job');
+		}
+		warehouseJobs.set(jobId, { ...job, status: 'cancelled', projectId: 'project-1', finishedAt: new Date() });
+		vi.mocked(projectQueries.listUserProjects).mockResolvedValue([{ id: 'project-1' }] as never);
+
+		await expect(startWarehouseProvisioning(input)).resolves.toMatchObject({ status: 'queued' });
 	});
 
 	it('rolls back a registered project when credential storage fails', async () => {
@@ -671,7 +743,10 @@ describe('warehouse provisioning', () => {
 		await vi.waitFor(async () => {
 			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
 		});
-		expect(warehouseJobs.get(jobId)?.failedStatus).toBe('registering');
+		expect(warehouseJobs.get(jobId)).toMatchObject({
+			failedStatus: 'registering',
+			errorDetail: 'Credential storage failed',
+		});
 		const [creationInput] = vi.mocked(createNewProject).mock.calls[0];
 		expect(creationInput.projectId).toEqual(expect.any(String));
 		expect(warehouseProvisioningJobQueries.updateWarehouseProvisioningJob).toHaveBeenCalledWith(jobId, {
@@ -723,6 +798,7 @@ describe('warehouse provisioning', () => {
 			userId: 'user-1',
 			orgId: 'org-1',
 			projectName: 'analytics',
+			onboardingChatId: 'chat-1',
 			provider: 'postgres',
 			credentials: {
 				host: 'warehouse.example.com',
@@ -734,11 +810,13 @@ describe('warehouse provisioning', () => {
 		});
 		await submitContextSources(jobId, {}, { additionalContext: 'A bicycle rental company.' });
 
-		await queueWarehouseFinalization(jobId, 'user-1', {
-			businessContext: {},
-			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
-			modelProjectId: 'example-project',
-		});
+		await expect(
+			submitWarehouseBusinessContext('user-1', 'chat-1', {
+				businessContext: {},
+				modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
+				modelProjectId: 'example-project',
+			}),
+		).resolves.toEqual({ jobId, status: 'syncing' });
 
 		expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('syncing');
 		expect(generateOnboardingRules).not.toHaveBeenCalled();
@@ -751,6 +829,7 @@ describe('warehouse provisioning', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'example-project',
+			'user-1',
 		);
 		expect(provisionManagedGithubRepository).toHaveBeenCalledWith({
 			projectId: 'project-2',
@@ -859,6 +938,7 @@ describe('warehouse provisioning', () => {
 			userId: 'user-1',
 			orgId: 'org-1',
 			projectName: 'analytics',
+			onboardingChatId: 'chat-1',
 			provider: 'postgres',
 			credentials: {
 				host: 'warehouse.example.com',
@@ -870,7 +950,7 @@ describe('warehouse provisioning', () => {
 		});
 		await submitContextSources(jobId);
 
-		await queueWarehouseFinalization(jobId, 'user-1', {
+		await submitWarehouseBusinessContext('user-1', 'chat-1', {
 			businessContext: { additionalContext: 'A bicycle rental company.' },
 			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
 			modelProjectId: 'example-project',
@@ -882,6 +962,52 @@ describe('warehouse provisioning', () => {
 		expect(reconcileProjectReadiness).not.toHaveBeenCalledWith('project-publish-failure');
 		expect(deleteManagedGithubRepository).toHaveBeenCalledWith('nao-org/nao-analytics-project');
 		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-publish-failure');
+		expect(fs.existsSync(registeredProjectDirectory)).toBe(false);
+	});
+
+	it.each([
+		{
+			case: 'its GitHub App configuration is wrong',
+			publishingError: new ManagedGithubConfigurationError(
+				'Failed to create installation token: GitHub returned 401 (A JSON web token could not be decoded)',
+			),
+			error: "Your warehouse connection works, but nao could not save the project because of a configuration problem on nao's side. Your connection details are not the problem. Contact the nao team: a retry will fail until they fix it.",
+		},
+		{
+			case: 'GitHub is unavailable',
+			publishingError: new Error('GitHub API request timed out. Please try again.'),
+			error: 'Your warehouse connection works, but nao could not save the project. Your connection details are not the problem. Please try again in a few minutes.',
+		},
+	])('tells the user that nao could not publish the project when $case', async ({ publishingError, error }) => {
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-unpublished');
+		vi.mocked(provisionManagedGithubRepository).mockRejectedValue(publishingError);
+		vi.mocked(projectQueries.deleteProject).mockResolvedValue();
+		vi.mocked(scheduledJobQueries.deleteJobByUniqueKey).mockResolvedValue();
+
+		const { jobId } = await startWarehouseProvisioning({
+			userId: 'user-1',
+			orgId: 'org-1',
+			projectName: 'analytics',
+			onboardingChatId: 'chat-1',
+			provider: 'postgres',
+			credentials: { host: 'warehouse.example.com', password: 'secret' },
+		});
+		await submitWarehouseBusinessContext('user-1', 'chat-1', {
+			businessContext: {},
+			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
+			modelProjectId: 'example-project',
+		});
+		await submitContextSources(jobId);
+
+		await vi.waitFor(async () => {
+			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
+		});
+		expect(warehouseJobs.get(jobId)).toMatchObject({
+			failedStatus: 'publishing',
+			error,
+			errorDetail: `Project publishing failed | caused by: ${publishingError.message}`,
+		});
+		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-unpublished');
 		expect(fs.existsSync(registeredProjectDirectory)).toBe(false);
 	});
 
@@ -1052,7 +1178,7 @@ describe('warehouse provisioning', () => {
 				},
 			},
 		);
-		expect(warehouseJobs.get(jobId)?.logs).toContain('Cloning [REDACTED]');
+		expect(warehouseJobs.get(jobId)?.logs).toContain('Cloning [REDACTED:NAO_ONBOARDING_GITHUB_REPOSITORY_URL]');
 		expect(warehouseJobs.get(jobId)?.logs).not.toContain('github-secret');
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});
@@ -1066,6 +1192,7 @@ describe('warehouse provisioning', () => {
 			userId: 'user-1',
 			orgId: 'org-1',
 			projectName: 'analytics',
+			onboardingChatId: 'chat-1',
 			provider: 'postgres',
 			credentials: {
 				host: 'warehouse.example.com',
@@ -1077,7 +1204,7 @@ describe('warehouse provisioning', () => {
 		});
 		await submitContextSources(jobId);
 
-		await queueWarehouseFinalization(jobId, 'user-1', {
+		await submitWarehouseBusinessContext('user-1', 'chat-1', {
 			businessContext: {},
 			modelProjectId: 'example-project',
 		});
@@ -1232,9 +1359,10 @@ describe('warehouse provisioning', () => {
 			status: 'failed',
 			failedStatus: 'syncing',
 			attempts: 5,
-			encryptedCredentials: null,
+			encryptedCredentials: expect.any(String),
 			temporaryDirectory: null,
 			error: 'Warehouse setup stopped unexpectedly several times. Please try again.',
+			errorDetail: expect.stringContaining('Abandoned 5 times while syncing'),
 		});
 		expect(fs.existsSync(temporaryDirectory)).toBe(false);
 		expect(spawn).not.toHaveBeenCalled();
@@ -1357,8 +1485,309 @@ describe('warehouse provisioning', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'example-project',
+			'user-1',
 		);
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
+	});
+
+	it('retries a stopped setup with its stored credentials and business context', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		const failedJob = markJobFailed(jobId, {
+			businessContext: { additionalContext: 'A bicycle rental company.' },
+			modelProjectId: 'example-project',
+		});
+
+		const retriedJob = await retryWarehouseProvisioning('user-1', 'chat-1');
+
+		expect(retriedJob).toMatchObject({ status: 'queued', provider: 'postgres', businessContextProvided: true });
+		expect(warehouseJobs.get(retriedJob.id)).toMatchObject({
+			onboardingChatId: 'chat-1',
+			encryptedCredentials: failedJob.encryptedCredentials,
+			businessContext: { additionalContext: 'A bicycle rental company.' },
+			modelProjectId: 'example-project',
+		});
+		expect(warehouseJobs.get(jobId)?.encryptedCredentials).toBeNull();
+	});
+
+	it('asks for the connection details again when a stopped setup no longer stores them', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId, { encryptedCredentials: null });
+
+		await expect(retryWarehouseProvisioning('user-1', 'chat-1')).rejects.toMatchObject({
+			code: 'PRECONDITION_FAILED',
+		});
+	});
+
+	it('clears the stored credentials of stopped setups after the retention period', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId, { finishedAt: new Date(Date.now() - 2 * 60 * 60_000) });
+
+		await reconcileWarehouseProvisioningJobs();
+
+		expect(warehouseJobs.get(jobId)?.encryptedCredentials).toBeNull();
+	});
+
+	it('reports a stopped setup to the agent with its error and logs', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId, {
+			failedStatus: 'debugging',
+			error: 'nao debug failed. Check the logs for details.',
+			logs: 'password authentication failed for user "nao"',
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toEqual({
+			outcome: 'failed',
+			setup: {
+				provider: 'postgres',
+				status: 'failed',
+				failedStatus: 'debugging',
+				error: 'nao debug failed. Check the logs for details.',
+				cause: null,
+				logs: 'password authentication failed for user "nao"',
+				businessContextProvided: false,
+				canRetry: true,
+			},
+		});
+	});
+
+	it('reports the technical cause instead of stale command logs when a later step stops the setup', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId, {
+			failedStatus: 'publishing',
+			error: 'Your warehouse connection works, but nao could not save the project.',
+			errorDetail:
+				'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+			logs: 'Synced 12 tables',
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			outcome: 'failed',
+			setup: {
+				failedStatus: 'publishing',
+				cause: 'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+				logs: null,
+			},
+		});
+		await expect(getLatestWarehouseProvisioningJob('user-1', 'chat-1')).resolves.toMatchObject({
+			cause: 'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+		});
+	});
+
+	it('leaves the cause of a failed command to its logs', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId, {
+			failedStatus: 'syncing',
+			errorDetail: 'nao sync failed: password authentication failed for user "nao"',
+			logs: 'password authentication failed for user "nao"',
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			setup: { cause: null, logs: 'password authentication failed for user "nao"' },
+		});
+	});
+
+	it('keeps the cause of a setup whose workers stopped while a command was running', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		const errorDetail =
+			'Abandoned 5 times while syncing: each worker stopped before finishing, for example on a server restart.';
+		markJobFailed(jobId, {
+			failedStatus: 'syncing',
+			error: 'Warehouse setup stopped unexpectedly several times. Please try again.',
+			errorDetail,
+			logs: 'Synced 12 tables',
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			setup: { cause: errorDetail, logs: 'Synced 12 tables' },
+		});
+	});
+
+	it('reports a verified connection while the business context card is shown', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		await warehouseProvisioningJobQueries.updateWarehouseProvisioningJob(jobId, { status: 'awaiting_sources' });
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			outcome: 'connection_verified',
+		});
+	});
+
+	it('stops waiting for the setup when the agent run is aborted', async () => {
+		vi.useFakeTimers();
+		await startOnboardingSetup();
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1', controller.signal)).resolves.toMatchObject({
+			outcome: 'running',
+			setup: { status: 'queued' },
+		});
+	});
+
+	it('keeps business context given to a stopped setup for its retry', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId);
+
+		await expect(
+			submitWarehouseBusinessContext('user-1', 'chat-1', {
+				businessContext: { additionalContext: 'A bicycle rental company.' },
+				modelProjectId: 'example-project',
+			}),
+		).rejects.toThrow('The business context was saved and will be used when the setup is retried.');
+		expect(warehouseJobs.get(jobId)?.businessContext).toEqual({ additionalContext: 'A bicycle rental company.' });
+	});
+
+	it('cancels a setup waiting for business context and rolls back its project', async () => {
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-cancelled');
+		const { jobId } = await startOnboardingSetup();
+		await submitContextSources(jobId);
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+
+		await expect(cancelWarehouseProvisioning('user-1')).resolves.toBe(true);
+
+		expect(warehouseJobs.get(jobId)).toMatchObject({
+			status: 'cancelled',
+			failedStatus: 'awaiting_context',
+			encryptedCredentials: null,
+		});
+		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-cancelled');
+		await expect(startOnboardingSetup()).resolves.toMatchObject({ status: 'queued' });
+		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
+	});
+
+	it('stops the running command of a cancelled setup without reporting a failure', async () => {
+		mockSuccessfulProvisioning('project-running');
+		let killSync: ReturnType<typeof vi.fn> | undefined;
+		vi.mocked(spawn).mockImplementation((_command, args) => {
+			const child = Object.assign(new EventEmitter(), {
+				stdout: new EventEmitter(),
+				stderr: new EventEmitter(),
+				kill: vi.fn(),
+			});
+			queueMicrotask(async () => {
+				if (args?.[0] === 'sync') {
+					killSync = child.kill;
+					await cancelWarehouseProvisioning('user-1');
+					child.stdout.emit('data', Buffer.from('Syncing 10%\n'));
+					return;
+				}
+				child.stdout.emit('data', Buffer.from(`Running nao ${args?.[0]}\n`));
+				child.emit('close', 0);
+			});
+			return child as never;
+		});
+
+		const { jobId } = await startOnboardingSetup();
+		await submitContextSources(jobId);
+
+		await vi.waitFor(() => expect(killSync).toHaveBeenCalledWith('SIGTERM'));
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.lockedBy).toBeNull());
+		expect(warehouseJobs.get(jobId)).toMatchObject({
+			status: 'cancelled',
+			failedStatus: 'syncing',
+			error: 'The warehouse setup was cancelled because the onboarding was restarted.',
+		});
+		expect(createNewProject).not.toHaveBeenCalled();
+		expect(logger.error).not.toHaveBeenCalled();
+	});
+
+	it('masks secret credentials printed by a nao command before storing its logs', async () => {
+		mockSuccessfulProvisioning('project-redacted');
+		mockPreparedWarehousePassword('super-secret-value');
+		mockSyncOutput(['nao sync on port 5432 with super-secret-value\n']);
+
+		const { jobId } = await startOnboardingSetup();
+		await submitContextSources(jobId);
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+
+		expect(warehouseJobs.get(jobId)?.logs).toContain(
+			'nao sync on port 5432 with [REDACTED:NAO_ONBOARDING_POSTGRES_PASSWORD]',
+		);
+	});
+
+	it('masks a secret split across chunks before the logs are cut to their size limit', async () => {
+		mockSuccessfulProvisioning('project-trimmed-logs');
+		mockPreparedWarehousePassword('super-secret-value');
+		mockSyncOutput(['nao sync with super-secret-', `value${'y'.repeat(7990)}`]);
+
+		const { jobId } = await startOnboardingSetup();
+		await submitContextSources(jobId);
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+
+		const logs = warehouseJobs.get(jobId)?.logs ?? '';
+		expect(logs).toMatch(/y$/);
+		expect(logs).not.toContain('cret-value');
+	});
+
+	it('keeps secrets printed by a failed nao command out of the backend logs', async () => {
+		mockSuccessfulProvisioning('project-failed-command');
+		mockPreparedWarehousePassword('super-secret-value');
+		mockSyncOutput(['connection refused with super-secret-value\n'], 1);
+
+		const { jobId } = await startOnboardingSetup();
+		await submitContextSources(jobId);
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('failed'));
+
+		expect(logger.error).toHaveBeenCalledWith(
+			expect.stringContaining('connection refused with [REDACTED:NAO_ONBOARDING_POSTGRES_PASSWORD]'),
+			expect.anything(),
+		);
+		expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('super-secret-value');
+		expect(JSON.stringify(warehouseJobs.get(jobId))).not.toContain('super-secret-value');
+	});
+
+	it('rolls back a cancelled setup whose worker stopped before cleaning up', async () => {
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-abandoned');
+		const { jobId } = await startOnboardingSetup();
+		await submitContextSources(jobId);
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+		const job = warehouseJobs.get(jobId);
+		if (!job) {
+			throw new Error('Expected provisioning job');
+		}
+		warehouseJobs.set(jobId, { ...job, status: 'finalizing', lockedBy: 'dead-worker', lockedAt: new Date() });
+
+		await expect(cancelWarehouseProvisioning('user-1')).resolves.toBe(true);
+		expect(projectQueries.deleteProject).not.toHaveBeenCalled();
+
+		const cancelledJob = warehouseJobs.get(jobId);
+		if (!cancelledJob) {
+			throw new Error('Expected cancelled job');
+		}
+		warehouseJobs.set(jobId, { ...cancelledJob, lockedAt: new Date(Date.now() - 10 * 60_000) });
+		await reconcileWarehouseProvisioningJobs();
+
+		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-abandoned');
+		expect(warehouseJobs.get(jobId)).toMatchObject({ status: 'cancelled', lockedBy: null, lockedAt: null });
+		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
+	});
+
+	it('has nothing to cancel when no setup is in progress', async () => {
+		await expect(cancelWarehouseProvisioning('user-1')).resolves.toBe(false);
+	});
+
+	it('shares a connection test that failed after the latest setup with the agent', async () => {
+		vi.mocked(warehouseConnectionCheckQueries.getLatestWarehouseConnectionCheck).mockResolvedValueOnce({
+			id: 'check-1',
+			userId: 'user-1',
+			provider: 'snowflake',
+			outcome: 'connection_error',
+			error: 'Could not connect. Check Account Identifier.',
+			createdAt: new Date(),
+		});
+
+		await expect(getOnboardingWarehouseState('user-1', 'chat-1')).resolves.toEqual({
+			setup: null,
+			failedConnectionTest: { provider: 'snowflake', error: 'Could not connect. Check Account Identifier.' },
+		});
 	});
 
 	it.each([
@@ -1376,7 +1805,7 @@ describe('warehouse provisioning', () => {
 		},
 		{
 			error: new Error('nao sync timed out'),
-			expected: 'nao sync failed. Check the logs for details.',
+			expected: 'nao sync timed out. Check the logs for details.',
 		},
 		{
 			error: new Error('password authentication failed for user "nao"'),
@@ -1395,6 +1824,34 @@ describe('warehouse provisioning', () => {
 		expect(getPublicProvisioningError(error)).toBe(expected);
 	});
 });
+
+function startOnboardingSetup() {
+	return startWarehouseProvisioning({
+		userId: 'user-1',
+		orgId: 'org-1',
+		projectName: 'analytics',
+		onboardingChatId: 'chat-1',
+		provider: 'postgres',
+		credentials: { host: 'warehouse.example.com', password: 'secret' },
+	});
+}
+
+function markJobFailed(jobId: string, changes: Partial<MockWarehouseJob> = {}): MockWarehouseJob {
+	const job = warehouseJobs.get(jobId);
+	if (!job) {
+		throw new Error('Expected provisioning job');
+	}
+	const failedJob: MockWarehouseJob = {
+		...job,
+		status: 'failed',
+		failedStatus: 'syncing',
+		error: 'nao sync failed. Check the logs for details.',
+		finishedAt: new Date(),
+		...changes,
+	};
+	warehouseJobs.set(jobId, failedJob);
+	return failedJob;
+}
 
 function mockSuccessfulProvisioning(projectId: string): string {
 	const registeredProjectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'registered-project-test-'));
@@ -1454,5 +1911,40 @@ function createSyncedTable(args: readonly string[] | undefined, cwd: string | UR
 	}
 	fs.mkdirSync(path.join(String(cwd), 'databases/type=postgres/database=analytics/schema=public/table=orders'), {
 		recursive: true,
+	});
+}
+
+function mockPreparedWarehousePassword(password: string): void {
+	vi.mocked(fetch).mockImplementation(
+		async () =>
+			new Response(
+				JSON.stringify({
+					database_config: { type: 'postgres' },
+					env_vars: {
+						NAO_ONBOARDING_POSTGRES_PASSWORD: JSON.stringify(password),
+						NAO_ONBOARDING_POSTGRES_PORT: '5432',
+					},
+				}),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			),
+	);
+}
+
+function mockSyncOutput(chunks: string[], exitCode = 0): void {
+	vi.mocked(spawn).mockImplementation((_command, args, options) => {
+		const child = Object.assign(new EventEmitter(), {
+			stdout: new EventEmitter(),
+			stderr: new EventEmitter(),
+			kill: vi.fn(),
+		});
+		const isSync = args?.[0] === 'sync';
+		queueMicrotask(() => {
+			for (const chunk of isSync ? chunks : [`Running nao ${args?.[0]}\n`]) {
+				child.stdout.emit('data', Buffer.from(chunk));
+			}
+			createSyncedTable(args, options?.cwd);
+			child.emit('close', isSync ? exitCode : 0);
+		});
+		return child as never;
 	});
 }

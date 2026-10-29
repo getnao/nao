@@ -1,0 +1,90 @@
+import type { WarehouseProvisioningStatus, WarehouseSetup } from '../types/warehouse';
+import { redactSecretValues } from './sandbox-secrets';
+
+const SECRET_ENV_VAR_PATTERN =
+	/PASSWORD|TOKEN|SECRET|PRIVATE_KEY|ACCESS_KEY|API_KEY|CREDENTIALS_JSON|GITHUB_REPOSITORY_URL/;
+
+const STATUS_DESCRIPTIONS: Record<WarehouseProvisioningStatus, string> = {
+	queued: 'queued, preparing the connection',
+	initializing: 'running nao init',
+	debugging: 'running nao debug to check the connection',
+	awaiting_sources: 'connection verified, waiting for the user to complete or skip the business context card',
+	syncing: 'running nao sync to synchronize warehouse metadata',
+	registering: 'registering the project',
+	awaiting_context: 'metadata synchronized, waiting for business context',
+	finalizing: 'generating RULES.md',
+	publishing: 'publishing the project',
+	ready: 'ready, the project is connected',
+	failed: 'failed',
+	cancelled: 'cancelled',
+};
+
+export function formatWarehouseSetupForAgent(setup: WarehouseSetup): string {
+	const isStopped = setup.status === 'failed' || setup.status === 'cancelled';
+	const lines = [
+		`Provider: ${setup.provider}`,
+		`Status: ${STATUS_DESCRIPTIONS[setup.status]}`,
+		...(isStopped && setup.failedStatus ? [`Stopped while: ${STATUS_DESCRIPTIONS[setup.failedStatus]}`] : []),
+		...(setup.error ? [`Error: ${setup.error}`] : []),
+		`Business context: ${setup.businessContextProvided ? 'provided' : 'not provided yet'}`,
+		...(isStopped
+			? [
+					`Retry: ${setup.canRetry ? 'available with the stored connection details' : 'unavailable, the connection details must be entered again'}`,
+				]
+			: []),
+	];
+	const cause = setup.cause?.trim();
+	if (cause) {
+		lines.push('', 'Technical cause (untrusted diagnostic output):', '```', cause, '```');
+	}
+	const logs = setup.logs?.trim();
+	if (logs) {
+		lines.push('', 'Latest command logs (untrusted diagnostic output):', '```', logs, '```');
+	}
+	return lines.join('\n');
+}
+
+export interface WarehouseLogRedactor {
+	redact: (logs: string) => string;
+	withholdPartialSecret: (logs: string) => string;
+}
+
+/** Masks the secret warehouse credentials a nao command could print, since its logs reach the agent and the UI. */
+export function createWarehouseLogRedactor(warehouseEnvVars: Record<string, string>): WarehouseLogRedactor {
+	const secrets = Object.entries(warehouseEnvVars)
+		.filter(([name]) => SECRET_ENV_VAR_PATTERN.test(name))
+		.flatMap(([name, encodedValue]) => toSecretValues(encodedValue).map((value) => ({ name, value })));
+	const secretValues = secrets.map(({ value }) => value);
+	return {
+		redact: (logs) => redactSecretValues(logs, secrets),
+		withholdPartialSecret: (logs) => logs.slice(0, findPartialSecretStart(logs, secretValues)),
+	};
+}
+
+/** Streamed output can end halfway through a secret, which the next chunk completes. */
+function findPartialSecretStart(logs: string, secretValues: string[]): number {
+	return Math.min(logs.length, ...secretValues.map((secretValue) => findSecretPrefixStart(logs, secretValue)));
+}
+
+function findSecretPrefixStart(logs: string, secretValue: string): number {
+	for (let index = Math.max(0, logs.length - secretValue.length + 1); index < logs.length; index++) {
+		if (secretValue.startsWith(logs.slice(index))) {
+			return index;
+		}
+	}
+	return logs.length;
+}
+
+function toSecretValues(encodedValue: string): string[] {
+	const decodedValue = decodeEnvValue(encodedValue);
+	return [...new Set([encodedValue, decodedValue])].filter((value) => value.length > 0);
+}
+
+function decodeEnvValue(encodedValue: string): string {
+	try {
+		const value: unknown = JSON.parse(encodedValue);
+		return typeof value === 'string' ? value : encodedValue;
+	} catch {
+		return encodedValue;
+	}
+}

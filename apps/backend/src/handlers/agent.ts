@@ -53,7 +53,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		unbilledManagedAiUsage,
 	} = opts;
 
-	await agentService.assertBudget(projectId, model, userId);
+	const resolvedModel = await agentService.assertRunAvailable(projectId, model, userId, unbilledManagedAiUsage);
 
 	const { chat, chatId, isNewChat, newMessageId } = await persistUserMessage({
 		userId,
@@ -67,7 +67,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	await mcpService.initializeMcpState(projectId);
 	await skillService.initializeSkills(projectId);
 
-	const agent = await agentService.create({ ...chat, userId, projectId }, model, profile, {
+	const agent = await agentService.create({ ...chat, userId, projectId }, resolvedModel, profile, {
 		billingAccessVerifiedProjectId,
 		isBudgetChecked: true,
 		unbilledManagedAiUsage,

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "88a6df99-c554-490c-aed8-1bba85d1f872",
+  "id": "08ef5e41-32a7-44bd-88b9-30c1a60dba7b",
   "prevId": "f032e884-4270-44f5-a217-6e16908d46a4",
   "tables": {
     "account": {
@@ -10015,13 +10015,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "warnings": {
-          "name": "warnings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "model_project_id": {
           "name": "model_project_id",
           "type": "text",
@@ -10044,6 +10037,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "steps": {
+          "name": "steps",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "logs": {
           "name": "logs",
           "type": "text",
@@ -10053,6 +10053,13 @@
         },
         "error": {
           "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_detail": {
+          "name": "error_detail",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

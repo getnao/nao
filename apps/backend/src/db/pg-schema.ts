@@ -110,6 +110,7 @@ import {
 	type WarehouseProvider,
 	type WarehouseProvisioningBusinessContext,
 	type WarehouseProvisioningModelSelection,
+	type WarehouseProvisioningStep,
 	type WarehouseProvisioningWarning,
 } from '../types/warehouse';
 
@@ -391,8 +392,10 @@ export const warehouseProvisioningJob = pgTable(
 		modelProjectId: text('model_project_id'),
 		status: text('status', { enum: WAREHOUSE_PROVISIONING_STATUSES }).notNull().default('queued'),
 		failedStatus: text('failed_status', { enum: WAREHOUSE_PROVISIONING_STATUSES }),
+		steps: jsonb('steps').$type<WarehouseProvisioningStep[]>(),
 		logs: text('logs'),
 		error: text('error'),
+		errorDetail: text('error_detail'),
 		temporaryDirectory: text('temporary_directory'),
 		lockedBy: text('locked_by'),
 		lockedAt: timestamp('locked_at'),

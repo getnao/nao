@@ -1,83 +1,36 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RequestWarehouseCredentialsToolCall } from './request-warehouse-credentials';
 import type { ToolCallComponentProps } from '.';
 
-const mocks = vi.hoisted(() => ({
-	isRunning: true,
-	jobStatus: 'awaiting_context',
-	jobError: null as Error | null,
-	jobSetupError: undefined as string | undefined,
-	latestJobId: 'job-1' as string | undefined,
-	latestJobIsFetched: true,
-	messages: [] as never[],
-	queueOrSendMessage: vi.fn().mockResolvedValue(undefined),
-	validateCredentials: vi.fn().mockResolvedValue({
-		valid: true,
-		schemas: [{ schema: 'public', tables: ['customers', 'orders'] }],
-	}),
-	validateNotion: vi.fn().mockResolvedValue({
-		valid: true,
-		pages: [{ url: 'https://notion.so/page', title: 'Company context' }],
-	}),
-	validateConfluence: vi.fn().mockResolvedValue({
-		valid: true,
-		pages: [{ url: 'https://acme.atlassian.net/wiki/pages/123', title: 'Company context' }],
-	}),
-	resetSubmitContext: vi.fn(),
-	startProvisioning: vi.fn().mockResolvedValue({ jobId: 'new-job', status: 'queued' }),
-	submitContextSources: vi.fn().mockResolvedValue({ status: 'syncing' }),
-	uploadContextFile: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+	const createMutation = () => ({ error: null, isPending: false, mutateAsync: vi.fn(), reset: vi.fn() });
+	return {
+		isCardScrolledAbove: false,
+		latestJob: null as Record<string, unknown> | null,
+		messages: [] as never[],
+		queueOrSendMessage: vi.fn().mockResolvedValue(undefined),
+		invalidateQueries: vi.fn(),
+		mutations: {
+			validate: createMutation(),
+			start: createMutation(),
+			retry: createMutation(),
+		},
+	};
+});
 
 vi.mock('@tanstack/react-query', () => ({
-	useMutation: (options: { mutationKey?: string[] }) => ({
-		error: null,
-		isPending: false,
-		mutateAsync:
-			options.mutationKey?.[0] === 'validate-credentials'
-				? mocks.validateCredentials
-				: options.mutationKey?.[0] === 'validate-notion'
-					? mocks.validateNotion
-					: options.mutationKey?.[0] === 'validate-confluence'
-						? mocks.validateConfluence
-						: options.mutationKey?.[0] === 'submit-context-sources'
-							? mocks.submitContextSources
-							: mocks.startProvisioning,
-		reset: options.mutationKey?.[0] === 'submit-context-sources' ? mocks.resetSubmitContext : vi.fn(),
-	}),
-	useQuery: (options: { queryKey: string[] }) =>
-		options.queryKey[0] === 'latest-job'
-			? {
-					data: mocks.latestJobId ? { id: mocks.latestJobId, provider: 'postgres' } : undefined,
-					isFetched: mocks.latestJobIsFetched,
-				}
-			: options.queryKey[0] === 'github-available'
-				? { data: true, isLoading: false }
-				: options.queryKey[0] === 'github-status'
-					? { data: { connected: false }, error: null }
-					: {
-							data:
-								options.queryKey[1] && !mocks.jobError
-									? {
-											provider: 'postgres',
-											status: mocks.jobStatus,
-											error: mocks.jobSetupError,
-										}
-									: undefined,
-							isError: Boolean(options.queryKey[1] && mocks.jobError),
-							error: options.queryKey[1] ? mocks.jobError : null,
-						},
-	useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+	useMutation: ({ key }: { key: keyof typeof mocks.mutations }) => mocks.mutations[key],
+	useQuery: () => ({ data: mocks.latestJob, isPending: false }),
+	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
 	useAgentContext: () => ({
 		chatId: 'chat-1',
-		isRunning: mocks.isRunning,
 		queueOrSendMessage: mocks.queueOrSendMessage,
 	}),
 	useAgentMessagesSelector: (selector: (messages: never[]) => unknown) => selector(mocks.messages),
@@ -86,511 +39,301 @@ vi.mock('@/contexts/agent.provider', () => ({
 vi.mock('@/main', () => ({
 	trpc: {
 		onboarding: {
-			validateWarehouseCredentials: {
-				mutationOptions: () => ({ mutationKey: ['validate-credentials'] }),
-			},
-			validateNotionContext: {
-				mutationOptions: () => ({ mutationKey: ['validate-notion'] }),
-			},
-			validateConfluenceContext: {
-				mutationOptions: () => ({ mutationKey: ['validate-confluence'] }),
-			},
+			validateWarehouseCredentials: { mutationOptions: () => ({ key: 'validate' }) },
+			startWarehouseProvisioning: { mutationOptions: () => ({ key: 'start' }) },
+			retryWarehouseProvisioning: { mutationOptions: () => ({ key: 'retry' }) },
 			getLatestWarehouseProvisioningJob: {
 				queryOptions: () => ({ queryKey: ['latest-job'] }),
+				queryKey: () => ['latest-job'],
 			},
 			getWarehouseProvisioningStatus: {
 				queryOptions: ({ jobId }: { jobId: string }) => ({ queryKey: ['job', jobId] }),
-			},
-			startWarehouseProvisioning: {
-				mutationOptions: () => ({ mutationKey: ['start-provisioning'] }),
-			},
-			submitWarehouseContextSources: {
-				mutationOptions: () => ({ mutationKey: ['submit-context-sources'] }),
-			},
-		},
-		github: {
-			isAvailable: {
-				queryOptions: () => ({ queryKey: ['github-available'] }),
-			},
-			getStatus: {
-				queryOptions: () => ({ queryKey: ['github-status'] }),
 			},
 		},
 	},
 }));
 
-vi.mock('./warehouse-credentials-form', () => ({
-	WarehouseCredentialsForm: ({
-		onCancel,
-		onSubmit,
-		onValidate,
-		onValuesChange,
-		onValidatedFingerprintChange,
-	}: {
-		onCancel: () => void;
-		onSubmit: (values: Record<string, never>) => Promise<void>;
-		onValidate: (values: Record<string, never>) => Promise<void>;
-		onValuesChange: (values: Record<string, never>) => void;
-		onValidatedFingerprintChange: (fingerprint: string) => void;
-	}) => (
-		<>
-			<button
-				type='button'
-				onClick={() => {
-					onValuesChange({});
-					onValidatedFingerprintChange(JSON.stringify({}));
-					onCancel();
-				}}
-			>
-				Verify credentials
-			</button>
-			<button
-				type='button'
-				onClick={() => {
-					onValuesChange({});
-					void onValidate({}).then(() => onValidatedFingerprintChange(JSON.stringify({})));
-				}}
-			>
-				Discover tables
-			</button>
-			<button type='button' onClick={() => void onSubmit({})}>
-				Next
-			</button>
-		</>
+vi.mock('@/hooks/use-is-scrolled-above', () => ({
+	useIsScrolledAbove: () => mocks.isCardScrolledAbove,
+}));
+
+vi.mock('@/contexts/onboarding-floating-slot', () => ({
+	OnboardingFloatingContent: ({ children }: { children: React.ReactNode }) => (
+		<div data-testid='floating-slot'>{children}</div>
 	),
 }));
 
-beforeEach(() => {
-	vi.stubGlobal(
-		'fetch',
-		vi.fn().mockResolvedValue({
-			ok: true,
-			json: vi.fn().mockResolvedValue({}),
-		}),
-	);
-});
+vi.mock('./warehouse-credentials', () => ({
+	buildWarehouseCredentials: () => ({ host: 'localhost' }),
+}));
+
+vi.mock('./warehouse-credentials-form', () => ({
+	WarehouseCredentialsForm: ({
+		onSubmit,
+		onValuesChange,
+	}: {
+		onSubmit: (values: Record<string, never>) => Promise<void>;
+		onValuesChange: (values: Record<string, never>) => void;
+	}) => (
+		<button
+			type='button'
+			onClick={() => {
+				onValuesChange({});
+				void onSubmit({});
+			}}
+		>
+			Submit credentials
+		</button>
+	),
+}));
+
+vi.mock('./warehouse-table-selection', () => ({
+	getAllWarehouseTableKeys: () => new Set(['public.orders']),
+	getCompactWarehouseTableSelection: () => ({ schemas: [], tables: [] }),
+	WarehouseTableSelection: ({ onSubmit }: { onSubmit: () => void }) => (
+		<button type='button' onClick={onSubmit}>
+			Start setup
+		</button>
+	),
+}));
+
+vi.mock('./request-business-context', () => ({
+	RequestBusinessContext: ({ onSubmitted }: { onSubmitted: (provided: boolean) => void }) => (
+		<div>
+			<button type='button' onClick={() => onSubmitted(true)}>
+				Submit business context
+			</button>
+			<button type='button' onClick={() => onSubmitted(false)}>
+				Skip business context
+			</button>
+		</div>
+	),
+}));
 
 afterEach(() => {
 	cleanup();
-	mocks.isRunning = true;
-	mocks.jobStatus = 'awaiting_context';
-	mocks.jobError = null;
-	mocks.jobSetupError = undefined;
-	mocks.latestJobId = 'job-1';
-	mocks.latestJobIsFetched = true;
+	mocks.isCardScrolledAbove = false;
+	mocks.latestJob = null;
 	mocks.messages = [];
 	vi.clearAllMocks();
-	vi.unstubAllGlobals();
+	for (const mutation of Object.values(mocks.mutations)) {
+		mutation.mutateAsync.mockResolvedValue(undefined);
+	}
 });
 
 describe('RequestWarehouseCredentialsToolCall', () => {
-	it('shows a verified state that lets users edit their credentials', async () => {
-		mocks.latestJobId = undefined;
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+	it('shows the connection form inline when no setup has started', () => {
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		fireEvent.click(screen.getByRole('button', { name: 'Enter credentials' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Verify credentials' }));
-
-		await screen.findByText('Postgres credentials verified');
-		expect(screen.getByRole('button', { name: 'Edit credentials' })).toBeTruthy();
+		expect(screen.getByText('Connect Postgres')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Submit credentials' })).toBeTruthy();
+		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
-	it('does not show default credentials for a restored setup', async () => {
-		mocks.jobStatus = 'initializing';
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+	it('validates, asks for the tables, starts the setup and reports the submission to the agent', async () => {
+		mocks.mutations.validate.mutateAsync.mockResolvedValue({ schemas: [{ schema: 'public', tables: ['orders'] }] });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		await screen.findByText('Postgres credentials verified');
-		expect(screen.getByText('Your connection is being set up.')).toBeTruthy();
-		fireEvent.click(screen.getByRole('button', { name: 'View setup' }));
-		expect(screen.getByText(/Your connection details are unavailable in this session/)).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Verify credentials' })).toBeNull();
-	});
-
-	it('shows business context as a separate card after warehouse verification', async () => {
-		mocks.jobStatus = 'awaiting_sources';
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		await screen.findByText('Postgres database verified');
-		expect(screen.getByRole('button', { name: 'Skip' }).className).toContain('text-muted-foreground/60');
-		fireEvent.click(screen.getByRole('button', { name: 'Add business context' }));
-		fireEvent.change(screen.getByLabelText('Company website'), {
-			target: { value: 'acme.example' },
-		});
-		fireEvent.change(screen.getByLabelText('Tell us more about your business'), {
-			target: { value: 'We rent bicycles.' },
-		});
-		fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-		await screen.findByRole('heading', { name: 'Notion' });
-		fireEvent.click(screen.getByRole('button', { name: 'Sync with context' }));
-		await waitFor(() =>
-			expect(mocks.submitContextSources).toHaveBeenCalledWith({
-				jobId: 'job-1',
-				businessContext: {
-					additionalContext: 'Website: https://acme.example\n\nAbout the business: We rent bicycles.',
-				},
-				contextSources: {},
-			}),
-		);
-	});
-
-	it('closes the setup dialog when the business context card becomes available', async () => {
-		mocks.jobStatus = 'initializing';
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		const view = render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		fireEvent.click(await screen.findByRole('button', { name: 'View setup' }));
-		expect(screen.getByRole('dialog')).toBeTruthy();
-
-		mocks.jobStatus = 'awaiting_sources';
-		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-		expect(screen.getByRole('button', { name: 'Add business context' })).toBeTruthy();
-	});
-
-	it('shows file cleanup errors from the card Skip action', async () => {
-		mocks.jobStatus = 'awaiting_sources';
-		vi.stubGlobal(
-			'fetch',
-			vi.fn().mockResolvedValue({
-				ok: false,
-				json: vi.fn().mockResolvedValue({ error: 'Could not clear uploaded files.' }),
-			}),
-		);
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
-
-		expect((await screen.findByRole('alert')).textContent).toContain('Could not clear uploaded files.');
-		expect(mocks.submitContextSources).not.toHaveBeenCalled();
-	});
-
-	it('shows submission errors from the card Skip action', async () => {
-		mocks.jobStatus = 'awaiting_sources';
-		mocks.submitContextSources.mockRejectedValueOnce(new Error('Could not skip business context.'));
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
-
-		expect((await screen.findByRole('alert')).textContent).toContain('Could not skip business context.');
-	});
-
-	it('reuses uploaded context files when retrying a submission with a lost response', async () => {
-		mocks.jobStatus = 'awaiting_sources';
-		mocks.uploadContextFile.mockResolvedValue({
-			ok: true,
-			json: vi.fn().mockResolvedValue({}),
-		});
-		mocks.submitContextSources.mockRejectedValueOnce(new Error('Response lost'));
-		vi.stubGlobal('fetch', mocks.uploadContextFile);
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		await screen.findByText('Postgres database verified');
-		fireEvent.click(screen.getByRole('button', { name: 'Add business context' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-		const file = new File(['# Company handbook'], 'handbook.md', { type: 'text/markdown' });
-		fireEvent.change(screen.getByLabelText('Upload business context files'), {
-			target: { files: [file] },
-		});
-
-		await screen.findByText('handbook.md');
-		fireEvent.click(screen.getByRole('button', { name: 'Sync with context' }));
-
-		await waitFor(() => expect(mocks.submitContextSources).toHaveBeenCalledOnce());
-		const submitButton = screen.getByRole('button', { name: 'Sync with context' });
-		await waitFor(() => expect((submitButton as HTMLButtonElement).disabled).toBe(false));
-		fireEvent.click(submitButton);
-		await waitFor(() => expect(mocks.submitContextSources).toHaveBeenCalledTimes(2));
-
-		expect(mocks.uploadContextFile).toHaveBeenNthCalledWith(1, '/api/onboarding/context-files?jobId=job-1', {
-			method: 'DELETE',
-		});
-		expect(mocks.uploadContextFile).toHaveBeenCalledWith(
-			'/api/onboarding/context-files?jobId=job-1',
-			expect.objectContaining({
-				method: 'POST',
-				body: expect.any(FormData),
-			}),
-		);
-		expect(mocks.uploadContextFile).toHaveBeenCalledTimes(2);
-		expect(mocks.resetSubmitContext).toHaveBeenCalledTimes(2);
-		expect(mocks.resetSubmitContext.mock.invocationCallOrder[0]).toBeLessThan(
-			mocks.uploadContextFile.mock.invocationCallOrder[0],
-		);
-		expect(mocks.uploadContextFile.mock.invocationCallOrder[0]).toBeLessThan(
-			mocks.submitContextSources.mock.invocationCallOrder[0],
-		);
-	});
-
-	it('reuploads a previous file selection after replacing it fails', async () => {
-		mocks.jobStatus = 'awaiting_sources';
-		const successfulResponse = {
-			ok: true,
-			json: vi.fn().mockResolvedValue({}),
-		};
-		mocks.uploadContextFile.mockResolvedValue(successfulResponse);
-		mocks.submitContextSources.mockRejectedValueOnce(new Error('Response lost'));
-		vi.stubGlobal('fetch', mocks.uploadContextFile);
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		await screen.findByText('Postgres database verified');
-		fireEvent.click(screen.getByRole('button', { name: 'Add business context' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-		const handbook = new File(['# Company handbook'], 'handbook.md', { type: 'text/markdown' });
-		fireEvent.change(screen.getByLabelText('Upload business context files'), {
-			target: { files: [handbook] },
-		});
-		await screen.findByText('handbook.md');
-		fireEvent.click(screen.getByRole('button', { name: 'Sync with context' }));
-		await waitFor(() => expect(mocks.submitContextSources).toHaveBeenCalledOnce());
-
-		fireEvent.click(screen.getByRole('button', { name: 'Remove handbook.md' }));
-		const replacement = new File(['Replacement'], 'replacement.txt', { type: 'text/plain' });
-		fireEvent.change(screen.getByLabelText('Upload business context files'), {
-			target: { files: [replacement] },
-		});
-		await screen.findByText('replacement.txt');
-		mocks.uploadContextFile.mockResolvedValueOnce(successfulResponse).mockResolvedValueOnce({
-			ok: false,
-			json: vi.fn().mockResolvedValue({ error: 'Replacement upload failed.' }),
-		});
-		fireEvent.click(screen.getByRole('button', { name: 'Sync with context' }));
-		await screen.findByText('Replacement upload failed.');
-
-		fireEvent.click(screen.getByRole('button', { name: 'Remove replacement.txt' }));
-		fireEvent.change(screen.getByLabelText('Upload business context files'), {
-			target: { files: [handbook] },
-		});
-		await screen.findByText('handbook.md');
-		fireEvent.click(screen.getByRole('button', { name: 'Sync with context' }));
-
-		await waitFor(() => expect(mocks.submitContextSources).toHaveBeenCalledTimes(2));
-		expect(mocks.uploadContextFile).toHaveBeenCalledTimes(6);
-		expect(mocks.uploadContextFile).toHaveBeenNthCalledWith(5, '/api/onboarding/context-files?jobId=job-1', {
-			method: 'DELETE',
-		});
-		expect(mocks.uploadContextFile).toHaveBeenNthCalledWith(
-			6,
-			'/api/onboarding/context-files?jobId=job-1',
-			expect.objectContaining({ method: 'POST', body: expect.any(FormData) }),
-		);
-	});
-
-	it('discovers tables before starting provisioning with the selected tables', async () => {
-		mocks.latestJobId = undefined;
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		fireEvent.click(screen.getByRole('button', { name: 'Enter credentials' }));
-		expect((screen.getByRole('tab', { name: /Tables/ }) as HTMLButtonElement).disabled).toBe(true);
-		expect(screen.queryByRole('button', { name: /Business context/ })).toBeNull();
-		expect(document.querySelector('[data-slot="dialog-overlay"]')?.className).toContain(
-			'data-[state=open]:animate-none',
-		);
-		fireEvent.click(screen.getByRole('button', { name: 'Discover tables' }));
-		await waitFor(() => expect(mocks.validateCredentials).toHaveBeenCalledOnce());
-		expect(screen.getByText('Postgres credentials verified')).toBeTruthy();
-		expect(screen.queryByText('Tables to sync')).toBeNull();
-		expect((screen.getByRole('tab', { name: /Tables/ }) as HTMLButtonElement).disabled).toBe(false);
-
-		fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-		await screen.findByText('Tables to sync');
-
-		fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
-		expect(screen.getByRole('button', { name: 'Next' })).toBeTruthy();
-		fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-
-		fireEvent.click(screen.getByRole('button', { name: /Specific selection/ }));
-		fireEvent.click(screen.getByRole('button', { name: 'Expand public folder' }));
-		fireEvent.click(screen.getByRole('checkbox', { name: 'customers table access' }));
-		fireEvent.click(screen.getByRole('checkbox', { name: 'orders table access' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-
-		await waitFor(() =>
-			expect(mocks.startProvisioning).toHaveBeenCalledWith({
-				provider: 'postgres',
-				credentials: expect.any(Object),
-				tableSelection: {
-					mode: 'selected',
-					schemas: ['public'],
-					tables: [],
-				},
-				onboardingChatId: 'chat-1',
-			}),
-		);
-	});
-
-	it('waits for the current turn to finish before requesting business context', async () => {
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		const view = render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		await waitFor(() => expect(mocks.queueOrSendMessage).not.toHaveBeenCalled());
-
-		mocks.isRunning = false;
-		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+		fireEvent.click(screen.getByRole('button', { name: 'Submit credentials' }));
+		fireEvent.click(await screen.findByRole('button', { name: 'Start setup' }));
 
 		await waitFor(() =>
 			expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({
-				text: '[internal:onboarding-context-request] jobId=job-1',
+				text: 'I submitted my Postgres connection details.',
 			}),
+		);
+		expect(mocks.mutations.validate.mutateAsync).toHaveBeenCalledWith({
+			provider: 'postgres',
+			credentials: { host: 'localhost' },
+		});
+		expect(mocks.mutations.start.mutateAsync).toHaveBeenCalledWith({
+			provider: 'postgres',
+			credentials: { host: 'localhost' },
+			onboardingChatId: 'chat-1',
+			tableSelection: { mode: 'all' },
+		});
+	});
+
+	it('does not report to the agent when the connection check fails', async () => {
+		mocks.mutations.validate.mutateAsync.mockRejectedValue(new Error('Connection refused'));
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Submit credentials' }));
+
+		await waitFor(() => expect(mocks.mutations.validate.mutateAsync).toHaveBeenCalled());
+		expect(mocks.mutations.start.mutateAsync).not.toHaveBeenCalled();
+		expect(mocks.queueOrSendMessage).not.toHaveBeenCalled();
+	});
+
+	it('follows the setup steps while the commands run', () => {
+		mocks.latestJob = createJob({ status: 'syncing', logs: 'Syncing tables 42%' });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.getByText('Setting up Postgres')).toBeTruthy();
+		const activeStep = screen.getByRole('listitem', { current: 'step' });
+		expect(activeStep.textContent).toContain('Sync warehouse metadata');
+		expect(activeStep.textContent).toContain('42%');
+	});
+
+	it('shows the business context card once the connection is verified and reports it to the agent', () => {
+		mocks.latestJob = createJob({ status: 'awaiting_sources' });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Add business context');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Submit business context' }));
+		expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({ text: 'I added my business context.' });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Skip business context' }));
+		expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({ text: 'Skip the business context for now.' });
+	});
+
+	it('hides the business context card once the sources are submitted', () => {
+		mocks.latestJob = createJob({ status: 'syncing' });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.queryByRole('button', { name: 'Submit business context' })).toBeNull();
+	});
+
+	it('only asks for the business context in the card, never in the chat', () => {
+		mocks.isCardScrolledAbove = true;
+		mocks.latestJob = createJob({ status: 'awaiting_context', businessContextProvided: true });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.queryByText('Answer in the chat')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull();
+		expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Generate RULES.md');
+	});
+
+	it('lets users retry a failed setup and tells the agent', async () => {
+		mocks.latestJob = createJob({
+			status: 'failed',
+			failedStatus: 'debugging',
+			error: 'nao debug failed.',
+			logs: 'connection refused',
+			canRetry: true,
+		});
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.getByText('Postgres setup needs attention')).toBeTruthy();
+		expect(screen.getByRole('alert').textContent).toContain('nao debug failed.');
+		expect(screen.getByText('connection refused')).toBeTruthy();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+		await waitFor(() =>
+			expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({ text: 'I restarted the Postgres setup.' }),
+		);
+		expect(mocks.mutations.retry.mutateAsync).toHaveBeenCalledWith({ onboardingChatId: 'chat-1' });
+	});
+
+	it('shows the technical cause of a failure that ran no command', () => {
+		mocks.latestJob = createJob({
+			status: 'failed',
+			failedStatus: 'publishing',
+			error: 'Your warehouse connection works, but nao could not save the project.',
+			cause: 'Failed to create installation token: GitHub returned 401',
+			canRetry: true,
+		});
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.getByText('View technical details')).toBeTruthy();
+		expect(screen.getByRole('alert').textContent).toContain(
+			'Failed to create installation token: GitHub returned 401',
 		);
 	});
 
-	it('keeps the completed warehouse connection visible', async () => {
-		mocks.jobStatus = 'ready';
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+	it('lets users edit the connection details after a failure', () => {
+		mocks.latestJob = createJob({ status: 'failed', failedStatus: 'initializing', canRetry: false });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		expect(await screen.findByText('Postgres credentials verified')).toBeTruthy();
-		expect(screen.getByText('Your warehouse connection is ready.')).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'View setup' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Edit connection details' }));
+
+		expect(screen.getByRole('button', { name: 'Submit credentials' })).toBeTruthy();
 	});
 
-	it('keeps a failed warehouse setup available for review', async () => {
-		mocks.jobStatus = 'failed';
-		mocks.jobSetupError = 'nao sync failed. Check the logs for details.';
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+	it('shows a completed connection', () => {
+		mocks.latestJob = createJob({ status: 'ready' });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		expect(await screen.findByText('Postgres setup needs attention')).toBeTruthy();
-		fireEvent.click(screen.getByRole('button', { name: 'Review setup' }));
-		expect(await screen.findByText('Project setup stopped')).toBeTruthy();
-		expect(screen.getByText('nao sync failed. Check the logs for details.')).toBeTruthy();
+		expect(screen.getByText('Postgres connected')).toBeTruthy();
+		expect(screen.queryByRole('alert')).toBeNull();
 	});
 
-	it('waits for the latest job before falling back to a persisted job ID', async () => {
-		mocks.isRunning = false;
-		mocks.latestJobId = undefined;
-		mocks.latestJobIsFetched = false;
+	it('floats a summary of the setup once the card scrolls out of view', () => {
+		mocks.isCardScrolledAbove = true;
+		mocks.latestJob = createJob({ status: 'syncing', logs: 'Syncing tables 42%' });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		const floating = within(screen.getByTestId('floating-slot'));
+		expect(floating.getByText('Setting up Postgres')).toBeTruthy();
+		expect(floating.getByText('Sync warehouse metadata · 42%')).toBeTruthy();
+	});
+
+	it('offers to retry a failed setup from the floating summary', async () => {
+		mocks.isCardScrolledAbove = true;
+		mocks.latestJob = createJob({ status: 'failed', failedStatus: 'debugging', canRetry: true });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		const floating = within(screen.getByTestId('floating-slot'));
+		expect(floating.getByText('Stopped at: Check the connection')).toBeTruthy();
+		fireEvent.click(floating.getByRole('button', { name: 'Retry' }));
+
+		await waitFor(() =>
+			expect(mocks.mutations.retry.mutateAsync).toHaveBeenCalledWith({ onboardingChatId: 'chat-1' }),
+		);
+	});
+
+	it('does not float the card while it is visible or once the connection is ready', () => {
+		mocks.latestJob = createJob({ status: 'syncing' });
+		const view = render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+		expect(screen.queryByTestId('floating-slot')).toBeNull();
+
+		mocks.isCardScrolledAbove = true;
+		mocks.latestJob = createJob({ status: 'ready' });
+		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+		expect(screen.queryByTestId('floating-slot')).toBeNull();
+	});
+
+	it('collapses older connection forms replaced by a newer request', () => {
 		mocks.messages = [
 			{
 				role: 'assistant',
 				parts: [
-					{
-						type: 'tool-generate_onboarding_rules',
-						state: 'output-available',
-						output: { jobId: 'old-job' },
-					},
+					{ type: 'tool-request_warehouse_credentials', toolCallId: 'tool-1' },
+					{ type: 'tool-request_warehouse_credentials', toolCallId: 'tool-2' },
 				],
 			},
 		] as never[];
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		const view = render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		await waitFor(() => expect(mocks.queueOrSendMessage).not.toHaveBeenCalled());
-
-		mocks.latestJobId = 'new-job';
-		mocks.latestJobIsFetched = true;
-		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		await waitFor(() =>
-			expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({
-				text: '[internal:onboarding-context-request] jobId=new-job',
-			}),
-		);
-	});
-
-	it('allows retrying when a restored provisioning job cannot be loaded', async () => {
-		mocks.jobError = new Error('Warehouse setup job not found');
-		const toolPart = {
-			type: 'tool-request_warehouse_credentials',
-			toolCallId: 'tool-1',
-			state: 'output-available',
-			input: { provider: 'postgres' },
-			output: { provider: 'postgres', status: 'credentials-required' },
-		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
-		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
-
-		expect(await screen.findByText('Postgres setup needs attention')).toBeTruthy();
-		fireEvent.click(screen.getByRole('button', { name: 'Review setup' }));
-		expect(await screen.findByText('Warehouse setup job not found')).toBeTruthy();
-
-		fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-		expect(await screen.findByRole('button', { name: 'Verify credentials' })).toBeTruthy();
+		expect(screen.getByText('Postgres connection form replaced by a newer one.')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Submit credentials' })).toBeNull();
 	});
 });
+
+function createToolPart() {
+	return {
+		type: 'tool-request_warehouse_credentials',
+		toolCallId: 'tool-1',
+		state: 'output-available',
+		input: { provider: 'postgres' },
+		output: { provider: 'postgres', status: 'credentials-required' },
+	} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
+}
+
+function createJob(overrides: Record<string, unknown>) {
+	return {
+		id: 'job-1',
+		provider: 'postgres',
+		status: 'queued',
+		failedStatus: null,
+		error: null,
+		cause: null,
+		logs: null,
+		businessContextProvided: false,
+		canRetry: false,
+		...overrides,
+	};
+}

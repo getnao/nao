@@ -87,6 +87,7 @@ import { discordService } from './services/discord';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
@@ -111,6 +112,7 @@ import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
+const BACKOFFICE_LOGS_PATH = '/api/backoffice/logs';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -155,7 +157,11 @@ app.setErrorHandler((error, request, reply) => {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
 	if (error instanceof ManagedCreditsExhaustedError) {
-		return reply.status(error.code).send({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+		return reply.status(error.code).send({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
 	}
 	if (error instanceof ExampleChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED' });
@@ -171,7 +177,11 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
+	if (
+		request.url.includes('log.listLogs') ||
+		request.url.startsWith(BACKOFFICE_LOGS_PATH) ||
+		request.url === HEALTH_PATH
+	) {
 		done();
 		return;
 	}
@@ -595,6 +605,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
 	startWarehouseProvisioningReconciler();
+	void reportManagedGithubConfiguration();
 
 	void pingLicensesServer();
 	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());

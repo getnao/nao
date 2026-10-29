@@ -19,9 +19,11 @@ import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
 import { RequestWarehouseCredentialsToolCall } from './request-warehouse-credentials';
+import { RestartOnboardingToolCall } from './restart-onboarding';
 import { SearchToolCall } from './search';
 import { StrReplaceToolCall } from './str-replace';
 import { TaskToolCall } from './task';
+import { RetryWarehouseSetupToolCall, WaitForWarehouseSetupToolCall } from './warehouse-setup-status';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
 import { WriteToolCall } from './write';
@@ -54,9 +56,12 @@ const toolComponents: Partial<{
 	read_query_result: ReadQueryResultToolCall,
 	request_warehouse_credentials: RequestWarehouseCredentialsToolCall,
 	request_warehouse_selection: RequestWarehouseSelectionToolCall,
+	restart_onboarding: RestartOnboardingToolCall,
+	retry_warehouse_setup: RetryWarehouseSetupToolCall,
 	search: SearchToolCall,
 	str_replace: StrReplaceToolCall,
 	task: TaskToolCall,
+	wait_for_warehouse_setup: WaitForWarehouseSetupToolCall,
 	write: WriteToolCall,
 };
 

@@ -40,6 +40,7 @@ describe('warehouse credentials schema', () => {
 			warehouseProvisioningInputSchema.safeParse({
 				provider: 'postgres',
 				credentials: {},
+				onboardingChatId: '0f8fad5b-d9cb-469f-a165-70867728950e',
 			}).success,
 		).toBe(true);
 	});
@@ -49,6 +50,7 @@ describe('warehouse credentials schema', () => {
 			warehouseProvisioningInputSchema.parse({
 				provider: 'postgres',
 				credentials: {},
+				onboardingChatId: '0f8fad5b-d9cb-469f-a165-70867728950e',
 				tableSelection: {
 					mode: 'selected',
 					tables: [{ schema: 'public', table: 'orders' }],
@@ -62,6 +64,7 @@ describe('warehouse credentials schema', () => {
 			warehouseProvisioningInputSchema.parse({
 				provider: 'postgres',
 				credentials: {},
+				onboardingChatId: '0f8fad5b-d9cb-469f-a165-70867728950e',
 				tableSelection: {
 					mode: 'selected',
 					schemas: ['analytics'],
@@ -78,6 +81,7 @@ describe('warehouse credentials schema', () => {
 			warehouseProvisioningInputSchema.safeParse({
 				provider: 'postgres',
 				credentials: {},
+				onboardingChatId: '0f8fad5b-d9cb-469f-a165-70867728950e',
 				tableSelection: { mode: 'selected', schemas: [], tables: [] },
 			}).success,
 		).toBe(false);

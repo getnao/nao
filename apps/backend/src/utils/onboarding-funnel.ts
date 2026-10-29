@@ -1,6 +1,6 @@
 /* @license Enterprise */
 
-import { onboardingProgress, requestWarehouseCredentials } from '@nao/shared/tools';
+import { onboardingProgress, requestWarehouseCredentials, restartOnboarding } from '@nao/shared/tools';
 
 import type {
 	OnboardingBlocker,
@@ -46,6 +46,7 @@ export interface ProvisioningJobRow {
 	status: WarehouseProvisioningStatus;
 	failedStatus: WarehouseProvisioningStatus | null;
 	error: string | null;
+	errorDetail: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 	finishedAt: Date | null;
@@ -141,8 +142,8 @@ const FAILED_STEP_BY_JOB_STATUS: Partial<
 	syncing: { label: 'during nao sync', blocker: 'nao_sync_failed' },
 	registering: { label: 'while registering the project', blocker: 'setup_failed' },
 	awaiting_context: { label: 'while waiting for business context', blocker: 'setup_failed' },
-	finalizing: { label: 'while generating the rules', blocker: 'setup_failed' },
-	publishing: { label: 'while publishing the project', blocker: 'setup_failed' },
+	finalizing: { label: 'while generating the rules', blocker: 'rules_failed' },
+	publishing: { label: 'while publishing the project', blocker: 'publishing_failed' },
 };
 
 export function summarizeOnboarding(userId: string, events: OnboardingEvent[]): OnboardingSummary {
@@ -202,6 +203,9 @@ export function onboardingMessageEvent(message: OnboardingMessageRow): Onboardin
 	if (!text || text.startsWith(CONTEXT_REQUEST_PREFIX)) {
 		return null;
 	}
+	if (text === restartOnboarding.RESTARTED_MESSAGE) {
+		return restartedEvent(message.createdAt);
+	}
 	if (text.startsWith(REPORTED_ERROR_ANSWER)) {
 		return buildEvent({
 			at: message.createdAt,
@@ -232,6 +236,9 @@ export function toolCallEvent(toolCall: OnboardingToolCallRow): OnboardingEvent 
 	}
 	if (toolCall.toolName === 'generate_onboarding_rules') {
 		return buildEvent({ at: toolCall.createdAt, title: 'Gave business context', outcome: 'neutral' });
+	}
+	if (toolCall.toolName === 'restart_onboarding') {
+		return restartedEvent(toolCall.createdAt);
 	}
 	return null;
 }
@@ -295,6 +302,10 @@ export function projectAccessEvent(access: ProjectAccessRow): OnboardingEvent {
 	});
 }
 
+function restartedEvent(at: Date): OnboardingEvent {
+	return buildEvent({ at, title: 'Restarted the onboarding', outcome: 'neutral', stage: 'onboarding' });
+}
+
 function progressEvent(toolCall: OnboardingToolCallRow): OnboardingEvent | null {
 	const input = onboardingProgress.InputSchema.safeParse(toolCall.toolInput);
 	const step = input.success ? PROGRESS_STEPS[input.data.flow][input.data.step] : undefined;
@@ -350,17 +361,24 @@ function provisioningJobOutcomeEvent(job: ProvisioningJobRow, providerLabel: str
 	}
 	if (job.status === 'failed') {
 		const failedStep = job.failedStatus ? FAILED_STEP_BY_JOB_STATUS[job.failedStatus] : undefined;
+		const cause = job.errorDetail ?? job.error;
 		return buildEvent({
 			...common,
 			title: [`${providerLabel} cloud setup failed`, failedStep?.label].filter(Boolean).join(' '),
-			detail: job.error,
+			detail: cause && truncate(cause),
 			outcome: 'failure',
 			stage: job.failedStatus ? STAGE_BY_JOB_STATUS[job.failedStatus] : 'connected',
 			blocker: failedStep?.blocker ?? 'setup_failed',
 		});
 	}
 	if (job.status === 'cancelled') {
-		return buildEvent({ ...common, title: `${providerLabel} cloud setup cancelled`, outcome: 'neutral' });
+		const stoppedWhile = job.failedStatus ? `while ${JOB_STATUS_LABELS[job.failedStatus]}` : undefined;
+		return buildEvent({
+			...common,
+			title: [`${providerLabel} cloud setup cancelled`, stoppedWhile].filter(Boolean).join(' '),
+			detail: job.error,
+			outcome: 'neutral',
+		});
 	}
 	return buildEvent({
 		...common,

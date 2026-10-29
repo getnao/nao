@@ -1,6 +1,6 @@
+import { generateOnboardingRules } from '@nao/shared/tools';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import { buildWarehouseCredentials } from './warehouse-credentials';
 import { RequestBusinessContext } from './request-business-context';
@@ -11,376 +11,299 @@ import {
 	getCompactWarehouseTableSelection,
 	WarehouseTableSelection,
 } from './warehouse-table-selection';
+import { FloatingConnectionSummary } from './floating-connection-summary';
+import { describeCurrentSetupStep, isStoppedStatus, WarehouseSetupProgress } from './warehouse-setup-progress';
 import type { WarehouseCredentialsFormValues } from './warehouse-credentials';
+import type { WarehouseSetupJob } from './warehouse-setup-progress';
 import type { WarehouseSchemaInventory, WarehouseTableSelectionMode } from './warehouse-table-selection';
 import type { ToolCallComponentProps } from '.';
+import type { UIMessage } from '@nao/backend/chat';
+import type { requestWarehouseCredentials } from '@nao/shared/tools';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import { Button } from '@/components/ui/button';
 import { DatabaseIcon } from '@/components/ui/database-icon';
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-} from '@/components/ui/dialog';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
-import { findWarehouseJobId } from '@/components/onboarding-progress';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
-import { getMessageText, NEW_CHAT_ID, ONBOARDING_CONTEXT_REQUEST_PREFIX } from '@/lib/ai';
+import { OnboardingFloatingContent } from '@/contexts/onboarding-floating-slot';
+import { useIsScrolledAbove } from '@/hooks/use-is-scrolled-above';
+import { NEW_CHAT_ID } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
-export { WarehouseCredentialsForm as SqlCredentialsForm } from './warehouse-credentials-form';
-
+type Provider = requestWarehouseCredentials.Provider;
+type CardState = 'required' | 'running' | 'stopped' | 'ready';
 type SetupStep = 'credentials' | 'tables';
+
+const RUNNING_POLL_INTERVAL_MS = 1_000;
+const IDLE_POLL_INTERVAL_MS = 5_000;
+
+const CARD_COPY: Record<CardState, { title: (label: string) => string; description: string }> = {
+	required: {
+		title: (label) => `Connect ${label}`,
+		description: 'Credentials are sent securely to nao and are never shared with the agent.',
+	},
+	running: {
+		title: (label) => `Setting up ${label}`,
+		description: 'This runs in the background. You can keep chatting meanwhile.',
+	},
+	stopped: {
+		title: (label) => `${label} setup needs attention`,
+		description: 'Review what went wrong, then retry or edit the connection details.',
+	},
+	ready: {
+		title: (label) => `${label} connected`,
+		description: 'Your warehouse connection is ready.',
+	},
+};
 
 export function RequestWarehouseCredentialsToolCall({
 	toolPart,
 }: ToolCallComponentProps<'request_warehouse_credentials'>) {
 	const provider = toolPart.input?.provider;
-	const [open, setOpen] = useState(false);
-	const [jobId, setJobId] = useState<string | null>(null);
-	const [dialogCenter, setDialogCenter] = useState<number>();
+	const isLatestRequest = useAgentMessagesSelector((messages) => {
+		const latestRequestId = findLatestCredentialsRequestId(messages);
+		return latestRequestId === null || latestRequestId === toolPart.toolCallId;
+	});
+
+	if (!provider) {
+		return null;
+	}
+	if (!isLatestRequest) {
+		return <ReplacedConnectionCard provider={provider} />;
+	}
+	return <WarehouseConnectionCard provider={provider} />;
+}
+
+export function useWarehouseProvisioningJob(jobId: string | null) {
+	return useQuery({
+		...trpc.onboarding.getWarehouseProvisioningStatus.queryOptions({ jobId: jobId ?? '' }),
+		enabled: jobId !== null,
+		refetchInterval: (query) => {
+			const status = query.state.data?.status;
+			return status === 'ready' || status === 'failed' || status === 'cancelled' ? false : 1000;
+		},
+	});
+}
+
+function WarehouseConnectionCard({ provider }: { provider: Provider }) {
+	const { chatId, queueOrSendMessage } = useAgentContext();
+	const queryClient = useQueryClient();
+	const onboardingChatId = chatId && chatId !== NEW_CHAT_ID ? chatId : null;
+	const latestSetup = useLatestWarehouseSetup(onboardingChatId);
+	const job = latestSetup.data?.provider === provider ? latestSetup.data : null;
+	const [isEditing, setIsEditing] = useState(false);
 	const [credentialValues, setCredentialValues] = useState<WarehouseCredentialsFormValues>();
 	const [validatedCredentialFingerprint, setValidatedCredentialFingerprint] = useState<string | null>(null);
 	const [setupStep, setSetupStep] = useState<SetupStep>('credentials');
 	const [discoveredSchemas, setDiscoveredSchemas] = useState<WarehouseSchemaInventory[]>();
 	const [tableSelectionMode, setTableSelectionMode] = useState<WarehouseTableSelectionMode>('all');
 	const [selectedTableKeys, setSelectedTableKeys] = useState<Set<string>>(new Set());
-	const cardRef = useRef<HTMLDivElement>(null);
-	const notifiedJobId = useRef<string | null>(null);
-	const restoredJobId = useRef(false);
-	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
-	const queryClient = useQueryClient();
-	const canRestoreJob = Boolean(chatId && chatId !== NEW_CHAT_ID);
-	const alignDialog = useCallback(() => {
-		const cardBounds = cardRef.current?.getBoundingClientRect();
-		setDialogCenter(cardBounds ? cardBounds.left + cardBounds.width / 2 : undefined);
-	}, []);
-	const latestJob = useQuery({
-		...trpc.onboarding.getLatestWarehouseProvisioningJob.queryOptions({
-			onboardingChatId: canRestoreJob ? chatId! : '',
-		}),
-		enabled: canRestoreJob,
-	});
-	const persistedJobId = useAgentMessagesSelector(findWarehouseJobId);
-	const job = useWarehouseProvisioningJob(jobId);
-	const hasRequestedContext = useAgentMessagesSelector((messages) =>
-		jobId
-			? messages.some(
-					(message) =>
-						message.role === 'user' &&
-						getMessageText(message).startsWith(`${ONBOARDING_CONTEXT_REQUEST_PREFIX} jobId=${jobId}`),
-				)
-			: false,
-	);
 	const validateCredentials = useMutation(trpc.onboarding.validateWarehouseCredentials.mutationOptions());
-	const startProvisioning = useMutation(
-		trpc.onboarding.startWarehouseProvisioning.mutationOptions({
-			onSuccess: ({ jobId: nextJobId }) => {
-				setJobId(nextJobId);
-				if (canRestoreJob) {
-					void queryClient.invalidateQueries({
-						queryKey: trpc.onboarding.getLatestWarehouseProvisioningJob.queryKey({
-							onboardingChatId: chatId!,
-						}),
-					});
-				}
-			},
-		}),
-	);
-
-	useEffect(() => {
-		if (canRestoreJob && !latestJob.isFetched) {
-			return;
-		}
-		const restoredId = latestJob.data && latestJob.data.provider === provider ? latestJob.data.id : persistedJobId;
-		if (restoredJobId.current || !restoredId) {
-			return;
-		}
-		restoredJobId.current = true;
-		setJobId(restoredId);
-	}, [latestJob.data, latestJob.isFetched, canRestoreJob, persistedJobId, provider]);
-
-	useEffect(() => {
-		if (job.data && job.data.provider !== provider) {
-			setJobId(null);
-		}
-	}, [job.data, provider]);
-
-	useEffect(() => {
-		if (job.data?.status === 'awaiting_sources') {
-			setOpen(false);
-		}
-	}, [job.data?.status]);
-
-	useEffect(() => {
-		const status = job.data?.status;
-		if (
-			!jobId ||
-			job.data?.provider !== provider ||
-			isRunning ||
-			hasRequestedContext ||
-			(status !== 'syncing' && status !== 'registering' && status !== 'awaiting_context') ||
-			notifiedJobId.current === jobId
-		) {
-			return;
-		}
-
-		notifiedJobId.current = jobId;
-		setOpen(false);
-		void queueOrSendMessage({
-			text: `${ONBOARDING_CONTEXT_REQUEST_PREFIX} jobId=${jobId}`,
-		}).catch((error) => {
-			if (notifiedJobId.current === jobId) {
-				notifiedJobId.current = null;
-			}
-			console.error(error);
-		});
-	}, [hasRequestedContext, isRunning, job.data?.provider, job.data?.status, jobId, provider, queueOrSendMessage]);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-
-		alignDialog();
-		window.addEventListener('resize', alignDialog);
-		return () => window.removeEventListener('resize', alignDialog);
-	}, [alignDialog, open]);
-
-	if (!provider) {
-		return null;
-	}
-
-	const setupReady = job.data?.status === 'ready';
-	const setupFailed = job.isError || job.data?.status === 'failed' || job.data?.status === 'cancelled';
-	const setupInProgress = startProvisioning.isPending || (jobId !== null && !setupReady && !setupFailed);
-	const credentialsVerified =
-		validatedCredentialFingerprint !== null &&
+	const startSetup = useMutation(trpc.onboarding.startWarehouseProvisioning.mutationOptions());
+	const retrySetup = useMutation(trpc.onboarding.retryWarehouseProvisioning.mutationOptions());
+	const label = WAREHOUSE_PROVIDER_LABELS[provider];
+	const showForm = !job || isEditing;
+	const cardState = showForm ? 'required' : getSetupCardState(job);
+	const copy = CARD_COPY[cardState];
+	const [cardElement, setCardElement] = useState<HTMLElement | null>(null);
+	const isCardScrolledAbove = useIsScrolledAbove(cardElement);
+	const tablesUnlocked =
+		discoveredSchemas !== undefined &&
 		credentialValues !== undefined &&
 		validatedCredentialFingerprint === JSON.stringify(credentialValues);
-	const setupStepsUnlocked = credentialsVerified && discoveredSchemas !== undefined;
-	const tableSelectionReady = setupStep === 'tables' && discoveredSchemas !== undefined && !setupInProgress;
-	const awaitingSources = job.data?.status === 'awaiting_sources';
-	const credentialsAccepted = credentialsVerified || setupInProgress || setupReady;
-	const credentialDetailsUnavailable = jobId !== null && credentialValues === undefined;
-	const startSelectedProvisioning = async () => {
-		if (!credentialValues || !discoveredSchemas) {
+
+	const refreshSetup = () =>
+		queryClient.invalidateQueries({
+			queryKey: trpc.onboarding.getLatestWarehouseProvisioningJob.queryKey({
+				onboardingChatId: onboardingChatId ?? '',
+			}),
+		});
+
+	const reportToAgent = (text: string) => {
+		queueOrSendMessage({ text }).catch(console.error);
+	};
+
+	const validate = async (values: WarehouseCredentialsFormValues) => {
+		let result;
+		try {
+			result = await validateCredentials.mutateAsync({
+				provider,
+				credentials: buildWarehouseCredentials(provider, values),
+			});
+		} catch {
+			return;
+		}
+		setValidatedCredentialFingerprint(JSON.stringify(values));
+		setDiscoveredSchemas(result.schemas);
+		setTableSelectionMode('all');
+		setSelectedTableKeys(getAllWarehouseTableKeys(result.schemas));
+		setSetupStep('tables');
+	};
+
+	const connect = async () => {
+		if (!onboardingChatId || !credentialValues || !discoveredSchemas) {
 			return;
 		}
 		const selected = getCompactWarehouseTableSelection(discoveredSchemas, selectedTableKeys);
-		await startProvisioning.mutateAsync({
-			provider,
-			credentials: buildWarehouseCredentials(provider, credentialValues),
-			tableSelection:
-				tableSelectionMode === 'all'
-					? { mode: 'all' }
-					: {
-							mode: 'selected',
-							...(selected.schemas.length > 0 && { schemas: selected.schemas }),
-							tables: selected.tables,
-						},
-			...(canRestoreJob && { onboardingChatId: chatId }),
-		});
+		try {
+			await startSetup.mutateAsync({
+				provider,
+				credentials: buildWarehouseCredentials(provider, credentialValues),
+				onboardingChatId,
+				tableSelection:
+					tableSelectionMode === 'all'
+						? { mode: 'all' }
+						: {
+								mode: 'selected',
+								...(selected.schemas.length > 0 && { schemas: selected.schemas }),
+								tables: selected.tables,
+							},
+			});
+		} catch {
+			return;
+		}
+		setIsEditing(false);
+		setSetupStep('credentials');
+		await refreshSetup();
+		reportToAgent(`I submitted my ${label} connection details.`);
 	};
 
+	const retry = async () => {
+		if (!onboardingChatId) {
+			return;
+		}
+		try {
+			await retrySetup.mutateAsync({ onboardingChatId });
+		} catch {
+			return;
+		}
+		await refreshSetup();
+		reportToAgent(`I restarted the ${label} setup.`);
+	};
+
+	const editConnectionDetails = () => {
+		validateCredentials.reset();
+		startSetup.reset();
+		retrySetup.reset();
+		setIsEditing(true);
+	};
+
+	const setupJob = showForm ? null : job;
+
 	return (
-		<div className='space-y-3'>
-			<Dialog open={open} onOpenChange={setOpen}>
-				<div
-					ref={cardRef}
-					className={cn(
-						'animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-xl border bg-background p-5 shadow-xs sm:flex-row sm:items-center',
-						setupFailed
-							? 'border-destructive/20'
-							: credentialsAccepted
-								? 'border-emerald-500/25'
-								: 'border-violet/20',
-					)}
-				>
-					<div className='flex min-w-0 items-center gap-3'>
-						<div
-							className={cn(
-								'flex size-10 shrink-0 items-center justify-center rounded-lg border',
-								setupFailed
-									? 'border-destructive/20 bg-destructive/5 text-destructive'
-									: credentialsAccepted
-										? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-										: 'border-violet/20 bg-violet/10 text-primary',
-							)}
-						>
-							<DatabaseIcon dialect={provider} className='size-5' />
-						</div>
-						<div className='min-w-0'>
-							<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
-								{setupFailed
-									? `${WAREHOUSE_PROVIDER_LABELS[provider]} setup needs attention`
-									: setupReady
-										? `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials verified`
-										: awaitingSources
-											? `${WAREHOUSE_PROVIDER_LABELS[provider]} database verified`
-											: tableSelectionReady
-												? `${WAREHOUSE_PROVIDER_LABELS[provider]} tables ready`
-												: credentialsAccepted
-													? `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials verified`
-													: `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials required`}
-							</div>
-							<p className='text-xs text-muted-foreground'>
-								{setupFailed
-									? 'Open the setup to review the problem and try again.'
-									: setupReady
-										? 'Your warehouse connection is ready.'
-										: awaitingSources
-											? 'Your credentials and table selection are ready.'
-											: setupInProgress
-												? 'Your connection is being set up.'
-												: tableSelectionReady
-													? 'Review which tables nao should sync.'
-													: credentialsVerified
-														? 'Ready to continue. You can still review or edit these details.'
-														: 'Credentials are submitted securely and are never shared with the agent.'}
-							</p>
-						</div>
+		<>
+			{isCardScrolledAbove && cardState !== 'ready' && (
+				<OnboardingFloatingContent>
+					<FloatingConnectionSummary
+						provider={provider}
+						title={copy.title(label)}
+						detail={setupJob ? describeCurrentSetupStep(setupJob) : 'Enter your connection details'}
+						tone={cardState === 'stopped' ? 'error' : 'neutral'}
+						action={
+							setupJob && (
+								<FloatingSetupAction job={setupJob} onRetry={retry} isRetrying={retrySetup.isPending} />
+							)
+						}
+						onShow={() => cardElement?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+					/>
+				</OnboardingFloatingContent>
+			)}
+			<section
+				ref={setCardElement}
+				aria-label={`${label} connection`}
+				className={cn(
+					'animate-fade-in-up flex flex-col gap-5 rounded-xl border bg-background p-5',
+					cardState === 'ready' && 'border-emerald-500/25',
+					cardState === 'stopped' && 'border-destructive/25',
+					(cardState === 'required' || cardState === 'running') && 'border-violet/20',
+				)}
+			>
+				<div className='flex min-w-0 items-center gap-3'>
+					<div
+						className={cn(
+							'flex size-10 shrink-0 items-center justify-center rounded-lg border',
+							cardState === 'ready'
+								? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+								: 'border-violet/20 bg-violet/10 text-primary',
+						)}
+					>
+						<DatabaseIcon dialect={provider} className='size-5' />
 					</div>
-					<DialogTrigger asChild>
-						<Button
-							variant={credentialsAccepted || setupFailed ? 'outline' : 'default'}
-							className={cn(
-								'w-full shrink-0 rounded-full sm:w-auto',
-								setupFailed &&
-									'border-destructive/25 text-destructive hover:bg-destructive/5 hover:text-destructive',
-								credentialsAccepted &&
-									'border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-400',
-							)}
-						>
-							{setupFailed
-								? 'Review setup'
-								: setupReady || setupInProgress
-									? credentialDetailsUnavailable
-										? 'View setup'
-										: 'View progress'
-									: tableSelectionReady
-										? 'Choose tables'
-										: credentialsVerified
-											? 'Edit credentials'
-											: 'Enter credentials'}
-						</Button>
-					</DialogTrigger>
+					<div className='min-w-0'>
+						<h3 className='font-borna text-lg font-medium tracking-tight text-foreground'>
+							{copy.title(label)}
+						</h3>
+						<p className='text-xs text-muted-foreground'>{copy.description}</p>
+					</div>
 				</div>
-				<DialogContent
-					className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'
-					overlayClassName='data-[state=open]:animate-none data-[state=closed]:animate-none'
-					style={dialogCenter === undefined ? undefined : { left: dialogCenter }}
-				>
-					<DialogHeader className='pr-8'>
-						<div className='flex items-start gap-3 text-left'>
-							<div className='flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet'>
-								<DatabaseIcon dialect={provider} className='size-5' />
-							</div>
-							<div className='space-y-1'>
-								<DialogTitle>
-									{jobId
-										? `Set up ${WAREHOUSE_PROVIDER_LABELS[provider]}`
-										: setupStep === 'tables'
-											? `Choose ${WAREHOUSE_PROVIDER_LABELS[provider]} data`
-											: `Connect ${WAREHOUSE_PROVIDER_LABELS[provider]}`}
-								</DialogTitle>
-								<DialogDescription>
-									{jobId
-										? 'Preparing your nao project and syncing metadata.'
-										: setupStep === 'tables'
-											? 'Choose the tables nao should use as context.'
-											: 'Add a secure connection for your nao project.'}
-								</DialogDescription>
-							</div>
+				{onboardingChatId && latestSetup.isPending ? null : showForm ? (
+					isSqlProvider(provider) ? (
+						<div className='flex flex-col gap-4'>
+							<SetupStepNavigation
+								activeStep={setupStep}
+								unlocked={tablesUnlocked}
+								selectedTableCount={selectedTableKeys.size}
+								onStepChange={setSetupStep}
+							/>
+							<TabPanel idBase='warehouse-setup' tabId={setupStep}>
+								{setupStep === 'tables' && discoveredSchemas ? (
+									<WarehouseTableSelection
+										schemas={discoveredSchemas}
+										databaseType={provider}
+										databaseLabel={label}
+										selectionMode={tableSelectionMode}
+										selectedTableKeys={selectedTableKeys}
+										isPending={startSetup.isPending}
+										error={startSetup.error}
+										onSelectionModeChange={setTableSelectionMode}
+										onChange={setSelectedTableKeys}
+										onBack={() => setSetupStep('credentials')}
+										onSubmit={() => void connect()}
+									/>
+								) : (
+									<WarehouseCredentialsForm
+										provider={provider}
+										onSubmit={validate}
+										onCancel={job ? () => setIsEditing(false) : undefined}
+										isValidating={validateCredentials.isPending}
+										isPending={false}
+										error={validateCredentials.error}
+										initialValues={credentialValues}
+										onValuesChange={setCredentialValues}
+									/>
+								)}
+							</TabPanel>
 						</div>
-					</DialogHeader>
-					{!jobId && isSqlProvider(provider) && (
-						<SetupStepNavigation
-							activeStep={setupStep}
-							unlocked={setupStepsUnlocked}
-							selectedTableCount={selectedTableKeys.size}
-							onStepChange={setSetupStep}
-						/>
-					)}
-					{jobId && setupFailed ? (
-						<WarehouseProvisioningProgress
-							job={job}
-							onRetry={() => {
-								setJobId(null);
-								startProvisioning.reset();
-							}}
-						/>
-					) : jobId && credentialDetailsUnavailable && isSqlProvider(provider) ? (
-						<div className='rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground'>
-							Your connection details are unavailable in this session. The credentials remain securely
-							stored for this connection.
-						</div>
-					) : jobId ? (
-						<WarehouseProvisioningProgress
-							job={job}
-							onRetry={() => {
-								setJobId(null);
-								startProvisioning.reset();
-							}}
-						/>
 					) : (
-						<TabPanel idBase='warehouse-setup' tabId={setupStep}>
-							{setupStep === 'tables' && discoveredSchemas ? (
-								<WarehouseTableSelection
-									schemas={discoveredSchemas}
-									databaseType={provider}
-									databaseLabel={WAREHOUSE_PROVIDER_LABELS[provider]}
-									selectionMode={tableSelectionMode}
-									selectedTableKeys={selectedTableKeys}
-									isPending={startProvisioning.isPending}
-									error={startProvisioning.error}
-									onSelectionModeChange={setTableSelectionMode}
-									onChange={setSelectedTableKeys}
-									onBack={() => setSetupStep('credentials')}
-									onSubmit={() => void startSelectedProvisioning()}
-								/>
-							) : isSqlProvider(provider) ? (
-								<WarehouseCredentialsForm
-									provider={provider}
-									onValidate={async (values) => {
-										const result = await validateCredentials.mutateAsync({
-											provider,
-											credentials: buildWarehouseCredentials(provider, values),
-										});
-										setDiscoveredSchemas(result.schemas);
-										setTableSelectionMode('all');
-										setSelectedTableKeys(getAllWarehouseTableKeys(result.schemas));
-									}}
-									onSubmit={async () => {
-										if (discoveredSchemas) {
-											setSetupStep('tables');
-										}
-									}}
-									onCancel={() => setOpen(false)}
-									isValidating={validateCredentials.isPending}
-									isPending={startProvisioning.isPending}
-									error={validateCredentials.error ?? startProvisioning.error}
-									initialValues={credentialValues}
-									onValuesChange={setCredentialValues}
-									initialValidatedFingerprint={validatedCredentialFingerprint}
-									onValidatedFingerprintChange={setValidatedCredentialFingerprint}
-								/>
-							) : (
-								<div className='rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground'>
-									{WAREHOUSE_PROVIDER_LABELS[provider]} connection setup is not available yet.
-								</div>
-							)}
-						</TabPanel>
-					)}
-				</DialogContent>
-			</Dialog>
-			{awaitingSources && jobId && <RequestBusinessContext jobId={jobId} />}
-		</div>
+						<p className='text-sm text-muted-foreground'>{label} connection setup is not available yet.</p>
+					)
+				) : (
+					job && (
+						<WarehouseSetupProgress
+							job={job}
+							onRetry={retry}
+							onEdit={editConnectionDetails}
+							isRetrying={retrySetup.isPending}
+							retryError={retrySetup.error?.message ?? null}
+						/>
+					)
+				)}
+			</section>
+			{setupJob?.status === 'awaiting_sources' && (
+				<RequestBusinessContext
+					key={setupJob.id}
+					jobId={setupJob.id}
+					onSubmitted={(provided) =>
+						reportToAgent(
+							provided
+								? generateOnboardingRules.CONTEXT_SUBMITTED_MESSAGE
+								: generateOnboardingRules.SKIP_MESSAGE,
+						)
+					}
+				/>
+			)}
+		</>
 	);
 }
 
@@ -412,83 +335,76 @@ function SetupStepNavigation({
 			activeTab={activeStep}
 			onTabChange={onStepChange}
 			idBase='warehouse-setup'
-			className='-mx-6 border-b px-6'
+			className='-mx-5 border-b px-5'
 		/>
 	);
 }
 
-export function useWarehouseProvisioningJob(jobId: string | null) {
+function FloatingSetupAction({
+	job,
+	onRetry,
+	isRetrying,
+}: {
+	job: WarehouseSetupJob;
+	onRetry: () => void;
+	isRetrying: boolean;
+}) {
+	if (isStoppedStatus(job.status) && job.canRetry) {
+		return (
+			<Button
+				size='sm'
+				className='h-7 shrink-0 rounded-full px-2.5 text-xs'
+				onClick={onRetry}
+				isLoading={isRetrying}
+			>
+				Retry
+			</Button>
+		);
+	}
+	return null;
+}
+
+function ReplacedConnectionCard({ provider }: { provider: Provider }) {
+	return (
+		<div className='flex items-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground'>
+			<DatabaseIcon dialect={provider} className='size-4 shrink-0' />
+			<span>{WAREHOUSE_PROVIDER_LABELS[provider]} connection form replaced by a newer one.</span>
+		</div>
+	);
+}
+
+function useLatestWarehouseSetup(onboardingChatId: string | null) {
 	return useQuery({
-		...trpc.onboarding.getWarehouseProvisioningStatus.queryOptions({ jobId: jobId ?? '' }),
-		enabled: jobId !== null,
+		...trpc.onboarding.getLatestWarehouseProvisioningJob.queryOptions({
+			onboardingChatId: onboardingChatId ?? '',
+		}),
+		enabled: onboardingChatId !== null,
 		refetchInterval: (query) => {
 			const status = query.state.data?.status;
-			return status === 'ready' || status === 'failed' || status === 'cancelled' ? false : 1000;
+			if (status === 'ready') {
+				return false;
+			}
+			return status && !isStoppedStatus(status) ? RUNNING_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS;
 		},
 	});
 }
 
-function WarehouseProvisioningProgress({
-	job,
-	onRetry,
-}: {
-	job: ReturnType<typeof useWarehouseProvisioningJob>;
-	onRetry: () => void;
-}) {
-	const setupError = job.isError
-		? job.error.message
-		: job.data?.status === 'failed' || job.data?.status === 'cancelled'
-			? (job.data.error ?? 'Warehouse setup failed.')
-			: null;
-	if (setupError) {
-		return (
-			<div className='flex flex-col gap-4 rounded-lg border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between'>
-				<div className='flex items-start gap-3'>
-					<CircleAlert className='mt-0.5 size-4 shrink-0' />
-					<div className='space-y-1'>
-						<p className='text-sm font-medium'>Project setup stopped</p>
-						<p className='text-xs text-muted-foreground'>{setupError}</p>
-					</div>
-				</div>
-				<Button variant='outline' size='sm' className='w-full rounded-full sm:w-auto' onClick={onRetry}>
-					Try again
-				</Button>
-			</div>
-		);
+function getSetupCardState(job: WarehouseSetupJob): CardState {
+	if (job.status === 'ready') {
+		return 'ready';
 	}
+	return isStoppedStatus(job.status) ? 'stopped' : 'running';
+}
 
-	if (job.data?.status === 'awaiting_sources') {
-		return (
-			<div className='flex items-center gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-4'>
-				<CircleCheck className='size-4 text-emerald-600 dark:text-emerald-400' />
-				<p className='text-sm'>Database verified. Continue with the business context card.</p>
-			</div>
-		);
+function findLatestCredentialsRequestId(messages: UIMessage[]): string | null {
+	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+		const parts = messages[messageIndex].parts;
+		for (let partIndex = parts.length - 1; partIndex >= 0; partIndex--) {
+			const part = parts[partIndex];
+			if (part.type === 'tool-request_warehouse_credentials') {
+				return part.toolCallId;
+			}
+		}
 	}
-
-	const statusLabel = {
-		queued: 'Preparing warehouse setup…',
-		initializing: 'Initializing your nao project…',
-		debugging: 'Checking your warehouse connection…',
-		syncing: 'Syncing warehouse metadata…',
-		awaiting_context: 'Collecting business context…',
-		finalizing: 'Finalizing your connection…',
-		registering: 'Registering your project…',
-		publishing: 'Publishing your project…',
-		failed: 'Warehouse setup failed. Please try again.',
-		cancelled: 'Warehouse setup was cancelled.',
-		ready: 'Connection ready.',
-	}[job.data?.status ?? 'queued'];
-	const isReady = job.data?.status === 'ready';
-
-	return (
-		<div className='flex items-center gap-3 rounded-lg border bg-muted/30 p-4'>
-			{isReady ? (
-				<CircleCheck className='size-4 text-emerald-600 dark:text-emerald-400' />
-			) : (
-				<Loader2 className='size-4 animate-spin text-primary' />
-			)}
-			<p className='text-sm'>{statusLabel}</p>
-		</div>
-	);
+	return null;
 }

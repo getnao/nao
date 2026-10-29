@@ -1,12 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
+import { OnboardingStatusLine } from './onboarding-status-line';
 import { useWarehouseProvisioningJob } from './request-warehouse-credentials';
 import type { ToolCallComponentProps } from '.';
 
-import { FormError } from '@/components/ui/form-fields';
-import { Spinner } from '@/components/ui/spinner';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { setActiveProjectId } from '@/lib/active-project';
@@ -57,25 +55,11 @@ export function GenerateOnboardingRulesToolCall({ toolPart }: ToolCallComponentP
 		]);
 	}, [isRunning, projectId, queryClient]);
 
-	return (
-		<div className='flex flex-col gap-2'>
-			<div className='flex items-center gap-2 text-sm'>
-				{error ? (
-					<AlertCircle className='size-3 text-destructive' />
-				) : isFinalizing ? (
-					<Spinner className='size-3' />
-				) : (
-					<CheckCircle2 className='size-3 text-emerald-500' />
-				)}
-				<span className={isFinalizing ? 'text-shimmer' : undefined}>
-					{error
-						? 'Connection finalization failed'
-						: isFinalizing
-							? 'Finalizing your connection'
-							: 'Connection ready'}
-				</span>
-			</div>
-			{error && <FormError error={error} />}
-		</div>
-	);
+	if (error) {
+		return <OnboardingStatusLine tone='error' label='Project setup stopped' detail={error} />;
+	}
+	if (isFinalizing) {
+		return null;
+	}
+	return <OnboardingStatusLine tone='success' label='Project ready' />;
 }

@@ -37,7 +37,13 @@ type SelectedContextSources = {
 
 type BusinessContextTab = 'about' | 'sources';
 
-export function RequestBusinessContext({ jobId }: { jobId: string }) {
+export function RequestBusinessContext({
+	jobId,
+	onSubmitted,
+}: {
+	jobId: string;
+	onSubmitted: (provided: boolean) => void;
+}) {
 	const [open, setOpen] = useState(false);
 	const [activeTab, setActiveTab] = useState<BusinessContextTab>('about');
 	const [website, setWebsite] = useState('');
@@ -124,6 +130,11 @@ export function RequestBusinessContext({ jobId }: { jobId: string }) {
 
 		try {
 			await submitContext.mutateAsync({ jobId, contextSources, businessContext: selectedBusinessContext });
+			onSubmitted(
+				Object.keys(contextSources).length > 0 ||
+					Boolean(selectedBusinessContext.additionalContext) ||
+					filesToUpload.length > 0,
+			);
 			return null;
 		} catch (error) {
 			return error instanceof Error ? error.message : 'Could not submit business context.';

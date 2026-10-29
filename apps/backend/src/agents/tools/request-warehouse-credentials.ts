@@ -3,7 +3,7 @@ import { tool } from 'ai';
 
 export default tool<requestWarehouseCredentials.Input, requestWarehouseCredentials.Output>({
 	description:
-		'Display the secure credential card for the warehouse provider selected during onboarding. Never request or handle credential values in chat.',
+		'Display the secure connection form for the warehouse provider selected during onboarding. The form validates the credentials, starts the warehouse setup and shows its progress. Never request or handle credential values in chat.',
 	inputSchema: requestWarehouseCredentials.InputSchema,
 	outputSchema: requestWarehouseCredentials.OutputSchema,
 	execute: async ({ provider }) => ({
@@ -13,6 +13,6 @@ export default tool<requestWarehouseCredentials.Input, requestWarehouseCredentia
 	}),
 	toModelOutput: ({ output }) => ({
 		type: 'text',
-		value: `Displayed the secure ${output.provider} credential card. End this turn and wait for the card to report its result automatically.`,
+		value: `Displayed the secure ${output.provider} connection form. The turn ends here; a user message reports when they submit it.`,
 	}),
 });

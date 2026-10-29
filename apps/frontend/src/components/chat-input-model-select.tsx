@@ -1,16 +1,18 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Settings, TriangleAlert } from 'lucide-react';
+import { LockKeyhole, Settings, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { providerLabel, providerName } from '@nao/shared/types';
 
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { KeyboardEvent } from 'react';
 
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
-import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { matchesShortcut } from '@/lib/platform';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
@@ -20,8 +22,15 @@ const NAO_DEFAULT_LABEL = 'Auto';
 const EXAMPLE_MODEL_VALUE = 'example-model';
 const PROJECT_SETUP_VALUE = 'project-setup';
 const EXAMPLE_MODEL_NAME = 'GPT 6 Sol';
+const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
-export function ChatInputModelSelect({ isExample = false }: { isExample?: boolean }) {
+export function ChatInputModelSelect({
+	isExample = false,
+	managedCreditsExhausted = false,
+}: {
+	isExample?: boolean;
+	managedCreditsExhausted?: boolean;
+}) {
 	const navigate = useNavigate();
 	const { isAdmin } = usePermissions();
 	const {
@@ -32,6 +41,7 @@ export function ChatInputModelSelect({ isExample = false }: { isExample?: boolea
 		setSelectedModel,
 		isPending,
 		canCycleModels,
+		cycleModel,
 		hasProject,
 	} = useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
@@ -63,6 +73,23 @@ export function ChatInputModelSelect({ isExample = false }: { isExample?: boolea
 		},
 		[availableModels, navigate, setSelectedModel],
 	);
+	const handleCycleModelShortcut = useCallback(
+		(event: KeyboardEvent<HTMLButtonElement>) => {
+			if (!matchesShortcut(event.nativeEvent, cycleModelShortcut)) {
+				return;
+			}
+			event.preventDefault();
+			if (managedCreditsExhausted) {
+				const nextConfiguredModel = availableModels?.find((model) => model.provider !== 'nao');
+				if (nextConfiguredModel) {
+					setSelectedModel(nextConfiguredModel);
+				}
+				return;
+			}
+			cycleModel();
+		},
+		[availableModels, cycleModel, managedCreditsExhausted, setSelectedModel],
+	);
 
 	const selectedAvailableModel = selectedModel
 		? availableModels?.find((model) => isSameModel(model, selectedModel))
@@ -70,6 +97,7 @@ export function ChatInputModelSelect({ isExample = false }: { isExample?: boolea
 	const defaultAvailableModel = defaultModel
 		? availableModels?.find((model) => isSameModel(model, defaultModel))
 		: undefined;
+	const isDefaultManagedModel = defaultModel?.provider === 'nao';
 	const resolvedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId;
 	const selectedModelName = usesDefaultModel ? NAO_DEFAULT_LABEL : (resolvedModelName ?? 'Select model');
 	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? modelValue(selectedModel) : undefined;
@@ -132,7 +160,12 @@ export function ChatInputModelSelect({ isExample = false }: { isExample?: boolea
 		<Select value={selectValue} onValueChange={handleModelValueChange} onOpenChange={onSelectOpenChange}>
 			<Tooltip open={isTooltipOpen} onOpenChange={onTooltipOpenChange}>
 				<TooltipTrigger asChild>
-					<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm'>
+					<SelectTrigger
+						variant='ghost'
+						className='p-0 gap-1 text-sm'
+						size='sm'
+						onKeyDown={handleCycleModelShortcut}
+					>
 						<SelectValue>
 							<div className='flex items-center gap-2'>
 								{selectedModel && (
@@ -156,7 +189,7 @@ export function ChatInputModelSelect({ isExample = false }: { isExample?: boolea
 			</Tooltip>
 
 			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
-				<SelectItem value={NAO_DEFAULT_VALUE}>
+				<SelectItem value={NAO_DEFAULT_VALUE} disabled={managedCreditsExhausted && isDefaultManagedModel}>
 					{defaultModel && (
 						<LlmProviderIcon
 							provider={defaultModel.provider}
@@ -168,11 +201,16 @@ export function ChatInputModelSelect({ isExample = false }: { isExample?: boolea
 					{defaultAvailableModel && (
 						<span className='text-muted-foreground'>{defaultAvailableModel.name}</span>
 					)}
+					{managedCreditsExhausted && isDefaultManagedModel && <ManagedCreditsLock />}
 				</SelectItem>
 				<SelectSeparator />
 
 				{availableModels?.map((model) => (
-					<SelectItem key={`${model.provider}-${model.modelId}`} value={modelValue(model)}>
+					<SelectItem
+						key={`${model.provider}-${model.modelId}`}
+						value={modelValue(model)}
+						disabled={managedCreditsExhausted && model.provider === 'nao'}
+					>
 						<LlmProviderIcon
 							provider={model.provider}
 							baseUrl={model.baseUrl}
@@ -180,6 +218,7 @@ export function ChatInputModelSelect({ isExample = false }: { isExample?: boolea
 						/>
 						{model.name}
 						<NamedProviderHint provider={model.provider} />
+						{managedCreditsExhausted && model.provider === 'nao' && <ManagedCreditsLock />}
 					</SelectItem>
 				))}
 
@@ -257,4 +296,8 @@ function NamedProviderHint({ provider }: { provider: LlmProvider }) {
 		return null;
 	}
 	return <span className='text-muted-foreground'>{providerLabel(provider)}</span>;
+}
+
+function ManagedCreditsLock() {
+	return <LockKeyhole className='size-3.5' aria-label='Unavailable: nao credits exhausted' />;
 }

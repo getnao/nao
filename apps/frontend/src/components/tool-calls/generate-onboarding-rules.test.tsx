@@ -61,11 +61,12 @@ describe('GenerateOnboardingRulesToolCall', () => {
 			type: 'tool-generate_onboarding_rules',
 			toolCallId: 'tool-1',
 			state: 'output-available',
-			input: { jobId: 'job-1', businessContext: {} },
+			input: { businessContext: {} },
 			output: { jobId: 'job-1', status: 'finalizing' },
 		} as ToolCallComponentProps<'generate_onboarding_rules'>['toolPart'];
 
-		render(<GenerateOnboardingRulesToolCall toolPart={toolPart} />);
+		const view = render(<GenerateOnboardingRulesToolCall toolPart={toolPart} />);
+		expect(view.container.textContent).toBe('');
 
 		await waitFor(() =>
 			expect(mocks.invalidateQueries).toHaveBeenCalledWith({
@@ -79,13 +80,12 @@ describe('GenerateOnboardingRulesToolCall', () => {
 			type: 'tool-generate_onboarding_rules',
 			toolCallId: 'tool-1',
 			state: 'input-available',
-			input: { jobId: 'job-1', businessContext: {} },
+			input: { businessContext: {} },
 		} as ToolCallComponentProps<'generate_onboarding_rules'>['toolPart'];
 
 		const view = render(<GenerateOnboardingRulesToolCall toolPart={toolPart} />);
 
-		expect(view.queryByText('Finalizing your connection')).toBeNull();
-		expect(view.getByText('Connection finalization failed')).toBeTruthy();
+		expect(view.getByRole('alert').textContent).toContain('Project setup stopped');
 		expect(view.getByText('Connection finalization was interrupted. Please try again.')).toBeTruthy();
 	});
 });

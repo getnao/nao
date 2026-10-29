@@ -30,13 +30,25 @@ export async function generateOnboardingRules(
 	businessContext: BusinessContext,
 	modelSelection: LlmSelectedModel,
 	modelProjectId: string,
+	userId: string,
 ): Promise<void> {
 	const project = await projectQueries.getProjectById(projectId);
 	if (!project?.path) {
 		throw new Error('Project path not found');
 	}
 
-	const llmModel = await resolveProviderModel(modelProjectId, modelSelection.provider, modelSelection.modelId, false);
+	const llmModel = await resolveProviderModel(
+		modelProjectId,
+		modelSelection.provider,
+		modelSelection.modelId,
+		false,
+		{
+			userId,
+			projectId: modelProjectId,
+			category: 'chat',
+			billingMode: 'unbilled',
+		},
+	);
 	if (!llmModel) {
 		throw new Error('The onboarding model is unavailable');
 	}

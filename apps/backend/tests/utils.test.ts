@@ -43,10 +43,11 @@ describe('formatErrorMessageForUI', () => {
 	});
 
 	it('preserves the managed-credit code for streamed errors', () => {
-		const error = new ManagedCreditsExhaustedError();
+		const error = new ManagedCreditsExhaustedError(42_000);
 		expect(JSON.parse(formatErrorMessageForUI(error))).toEqual({
 			error: error.message,
 			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: 42_000,
 		});
 	});
 

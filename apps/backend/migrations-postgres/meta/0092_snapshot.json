@@ -1,5 +1,5 @@
 {
-  "id": "b7cf4584-6b95-441a-9d1e-889fcc30c500",
+  "id": "7c39c537-e8ac-44bc-aa42-cd25855271ca",
   "prevId": "21cc1a08-6890-4542-b612-c406194682c8",
   "version": "7",
   "dialect": "postgresql",
@@ -10790,12 +10790,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "warnings": {
-          "name": "warnings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "model_project_id": {
           "name": "model_project_id",
           "type": "text",
@@ -10815,6 +10809,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "steps": {
+          "name": "steps",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "logs": {
           "name": "logs",
           "type": "text",
@@ -10823,6 +10823,12 @@
         },
         "error": {
           "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_detail": {
+          "name": "error_detail",
           "type": "text",
           "primaryKey": false,
           "notNull": false
