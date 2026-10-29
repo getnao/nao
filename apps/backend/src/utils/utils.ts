@@ -29,7 +29,11 @@ export const getErrorMessage = (error: unknown): string | null => {
 
 export const formatErrorMessageForUI = (error: unknown): string => {
 	if (error instanceof ManagedCreditsExhaustedError) {
-		return JSON.stringify({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+		return JSON.stringify({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
 	}
 	if (isTypeValidationError(error)) {
 		const payload = error.value;

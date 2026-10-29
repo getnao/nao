@@ -10,9 +10,8 @@ import {
 	AlertTriangle,
 	Shield,
 	Check,
-	WalletCards,
-	KeyRound,
 	MessageCircleOff,
+	LockKeyhole,
 } from 'lucide-react';
 import { ALLOWED_IMAGE_MEDIA_TYPES, ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
 import { toStoryReferenceMentionId } from '@nao/shared';
@@ -33,6 +32,7 @@ import { ChatInputAnimatedBorder } from './chat-input-animated-border';
 import { ChatInputModelSelect } from './chat-input-model-select';
 import { ChatInputMessageQueue } from './chat-input-message-queue';
 import { ChatInputAttachmentPreview } from './chat-input-attachment-preview';
+import { ManagedCreditsExhausted } from './managed-credits-exhausted';
 import { ContactSupportButton } from './contact-support-dialog';
 import {
 	DropdownMenu,
@@ -56,11 +56,15 @@ import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.prov
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { useAttachmentUpload } from '@/hooks/use-attachment-upload';
-import { parseBudgetError, parseChatAllowanceExhaustedError, parseManagedCreditsError } from '@/lib/ai';
+import {
+	hasManagedCreditsForRequest,
+	parseBudgetError,
+	parseChatAllowanceExhaustedError,
+	parseManagedCreditsError,
+} from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useModelSelection } from '@/hooks/use-model-selection';
-import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
@@ -162,6 +166,8 @@ function ChatInputBase({
 	acceptsPendingStoryReferences = false,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
+	const [managedCreditDialogOpen, setManagedCreditDialogOpen] = useState(false);
+	const [verifiedManagedCreditError, setVerifiedManagedCreditError] = useState<Error>();
 	const {
 		isRunning,
 		cancelAgent,
@@ -171,11 +177,12 @@ function ChatInputBase({
 		setMentions,
 		submitQueuedMessageNow,
 		error,
+		clearError,
 		selectedModel,
 		mode,
 	} = useAgentContext();
 	const navigate = useNavigate();
-	const { canChatWithNaoData } = usePermissions();
+	const { canChatWithNaoData, isAdmin, isOrgAdmin } = usePermissions();
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const { options: storyReferenceOptions, isLoaded: areReferenceableStoriesLoaded } = useStoryReferenceOptions({
@@ -228,18 +235,67 @@ function ChatInputBase({
 		enabled: hasProject && !!selectedModel?.provider && selectedModel.provider !== 'nao',
 		refetchOnWindowFocus: false,
 	});
+	const managedCreditError = parseManagedCreditsError(error);
+	const requiredBalanceMicroUsd = managedCreditError?.requiredBalanceMicroUsd;
+	const isManagedModel = selectedModel?.provider === 'nao';
 	const managedCredit = useQuery({
 		...trpc.account.getManagedCreditStatus.queryOptions(),
-		enabled: hasProject && selectedModel?.provider === 'nao',
-		refetchOnWindowFocus: false,
+		enabled: hasProject && isManagedModel,
+		refetchInterval: requiredBalanceMicroUsd ? 5_000 : false,
+		refetchOnWindowFocus: 'always',
 	});
+	const refetchManagedCredit = managedCredit.refetch;
+	const currentBalanceMicroUsd = managedCredit.data?.balanceMicroUsd;
+	const hasVerifiedManagedCreditBalance = verifiedManagedCreditError === error;
+	const isManagedCreditsBlocked =
+		isManagedModel &&
+		(managedCredit.data?.hasCredits === false ||
+			(requiredBalanceMicroUsd !== undefined &&
+				(!hasVerifiedManagedCreditBalance ||
+					!hasManagedCreditsForRequest(currentBalanceMicroUsd, requiredBalanceMicroUsd))));
 	const allowanceExhaustedScope = hasProject ? null : parseChatAllowanceExhaustedError(error);
 	const isSendBlocked =
 		!!parseBudgetError(error) ||
 		!!allowanceExhaustedScope ||
 		(hasProject && budgetStatus.data?.level === 'exceeded') ||
-		(selectedModel?.provider === 'nao' && !!parseManagedCreditsError(error)) ||
-		(selectedModel?.provider === 'nao' && managedCredit.data?.hasCredits === false);
+		isManagedCreditsBlocked;
+
+	useEffect(() => {
+		if (!error || !isManagedModel || requiredBalanceMicroUsd === undefined) {
+			return;
+		}
+		let cancelled = false;
+		setVerifiedManagedCreditError(undefined);
+		setManagedCreditDialogOpen(true);
+		void refetchManagedCredit().then(({ data, isSuccess }) => {
+			if (cancelled) {
+				return;
+			}
+			if (isSuccess && hasManagedCreditsForRequest(data?.balanceMicroUsd, requiredBalanceMicroUsd)) {
+				setManagedCreditDialogOpen(false);
+				clearError();
+				return;
+			}
+			if (isSuccess) {
+				setVerifiedManagedCreditError(error);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [error, isManagedModel, requiredBalanceMicroUsd, refetchManagedCredit, clearError]);
+
+	useEffect(() => {
+		if (
+			!hasVerifiedManagedCreditBalance ||
+			requiredBalanceMicroUsd === undefined ||
+			!hasManagedCreditsForRequest(currentBalanceMicroUsd, requiredBalanceMicroUsd)
+		) {
+			return;
+		}
+		setManagedCreditDialogOpen(false);
+		clearError();
+	}, [hasVerifiedManagedCreditBalance, requiredBalanceMicroUsd, currentBalanceMicroUsd, clearError]);
 
 	const [micWarning, setMicWarning] = useState(false);
 	const micWarningTimer = useRef(0);
@@ -590,7 +646,22 @@ function ChatInputBase({
 			)}
 			{isAdminMode ? <ChatInputAdminBadge /> : null}
 
-			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>
+			{isManagedCreditsBlocked && (
+				<>
+					<ManagedCreditsExhausted
+						open={managedCreditDialogOpen}
+						onOpenChange={setManagedCreditDialogOpen}
+						canAddProviderKey={isAdmin}
+						creditOrganizationId={isOrgAdmin ? managedCredit.data?.organization?.id : undefined}
+					/>
+					<ManagedCreditsLockedComposer onOpen={() => setManagedCreditDialogOpen(true)} />
+				</>
+			)}
+			<form
+				onSubmit={handleSubmitMessage}
+				onKeyDown={handleKeyDown}
+				className={cn('mx-auto relative', isManagedCreditsBlocked && 'hidden')}
+			>
 				<InputGroup
 					htmlFor='chat-input'
 					className={cn(
@@ -623,9 +694,11 @@ function ChatInputBase({
 					/>
 
 					<InputGroupAddon align='block-end'>
-						{variant !== 'onboarding' && (!isTranscribeReady || (!isRecording && !isTranscribing)) && (
-							<ChatInputModelSelect isExample={mode === 'example'} />
-						)}
+						{!isManagedCreditsBlocked &&
+							variant !== 'onboarding' &&
+							(!isTranscribeReady || (!isRecording && !isTranscribing)) && (
+								<ChatInputModelSelect isExample={mode === 'example'} />
+							)}
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
@@ -692,6 +765,24 @@ function ChatInputBase({
 	);
 }
 
+function ManagedCreditsLockedComposer({ onOpen }: { onOpen: () => void }) {
+	return (
+		<InputGroup
+			aria-disabled='true'
+			className='mx-auto h-12 border-none bg-muted/50 shadow-xs dark:bg-muted/30 max-md:rounded-4xl'
+		>
+			<button
+				type='button'
+				className='flex h-full w-full cursor-pointer items-center gap-2 px-4 text-left text-sm text-muted-foreground'
+				onClick={onOpen}
+			>
+				<LockKeyhole className='size-4 shrink-0' />
+				<span>Credits required to continue chatting</span>
+			</button>
+		</InputGroup>
+	);
+}
+
 function ChatAllowanceExhausted({ scope }: { scope: ChatAllowanceExhaustedScope }) {
 	const isOnboarding = scope === 'onboarding';
 	if (!isOnboarding) {
@@ -749,7 +840,6 @@ function ChatInputAdminBadge() {
 
 function BudgetBanner() {
 	const { error, clearError, selectedModel } = useAgentContext();
-	const { isAdmin, isOrgAdmin } = usePermissions();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const hasProject = project.data != null;
 	const selectedProvider = selectedModel?.provider;
@@ -769,26 +859,10 @@ function BudgetBanner() {
 		enabled: hasProject && !!selectedModel?.provider && !isManaged,
 		refetchOnWindowFocus: 'always',
 	});
-	const managedCredit = useQuery({
-		...trpc.account.getManagedCreditStatus.queryOptions(),
-		enabled: hasProject && isManaged,
-		refetchOnWindowFocus: false,
-	});
 
-	const managedError = parseManagedCreditsError(error);
-	const managedExhausted = isManaged && (managedError !== null || managedCredit.data?.hasCredits === false);
 	const budgetError = parseBudgetError(error);
 	const budgetLevel = budgetError ? 'exceeded' : (budgetStatus.data?.level ?? 'ok');
 	const budgetMessage = budgetError ?? (budgetLevel !== 'ok' ? budgetStatus.data?.message : null);
-
-	if (managedExhausted) {
-		return (
-			<ManagedCreditsBanner
-				canAddProviderKey={isAdmin}
-				creditOrganizationId={isOrgAdmin ? managedCredit.data?.organization?.id : undefined}
-			/>
-		);
-	}
 
 	if (!budgetMessage) {
 		return null;
@@ -800,63 +874,6 @@ function BudgetBanner() {
 		<div className='mb-2 flex items-start gap-2.5 rounded-2xl border border-input/50 bg-muted/50 px-3 py-2.5 text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-200'>
 			<AlertTriangle className={cn('size-4 shrink-0 mt-0.5', isExceeded ? 'text-red-500' : 'text-amber-500')} />
 			<p className='flex-1 min-w-0'>{budgetMessage}</p>
-		</div>
-	);
-}
-
-function ManagedCreditsBanner({
-	canAddProviderKey,
-	creditOrganizationId,
-}: {
-	canAddProviderKey: boolean;
-	creditOrganizationId: string | undefined;
-}) {
-	const openOrganizationBilling = useOpenOrganizationBilling();
-	const canAddCredits = Boolean(creditOrganizationId);
-	const canManageAccess = canAddProviderKey || canAddCredits;
-
-	return (
-		<div className='mb-3 rounded-2xl border border-primary/20 bg-background p-4 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200'>
-			<div className='min-w-0'>
-				<p className='font-semibold text-foreground'>
-					{canManageAccess
-						? 'Your nao credits have been used'
-						: 'Your organization’s nao credits have been used'}
-				</p>
-				<p className='mt-1 text-sm leading-relaxed text-muted-foreground'>
-					{canManageAccess
-						? 'Keep chatting by adding nao credits or connecting your own AI provider. Your projects, chats, and data are safe.'
-						: 'Your work is safe. Reach out to your organization admin to add nao credits or connect an AI provider, then pick up where you left off.'}
-				</p>
-				{canManageAccess && (
-					<div className='mt-3 flex flex-wrap gap-2'>
-						{creditOrganizationId && (
-							<Button
-								size='sm'
-								variant='primary-gradient'
-								className='rounded-full'
-								onClick={() => void openOrganizationBilling(creditOrganizationId)}
-							>
-								<WalletCards />
-								Add nao credits
-							</Button>
-						)}
-						{canAddProviderKey && (
-							<Button
-								asChild
-								size='sm'
-								variant='outline'
-								className='rounded-full border-primary/20 bg-background/80'
-							>
-								<Link to='/settings/project/agent' search={{ tab: 'models' }}>
-									<KeyRound />
-									Add your API key
-								</Link>
-							</Button>
-						)}
-					</div>
-				)}
-			</div>
 		</div>
 	);
 }

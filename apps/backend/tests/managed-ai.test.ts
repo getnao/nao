@@ -28,6 +28,7 @@ import { ManagedCreditsExhaustedError } from '../src/utils/error';
 import { logger } from '../src/utils/logger';
 
 const {
+	assertManagedAiCreditsAvailable,
 	issueCreditGrant,
 	issueCreditPurchase,
 	recordManagedAiUsageAndChargeWallet,
@@ -152,6 +153,15 @@ describe('managed AI usage and organization credits', () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	it('rejects an organization without spendable managed credits', async () => {
+		const error = await assertManagedAiCreditsAvailable('organization-without-wallet').catch(
+			(reason: unknown) => reason,
+		);
+
+		expect(error).toBeInstanceOf(ManagedCreditsExhaustedError);
+		expect((error as ManagedCreditsExhaustedError).requiredBalanceMicroUsd).toBe(1);
 	});
 
 	it('creates the database-configured organization setup gift exactly once', async () => {
@@ -652,9 +662,9 @@ describe('managed AI usage and organization credits', () => {
 			category: 'chat',
 		});
 
-		await expect(model.doGenerate({} as LanguageModelV3CallOptions)).rejects.toBeInstanceOf(
-			ManagedCreditsExhaustedError,
-		);
+		const error = await model.doGenerate({} as LanguageModelV3CallOptions).catch((reason: unknown) => reason);
+		expect(error).toBeInstanceOf(ManagedCreditsExhaustedError);
+		expect((error as ManagedCreditsExhaustedError).requiredBalanceMicroUsd).toBeGreaterThan(0);
 		expect(providerCall).not.toHaveBeenCalled();
 	});
 

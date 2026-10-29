@@ -154,7 +154,11 @@ app.setErrorHandler((error, request, reply) => {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
 	if (error instanceof ManagedCreditsExhaustedError) {
-		return reply.status(error.code).send({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+		return reply.status(error.code).send({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
 	}
 	if (error instanceof ExampleChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED' });

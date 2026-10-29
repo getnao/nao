@@ -707,8 +707,33 @@ export function parseBudgetError(error: Error | undefined): string | null {
 	return parseCodedError(error, 'BUDGET_EXCEEDED');
 }
 
-export function parseManagedCreditsError(error: Error | undefined): string | null {
-	return parseCodedError(error, 'MANAGED_CREDITS_EXHAUSTED');
+type ManagedCreditsError = {
+	message: string;
+	requiredBalanceMicroUsd: number;
+};
+
+export function parseManagedCreditsError(error: Error | undefined): ManagedCreditsError | null {
+	const message = parseCodedError(error, 'MANAGED_CREDITS_EXHAUSTED');
+	const payload = parseErrorPayload(error);
+	if (
+		!message ||
+		!payload ||
+		!Number.isSafeInteger(payload.requiredBalanceMicroUsd) ||
+		(payload.requiredBalanceMicroUsd as number) <= 0
+	) {
+		return null;
+	}
+	return {
+		message,
+		requiredBalanceMicroUsd: payload.requiredBalanceMicroUsd as number,
+	};
+}
+
+export function hasManagedCreditsForRequest(
+	balanceMicroUsd: number | undefined,
+	requiredBalanceMicroUsd: number,
+): boolean {
+	return balanceMicroUsd !== undefined && balanceMicroUsd >= requiredBalanceMicroUsd;
 }
 
 export type ChatAllowanceExhaustedScope = 'example' | 'onboarding';
@@ -724,12 +749,24 @@ export function parseChatAllowanceExhaustedError(error: Error | undefined): Chat
 }
 
 function parseCodedError(error: Error | undefined, code: string): string | null {
+	const parsed = parseErrorPayload(error);
+	if (!error || parsed?.code !== code) {
+		return null;
+	}
+	return typeof parsed.error === 'string'
+		? parsed.error
+		: typeof parsed.message === 'string'
+			? parsed.message
+			: error.message;
+}
+
+function parseErrorPayload(error: Error | undefined): Record<string, unknown> | null {
 	if (!error) {
 		return null;
 	}
 	try {
-		const parsed = JSON.parse(error.message);
-		return parsed.code === code ? (parsed.error ?? parsed.message ?? error.message) : null;
+		const parsed: unknown = JSON.parse(error.message);
+		return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
 	} catch {
 		return null;
 	}

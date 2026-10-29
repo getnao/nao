@@ -90,6 +90,7 @@ import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService, RunCompaction } from './compaction';
+import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
@@ -265,9 +266,21 @@ async function assertModelBudget(projectId: string, model: LlmSelectedModel, use
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
+	async assertRunAvailable(
+		projectId: string,
+		modelSelection?: LlmSelectedModel,
+		userId?: string,
+		unbilledManagedAiUsage = false,
+	): Promise<LlmSelectedModel> {
 		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
 		await assertModelBudget(projectId, resolved, userId);
+		if (resolved.provider === 'nao' && !unbilledManagedAiUsage) {
+			const orgId = (await projectQueries.getProjectById(projectId))?.orgId;
+			if (orgId) {
+				await assertManagedAiCreditsAvailable(orgId);
+			}
+		}
+		return resolved;
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
@@ -283,7 +296,7 @@ export class AgentService {
 			billingAccessVerifiedProjectId?: string;
 			/** Omits chat attribution when the run uses a transient, unpersisted chat. */
 			attributeUsageToChat?: boolean;
-			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
+			/** Skips the budget check when the caller already ran `assertRunAvailable` for this request. */
 			isBudgetChecked?: boolean;
 			/** Records managed usage without charging an organization wallet. */
 			unbilledManagedAiUsage?: boolean;

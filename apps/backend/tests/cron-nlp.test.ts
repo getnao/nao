@@ -41,7 +41,7 @@ describe('naturalLanguageToCron', () => {
 	});
 
 	it('rethrows managed credit exhaustion', async () => {
-		const error = new ManagedCreditsExhaustedError();
+		const error = new ManagedCreditsExhaustedError(42_000);
 		mocks.generateText.mockRejectedValue(error);
 
 		await expect(naturalLanguageToCron('project-1', 'user-1', 'every hour')).rejects.toBe(error);
