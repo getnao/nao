@@ -654,7 +654,10 @@ function ChatInputBase({
 						canAddProviderKey={isAdmin}
 						creditOrganizationId={isOrgAdmin ? managedCredit.data?.organization?.id : undefined}
 					/>
-					<ManagedCreditsLockedComposer onOpen={() => setManagedCreditDialogOpen(true)} />
+					<ManagedCreditsLockedComposer
+						isExample={mode === 'example'}
+						onOpen={() => setManagedCreditDialogOpen(true)}
+					/>
 				</>
 			)}
 			<form
@@ -765,20 +768,23 @@ function ChatInputBase({
 	);
 }
 
-function ManagedCreditsLockedComposer({ onOpen }: { onOpen: () => void }) {
+function ManagedCreditsLockedComposer({ isExample, onOpen }: { isExample: boolean; onOpen: () => void }) {
 	return (
-		<InputGroup
-			aria-disabled='true'
-			className='mx-auto h-12 border-none bg-muted/50 shadow-xs dark:bg-muted/30 max-md:rounded-4xl'
-		>
+		<InputGroup className='mx-auto h-12 border-none bg-muted/50 shadow-xs dark:bg-muted/30 max-md:rounded-4xl'>
 			<button
 				type='button'
-				className='flex h-full w-full cursor-pointer items-center gap-2 px-4 text-left text-sm text-muted-foreground'
+				className='flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 px-4 text-left text-sm text-muted-foreground'
 				onClick={onOpen}
 			>
 				<LockKeyhole className='size-4 shrink-0' />
-				<span>Credits required to continue chatting</span>
+				<span className='truncate'>
+					<span className='sm:hidden'>Credits required</span>
+					<span className='hidden sm:inline'>Credits required to continue chatting</span>
+				</span>
 			</button>
+			<div className='shrink-0 pr-4'>
+				<ChatInputModelSelect isExample={isExample} managedCreditsExhausted />
+			</div>
 		</InputGroup>
 	);
 }

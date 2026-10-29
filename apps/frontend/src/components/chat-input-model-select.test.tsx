@@ -5,9 +5,21 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 import { ChatInputModelSelect } from './chat-input-model-select';
 import type { ReactNode } from 'react';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({
 	setSelectedModel: vi.fn(),
+	cycleModel: vi.fn(),
+	availableModels: [] as {
+		provider: 'nao' | 'openai';
+		modelId: string;
+		name: string;
+		baseUrl: null;
+	}[],
+	selectedModel: null as { provider: 'nao' | 'openai'; modelId: string } | null,
+	defaultModel: null as { provider: 'nao' | 'openai'; modelId: string } | null,
+	usesDefaultModel: true,
+	canCycleModels: false,
 	hasProject: false,
 }));
 
@@ -23,13 +35,14 @@ vi.mock('@/components/ui/llm-provider-icon', () => ({
 vi.mock('@/hooks/use-model-selection', () => ({
 	isSameModel: () => false,
 	useModelSelection: () => ({
-		availableModels: [],
-		defaultModel: null,
-		selectedModel: null,
-		usesDefaultModel: true,
+		availableModels: mocks.availableModels,
+		defaultModel: mocks.defaultModel,
+		selectedModel: mocks.selectedModel,
+		usesDefaultModel: mocks.usesDefaultModel,
 		setSelectedModel: mocks.setSelectedModel,
 		isPending: false,
-		canCycleModels: false,
+		canCycleModels: mocks.canCycleModels,
+		cycleModel: mocks.cycleModel,
 		hasProject: mocks.hasProject,
 	}),
 }));
@@ -40,6 +53,12 @@ vi.mock('@/hooks/use-permissions', () => ({
 
 afterEach(() => {
 	cleanup();
+	vi.clearAllMocks();
+	mocks.availableModels = [];
+	mocks.selectedModel = null;
+	mocks.defaultModel = null;
+	mocks.usesDefaultModel = true;
+	mocks.canCycleModels = false;
 	mocks.hasProject = false;
 });
 
@@ -65,4 +84,53 @@ it('shows the example model for an example chat when the user has a project', ()
 
 	expect(screen.getByText('GPT 6 Sol')).toBeTruthy();
 	expect(screen.queryByText('Configure a model')).toBeNull();
+});
+
+it('cycles models from the focused model selector', () => {
+	mocks.availableModels = [
+		{ provider: 'nao', modelId: 'managed', name: 'Managed', baseUrl: null },
+		{ provider: 'openai', modelId: 'configured', name: 'Configured', baseUrl: null },
+	];
+	mocks.selectedModel = mocks.availableModels[0];
+	mocks.usesDefaultModel = false;
+	mocks.canCycleModels = true;
+
+	render(
+		<TooltipProvider>
+			<ChatInputModelSelect />
+		</TooltipProvider>,
+	);
+
+	fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Tab', shiftKey: true });
+
+	expect(mocks.cycleModel).toHaveBeenCalledOnce();
+});
+
+it('locks nao models when managed credits are exhausted', () => {
+	mocks.availableModels = [
+		{ provider: 'nao', modelId: 'managed', name: 'Managed', baseUrl: null },
+		{ provider: 'openai', modelId: 'configured', name: 'Configured', baseUrl: null },
+	];
+	mocks.selectedModel = mocks.availableModels[0];
+	mocks.defaultModel = mocks.availableModels[0];
+	mocks.usesDefaultModel = false;
+	mocks.canCycleModels = true;
+
+	render(
+		<TooltipProvider>
+			<ChatInputModelSelect managedCreditsExhausted />
+		</TooltipProvider>,
+	);
+	const modelSelector = screen.getByRole('combobox');
+	fireEvent.keyDown(modelSelector, { key: 'Tab', shiftKey: true });
+
+	expect(mocks.setSelectedModel).toHaveBeenCalledWith(mocks.availableModels[1]);
+	expect(mocks.cycleModel).not.toHaveBeenCalled();
+
+	fireEvent.keyDown(modelSelector, { key: 'Enter' });
+
+	expect(screen.getByRole('option', { name: /Auto/ }).getAttribute('aria-disabled')).toBe('true');
+	expect(screen.getByRole('option', { name: /Managed/ }).getAttribute('aria-disabled')).toBe('true');
+	expect(screen.getByRole('option', { name: /Configured/ }).getAttribute('aria-disabled')).toBeNull();
+	expect(screen.getAllByLabelText('Unavailable: nao credits exhausted')).toHaveLength(2);
 });
