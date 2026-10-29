@@ -28,8 +28,8 @@ export function cleanDocumentText(text: string): string {
 		.replace(MARKDOWN_DATA_IMAGES, '')
 		.replace(HTML_DATA_IMAGES, '')
 		.replace(DATA_URIS, '')
-		.replace(TRAILING_SPACES, '')
 		.replace(SPACE_RUNS, ' ')
+		.replace(TRAILING_SPACES, '')
 		.replace(BLANK_LINE_RUNS, '\n\n')
 		.trim();
 }

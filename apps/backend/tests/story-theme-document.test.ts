@@ -60,6 +60,14 @@ describe('story theme documents', () => {
 		);
 	});
 
+	it('cleans a line padded with a long run of spaces in linear time', () => {
+		const padded = `A${' '.repeat(500_000)}B`;
+		const startedAt = performance.now();
+
+		expect(cleanDocumentText(padded)).toBe('A B');
+		expect(performance.now() - startedAt).toBeLessThan(500);
+	});
+
 	it('renders each document under its file name', () => {
 		const prompt = renderDocuments([{ fileName: 'brand.md', text: 'Headings use Inter.' }]);
 
