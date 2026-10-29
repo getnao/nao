@@ -9,6 +9,7 @@ import type { PromptHandle } from 'prompt-mentions';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
+import { SlackChannelsInput } from '@/components/slack-channels-input';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -29,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useSession } from '@/lib/auth-client';
+import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@/lib/slack-channels';
 import { trpc } from '@/main';
 
 type IntegrationConfig = {
@@ -248,6 +250,8 @@ export function AutomationForm({
 					mcpServers={form.mcpServers}
 					emailRecipientsError={form.emailRecipientsError}
 					onClearEmailRecipientsError={form.clearEmailRecipientsError}
+					slackChannelsError={form.slackChannelsError}
+					onClearSlackChannelsError={form.clearSlackChannelsError}
 					onChange={form.handleValueChange}
 					onAutoSaveChange={form.handleControlValueChange}
 					disabled={form.controlsDisabled}
@@ -310,6 +314,7 @@ function useAutomationFormController({
 	const [promptError, setPromptError] = useState(false);
 	const [triggerError, setTriggerError] = useState(false);
 	const [emailRecipientsError, setEmailRecipientsError] = useState<string | null>(null);
+	const [slackChannelsError, setSlackChannelsError] = useState<string | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [isAutoSaving, setIsAutoSaving] = useState(false);
 	const formRef = useRef<HTMLFormElement>(null);
@@ -338,6 +343,7 @@ function useAutomationFormController({
 		setPromptError(false);
 		setTriggerError(false);
 		setEmailRecipientsError(null);
+		setSlackChannelsError(null);
 		setSubmitError(null);
 	}, [initialValueSnapshot]);
 
@@ -453,11 +459,21 @@ function useAutomationFormController({
 			return false;
 		}
 
+		const nextSlackChannelsError = getSlackIntegrationError(nextValue.integrations.slack);
+		if (nextSlackChannelsError) {
+			setSlackChannelsError(nextSlackChannelsError);
+			return false;
+		}
+
 		return true;
 	}
 
 	function clearEmailRecipientsError() {
 		setEmailRecipientsError(null);
+	}
+
+	function clearSlackChannelsError() {
+		setSlackChannelsError(null);
 	}
 
 	function handleInsertPromptTrigger(trigger: string) {
@@ -526,6 +542,7 @@ function useAutomationFormController({
 	return {
 		availableModels: availableModels.data,
 		clearEmailRecipientsError,
+		clearSlackChannelsError,
 		controlsDisabled,
 		emailRecipientsError,
 		formRef,
@@ -549,6 +566,7 @@ function useAutomationFormController({
 		selectedModelValue,
 		setCustomCron,
 		setTitle,
+		slackChannelsError,
 		submitError,
 		titlePlaceholder,
 		triggerError,
@@ -1081,6 +1099,8 @@ function ToolsSection({
 	mcpServers,
 	emailRecipientsError,
 	onClearEmailRecipientsError,
+	slackChannelsError,
+	onClearSlackChannelsError,
 	onChange,
 	onAutoSaveChange,
 	disabled,
@@ -1089,6 +1109,8 @@ function ToolsSection({
 	mcpServers: McpServerStatus[] | undefined;
 	emailRecipientsError: string | null;
 	onClearEmailRecipientsError: () => void;
+	slackChannelsError: string | null;
+	onClearSlackChannelsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
 	onAutoSaveChange: (value: AutomationFormValue) => void;
 	disabled: boolean;
@@ -1128,6 +1150,7 @@ function ToolsSection({
 	}
 
 	function setSlackEnabled(enabled: boolean) {
+		onClearSlackChannelsError();
 		onAutoSaveChange({
 			...value,
 			integrations: { ...value.integrations, slack: { ...slack, enabled } },
@@ -1159,6 +1182,8 @@ function ToolsSection({
 						value={value}
 						emailRecipientsError={emailRecipientsError}
 						onClearEmailRecipientsError={onClearEmailRecipientsError}
+						slackChannelsError={slackChannelsError}
+						onClearSlackChannelsError={onClearSlackChannelsError}
 						onChange={onChange}
 						onRemoveEmail={() => setEmailEnabled(false)}
 						onRemoveSlack={() => setSlackEnabled(false)}
@@ -1197,6 +1222,8 @@ function ToolRow({
 	value,
 	emailRecipientsError,
 	onClearEmailRecipientsError,
+	slackChannelsError,
+	onClearSlackChannelsError,
 	onChange,
 	onRemoveEmail,
 	onRemoveSlack,
@@ -1211,6 +1238,8 @@ function ToolRow({
 	value: AutomationFormValue;
 	emailRecipientsError: string | null;
 	onClearEmailRecipientsError: () => void;
+	slackChannelsError: string | null;
+	onClearSlackChannelsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
 	onRemoveEmail: () => void;
 	onRemoveSlack: () => void;
@@ -1290,19 +1319,20 @@ function ToolRow({
 				onRemove={onRemoveSlack}
 				disabled={disabled}
 			>
-				<Input
-					className='h-8'
-					placeholder='Slack channel ID, for example C0123456789'
-					value={slack.channelId}
-					onChange={(event) =>
+				<SlackChannelsInput
+					channels={parseSlackChannels(slack.channelId)}
+					saveError={slackChannelsError}
+					disabled={disabled}
+					onChange={(channels) => {
+						onClearSlackChannelsError();
 						onChange({
 							...value,
 							integrations: {
 								...value.integrations,
-								slack: { ...slack, channelId: event.target.value },
+								slack: { ...slack, channelId: formatSlackChannels(channels) },
 							},
-						})
-					}
+						});
+					}}
 				/>
 			</ToolRowShell>
 		);
@@ -1894,6 +1924,13 @@ function getEmailRecipientsError(email: IntegrationConfig['email']): string | nu
 		return null;
 	}
 	return `Enter valid email recipients: ${invalidRecipients.join(', ')}.`;
+}
+
+function getSlackIntegrationError(slack: IntegrationConfig['slack']): string | null {
+	if (!slack?.enabled) {
+		return null;
+	}
+	return getSlackChannelsSaveError(parseSlackChannels(slack.channelId));
 }
 
 function isValidEmailAddress(value: string): boolean {
