@@ -49,7 +49,7 @@ docker run -d \
 | `NAO_CONTEXT_GIT_BRANCH`   | No       | Branch to clone (default: `main`)                                             |
 | `NAO_CONTEXT_GIT_TOKEN`    | No       | Access token for private HTTPS repos                                          |
 | `NAO_CONTEXT_GIT_PLATFORM` | No       | Platform override for self-hosted GitHub, GitLab, or Bitbucket hosts          |
-| `NAO_CONTEXT_GIT_SSH_KEY`  | No       | Raw SSH private key contents (deploy key), for `git@…`/`ssh://…` URLs        |
+| `NAO_CONTEXT_GIT_SSH_KEY`  | No       | Raw SSH private key contents (deploy key), for `git@…`/`ssh://…` URLs         |
 | `NAO_CONTEXT_GIT_SUBPATH`  | No       | Subfolder of the repo to use as the project (sparse checkout, e.g. monorepos) |
 
 \* At least one LLM API key is required to make AI queries.
