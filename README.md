@@ -10,11 +10,11 @@
 <h1 align="center">nao</h1>
 
 <h3 align="center">
-  The #1 open-source analytics agent
+  The #1 open source agentic BI builder
 </h3>
 
 <p align="center">
-  Your data team owns the context layer. Everyone in the company can build on data.
+  Your data team builds the analytics agent and owns the context layer. Everyone in the company builds on data.
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 
 ## What is nao?
 
-nao lets you create your own Agentic BI: an open-source analytics agent and BI layer, built on a context layer your data team controls and tests.
+nao started as the open source analytics agent. Today it is the open source agentic BI builder: your data team builds the agent on a context layer it controls and tests, and the whole company analyzes data with it. Sign up on [nao Cloud](https://app.getnao.io/signup) or self-host it.
 
 1. **Build your data context layer**: your data team syncs the warehouse, dbt, docs and rules into files the agent reads, with the `nao-core` CLI or your coding agent.
 2. **Let your whole company analyze data**: anyone can chat with your data from the nao app, Slack, Teams or Claude, and build their own live dashboards, data apps and slides as stories.
@@ -66,9 +66,13 @@ Watch your whole company grow into analysts.
 - 🛡️ **Your SSO and warehouse permissions**: Okta, Google, Microsoft Entra ID or any OIDC. Row-level security and identity passthrough.
 - ✅ **SOC 2 Type II**: audited controls. Your data is never used to train models. See our [Trust Center](https://compliance.getnao.io/).
 
-## ⚡️ Quickstart
+## ⚡️ Get started
 
-### Option 1: set it up with your coding agent (recommended)
+### Option 1: sign up on nao Cloud
+
+[Sign up on nao Cloud](https://app.getnao.io/signup), connect your warehouse, add your business context and deploy agentic BI to your whole company from the nao UI. No CLI needed.
+
+### Option 2: set it up with your coding agent
 
 nao ships [skills](skills/) that teach Claude Code, Codex, Cursor or any skills-compatible agent how to build a nao project end to end: scope the tables, write `nao_config.yaml`, sync, write `RULES.md` and create tests.
 
@@ -84,7 +88,7 @@ nao skills add getnao/nao
 **2. Ask your agent to set up nao.** Open Claude Code, Codex or Cursor in that folder and paste:
 
 ```text
-Set up nao, the open-source analytics agent, on my data: run `pip install nao-core`, then `nao skills add getnao/nao`, then use the setup-context skill to create a nao project on my warehouse. Docs: https://docs.getnao.io/nao-agent/quickstart
+Set up nao, the open source agentic BI builder, on my data: run `pip install nao-core`, then `nao skills add getnao/nao`, then use the setup-context skill to create a nao project on my warehouse. Docs: https://docs.getnao.io/nao-agent/quickstart
 ```
 
 The agent asks you once for your warehouse, the tables in scope, extra context (dbt repo, docs) and your LLM provider, then runs `nao init`, `nao sync`, and writes your first `RULES.md`.
@@ -97,7 +101,9 @@ nao chat
 
 The nao chat opens at `http://localhost:5005`. Start asking questions.
 
-### Option 2: set it up manually with the CLI
+### Option 3: self-host
+
+Run the [Docker image](#-docker) `getnao/nao`, or set up a project manually with the CLI:
 
 - **Step 1**: Install nao-core package
 
@@ -163,7 +169,7 @@ nao test server
 
 ## 🚀 Deploy
 
-- **nao Cloud**: [sign up](https://app.getnao.io/signup), create an organization API key in **Settings → Organization → Organization API keys**, then push your context:
+- **nao Cloud**: [sign up](https://app.getnao.io/signup) and set everything up from the nao UI. To push context from a local project instead, create an organization API key in **Settings → Organization → Organization API keys**, then push your context:
 
   ```bash
   nao deploy https://app.getnao.io --api-key "$NAO_API_KEY"
@@ -210,7 +216,7 @@ The core of nao is open source under Apache 2.0. The [Enterprise license](https:
 
 | Capability | Open source | Enterprise |
 | --- | :---: | :---: |
-| Open-source agent, chat UI and every LLM provider | ✅ | ✅ |
+| Open source agent, chat UI and every LLM provider | ✅ | ✅ |
 | Slack, Teams, WhatsApp, Telegram and Mattermost bots | ✅ | ✅ |
 | Self-hosting on your infrastructure | ✅ | ✅ |
 | Google, GitHub and GitLab login | ✅ | ✅ |
