@@ -46,6 +46,7 @@ export interface ProvisioningJobRow {
 	status: WarehouseProvisioningStatus;
 	failedStatus: WarehouseProvisioningStatus | null;
 	error: string | null;
+	errorDetail: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 	finishedAt: Date | null;
@@ -138,8 +139,8 @@ const FAILED_STEP_BY_JOB_STATUS: Partial<
 	syncing: { label: 'during nao sync', blocker: 'nao_sync_failed' },
 	registering: { label: 'while registering the project', blocker: 'setup_failed' },
 	awaiting_context: { label: 'while waiting for business context', blocker: 'setup_failed' },
-	finalizing: { label: 'while generating the rules', blocker: 'setup_failed' },
-	publishing: { label: 'while publishing the project', blocker: 'setup_failed' },
+	finalizing: { label: 'while generating the rules', blocker: 'rules_failed' },
+	publishing: { label: 'while publishing the project', blocker: 'publishing_failed' },
 };
 
 export function summarizeOnboarding(userId: string, events: OnboardingEvent[]): OnboardingSummary {
@@ -357,10 +358,11 @@ function provisioningJobOutcomeEvent(job: ProvisioningJobRow, providerLabel: str
 	}
 	if (job.status === 'failed') {
 		const failedStep = job.failedStatus ? FAILED_STEP_BY_JOB_STATUS[job.failedStatus] : undefined;
+		const cause = job.errorDetail ?? job.error;
 		return buildEvent({
 			...common,
 			title: [`${providerLabel} cloud setup failed`, failedStep?.label].filter(Boolean).join(' '),
-			detail: job.error,
+			detail: cause && truncate(cause),
 			outcome: 'failure',
 			stage: job.failedStatus ? STAGE_BY_JOB_STATUS[job.failedStatus] : 'connected',
 			blocker: failedStep?.blocker ?? 'setup_failed',

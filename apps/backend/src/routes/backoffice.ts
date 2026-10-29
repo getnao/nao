@@ -216,6 +216,14 @@ export const backofficeRoutes = async (app: App) => {
 
 	app.get('/onboarding', async () => onboardingService.listOnboardingSummaries());
 
+	app.get('/onboarding/setup-failures', async (request, reply) => {
+		const query = parse(paginationSchema.pick({ limit: true }), request.query, reply);
+		if (!query) {
+			return;
+		}
+		return onboardingService.listRecentSetupFailures(query.limit);
+	});
+
 	app.get('/users/:userId/onboarding', async (request, reply) => {
 		const params = parse(userParamsSchema, request.params, reply);
 		if (!params) {

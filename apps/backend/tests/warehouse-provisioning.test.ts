@@ -21,6 +21,7 @@ type MockWarehouseJob = {
 	modelProjectId: string | null;
 	logs: string | null;
 	error: string | null;
+	errorDetail?: string | null;
 	temporaryDirectory: string | null;
 	lockedBy: string | null;
 	lockedAt: Date | null;
@@ -214,6 +215,7 @@ vi.mock('../src/services/project.service', () => ({
 vi.mock('../src/services/managed-github-repository', () => ({
 	deleteManagedGithubRepository: vi.fn(),
 	getManagedGithubRepositoryFullName: vi.fn(() => 'nao-org/nao-analytics-owned-project'),
+	ManagedGithubConfigurationError: class extends Error {},
 	provisionManagedGithubRepository: vi.fn(),
 }));
 vi.mock('../src/services/onboarding-rules', () => ({
@@ -227,6 +229,12 @@ vi.mock('../src/utils/logger', () => ({
 	serializeError: (error: unknown) => ({
 		message: error instanceof Error ? error.message : String(error),
 	}),
+	describeError: (error: unknown): string => {
+		if (!(error instanceof Error)) {
+			return String(error);
+		}
+		return error.cause instanceof Error ? `${error.message} | caused by: ${error.cause.message}` : error.message;
+	},
 }));
 vi.mock('node:child_process', () => ({
 	spawn: vi.fn(),
@@ -241,6 +249,7 @@ import * as warehouseProvisioningJobQueries from '../src/queries/warehouse-provi
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
+	ManagedGithubConfigurationError,
 	provisionManagedGithubRepository,
 } from '../src/services/managed-github-repository';
 import { generateOnboardingRules } from '../src/services/onboarding-rules';
@@ -427,6 +436,7 @@ describe('warehouse provisioning', () => {
 			projectName: 'analytics',
 			logs: null,
 			error: null,
+			cause: null,
 			businessContextProvided: false,
 			canRetry: false,
 		});
@@ -594,7 +604,10 @@ describe('warehouse provisioning', () => {
 		await vi.waitFor(async () => {
 			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
 		});
-		expect(warehouseJobs.get(jobId)?.failedStatus).toBe('registering');
+		expect(warehouseJobs.get(jobId)).toMatchObject({
+			failedStatus: 'registering',
+			errorDetail: 'Credential storage failed',
+		});
 		const [creationInput] = vi.mocked(createNewProject).mock.calls[0];
 		expect(creationInput.projectId).toEqual(expect.any(String));
 		expect(warehouseProvisioningJobQueries.updateWarehouseProvisioningJob).toHaveBeenCalledWith(jobId, {
@@ -682,6 +695,51 @@ describe('warehouse provisioning', () => {
 		expect(reconcileProjectReadiness).not.toHaveBeenCalledWith('project-publish-failure');
 		expect(deleteManagedGithubRepository).toHaveBeenCalledWith('nao-org/nao-analytics-project');
 		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-publish-failure');
+		expect(fs.existsSync(registeredProjectDirectory)).toBe(false);
+	});
+
+	it.each([
+		{
+			case: 'its GitHub App configuration is wrong',
+			publishingError: new ManagedGithubConfigurationError(
+				'Failed to create installation token: GitHub returned 401 (A JSON web token could not be decoded)',
+			),
+			error: "Your warehouse connection works, but nao could not save the project because of a configuration problem on nao's side. Your connection details are not the problem. Contact the nao team: a retry will fail until they fix it.",
+		},
+		{
+			case: 'GitHub is unavailable',
+			publishingError: new Error('GitHub API request timed out. Please try again.'),
+			error: 'Your warehouse connection works, but nao could not save the project. Your connection details are not the problem. Please try again in a few minutes.',
+		},
+	])('tells the user that nao could not publish the project when $case', async ({ publishingError, error }) => {
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-unpublished');
+		vi.mocked(provisionManagedGithubRepository).mockRejectedValue(publishingError);
+		vi.mocked(projectQueries.deleteProject).mockResolvedValue();
+		vi.mocked(scheduledJobQueries.deleteJobByUniqueKey).mockResolvedValue();
+
+		const { jobId } = await startWarehouseProvisioning({
+			userId: 'user-1',
+			orgId: 'org-1',
+			projectName: 'analytics',
+			onboardingChatId: 'chat-1',
+			provider: 'postgres',
+			credentials: { host: 'warehouse.example.com', password: 'secret' },
+		});
+		await submitWarehouseBusinessContext('user-1', 'chat-1', {
+			businessContext: {},
+			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
+			modelProjectId: 'example-project',
+		});
+
+		await vi.waitFor(async () => {
+			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('failed');
+		});
+		expect(warehouseJobs.get(jobId)).toMatchObject({
+			failedStatus: 'publishing',
+			error,
+			errorDetail: `Project publishing failed | caused by: ${publishingError.message}`,
+		});
+		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-unpublished');
 		expect(fs.existsSync(registeredProjectDirectory)).toBe(false);
 	});
 
@@ -845,6 +903,7 @@ describe('warehouse provisioning', () => {
 			encryptedCredentials: expect.any(String),
 			temporaryDirectory: null,
 			error: 'Warehouse setup stopped unexpectedly several times. Please try again.',
+			errorDetail: expect.stringContaining('Abandoned 5 times while syncing'),
 		});
 		expect(fs.existsSync(temporaryDirectory)).toBe(false);
 		expect(spawn).not.toHaveBeenCalled();
@@ -1027,10 +1086,49 @@ describe('warehouse provisioning', () => {
 				status: 'failed',
 				failedStatus: 'debugging',
 				error: 'nao debug failed. Check the logs for details.',
+				cause: null,
 				logs: 'password authentication failed for user "nao"',
 				businessContextProvided: false,
 				canRetry: true,
 			},
+		});
+	});
+
+	it('reports the technical cause instead of stale command logs when a later step stops the setup', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId, {
+			failedStatus: 'publishing',
+			error: 'Your warehouse connection works, but nao could not save the project.',
+			errorDetail:
+				'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+			logs: 'Synced 12 tables',
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			outcome: 'failed',
+			setup: {
+				failedStatus: 'publishing',
+				cause: 'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+				logs: null,
+			},
+		});
+		await expect(getLatestWarehouseProvisioningJob('user-1', 'chat-1')).resolves.toMatchObject({
+			cause: 'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+		});
+	});
+
+	it('leaves the cause of a failed command to its logs', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		markJobFailed(jobId, {
+			failedStatus: 'syncing',
+			errorDetail: 'nao sync failed: password authentication failed for user "nao"',
+			logs: 'password authentication failed for user "nao"',
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			setup: { cause: null, logs: 'password authentication failed for user "nao"' },
 		});
 	});
 
@@ -1182,7 +1280,7 @@ describe('warehouse provisioning', () => {
 		},
 		{
 			error: new Error('nao sync timed out'),
-			expected: 'nao sync failed. Check the logs for details.',
+			expected: 'nao sync timed out. Check the logs for details.',
 		},
 		{
 			error: new Error('password authentication failed for user "nao"'),

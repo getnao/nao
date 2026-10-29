@@ -1,7 +1,7 @@
 /* @license Enterprise */
 
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
-import { and, count, eq, inArray, isNotNull, ne, notExists, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, ne, notExists, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -131,12 +131,64 @@ export async function listProvisioningJobs(userId?: string) {
 			status: s.warehouseProvisioningJob.status,
 			failedStatus: s.warehouseProvisioningJob.failedStatus,
 			error: s.warehouseProvisioningJob.error,
+			errorDetail: sql<
+				string | null
+			>`substr(${s.warehouseProvisioningJob.errorDetail}, 1, ${sql.raw(String(MESSAGE_PREFIX_LENGTH))})`,
 			createdAt: s.warehouseProvisioningJob.createdAt,
 			updatedAt: s.warehouseProvisioningJob.updatedAt,
 			finishedAt: s.warehouseProvisioningJob.finishedAt,
 		})
 		.from(s.warehouseProvisioningJob)
 		.where(userId ? eq(s.warehouseProvisioningJob.userId, userId) : undefined)
+		.execute();
+}
+
+export async function listProvisioningSetups(userId: string) {
+	return db
+		.select({
+			id: s.warehouseProvisioningJob.id,
+			chatId: s.warehouseProvisioningJob.onboardingChatId,
+			projectId: s.warehouseProvisioningJob.projectId,
+			projectName: s.warehouseProvisioningJob.projectName,
+			provider: s.warehouseProvisioningJob.provider,
+			status: s.warehouseProvisioningJob.status,
+			failedStatus: s.warehouseProvisioningJob.failedStatus,
+			steps: s.warehouseProvisioningJob.steps,
+			error: s.warehouseProvisioningJob.error,
+			errorDetail: s.warehouseProvisioningJob.errorDetail,
+			logs: s.warehouseProvisioningJob.logs,
+			workerId: s.warehouseProvisioningJob.lockedBy,
+			heartbeatAt: s.warehouseProvisioningJob.lockedAt,
+			createdAt: s.warehouseProvisioningJob.createdAt,
+			updatedAt: s.warehouseProvisioningJob.updatedAt,
+			finishedAt: s.warehouseProvisioningJob.finishedAt,
+		})
+		.from(s.warehouseProvisioningJob)
+		.where(eq(s.warehouseProvisioningJob.userId, userId))
+		.orderBy(desc(s.warehouseProvisioningJob.createdAt))
+		.execute();
+}
+
+export async function listRecentSetupFailures(limit: number) {
+	const job = s.warehouseProvisioningJob;
+	const failedAt = sql<Date>`coalesce(${job.finishedAt}, ${job.updatedAt})`.mapWith(job.updatedAt);
+	return db
+		.select({
+			id: job.id,
+			userId: job.userId,
+			userEmail: s.user.email,
+			projectName: job.projectName,
+			provider: job.provider,
+			failedStatus: job.failedStatus,
+			error: job.error,
+			errorDetail: sql<string | null>`substr(${job.errorDetail}, 1, ${sql.raw(String(MESSAGE_PREFIX_LENGTH))})`,
+			failedAt,
+		})
+		.from(job)
+		.innerJoin(s.user, eq(s.user.id, job.userId))
+		.where(eq(job.status, 'failed'))
+		.orderBy(desc(failedAt))
+		.limit(limit)
 		.execute();
 }
 

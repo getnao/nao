@@ -6,7 +6,7 @@ import { formatWarehouseSetupForAgent } from '../../utils/warehouse-setup';
 
 export default createTool<waitForWarehouseSetup.Input, waitForWarehouseSetup.Output>({
 	description:
-		'Wait for the background warehouse setup of this conversation to need attention: connection verified, stopped, ready, or still running after a few minutes. Returns its status, error and latest command logs.',
+		'Wait for the background warehouse setup of this conversation to need attention: connection verified, stopped, ready, or still running after a few minutes. Returns its status, error, technical cause and latest command logs.',
 	inputSchema: waitForWarehouseSetup.InputSchema,
 	outputSchema: waitForWarehouseSetup.OutputSchema,
 	execute: async (_input, context, { abortSignal }) => ({

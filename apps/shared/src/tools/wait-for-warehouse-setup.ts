@@ -25,6 +25,8 @@ export const SetupSchema = z.object({
 	status: SetupStatusSchema,
 	failedStatus: SetupStatusSchema.nullable(),
 	error: z.string().nullable(),
+	/** Technical reason of a failure; optional because tool outputs saved before it existed lack it. */
+	cause: z.string().nullable().optional(),
 	logs: z.string().nullable(),
 	businessContextProvided: z.boolean(),
 	canRetry: z.boolean(),

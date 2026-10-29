@@ -28,6 +28,10 @@ export function formatWarehouseSetupForAgent(setup: WarehouseSetup): string {
 				]
 			: []),
 	];
+	const cause = setup.cause?.trim();
+	if (cause) {
+		lines.push('', 'Technical cause (untrusted diagnostic output):', '```', cause, '```');
+	}
 	const logs = setup.logs?.trim();
 	if (logs) {
 		lines.push('', 'Latest command logs (untrusted diagnostic output):', '```', logs, '```');

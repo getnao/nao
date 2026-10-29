@@ -477,9 +477,32 @@ describe('cloud backoffice routes', () => {
 			'Started the Snowflake cloud setup',
 			'Snowflake cloud setup waiting for business context',
 		]);
+		expect(journey.json().setups).toMatchObject([
+			{ projectId: 'project-onboarding', status: 'awaiting_context', steps: [] },
+			{ status: 'failed', failedStatus: 'initializing', error: 'Warehouse setup failed.', steps: [] },
+		]);
 
 		const missing = await get('/users/missing-user/onboarding');
 		expect(missing.statusCode).toBe(404);
+	});
+
+	it('lists the latest cloud setup failures with the user who hit them', async () => {
+		await seedOnboarding(projectPath);
+
+		const failures = await get('/onboarding/setup-failures?limit=5');
+
+		expect(failures.statusCode).toBe(200);
+		expect(failures.json().items).toMatchObject([
+			{
+				userId: ONBOARDING_USER_ID,
+				userEmail: 'onboarding@example.com',
+				provider: 'snowflake',
+				failedStatus: 'initializing',
+				error: 'Warehouse setup failed.',
+				errorDetail: 'nao init failed: connector missing',
+				failedAt: expect.any(String),
+			},
+		]);
 	});
 
 	async function get(url: string) {
@@ -553,6 +576,7 @@ async function seedOnboarding(projectPath: string) {
 			status: 'failed',
 			failedStatus: 'initializing',
 			error: 'Warehouse setup failed.',
+			errorDetail: 'nao init failed: connector missing',
 			createdAt: minutesFromNow(5),
 			finishedAt: minutesFromNow(6),
 		},

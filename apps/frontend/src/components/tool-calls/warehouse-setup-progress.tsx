@@ -180,6 +180,16 @@ function SetupFailure({
 					{job.status === 'cancelled' ? 'The setup was cancelled' : 'The setup stopped'}
 				</span>
 				<span className='text-xs text-muted-foreground'>{job.error ?? 'Warehouse setup failed.'}</span>
+				{job.cause && (
+					<details className='mt-1'>
+						<summary className='cursor-pointer list-none text-[11px] text-muted-foreground hover:text-foreground'>
+							View technical details
+						</summary>
+						<pre className='mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground'>
+							{job.cause}
+						</pre>
+					</details>
+				)}
 				{retryError && <span className='text-xs text-destructive'>{retryError}</span>}
 			</div>
 			<div className='flex flex-wrap justify-end gap-2'>

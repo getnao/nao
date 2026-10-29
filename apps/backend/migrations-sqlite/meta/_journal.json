@@ -645,6 +645,13 @@
       "when": 1793197358609,
       "tag": "0091_onboarding_funnel",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "6",
+      "when": 1793275902062,
+      "tag": "0092_onboarding_setup_tracing",
+      "breakpoints": true
     }
   ]
 }

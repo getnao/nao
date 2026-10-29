@@ -30,10 +30,11 @@ import {
 	type WarehouseSetupOutcome,
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
-import { logger, serializeError } from '../utils/logger';
+import { describeError, logger, serializeError } from '../utils/logger';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
+	ManagedGithubConfigurationError,
 	provisionManagedGithubRepository,
 } from './managed-github-repository';
 import { generateOnboardingRules } from './onboarding-rules';
@@ -54,9 +55,16 @@ const FAILED_CREDENTIALS_RETENTION_MS = 60 * 60_000;
 const SETUP_WAIT_TIMEOUT_MS = 5 * 60_000;
 const SETUP_WAIT_POLL_MS = 2_000;
 const AGENT_LOGS_LIMIT = 4000;
+const ERROR_DETAIL_LIMIT = 8000;
+const FAILURE_CAUSE_LIMIT = 1500;
 const MAX_JOB_ATTEMPTS = 5;
 const SETUP_IN_PROGRESS_MESSAGE = 'A warehouse connection is already being set up.';
 const SETUP_CANCELLED_MESSAGE = 'The warehouse setup was cancelled because the onboarding was restarted.';
+const FINALIZATION_FAILED_MESSAGE = 'Project setup could not be completed. Please try again.';
+const PUBLISHING_FAILED_MESSAGE =
+	'Your warehouse connection works, but nao could not save the project. Your connection details are not the problem. Please try again in a few minutes.';
+const PUBLISHING_MISCONFIGURED_MESSAGE =
+	"Your warehouse connection works, but nao could not save the project because of a configuration problem on nao's side. Your connection details are not the problem. Contact the nao team: a retry will fail until they fix it.";
 const WORKER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 const PROVISIONING_STATUSES: WarehouseProvisioningStatus[] = [
 	'queued',
@@ -72,6 +80,7 @@ const RECOVERABLE_STATUSES: WarehouseProvisioningStatus[] = [
 	...FINALIZATION_STATUSES,
 ];
 const CONNECTION_VERIFIED_STATUSES: WarehouseProvisioningStatus[] = ['syncing', 'registering', 'awaiting_context'];
+const COMMAND_STATUSES: WarehouseProvisioningStatus[] = ['initializing', 'debugging', 'syncing'];
 
 const preparedWarehouseSchema = z.object({
 	database_config: z.record(z.string(), z.unknown()),
@@ -314,6 +323,7 @@ type PublicWarehouseProvisioningJob = Pick<
 	DBWarehouseProvisioningJob,
 	'id' | 'provider' | 'status' | 'failedStatus' | 'projectId' | 'projectName' | 'logs' | 'error'
 > & {
+	cause: string | null;
 	businessContextProvided: boolean;
 	canRetry: boolean;
 };
@@ -596,6 +606,7 @@ function toPublicWarehouseProvisioningJob(job: DBWarehouseProvisioningJob): Publ
 		projectName: job.projectName,
 		logs: job.logs,
 		error: job.error,
+		cause: getFailureCause(job),
 		businessContextProvided: Boolean(job.businessContext),
 		canRetry: canRetryJob(job),
 	};
@@ -607,10 +618,28 @@ function toWarehouseSetup(job: DBWarehouseProvisioningJob): WarehouseSetup {
 		status: job.status,
 		failedStatus: job.failedStatus,
 		error: job.error,
-		logs: job.logs ? job.logs.slice(-AGENT_LOGS_LIMIT) : null,
+		cause: getFailureCause(job),
+		logs: getCommandLogs(job),
 		businessContextProvided: Boolean(job.businessContext),
 		canRetry: canRetryJob(job),
 	};
+}
+
+/** A failed command is explained by its logs, which its cause would only repeat. */
+function getFailureCause(job: DBWarehouseProvisioningJob): string | null {
+	if (job.status !== 'failed' || !job.errorDetail || job.errorDetail === job.error || getCommandLogs(job)) {
+		return null;
+	}
+	return job.errorDetail.slice(0, FAILURE_CAUSE_LIMIT);
+}
+
+/** Logs belong to the last command, so they would mislead about a step that runs no command. */
+function getCommandLogs(job: DBWarehouseProvisioningJob): string | null {
+	const step = isStoppedStatus(job.status) ? job.failedStatus : job.status;
+	if (!job.logs || !step || !COMMAND_STATUSES.includes(step)) {
+		return null;
+	}
+	return job.logs.slice(-AGENT_LOGS_LIMIT);
 }
 
 function canRetryJob(job: DBWarehouseProvisioningJob): boolean {
@@ -713,16 +742,14 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		if (error instanceof WarehouseSetupCancelledError) {
 			return;
 		}
-		const serializedError = serializeError(error);
-		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';
-		logger.error(`Warehouse provisioning failed: ${errorMessage}`, {
+		logger.error(`Warehouse provisioning failed: ${describeError(error)}`, {
 			source: 'system',
 			context: {
 				jobId,
-				error: serializedError,
+				error: serializeError(error),
 			},
 		});
-		await failJob(jobId, getPublicProvisioningError(error));
+		await failJob(jobId, getPublicProvisioningError(error), describeError(error));
 	} finally {
 		if (projectDir) {
 			fs.rmSync(projectDir, { recursive: true, force: true });
@@ -786,7 +813,7 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 		);
 
 		await updateJob(jobId, { status: 'publishing' });
-		managedRepository = await provisionManagedGithubRepository({
+		managedRepository = await publishProject({
 			projectId: job.projectId,
 			projectName: job.projectName,
 			projectDir: registeredProjectPath,
@@ -803,18 +830,26 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 		if (error instanceof WarehouseSetupCancelledError) {
 			return;
 		}
-		const serializedError = serializeError(error);
-		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';
-		logger.error(`Warehouse finalization failed: ${errorMessage}`, {
+		logger.error(`Warehouse finalization failed: ${describeError(error)}`, {
 			source: 'system',
 			context: {
 				jobId,
 				projectId: job.projectId,
 				projectName: job.projectName,
-				error: serializedError,
+				error: serializeError(error),
 			},
 		});
-		await failJob(jobId, 'Project setup could not be completed. Please try again.');
+		await failJob(jobId, getPublicFinalizationError(error), describeError(error));
+	}
+}
+
+async function publishProject(
+	input: Parameters<typeof provisionManagedGithubRepository>[0],
+): Promise<Awaited<ReturnType<typeof provisionManagedGithubRepository>>> {
+	try {
+		return await provisionManagedGithubRepository(input);
+	} catch (error) {
+		throw new ProjectPublishingError(error);
 	}
 }
 
@@ -1069,12 +1104,11 @@ async function recoverProvisioningJob(jobId: string): Promise<void> {
 			if (error instanceof WarehouseSetupCancelledError) {
 				return;
 			}
-			const serializedError = serializeError(error);
-			logger.error('Warehouse provisioning recovery failed', {
+			logger.error(`Warehouse provisioning recovery failed: ${describeError(error)}`, {
 				source: 'system',
-				context: { jobId, error: serializedError },
+				context: { jobId, error: serializeError(error) },
 			});
-			await failJob(jobId, getPublicProvisioningError(error));
+			await failJob(jobId, getPublicProvisioningError(error), describeError(error));
 		}
 	});
 
@@ -1095,10 +1129,12 @@ async function recoverFinalizationJob(jobId: string): Promise<void> {
 
 async function failExhaustedJob(job: DBWarehouseProvisioningJob): Promise<void> {
 	await cleanUpStoppedJob(job, job.status);
-	await failJob(job.id, 'Warehouse setup stopped unexpectedly several times. Please try again.', {
-		lockedBy: null,
-		lockedAt: null,
-	});
+	await failJob(
+		job.id,
+		'Warehouse setup stopped unexpectedly several times. Please try again.',
+		`Abandoned ${job.attempts} times while ${job.status}: each worker stopped before finishing, for example on a server restart.`,
+		{ lockedBy: null, lockedAt: null },
+	);
 }
 
 /**
@@ -1196,6 +1232,7 @@ async function updateJob(
 async function failJob(
 	jobId: string,
 	error: string,
+	errorDetail: string,
 	changes: warehouseProvisioningJobQueries.WarehouseProvisioningJobChanges = {},
 ): Promise<void> {
 	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(jobId);
@@ -1204,6 +1241,7 @@ async function failJob(
 		status: 'failed',
 		failedStatus: job?.status ?? null,
 		error,
+		errorDetail: errorDetail.slice(0, ERROR_DETAIL_LIMIT),
 		temporaryDirectory: null,
 		finishedAt: new Date(),
 	});
@@ -1213,6 +1251,21 @@ class ProjectNameConflictError extends Error {
 	constructor(projectName: string) {
 		super(`A project named "${projectName}" already exists.`);
 	}
+}
+
+class ProjectPublishingError extends Error {
+	constructor(cause: unknown) {
+		super('Project publishing failed', { cause });
+	}
+}
+
+function getPublicFinalizationError(error: unknown): string {
+	if (!(error instanceof ProjectPublishingError)) {
+		return FINALIZATION_FAILED_MESSAGE;
+	}
+	return error.cause instanceof ManagedGithubConfigurationError
+		? PUBLISHING_MISCONFIGURED_MESSAGE
+		: PUBLISHING_FAILED_MESSAGE;
 }
 
 export function getPublicProvisioningError(error: unknown): string {
@@ -1225,9 +1278,9 @@ export function getPublicProvisioningError(error: unknown): string {
 	}
 
 	const message = error instanceof Error ? error.message : String(error);
-	const failedCommand = message.match(/^nao (init|debug|sync) (?:failed|timed out)\b/i)?.[1]?.toLowerCase();
-	if (failedCommand) {
-		return `nao ${failedCommand} failed. Check the logs for details.`;
+	const commandFailure = message.match(/^nao (init|debug|sync) (failed|timed out)\b/i);
+	if (commandFailure) {
+		return `nao ${commandFailure[1].toLowerCase()} ${commandFailure[2].toLowerCase()}. Check the logs for details.`;
 	}
 
 	const connector = message.match(/nao-core\[([^\]]+)\]/i)?.[1];

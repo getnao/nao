@@ -20,6 +20,11 @@ export const WAREHOUSE_PROVISIONING_STATUSES = waitForWarehouseSetup.SETUP_STATU
 
 export type WarehouseProvisioningStatus = (typeof WAREHOUSE_PROVISIONING_STATUSES)[number];
 
+export interface WarehouseProvisioningStep {
+	status: WarehouseProvisioningStatus;
+	at: string;
+}
+
 export const WAREHOUSE_CONNECTION_CHECK_OUTCOMES = ['ok', 'connection_error', 'missing_credentials'] as const;
 
 export type WarehouseConnectionCheckOutcome = (typeof WAREHOUSE_CONNECTION_CHECK_OUTCOMES)[number];

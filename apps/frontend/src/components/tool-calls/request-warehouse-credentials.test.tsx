@@ -192,6 +192,22 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 		expect(mocks.mutations.retry.mutateAsync).toHaveBeenCalledWith({ onboardingChatId: 'chat-1' });
 	});
 
+	it('shows the technical cause of a failure that ran no command', () => {
+		mocks.latestJob = createJob({
+			status: 'failed',
+			failedStatus: 'publishing',
+			error: 'Your warehouse connection works, but nao could not save the project.',
+			cause: 'Failed to create installation token: GitHub returned 401',
+			canRetry: true,
+		});
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.getByText('View technical details')).toBeTruthy();
+		expect(screen.getByRole('alert').textContent).toContain(
+			'Failed to create installation token: GitHub returned 401',
+		);
+	});
+
 	it('lets users edit the connection details after a failure', () => {
 		mocks.latestJob = createJob({ status: 'failed', failedStatus: 'initializing', canRetry: false });
 		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
@@ -280,6 +296,7 @@ function createJob(overrides: Record<string, unknown>) {
 		status: 'queued',
 		failedStatus: null,
 		error: null,
+		cause: null,
 		logs: null,
 		businessContextProvided: false,
 		canRetry: false,
