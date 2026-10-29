@@ -4,6 +4,7 @@ import { useParams } from '@tanstack/react-router';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSidebar } from '@/contexts/sidebar';
 import {
+	CHAT_PANEL_MIN_WIDTH,
 	SIDEBAR_DELTA,
 	SIDE_PANEL_ANIMATION_DURATION,
 	SIDE_PANEL_ANIMATION_EASING,
@@ -110,7 +111,7 @@ export const useSidePanel = ({
 
 		const sidebarDelta = shouldCollapseSidebar && didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0;
 		const containerWidth = container.getBoundingClientRect().width + sidebarDelta;
-		const ratio = defaultWidthRatio !== undefined ? defaultWidthRatio : loadPersistedWidthRatio();
+		const ratio = resolveWidthRatio(defaultWidthRatio);
 		const targetWidth = Math.floor(ratio * containerWidth);
 
 		animateSidePanel({
@@ -130,12 +131,14 @@ export const useSidePanel = ({
 			setContent(createElement(Fragment, { key: contentEpochRef.current }, newContent));
 			setCurrentStorySlug(storySlug ?? null);
 			setCurrentStoryTabIndex(0);
-			if (!isMobile && shouldCollapseSidebar) {
-				didCollapseSidebarRef.current = !isSidebarCollapsed;
+			const widthRatio = resolveWidthRatio(defaultWidthRatio);
+			const isTooNarrow = !hasRoomForSidePanel(containerRef.current, widthRatio);
+			if (!isMobile && shouldCollapseSidebar && !isSidebarCollapsed && isTooNarrow) {
+				didCollapseSidebarRef.current = true;
 				collapseSidebar({ persist: false });
 			}
 		},
-		[isMobile, shouldCollapseSidebar, collapseSidebar, isSidebarCollapsed],
+		[isMobile, shouldCollapseSidebar, collapseSidebar, isSidebarCollapsed, containerRef, defaultWidthRatio],
 	);
 
 	const expandSidebarIfWasCollapsed = useCallback(() => {
@@ -183,6 +186,20 @@ export const useSidePanel = ({
 		close,
 	};
 };
+
+function resolveWidthRatio(defaultWidthRatio: number | undefined): number {
+	return defaultWidthRatio ?? loadPersistedWidthRatio();
+}
+
+/** Whether the side panel and the chat both fit at their minimum widths beside the expanded sidebar. */
+function hasRoomForSidePanel(container: HTMLElement | null, widthRatio: number): boolean {
+	if (!container) {
+		return true;
+	}
+	const containerWidth = container.getBoundingClientRect().width;
+	const sidePanelWidth = Math.max(SIDE_PANEL_MIN_WIDTH, Math.floor(widthRatio * containerWidth));
+	return containerWidth - sidePanelWidth >= CHAT_PANEL_MIN_WIDTH;
+}
 
 /** Keeps the panel content at a fixed width while the panel animates, so it slides instead of reflowing every frame. */
 function freezeContentWidth(sidePanel: HTMLDivElement, width: number) {
