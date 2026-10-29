@@ -163,7 +163,12 @@ nao test server
 
 ## 🚀 Deploy
 
-- **nao Cloud**: [sign up](https://app.getnao.io/signup) and push your context with `nao deploy`.
+- **nao Cloud**: [sign up](https://app.getnao.io/signup), create an organization API key in **Settings → Organization → Organization API keys**, then push your context:
+
+  ```bash
+  nao deploy https://app.getnao.io --api-key "$NAO_API_KEY"
+  ```
+
 - **Self-hosted**: run the Docker image below, or follow the [deployment guide](https://docs.getnao.io/nao-agent/self-hosting/deployment-guide) (for example on Cloud Run with PostgreSQL, or with the [Helm chart](helm/)).
 - **Continuous deployment**: the `deploy-context` skill sets up a GitHub Action that runs `nao deploy` on every push to `main`.
 
@@ -210,7 +215,7 @@ The core of nao is open source under Apache 2.0. The [Enterprise license](https:
 | Self-hosting on your infrastructure | ✅ | ✅ |
 | Google, GitHub and GitLab login | ✅ | ✅ |
 | User groups | Up to 3 | Unlimited |
-| Multiple projects (separate data, context and access) | | ✅ |
+| Multiple projects (separate data, context and access) | | Cloud only |
 | Microsoft Entra ID and OIDC SSO | | ✅ |
 | Row-level security | | ✅ |
 | Warehouse identity passthrough | | ✅ |
@@ -218,7 +223,7 @@ The core of nao is open source under Apache 2.0. The [Enterprise license](https:
 | White-label branding | | ✅ |
 | Priority support and roadmap input | | ✅ |
 
-Yearly license per company. The license is verified offline at startup: your deployment never phones home. The nao team also helps with implementation, context engineering advisory and training. [Talk to us](https://getnao.io/enterprise/).
+Yearly license per company. The license is verified offline at startup against a signed key. Online licenses also send a periodic heartbeat to `licenses.getnao.io`; for air-gapped deployments, ask for an offline license, which never phones home. The nao team also helps with implementation, context engineering advisory and training. [Talk to us](https://getnao.io/enterprise/).
 
 ## Commands
 
