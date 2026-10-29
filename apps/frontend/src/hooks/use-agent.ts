@@ -27,6 +27,8 @@ import {
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
 	parseBudgetError,
+	parseChatAllowanceExhaustedError,
+	parseManagedCreditsError,
 	resolveImagesFromMessage,
 } from '@/lib/ai';
 import { useSession } from '@/lib/auth-client';
@@ -114,9 +116,14 @@ export const useAgent = ({
 
 	// A null pick means "nao default": no model is sent and the server resolves the admin default.
 	const [pinnedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
-	const defaultChatModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
+	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = currentProject.data != null;
+	const defaultChatModel = useQuery({
+		...trpc.project.getDefaultChatModel.queryOptions(),
+		enabled: hasProject,
+	});
 	const usesDefaultModel = pinnedModel === null;
-	const selectedModel = pinnedModel ?? defaultChatModel.data ?? null;
+	const selectedModel = hasProject ? (pinnedModel ?? defaultChatModel.data ?? null) : null;
 	const setChat = useSetChat();
 	const queryClient = useQueryClient();
 
@@ -125,7 +132,7 @@ export const useAgent = ({
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
-	selectedModelRef.current = pinnedModel;
+	selectedModelRef.current = hasProject ? pinnedModel : null;
 	const modeRef = useRef(mode);
 	modeRef.current = mode;
 	const mentionsRef = useRef<MentionOption[]>([]);
@@ -210,6 +217,7 @@ export const useAgent = ({
 			}
 		};
 
+		let activeRequestProvider: LlmSelectedModel['provider'] | undefined;
 		const newAgent = new Agent<UIMessage>({
 			transport: new DefaultChatTransport({
 				api: '/api/agent',
@@ -230,8 +238,13 @@ export const useAgent = ({
 					const citation = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
 					const documents = extractDocumentPathsFromMessage(messageToSend);
+					const model =
+						activeModeRef.current === 'onboarding'
+							? undefined
+							: (activeSelectedModelRef.current ?? undefined);
 					const adminModeAtSend = activeAdminModeRef.current;
 					agentAdminModeStore.set(newAgent, adminModeAtSend);
+					activeRequestProvider = model?.provider;
 					return {
 						headers: getProjectRequestHeaders(),
 						body: {
@@ -244,10 +257,7 @@ export const useAgent = ({
 								documents: documents.length > 0 ? documents : undefined,
 								citation,
 							},
-							model:
-								activeModeRef.current === 'onboarding'
-									? undefined
-									: (activeSelectedModelRef.current ?? undefined),
+							model,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 							adminMode: adminModeAtSend || undefined,
@@ -257,6 +267,17 @@ export const useAgent = ({
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
+				const finishedRequestProvider = activeRequestProvider;
+				activeRequestProvider = undefined;
+				if (finishedRequestProvider === 'nao') {
+					queryClient.invalidateQueries({ queryKey: trpc.account.getManagedCreditStatus.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.getCreditSummary.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.listCreditLedger.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.listManagedAiUsage.queryKey() });
+					queryClient.invalidateQueries({
+						queryKey: trpc.project.listAvailableTranscribeModels.queryKey(),
+					});
+				}
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
@@ -313,7 +334,7 @@ export const useAgent = ({
 	}, [chatId]);
 
 	useEffect(() => {
-		if (!parseBudgetError(error)) {
+		if (!parseBudgetError(error) && !parseManagedCreditsError(error) && !parseChatAllowanceExhaustedError(error)) {
 			return;
 		}
 		const lastMsg = messages.at(-1);
@@ -412,10 +433,13 @@ export const useAgent = ({
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
+			if (!hasProject && parseChatAllowanceExhaustedError(error)) {
+				return;
+			}
 			clearError();
 			return sendMessage(...args);
 		},
-		[sendMessage, clearError],
+		[sendMessage, clearError, error, hasProject],
 	);
 
 	const queueOrSendMessage = useCallback(

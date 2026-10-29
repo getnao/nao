@@ -3,86 +3,73 @@ import { TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 
 import type { FolderItem } from '@/lib/stories-page';
+import { getFolderSubtreeIds } from '@/lib/stories-page';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FolderTreeSelect, getTargetVisibility } from '@/components/stories-folder-tree-select';
+import { invalidateStoryPlacementCaches } from '@/lib/stories-cache';
 import { trpc } from '@/main';
 
 type PickerTarget =
 	| { type: 'story'; storyId: string }
-	| { type: 'folder'; folderId: string; currentVisibility?: string };
+	| { type: 'folder'; folderId: string; currentVisibility?: string }
+	| { type: 'selection'; storyIds: string[]; folderIds: string[] };
+
+type FolderPlacement = { storyId: string; folderId: string };
 
 export function FolderPickerDialog({
 	open,
 	onOpenChange,
 	target,
 	isOwner,
+	onMoved,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	target: PickerTarget;
 	isOwner: boolean;
+	onMoved?: () => void;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const queryClient = useQueryClient();
 
 	const { data: tree = [] } = useQuery(trpc.storyFolder.listTree.queryOptions());
+	const { data: folderItems = [] } = useQuery(trpc.storyFolder.listItems.queryOptions());
 
-	const moveStoryMutation = useMutation(
-		trpc.storyFolder.moveStory.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-				onOpenChange(false);
-			},
-		}),
-	);
-
-	const moveFolderMutation = useMutation(
-		trpc.storyFolder.move.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-				onOpenChange(false);
-			},
-		}),
-	);
-
-	const isPending = moveStoryMutation.isPending || moveFolderMutation.isPending;
-
-	function getDescendantIds(folderId: string, folders: FolderItem[]): Set<string> {
-		const result = new Set<string>();
-		const queue = [folderId];
-		while (queue.length > 0) {
-			const current = queue.shift()!;
-			result.add(current);
-			for (const f of folders) {
-				if (f.parentId === current) {
-					queue.push(f.id);
-				}
-			}
-		}
-		return result;
+	function handleMoved() {
+		invalidateStoryPlacementCaches(queryClient);
+		onMoved?.();
+		onOpenChange(false);
 	}
 
-	const disabledIds = target.type === 'folder' ? getDescendantIds(target.folderId, tree) : new Set<string>();
+	const moveStoryMutation = useMutation(trpc.storyFolder.moveStory.mutationOptions({ onSuccess: handleMoved }));
+	const moveFolderMutation = useMutation(trpc.storyFolder.move.mutationOptions({ onSuccess: handleMoved }));
+	const bulkMoveMutation = useMutation(trpc.storyFolder.bulkMove.mutationOptions({ onSuccess: handleMoved }));
+
+	const isPending = moveStoryMutation.isPending || moveFolderMutation.isPending || bulkMoveMutation.isPending;
+	const moveError = moveStoryMutation.error ?? moveFolderMutation.error ?? bulkMoveMutation.error;
+
+	const disabledIds = getFolderSubtreeIds(getMovedFolderIds(target), tree);
 
 	const selectedVisibility = getTargetVisibility(selectedId, tree);
-	const sourceVisibility = target.type === 'folder' ? (target.currentVisibility ?? 'public') : null;
-	const visibilityWillChange = sourceVisibility !== null && selectedVisibility !== sourceVisibility;
+	const visibilityWillChange = getSourceVisibilities(target, tree, folderItems).some(
+		(visibility) => visibility !== selectedVisibility,
+	);
 
 	function handleMove() {
+		if (disabledIds.has(selectedId ?? '')) {
+			return;
+		}
 		if (target.type === 'story') {
 			moveStoryMutation.mutate({ storyId: target.storyId, folderId: selectedId });
-		} else {
-			if (disabledIds.has(selectedId ?? '')) {
-				return;
-			}
+		} else if (target.type === 'folder') {
 			moveFolderMutation.mutate({ id: target.folderId, newParentId: selectedId });
+		} else {
+			bulkMoveMutation.mutate({
+				storyIds: target.storyIds,
+				folderIds: target.folderIds,
+				targetFolderId: selectedId,
+			});
 		}
 	}
 
@@ -107,11 +94,11 @@ export function FolderPickerDialog({
 				{visibilityWillChange && (
 					<p className='flex items-center gap-1.5 text-xs text-amber-600'>
 						<TriangleAlert className='size-3.5 shrink-0' />
-						{selectedVisibility === 'public'
-							? 'Moving here will make the folder and its stories public.'
-							: 'Moving here will make the folder and its stories private.'}
+						{getVisibilityWarning(target, selectedVisibility)}
 					</p>
 				)}
+
+				{moveError && <p className='text-xs text-destructive'>{moveError.message}</p>}
 
 				<DialogFooter>
 					<Button
@@ -134,4 +121,39 @@ export function FolderPickerDialog({
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function getMovedFolderIds(target: PickerTarget): string[] {
+	if (target.type === 'folder') {
+		return [target.folderId];
+	}
+	if (target.type === 'selection') {
+		return target.folderIds;
+	}
+	return [];
+}
+
+function getSourceVisibilities(target: PickerTarget, tree: FolderItem[], folderItems: FolderPlacement[]): string[] {
+	if (target.type === 'folder') {
+		return [target.currentVisibility ?? 'public'];
+	}
+	if (target.type === 'selection') {
+		const folderVisibilities = tree
+			.filter((folder) => target.folderIds.includes(folder.id))
+			.map((folder) => folder.visibility);
+		const storyVisibilities = target.storyIds.map((storyId) =>
+			getTargetVisibility(getStoryFolderId(storyId, folderItems), tree),
+		);
+		return [...folderVisibilities, ...storyVisibilities];
+	}
+	return [];
+}
+
+function getStoryFolderId(storyId: string, folderItems: FolderPlacement[]): string | null {
+	return folderItems.find((item) => item.storyId === storyId)?.folderId ?? null;
+}
+
+function getVisibilityWarning(target: PickerTarget, visibility: string): string {
+	const subject = target.type === 'selection' ? 'the selected items' : 'the folder and its stories';
+	return `Moving here will make ${subject} ${visibility === 'public' ? 'public' : 'private'}.`;
 }

@@ -1,7 +1,7 @@
 import type { InferUIMessageChunk } from 'ai';
 import { getToolName, isToolUIPart, readUIMessageStream } from 'ai';
 
-import { getTools } from '../agents/tools';
+import { automationAgent } from '../agents/profiles/automation';
 import { renderAutomationRunPrompt } from '../components/ai/automation-run-prompt';
 import type { DBAutomationRun, DBScheduledJob } from '../db/abstractSchema';
 import type { AutomationWithSchedule } from '../queries/automation.queries';
@@ -139,38 +139,21 @@ async function finishAutomationRun(
 
 		const githubToken = await userQueries.getGithubToken(automation.userId);
 		const expectedTools = getAutomationIntegrationToolNames(automation.integrations);
+		const integrationTools = createAutomationTools({
+			automationId: automation.id,
+			currentRunId: run.id,
+			projectId: automation.projectId,
+			chatId: chat.id,
+			githubToken,
+			integrations: automation.integrations,
+		});
 		const agent = await agentService.create(
 			{ ...uiChat, userId: automation.userId, projectId: automation.projectId },
 			automation.modelProvider && automation.modelId
 				? { provider: automation.modelProvider, modelId: automation.modelId }
 				: undefined,
-			{
-				billingAccessVerifiedProjectId,
-				excludeFollowUps: true,
-				supportsCustomCharts: false,
-				tools: ({ agentSettings, toolContext, webTools }) =>
-					getTools(
-						agentSettings,
-						{
-							...(webTools ?? {}),
-							...createAutomationTools({
-								automationId: automation.id,
-								currentRunId: run.id,
-								projectId: automation.projectId,
-								chatId: chat.id,
-								githubToken,
-								integrations: automation.integrations,
-							}),
-						},
-						{
-							mcpEnabled: automation.mcpEnabled,
-							mcpServers: automation.mcpServers,
-							mcpAccess: toolContext.mcpAccess,
-							excludeFollowUps: true,
-							semanticLayerMode: toolContext.semanticLayerMode,
-						},
-					),
-			},
+			automationAgent(automation, integrationTools),
+			{ billingAccessVerifiedProjectId },
 		);
 
 		logger.info('Automation run starting', {

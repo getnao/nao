@@ -15,6 +15,7 @@ import { contextRecommendationsJobUniqueKey } from '../handlers/context-recommen
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as userQueries from '../queries/user.queries';
+import * as warehouseConnectionCheckQueries from '../queries/warehouse-connection-check.queries';
 import * as warehouseProvisioningJobQueries from '../queries/warehouse-provisioning-job.queries';
 import {
 	type ConfluenceContextSource,
@@ -26,6 +27,7 @@ import {
 	type OnboardingContextSources,
 	onboardingContextSourcesSchema,
 	type ProjectWarehouseCredentials,
+	type WarehouseConnectionCheckOutcome,
 	warehouseConnectionCredentialsSchema,
 	warehouseCredentialsSchema,
 	type WarehouseProvider,
@@ -39,7 +41,6 @@ import {
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger, serializeError } from '../utils/logger';
-import { createNewProject, createTempProjectDir } from '../utils/project-import.utils';
 import { authenticatedRepoUrl } from './github';
 import {
 	deleteManagedGithubRepository,
@@ -47,6 +48,8 @@ import {
 	provisionManagedGithubRepository,
 } from './managed-github-repository';
 import { generateOnboardingRules } from './onboarding-rules';
+import { reconcileProjectReadiness } from './project.service';
+import { createNewProject, createTempProjectDir } from './project-import.service';
 import { cleanupWarehouseContextFiles, restoreWarehouseContextFiles } from './warehouse-context-files';
 import { ONBOARDING_GITHUB_REPOSITORY_URL_ENV, saveProjectWarehouseEnvVars } from './warehouse-credentials';
 
@@ -158,10 +161,42 @@ const persistedCredentialsSchema = z.discriminatedUnion('version', [
 
 class WarehousePreparationError extends Error {}
 
+class WarehouseValidationError extends Error {
+	constructor(
+		message: string,
+		readonly outcome: Exclude<WarehouseConnectionCheckOutcome, 'ok'>,
+	) {
+		super(message);
+	}
+}
+
 export async function validateWarehouseCredentials(
+	userId: string,
 	input: ProjectWarehouseCredentials,
 ): Promise<WarehouseValidationResult> {
 	const connection = warehouseCredentialsSchema.parse(input);
+	try {
+		const result = await requestWarehouseValidation(connection);
+		await recordConnectionCheck(userId, connection.provider, 'ok');
+		return result;
+	} catch (error) {
+		if (error instanceof WarehouseValidationError) {
+			await recordConnectionCheck(userId, connection.provider, error.outcome, error.message);
+			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+		}
+		await recordConnectionCheck(
+			userId,
+			connection.provider,
+			'connection_error',
+			'The connection could not be checked because the validation service failed.',
+		);
+		throw error;
+	}
+}
+
+async function requestWarehouseValidation(
+	connection: ProjectWarehouseCredentials,
+): Promise<WarehouseValidationResult> {
 	let response: Response;
 	try {
 		response = await fetch(`http://localhost:${env.FASTAPI_PORT}/warehouse/validate`, {
@@ -178,27 +213,24 @@ export async function validateWarehouseCredentials(
 		});
 	} catch (error) {
 		if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
-			throw new TRPCError({
-				code: 'BAD_REQUEST',
-				message: 'The warehouse connection timed out. Check the host and port, then try again.',
-			});
+			throw new WarehouseValidationError(
+				'The warehouse connection timed out. Check the host and port, then try again.',
+				'connection_error',
+			);
 		}
 		throw error;
 	}
 
 	if (!response.ok) {
 		const body = warehouseValidationErrorSchema.safeParse(await response.json().catch(() => null));
-		const fields =
-			body.success && typeof body.data.detail !== 'string'
-				? [...new Set(body.data.detail.fields.map(getWarehouseCredentialLabel))]
-				: [];
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message:
-				fields.length > 0
-					? `Could not connect. Check ${new Intl.ListFormat('en', { type: 'conjunction' }).format(fields)}.`
-					: 'The warehouse rejected these credentials. Check them and try again.',
-		});
+		const detail = body.success && typeof body.data.detail !== 'string' ? body.data.detail : null;
+		const fields = detail ? [...new Set(detail.fields.map(getWarehouseCredentialLabel))] : [];
+		throw new WarehouseValidationError(
+			fields.length > 0
+				? `Could not connect. Check ${new Intl.ListFormat('en', { type: 'conjunction' }).format(fields)}.`
+				: 'The warehouse rejected these credentials. Check them and try again.',
+			detail?.code === 'invalid_warehouse_credentials' ? 'missing_credentials' : 'connection_error',
+		);
 	}
 
 	return warehouseValidationResultSchema.parse(await response.json());
@@ -282,6 +314,23 @@ export async function validateConfluenceContext(input: ConfluenceContextSource) 
 	}
 
 	return confluenceContextValidationResultSchema.parse(await response.json());
+}
+
+/** The onboarding funnel reads these checks; failing to record one must not block the user. */
+async function recordConnectionCheck(
+	userId: string,
+	provider: WarehouseProvider,
+	outcome: WarehouseConnectionCheckOutcome,
+	error?: string,
+): Promise<void> {
+	try {
+		await warehouseConnectionCheckQueries.createWarehouseConnectionCheck({ userId, provider, outcome, error });
+	} catch (recordError) {
+		logger.error('Could not record warehouse connection check', {
+			source: 'system',
+			context: { error: serializeError(recordError) },
+		});
+	}
 }
 
 function getWarehouseCredentialLabel(fieldPath: string): string {
@@ -678,13 +727,7 @@ async function provisionWarehouse(
 				error: serializedError,
 			},
 		});
-		await updateJob(jobId, {
-			status: 'failed',
-			error: getPublicProvisioningError(error),
-			encryptedCredentials: null,
-			temporaryDirectory: null,
-			finishedAt: new Date(),
-		});
+		await failJob(jobId, getPublicProvisioningError(error));
 		if (projectDir) {
 			await cleanupStagedWarehouseContextFiles(jobId, projectDir);
 		}
@@ -786,13 +829,7 @@ async function syncWarehouse(jobId: string, input: ProvisionWarehouseInput, proj
 		if (registeredProjectId && registeredProjectPath) {
 			await rollbackRegisteredProject(registeredProjectId, registeredProjectPath);
 		}
-		await updateJob(jobId, {
-			status: 'failed',
-			error: getPublicProvisioningError(error),
-			encryptedCredentials: null,
-			temporaryDirectory: null,
-			finishedAt: new Date(),
-		});
+		await failJob(jobId, getPublicProvisioningError(error));
 		await cleanupStagedWarehouseContextFiles(jobId, projectDir);
 	} finally {
 		fs.rmSync(projectDir, { recursive: true, force: true });
@@ -1001,6 +1038,7 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 			temporaryDirectory: null,
 			finishedAt: new Date(),
 		});
+		await reconcileProjectReadiness(job.projectId);
 	} catch (error) {
 		const serializedError = serializeError(error);
 		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';
@@ -1014,13 +1052,7 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 			},
 		});
 		await rollbackRegisteredProject(job.projectId, registeredProjectPath, managedRepository?.repoFullName);
-		await updateJob(jobId, {
-			status: 'failed',
-			error: 'Project setup could not be completed. Please try again.',
-			encryptedCredentials: null,
-			temporaryDirectory: null,
-			finishedAt: new Date(),
-		});
+		await failJob(jobId, 'Project setup could not be completed. Please try again.');
 	}
 }
 
@@ -1355,13 +1387,7 @@ async function recoverProvisioningJob(
 				source: 'system',
 				context: { jobId, error: serializedError },
 			});
-			await updateJob(jobId, {
-				status: 'failed',
-				error: getPublicProvisioningError(error),
-				encryptedCredentials: null,
-				temporaryDirectory: null,
-				finishedAt: new Date(),
-			});
+			await failJob(jobId, getPublicProvisioningError(error));
 		}
 	});
 	if (awaitingContextSources) {
@@ -1406,14 +1432,9 @@ async function failExhaustedJob(job: DBWarehouseProvisioningJob): Promise<void> 
 			managedRepositoryFullName ?? undefined,
 		);
 	}
-	await updateJob(job.id, {
-		status: 'failed',
-		error: 'Warehouse setup stopped unexpectedly several times. Please try again.',
-		encryptedCredentials: null,
-		temporaryDirectory: null,
+	await failJob(job.id, 'Warehouse setup stopped unexpectedly several times. Please try again.', {
 		lockedBy: null,
 		lockedAt: null,
-		finishedAt: new Date(),
 	});
 }
 
@@ -1460,6 +1481,24 @@ async function updateJob(
 	if (!persistedJob) {
 		throw new Error('Warehouse setup job not found');
 	}
+}
+
+/** Keeps the status the job failed at, so the onboarding funnel knows which step broke. */
+async function failJob(
+	jobId: string,
+	error: string,
+	changes: warehouseProvisioningJobQueries.WarehouseProvisioningJobChanges = {},
+): Promise<void> {
+	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(jobId);
+	await updateJob(jobId, {
+		...changes,
+		status: 'failed',
+		failedStatus: job?.status ?? null,
+		error,
+		encryptedCredentials: null,
+		temporaryDirectory: null,
+		finishedAt: new Date(),
+	});
 }
 
 class ProjectNameConflictError extends Error {

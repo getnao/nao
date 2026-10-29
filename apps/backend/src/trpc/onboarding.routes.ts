@@ -26,7 +26,7 @@ export const onboardingRoutes = router({
 	validateWarehouseCredentials: organizationProtectedProcedure
 		.input(warehouseCredentialsSchema)
 		.output(warehouseValidationResultSchema)
-		.mutation(({ input }) => validateWarehouseCredentials(input)),
+		.mutation(({ ctx, input }) => validateWarehouseCredentials(ctx.user.id, input)),
 
 	validateNotionContext: organizationProtectedProcedure
 		.input(notionContextSourceSchema)

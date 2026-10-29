@@ -24,6 +24,7 @@ SQLGLOT_DIALECTS = {
     "bigquery": "bigquery",
     "clickhouse": "clickhouse",
     "duckdb": "duckdb",
+    "ducklake": "duckdb",
     "databricks": "databricks",
     "fabric": "tsql",
     "snowflake": "snowflake",

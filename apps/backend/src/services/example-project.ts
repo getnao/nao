@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 
 import { isCloud } from '../env';
+import { JAFFLE_SHOP_SAVED_PROMPTS } from '../fixtures/jaffle-shop-saved-prompts';
+import { upsertSystemExampleStory } from '../queries/example-story.queries';
 import * as projectQueries from '../queries/project.queries';
+import { upsertSavedPrompts } from '../queries/project-saved-prompt.queries';
 
 export { SYSTEM_EXAMPLE_PROJECT_ID };
 
@@ -16,7 +19,10 @@ export async function ensureSystemExampleProject() {
 		throw new Error(`Example project not found at ${projectPath}`);
 	}
 
-	return projectQueries.upsertSystemExampleProject(projectPath);
+	const project = await projectQueries.upsertSystemExampleProject(projectPath);
+	await upsertSystemExampleStory();
+	await upsertSavedPrompts(JAFFLE_SHOP_SAVED_PROMPTS);
+	return project;
 }
 
 export async function getExampleProjectForUser(userId: string) {

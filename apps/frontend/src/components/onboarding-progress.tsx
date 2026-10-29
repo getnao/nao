@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Loader2, Terminal, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, CircleAlert, Loader2, Terminal, TriangleAlert } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -85,24 +85,39 @@ export function WarehouseCommandProgress({
 	status?: WarehouseProvisioningStatus;
 	logs?: string | null;
 }) {
-	if (status !== 'debugging' && status !== 'syncing') {
+	if (!status) {
 		return null;
 	}
 
 	const isSyncing = status === 'syncing';
 	const syncProgress = isSyncing ? getLatestPercentage(logs) : null;
-	const progress = isSyncing ? (syncProgress ?? 50) : 25;
-	const label = isSyncing ? 'Syncing schema and previews' : 'Checking your warehouse connection';
+	const progress = isSyncing ? (syncProgress ?? 50) : WAREHOUSE_PROGRESS[status];
+	const label = WAREHOUSE_PROGRESS_LABELS[status];
+	const isReady = status === 'ready';
+	const isStopped = status === 'failed' || status === 'cancelled';
+	const showLogs = Boolean(logs?.trim());
 
 	return (
 		<div className='rounded-xl border border-violet/20 bg-background/95 px-4 py-3 shadow-sm backdrop-blur'>
 			<div className='flex items-center justify-between gap-3'>
 				<div className='flex min-w-0 items-center gap-2'>
-					<Loader2 className='size-3.5 shrink-0 animate-spin text-violet' />
+					{isReady ? (
+						<CheckCircle2 className='size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400' />
+					) : isStopped ? (
+						<CircleAlert className='size-3.5 shrink-0 text-destructive' />
+					) : (
+						<Loader2 className='size-3.5 shrink-0 animate-spin text-violet' />
+					)}
 					<span className='truncate text-xs font-medium'>{label}</span>
 				</div>
 				<span className='shrink-0 text-[11px] text-muted-foreground'>
-					{syncProgress === null ? 'In progress' : `${syncProgress}%`}
+					{isReady
+						? 'Complete'
+						: isStopped
+							? 'Stopped'
+							: syncProgress === null
+								? 'In progress'
+								: `${syncProgress}%`}
 				</span>
 			</div>
 			<div
@@ -110,18 +125,21 @@ export function WarehouseCommandProgress({
 				aria-label={label}
 				aria-valuemin={0}
 				aria-valuemax={100}
-				aria-valuenow={syncProgress ?? undefined}
+				aria-valuenow={
+					status === 'debugging' || (status === 'syncing' && syncProgress === null) ? undefined : progress
+				}
 				className='mt-2 h-1.5 overflow-hidden rounded-full bg-muted'
 			>
 				<div
 					className={cn(
 						'h-full rounded-full bg-violet transition-[width] duration-300',
-						!syncProgress && 'animate-pulse',
+						isStopped && 'bg-destructive',
+						!isReady && !isStopped && !syncProgress && 'animate-pulse',
 					)}
 					style={{ width: `${progress}%` }}
 				/>
 			</div>
-			{logs?.trim() && (
+			{showLogs && (
 				<details className='group mt-2'>
 					<summary className='flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground'>
 						<Terminal className='size-3' />
@@ -165,6 +183,36 @@ export function WarehouseProvisioningWarnings({
 	);
 }
 
+const WAREHOUSE_PROGRESS: Record<WarehouseProvisioningStatus, number> = {
+	queued: 5,
+	initializing: 15,
+	debugging: 25,
+	awaiting_sources: 35,
+	syncing: 50,
+	registering: 65,
+	awaiting_context: 75,
+	finalizing: 85,
+	publishing: 95,
+	ready: 100,
+	failed: 100,
+	cancelled: 100,
+};
+
+const WAREHOUSE_PROGRESS_LABELS: Record<WarehouseProvisioningStatus, string> = {
+	queued: 'Preparing warehouse setup',
+	initializing: 'Initializing your nao project',
+	debugging: 'Checking your warehouse connection',
+	awaiting_sources: 'Waiting for business context',
+	syncing: 'Syncing schema and previews',
+	registering: 'Registering your project',
+	awaiting_context: 'Waiting for business context',
+	finalizing: 'Finalizing your connection',
+	publishing: 'Publishing your project',
+	ready: 'Warehouse connection ready',
+	failed: 'Warehouse setup failed',
+	cancelled: 'Warehouse setup cancelled',
+};
+
 export function findWarehouseJobId(messages: UIMessage[]): string | null {
 	for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
 		const parts = messages[messageIndex].parts;
@@ -182,6 +230,10 @@ export type OnboardingProgressState = {
 	flow: keyof typeof ONBOARDING_STEPS;
 	step: number;
 };
+
+export function isDeployStepReached(progress: OnboardingProgressState | null): boolean {
+	return (progress?.flow === 'new' || progress?.flow === 'local') && progress.step >= 3;
+}
 
 export function getCompletedSteps(
 	progress: OnboardingProgressState | null,
@@ -202,14 +254,22 @@ export function getCompletedSteps(
 }
 
 export function isOnboardingComplete(
-	hasProject: boolean,
+	hasOnboardingProject: boolean,
 	progress: OnboardingProgressState | null,
 	warehouseReady: boolean,
 ): boolean {
-	const progressComplete =
-		((progress?.flow === 'new' || progress?.flow === 'local') && progress.step === 4) ||
-		(progress?.flow === 'github' && progress.step === 2);
-	return hasProject && (warehouseReady || progressComplete);
+	const progressComplete = isDeployStepReached(progress) || (progress?.flow === 'github' && progress.step === 2);
+	return hasOnboardingProject && (warehouseReady || progressComplete);
+}
+
+export function findCreatedOnboardingProject<T extends { createdAt: Date }>(
+	projects: T[] | undefined,
+	onboardingStartedAt: number | undefined,
+): T | null {
+	if (onboardingStartedAt === undefined) {
+		return null;
+	}
+	return projects?.find((project) => project.createdAt.getTime() >= onboardingStartedAt) ?? null;
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

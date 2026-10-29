@@ -18,6 +18,7 @@ vi.mock('../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: vi.fn(async () => []),
 }));
 
+import { isManagedAiEnabled } from '../src/agents/managed-ai';
 import { __reloadEnvForTesting, env } from '../src/env';
 import { getEnvProviders, hasEnvApiKey, isProviderDisabled, resolveProviderSettings } from '../src/utils/llm';
 
@@ -92,6 +93,30 @@ describe('DISABLED_PROVIDERS', () => {
 		setDisabledProviders('bedrock');
 		expect(hasEnvApiKey('bedrock')).toBe(false);
 		expect(getEnvProviders()).not.toContain('bedrock');
+	});
+
+	it('never auto-registers the nao-managed key as an environment provider', () => {
+		process.env.NAO_MANAGED_OPENAI_API_KEY = 'managed-key';
+		process.env.NAO_MODE = 'cloud';
+		process.env.CLOUD_GITHUB_PROJECT_ORG = 'test-org';
+		process.env.CLOUD_GITHUB_PROJECT_APP_ID = '123';
+		process.env.CLOUD_GITHUB_PROJECT_INSTALLATION_ID = '456';
+		process.env.CLOUD_GITHUB_PROJECT_PRIVATE_KEY = 'test-private-key';
+		process.env.SMTP_HOST = 'smtp.example.com';
+		process.env.SMTP_MAIL_FROM = 'hello@example.com';
+		process.env.SMTP_PASSWORD = 'secret';
+		setDisabledProviders(undefined);
+		expect(env.NAO_MANAGED_OPENAI_API_KEY).toBe('managed-key');
+		expect(isManagedAiEnabled()).toBe(true);
+		expect(hasEnvApiKey('nao')).toBe(false);
+		expect(getEnvProviders()).not.toContain('nao');
+
+		setDisabledProviders('nao');
+		expect(isManagedAiEnabled()).toBe(false);
+
+		process.env.NAO_MODE = 'self-hosted';
+		setDisabledProviders(undefined);
+		expect(isManagedAiEnabled()).toBe(false);
 	});
 
 	it('overrides credentials configured in the database', async () => {

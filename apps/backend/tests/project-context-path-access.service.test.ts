@@ -288,4 +288,37 @@ describe('project file access', () => {
 			false,
 		);
 	});
+
+	it('hides the skill files that the user groups do not grant', () => {
+		const context = {
+			warehouseTableAccess: unrestrictedWarehouse,
+			docsContextAccess: unenforcedDocs,
+			filesContextAccess: unenforcedFiles,
+			mcpAccess: allMcpAccess,
+			skillsAccess: {
+				mode: 'restricted' as const,
+				skills: ['revenue'],
+				grantedFiles: ['agent/skills/revenue-playbook.md'],
+			},
+		};
+		const allowed = (virtualPath: string, kind: 'file' | 'directory' = 'file') =>
+			isProjectContextPathAllowed(context, virtualPath, virtualPath, kind);
+
+		expect(allowed('/agent/skills', 'directory')).toBe(true);
+		expect(allowed('/agent/skills/revenue-playbook.md')).toBe(true);
+		expect(allowed('/agent/skills/churn.md')).toBe(false);
+		expect(allowed('/Agent/Skills/churn.md')).toBe(false);
+		expect(allowed('/agent/skills/nested', 'directory')).toBe(false);
+		expect(allowed('/agent/skills/./churn.md')).toBe(false);
+		expect(allowed('/RULES.md')).toBe(true);
+		expect(isProjectContextPathAllowed(context, '/notes/alias.md', '/agent/skills/churn.md', 'file')).toBe(false);
+		expect(
+			isProjectContextPathAllowed(
+				{ ...context, skillsAccess: { mode: 'all' as const } },
+				'/agent/skills/churn.md',
+				'/agent/skills/churn.md',
+				'file',
+			),
+		).toBe(true);
+	});
 });

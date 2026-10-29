@@ -9,6 +9,17 @@ const mocks = vi.hoisted(() => ({
 	density: 'detailed' as 'detailed' | 'compact',
 	messages: [] as UIMessage[],
 	openSidePanel: vi.fn(),
+	openMentionedStory: vi.fn(),
+	mentionedStories: [] as { storyId: string; title: string }[],
+}));
+
+vi.mock('@/hooks/use-mentioned-stories', () => ({
+	useMentionedStories: () => mocks.mentionedStories,
+	useOpenMentionedStory: () => mocks.openMentionedStory,
+}));
+
+vi.mock('@/components/side-panel/open-story-in-side-panel', () => ({
+	useOpenStoryInSidePanel: () => vi.fn(),
 }));
 
 vi.mock('@/hooks/use-tool-call-density', () => ({
@@ -87,6 +98,8 @@ describe('ChatArtifactsMenu', () => {
 		mocks.density = 'detailed';
 		mocks.messages = [user('u1', filePart), assistant('a1', storyPart, queryPart)];
 		mocks.openSidePanel.mockReset();
+		mocks.openMentionedStory.mockReset();
+		mocks.mentionedStories = [];
 	});
 	afterEach(() => {
 		cleanup();
@@ -101,6 +114,17 @@ describe('ChatArtifactsMenu', () => {
 		expect(screen.getByText('Stories')).toBeDefined();
 		expect(screen.getByText('Files')).toBeDefined();
 		expect(screen.getByText('Queries')).toBeDefined();
+	});
+
+	it('lists the stories the conversation mentions with its own stories, and opens them', () => {
+		mocks.messages = [user('u1', filePart)];
+		mocks.mentionedStories = [{ storyId: 'story-1', title: 'Top customers' }];
+		renderMenu(WIDE_COLUMN);
+
+		expect(screen.getByText('Stories')).toBeDefined();
+		expect(screen.queryByText('Mentioned stories')).toBeNull();
+		fireEvent.click(screen.getByText('Top customers'));
+		expect(mocks.openMentionedStory).toHaveBeenCalledWith({ storyId: 'story-1', title: 'Top customers' });
 	});
 
 	it('stays collapsed when the panel would overlap the chat', () => {

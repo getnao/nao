@@ -26,6 +26,7 @@ describe('getSafeRedirectPath', () => {
 		expect(getSafeRedirectPath('/signup/?foo=bar')).toBeNull();
 		expect(getSafeRedirectPath('/forgot-password#hash')).toBeNull();
 		expect(getSafeRedirectPath('/reset-password')).toBeNull();
+		expect(getSafeRedirectPath('/email-verified?redirect=%2Fsettings')).toBeNull();
 	});
 
 	it('passes through safe in-app paths and preserves the original value', () => {

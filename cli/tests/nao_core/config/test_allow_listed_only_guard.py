@@ -368,6 +368,56 @@ def test_motherduck_uses_duckdb_dialect_for_request_access(tmp_path: Path):
     )
 
 
+def test_ducklake_uses_duckdb_dialect_for_request_access(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {"lake.marts": ["communes"], "lake.raw": ["communes_source"]},
+        database_name="lake",
+    )
+    config.type = "ducklake"
+    sql = "SELECT * FROM lake.marts.communes"
+
+    assert (
+        enforce_allow_listed_only(
+            sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("lake.marts", "communes")},
+        )
+        == sql
+    )
+
+
+def test_ducklake_request_access_blocks_ungranted_schema(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {"lake.marts": ["communes"], "lake.raw": ["communes_source"]},
+        database_name="lake",
+    )
+    config.type = "ducklake"
+
+    with pytest.raises(AllowListedOnlyGuardError, match=r"Denied table\(s\): lake\.raw\.communes_source"):
+        enforce_allow_listed_only(
+            "SELECT * FROM lake.raw.communes_source",
+            config,
+            tmp_path,
+            group_allowed_tables={("lake.marts", "communes")},
+        )
+
+
+def test_ducklake_request_access_blocks_table_functions(tmp_path: Path):
+    config = FakeDatabaseConfig(False, {"lake.marts": ["communes"]}, database_name="lake")
+    config.type = "ducklake"
+
+    with pytest.raises(AllowListedOnlyGuardError, match="dynamic table reference"):
+        enforce_allow_listed_only(
+            "SELECT * FROM read_parquet('s3://lake/warehouse/raw/*.parquet')",
+            config,
+            tmp_path,
+            group_allowed_tables={("lake.marts", "communes")},
+        )
+
+
 def test_listed_qualified_table_is_allowed(tmp_path: Path):
     create_context_table(tmp_path, "main", "orders")
     config = FakeDatabaseConfig(True)

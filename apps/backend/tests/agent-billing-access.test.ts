@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	addHook: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserIsActive: vi.fn(),
 	getChatProjectId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	handleAgentRoute: vi.fn(),
@@ -24,13 +25,31 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
+vi.mock('../src/services/account-status.service', () => ({
+	assertUserIsActive: mocks.assertUserIsActive,
+}));
 
+import { analyticsAgent } from '../src/agents/profiles/analytics';
 import { agentRoutes } from '../src/routes/agent';
 import { AgentService } from '../src/services/agent';
+
+const CHAT = { id: 'chat-1', projectId: 'project-1', userId: 'user-1' };
 
 describe('agent billing access', () => {
 	beforeEach(() => {
 		mocks.assertProjectCloudBillingAccess.mockReset();
+		mocks.assertUserIsActive.mockReset();
+	});
+
+	it('rejects a deactivated user before checking billing', async () => {
+		const service = new AgentService();
+		const deactivatedError = new Error('This account has been deactivated.');
+		mocks.assertUserIsActive.mockRejectedValue(deactivatedError);
+
+		await expect(service.create(CHAT, undefined, analyticsAgent)).rejects.toBe(deactivatedError);
+
+		expect(mocks.assertUserIsActive).toHaveBeenCalledWith('user-1');
+		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
 	});
 
 	it('preserves an existing agent when billing rejects its replacement', async () => {
@@ -41,9 +60,7 @@ describe('agent billing access', () => {
 		agents.set('chat-1', existingAgent);
 		mocks.assertProjectCloudBillingAccess.mockRejectedValue(accessError);
 
-		await expect(service.create({ id: 'chat-1', projectId: 'project-1', userId: 'user-1' })).rejects.toBe(
-			accessError,
-		);
+		await expect(service.create(CHAT, undefined, analyticsAgent)).rejects.toBe(accessError);
 
 		expect(existingAgent.stop).not.toHaveBeenCalled();
 		expect(service.get('chat-1')).toBe(existingAgent);
@@ -59,8 +76,9 @@ describe('agent billing access', () => {
 
 		await expect(
 			service.create(
-				{ id: 'chat-1', projectId: 'project-1', userId: 'user-1' },
+				CHAT,
 				undefined,
+				analyticsAgent,
 				billingAccessVerifiedProjectId ? { billingAccessVerifiedProjectId } : {},
 			),
 		).rejects.toBe(nextStepError);
@@ -79,10 +97,16 @@ describe('agent route billing access', () => {
 	});
 
 	it.each([
-		['new message', { message: { text: 'Hello' }, adminMode: false }],
+		['new message', { message: { text: 'Hello' }, mode: 'default', adminMode: false }],
 		[
 			'message edit',
-			{ chatId: 'chat-1', messageToEditId: 'message-1', message: { text: 'Edited' }, adminMode: false },
+			{
+				chatId: 'chat-1',
+				messageToEditId: 'message-1',
+				message: { text: 'Edited' },
+				mode: 'default',
+				adminMode: false,
+			},
 		],
 	])('checks billing access before handling a %s', async (_label, body) => {
 		const accessError = new Error('Cloud billing access is restricted');
@@ -100,8 +124,9 @@ describe('agent route billing access', () => {
 					project: { id: 'project-1' },
 					body,
 					headers: {},
+					raw: { once: vi.fn() },
 				},
-				{},
+				{ raw: { once: vi.fn(), writableEnded: false } },
 			),
 		).rejects.toBe(accessError);
 

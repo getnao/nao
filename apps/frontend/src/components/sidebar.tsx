@@ -4,6 +4,7 @@ import { ChevronRight, NewspaperIcon, PanelLeft, PlusIcon, SearchIcon, X } from 
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
+import { NewChatDropTarget } from './new-chat-drop-target';
 import { ChatListItem } from './sidebar-chat-list-item';
 import { SidebarBackToApp } from './sidebar-back-to-app';
 import { SidebarCommunity } from './sidebar-community';
@@ -18,6 +19,7 @@ import type { LucideIcon } from 'lucide-react';
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
@@ -29,6 +31,7 @@ import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { SIDE_PANEL_ANIMATION_DURATION, SIDE_PANEL_ANIMATION_EASING } from '@/lib/side-panel';
 import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -37,11 +40,23 @@ import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings
 import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
 import { useSession } from '@/lib/auth-client';
 
+const SIDEBAR_TRANSITION_STYLE: React.CSSProperties = {
+	transitionDuration: `${SIDE_PANEL_ANIMATION_DURATION}ms`,
+	transitionTimingFunction: SIDE_PANEL_ANIMATION_EASING,
+};
+
 export function Sidebar() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const matchRoute = useMatchRoute();
-	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
+	const {
+		isCollapsed,
+		isMobile,
+		isMobileOpen,
+		closeMobile,
+		toggle: toggleSidebar,
+		expand: expandSidebar,
+	} = useSidebar();
 	const [toggleHintOpen, setToggleHintOpen] = useState(false);
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
@@ -54,7 +69,7 @@ export function Sidebar() {
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
-	const showAutomations = !isViewer && betaAutomationsEnabled;
+	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;
 	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
 	const unreadAutomationRunCount = useUnreadAutomationRunCount(showAutomations, project.data?.id).data ?? 0;
 	const hasFeedActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
@@ -62,13 +77,21 @@ export function Sidebar() {
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
-	const isInSettings = !!isSettingsRoute && !isViewer;
+	const isInSettings = !!isSettingsRoute && (!isViewer || (isCloud && isOrgAdmin));
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+	const showTrialOnboarding =
+		isCloud && project.isSuccess && project.data === null && locationPath === '/' && !effectiveIsCollapsed;
 	useTrackLastAppLocation();
 
 	useEffect(() => {
 		setToggleHintOpen(false);
 	}, [effectiveIsCollapsed]);
+
+	useEffect(() => {
+		if (isInSettings) {
+			expandSidebar();
+		}
+	}, [isInSettings, expandSidebar]);
 
 	useEffect(() => {
 		if (isMobile && isMobileOpen) {
@@ -136,10 +159,11 @@ export function Sidebar() {
 				isMobile
 					? 'w-72'
 					: cn(
-							'border-r border-sidebar-border transition-[width,background-color] duration-300',
+							'border-r border-sidebar-border transition-[width,background-color]',
 							effectiveIsCollapsed ? 'w-13' : 'w-72',
 						),
 			)}
+			style={isMobile ? undefined : SIDEBAR_TRANSITION_STYLE}
 		>
 			<div className='p-2 flex flex-col'>
 				<div className='flex items-center relative'>
@@ -226,13 +250,15 @@ export function Sidebar() {
 					<>
 						<div className='py-4'>
 							{!isViewer && (
-								<SidebarMenuButton
-									icon={PlusIcon}
-									label='New chat'
-									shortcut={getShortcutLabel('new-chat')}
-									isCollapsed={effectiveIsCollapsed}
-									onClick={handleNavigateHome}
-								/>
+								<NewChatDropTarget>
+									<SidebarMenuButton
+										icon={PlusIcon}
+										label='New chat'
+										shortcut={getShortcutLabel('new-chat')}
+										isCollapsed={effectiveIsCollapsed}
+										onClick={handleNavigateHome}
+									/>
+								</NewChatDropTarget>
 							)}
 							<SidebarMenuButton
 								icon={SearchIcon}
@@ -266,6 +292,7 @@ export function Sidebar() {
 					isCollapsed={effectiveIsCollapsed}
 					canSeeAdvancedSettings={canSeeAdvancedSettings}
 					isAdmin={isAdmin}
+					isAutomationsEnabled={betaAutomationsEnabled}
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
@@ -291,6 +318,11 @@ export function Sidebar() {
 						isTrial={project.isSuccess && project.data === null}
 					/>
 				</>
+			)}
+			{showTrialOnboarding && (
+				<div className='mx-2 mb-2'>
+					<TrialOnboardingBanner variant='card' />
+				</div>
 			)}
 			{!isInSettings && <div className='border-b border-sidebar-border mx-2'></div>}
 
@@ -468,16 +500,17 @@ function SidebarNav({
 			))}
 
 			{isEmpty && (
-				<p className='text-sm text-muted-foreground text-center p-4'>
+				<div className='p-4 text-center text-sm text-muted-foreground'>
 					{isViewer ? (
 						'No chats shared with you.'
 					) : isTrial ? (
 						<>
-							{username ? `Welcome to nao, ${capitalize(username)}! ` : ''}
-							<br />
-							Your chat history will appear here.
-							<br />
-							Start a new chat!
+							{username && <span className='mb-3 block'>Welcome to nao, {capitalize(username)}!</span>}
+							<span className='block'>
+								Your chat history will appear here.
+								<br />
+								Start a new chat!
+							</span>
 						</>
 					) : (
 						<>
@@ -486,7 +519,7 @@ function SidebarNav({
 							Start a new chat!
 						</>
 					)}
-				</p>
+				</div>
 			)}
 		</div>
 	);

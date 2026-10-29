@@ -2,6 +2,7 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
 import { z } from 'zod/v4';
 
+import { testRunAgent } from '../agents/profiles/test-run';
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
@@ -57,7 +58,7 @@ export class TestAgentService extends AgentService {
 			projectId,
 		};
 
-		const agent = await this.create(tempChat, modelSelection);
+		const agent = await this.create(tempChat, modelSelection, testRunAgent, { attributeUsageToChat: false });
 		return agent.generate([userMessage], { costs });
 	}
 
@@ -68,6 +69,7 @@ export class TestAgentService extends AgentService {
 	 */
 	async runVerification(
 		projectId: string,
+		userId: string,
 		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
@@ -77,8 +79,13 @@ export class TestAgentService extends AgentService {
 		if (queryResults.size === 0) {
 			return { data: null, sql: null, error: 'The agent did not run any SQL query.' };
 		}
+
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
+		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, {
+			userId,
+			projectId,
+			category: 'test',
+		});
 
 		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 

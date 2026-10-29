@@ -8,6 +8,7 @@ import { HandlerError } from '../utils/error';
 const ACTIVE_RECONCILIATION_GRACE_MS = 24 * 60 * 60 * 1000;
 
 type CloudBillingEntitlement = {
+	billingPlan?: string | null;
 	billingStatus: BillingStatus | null;
 	stripeSubscriptionId: string | null;
 	trialEndsAt: Date | null;
@@ -34,10 +35,13 @@ export function getCloudBillingAccessEndsAt(entitlement: CloudBillingEntitlement
 	if (!entitlement) {
 		return null;
 	}
+	if (entitlement.billingStatus !== 'trialing' && !entitlement.billingPlan) {
+		return null;
+	}
 	switch (entitlement.billingStatus) {
 		case 'trialing':
 			if (entitlement.stripeSubscriptionId === null) {
-				return null;
+				return getLocalTrialAccessEndsAt(entitlement);
 			}
 			if (entitlement.hasDefaultPaymentMethod && !entitlement.cancellationScheduled) {
 				return addGrace(entitlement.trialEndsAt);
@@ -52,6 +56,40 @@ export function getCloudBillingAccessEndsAt(entitlement: CloudBillingEntitlement
 		default:
 			return null;
 	}
+}
+
+export function isActiveLocalTrial(entitlement: CloudBillingEntitlement | null, now = Date.now()): boolean {
+	const accessEndsAt = getLocalTrialAccessEndsAt(entitlement);
+	return accessEndsAt !== null && accessEndsAt.getTime() > now;
+}
+
+export function isActiveTrialWithoutPaidPlan(entitlement: CloudBillingEntitlement | null, now = Date.now()): boolean {
+	if (entitlement?.billingPlan || entitlement?.billingStatus !== 'trialing') {
+		return false;
+	}
+	if (!entitlement.billingAccessEndsAt) {
+		return false;
+	}
+	const accessEndsAt = earlierDate(entitlement.trialEndsAt, entitlement.billingAccessEndsAt);
+	return accessEndsAt !== null && accessEndsAt.getTime() > now;
+}
+
+export function isExpiredTrialWithoutPaidPlan(entitlement: CloudBillingEntitlement | null, now = Date.now()): boolean {
+	if (entitlement?.billingPlan || entitlement?.billingStatus !== 'trialing') {
+		return false;
+	}
+	const accessEndsAt = getCloudBillingAccessEndsAt(entitlement);
+	return accessEndsAt !== null && accessEndsAt.getTime() <= now;
+}
+
+function getLocalTrialAccessEndsAt(entitlement: CloudBillingEntitlement | null): Date | null {
+	if (entitlement?.billingStatus !== 'trialing' || entitlement.stripeSubscriptionId !== null) {
+		return null;
+	}
+	if (!entitlement.trialEndsAt || !entitlement.billingAccessEndsAt) {
+		return null;
+	}
+	return earlierDate(entitlement.trialEndsAt, entitlement.billingAccessEndsAt);
 }
 
 export async function hasOrganizationCloudBillingAccess(organizationId: string): Promise<boolean> {

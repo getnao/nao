@@ -1,5 +1,5 @@
 import type { AnalyticsAssetType, AnalyticsEventType } from '@nao/shared/types';
-import { and, count, desc, eq, or, sql } from 'drizzle-orm';
+import { and, count, countDistinct, desc, eq, isNotNull, max, or, sql } from 'drizzle-orm';
 
 import type { DBAnalyticsEvent, NewAnalyticsEvent } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -36,16 +36,10 @@ export const getLastEvent = async (input: {
 		filters.push(eq(s.analyticsEvent.storyId, input.storyId));
 	}
 
-	const cutoff = new Date(Date.now() - THROTTLE_MS);
-	const cutoffFilter =
-		dbConfig.dialect === Dialect.Postgres
-			? sql`${s.analyticsEvent.createdAt} >= ${cutoff.toISOString()}`
-			: sql`${s.analyticsEvent.createdAt} >= ${cutoff.getTime()}`;
-
 	const [row] = await db
 		.select()
 		.from(s.analyticsEvent)
-		.where(and(...filters, cutoffFilter))
+		.where(and(...filters, createdSince(new Date(Date.now() - THROTTLE_MS))))
 		.orderBy(desc(s.analyticsEvent.createdAt))
 		.limit(1)
 		.execute();
@@ -113,3 +107,41 @@ export const countStoryViewsForUser = async (projectId: string, userId: string):
 	}
 	return viewsByStoryId;
 };
+
+/** Story ids of the project ranked by how many people viewed them since the given date. */
+export const listMostViewedStoryIds = async (
+	projectId: string,
+	since: Date,
+	page: { limit: number; offset: number },
+): Promise<string[]> => {
+	const rows = await db
+		.select({ storyId: s.analyticsEvent.storyId })
+		.from(s.analyticsEvent)
+		.where(
+			and(
+				eq(s.analyticsEvent.projectId, projectId),
+				eq(s.analyticsEvent.type, 'page_view'),
+				eq(s.analyticsEvent.assetType, 'story'),
+				isNotNull(s.analyticsEvent.storyId),
+				isNotNull(s.analyticsEvent.actorUserId),
+				createdSince(since),
+			),
+		)
+		.groupBy(s.analyticsEvent.storyId)
+		.orderBy(
+			desc(countDistinct(s.analyticsEvent.actorUserId)),
+			desc(max(s.analyticsEvent.createdAt)),
+			s.analyticsEvent.storyId,
+		)
+		.limit(page.limit)
+		.offset(page.offset)
+		.execute();
+
+	return rows.flatMap((row) => (row.storyId ? [row.storyId] : []));
+};
+
+function createdSince(date: Date) {
+	return dbConfig.dialect === Dialect.Postgres
+		? sql`${s.analyticsEvent.createdAt} >= ${date.toISOString()}`
+		: sql`${s.analyticsEvent.createdAt} >= ${date.getTime()}`;
+}

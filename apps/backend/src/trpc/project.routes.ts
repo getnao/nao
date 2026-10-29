@@ -10,7 +10,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
+import { getProviderAuth, isManagedProvider, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
@@ -43,6 +43,7 @@ import { MattermostConnectionError, validateMattermostConnection } from '../serv
 import { mcpService } from '../services/mcp';
 import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
+import { updateProjectEnvVars } from '../services/project.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -179,6 +180,21 @@ export const projectRoutes = {
 		return { id: project.id, name: project.name, path: project.path, userRole };
 	}),
 
+	rename: adminProtectedProcedure
+		.input(z.object({ projectId: z.string(), name: z.string().trim().min(1).max(100) }))
+		.mutation(async ({ ctx, input }) => {
+			if (input.projectId !== ctx.project.id) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The selected project changed. Reload the page and try again.',
+				});
+			}
+			const renamed = await projectQueries.renameProject(ctx.project.id, ctx.project.orgId, input.name);
+			if (!renamed) {
+				throw new TRPCError({ code: 'CONFLICT', message: `A project named "${input.name}" already exists.` });
+			}
+		}),
+
 	getDatabaseObjects: projectProtectedProcedure
 		.output(
 			z.array(
@@ -280,6 +296,9 @@ export const projectRoutes = {
 		)
 		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
 		.mutation(async ({ ctx, input }) => {
+			if (isManagedProvider(input.provider)) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'The nao-managed provider is configured by nao.' });
+			}
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const inheritedConfig = existingConfig
 				? null
@@ -960,6 +979,15 @@ export const projectRoutes = {
 		return savedPromptQueries.listSavedPrompts(ctx.project.id);
 	}),
 
+	getProjectSavedPrompts: protectedProcedure
+		.input(z.object({ projectId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			if (!(await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id))) {
+				return [];
+			}
+			return savedPromptQueries.listSavedPrompts(input.projectId);
+		}),
+
 	createSavedPrompt: adminProtectedProcedure
 		.input(
 			z.object({
@@ -1310,7 +1338,7 @@ export const projectRoutes = {
 	updateEnvVars: adminProtectedProcedure
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
-			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+			await updateProjectEnvVars(ctx.project.id, input.envVars);
 			void mcpService.refreshProjectConfig(ctx.project.id);
 		}),
 

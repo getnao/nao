@@ -5,6 +5,7 @@ import {
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
+	EMPTY_SKILLS_ACCESS,
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 	extractConditionalGroupContent,
@@ -13,6 +14,7 @@ import {
 	normalizeDatabaseContextAccess,
 	normalizeFileTreeAccess,
 	normalizeMcpAccess,
+	normalizeSkillsAccess,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
@@ -29,6 +31,7 @@ import type {
 	FileTreeAccess,
 	McpAccess,
 	ProjectSharingPermission,
+	SkillsAccess,
 	UserGroupFeatureDefinition,
 	UserGroupRowPolicies,
 	UserGroupSsoMappings,
@@ -43,9 +46,9 @@ import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
 import { UserGroupMcpAccess } from '@/components/settings/user-group-mcp-access';
-import { UserGroupPreloadedSkills } from '@/components/settings/user-group-preloaded-skills';
 import { UserGroupProjectSharing } from '@/components/settings/user-group-project-sharing';
 import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
+import { UserGroupSkills } from '@/components/settings/user-group-skills';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Button } from '@/components/ui/button';
@@ -84,6 +87,7 @@ export interface UserGroupEditorGroup {
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
 	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
 	ssoMappings: UserGroupSsoMappings;
 	rowPolicies?: UserGroupRowPolicies;
 }
@@ -159,6 +163,7 @@ export function UserGroupEditor({
 		existingGroup?.projectSharing ?? 'inherit',
 	);
 	const [preloadedSkills, setPreloadedSkills] = useState<string[]>(existingGroup?.preloadedSkills ?? []);
+	const [skillsAccess, setSkillsAccess] = useState<SkillsAccess>(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
 	const [shareRevocation, setShareRevocation] = useState<ProjectWideShareRevocation | null>(null);
 	const [isShareRevocationOpen, setIsShareRevocationOpen] = useState(false);
 	const [isRevokingShares, setIsRevokingShares] = useState(false);
@@ -276,6 +281,7 @@ export function UserGroupEditor({
 			docsAccess,
 			filesAccess,
 			mcpAccess,
+			skillsAccess,
 			ssoMappings,
 			rowPolicies,
 		});
@@ -291,6 +297,7 @@ export function UserGroupEditor({
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setFilesAccess(existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS);
 		setMcpAccess(existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS);
+		setSkillsAccess(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setRowPolicies(existingRowPolicies);
 		setFormError(null);
@@ -315,6 +322,7 @@ export function UserGroupEditor({
 				docsAccess,
 				filesAccess,
 				mcpAccess,
+				skillsAccess,
 				ssoMappings,
 				rowPolicies,
 			});
@@ -335,6 +343,7 @@ export function UserGroupEditor({
 		resetForm,
 		rowPolicies,
 		showAllSettings,
+		skillsAccess,
 		ssoMappings,
 		toolCallDensityPolicy,
 	]);
@@ -353,6 +362,11 @@ export function UserGroupEditor({
 		const normalizedAccess = normalizeDatabaseContextAccess(nextAccess);
 		setDatabaseAccess(normalizedAccess);
 		setRowPolicies((current) => filterUserGroupRowPoliciesByDatabaseContext(current, normalizedAccess));
+	};
+
+	const handleSkillsChange = (change: { skillsAccess: SkillsAccess; preloadedSkills: string[] }) => {
+		setSkillsAccess(change.skillsAccess);
+		setPreloadedSkills(change.preloadedSkills);
 	};
 
 	const handleSave = async () => {
@@ -404,6 +418,7 @@ export function UserGroupEditor({
 					docsAccess,
 					filesAccess,
 					mcpAccess,
+					skillsAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
@@ -421,6 +436,7 @@ export function UserGroupEditor({
 					docsAccess,
 					filesAccess,
 					mcpAccess,
+					skillsAccess,
 					ssoMappings,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
@@ -533,11 +549,14 @@ export function UserGroupEditor({
 							/>
 						)}
 						{activeTab === 'skills' && (
-							<UserGroupPreloadedSkills
+							<UserGroupSkills
 								isDefaultGroup={existingGroup?.isDefault === true}
+								isLicensed={hasRowLevelSecurity}
+								skillsAccess={skillsAccess}
 								preloadedSkills={preloadedSkills}
-								inheritedSkills={getDefaultGroupPreloadedSkills(userGroupOverview.data?.groups)}
-								onPreloadedSkillsChange={setPreloadedSkills}
+								allUsersSkillsAccess={allUsersGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
+								allUsersPreloadedSkills={allUsersGroup?.preloadedSkills ?? []}
+								onChange={handleSkillsChange}
 							/>
 						)}
 						{activeTab === 'security' && (
@@ -781,12 +800,6 @@ function isProjectSharingAllowedByDefault(
 	return defaultGroup ? defaultGroup.projectSharing !== 'blocked' : undefined;
 }
 
-function getDefaultGroupPreloadedSkills(
-	groups: ReadonlyArray<{ isDefault: boolean; preloadedSkills?: string[] }> | undefined,
-): string[] {
-	return groups?.find((group) => group.isDefault)?.preloadedSkills ?? [];
-}
-
 function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
 	return (
 		<div className='flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2'>
@@ -995,6 +1008,7 @@ export function hasUserGroupEditorChanges(
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
 		mcpAccess?: McpAccess;
+		skillsAccess?: SkillsAccess;
 		ssoMappings?: UserGroupSsoMappings;
 		rowPolicies?: UserGroupRowPolicies;
 	},
@@ -1011,6 +1025,7 @@ export function hasUserGroupEditorChanges(
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
 		!haveSameFileTreeAccess(values.filesAccess ?? group.filesAccess, group.filesAccess) ||
 		!haveSameMcpAccess(values.mcpAccess ?? group.mcpAccess, group.mcpAccess) ||
+		!haveSameSkillsAccess(values.skillsAccess ?? group.skillsAccess, group.skillsAccess) ||
 		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
 		!haveSameRowPolicies(
 			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
@@ -1203,6 +1218,10 @@ function haveSameFileTreeAccess(left: FileTreeAccess, right: FileTreeAccess): bo
 
 function haveSameMcpAccess(left: McpAccess, right: McpAccess): boolean {
 	return JSON.stringify(normalizeMcpAccess(left)) === JSON.stringify(normalizeMcpAccess(right));
+}
+
+function haveSameSkillsAccess(left: SkillsAccess, right: SkillsAccess): boolean {
+	return JSON.stringify(normalizeSkillsAccess(left)) === JSON.stringify(normalizeSkillsAccess(right));
 }
 
 function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMappings): boolean {

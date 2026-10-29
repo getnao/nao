@@ -53,6 +53,14 @@ describe('renderToMarkdown', () => {
 		);
 	});
 
+	it('fences a code block longer than any backtick run of its content', () => {
+		const content = 'const doc = `\n```js\nrun()\n```\n`;';
+
+		expect(renderToMarkdown(<md.CodeBlock header='app.jsx'>{content}</md.CodeBlock>)).toBe(
+			'````app.jsx\n' + content + '\n````',
+		);
+	});
+
 	it('renders a link', () => {
 		expect(renderToMarkdown(<md.Link href='https://example.com' text='Example' />)).toBe(
 			'[Example](https://example.com)',

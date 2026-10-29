@@ -1,12 +1,13 @@
 import type { McpAccess, UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { displayChart, displayMap } from '@nao/shared/tools';
-import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
+import type { LlmSelectedModel, SemanticLayerMode, StoryFormat } from '@nao/shared/types';
 
 import type { WarehouseTableAccess } from '../services/context-access';
 import type {
 	ResolvedDocsContextAccess,
 	ResolvedFilesContextAccess,
+	ResolvedSkillsAccess,
 } from '../services/user-group-context-access.service';
 import { AgentSettings } from './agent-settings';
 
@@ -34,6 +35,8 @@ export interface ToolContext {
 	agentSettings: AgentSettings | null;
 	/** The model the run itself uses; subagents inherit it unless the project pins another one. */
 	modelSelection?: LlmSelectedModel;
+	usageRunId?: string;
+	managedAiBillingMode?: 'wallet' | 'unbilled';
 	/**
 	 * How the run may use the project's semantic layer, resolved once from nao_config.yaml
 	 * and the admin settings. Null (or absent) when the project declares no semantic layer.
@@ -46,6 +49,8 @@ export interface ToolContext {
 	filesContextAccess: ResolvedFilesContextAccess;
 	/** MCP servers and tools the user's groups grant; spec files of other servers are hidden too. */
 	mcpAccess: McpAccess;
+	/** Project skills the user's groups grant; files of other skills under agent/skills/ are hidden too. */
+	skillsAccess: ResolvedSkillsAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	/** Project skills the user's groups load in full into the system prompt. */
@@ -69,9 +74,20 @@ export interface ToolContext {
 	 * project-scoped app-database views instead of the user's warehouse.
 	 */
 	adminMode?: boolean;
+	/** The story a quick question is about; the story tool edits it in its own chat when `canEdit`. */
+	linkedStory?: LinkedStory;
 }
 
 export type McpToolContext = Omit<ToolContext, 'chatId'> & {
 	chatId: null;
 	storyCreationEnabled?: boolean;
 };
+
+export interface LinkedStory {
+	storyId: string;
+	chatId: string;
+	slug: string;
+	title: string;
+	format: StoryFormat;
+	canEdit: boolean;
+}

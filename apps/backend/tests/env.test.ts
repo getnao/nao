@@ -49,8 +49,12 @@ describe('cloud billing environment', () => {
 			'STRIPE_SECRET_KEY',
 			'STRIPE_WEBHOOK_SECRET',
 			'STRIPE_CLOUD_PRODUCT_ID',
+			'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
+			'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
 			'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
 			'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+			'STRIPE_CREDIT_PRODUCT_ID',
+			'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
 		]) {
 			expect(result.stderr).toContain(`${variable} is required when cloud billing is enabled`);
 		}
@@ -70,13 +74,45 @@ describe('cloud billing environment', () => {
 			CLOUD_BILLING_ENABLED: 'true',
 			NAO_MODE: 'cloud',
 			STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
+			STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_cloud_trial',
+			STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'nao_trial',
 			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'nao_cloud_monthly_v2',
 			STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'yearly_sub',
+			STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
+			STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
 			STRIPE_SECRET_KEY: 'sk_test_sandbox',
 			STRIPE_WEBHOOK_SECRET: 'whsec_sandbox',
 		});
 
 		expect(result.status).toBe(0);
+	});
+});
+
+describe('cloud SMTP environment', () => {
+	it('allows cloud mode without SMTP configuration', () => {
+		expect(
+			loadEnvWithOverrides({
+				NAO_MODE: 'cloud',
+				SMTP_HOST: '',
+				SMTP_MAIL_FROM: '',
+				SMTP_PASSWORD: '',
+			}).status,
+		).toBe(0);
+	});
+
+	it('treats blank SMTP_PORT and SMTP_SSL as their defaults', () => {
+		expect(loadEnvWithOverrides({ NAO_MODE: 'cloud', SMTP_PORT: '', SMTP_SSL: '' }).status).toBe(0);
+	});
+
+	it('allows self-hosted mode without SMTP configuration', () => {
+		expect(
+			loadEnvWithOverrides({
+				NAO_MODE: 'self-hosted',
+				SMTP_HOST: '',
+				SMTP_MAIL_FROM: '',
+				SMTP_PASSWORD: '',
+			}).status,
+		).toBe(0);
 	});
 });
 
@@ -97,13 +133,16 @@ function loadEnvWithOverrides(overrides: NodeJS.ProcessEnv) {
 			encoding: 'utf8',
 			env: {
 				PATH: process.env.PATH,
-				...overrides,
 				...(overrides.NAO_MODE === 'cloud' && {
 					CLOUD_GITHUB_PROJECT_ORG: 'test-org',
 					CLOUD_GITHUB_PROJECT_APP_ID: '123',
 					CLOUD_GITHUB_PROJECT_INSTALLATION_ID: '456',
 					CLOUD_GITHUB_PROJECT_PRIVATE_KEY: 'test-private-key',
+					SMTP_HOST: 'smtp.example.com',
+					SMTP_MAIL_FROM: 'hello@example.com',
+					SMTP_PASSWORD: 'secret',
 				}),
+				...overrides,
 			},
 		});
 	} finally {

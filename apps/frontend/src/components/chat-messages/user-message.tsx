@@ -1,8 +1,10 @@
 import { memo, useMemo, useRef, useState } from 'react';
-import { Pencil, Check, Copy, Table, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Pencil, Check, Copy, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Message } from 'prompt-mentions';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { createPortal } from 'react-dom';
+import { getStoryIdFromMentionId } from '@nao/shared';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MessageMentionConfig, MentionOption, PromptTheme } from 'prompt-mentions';
 import { cn } from '@/lib/utils';
@@ -22,6 +24,7 @@ import { useTimeAgo } from '@/hooks/use-time-ago';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
 import { customStoryMentionOption, storyMentionOption } from '@/components/chat-input-prompt';
+import { useMentionedStoryOptions, useReferenceMentionMenu } from '@/hooks/use-reference-mention-menu';
 import DiscordIcon from '@/components/icons/discord.svg';
 import MattermostIcon from '@/components/icons/mattermost.svg';
 import SlackIcon from '@/components/icons/slack.svg';
@@ -48,8 +51,6 @@ const messageTheme: PromptTheme = {
 	},
 };
 
-const tableIcon = <Table className='size-4' />;
-
 const MESSAGE_SOURCES = {
 	slack: { icon: <SlackIcon className='size-3.5' />, label: 'sent in Slack' },
 	teams: { icon: <TeamsIcon className='size-4' />, label: 'sent in Teams' },
@@ -74,17 +75,19 @@ function MessageSourceBadge({ source }: { source: UIMessage['source'] }) {
 	);
 }
 
-function useMentionConfigs(): MessageMentionConfig[] {
-	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
-	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+function useMentionConfigs(text: string): MessageMentionConfig[] {
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = project.data != null;
+	const skillsQuery = useQuery({ ...trpc.skill.list.queryOptions(), enabled: hasProject });
+	const skills = hasProject ? skillsQuery.data : undefined;
+	const { searchOptions } = useReferenceMentionMenu();
+	const mentionedStoryOptions = useMentionedStoryOptions(text, searchOptions);
+	const referenceOptions = useMemo(
+		() => [...searchOptions, ...mentionedStoryOptions],
+		[searchOptions, mentionedStoryOptions],
+	);
 
 	return useMemo(() => {
-		const dbOptions: MentionOption[] = (databaseObjects ?? []).map((obj) => ({
-			id: obj.fqdn,
-			label: obj.table,
-			icon: tableIcon,
-		}));
-
 		const skillOptions: MentionOption[] = (skills ?? []).map((skill) => ({
 			id: skill.name,
 			label: skill.name,
@@ -93,18 +96,29 @@ function useMentionConfigs(): MessageMentionConfig[] {
 		const storyOptions: MentionOption[] = [storyMentionOption, customStoryMentionOption];
 
 		return [
-			{ trigger: '@', options: dbOptions },
+			{ trigger: '@', options: referenceOptions },
 			{ trigger: '/', options: skillOptions, showTrigger: true },
 			{ trigger: '#', options: storyOptions },
 		];
-	}, [databaseObjects, skills]);
+	}, [referenceOptions, skills]);
+}
+
+function useOpenMentionedStory() {
+	const navigate = useNavigate();
+	return (mention: { id: string }) => {
+		const storyId = getStoryIdFromMentionId(mention.id);
+		if (storyId) {
+			navigate({ to: '/stories/$storyId', params: { storyId } });
+		}
+	};
 }
 
 export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const rawText = useMemo(() => getMessageText(message), [message]);
 	const images = useMemo(() => getMessageImages(message), [message]);
 	const documents = useMemo(() => getMessageDocuments(message), [message]);
-	const mentionConfigs = useMentionConfigs();
+	const mentionConfigs = useMentionConfigs(rawText);
+	const openMentionedStory = useOpenMentionedStory();
 	const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
 	const legacyCitation = useMemo(() => parseChatMessageCitation(rawText), [rawText]);
@@ -150,6 +164,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 					mentionConfigs={mentionConfigs}
 					theme={messageTheme}
 					className='flex items-center justify-end'
+					onMentionClick={openMentionedStory}
 				/>
 			)}
 			{lightboxSrc &&

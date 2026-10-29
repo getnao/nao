@@ -185,7 +185,7 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 					<CommandGroup heading='Settings'>
 						{displayedSettingsEntries.map((entry) => (
 							<SettingsCommandItem
-								key={`${entry.page}-${entry.section ?? ''}`}
+								key={`${entry.page}-${entry.section ?? ''}-${JSON.stringify(entry.search ?? {})}`}
 								entry={entry}
 								isSuggestion={showSettingsSuggestions}
 								onSelect={() =>
@@ -278,7 +278,10 @@ function SettingsCommandItem({
 	onSelect: () => void;
 }) {
 	return (
-		<CommandItem value={`settings-${entry.page}-${entry.section ?? ''}`} onSelect={onSelect}>
+		<CommandItem
+			value={`settings-${entry.page}-${entry.section ?? ''}-${JSON.stringify(entry.search ?? {})}`}
+			onSelect={onSelect}
+		>
 			<SettingsIcon />
 			<div className='flex flex-col gap-0.5 overflow-hidden'>
 				<span className='truncate'>{isSuggestion ? entry.pageLabel : entry.title}</span>

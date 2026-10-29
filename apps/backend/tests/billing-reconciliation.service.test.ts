@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	attachCustomer: vi.fn(),
+	cancelPlaceholder: vi.fn(),
 	claimSync: vi.fn(),
 	getBillingByCustomer: vi.fn(),
 	getOrganizationById: vi.fn(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	logError: vi.fn(),
 	subscriptionProjection: vi.fn(),
 	updatePaymentMethod: vi.fn(),
+	updatePaidTrialEnd: vi.fn(),
 	updateSubscription: vi.fn(),
 }));
 
@@ -26,9 +28,20 @@ vi.mock('../src/queries/organization.queries', () => ({
 }));
 
 vi.mock('../src/services/stripe.service', () => ({
+	cancelCloudTrialPlaceholderSubscription: mocks.cancelPlaceholder,
 	cloudSubscriptionProjection: mocks.subscriptionProjection,
 	hasCloudDefaultPaymentMethod: mocks.hasDefaultPaymentMethod,
-	listCloudSubscriptions: mocks.listSubscriptions,
+	listCloudSubscriptions: async (...args: unknown[]) => {
+		const subscriptions = await mocks.listSubscriptions(...args);
+		return subscriptions.map((subscription: { metadata?: Record<string, string> }) => ({
+			kind:
+				subscription.metadata?.nao_subscription_kind === 'trial-placeholder'
+					? 'trial-placeholder'
+					: 'paid-cloud',
+			subscription,
+		}));
+	},
+	updateCloudPaidSubscriptionTrialEnd: mocks.updatePaidTrialEnd,
 }));
 
 vi.mock('../src/utils/logger', () => ({
@@ -44,6 +57,7 @@ describe('cloud billing reconciliation', () => {
 		mocks.getBillingByCustomer.mockResolvedValue(billing);
 		mocks.claimSync.mockResolvedValue({ billing, token: 'sync-token' });
 		mocks.hasDefaultPaymentMethod.mockResolvedValue(false);
+		mocks.cancelPlaceholder.mockResolvedValue(undefined);
 		mocks.subscriptionProjection.mockResolvedValue({
 			billingStatus: 'active',
 			stripeCustomerId: 'cus_cloud',
@@ -82,15 +96,15 @@ describe('cloud billing reconciliation', () => {
 		);
 	});
 
-	it('prefers live subscription trial dates over persisted history', async () => {
-		const trialStartedAt = new Date('2026-02-01T00:00:00.000Z');
+	it('preserves the local trial start and accepts the live subscription trial end', async () => {
+		const stripeTrialStartedAt = new Date('2026-02-01T00:00:00.000Z');
 		const trialEndsAt = new Date('2026-02-15T00:00:00.000Z');
 		mocks.listSubscriptions.mockResolvedValue([buildSubscription()]);
 		mocks.subscriptionProjection.mockResolvedValue({
 			billingStatus: 'trialing',
 			stripeCustomerId: 'cus_cloud',
 			stripeSubscriptionId: 'sub_active',
-			trialStartedAt,
+			trialStartedAt: stripeTrialStartedAt,
 			trialEndsAt,
 		});
 
@@ -99,8 +113,46 @@ describe('cloud billing reconciliation', () => {
 		expect(mocks.updateSubscription).toHaveBeenCalledWith(
 			'org-id',
 			'sync-token',
-			expect.objectContaining({ trialStartedAt, trialEndsAt }),
+			expect.objectContaining({
+				trialStartedAt: new Date('2026-01-01T00:00:00.000Z'),
+				trialEndsAt,
+			}),
 		);
+	});
+
+	it('carries a later placeholder extension into the paid trial before cleanup', async () => {
+		const paid = buildSubscription({ id: 'sub_paid', status: 'trialing', trial_end: 1_800_000_000 });
+		const placeholder = buildSubscription({
+			id: 'sub_placeholder',
+			metadata: { nao_org_id: 'org-id', nao_subscription_kind: 'trial-placeholder' },
+			status: 'trialing',
+			trial_end: 1_800_086_400,
+		});
+		const updatedPaid = { ...paid, trial_end: placeholder.trial_end };
+		mocks.listSubscriptions.mockResolvedValue([placeholder, paid]);
+		mocks.updatePaidTrialEnd.mockResolvedValue(updatedPaid);
+
+		await reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' });
+
+		expect(mocks.updatePaidTrialEnd).toHaveBeenCalledWith(paid, 'org-id', new Date(1_800_086_400 * 1000));
+		expect(mocks.subscriptionProjection).toHaveBeenCalledWith(updatedPaid);
+		expect(mocks.cancelPlaceholder).toHaveBeenCalledWith(placeholder, 'org-id');
+	});
+
+	it('keeps terminal paid history authoritative over a current placeholder', async () => {
+		const paid = buildSubscription({ id: 'sub_paid', status: 'canceled', created: 10 });
+		const placeholder = buildSubscription({
+			id: 'sub_placeholder',
+			metadata: { nao_org_id: 'org-id', nao_subscription_kind: 'trial-placeholder' },
+			status: 'trialing',
+			created: 20,
+		});
+		mocks.listSubscriptions.mockResolvedValue([placeholder, paid]);
+
+		await reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' });
+
+		expect(mocks.subscriptionProjection).toHaveBeenCalledWith(paid);
+		expect(mocks.cancelPlaceholder).toHaveBeenCalledWith(placeholder, 'org-id');
 	});
 
 	it('selects the newest terminal subscription when no current subscription exists', async () => {

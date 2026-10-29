@@ -9,6 +9,7 @@ import { cn, hideIf } from '@/lib/utils';
 export interface NavContext {
 	canSeeAdvancedSettings: boolean;
 	isAdmin: boolean;
+	isAutomationsEnabled: boolean;
 	isCloudBillingEnabled: boolean;
 	isContextAdmin: boolean;
 	isCloud: boolean;
@@ -80,6 +81,12 @@ const settingsNavGroups: NavGroup[] = [
 				requiresProject: true,
 			},
 			{
+				label: 'Automations',
+				to: '/settings/project/automations',
+				visible: ({ isAdmin, isAutomationsEnabled }) => isAdmin && isAutomationsEnabled,
+				requiresProject: true,
+			},
+			{
 				label: 'Appearance',
 				to: '/settings/appearance',
 				visible: ({ isViewer }) => !isViewer,
@@ -121,14 +128,9 @@ const settingsNavGroups: NavGroup[] = [
 				leavesSettings: true,
 			},
 			{
-				label: 'Usage, costs & replay',
+				label: 'Usage & Costs',
 				to: '/settings/usage',
-				visible: ({ isAdmin }) => isAdmin,
-			},
-			{
-				label: 'Chats replay',
-				to: '/settings/usage',
-				visible: ({ isAdmin, isContextAdmin }) => !isAdmin && isContextAdmin,
+				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 			},
 			{
 				label: 'Server logs',
@@ -154,7 +156,7 @@ const settingsNavGroups: NavGroup[] = [
 				exact: true,
 			},
 			{
-				label: 'Plan & Billing',
+				label: 'Billing & Credits',
 				to: '/settings/organization/billing',
 				visible: ({ isCloudBillingEnabled, isOrgAdmin }) => isCloudBillingEnabled && isOrgAdmin,
 				exact: true,
@@ -180,6 +182,7 @@ interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	canSeeAdvancedSettings: boolean;
 	isAdmin: boolean;
+	isAutomationsEnabled: boolean;
 	isContextAdmin: boolean;
 	isViewer: boolean;
 	isCloud: boolean;
@@ -192,6 +195,7 @@ export function SidebarSettingsNav({
 	isCollapsed,
 	canSeeAdvancedSettings,
 	isAdmin,
+	isAutomationsEnabled,
 	isContextAdmin,
 	isViewer,
 	isCloud,
@@ -207,6 +211,7 @@ export function SidebarSettingsNav({
 	const navContext: NavContext = {
 		canSeeAdvancedSettings,
 		isAdmin,
+		isAutomationsEnabled,
 		isCloudBillingEnabled,
 		isContextAdmin,
 		isCloud,

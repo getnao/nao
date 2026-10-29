@@ -87,10 +87,13 @@ describe('UsageFilters', () => {
 		expect(onSplitByUserChange).toHaveBeenCalledWith(true);
 	});
 
-	it('hides the split per user toggle when usage controls are hidden', () => {
+	it.each([
+		['usage', { showUsageControls: false }],
+		['user', { showUserControls: false }],
+	] as const)('hides the split per user toggle when %s controls are hidden', (_controls, visibility) => {
 		render(
 			<UsageFilters
-				showUsageControls={false}
+				{...visibility}
 				provider='all'
 				onProviderChange={vi.fn()}
 				periodSelection={DEFAULT_USAGE_PERIOD_SELECTION}

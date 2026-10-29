@@ -147,12 +147,13 @@ export function RequestWarehouseCredentialsToolCall({
 		return () => window.removeEventListener('resize', alignDialog);
 	}, [alignDialog, open]);
 
-	if (!provider || job.data?.status === 'ready') {
+	if (!provider) {
 		return null;
 	}
 
-	const setupFailed = job.data?.status === 'failed' || job.data?.status === 'cancelled';
-	const setupInProgress = startProvisioning.isPending || (jobId !== null && !setupFailed);
+	const setupReady = job.data?.status === 'ready';
+	const setupFailed = job.isError || job.data?.status === 'failed' || job.data?.status === 'cancelled';
+	const setupInProgress = startProvisioning.isPending || (jobId !== null && !setupReady && !setupFailed);
 	const credentialsVerified =
 		validatedCredentialFingerprint !== null &&
 		credentialValues !== undefined &&
@@ -160,7 +161,8 @@ export function RequestWarehouseCredentialsToolCall({
 	const setupStepsUnlocked = credentialsVerified && discoveredSchemas !== undefined;
 	const tableSelectionReady = setupStep === 'tables' && discoveredSchemas !== undefined && !setupInProgress;
 	const awaitingSources = job.data?.status === 'awaiting_sources';
-	const credentialsAccepted = credentialsVerified || setupInProgress;
+	const credentialsAccepted = credentialsVerified || setupInProgress || setupReady;
+	const credentialDetailsUnavailable = jobId !== null && credentialValues === undefined;
 	const startSelectedProvisioning = async () => {
 		if (!credentialValues || !discoveredSchemas) {
 			return;
@@ -212,6 +214,8 @@ export function RequestWarehouseCredentialsToolCall({
 							<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
 								{setupFailed
 									? `${WAREHOUSE_PROVIDER_LABELS[provider]} setup needs attention`
+									: setupReady
+										? `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials verified`
 									: awaitingSources
 										? `${WAREHOUSE_PROVIDER_LABELS[provider]} database verified`
 										: tableSelectionReady
@@ -223,6 +227,8 @@ export function RequestWarehouseCredentialsToolCall({
 							<p className='text-xs text-muted-foreground'>
 								{setupFailed
 									? 'Open the setup to review the problem and try again.'
+									: setupReady
+										? 'Your warehouse connection is ready.'
 									: awaitingSources
 										? 'Your credentials and table selection are ready.'
 										: setupInProgress
@@ -248,8 +254,10 @@ export function RequestWarehouseCredentialsToolCall({
 						>
 							{setupFailed
 								? 'Review setup'
-								: setupInProgress
-									? 'View progress'
+								: setupReady || setupInProgress
+									? credentialDetailsUnavailable
+										? 'View setup'
+										: 'View progress'
 									: tableSelectionReady
 										? 'Choose tables'
 										: credentialsVerified
@@ -294,7 +302,20 @@ export function RequestWarehouseCredentialsToolCall({
 							onStepChange={setSetupStep}
 						/>
 					)}
-					{jobId ? (
+					{jobId && setupFailed ? (
+						<WarehouseProvisioningProgress
+							job={job}
+							onRetry={() => {
+								setJobId(null);
+								startProvisioning.reset();
+							}}
+						/>
+					) : jobId && credentialDetailsUnavailable && isSqlProvider(provider) ? (
+						<div className='rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground'>
+							Your connection details are unavailable in this session. The credentials remain securely stored
+							for this connection.
+						</div>
+					) : jobId ? (
 						<WarehouseProvisioningProgress
 							job={job}
 							onRetry={() => {
@@ -409,14 +430,15 @@ function WarehouseProvisioningProgress({
 	job: ReturnType<typeof useWarehouseProvisioningJob>;
 	onRetry: () => void;
 }) {
-	if (job.isError) {
-		return <FormError error={job.error.message} />;
-	}
-
-	if (job.data?.status === 'failed' || job.data?.status === 'cancelled') {
+	const setupError = job.isError
+		? job.error.message
+		: job.data?.status === 'failed' || job.data?.status === 'cancelled'
+			? (job.data.error ?? 'Warehouse setup failed.')
+			: null;
+	if (setupError) {
 		return (
 			<div className='flex flex-col gap-3 rounded-lg border border-destructive/50 bg-destructive/5 p-4'>
-				<FormError error={job.data.error ?? 'Warehouse setup failed.'} />
+				<FormError error={setupError} />
 				<Button variant='outline' size='sm' onClick={onRetry}>
 					Try again
 				</Button>
@@ -446,10 +468,15 @@ function WarehouseProvisioningProgress({
 		cancelled: 'Warehouse setup was cancelled.',
 		ready: 'Connection ready.',
 	}[job.data?.status ?? 'queued'];
+	const isReady = job.data?.status === 'ready';
 
 	return (
 		<div className='flex items-center gap-3 rounded-lg border bg-muted/30 p-4'>
-			<Loader2 className='size-4 animate-spin text-primary' />
+			{isReady ? (
+				<CircleCheck className='size-4 text-emerald-600 dark:text-emerald-400' />
+			) : (
+				<Loader2 className='size-4 animate-spin text-primary' />
+			)}
 			<p className='text-sm'>{statusLabel}</p>
 		</div>
 	);

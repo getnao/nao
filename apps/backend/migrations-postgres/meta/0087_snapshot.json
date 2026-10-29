@@ -1,5 +1,5 @@
 {
-  "id": "027185d1-8685-4295-a6a6-a6ee3f0576f8",
+  "id": "40083df5-89a3-4576-aad9-f0b69372483a",
   "prevId": "12e6a6b7-20f7-44aa-a260-626f3e7e1b19",
   "version": "7",
   "dialect": "postgresql",
@@ -9191,6 +9191,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "deactivated_at": {
+          "name": "deactivated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -9639,12 +9645,6 @@
         },
         "model_selection": {
           "name": "model_selection",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "warnings": {
-          "name": "warnings",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

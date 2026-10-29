@@ -11,6 +11,8 @@ import { configDefaults, defineConfig } from 'vitest/config';
 const sharedSqliteTestFiles = [
 	'tests/context-recommendation-schema.test.ts',
 	'tests/project-accessible-users.test.ts',
+	'tests/project-chats-filters.test.ts',
+	'tests/project-rename.queries.test.ts',
 	'tests/project-selection.test.ts',
 	'tests/query-app-db.test.ts',
 	'tests/readonly-app-db.test.ts',
@@ -36,6 +38,10 @@ export default defineConfig({
 		},
 	},
 	test: {
+		env: {
+			MODE: 'test',
+			NAO_MODE: 'self-hosted',
+		},
 		server: {
 			deps: {
 				inline: [/drizzle-orm\/bun-sqlite/],

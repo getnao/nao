@@ -4,8 +4,9 @@ import { z } from 'zod/v4';
 
 import { env } from '../env';
 import { AUTOMATION_JOB_NAME, startAutomationRun } from '../handlers/automation.handler';
-import type { AutomationWithSchedule } from '../queries/automation.queries';
+import type { AutomationWithSchedule, ProjectAutomationSummary } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { agentService } from '../services/agent';
 import { inferAutomationTitle } from '../services/automation-title';
@@ -13,6 +14,7 @@ import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
 import {
+	adminProtectedProcedure,
 	canSendProcedure,
 	cloudBillingCanSendProcedure,
 	cloudBillingMiddleware,
@@ -43,6 +45,11 @@ const automationReadProcedure = projectProtectedProcedure.use(({ next }) => {
 });
 
 const automationCostProcedure = cloudBillingProjectProcedure.use(({ next }) => {
+	assertAutomationsEnabled();
+	return next();
+});
+
+const automationAdminProcedure = adminProtectedProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
 	return next();
 });
@@ -92,7 +99,7 @@ const integrationSchema = z
 
 const writeAutomationSchema = z.object({
 	title: z.string().trim().min(1).max(255),
-	prompt: z.string().trim().min(1).max(20_000),
+	prompt: z.string().trim().min(1).max(40_000),
 	cron: z.string().trim().default(''),
 	scheduleDescription: z.string().trim().max(255).optional(),
 	timezone: z.string().trim().max(100).optional(),
@@ -138,7 +145,7 @@ export const automationRoutes = {
 				? { provider: input.modelProvider, modelId: input.modelId }
 				: undefined;
 		const resolvedTitle =
-			title?.trim() || (await inferAutomationTitle(ctx.project.id, input.prompt, modelSelection));
+			title?.trim() || (await inferAutomationTitle(ctx.project.id, ctx.user.id, input.prompt, modelSelection));
 		const automation = await automationQueries.createAutomation({
 			...promptInput,
 			title: resolvedTitle,
@@ -250,10 +257,93 @@ export const automationRoutes = {
 	parseCronFromText: automationCostProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ ctx, input }) => {
-			const cron = await naturalLanguageToCron(ctx.project.id, input.text);
+			const cron = await naturalLanguageToCron(ctx.project.id, ctx.user.id, input.text);
 			return { cron };
 		}),
+
+	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {
+		return listProjectAutomationsWithOwnerAccess(ctx.project.id);
+	}),
+
+	setEnabledAsAdmin: automationAdminProcedure
+		.input(setAutomationEnabledSchema)
+		.use(enablingAutomationBillingMiddleware)
+		.mutation(async ({ ctx, input }) => {
+			const automation = await getProjectAutomationOrThrow(ctx.project.id, input.id);
+			return setAutomationActive(automation, input.enabled);
+		}),
+
+	transferOwnership: automationAdminProcedure
+		.input(z.object({ id: z.string(), newOwnerId: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			const automation = await getProjectAutomationOrThrow(ctx.project.id, input.id);
+			if (automation.userId === input.newOwnerId) {
+				return { success: true as const };
+			}
+			await assertCanOwnAutomation(ctx.project.id, input.newOwnerId);
+			await automationQueries.transferAutomationOwnership(automation.id, input.newOwnerId);
+			return { success: true as const };
+		}),
+
+	deleteAsAdmin: automationAdminProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+		const automation = await automationQueries.getProjectAutomation(ctx.project.id, input.id);
+		if (!automation) {
+			return { success: true as const };
+		}
+		if (automation.scheduledJobId) {
+			await scheduledJobQueries.deleteJob(automation.scheduledJobId);
+		}
+		await automationQueries.deleteProjectAutomation(ctx.project.id, input.id);
+		return { success: true as const };
+	}),
 };
+
+async function listProjectAutomationsWithOwnerAccess(
+	projectId: string,
+): Promise<Array<ProjectAutomationSummary & { ownerHasProjectAccess: boolean }>> {
+	const [automations, usersWithAccess] = await Promise.all([
+		automationQueries.listProjectAutomations(projectId),
+		projectQueries.listUsersWithProjectAccess(projectId),
+	]);
+	const userIdsWithAccess = new Set(usersWithAccess.map((user) => user.id));
+	return automations.map((automation) => ({
+		...automation,
+		ownerHasProjectAccess: automation.owner !== null && userIdsWithAccess.has(automation.owner.id),
+	}));
+}
+
+async function getProjectAutomationOrThrow(projectId: string, id: string): Promise<AutomationWithSchedule> {
+	const automation = await automationQueries.getProjectAutomation(projectId, id);
+	if (!automation) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `Automation not found: ${id}` });
+	}
+	return automation;
+}
+
+/**
+ * Scheduled automations are paused through their job, which also blocks the webhook.
+ * Webhook-only automations have no job, so their webhook trigger is the on/off switch.
+ */
+async function setAutomationActive(
+	automation: AutomationWithSchedule,
+	active: boolean,
+): Promise<AutomationWithSchedule> {
+	if (automation.cron) {
+		return syncAutomationJob(automation, automation.cron, active);
+	}
+	await automationQueries.setAutomationWebhookEnabled(automation.id, active);
+	return { ...automation, webhookEnabled: active };
+}
+
+async function assertCanOwnAutomation(projectId: string, userId: string): Promise<void> {
+	const role = await projectQueries.getUserRoleInProject(projectId, userId);
+	if (!role) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The new owner must have access to this project.' });
+	}
+	if (role === 'viewer') {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Viewers cannot own automations.' });
+	}
+}
 
 /**
  * Reconciles an automation's schedule trigger with its linked scheduled job.

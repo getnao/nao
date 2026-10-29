@@ -17,6 +17,9 @@ import {
 	assertProjectCloudBillingAccess,
 	hasCloudBillingAccess,
 	hasProjectCloudBillingAccess,
+	isActiveLocalTrial,
+	isActiveTrialWithoutPaidPlan,
+	isExpiredTrialWithoutPaidPlan,
 } from '../src/services/cloud-billing-access.service';
 import type { BillingStatus } from '../src/types/billing';
 
@@ -37,6 +40,7 @@ describe('cloud billing access entitlement', () => {
 
 	it.each([
 		['unconfirmed local trial', entitlement('trialing', { trialEndsAt: future }), false],
+		['confirmed local trial', entitlement('trialing', { trialEndsAt: future, billingAccessEndsAt: future }), true],
 		[
 			'trialing before its billing access end',
 			entitlement('trialing', {
@@ -78,35 +82,64 @@ describe('cloud billing access entitlement', () => {
 			}),
 			false,
 		],
-		['active before its period end', entitlement('active', { currentPeriodEndsAt: future }), true],
 		[
-			'renewing active within reconciliation grace',
-			entitlement('active', { currentPeriodEndsAt: recentlyPast }),
+			'active before its period end',
+			entitlement('active', { billingPlan: 'cloud_monthly_v2', currentPeriodEndsAt: future }),
 			true,
 		],
-		['renewing active past reconciliation grace', entitlement('active', { currentPeriodEndsAt: past }), false],
-		['active missing its period end', entitlement('active'), false],
+		[
+			'renewing active within reconciliation grace',
+			entitlement('active', { billingPlan: 'cloud_monthly_v2', currentPeriodEndsAt: recentlyPast }),
+			true,
+		],
+		[
+			'renewing active past reconciliation grace',
+			entitlement('active', { billingPlan: 'cloud_monthly_v2', currentPeriodEndsAt: past }),
+			false,
+		],
+		['active missing its period end', entitlement('active', { billingPlan: 'cloud_monthly_v2' }), false],
+		['active trial placeholder', entitlement('active', { currentPeriodEndsAt: future }), false],
 		[
 			'scheduled cancellation before access end',
-			entitlement('active', { cancellationScheduled: true, billingAccessEndsAt: future }),
+			entitlement('active', {
+				billingPlan: 'cloud_monthly_v2',
+				cancellationScheduled: true,
+				billingAccessEndsAt: future,
+			}),
 			true,
 		],
 		[
 			'scheduled cancellation past access end',
-			entitlement('active', { cancellationScheduled: true, billingAccessEndsAt: past }),
+			entitlement('active', {
+				billingPlan: 'cloud_monthly_v2',
+				cancellationScheduled: true,
+				billingAccessEndsAt: past,
+			}),
 			false,
 		],
 		[
 			'past due within its bounded payment grace',
-			entitlement('past_due', { currentPeriodStartsAt: past, currentPeriodEndsAt: recentlyPast }),
+			entitlement('past_due', {
+				billingPlan: 'cloud_monthly_v2',
+				currentPeriodStartsAt: past,
+				currentPeriodEndsAt: recentlyPast,
+			}),
 			true,
 		],
 		[
 			'past due beyond its bounded payment grace',
-			entitlement('past_due', { currentPeriodStartsAt: recentlyPast, currentPeriodEndsAt: past }),
+			entitlement('past_due', {
+				billingPlan: 'cloud_monthly_v2',
+				currentPeriodStartsAt: recentlyPast,
+				currentPeriodEndsAt: past,
+			}),
 			false,
 		],
-		['past due without a period end', entitlement('past_due', { currentPeriodStartsAt: recentlyPast }), false],
+		[
+			'past due without a period end',
+			entitlement('past_due', { billingPlan: 'cloud_monthly_v2', currentPeriodStartsAt: recentlyPast }),
+			false,
+		],
 		['unpaid', entitlement('unpaid'), false],
 		['paused', entitlement('paused'), false],
 		['incomplete', entitlement('incomplete'), false],
@@ -115,6 +148,48 @@ describe('cloud billing access entitlement', () => {
 		['missing billing state', null, false],
 	] as const)('%s', (_label, state, expected) => {
 		expect(hasCloudBillingAccess(state)).toBe(expected);
+	});
+
+	it('does not activate an unconfirmed local trial', () => {
+		const unconfirmedTrial = entitlement('trialing', { trialEndsAt: future });
+
+		expect(hasCloudBillingAccess(unconfirmedTrial)).toBe(false);
+		expect(isActiveLocalTrial(unconfirmedTrial, now.getTime())).toBe(false);
+		expect(isActiveTrialWithoutPaidPlan(unconfirmedTrial, now.getTime())).toBe(false);
+	});
+
+	it('matches paying trial expiration to the conversion-grace access window', () => {
+		const withinGrace = entitlement('trialing', {
+			stripeSubscriptionId: 'sub_trial',
+			trialEndsAt: recentlyPast,
+			billingAccessEndsAt: recentlyPast,
+			hasDefaultPaymentMethod: true,
+		});
+		const afterGrace = entitlement('trialing', {
+			stripeSubscriptionId: 'sub_trial',
+			trialEndsAt: past,
+			billingAccessEndsAt: past,
+			hasDefaultPaymentMethod: true,
+		});
+
+		expect(isExpiredTrialWithoutPaidPlan(withinGrace, now.getTime())).toBe(false);
+		expect(isExpiredTrialWithoutPaidPlan(afterGrace, now.getTime())).toBe(true);
+	});
+
+	it.each([
+		['expired local trial', entitlement('trialing', { trialEndsAt: past, billingAccessEndsAt: past }), true],
+		[
+			'trial with a paid plan',
+			entitlement('trialing', {
+				billingPlan: 'cloud_monthly_v2',
+				stripeSubscriptionId: 'sub_trial',
+				trialEndsAt: past,
+				billingAccessEndsAt: past,
+			}),
+			false,
+		],
+	] as const)('%s expiration without a paid plan is %s', (_label, state, expected) => {
+		expect(isExpiredTrialWithoutPaidPlan(state, now.getTime())).toBe(expected);
 	});
 });
 
@@ -149,7 +224,10 @@ describe('project cloud billing access', () => {
 	it('delegates organization billing access for an assigned project', async () => {
 		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
 		mocks.getOrganizationBilling.mockResolvedValue(
-			entitlement('active', { currentPeriodEndsAt: new Date('2999-01-01T00:00:00.000Z') }),
+			entitlement('active', {
+				billingPlan: 'cloud_monthly_v2',
+				currentPeriodEndsAt: new Date('2999-01-01T00:00:00.000Z'),
+			}),
 		);
 
 		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
@@ -209,6 +287,7 @@ describe('cloud billing access assertions', () => {
 function entitlement(
 	billingStatus: BillingStatus,
 	overrides: Partial<{
+		billingPlan: string | null;
 		stripeSubscriptionId: string;
 		trialEndsAt: Date;
 		currentPeriodStartsAt: Date;
@@ -219,6 +298,7 @@ function entitlement(
 	}> = {},
 ) {
 	return {
+		billingPlan: null,
 		billingStatus,
 		stripeSubscriptionId: null,
 		trialEndsAt: null,

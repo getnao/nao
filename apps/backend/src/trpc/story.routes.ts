@@ -14,6 +14,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
@@ -26,7 +27,6 @@ import {
 	getCustomStoryVersion,
 } from '../services/custom-story';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
-import { SYSTEM_EXAMPLE_PROJECT_ID } from '../services/example-project';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
@@ -60,6 +60,7 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
+import { listMostViewedStories } from '../services/story-reference';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -202,23 +203,62 @@ export const storyRoutes = {
 		return withKpiPreviewData(items, (story) => story.id);
 	}),
 
+	listReferenceable: projectProtectedProcedure.query(async ({ ctx }) => {
+		const stories = await storyReferenceQueries.listAllReferenceableStoryListings(ctx.user.id, ctx.project.id);
+		return stories.map(toReferenceableStoryItem);
+	}),
+
+	listMostViewed: projectProtectedProcedure
+		.input(z.object({ limit: z.number().int().min(1).max(20) }))
+		.query(async ({ input, ctx }) => {
+			const stories = await listMostViewedStories(
+				{ userId: ctx.user.id, projectId: ctx.project.id },
+				input.limit,
+			);
+			return stories.map(toReferenceableStoryItem);
+		}),
+
 	resolve: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
 		const story = await storyQueries.getStoryById(input.storyId);
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		const [ownerId, projectId] = await Promise.all([
+		const [ownerId, projectId, latestVersion] = await Promise.all([
 			storyQueries.getStoryOwnerId(story.id),
 			storyQueries.getStoryProjectId(story.id),
+			storyQueries.getLatestVersionByStoryId(story.id),
 		]);
 		await assertCanOpenStory(story.id, projectId, ctx.user.id);
 		return {
 			storyId: story.id,
 			chatId: story.chatId,
 			slug: story.slug,
+			title: story.title,
 			format: story.format,
+			summary: extractStorySummary(latestVersion?.code ?? ''),
 			isOwner: ownerId === ctx.user.id,
+			isArchived: story.archivedAt !== null,
+			projectId,
 		};
+	}),
+
+	listQuickQuestions: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		await assertCanOpenStory(input.storyId, await storyQueries.getStoryProjectId(input.storyId), ctx.user.id);
+		return chatQueries.listQuickQuestionChats(ctx.user.id, input.storyId);
+	}),
+
+	listMentioningChats: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const story = await storyQueries.getStoryById(input.storyId);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		const projectId = await assertCanOpenStory(
+			story.id,
+			await storyQueries.getStoryProjectId(story.id),
+			ctx.user.id,
+		);
+		const chats = await storyReferenceQueries.listMentioningChats(ctx.user.id, projectId, story.id, story.chatId);
+		return { storySlug: story.slug, chats };
 	}),
 
 	getIdByChatAndSlug: protectedProcedure
@@ -984,7 +1024,7 @@ export const storyRoutes = {
 	parseCronFromText: cloudBillingProjectProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ input, ctx }) => {
-			const cron = await naturalLanguageToCron(ctx.project.id, input.text);
+			const cron = await naturalLanguageToCron(ctx.project.id, ctx.user.id, input.text);
 			return { cron };
 		}),
 
@@ -1193,11 +1233,26 @@ export const storyRoutes = {
 		}),
 };
 
-async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<void> {
+function toReferenceableStoryItem(story: storyReferenceQueries.ReferenceableStoryListing) {
+	return {
+		storyId: story.storyId,
+		chatId: story.chatId,
+		chatTitle: story.chatTitle,
+		title: story.title,
+		format: story.format,
+		authorName: story.authorName,
+		isPinned: story.isPinned,
+		isCertified: story.isCertified,
+		isSharedWithMe: story.isSharedWithMe,
+	};
+}
+
+async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<string> {
 	const hasProjectAccess = projectId ? await canAccessStoryProject(projectId, userId) : false;
-	if (!hasProjectAccess || !(await storyQueries.canUserAccessStory(storyId, userId))) {
+	if (!projectId || !hasProjectAccess || !(await storyQueries.canUserAccessStory(storyId, userId))) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
+	return projectId;
 }
 
 async function getStoryInProject(storyId: string, projectId: string) {
@@ -1239,9 +1294,7 @@ async function filterStoriesByProjectAccess(
 }
 
 async function canAccessStoryProject(projectId: string, userId: string): Promise<boolean> {
-	return (
-		projectId === SYSTEM_EXAMPLE_PROJECT_ID || Boolean(await projectQueries.getUserRoleInProject(projectId, userId))
-	);
+	return Boolean(await projectQueries.getUserRoleInProject(projectId, userId));
 }
 
 /**

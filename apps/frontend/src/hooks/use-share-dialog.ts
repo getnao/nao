@@ -1,10 +1,19 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { useActiveProjectId } from '@/lib/active-project';
 import { trpc } from '@/main';
 
 export function useShareAudience() {
-	const access = useQuery(trpc.userGroup.projectSharingAccess.queryOptions());
-	const canShareToProject = access.data?.canShareToProject === true;
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const access = useQuery({
+		...trpc.userGroup.projectSharingAccess.queryOptions(),
+		enabled: hasProject,
+	});
+	const canShareToProject = hasProject && !access.isFetching && access.data?.canShareToProject === true;
 	return {
 		canShareToProject,
 		emptyMessage: canShareToProject ? undefined : 'No other members in your groups',
@@ -15,11 +24,20 @@ export function useMemberPicker(currentUserId: string | undefined, initialIds: s
 	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(initialIds));
 	const [search, setSearch] = useState('');
 
-	const membersQuery = useQuery(trpc.project.getProjectMembersByChatId.queryOptions({ chatId }));
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const membersQuery = useQuery({
+		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId }),
+		enabled: hasProject,
+	});
 
 	const otherMembers = useMemo(() => {
-		return (membersQuery.data ?? []).filter((m) => m.id !== currentUserId);
-	}, [membersQuery.data, currentUserId]);
+		return hasProject && !membersQuery.isFetching
+			? (membersQuery.data ?? []).filter((m) => m.id !== currentUserId)
+			: [];
+	}, [hasProject, membersQuery.data, membersQuery.isFetching, currentUserId]);
 
 	const filteredMembers = useMemo(() => {
 		if (!search.trim()) {
@@ -54,6 +72,7 @@ export function useMemberPicker(currentUserId: string | undefined, initialIds: s
 		otherMembers,
 		filteredMembers,
 		toggleUser,
+		isLoading: membersQuery.isFetching,
 		membersQuery,
 		reset,
 	};

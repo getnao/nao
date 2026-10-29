@@ -154,6 +154,11 @@ const OPENAI_REASONING: ModelCapabilities = {
 	extraParams: OPENAI_REASONING_EXTRAS,
 	serviceTierOptions: OPENAI_TIERS,
 };
+const BEDROCK_GEO_PREFIXED_ID = /^[a-z]+(?:-[a-z]+)?\.([a-z0-9-]+\..+)$/;
+const BEDROCK_GEO_TWIN_PREFIXES = ['us', 'global'];
+
+type KnownModel = { id: string; capabilities?: ModelCapabilities };
+
 /** Custom/unlisted OpenAI reasoning models: full effort surface incl. xhigh (e.g. Codex-Max variants). */
 const OPENAI_REASONING_CUSTOM: ModelCapabilities = {
 	...OPENAI_REASONING,
@@ -357,6 +362,29 @@ const OPENAI_COMPATIBLE_CUSTOM: ModelCapabilities = {
 
 /** Provider metadata: models, auth config, env vars. No SDK imports — safe for frontend. */
 export const PROVIDER_META: ProviderMetaMap = {
+	nao: {
+		auth: { apiKey: 'none' },
+		managed: true,
+		extractorModelId: 'gpt-6-luna',
+		summaryModelId: 'gpt-6-luna',
+		models: [
+			{
+				id: 'gpt-6-luna',
+				name: 'GPT 6 Luna',
+				default: true,
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 0.1, inputCacheRead: 0.01, inputCacheWrite: 0.125, output: 0.5 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
+				id: 'gpt-6-sol',
+				name: 'GPT 6 Sol',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+		],
+	},
 	anthropic: {
 		auth: { apiKey: 'required' },
 		envVar: 'ANTHROPIC_API_KEY',
@@ -383,6 +411,13 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Claude Opus 5.5',
 				contextWindow: 1_000_000,
 				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 5, output: 20 },
+				capabilities: ANTHROPIC_ALWAYS_THINKING,
+			},
+			{
+				id: 'claude-sonnet-5-5',
+				name: 'Claude Sonnet 5.5',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.1, inputCacheWrite: 2.5, output: 10 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
@@ -1102,6 +1137,10 @@ export function getProviderMeta(provider: LlmProvider): ProviderMetaMap[LlmProvi
 	return PROVIDER_META[providerKind(provider)];
 }
 
+export function isManagedProvider(provider: LlmProvider): boolean {
+	return getProviderMeta(provider).managed === true;
+}
+
 export function getDefaultModelId(provider: LlmProvider): string {
 	const models = getProviderMeta(provider).models;
 	const defaultModel = models.find((m) => m.default);
@@ -1143,13 +1182,14 @@ export function isAnthropicApiModel(provider: LlmProvider, modelId: string): boo
  * defaults for custom (unlisted) models so tuning still works for user-added model ids.
  */
 export function getModelCapabilities(provider: LlmProvider, modelId: string): ModelCapabilities | undefined {
-	const known = getProviderMeta(provider).models.find((m) => m.id === modelId);
+	const known = findKnownModel(provider, modelId);
 	if (known?.capabilities) {
 		return known.capabilities;
 	}
 	switch (providerKind(provider)) {
 		case 'anthropic':
 			return ANTHROPIC_ADAPTIVE;
+		case 'nao':
 		case 'openai':
 			return OPENAI_REASONING_CUSTOM;
 		case 'azure':
@@ -1182,6 +1222,33 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 		default:
 			return undefined;
 	}
+}
+
+function findKnownModel(provider: LlmProvider, modelId: string): KnownModel | undefined {
+	const models: readonly KnownModel[] = getProviderMeta(provider).models;
+	const exact = models.find((m) => m.id === modelId);
+	if (exact || providerKind(provider) !== 'bedrock') {
+		return exact;
+	}
+	return findBedrockGeoTwin(models, modelId);
+}
+
+/**
+ * Bedrock inference profiles share a model across geo prefixes (`eu.`, `apac.`, `us-gov.`...), but the
+ * catalog lists only some of them. An unlisted geo id takes the capabilities of its `us.` or `global.` twin.
+ */
+export function findBedrockGeoTwin(models: readonly KnownModel[], modelId: string): KnownModel | undefined {
+	const baseId = BEDROCK_GEO_PREFIXED_ID.exec(modelId)?.[1];
+	if (!baseId) {
+		return undefined;
+	}
+	for (const geo of BEDROCK_GEO_TWIN_PREFIXES) {
+		const twin = models.find((m) => m.id === `${geo}.${baseId}`);
+		if (twin) {
+			return twin;
+		}
+	}
+	return undefined;
 }
 
 /** Temperature upper bound when a model's capabilities don't declare one. */

@@ -11,9 +11,9 @@ const SHOW_DURATION = 8_000;
 const ANIMATION_DURATION = 600;
 const ANIMATION_DELAY = 50;
 
-export function SavedPromptSuggestions() {
+export function SavedPromptSuggestions({ projectId }: { projectId?: string }) {
 	const setPromptCallback = useSetChatInputCallback();
-	const { data: savedPrompts } = useSavedPromptsQuery();
+	const { data: savedPrompts } = useSavedPromptsQuery(projectId);
 	const { displayedPrompts, animationKey, hidePrompts, pause, resume } = usePromptRotation(savedPrompts, 3);
 
 	if (displayedPrompts.length === 0) {
@@ -59,7 +59,8 @@ function usePromptRotation(savedPrompts: SavedPrompt[] | undefined, n: number) {
 	const [hidePrompts, setHidePrompts] = useState(false);
 
 	useEffect(() => {
-		if (!savedPrompts || savedPrompts.length < n) {
+		if (!savedPrompts || savedPrompts.length <= n) {
+			setHidePrompts(false);
 			return setDisplayedPrompts(savedPrompts ?? []);
 		}
 

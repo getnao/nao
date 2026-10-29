@@ -3,12 +3,12 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { ArrowRight, PlusIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { StoryItem } from '@/lib/stories-page';
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { UIMessage } from '@nao/backend/chat';
+import type { StoryItem } from '@/lib/stories-page';
 
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
-import { ExampleProjectPromptCard } from '@/components/example-project-info-card';
 import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
 import { MobileHeader } from '@/components/mobile-header';
 import { ProjectSwitcher } from '@/components/project-selector';
@@ -65,28 +65,34 @@ function HomePage() {
 	const isCloud = useIsCloud();
 	const showProjectSetupCue = project.isSuccess && project.data === null;
 	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true);
+	const storiesProjectId = showExampleProject ? SYSTEM_EXAMPLE_PROJECT_ID : project.data?.id;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const isDark = useIsDarkMode();
-	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
+	const hasProject = !!project.data?.id;
+	const stories = useQuery({
+		...trpc.story.listAll.queryOptions({ projectId: storiesProjectId }),
+		enabled: isEmptyState && !!storiesProjectId,
+	});
 	const sharedStories = useQuery({
-		...trpc.storyShare.list.queryOptions({ projectId: project.data?.id ?? '' }),
-		enabled: isEmptyState && !!project.data?.id,
+		...trpc.storyShare.list.queryOptions({ projectId: storiesProjectId ?? '' }),
+		enabled: isEmptyState && !!storiesProjectId,
 	});
 	const favorites = useQuery({
 		...trpc.favorite.list.queryOptions(),
-		enabled: isEmptyState,
+		enabled: isEmptyState && hasProject,
 	});
 	const folderItems = useQuery({
 		...trpc.storyFolder.listItems.queryOptions(),
-		enabled: isEmptyState,
+		enabled: isEmptyState && hasProject,
 	});
 	const folderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
-		enabled: isEmptyState,
+		enabled: isEmptyState && hasProject,
 	});
 	const storiesGridRef = useRef<HTMLDivElement>(null);
 	const [storyCols, setStoryCols] = useState(STORY_CARD_MAX_COLS);
-	const hasStories = (stories.data?.length ?? 0) > 0;
+	const storyCount = (stories.data?.length ?? 0) + (sharedStories.data?.length ?? 0);
+	const hasStories = storyCount > 0;
 	useResizeObserver(
 		storiesGridRef,
 		(el) => {
@@ -130,7 +136,42 @@ function HomePage() {
 		folderTree.data,
 	]);
 	const storyGroups = useMemo(() => buildStoryGroups(latestStoryItems), [latestStoryItems]);
-	const hasMoreStories = (stories.data?.length ?? 0) > storyCols;
+	const hasMoreStories = storyCount > storyCols;
+	const storiesGrid =
+		latestStoryItems.length > 0 ? (
+			<div className='flex flex-col gap-3 w-full px-4 py-6 max-w-3xl mx-auto'>
+				<div
+					ref={storiesGridRef}
+					className='grid gap-x-5 gap-y-2'
+					style={{
+						gridTemplateColumns: `repeat(${storyCols}, minmax(0, 1fr))`,
+					}}
+				>
+					{renderStoryGroupHeaders(storyGroups)}
+					{latestStoryItems.map((item, index) => (
+						<div key={item.storyId} style={{ gridColumn: index + 1, gridRow: 2 }}>
+							<StoryCard item={item} displayMode='grid' showArchived={false} />
+						</div>
+					))}
+				</div>
+				{!showExampleProject && hasMoreStories && (
+					<button
+						type='button'
+						onClick={() => navigate({ to: '/stories', search: { folderId: null } })}
+						className={cn(
+							'h-9 rounded-lg border border-dashed border-muted-foreground/20 px-3',
+							'flex items-center gap-2 text-muted-foreground/50 bg-sidebar dark:bg-background',
+							'hover:border-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer',
+						)}
+					>
+						<div className='flex items-center justify-center gap-2 flex-1 min-w-0 pl-1.5'>
+							<PlusIcon className='size-3 shrink-0' />
+							<span className='text-xs truncate'>Show more</span>
+						</div>
+					</button>
+				)}
+			</div>
+		) : null;
 
 	const logoSrc = isDark ? '/darkLogo.svg' : '/lightLogo.svg';
 	const cardLogoSrc = isDark ? '/dark-card-logo.svg' : '/light-card-logo.svg';
@@ -174,7 +215,7 @@ function HomePage() {
 								<div className='relative z-10 mb-6 max-w-2xl space-y-2 px-6 text-center'>
 									<h1 className='font-borna text-xl tracking-tight md:text-3xl'>{stateTitle}</h1>
 								</div>
-								<div className='relative flex w-full max-w-3xl mx-auto flex-col gap-4'>
+								<div className='relative mt-6 flex w-full max-w-3xl mx-auto flex-col gap-4 md:mt-10'>
 									<img
 										src={logoSrc}
 										alt=''
@@ -182,20 +223,9 @@ function HomePage() {
 										className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
 									/>
 									<ChatInput />
-									<SavedPromptSuggestions />
+									<SavedPromptSuggestions projectId={SYSTEM_EXAMPLE_PROJECT_ID} />
 								</div>
-								{showProjectSetupCue && (
-									<div className='grid w-full max-w-3xl grid-cols-1 gap-4 px-4 py-6 sm:grid-cols-2'>
-										<HomeLinkCard
-											to='/onboarding'
-											label='Guided setup'
-											title='Set up your nao project'
-											subtitle='Chat with the onboarding agent'
-											logoSrc={cardLogoSrc}
-										/>
-										<ExampleProjectPromptCard />
-									</div>
-								)}
+								{storiesGrid}
 							</>
 						) : showProjectSetupCue ? (
 							<div className='flex w-full max-w-3xl justify-center px-4 py-6'>
@@ -219,43 +249,10 @@ function HomePage() {
 										aria-hidden
 										className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
 									/>
-									<ChatInput />
+									<ChatInput acceptsPendingStoryReferences />
 									<SavedPromptSuggestions />
 								</div>
-								{latestStoryItems.length > 0 && (
-									<div className='flex flex-col gap-3 w-full px-4 py-6 max-w-3xl mx-auto'>
-										<div
-											ref={storiesGridRef}
-											className='grid gap-x-5 gap-y-2'
-											style={{
-												gridTemplateColumns: `repeat(${storyCols}, minmax(0, 1fr))`,
-											}}
-										>
-											{renderStoryGroupHeaders(storyGroups)}
-											{latestStoryItems.map((item, index) => (
-												<div key={item.storyId} style={{ gridColumn: index + 1, gridRow: 2 }}>
-													<StoryCard item={item} displayMode='grid' showArchived={false} />
-												</div>
-											))}
-										</div>
-										{hasMoreStories && (
-											<button
-												type='button'
-												onClick={() => navigate({ to: '/stories', search: { folderId: null } })}
-												className={cn(
-													'h-9 rounded-lg border border-dashed border-muted-foreground/20 px-3',
-													'flex items-center gap-2 text-muted-foreground/50 bg-sidebar dark:bg-background',
-													'hover:border-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer',
-												)}
-											>
-												<div className='flex items-center justify-center gap-2 flex-1 min-w-0 pl-1.5'>
-													<PlusIcon className='size-3 shrink-0' />
-													<span className='text-xs truncate'>Show more</span>
-												</div>
-											</button>
-										)}
-									</div>
-								)}
+								{storiesGrid}
 							</>
 						)}
 					</div>

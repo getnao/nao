@@ -1,4 +1,12 @@
-import { type CustomBoundarySet, normalizeCitationMarkers } from '@nao/shared';
+import {
+	type CustomBoundarySet,
+	getSchemaKeyFromMentionId,
+	isSchemaMentionId,
+	isSkillGranted,
+	isStoryFolderMentionId,
+	isStoryReferenceMentionId,
+	normalizeCitationMarkers,
+} from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
@@ -18,21 +26,18 @@ import {
 	UIMessageStreamWriter,
 } from 'ai';
 
+import type { ManagedAiUsageContext } from '../agents/managed-ai';
+import type { AgentProfile } from '../agents/profiles/types';
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
-import {
-	appendCloudExampleScope,
-	getSystemPromptOverride,
-	hasNaoPromptPlaceholder,
-	injectNaoPrompt,
-} from '../agents/system-prompts';
+import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
-import { getConnections, getTableColumnsContent, getUserRules } from '../agents/user-rules';
+import { getConnections, getTableColumnsContent, getUserRules, listSchemaTableFqdns } from '../agents/user-rules';
 import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
 import { DBChat } from '../db/abstractSchema';
-import { env, isCloud } from '../env';
+import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
@@ -43,7 +48,6 @@ import {
 	ForkMetadata,
 	Mention,
 	MessageCustomDataParts,
-	MessageSource,
 	TokenCost,
 	TokenUsage,
 	UIMessage,
@@ -76,10 +80,12 @@ import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-con
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { STORY_LIBRARY_MOUNT } from '../utils/story-library';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
+import { assertUserIsActive } from './account-status.service';
 import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
@@ -96,6 +102,12 @@ import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import { customStoryAuthoringError } from './story-mount';
+import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
+import {
+	keepStoryReferencesThroughCompaction,
+	listTrustedStoriesForPrompt,
+	safeExpandStoryReferences,
+} from './story-reference';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
 	type AgentUserGroupAccess,
@@ -125,7 +137,6 @@ export interface AgentRunResult {
 
 /** Context of a user-sent message, reported with the `message_sent` event once the answer is finished. */
 export interface MessageSentTracking {
-	source: MessageSource;
 	isNewChat: boolean;
 	domainHost: string | undefined;
 }
@@ -162,71 +173,15 @@ export function resolveStoryMode(
 	return mentioned(story.MENTION_ID) ? 'classic' : null;
 }
 
+const MAX_SCHEMA_TABLES_WITH_COLUMNS = 15;
+const MAX_SCHEMA_TABLES_NAMED = 200;
+
+const EXISTING_STORY_FIRST = `If a story in /${STORY_LIBRARY_MOUNT} already answers the request, whatever its format, hand it over instead of creating a duplicate and offer to build a new one`;
+
 const STORY_MODE_INSTRUCTIONS = {
-	classic:
-		'[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts]',
-	custom: '[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks]',
+	classic: `[Story mode: present your response as an interactive nao Story using the story tool (format "classic"), combining markdown and charts. ${EXISTING_STORY_FIRST}]`,
+	custom: `[Custom story mode: present your response as a custom story: call the story tool with format "custom" and build the app with @nao/story-kit blocks. ${EXISTING_STORY_FIRST}]`,
 } as const;
-
-/** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ agentSettings, toolContext, webTools, customBoundaries }) =>
-	getTools(agentSettings, webTools ?? {}, {
-		customBoundaries,
-		mcpAccess: toolContext.mcpAccess,
-		semanticLayerMode: toolContext.semanticLayerMode,
-		customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
-	});
-
-/** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
-export const defaultAgentToolsExcluding =
-	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ agentSettings, toolContext, webTools, customBoundaries }) =>
-		getTools(agentSettings, webTools ?? {}, {
-			excludeBuiltinTools,
-			customBoundaries,
-			mcpAccess: toolContext.mcpAccess,
-			semanticLayerMode: toolContext.semanticLayerMode,
-			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
-		});
-
-export const onboardingAgentTools: AgentToolsResolver = ({ agentSettings }) =>
-	getTools(
-		agentSettings,
-		{},
-		{
-			onboarding: true,
-			builtinToolAllowlist: [
-				'clarification',
-				'onboarding_agent_prompt',
-				'onboarding_command',
-				'onboarding_progress',
-				'request_warehouse_credentials',
-				'request_warehouse_selection',
-				'generate_onboarding_rules',
-			],
-		},
-	);
-
-/**
- * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
- * runs against nao's own app database when `ToolContext.adminMode` is set),
- * plus charting and follow-ups. Excludes the filesystem context tools.
- */
-export const adminAgentTools: AgentToolsResolver = ({ agentSettings }) =>
-	getTools(
-		agentSettings,
-		{},
-		{
-			builtinToolAllowlist: [
-				'execute_sql',
-				'read_query_result',
-				'display_chart',
-				'suggest_follow_ups',
-				'story',
-				'clarification',
-			],
-		},
-	);
 
 export async function buildToolContext(opts: {
 	projectId: string;
@@ -236,7 +191,8 @@ export async function buildToolContext(opts: {
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
 	modelSelection?: LlmSelectedModel;
-	projectAccessAlreadyAuthorized?: boolean;
+	usageRunId?: string;
+	managedAiBillingMode?: ManagedAiUsageContext['billingMode'];
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -244,6 +200,8 @@ export async function buildToolContext(opts: {
 		chatId: opts.chatId,
 		adminMode: opts.adminMode ?? false,
 		...(opts.modelSelection && { modelSelection: opts.modelSelection }),
+		...(opts.usageRunId && { usageRunId: opts.usageRunId }),
+		...(opts.managedAiBillingMode && { managedAiBillingMode: opts.managedAiBillingMode }),
 	};
 }
 
@@ -265,7 +223,6 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
-	projectAccessAlreadyAuthorized?: boolean;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
@@ -276,9 +233,7 @@ async function _buildContextBase(opts: {
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
-		resolveProjectContextAccess(opts.projectId, opts.userId, project.path, {
-			projectAccessAlreadyAuthorized: opts.projectAccessAlreadyAuthorized,
-		}),
+		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
 	]);
 	return {
 		projectFolder: project.path,
@@ -293,6 +248,7 @@ async function _buildContextBase(opts: {
 		docsContextAccess: contextAccess.docsContextAccess,
 		filesContextAccess: contextAccess.filesContextAccess,
 		mcpAccess: contextAccess.mcpAccess,
+		skillsAccess: contextAccess.skillsAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		preloadedSkillNames: contextAccess.preloadedSkillNames,
@@ -302,12 +258,16 @@ async function _buildContextBase(opts: {
 	};
 }
 
+async function assertModelBudget(projectId: string, model: LlmSelectedModel, userId?: string): Promise<void> {
+	await assertBudgetNotExceeded(projectId, model.provider, userId);
+}
+
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
 	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
 		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		await assertBudgetNotExceeded(projectId, resolved.provider, userId);
+		await assertModelBudget(projectId, resolved, userId);
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
@@ -317,57 +277,36 @@ export class AgentService {
 
 	async create(
 		chat: AgentChat,
-		modelSelection?: LlmSelectedModel,
+		modelSelection: LlmSelectedModel | undefined,
+		profile: AgentProfile,
 		options: {
-			/**
-			 * Resolves the tool set the run exposes. Defaults to `defaultAgentTools`
-			 * (all built-ins, MCP and web search). Pass a custom resolver to restrict
-			 * or extend the tools (e.g. automations, context recommendations).
-			 */
-			tools?: AgentToolsResolver;
-			/**
-			 * Removes `suggest_follow_ups` and switches the loop's stop condition
-			 * to a step counter. Used by non-interactive runs (e.g. automations)
-			 * where suggesting follow-ups would prematurely end the loop
-			 * before outbound integration tools fire.
-			 */
-			excludeFollowUps?: boolean;
-			/**
-			 * Step budget for the `excludeFollowUps` stop condition. Defaults to 20.
-			 * Longer analyses (e.g. context recommendations) raise this so the loop
-			 * is not cut off before it finishes recording.
-			 */
-			maxSteps?: number;
-			/**
-			 * Replaces the standard system prompt with a fully formed prompt. Skips the
-			 * default instructions, user rules (RULES.md), memories and connections —
-			 * used by runs where that context is the subject of the task rather than
-			 * authoritative guidance (e.g. context recommendations).
-			 */
-			systemPrompt?: string;
-			/**
-			 * Admin mode: routes `execute_sql` to nao's own app-database views instead
-			 * of the user's warehouse (see `ToolContext.adminMode`).
-			 */
-			adminMode?: boolean;
-			/** Enables project-defined charts that render only in the web client. */
-			supportsCustomCharts?: boolean;
 			billingAccessVerifiedProjectId?: string;
+			/** Omits chat attribution when the run uses a transient, unpersisted chat. */
+			attributeUsageToChat?: boolean;
 			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
 			isBudgetChecked?: boolean;
-			/** The request boundary has already authorized access to an internal system project. */
-			projectAccessAlreadyAuthorized?: boolean;
+			/** Records managed usage without charging an organization wallet. */
+			unbilledManagedAiUsage?: boolean;
 		} = {},
 	): Promise<AgentManager> {
+		await assertUserIsActive(chat.userId);
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
 			await assertProjectCloudBillingAccess(chat.projectId);
 		}
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		if (!options.isBudgetChecked) {
-			await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
+			await assertModelBudget(chat.projectId, resolvedLlmSelectedModel, chat.userId);
 		}
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
+		const usageContext: ManagedAiUsageContext = {
+			userId: chat.userId,
+			projectId: chat.projectId,
+			chatId: options.attributeUsageToChat === false ? undefined : chat.id,
+			runId: crypto.randomUUID(),
+			category: profile.usageCategory ?? 'chat',
+			billingMode: options.unbilledManagedAiUsage ? 'unbilled' : 'wallet',
+		};
+		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, usageContext);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
@@ -378,21 +317,19 @@ export class AgentService {
 			chatId: chat.id,
 			userId: chat.userId,
 			agentSettings,
-			adminMode: options.adminMode,
-			supportsCustomCharts: options.supportsCustomCharts,
+			adminMode: profile.queriesAppDatabase,
+			supportsCustomCharts: profile.supportsCustomCharts,
 			modelSelection: resolvedLlmSelectedModel,
-			projectAccessAlreadyAuthorized: options.projectAccessAlreadyAuthorized,
+			usageRunId: usageContext.runId,
+			managedAiBillingMode: usageContext.billingMode,
 		});
+		toolContext.linkedStory = await resolveLinkedStory(chat);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
-		const resolveTools = options.tools ?? defaultAgentTools;
-		const resolvedTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
-		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, resolvedTools);
-		const agentTools = resolvedTools;
-		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
-			? [stepCountIs(options.maxSteps ?? 20)]
-			: interactiveStopConditions;
+		const agentTools = await profile.tools({ chat, agentSettings, toolContext, webTools, customBoundaries });
+		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, agentTools);
 		const agent = new AgentManager(
 			chat,
+			profile,
 			modelConfig,
 			resolvedLlmSelectedModel,
 			() => this._agents.delete(chat.id),
@@ -400,8 +337,7 @@ export class AgentService {
 			agentTools,
 			toolContext,
 			userGroupAccess,
-			stopWhen,
-			options.systemPrompt,
+			usageContext,
 		);
 		this._agents.set(chat.id, agent);
 		return agent;
@@ -455,8 +391,18 @@ export class AgentService {
 		return createWebSearchTools(provider, settings);
 	}
 
-	protected async _getModelConfig(projectId: string, modelSelection: LlmSelectedModel): Promise<ProviderModelResult> {
-		const result = await resolveProviderModel(projectId, modelSelection.provider, modelSelection.modelId);
+	protected async _getModelConfig(
+		projectId: string,
+		modelSelection: LlmSelectedModel,
+		usageContext?: ManagedAiUsageContext,
+	): Promise<ProviderModelResult> {
+		const result = await resolveProviderModel(
+			projectId,
+			modelSelection.provider,
+			modelSelection.modelId,
+			true,
+			usageContext,
+		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
 		}
@@ -476,6 +422,7 @@ export class AgentManager {
 
 	constructor(
 		readonly chat: AgentChat,
+		private readonly _profile: AgentProfile,
 		private readonly _modelConfig: ProviderModelResult,
 		private readonly _modelSelection: LlmSelectedModel,
 		private readonly _onDispose: () => void,
@@ -483,8 +430,7 @@ export class AgentManager {
 		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
 		private readonly _userGroupAccess: AgentUserGroupAccess,
-		stopWhen: StopCondition<AgentTools>[] = interactiveStopConditions,
-		private readonly _systemPromptOverride?: string,
+		private readonly _usageContext: ManagedAiUsageContext,
 	) {
 		this._finished = new Promise((resolve) => {
 			this._resolveFinished = resolve;
@@ -506,7 +452,7 @@ export class AgentManager {
 				instructions: cachedSystemInstructions(this._systemPrompt, this._modelSelection),
 			}),
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
-			stopWhen,
+			stopWhen: this._stopConditions,
 			experimental_context: this._toolContext,
 			experimental_telemetry: llmTelemetry('nao-agent', {
 				sessionId: this.chat.id,
@@ -528,6 +474,10 @@ export class AgentManager {
 		return this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
 	}
 
+	private get _stopConditions(): StopCondition<AgentTools>[] {
+		return this._profile.maxSteps ? [stepCountIs(this._profile.maxSteps)] : interactiveStopConditions;
+	}
+
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
 		const workingMessages: ModelMessage[] =
 			this._systemPrompt && messages[0]?.role !== 'system'
@@ -537,6 +487,8 @@ export class AgentManager {
 			chat: this.chat,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
+			runId: this._usageContext.runId,
+			billingMode: this._usageContext.billingMode,
 			messages: workingMessages,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
@@ -586,15 +538,15 @@ export class AgentManager {
 		opts: {
 			events?: Partial<MessageCustomDataParts>;
 			mentions?: Mention[];
-			provider?: Provider;
 			timezone?: string;
 			chatUrl?: string;
 			tracking?: MessageSentTracking;
-			source?: MessageSource;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
+		const assistantMessageId = crypto.randomUUID();
+		this._usageContext.messageId = assistantMessageId;
 		const handleError = (err: unknown): string => {
 			error = err;
 			logger.error(`Agent stream error: ${String(err)}`, {
@@ -606,9 +558,8 @@ export class AgentManager {
 		};
 
 		return createUIMessageStream<UIMessage>({
-			generateId: () => crypto.randomUUID(),
 			execute: async ({ writer }) => {
-				writer.write({ type: 'start' });
+				writer.write({ type: 'start', messageId: assistantMessageId });
 
 				if (opts.events?.newChat) {
 					writer.write({
@@ -625,13 +576,7 @@ export class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(
-					uiMessages,
-					opts.mentions,
-					opts.provider,
-					opts.timezone,
-					opts.chatUrl,
-				);
+				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.timezone, opts.chatUrl);
 
 				result = await this._agent.stream({
 					messages,
@@ -666,7 +611,7 @@ export class AgentManager {
 						...settledMessage,
 						chatId: this.chat.id,
 						senderUserId: this.chat.userId,
-						source: opts.source ?? (this._toolContext.adminMode ? 'admin' : settledMessage.source),
+						source: this._profile.source,
 						stopReason,
 						error,
 						tokenUsage,
@@ -686,7 +631,6 @@ export class AgentManager {
 	private async _buildModelMessages(
 		uiMessages: UIMessage[],
 		mentions?: Mention[],
-		provider?: Provider,
 		timezone?: string,
 		chatUrl?: string,
 	): Promise<ModelMessage[]> {
@@ -704,14 +648,22 @@ export class AgentManager {
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
-		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
+		const uiMessagesWithStoryQuestion = addStoryQuestionReference(uiMessagesWithDbContext, this.chat.forkMetadata);
+		const uiMessagesWithCompaction = keepStoryReferencesThroughCompaction(
+			uiMessagesWithStoryQuestion,
+			compactionService.useLastCompaction(uiMessagesWithStoryQuestion),
+		);
+		const uiMessagesWithStoryReferences = await safeExpandStoryReferences(uiMessagesWithCompaction, {
+			userId: this.chat.userId,
+			projectId: this.chat.projectId,
+		});
 		const uiMessagesWithArtifacts = artifacts
-			? appendChatArtifacts(uiMessagesWithCompaction, artifacts)
-			: uiMessagesWithCompaction;
+			? appendChatArtifacts(uiMessagesWithStoryReferences, artifacts)
+			: uiMessagesWithStoryReferences;
 		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithArtifacts);
 
 		const selectedSystemPrompt =
-			this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
+			this._profile.systemPrompt?.({ timezone }) ?? (await this._buildProjectSystemPrompt(timezone, chatUrl));
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
 		this._runCompaction = new RunCompaction(compactionService);
@@ -724,7 +676,8 @@ export class AgentManager {
 		return sanitizeToolCalls(modelMessages, this._modelSelection.provider);
 	}
 
-	private async _buildSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
+	private async _buildProjectSystemPrompt(timezone?: string, chatUrl?: string): Promise<string> {
+		const provider = this._profile.messagingProvider;
 		const override = getSystemPromptOverride(this._toolContext.projectFolder, provider);
 		let systemPrompt: string;
 		if (override && !hasNaoPromptPlaceholder(override)) {
@@ -734,7 +687,7 @@ export class AgentManager {
 			systemPrompt = override ? injectNaoPrompt(override, defaultPrompt) : defaultPrompt;
 		}
 
-		return appendCloudExampleScope(systemPrompt, isCloud, this.chat.projectId);
+		return this._profile.promptAppendix ? `${systemPrompt}\n\n${this._profile.promptAppendix}` : systemPrompt;
 	}
 
 	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
@@ -744,7 +697,9 @@ export class AgentManager {
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
 		const repoNames = repos.map((repo) => repo.name);
-		const skills = skillService.getSkills(this.chat.projectId);
+		const skills = skillService
+			.getSkills(this.chat.projectId)
+			.filter((skill) => isSkillGranted(this._toolContext.skillsAccess, skill.name));
 		const preloadedSkills = skillService.getPreloadedSkills(
 			this.chat.projectId,
 			this._toolContext.preloadedSkillNames,
@@ -753,10 +708,13 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets] = await Promise.all([
+		const [mcpServers, sandboxSecrets, trustedStories] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
+				: Promise.resolve([]),
+			toolNames.includes('list') && toolNames.includes('read')
+				? listTrustedStoriesForPrompt({ userId: this.chat.userId, projectId: this.chat.projectId })
 				: Promise.resolve([]),
 		]);
 		const basePrompt = renderToMarkdown(
@@ -770,6 +728,7 @@ export class AgentManager {
 				customCharts,
 				mcpServers,
 				sandboxSecrets,
+				trustedStories,
 				semanticLayerMode: this._toolContext.semanticLayerMode,
 				templates,
 				repoNames,
@@ -788,7 +747,11 @@ export class AgentManager {
 			: basePrompt;
 		return this.chat.forkMetadata
 			? renderToMarkdown(
-					ChatForkContextPrompt({ basePrompt: renderedPrompt, forkMetadata: this.chat.forkMetadata }),
+					ChatForkContextPrompt({
+						basePrompt: renderedPrompt,
+						forkMetadata: this.chat.forkMetadata,
+						linkedStory: this._toolContext.linkedStory,
+					}),
 				)
 			: renderedPrompt;
 	}
@@ -804,7 +767,7 @@ export class AgentManager {
 			chat_id: this.chat.id,
 			model_id: this._modelSelection.modelId,
 			is_new_chat: tracking.isNewChat,
-			source: tracking.source,
+			source: this._profile.source,
 			domain_host: tracking.domainHost,
 			stop_reason: stopReason,
 			...getAssistantMessageTrackingProperties(assistantMessage, error),
@@ -819,6 +782,8 @@ export class AgentManager {
 			messages: uiMessages,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
+			runId: this._usageContext.runId,
+			billingMode: this._usageContext.billingMode,
 		});
 	}
 
@@ -842,7 +807,14 @@ export class AgentManager {
 				this._modelSelection,
 				getProviderMeta(provider).summaryModelId,
 			));
-		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false);
+		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false, {
+			userId: this.chat.userId,
+			projectId: this.chat.projectId,
+			chatId: this.chat.id,
+			runId: this._usageContext.runId,
+			category: 'title',
+			billingMode: this._usageContext.billingMode,
+		});
 		if (!modelResult) {
 			return;
 		}
@@ -911,20 +883,13 @@ export class AgentManager {
 	async generate(
 		uiMessages: UIMessage[],
 		opts: {
-			provider?: Provider;
 			timezone?: string;
 			chatUrl?: string;
 			costs?: ModelCosts;
 		} = {},
 	): Promise<AgentRunResult> {
 		const startTime = performance.now();
-		const messages = await this._buildModelMessages(
-			uiMessages,
-			undefined,
-			opts.provider,
-			opts.timezone,
-			opts.chatUrl,
-		);
+		const messages = await this._buildModelMessages(uiMessages, undefined, opts.timezone, opts.chatUrl);
 		try {
 			const result = await this._agent.generate({
 				messages,
@@ -1013,7 +978,9 @@ export class AgentManager {
 	}
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		const skillMention = mentions?.find((m) => m.trigger === '/');
+		const skillMention = mentions?.find(
+			(m) => m.trigger === '/' && isSkillGranted(this._toolContext.skillsAccess, m.id),
+		);
 		const skillContent = skillMention
 			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
 			: undefined;
@@ -1037,22 +1004,12 @@ export class AgentManager {
 	}
 
 	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		const dbMentions = mentions?.filter((m) => m.trigger === '@') ?? [];
-		if (dbMentions.length === 0) {
-			return messages;
-		}
-
-		const contextParts: string[] = [];
-		for (const mention of dbMentions) {
-			const content = getTableColumnsContent(
-				this._toolContext.projectFolder,
-				mention.id,
-				this._toolContext.warehouseTableAccess,
-			);
-			if (content) {
-				contextParts.push(`[Table: ${mention.id}]\n${content}`);
-			}
-		}
+		const mentionIds = mentions?.filter((m) => m.trigger === '@').map((m) => m.id) ?? [];
+		const schemaKeys = mentionIds.map(getSchemaKeyFromMentionId).filter((key): key is string => key !== null);
+		const contextParts = [
+			...mentionIds.filter(isTableMentionId).map((fqdn) => this._tableContext(fqdn)),
+			...schemaKeys.map((schemaKey) => this._schemaContext(schemaKey)),
+		].filter((part): part is string => part !== undefined);
 
 		if (contextParts.length === 0) {
 			return messages;
@@ -1063,6 +1020,40 @@ export class AgentManager {
 			messages,
 			(text) => `${text}\n\n---\nReferenced tables:\n${dbContext}`,
 		);
+	}
+
+	private _tableContext(fqdn: string): string | undefined {
+		const content = getTableColumnsContent(
+			this._toolContext.projectFolder,
+			fqdn,
+			this._toolContext.warehouseTableAccess,
+		);
+		return content ? `[Table: ${fqdn}]\n${content}` : undefined;
+	}
+
+	/** Only the first tables of a large schema come with their columns, the next ones are named, the rest counted. */
+	private _schemaContext(schemaKey: string): string | undefined {
+		const fqdns = listSchemaTableFqdns(
+			this._toolContext.projectFolder,
+			schemaKey,
+			this._toolContext.warehouseTableAccess,
+		);
+		if (fqdns.length === 0) {
+			return undefined;
+		}
+		const detailedTables = fqdns.slice(0, MAX_SCHEMA_TABLES_WITH_COLUMNS).map((fqdn) => this._tableContext(fqdn));
+		const otherTables = fqdns.slice(MAX_SCHEMA_TABLES_WITH_COLUMNS, MAX_SCHEMA_TABLES_NAMED);
+		const unnamedCount = Math.max(fqdns.length - MAX_SCHEMA_TABLES_NAMED, 0);
+		return [
+			`[Schema: ${schemaKey}] ${fqdns.length} tables`,
+			...detailedTables,
+			otherTables.length > 0 ? `Other tables of ${schemaKey}: ${otherTables.join(', ')}` : undefined,
+			unnamedCount > 0
+				? `${unnamedCount} more tables of ${schemaKey} are not listed: search the context for them.`
+				: undefined,
+		]
+			.filter((part): part is string => part !== undefined)
+			.join('\n\n');
 	}
 
 	private _transformLastUserMessageText(messages: UIMessage[], transform: (text: string) => string): UIMessage[] {
@@ -1200,6 +1191,10 @@ async function safeInitializeSkills(projectId: string): Promise<void> {
 	} catch (error) {
 		logger.warn(`Failed to initialize skills for project ${projectId}: ${String(error)}`, { source: 'agent' });
 	}
+}
+
+function isTableMentionId(mentionId: string): boolean {
+	return !isStoryReferenceMentionId(mentionId) && !isStoryFolderMentionId(mentionId) && !isSchemaMentionId(mentionId);
 }
 
 // Singleton instance of the agent service

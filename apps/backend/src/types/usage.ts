@@ -85,6 +85,7 @@ export interface UserProjectPreferences {
 
 export interface StoredUserPreferences extends UserPreferences {
 	projectPreferences?: Record<string, UserProjectPreferences>;
+	supportRequestSentAt?: number;
 }
 
 export function resolveUsagePeriod(

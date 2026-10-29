@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { stripAssistantTags } from '../src/assistant-tags';
+import { extractStoryReferenceTags, stripAssistantTags } from '../src/assistant-tags';
 
 describe('stripAssistantTags', () => {
 	it('keeps the text a citation wraps', () => {
@@ -13,6 +13,11 @@ describe('stripAssistantTags', () => {
 		expect(stripAssistantTags(text)).toBe('Here it is: churn-2025.csv');
 	});
 
+	it('keeps the title a story reference wraps', () => {
+		const text = 'See <story-reference id="b411e523">Top 5 Customers by Payments</story-reference>.';
+		expect(stripAssistantTags(text)).toBe('See Top 5 Customers by Payments.');
+	});
+
 	it('keeps the text of a citation whose opening tag starts with an OpenAI citation marker', () => {
 		const text =
 			'GitHub had 1,936 stars. \uE200citation-number id="query_6244" column="stars">1936</citation-number>';
@@ -21,5 +26,20 @@ describe('stripAssistantTags', () => {
 
 	it('leaves an answer without tags alone', () => {
 		expect(stripAssistantTags('Revenue grew 4% last quarter.')).toBe('Revenue grew 4% last quarter.');
+	});
+});
+
+describe('extractStoryReferenceTags', () => {
+	it('reads the stories an answer hands over, with their titles', () => {
+		const text =
+			'Here:\n<story-reference id="s1">Revenue</story-reference>\nand <story-reference id=\'s2\'> Churn </story-reference>.';
+		expect(extractStoryReferenceTags(text)).toEqual([
+			{ storyId: 's1', title: 'Revenue' },
+			{ storyId: 's2', title: 'Churn' },
+		]);
+	});
+
+	it('finds nothing in a text without story references', () => {
+		expect(extractStoryReferenceTags('See <saved-file path="/a.csv">a.csv</saved-file>')).toEqual([]);
 	});
 });

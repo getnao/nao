@@ -63,6 +63,28 @@ describe('dialect-aware system prompt', () => {
 		expect(mysql).toContain('**MySQL dialect:** Use backtick-quoted identifiers');
 	});
 
+	it('injects BigQuery rules for ILIKE, GROUP BY ALL and timestamp handling', () => {
+		const section = sqlQueryRulesSection(renderWith([{ type: 'bigquery', database: 'db' }]));
+
+		expect(section).toContain('Do not use `ILIKE`');
+		expect(section).toContain("`LOWER(col) LIKE LOWER('%pattern%')`");
+		expect(section).toContain("`REGEXP_CONTAINS(col, r'(?i)pattern')`");
+		expect(section).toContain('`GROUP BY ALL` is supported');
+		expect(section).toContain('Wrong: `ts_col >= CURRENT_DATE()`');
+		expect(section).toContain("`ts_col >= TIMESTAMP('2024-01-01')`");
+		expect(section).toContain('only accept intervals up to `DAY`');
+		expect(section).toContain('`DATE(ts_col) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)`');
+		expect(section).toContain('`CURRENT_TIMESTAMP()` instead of `NOW()`');
+		expect(section).toContain("`DATE_TRUNC(col, MONTH)` instead of `DATE_TRUNC('month', col)`");
+	});
+
+	it('does not leak BigQuery rules into other dialects', () => {
+		const tsql = sqlQueryRulesSection(renderWith([{ type: 'mssql', database: 'db' }]));
+		expect(tsql).toContain('Do not use `GROUP BY ALL`');
+		expect(tsql).not.toContain('`GROUP BY ALL` is supported');
+		expect(tsql).not.toContain('`ILIKE`');
+	});
+
 	it('injects the ClickHouse tool-call rule under Tool Calls', () => {
 		const markdown = renderWith([{ type: 'clickhouse', database: 'events' }]);
 		const toolCalls = markdown.slice(markdown.indexOf('## Tool Calls'), markdown.indexOf('## SQL Query Rules'));

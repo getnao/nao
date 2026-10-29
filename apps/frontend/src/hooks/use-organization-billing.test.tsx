@@ -59,6 +59,7 @@ describe('useOrganizationBilling', () => {
 	it('stops checkout polling once Stripe confirms the subscription', async () => {
 		mocks.getStatus.mockResolvedValue({
 			hasStripeSubscription: true,
+			paidPlanSelected: true,
 			status: 'trialing',
 			canManageBilling: false,
 		});

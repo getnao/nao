@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Info, Search } from 'lucide-react';
+import { ChevronDown, Download, Info, Search } from 'lucide-react';
 import { getNextPeriodStart } from '@nao/shared/date';
 import {
 	DEFAULT_MEMBER_BUDGET_PERIOD,
@@ -20,6 +20,7 @@ import { LockedFieldset } from '@/components/settings/locked-fieldset';
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { UnsavedChangesFooter } from '@/components/settings/unsaved-changes-footer';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -42,6 +43,7 @@ import {
 	PERIOD_RANGE_HINTS,
 	STATUS_META,
 } from '@/lib/member-budget';
+import { downloadCsv } from '@/lib/table-export';
 import { cn, toUtcDateString } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -189,6 +191,7 @@ export function MemberBudgetSettings({ isLicensed }: MemberBudgetSettingsProps) 
 				draft={draft}
 				currentUserId={session?.user?.id}
 				isLocked={isLocked}
+				hasUnsavedChanges={isDirty}
 				isLoading={overview.isLoading}
 				isError={overview.isError}
 				onPersonalBudgetChange={updatePersonalBudget}
@@ -212,6 +215,7 @@ function MemberBudgetsCard({
 	draft,
 	currentUserId,
 	isLocked,
+	hasUnsavedChanges,
 	isLoading,
 	isError,
 	onPersonalBudgetChange,
@@ -221,6 +225,7 @@ function MemberBudgetsCard({
 	draft: LimitDraft;
 	currentUserId: string | undefined;
 	isLocked: boolean;
+	hasUnsavedChanges: boolean;
 	isLoading: boolean;
 	isError: boolean;
 	onPersonalBudgetChange: (userId: string, limitUsd: number | null) => void;
@@ -263,7 +268,7 @@ function MemberBudgetsCard({
 		<SettingsCard
 			title='Members'
 			description='Click a budget to type a value, or use the arrow to pick a preset or go back to the inherited one.'
-			action={isLocked ? <UpgradeToEnterprise /> : undefined}
+			action={isLocked ? <UpgradeToEnterprise /> : <ExportUsageButton hasUnsavedChanges={hasUnsavedChanges} />}
 			flush
 		>
 			<LockedFieldset disabled={isLocked} className='gap-0'>
@@ -393,6 +398,41 @@ function MemberBudgetsCard({
 				</Table>
 			</LockedFieldset>
 		</SettingsCard>
+	);
+}
+
+/** Exports the saved budgets, so unsaved edits must be saved or discarded first. */
+function ExportUsageButton({ hasUnsavedChanges }: { hasUnsavedChanges: boolean }) {
+	const queryClient = useQueryClient();
+	const exportMutation = useMutation({
+		mutationFn: () => queryClient.fetchQuery({ ...trpc.memberBudget.exportUsageCsv.queryOptions(), staleTime: 0 }),
+		onSuccess: (csv) => downloadCsv(`budget-usage-${toUtcDateString(new Date())}.csv`, csv),
+	});
+
+	const button = (
+		<Button
+			variant='outline'
+			size='sm'
+			isLoading={exportMutation.isPending}
+			disabled={hasUnsavedChanges}
+			onClick={() => exportMutation.mutate()}
+		>
+			{!exportMutation.isPending && <Download />}
+			Export CSV
+		</Button>
+	);
+
+	return (
+		<div className='flex items-center gap-2'>
+			{exportMutation.isError && <span className='text-xs text-destructive'>Export failed</span>}
+			{hasUnsavedChanges ? (
+				<SimpleTooltip content='Save or cancel your changes to export.'>
+					<span>{button}</span>
+				</SimpleTooltip>
+			) : (
+				button
+			)}
+		</div>
 	);
 }
 

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { StoryApp } from '@nao/shared/story-app';
-import { and, asc, eq, getTableColumns, lt, notExists, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, inArray, lt, notExists, sql } from 'drizzle-orm';
 
 import s, {
 	type DBStoryBundle,
@@ -109,11 +109,21 @@ export async function seedDraftFiles(
 }
 
 export function listVersionFiles(storyVersionId: string, executor: DBExecutor = db): Promise<StoryFileWithContent[]> {
+	return listFilesOfVersions([storyVersionId], executor);
+}
+
+export function listFilesOfVersions(
+	storyVersionIds: string[],
+	executor: DBExecutor = db,
+): Promise<StoryFileWithContent[]> {
+	if (storyVersionIds.length === 0) {
+		return Promise.resolve([]);
+	}
 	return executor
 		.select({ ...getTableColumns(s.storyFile), content: s.storyFileBlob.content })
 		.from(s.storyFile)
 		.innerJoin(s.storyFileBlob, eq(s.storyFile.contentHash, s.storyFileBlob.contentHash))
-		.where(eq(s.storyFile.storyVersionId, storyVersionId))
+		.where(inArray(s.storyFile.storyVersionId, storyVersionIds))
 		.orderBy(asc(s.storyFile.path))
 		.execute();
 }

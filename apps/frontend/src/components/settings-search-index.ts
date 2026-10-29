@@ -14,10 +14,13 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
+	/** Hidden unless the current project role can view usage analytics. */
+	requiresUsageAccess?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
 	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
+	betaAutomationsOnly?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -28,6 +31,27 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Profile',
 		description: 'Manage your name, email, and sign out.',
 		keywords: ['name', 'email', 'sign out', 'logout', 'avatar'],
+	},
+	{
+		page: '/settings/organization/billing',
+		pageLabel: 'Billing & Credits',
+		section: 'Organization credits',
+		title: 'Balance',
+		description: "View your organization's nao credit balance, refill the wallet, and review credit history.",
+		keywords: ['wallet', 'gift', 'ledger', 'billing', 'refill', 'top up', 'organization credits'],
+		orgAdminOnly: true,
+		cloudBillingOnly: true,
+	},
+	{
+		page: '/settings/organization/billing',
+		pageLabel: 'Billing & Credits',
+		section: 'Organization credits',
+		search: { creditsTab: 'usage' },
+		title: 'nao AI usage',
+		description: 'Review your model calls, tokens, and nao credit charges.',
+		keywords: ['managed ai', 'model usage', 'tokens', 'cost', 'charges', 'nao credits'],
+		orgAdminOnly: true,
+		cloudBillingOnly: true,
 	},
 	{
 		page: '/settings/account',
@@ -94,8 +118,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
-		title: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
+		title: 'Billing & Credits',
 		description: 'Review the nao Cloud plan, pricing, trial, and billing availability.',
 		keywords: ['subscription', 'price', 'plan', 'payment', 'invoice', 'trial', 'stripe'],
 		orgAdminOnly: true,
@@ -103,7 +127,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Current plan',
 		title: 'Subscription status',
 		description: 'Review whether the organization plan is active, paused, past due, or canceled.',
@@ -113,7 +137,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Invoices',
 		title: 'Invoices',
 		description: 'View and download organization billing invoices.',
@@ -123,7 +147,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization/billing',
-		pageLabel: 'Plan & Billing',
+		pageLabel: 'Billing & Credits',
 		section: 'Billing setup',
 		title: 'Subscribe to nao Cloud',
 		description: 'Subscribe during or after the organization’s 14-day nao Cloud trial.',
@@ -240,8 +264,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project',
 		pageLabel: 'Project Settings',
 		title: 'Information',
-		description: 'View your project name and filesystem path.',
-		keywords: ['project name', 'project path'],
+		description: 'View or rename your project and see its filesystem path.',
+		keywords: ['project name', 'rename project', 'project path'],
 	},
 	{
 		page: '/settings/project',
@@ -294,6 +318,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'close to limit',
 			'under budget',
 			'filter by group',
+			'export',
+			'csv',
+			'download usage',
 			'enterprise',
 		],
 		adminOnly: true,
@@ -1009,7 +1036,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		search: { tab: 'groups' },
 		title: 'Manage Groups',
 		description:
-			'Configure which features, database tables, docs, MCP servers, budget, and settings each group can use.',
+			'Configure which features, database tables, docs, MCP servers, skills, budget, and settings each group can use.',
 		keywords: [
 			'groups',
 			'permissions',
@@ -1021,6 +1048,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'mcp',
 			'mcp servers',
 			'mcp tools',
+			'skills',
 			'stories',
 			'custom stories',
 			'automations',
@@ -1049,9 +1077,23 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Users & Groups',
 		section: 'Manage Groups',
 		search: { tab: 'groups' },
-		title: 'Preloaded skills',
-		description: 'Load project skills in full at the start of every chat for the members of a group.',
-		keywords: ['skill', 'skills', 'agent/skills', 'preload', 'auto-load', 'load_skill', 'playbook', 'groups'],
+		title: 'Skills',
+		description:
+			'Choose which project skills a group can use, and which ones load in full at the start of every chat.',
+		keywords: [
+			'skill',
+			'skills',
+			'agent/skills',
+			'skill access',
+			'skill permissions',
+			'restrict skills',
+			'preload',
+			'preloaded skills',
+			'auto-load',
+			'load_skill',
+			'playbook',
+			'groups',
+		],
 		adminOnly: true,
 	},
 	{
@@ -1065,34 +1107,61 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
-	// ── Usage & Costs ────────────────────────────────────────
+	// ── Project > Automations ────────────────────────────────
+	{
+		page: '/settings/project/automations',
+		pageLabel: 'Automations',
+		title: 'All automations',
+		description: 'Review, disable, reassign, and delete the automations created by every member of this project.',
+		keywords: [
+			'automations',
+			'schedules',
+			'cron',
+			'webhook',
+			'disable',
+			'pause',
+			'transfer',
+			'owner',
+			'orphaned',
+			'delete',
+			'remove',
+		],
+		adminOnly: true,
+		betaAutomationsOnly: true,
+	},
+
+	// ── Usage & Costs ──────────────────────────────────────────
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage & Costs',
+		search: { tab: 'usage' },
 		title: 'Messages',
-		description: 'How many messages have been sent across all chats?',
+		description: 'How many messages have you sent?',
 		keywords: ['usage', 'analytics', 'statistics'],
-		adminOnly: true,
+		requiresUsageAccess: true,
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage & Costs',
+		search: { tab: 'usage' },
 		title: 'Tokens',
-		description: 'Tokens used across all chats.',
+		description: 'Tokens used by your chats.',
 		keywords: ['token usage', 'input tokens', 'output tokens'],
-		adminOnly: true,
+		requiresUsageAccess: true,
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage & Costs',
+		search: { tab: 'usage' },
 		title: 'Cost',
 		description: 'Estimated cost in USD based on token usage and model pricing.',
 		keywords: ['price', 'billing', 'expense', 'spending'],
-		adminOnly: true,
+		requiresUsageAccess: true,
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage & Costs',
+		search: { tab: 'usage' },
 		title: 'Split per user',
 		description: 'Break down messages, tokens and cost per user instead of per source or token category.',
 		keywords: ['per user', 'by user', 'user breakdown', 'who spends', 'top users', 'split'],
@@ -1100,7 +1169,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage, costs & replay',
+		pageLabel: 'Usage & Costs',
+		search: { tab: 'usage' },
 		title: 'Feedbacks',
 		description: 'Feedbacks users have given to the agent during their sessions.',
 		keywords: ['thumbs up', 'thumbs down', 'rating', 'review'],
@@ -1111,6 +1181,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/usage',
 		pageLabel: 'Chats replay',
+		search: { tab: 'usage' },
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review', 'search conversations', 'find chat'],

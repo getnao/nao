@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "be5197a3-8bd3-4e02-9118-11ce2a2c6264",
+  "id": "5a8672a8-6c99-4925-a50f-a071e4ea78a7",
   "prevId": "ad6f7d58-ae76-48f1-ba34-4473a5f9af57",
   "tables": {
     "account": {
@@ -8561,6 +8561,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "deactivated_at": {
+          "name": "deactivated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -8991,13 +8998,6 @@
         },
         "model_selection": {
           "name": "model_selection",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "warnings": {
-          "name": "warnings",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

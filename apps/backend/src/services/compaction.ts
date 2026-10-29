@@ -2,6 +2,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import { ModelMessage, Tool } from 'ai';
 
 import { CompactionLLM } from '../agents/compaction';
+import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import type { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
@@ -35,6 +36,8 @@ interface CompactConversationOptions {
 	chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>;
 	provider: LlmProvider;
 	modelId: string;
+	runId?: string;
+	billingMode?: ManagedAiUsageContext['billingMode'];
 	messages: ModelMessage[];
 	tools: Record<string, Tool>;
 	maxOutputTokens: number;
@@ -200,13 +203,19 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const compaction = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider, opts.modelId);
+		const compaction = await this._resolveCompactionLLM(
+			opts.chat,
+			opts.provider,
+			opts.modelId,
+			opts.runId,
+			opts.billingMode,
+		);
 		if (!compaction) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
 
 		const result = await this._compactUpToLastUserMessage(compaction, opts, firstNonSystemIndex, lastUserIndex);
-		this._trackInference(opts, compaction.llm.modelId, result.usage);
+		this._trackInference(opts, compaction.provider, compaction.llm.modelId, result.usage);
 
 		return result;
 	}
@@ -228,20 +237,29 @@ export class CompactionService {
 	}
 
 	private async _resolveCompactionLLM(
-		projectId: string,
+		chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>,
 		provider: LlmProvider,
 		selectedModelId: string,
+		runId?: string,
+		billingMode?: ManagedAiUsageContext['billingMode'],
 	): Promise<ResolvedCompactionLLM | undefined> {
-		const pinned = await resolveDefaultModelSelection(projectId, 'compaction');
+		const pinned = await resolveDefaultModelSelection(chat.projectId, 'compaction');
 		const effectiveProvider = pinned?.provider ?? provider;
 		const modelId =
 			pinned?.modelId ??
 			(await resolveAnnotationModelId(
-				projectId,
+				chat.projectId,
 				{ provider, modelId: selectedModelId },
 				getProviderMeta(provider).extractorModelId,
 			));
-		const model = await resolveProviderModel(projectId, effectiveProvider, modelId, false);
+		const model = await resolveProviderModel(chat.projectId, effectiveProvider, modelId, false, {
+			userId: chat.userId,
+			projectId: chat.projectId,
+			chatId: chat.id,
+			runId,
+			category: 'compaction',
+			billingMode,
+		});
 		if (!model) {
 			return undefined;
 		}
@@ -281,13 +299,18 @@ export class CompactionService {
 		};
 	}
 
-	private _trackInference(opts: CompactConversationOptions, modelId: string, usage: TokenUsage) {
+	private _trackInference(
+		opts: CompactConversationOptions,
+		provider: LlmProvider,
+		modelId: string,
+		usage: TokenUsage,
+	) {
 		scheduleSaveLlmInferenceRecord({
 			type: 'compaction',
 			projectId: opts.chat.projectId,
 			userId: opts.chat.userId,
 			chatId: opts.chat.id,
-			llmProvider: opts.provider,
+			llmProvider: provider,
 			llmModelId: modelId,
 			...usage,
 		});

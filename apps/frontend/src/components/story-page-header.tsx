@@ -6,7 +6,7 @@ import {
 	Eye,
 	Info,
 	Loader2,
-	MessageSquare,
+	Mail,
 	Pencil,
 	RefreshCw,
 	RotateCcw,
@@ -16,12 +16,15 @@ import {
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import type { StoryDownloadOptions } from '@/components/story-download';
 import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import type { StoryChatControls } from '@/components/story-chat-button';
 import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
 import { EditableStoryTitle } from '@/components/editable-story-title';
+import { StoryChatButton } from '@/components/story-chat-button';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
 	StoryCertifyMenuItem,
+	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
 	StoryFeedbackButtons,
@@ -36,9 +39,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTimeAgo } from '@/hooks/use-time-ago';
-import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
 
 interface LiveControls {
@@ -51,8 +52,9 @@ interface LiveControls {
 	onRefresh?: () => void;
 	/** When provided, clicking the badge opens settings. Otherwise the badge is read-only. */
 	onOpenSettings?: () => void;
-	/** Overrides the tooltip shown on the clickable badge (e.g. for viewers managing notifications). */
-	isDialogNotifManager?: boolean;
+	/** Viewers of a shared story get the live actions in the actions menu instead of the header badge. */
+	isInActionsMenu?: boolean;
+	onManageNotifications?: () => void;
 }
 
 export interface StoryRefreshFailure {
@@ -86,9 +88,9 @@ interface VersionControls {
 export interface StoryPageHeaderProps {
 	title: string;
 	authorName?: string;
-	openChatLabel?: string;
-	onOpenChat?: () => void;
-	isOpeningChat?: boolean;
+	storyChat?: StoryChatControls;
+	/** Offers to copy the story into a new chat of the user. */
+	canDuplicate?: boolean;
 	live?: LiveControls;
 	download?: StoryDownloadOptions;
 	storyId?: string | null;
@@ -103,9 +105,8 @@ export interface StoryPageHeaderProps {
 export function StoryPageHeader({
 	title,
 	authorName,
-	openChatLabel = 'Open chat',
-	onOpenChat,
-	isOpeningChat = false,
+	storyChat,
+	canDuplicate = false,
 	live,
 	download,
 	storyId,
@@ -116,11 +117,8 @@ export function StoryPageHeader({
 	viewModeControls,
 	versionControls,
 }: StoryPageHeaderProps) {
-	useKeyboardShortcuts({
-		'toggle-story-chat': onOpenChat && !isOpeningChat ? onOpenChat : undefined,
-	});
-
-	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics;
+	const liveMenu = live?.isLive && live.isInActionsMenu ? live : undefined;
+	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics || !!liveMenu;
 
 	return (
 		<div className='shrink-0'>
@@ -147,36 +145,10 @@ export function StoryPageHeader({
 					)}
 					{viewModeControls && <ViewModeToggle controls={viewModeControls} />}
 
-					{onOpenChat && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									variant='outline'
-									size='sm'
-									className='gap-1.5 rounded-full text-xs'
-									onClick={onOpenChat}
-									disabled={isOpeningChat}
-								>
-									{isOpeningChat ? (
-										<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-									) : (
-										<MessageSquare className='size-3.5' strokeWidth={2.25} />
-									)}
-									<span>{openChatLabel}</span>
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>
-								<span className='flex items-center gap-2'>
-									{openChatLabel}
-									<kbd className='text-[10px] opacity-60 font-sans'>
-										{getShortcutLabel('toggle-story-chat')}
-									</kbd>
-								</span>
-							</TooltipContent>
-						</Tooltip>
-					)}
+					{storyChat && <StoryChatButton {...storyChat} />}
 
-					{live && <LiveStoryControls live={live} />}
+					{live && !live.isInActionsMenu && <LiveStoryControls live={live} />}
+					{liveMenu?.cachedAt && <LiveStoryTimestamp cachedAt={liveMenu.cachedAt} />}
 
 					{storyId && <StoryFeedbackButtons storyId={storyId} />}
 
@@ -206,6 +178,8 @@ export function StoryPageHeader({
 										<span>Analytics</span>
 									</DropdownMenuItem>
 								)}
+								{liveMenu && <LiveStoryMenuItems live={liveMenu} />}
+								{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} />}
 							</DropdownMenuContent>
 						</DropdownMenu>
 					)}
@@ -352,7 +326,6 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 		isUpdating = false,
 		onRefresh,
 		onOpenSettings,
-		isDialogNotifManager,
 	} = live;
 
 	if (!onOpenSettings) {
@@ -404,18 +377,37 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					</span>
 				</TooltipTrigger>
 				<TooltipContent>
-					{isDialogNotifManager
-						? 'Manage notifications'
-						: isLive
-							? isUpdating
-								? 'Updating...'
-								: 'Live story settings'
-							: 'Enable live mode'}
+					{isLive ? (isUpdating ? 'Updating...' : 'Live story settings') : 'Enable live mode'}
 				</TooltipContent>
 			</Tooltip>
 			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
 			{isLive && canRefresh && onRefresh && (
 				<StoryRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />
+			)}
+		</>
+	);
+}
+
+function LiveStoryMenuItems({ live }: { live: LiveControls }) {
+	const { isRefreshing = false, canRefresh = Boolean(live.onRefresh), onRefresh, onManageNotifications } = live;
+
+	return (
+		<>
+			{onManageNotifications && (
+				<DropdownMenuItem onSelect={onManageNotifications}>
+					<Mail strokeWidth={2.25} />
+					<span>Notifications</span>
+				</DropdownMenuItem>
+			)}
+			{canRefresh && onRefresh && (
+				<DropdownMenuItem onSelect={onRefresh} disabled={isRefreshing}>
+					{isRefreshing ? (
+						<Loader2 className='animate-spin' strokeWidth={2.25} />
+					) : (
+						<RefreshCw strokeWidth={2.25} />
+					)}
+					<span>{isRefreshing ? 'Refreshing…' : 'Refresh data'}</span>
+				</DropdownMenuItem>
 			)}
 		</>
 	);

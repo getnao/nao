@@ -614,8 +614,43 @@
     {
       "idx": 87,
       "version": "7",
-      "when": 1792757128396,
-      "tag": "0087_warehouse_context_warnings",
+      "when": 1792939237860,
+      "tag": "0087_user_deactivated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793008947122,
+      "tag": "0088_managed_ai_usage_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793009163470,
+      "tag": "0089_example_chat_allowance",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1793020748918,
+      "tag": "0090_managed_ai_credit_ledger_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1793197360141,
+      "tag": "0091_onboarding_funnel",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793264465535,
+      "tag": "0092_warehouse_context_warnings",
       "breakpoints": true
     }
   ]

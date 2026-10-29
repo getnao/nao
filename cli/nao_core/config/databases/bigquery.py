@@ -186,7 +186,7 @@ class BigQueryDatabaseContext(DatabaseContext):
         col_names = list(self.table.schema().keys())
         try:
             return [
-                self._filter_excluded_row(
+                self._prepare_preview_row(
                     {name: _coerce(row[i] if i < len(row) else None) for i, name in enumerate(col_names)}
                 )
                 for row in self._conn.raw_sql(query)  # type: ignore[union-attr]

@@ -704,12 +704,32 @@ export const checkAssistantMessageHasContent = (message: UIMessage): boolean => 
 };
 
 export function parseBudgetError(error: Error | undefined): string | null {
+	return parseCodedError(error, 'BUDGET_EXCEEDED');
+}
+
+export function parseManagedCreditsError(error: Error | undefined): string | null {
+	return parseCodedError(error, 'MANAGED_CREDITS_EXHAUSTED');
+}
+
+export type ChatAllowanceExhaustedScope = 'example' | 'onboarding';
+
+export function parseChatAllowanceExhaustedError(error: Error | undefined): ChatAllowanceExhaustedScope | null {
+	if (parseCodedError(error, 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED')) {
+		return 'example';
+	}
+	if (parseCodedError(error, 'ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED')) {
+		return 'onboarding';
+	}
+	return null;
+}
+
+function parseCodedError(error: Error | undefined, code: string): string | null {
 	if (!error) {
 		return null;
 	}
 	try {
 		const parsed = JSON.parse(error.message);
-		return parsed.code === 'BUDGET_EXCEEDED' ? (parsed.error ?? parsed.message ?? error.message) : null;
+		return parsed.code === code ? (parsed.error ?? parsed.message ?? error.message) : null;
 	} catch {
 		return null;
 	}

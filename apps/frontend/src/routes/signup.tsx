@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { signUp } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
+import { EmailVerificationPending } from '@/components/email-verification-pending';
+import { buildEmailVerificationCallbackUrl } from '@/lib/email-verification';
 import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
@@ -16,30 +18,42 @@ export const Route = createFileRoute('/signup')({
 	component: SignUp,
 });
 
-function SignUp() {
+export function SignUp() {
 	const navigate = useNavigate();
 	const router = useRouter();
 	const { error: oauthError, redirect } = Route.useSearch();
 	const [serverError, setServerError] = useState<string | undefined>(oauthError);
+	const [pendingEmail, setPendingEmail] = useState<string>();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isUserSignupEnabled = config.data?.enableUserSignup === true;
+	const isCloud = config.data?.naoMode === 'cloud';
+	const emailVerificationEnabled = config.data?.emailVerificationEnabled === true;
 	const safeRedirect = getSafeRedirectPath(redirect);
+	const verificationCallbackURL = buildEmailVerificationCallbackUrl(safeRedirect);
 
 	const form = useForm({
 		defaultValues: { name: '', email: '', password: '', requiresPasswordReset: false, messagingProviderCode: '' },
 		onSubmit: async ({ value }) => {
 			setServerError(undefined);
-			await signUp.email(value, {
-				onSuccess: () => {
-					rememberSignInMethod('email');
-					if (safeRedirect) {
-						router.history.push(safeRedirect);
-					} else {
-						navigate({ to: '/' });
-					}
-				},
-				onError: (err) => setServerError(err.error.message),
-			});
+			const signUpData = { ...value, callbackURL: verificationCallbackURL };
+			const { error } = isCloud
+				? await signUp.email(signUpData, { disableSignal: true })
+				: await signUp.email(signUpData);
+			if (error) {
+				setServerError(error.message);
+				return;
+			}
+
+			rememberSignInMethod('email');
+			if (emailVerificationEnabled) {
+				setPendingEmail(value.email);
+				return;
+			}
+			if (safeRedirect) {
+				router.history.push(safeRedirect);
+			} else {
+				navigate({ to: '/' });
+			}
 		},
 	});
 
@@ -64,11 +78,20 @@ function SignUp() {
 	return (
 		<AuthForm
 			form={form}
-			title='Sign up'
+			title={pendingEmail ? 'Check your inbox' : 'Sign up'}
 			submitText='Sign up'
 			serverError={serverError}
-			displaySocialProviders={true}
+			displaySocialProviders={!pendingEmail}
 			socialCallbackUrl={safeRedirect ?? undefined}
+			content={
+				pendingEmail ? (
+					<EmailVerificationPending
+						email={pendingEmail}
+						callbackURL={verificationCallbackURL}
+						onChangeEmail={() => setPendingEmail(undefined)}
+					/>
+				) : undefined
+			}
 			footer={
 				<>
 					Already have an account?{' '}

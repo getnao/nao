@@ -10,6 +10,7 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
@@ -292,13 +293,13 @@ class TeamsService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: ctx.config.projectId },
 			ctx.config.modelSelection,
-			{ billingAccessVerifiedProjectId: ctx.config.projectId, supportsCustomCharts: false },
+			messagingAgent('teams'),
+			{ billingAccessVerifiedProjectId: ctx.config.projectId },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, {
-			provider: 'teams',
 			timezone: ctx.timezone,
-			tracking: { source: 'teams', isNewChat: ctx.isNewChat, domainHost: new URL(ctx.config.redirectUrl).host },
+			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(ctx.config.redirectUrl).host },
 		});
 	}
 

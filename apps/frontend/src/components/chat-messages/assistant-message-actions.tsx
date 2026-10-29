@@ -6,6 +6,7 @@ import type { FormEvent, KeyboardEvent } from 'react';
 import type { Chat } from '@/queries/use-chat-query';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
+import { ConfettiBurst } from '@/components/confetti-burst';
 import { trpc, trpcClient } from '@/main';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -34,6 +35,7 @@ export function AssistantMessageActions({
 }) {
 	const [feedbackDialogVote, setFeedbackDialogVote] = useState<FeedbackVote>('down');
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+	const [feedbackCelebration, setFeedbackCelebration] = useState<FeedbackCelebration | null>(null);
 	const [includeErrors, setIncludeErrors] = useState(false);
 	const [includeSql, setIncludeSql] = useState(true);
 	const [includePython, setIncludePython] = useState(true);
@@ -75,7 +77,8 @@ export function AssistantMessageActions({
 
 	const submitFeedback = useMutation(
 		trpc.feedback.submit.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
+			onSuccess: (data, variables, __, ctx) => {
+				setFeedbackCelebration((prev) => ({ vote: variables.vote, key: (prev?.key ?? 0) + 1 }));
 				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId }), (prev) =>
 					prev
 						? {
@@ -119,33 +122,21 @@ export function AssistantMessageActions({
 	return (
 		<>
 			<div className={cn('flex items-center gap-1', className)}>
-				<Button
-					variant='ghost'
-					size='icon-sm'
+				<FeedbackButton
+					vote='up'
+					isSelected={message.feedback?.vote === 'up'}
+					celebrationKey={feedbackCelebration?.vote === 'up' ? feedbackCelebration.key : undefined}
+					disabled={submitFeedback.isPending}
 					onClick={handlePositiveFeedbackClick}
-					disabled={submitFeedback.isPending}
-					className={cn(
-						'hover:rounded-full',
-						message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100',
-					)}
-					aria-label='Good response'
-				>
-					<ThumbsUp className='size-4' />
-				</Button>
+				/>
 
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					onClick={handleNegativeFeedbackClick}
+				<FeedbackButton
+					vote='down'
+					isSelected={message.feedback?.vote === 'down'}
+					celebrationKey={feedbackCelebration?.vote === 'down' ? feedbackCelebration.key : undefined}
 					disabled={submitFeedback.isPending}
-					className={cn(
-						'hover:rounded-full',
-						message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100',
-					)}
-					aria-label='Bad response'
-				>
-					<ThumbsDown className='size-4' />
-				</Button>
+					onClick={handleNegativeFeedbackClick}
+				/>
 
 				<Button
 					variant='ghost'
@@ -230,11 +221,85 @@ export function AssistantMessageActions({
 	);
 }
 
+function FeedbackButton({
+	vote,
+	isSelected,
+	celebrationKey,
+	disabled,
+	onClick,
+}: {
+	vote: FeedbackVote;
+	isSelected: boolean;
+	celebrationKey?: number;
+	disabled: boolean;
+	onClick: () => void;
+}) {
+	const { Icon, label, selectedClassName, iconAnimationClassName, confettiColors } = FEEDBACK_BUTTON_CONFIG[vote];
+	const isCelebrating = celebrationKey !== undefined;
+
+	return (
+		<Button
+			variant='ghost'
+			size='icon-sm'
+			onClick={onClick}
+			disabled={disabled}
+			className={cn(
+				'relative hover:rounded-full',
+				isSelected ? cn(selectedClassName, 'rounded-full transition-colors') : 'opacity-50 hover:opacity-100',
+			)}
+			aria-label={label}
+		>
+			<Icon key={`icon-${celebrationKey}`} className={cn('size-4', isCelebrating && iconAnimationClassName)} />
+			{isCelebrating && (
+				<ConfettiBurst
+					key={`confetti-${celebrationKey}`}
+					count={10}
+					distancePx={16}
+					distanceStepPx={5}
+					colors={confettiColors}
+					pieceClassName='-ml-0.5 -mt-0.5 size-1'
+				/>
+			)}
+		</Button>
+	);
+}
+
+const FEEDBACK_BUTTON_CONFIG = {
+	up: {
+		Icon: ThumbsUp,
+		label: 'Good response',
+		selectedClassName: 'text-green-500/80 hover:text-green-500 bg-green-500/10 hover:bg-green-500/20',
+		iconAnimationClassName: 'thumb-up-pop',
+		confettiColors: buildConfettiShades('var(--color-green-500)'),
+	},
+	down: {
+		Icon: ThumbsDown,
+		label: 'Bad response',
+		selectedClassName: 'text-red-500/80 hover:text-red-500 bg-red-500/10 hover:bg-red-500/20',
+		iconAnimationClassName: 'thumb-down-pop',
+		confettiColors: buildConfettiShades('var(--color-red-500)'),
+	},
+} satisfies Record<FeedbackVote, unknown>;
+
+function buildConfettiShades(baseColor: string) {
+	return [
+		baseColor,
+		`color-mix(in oklab, ${baseColor} 60%, white)`,
+		`color-mix(in oklab, ${baseColor} 80%, black)`,
+		'var(--chart-1)',
+	];
+}
+
 function selectChatExportMetadata(chat: Chat) {
 	return { title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt };
 }
 
 export type FeedbackVote = 'up' | 'down';
+
+interface FeedbackCelebration {
+	vote: FeedbackVote;
+	key: number;
+}
 
 interface FeedbackDialogProps {
 	open: boolean;

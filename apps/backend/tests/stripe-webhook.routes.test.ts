@@ -10,6 +10,7 @@ const testState = vi.hoisted(() => ({ secretKey: 'sk_test_sandbox' }));
 
 vi.mock('../src/env', () => ({
 	env: {
+		BETTER_AUTH_URL: 'http://localhost:5005/',
 		get STRIPE_SECRET_KEY() {
 			return testState.secretKey;
 		},

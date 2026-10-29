@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 
 const mocks = vi.hoisted(() => ({
 	env: {
+		BETTER_AUTH_URL: 'http://localhost:5005/',
 		DB_QUERY_LOGGING: false,
 		DB_URI: 'sqlite:./db.sqlite',
 		NAO_DEFAULT_PROJECT_PATH: '/tmp/project-a',

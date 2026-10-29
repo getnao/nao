@@ -7,6 +7,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import type { CreatedEmail } from '../types/email';
 import { emailService } from './email';
+import { addProjectMember } from './membership.service';
 
 export interface AddMemberResult {
 	newUser: { id: string; name: string; email: string; role: string };
@@ -96,7 +97,7 @@ export async function ensureMessagingProviderUser({
 
 	const projectMember = await projectQueries.getProjectMember(projectId, user.id);
 	if (!projectMember) {
-		await projectQueries.addProjectMember({ projectId, userId: user.id, role: env.DEFAULT_USER_ROLE });
+		await addProjectMember({ projectId, userId: user.id, role: env.DEFAULT_USER_ROLE });
 	}
 
 	const alreadyHadAccess = !!existingUser && !!projectMember;

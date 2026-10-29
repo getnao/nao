@@ -12,6 +12,7 @@ import {
 	saveMemberBudgets,
 	setPersonalBudget,
 } from '../services/member-budget.service';
+import { buildMemberBudgetReportCsv, getMemberBudgetReport } from '../services/member-budget-report.service';
 import {
 	memberBudgetPeriodInputSchema,
 	setMemberBudgetsInputSchema,
@@ -29,6 +30,11 @@ export const memberBudgetRoutes = {
 	getSpend: adminProtectedProcedure.input(memberBudgetPeriodInputSchema).query(async ({ ctx, input }) => {
 		await assertMemberBudgetLicensed(ctx.project.id);
 		return getMemberSpendForPeriod(ctx.project.id, input.period);
+	}),
+
+	exportUsageCsv: adminProtectedProcedure.query(async ({ ctx }) => {
+		await assertMemberBudgetLicensed(ctx.project.id);
+		return buildMemberBudgetReportCsv(await getMemberBudgetReport(ctx.project.id));
 	}),
 
 	getSettings: adminProtectedProcedure.query(async ({ ctx }) => {
