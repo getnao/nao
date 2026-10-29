@@ -55,6 +55,8 @@ import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { userManagementRoutes } from '../src/routes/user-management';
 import { checkApiKey, hashKey } from '../src/services/api-key.service';
+import { emailService } from '../src/services/email';
+import { deleteUserIfConfinedToOrganization } from '../src/services/membership.service';
 
 const ORG_ID = 'org-gehb';
 const OTHER_ORG_ID = 'org-other';
@@ -328,6 +330,62 @@ describe('user management API', () => {
 		).toHaveLength(0);
 		// Only the account this invitation created may be rolled back; an existing user stays.
 		expect(await db.select().from(s.user).where(eq(s.user.id, 'user-outsider')).execute()).toHaveLength(1);
+	});
+
+	it('deletes an account only while it belongs to this organization alone', async () => {
+		await db
+			.insert(s.user)
+			.values({ id: 'user-confined', name: 'Confined', email: 'confined@example.com', emailVerified: true })
+			.execute();
+		await db.insert(s.orgMember).values({ orgId: ORG_ID, userId: 'user-confined', role: 'user' }).execute();
+
+		expect(await deleteUserIfConfinedToOrganization('user-confined', ORG_ID)).toBe(true);
+		expect(await db.select().from(s.user).where(eq(s.user.id, 'user-confined')).execute()).toHaveLength(0);
+	});
+
+	it('keeps an account another organization added', async () => {
+		await db
+			.insert(s.user)
+			.values({ id: 'user-adopted', name: 'Adopted', email: 'adopted@example.com', emailVerified: true })
+			.execute();
+		await db
+			.insert(s.orgMember)
+			.values([
+				{ orgId: ORG_ID, userId: 'user-adopted', role: 'user' },
+				{ orgId: OTHER_ORG_ID, userId: 'user-adopted', role: 'user' },
+			])
+			.execute();
+
+		expect(await deleteUserIfConfinedToOrganization('user-adopted', ORG_ID)).toBe(false);
+		expect(await db.select().from(s.user).where(eq(s.user.id, 'user-adopted')).execute()).toHaveLength(1);
+		expect(
+			await db
+				.select()
+				.from(s.orgMember)
+				.where(and(eq(s.orgMember.orgId, OTHER_ORG_ID), eq(s.orgMember.userId, 'user-adopted')))
+				.execute(),
+		).toHaveLength(1);
+	});
+
+	it('keeps the account when another organization adopts it before the invite fails', async () => {
+		vi.mocked(emailService.sendEmail).mockImplementationOnce(async () => {
+			const [adopted] = await db.select().from(s.user).where(eq(s.user.email, 'adopted@example.com')).execute();
+			await db.insert(s.orgMember).values({ orgId: OTHER_ORG_ID, userId: adopted.id, role: 'user' }).execute();
+			throw new Error('invite mail failed');
+		});
+
+		const failed = await post('/user-management/users', { email: 'adopted@example.com', name: 'Adopted Invite' });
+
+		expect(failed.statusCode).toBe(500);
+		const [adopted] = await db.select().from(s.user).where(eq(s.user.email, 'adopted@example.com')).execute();
+		expect(adopted).toBeDefined();
+		expect(
+			await db
+				.select()
+				.from(s.orgMember)
+				.where(and(eq(s.orgMember.orgId, OTHER_ORG_ID), eq(s.orgMember.userId, adopted.id)))
+				.execute(),
+		).toHaveLength(1);
 	});
 
 	it('changes an organization role but keeps the last admin', async () => {

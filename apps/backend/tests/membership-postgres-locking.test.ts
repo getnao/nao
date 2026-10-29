@@ -42,7 +42,11 @@ vi.mock('../src/services/credit-grant.service', () => ({
 	recordProjectJoinCandidate: vi.fn(),
 }));
 
-import { putOrganizationMember, removeOrganizationMember } from '../src/services/membership.service';
+import {
+	deleteUserIfConfinedToOrganization,
+	putOrganizationMember,
+	removeOrganizationMember,
+} from '../src/services/membership.service';
 
 describe('PostgreSQL organization admin guards', () => {
 	beforeEach(() => {
@@ -86,6 +90,12 @@ describe('PostgreSQL organization admin guards', () => {
 			'lock-user',
 			'delete-user',
 		]);
+	});
+
+	it('locks the user row before the invite-cleanup delete', async () => {
+		await expect(deleteUserIfConfinedToOrganization('user-1', 'org-1')).resolves.toBe(true);
+
+		expect(mocks.events).toEqual(['lock-user', 'delete-user']);
 	});
 
 	it('locks the organization row before the demotion guard reads the admin count', async () => {

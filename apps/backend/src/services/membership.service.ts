@@ -198,6 +198,29 @@ export async function removeOrganizationMember(
 	await cleanupLostOrgContextAccess(orgId, userId);
 }
 
+/**
+ * Deletes an account only while every membership it has still belongs to this organization.
+ *
+ * Folding the confinement check into the DELETE keeps a membership added after the caller's check from
+ * losing its account; on PostgreSQL the user-row lock taken first makes the check wait for a concurrent
+ * insert instead of reading a snapshot that predates it.
+ */
+export async function deleteUserIfConfinedToOrganization(userId: string, orgId: string): Promise<boolean> {
+	const guard = and(eq(s.user.id, userId), userQueries.confinedToOrganization(userId, orgId));
+
+	return db.transaction((tx) => {
+		if (dbConfig.dialect === Dialect.Postgres) {
+			return (async () => {
+				await lockUserRow(tx, userId);
+				const [deleted] = await tx.delete(s.user).where(guard).returning({ id: s.user.id }).execute();
+				return !!deleted;
+			})();
+		}
+
+		return !!tx.delete(s.user).where(guard).returning({ id: s.user.id }).get();
+	});
+}
+
 export async function putProjectMember(projectId: string, userId: string, role: UserRole) {
 	const [project] = await Promise.all([requireProject(projectId), requireUser(userId)]);
 	if (!project.orgId || !(await orgQueries.getOrgMember(project.orgId, userId))) {
