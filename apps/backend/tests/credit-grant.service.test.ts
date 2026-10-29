@@ -489,7 +489,7 @@ describe('automatic credit grants', () => {
 
 	it('logs startup reconciliation lookup failures without rejecting', async () => {
 		const lookupError = new Error('lookup failed');
-		vi.spyOn(db, 'selectDistinct').mockImplementationOnce(() => {
+		vi.spyOn(db, 'select').mockImplementationOnce(() => {
 			throw lookupError;
 		});
 		const errorLog = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
