@@ -219,7 +219,10 @@ export async function getCustomStoryNarratives(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
-	if (!story.isLive || !story.isLiveTextDynamic) {
+	if (!story.isLive) {
+		return getFrozenNarratives(story.id);
+	}
+	if (!story.isLiveTextDynamic) {
 		return {};
 	}
 
@@ -262,10 +265,15 @@ export async function getStoredCustomStoryQueryDataByStoryId(
 /** The narratives already saved for the story, without refreshing it. */
 export async function getStoredCustomStoryNarrativesByStoryId(storyId: string): Promise<StoryNarratives> {
 	const story = await getCustomStoryById(storyId);
-	if (story.chatId && (!story.isLive || !story.isLiveTextDynamic)) {
+	if (story.chatId && story.isLive && !story.isLiveTextDynamic) {
 		return {};
 	}
-	return (await storyQueries.getStoryDataCacheByStoryId(story.id))?.analysisResults ?? {};
+	return getFrozenNarratives(story.id);
+}
+
+/** Narratives saved with a story that no longer refreshes them, such as a copy of a live story. */
+async function getFrozenNarratives(storyId: string): Promise<StoryNarratives> {
+	return (await storyQueries.getStoryDataCacheByStoryId(storyId))?.analysisResults ?? {};
 }
 
 /** A shared custom story only serves the queries its own sources reference, never any other query of the chat. */

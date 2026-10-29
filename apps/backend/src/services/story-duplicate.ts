@@ -1,3 +1,4 @@
+import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { extractQueryIds } from '@nao/shared/story-segments';
 
 import type { DBStory, DBStoryVersion } from '../db/abstractSchema';
@@ -15,6 +16,7 @@ import {
 	type StoryQueryDataMap,
 } from '../utils/story-query-data';
 import { createCustomStoryDraft, publishCustomStoryDraft } from './custom-story-authoring';
+import { executeLiveQuery } from './live-story';
 
 const COPY_PREFIX = 'Copy of ';
 const NUMBERED_COPY_TITLE = /^Copy of (.+?)(?: \(\d{1,3}\))?$/;
@@ -97,7 +99,7 @@ async function copyCustomStory(source: DBStory, version: DBStoryVersion, copy: S
 	const { story } = await createCustomStoryDraft({ ...copy.owner, slug: copy.slug, title: copy.title, files });
 	try {
 		await saveSnapshot(story.id, snapshot);
-		await copySharedAppState(source.id, story.id, copy.owner.userId);
+		await copyAppState(source.id, story.id, copy.owner.userId);
 		const published = await publishCustomStoryDraft(story, copy.owner, 'user');
 		if (!published.ok) {
 			throw new StoryDuplicateError('This version of the story no longer builds, so it cannot be copied.');
@@ -126,12 +128,41 @@ async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<Sto
 		return { queryData, narratives: cache?.analysisResults ?? null };
 	}
 
-	const fromChat = await getLatestSqlQueryDataByIds(source.chatId, queryIds).catch(() => ({}));
-	const queryData = source.isLive ? { ...fromChat, ...cached } : { ...cached, ...fromChat };
+	const queryData = await loadChatStoryQueryData(source, source.chatId, queryIds, cached);
 	return {
 		queryData: Object.keys(queryData).length > 0 ? queryData : null,
 		narratives: source.isLive && source.isLiveTextDynamic ? (cache?.analysisResults ?? null) : null,
 	};
+}
+
+/** Mirrors how a chat story reads its rows when viewed; a live story without cache reruns its queries. */
+async function loadChatStoryQueryData(
+	source: DBStory,
+	chatId: string,
+	queryIds: Set<string>,
+	cached: StoryQueryDataMap,
+): Promise<StoryQueryDataMap> {
+	const fromChat = await getLatestSqlQueryDataByIds(chatId, queryIds).catch(() => ({}));
+	if (!source.isLive) {
+		return { ...cached, ...fromChat };
+	}
+	if (source.cacheSchedule !== NO_CACHE_SCHEDULE) {
+		return { ...fromChat, ...cached };
+	}
+	return { ...cached, ...fromChat, ...(await runLiveQueries(chatId, queryIds)) };
+}
+
+async function runLiveQueries(chatId: string, queryIds: Set<string>): Promise<StoryQueryDataMap> {
+	const queryData: StoryQueryDataMap = {};
+	await Promise.all(
+		[...queryIds].map(async (queryId) => {
+			const result = await executeLiveQuery(chatId, queryId).catch(() => null);
+			if (result) {
+				queryData[queryId] = result;
+			}
+		}),
+	);
+	return queryData;
 }
 
 async function saveSnapshot(storyId: string, snapshot: StorySnapshot): Promise<void> {
@@ -141,11 +172,15 @@ async function saveSnapshot(storyId: string, snapshot: StorySnapshot): Promise<v
 	await storyQueries.upsertStoryDataCacheByStoryId(storyId, snapshot.queryData ?? {}, snapshot.narratives);
 }
 
-async function copySharedAppState(sourceId: string, copyId: string, ownerId: string): Promise<void> {
-	const rows = await storyAppStateQueries.listProjectStoryAppState(sourceId);
-	for (const row of rows) {
+/** Copies the shared state and the owner's own personal state, never another user's private state. */
+async function copyAppState(sourceId: string, copyId: string, ownerId: string): Promise<void> {
+	const [sharedRows, personalRows] = await Promise.all([
+		storyAppStateQueries.listProjectStoryAppState(sourceId),
+		storyAppStateQueries.listUserStoryAppState(sourceId, ownerId),
+	]);
+	for (const row of [...sharedRows, ...personalRows]) {
 		await storyAppStateQueries.upsertStoryAppState(
-			{ storyId: copyId, scope: 'project', userId: null, key: row.key },
+			{ storyId: copyId, scope: row.scope, userId: row.userId, key: row.key },
 			row.value,
 			ownerId,
 		);
