@@ -46,7 +46,8 @@ let project: DBProject;
 beforeEach(() => {
 	vi.clearAllMocks();
 	__resetProjectSyncRunsForTesting();
-	projectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'project-sync-test-'));
+	projectDirectory = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'project-sync-test-')), 'project');
+	fs.mkdirSync(projectDirectory);
 	fs.writeFileSync(path.join(projectDirectory, 'nao_config.yaml'), 'project_name: Sales\n');
 	project = { id: 'project-1', name: 'Sales', path: projectDirectory } as DBProject;
 	vi.mocked(warehouseCredentialQueries.getProjectWarehouseCredentials).mockResolvedValue({
@@ -62,7 +63,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	fs.rmSync(projectDirectory, { recursive: true, force: true });
+	fs.rmSync(path.dirname(projectDirectory), { recursive: true, force: true });
 });
 
 describe('project sync', () => {
@@ -89,7 +90,7 @@ describe('project sync', () => {
 		expect(state.run?.logs).toContain('Connecting with [REDACTED:POSTGRES_PASSWORD]');
 		expect(state.run?.logs).toContain('✓ Published synced context');
 		expect(runNaoCommand).toHaveBeenCalledWith(
-			['sync', '--provider', 'databases', '--no-render-templates'],
+			['sync'],
 			expect.stringContaining('.project-sync-'),
 			{ POSTGRES_PASSWORD: 'super-secret' },
 			30 * 60_000,
@@ -129,7 +130,7 @@ describe('project sync', () => {
 		expect(projectQueries.touchProjectUpdatedAt).not.toHaveBeenCalled();
 	});
 
-	it('applies databases that synced when another database fails, like the CLI', async () => {
+	it('applies everything that synced when one source fails, like the CLI', async () => {
 		const databasesPath = path.join(projectDirectory, 'databases');
 		fs.mkdirSync(path.join(databasesPath, 'sales'), { recursive: true });
 		fs.mkdirSync(path.join(databasesPath, 'finance'), { recursive: true });
@@ -137,6 +138,8 @@ describe('project sync', () => {
 		fs.writeFileSync(path.join(databasesPath, 'finance', 'table.md'), 'old finance');
 		vi.mocked(runNaoCommand).mockImplementation(async (_args, cwd) => {
 			fs.writeFileSync(path.join(cwd, 'databases', 'sales', 'table.md'), 'new sales');
+			fs.mkdirSync(path.join(cwd, 'docs', 'notion'), { recursive: true });
+			fs.writeFileSync(path.join(cwd, 'docs', 'notion', 'page.md'), 'notion page');
 			throw new NaoCommandExitError('nao sync failed: Failed to sync 1 database: finance');
 		});
 
@@ -148,9 +151,13 @@ describe('project sync', () => {
 
 		const state = await getProjectSyncState(project);
 		expect(state.run?.error).toBe('nao sync failed: Failed to sync 1 database: finance');
-		expect(state.run?.logs).toContain('Updated the databases that synced successfully');
+		expect(state.run?.logs).toContain('Updated the context that synced successfully');
 		expect(fs.readFileSync(path.join(databasesPath, 'sales', 'table.md'), 'utf8')).toBe('new sales');
 		expect(fs.readFileSync(path.join(databasesPath, 'finance', 'table.md'), 'utf8')).toBe('old finance');
+		expect(fs.readFileSync(path.join(projectDirectory, 'docs', 'notion', 'page.md'), 'utf8')).toBe('notion page');
+		expect(fs.readdirSync(path.dirname(projectDirectory)).some((name) => name.startsWith('.project-sync'))).toBe(
+			false,
+		);
 		expect(projectQueries.touchProjectUpdatedAt).toHaveBeenCalledWith(project.id);
 	});
 

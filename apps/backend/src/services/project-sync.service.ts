@@ -117,7 +117,7 @@ async function runProjectSync(project: DBProject, runId: string): Promise<void> 
 
 		try {
 			fs.cpSync(projectPath, stagingPath, { recursive: true });
-			const syncError = await runDatabaseSync(stagingPath, projectEnvVars, async (logs) => {
+			const syncError = await runNaoSync(stagingPath, projectEnvVars, async (logs) => {
 				updateRun(project.id, runId, { logs: redact(logs) });
 			});
 			// await publishDatabaseContext(stagingPath, projectPath, async () => {
@@ -137,16 +137,14 @@ async function runProjectSync(project: DBProject, runId: string): Promise<void> 
 			// 		appendRunLog(project.id, runId, '✓ Synced context is already up to date');
 			// 	}
 			// });
-			if (!syncError || fs.existsSync(path.join(stagingPath, 'databases'))) {
-				await publishDatabaseContext(stagingPath, projectPath, async () => {
-					appendRunLog(
-						project.id,
-						runId,
-						syncError ? 'Updated the databases that synced successfully' : '✓ Updated your project context',
-					);
-				});
-				await projectQueries.touchProjectUpdatedAt(project.id);
-			}
+			await applyStagedProject(stagingPath, projectPath, async () => {
+				appendRunLog(
+					project.id,
+					runId,
+					syncError ? 'Updated the context that synced successfully' : '✓ Updated your project context',
+				);
+			});
+			await projectQueries.touchProjectUpdatedAt(project.id);
 			if (syncError) {
 				throw syncError;
 			}
@@ -172,14 +170,14 @@ async function runProjectSync(project: DBProject, runId: string): Promise<void> 
 	});
 }
 
-async function runDatabaseSync(
+async function runNaoSync(
 	stagingPath: string,
 	projectEnvVars: Record<string, string>,
 	onOutput: (logs: string) => Promise<void>,
 ): Promise<NaoCommandExitError | null> {
 	try {
 		await runNaoCommand(
-			['sync', '--provider', 'databases', '--no-render-templates'],
+			['sync'],
 			stagingPath,
 			createNaoCommandEnvironment(projectEnvVars),
 			SYNC_TIMEOUT_MS,
@@ -194,30 +192,20 @@ async function runDatabaseSync(
 	}
 }
 
-async function publishDatabaseContext(
-	stagingProjectPath: string,
+// ponytail: swaps the whole folder, so files written to the live project while a sync runs are lost; lock project writes during sync if that becomes real.
+async function applyStagedProject(
+	stagingPath: string,
 	projectPath: string,
 	publish: () => Promise<void>,
 ): Promise<void> {
-	const stagedDatabasesPath = path.join(stagingProjectPath, 'databases');
-	if (!fs.existsSync(stagedDatabasesPath)) {
-		throw new Error('nao sync completed without generating database context.');
-	}
-
-	const databasesPath = path.join(projectPath, 'databases');
-	const backupPath = path.join(projectPath, `.databases-sync-backup-${crypto.randomUUID()}`);
-	const hasExistingContext = fs.existsSync(databasesPath);
-	if (hasExistingContext) {
-		fs.renameSync(databasesPath, backupPath);
-	}
+	const backupPath = path.join(path.dirname(projectPath), `.project-sync-backup-${crypto.randomUUID()}`);
+	fs.renameSync(projectPath, backupPath);
 	try {
-		fs.renameSync(stagedDatabasesPath, databasesPath);
+		fs.renameSync(stagingPath, projectPath);
 		await publish();
 	} catch (error) {
-		fs.rmSync(databasesPath, { recursive: true, force: true });
-		if (hasExistingContext) {
-			fs.renameSync(backupPath, databasesPath);
-		}
+		fs.rmSync(projectPath, { recursive: true, force: true });
+		fs.renameSync(backupPath, projectPath);
 		throw error;
 	}
 	fs.rmSync(backupPath, { recursive: true, force: true });
