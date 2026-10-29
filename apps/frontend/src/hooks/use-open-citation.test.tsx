@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import type { CitationData } from '@nao/shared/types';
@@ -8,6 +8,7 @@ import type { CitationData } from '@nao/shared/types';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useOpenCitation } from '@/hooks/use-open-citation';
+import { useCodeRevealRequest } from '@/stores/code-reveal';
 
 const mocks = vi.hoisted(() => ({
 	questionStory: undefined as { storyId: string; chatId: string; slug: string } | undefined,
@@ -50,6 +51,26 @@ describe('useOpenCitation', () => {
 		act(() => openCitation({ start: 0, end: 13, text: 'and smoothies' }));
 
 		expect(mocks.openMentionedStory).toHaveBeenCalledWith(mocks.questionStory);
+	});
+
+	it('asks the code view of the story page for the lines a code pill cites', () => {
+		mocks.questionStory = { storyId: 'story-1', chatId: 'story-chat', slug: 'overview' };
+		const openCitation = renderPill(<p>The story.</p>);
+		const request = renderHook(() => useCodeRevealRequest());
+		const lines = { start: 3, end: 5 };
+
+		act(() =>
+			openCitation({
+				start: 0,
+				end: 0,
+				text: 'const total = 1;',
+				storySlug: 'overview',
+				block: { kind: 'code', title: 'app.jsx', lines },
+			}),
+		);
+
+		expect(mocks.openMentionedStory).not.toHaveBeenCalled();
+		expect(request.result.current).toMatchObject({ storySlug: 'overview', filePath: 'app.jsx', lines });
 	});
 });
 

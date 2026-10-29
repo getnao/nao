@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 
-import { STORY_HIGHLIGHT_TTL_MS, useStoryHighlightRequest } from '@/stores/story-highlight';
+import { isStoryRequestFor, useStoryHighlightRequest } from '@/stores/story-highlight';
 import { highlightStoryElement } from '@/story-runtime/story-highlight';
 
 export const STORY_OVERLAY_Z_INDEX = 10;
@@ -14,10 +14,7 @@ export function useCitedElementHighlight(containerRef: RefObject<HTMLElement | n
 
 	useEffect(() => {
 		const container = containerRef.current;
-		const isForThisStory =
-			request &&
-			(!request.storySlug || !storySlug || request.storySlug === storySlug) &&
-			Date.now() - request.requestedAt < STORY_HIGHLIGHT_TTL_MS;
+		const isForThisStory = request && isStoryRequestFor(request, storySlug);
 		if (!isForThisStory || !container || handledRequestId.current === request.id) {
 			return;
 		}

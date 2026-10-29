@@ -10,8 +10,13 @@ export interface StoryHighlightRequest {
 	requestedAt: number;
 }
 
-/** How long a story frame that is still loading may take to show a request it missed. */
-export const STORY_HIGHLIGHT_TTL_MS = 10_000;
+interface StoryRequest {
+	storySlug?: string;
+	requestedAt: number;
+}
+
+/** How long a story view that is still loading may take to follow a request it missed. */
+const STORY_REQUEST_TTL_MS = 10_000;
 
 const storyHighlightStore = new ValueStore<StoryHighlightRequest | null>(null);
 let nextRequestId = 0;
@@ -22,6 +27,15 @@ export function requestStoryHighlight({ block, text, storySlug }: CitationData):
 	}
 	nextRequestId += 1;
 	storyHighlightStore.set({ id: nextRequestId, storySlug, element: { block, text }, requestedAt: Date.now() });
+}
+
+export function isStoryRequestFor(request: StoryRequest, storySlug?: string): boolean {
+	const isSameStory = !request.storySlug || !storySlug || request.storySlug === storySlug;
+	return isSameStory && isStoryRequestFresh(request);
+}
+
+export function isStoryRequestFresh(request: StoryRequest): boolean {
+	return Date.now() - request.requestedAt < STORY_REQUEST_TTL_MS;
 }
 
 export const useStoryHighlightRequest = () =>

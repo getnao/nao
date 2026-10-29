@@ -27,12 +27,16 @@ import type { ShareSource, StoryFormat } from '@nao/shared/types';
 import type { CustomStoryViewerAccess } from '@nao/shared/story-app';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
+import type { CodeSelection } from '@/stores/ask-bar';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
 import { MentionedStoriesProvider } from '@/contexts/mentioned-stories';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useActiveStoryTab } from '@/hooks/use-active-story-tab';
+import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -49,6 +53,8 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { StoryThemeProvider, useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
+import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { toAskCitation, toCodeAsk } from '@/stores/ask-bar';
 import { trpc } from '@/main';
 
 interface StoryViewerProps {
@@ -141,7 +147,6 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
 	const [isCodeValid, setIsCodeValid] = useState(true);
-	const [activeTabIndex, setActiveTabIndex] = useState(initialTabIndex ?? 0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const {
 		close: closeSidePanel,
@@ -222,7 +227,11 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	});
 	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
 	const isTabbedStory = Boolean(tabs?.length);
-	const activeTab = tabs?.length ? Math.min(activeTabIndex, tabs.length - 1) : 0;
+	const [activeTab, setActiveTabIndex] = useActiveStoryTab({
+		tabs,
+		storySlug: resolvedStorySlug,
+		initialIndex: initialTabIndex,
+	});
 	const storyBuffer = useStoryEditBuffer(storyCode ?? '');
 	const isCodeDirty = storyBuffer.isDirty;
 	useTrackViewDuration({
@@ -262,6 +271,18 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		save: saveCurrentVersion,
 		requestExit: exitGuard.requestExit,
 	});
+	useCodeRevealFollower(resolvedStorySlug, () => transitions.requestViewMode('code'));
+	useCitedElementFollower(resolvedStorySlug, () => {
+		if (viewMode === 'code') {
+			void transitions.requestViewMode('preview');
+		}
+	});
+	const handleAskAboutCode = useCallback(
+		(selection: CodeSelection) => {
+			chatPendingCitationStore.add(chatId, toAskCitation(toCodeAsk(selection, { storySlug: resolvedStorySlug })));
+		},
+		[chatId, resolvedStorySlug],
+	);
 	useEffect(() => registerBeforeChange(exitGuard.requestExit), [exitGuard.requestExit, registerBeforeChange]);
 	const handleBeforeAgentSend = useCallback(async () => {
 		if (!isDirty) {
@@ -336,7 +357,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			prevSlugRef.current = resolvedStorySlug;
 			setActiveTabIndex(0);
 		}
-	}, [resolvedStorySlug]);
+	}, [resolvedStorySlug, setActiveTabIndex]);
 
 	useEffect(() => {
 		setCurrentStorySlug(resolvedStorySlug);
@@ -509,6 +530,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 							onCodeChange={storyBuffer.handleCodeChange}
 							onValidChange={setIsCodeValid}
 							onSave={handleSave}
+							onAskAboutCode={isReadonlyMode ? undefined : handleAskAboutCode}
 						/>
 					),
 				)}

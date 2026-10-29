@@ -33,7 +33,7 @@ import { capCitationText } from '@/lib/citation-mention';
 import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
-import { STORY_HIGHLIGHT_TTL_MS, useStoryHighlightRequest } from '@/stores/story-highlight';
+import { isStoryRequestFresh, useStoryHighlightRequest } from '@/stores/story-highlight';
 
 export interface CustomStoryRuntimeError {
 	message: string;
@@ -110,7 +110,7 @@ export function CustomStoryFrame({
 		const isForThisStory =
 			highlightRequest &&
 			(!highlightRequest.storySlug || highlightRequest.storySlug === storySlugOf(dataSource)) &&
-			Date.now() - highlightRequest.requestedAt < STORY_HIGHLIGHT_TTL_MS;
+			isStoryRequestFresh(highlightRequest);
 		if (!isForThisStory || !isFrameReadyRef.current || handledHighlightId.current === highlightRequest.id) {
 			return;
 		}

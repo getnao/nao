@@ -15,6 +15,8 @@ import { useStoryViewerSwitchStory } from '@/components/side-panel/hooks/use-sto
 import { StoryHeader } from '@/components/side-panel/story-header';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { isNotFoundError } from '@/lib/trpc-error';
 import { trpc, trpcClient } from '@/main';
@@ -28,6 +30,8 @@ interface ReadonlyCustomStoryViewerProps {
 export function ReadonlyCustomStoryViewer({ chatId, storySlug, access }: ReadonlyCustomStoryViewerProps) {
 	const { close, setCurrentStorySlug, isReplay, shareSource } = useSidePanel();
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	useCodeRevealFollower(storySlug, () => setViewMode('files'));
+	useCitedElementFollower(storySlug, () => setViewMode('app'));
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const contentQuery = useQuery(trpc.customStoryViewer.getVersion.queryOptions({ access, storySlug }));
 	const content = contentQuery.data;

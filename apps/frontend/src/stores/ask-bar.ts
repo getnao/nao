@@ -43,9 +43,17 @@ export interface CodeSelection {
 	lines: StoryCodeLines;
 }
 
-export function requestAskAboutCode({ text, lines }: CodeSelection, source: { storySlug?: string; filePath?: string }) {
-	const block = { kind: CODE_CITATION_KIND, title: source.filePath, lines };
-	requestAsk({ chatId: null, selection: { text, block, intent: 'ask', storySlug: source.storySlug } });
+interface CodeSource {
+	storySlug?: string;
+	filePath?: string;
+}
+
+export function requestAskAboutCode(selection: CodeSelection, source: CodeSource) {
+	requestAsk({ chatId: null, selection: toCodeAsk(selection, source) });
+}
+
+export function toCodeAsk({ text, lines }: CodeSelection, { storySlug, filePath }: CodeSource): AskSelection {
+	return { text, block: { kind: CODE_CITATION_KIND, title: filePath, lines }, intent: 'ask', storySlug };
 }
 
 export function toAskCitation({ text, start = 0, end = 0, block, intent, storySlug }: AskSelection): CitationData {

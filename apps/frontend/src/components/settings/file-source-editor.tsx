@@ -5,6 +5,7 @@ import type { editor } from 'monaco-editor';
 import type { MountedCodeEditor } from '@/components/code-selection-ask';
 import type { CodeSelection } from '@/stores/ask-bar';
 import { CodeSelectionAsk } from '@/components/code-selection-ask';
+import { useRevealCitedLines } from '@/hooks/use-code-reveal';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
 import { isMac } from '@/lib/platform';
@@ -63,6 +64,7 @@ export function FileSourceEditor({
 	const debouncedValue = useDebouncedValue(value, 150);
 	searchQueryRef.current = searchQuery;
 	onSaveRef.current = onSave;
+	useRevealCitedLines(codeEditor, filePath);
 
 	const handleBeforeMount = useCallback((monaco: Monaco) => {
 		defineCustomThemes(monaco);

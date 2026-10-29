@@ -21,6 +21,7 @@ import { FileTree } from '@/components/settings/file-tree';
 import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { trpc } from '@/main';
 
@@ -44,6 +45,11 @@ export function CustomStoryFiles({
 }: CustomStoryFilesProps) {
 	const [selectedPath, setSelectedPath] = useState<string | null>(() => defaultFilePath(files));
 	const edits = useStoryFileEdits(source, versionNumber);
+	useCodeRevealFollower(source.storySlug, ({ filePath }) => {
+		if (filePath && (isStoryKitPath(filePath) || files.some((file) => file.path === filePath))) {
+			setSelectedPath(filePath);
+		}
+	});
 	const [search, setSearch] = useState('');
 	const [isContentSearchEnabled, setIsContentSearchEnabled] = useState(false);
 	const debouncedSearch = useDebouncedValue(search.trim(), 250);

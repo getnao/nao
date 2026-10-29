@@ -10,12 +10,14 @@ import { useOpenMentionedStory } from '@/hooks/use-mentioned-stories';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { isCodeCitation } from '@/lib/citation-mention';
 import { findQuotedRange } from '@/lib/selection-dom.utils';
+import { requestCitedStoryElement } from '@/stores/cited-story-element';
+import { requestCodeReveal } from '@/stores/code-reveal';
 import { requestStoryHighlight } from '@/stores/story-highlight';
 import { trpc } from '@/main';
 
 /**
  * Shows what a citation points at: its story in the side panel, scrolled to the quoted text,
- * or the cited element of a custom story outlined in its frame.
+ * the cited element of a custom story outlined in its frame, or the cited lines in the story's code view.
  */
 export function useOpenCitation() {
 	const selectionCtx = useOptionalSelection();
@@ -32,9 +34,7 @@ export function useOpenCitation() {
 	return useCallback(
 		(citation: CitationData) => {
 			const { start, end, text, storySlug, block } = citation;
-			if (isCodeCitation(citation)) {
-				return;
-			}
+			requestCitedStoryElement(citation);
 			const pageContainer = selectionCtx?.pageContainerRef.current;
 			const revealInQuestionStory = (story: ResolvedStory) => {
 				if (!isStoryShown(story, sidePanel)) {
@@ -44,7 +44,7 @@ export function useOpenCitation() {
 			};
 			if (questionStory && storySlug === questionStory.slug) {
 				if (!block && pageContainer && isStoryPage(questionStory, sidePanel)) {
-					highlightQuoteIn([pageContainer], citation);
+					showNowOrRetry(() => highlightQuoteIn([pageContainer], citation));
 					return;
 				}
 				revealInQuestionStory(questionStory);
@@ -54,17 +54,17 @@ export function useOpenCitation() {
 				if (storySlug && chatId && sidePanel.currentStorySlug !== storySlug) {
 					sidePanel.open(<StoryViewer chatId={chatId} storySlug={storySlug} />, storySlug);
 				}
-				requestStoryHighlight(citation);
+				revealInStory(citation);
 				return;
 			}
 			if (storySlug && chatId) {
 				if (sidePanel.currentStorySlug === storySlug) {
-					scrollToStoryText(start, end, text);
+					showNowOrRetry(() => scrollToStoryText(start, end, text));
 					return;
 				}
 
 				sidePanel.open(<StoryViewer chatId={chatId} storySlug={storySlug} />, storySlug);
-				pollAndScrollToStoryText(start, end, text);
+				retryUntilShown(() => scrollToStoryText(start, end, text));
 				return;
 			}
 
@@ -125,19 +125,30 @@ function highlightQuoteIn(containers: (Element | null | undefined)[], { start, e
 }
 
 function revealInStory(citation: CitationData) {
+	if (isCodeCitation(citation)) {
+		requestCodeReveal(citation);
+		return;
+	}
 	if (citation.block) {
 		requestStoryHighlight(citation);
 		return;
 	}
-	pollAndScrollToStoryText(citation.start, citation.end, citation.text);
+	retryUntilShown(() => scrollToStoryText(citation.start, citation.end, citation.text));
 }
 
-function pollAndScrollToStoryText(start: number, end: number, text: string) {
+/** A quote of a tab not shown yet appears once its tab is selected, so it is searched again until then. */
+function showNowOrRetry(show: () => boolean) {
+	if (!show()) {
+		retryUntilShown(show);
+	}
+}
+
+function retryUntilShown(show: () => boolean) {
 	let attempts = 0;
 	const MAX_ATTEMPTS = 20;
 
 	const tryScroll = () => {
-		if (scrollToStoryText(start, end, text)) {
+		if (show()) {
 			return;
 		}
 		attempts++;

@@ -26,6 +26,8 @@ import { useStoryViewerSharing } from '@/components/side-panel/hooks/use-story-v
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
 import { StoryPageHeader } from '@/components/story-page-header';
+import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
@@ -54,6 +56,8 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 		refresh: live.handleRefreshData,
 	});
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	useCodeRevealFollower(storySlug, () => setViewMode('files'));
+	useCitedElementFollower(storySlug, () => setViewMode('app'));
 	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);

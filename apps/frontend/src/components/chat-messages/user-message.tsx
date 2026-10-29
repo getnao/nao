@@ -201,6 +201,8 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 	const isEditing = useIsEditingMessage(message.id);
 	const editContainerRef = useRef<HTMLDivElement>(null);
 	const text = useMemo(() => getMessageText(message), [message]);
+	const citations = message.citations;
+	const editableText = useMemo(() => placeCitationsInline(text, citations?.length ?? 0), [text, citations]);
 
 	useClickOutside(
 		{
@@ -215,12 +217,19 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 		return (
 			<div ref={editContainerRef}>
 				<ChatInputInline
-					initialText={text}
+					initialText={editableText}
+					initialCitations={citations}
 					className='p-0 **:data-[slot=input-group]:shadow-none!'
 					onCancel={() => editedMessageIdStore.setEditingId(undefined)}
-					onSubmitMessage={async ({ text: nextText, images, documents }) => {
+					onSubmitMessage={async ({ text: nextText, images, documents, citations: nextCitations }) => {
 						editedMessageIdStore.setEditingId(undefined);
-						await editMessage({ messageId: message.id, text: nextText, images, documents });
+						await editMessage({
+							messageId: message.id,
+							text: nextText,
+							images,
+							documents,
+							citations: nextCitations,
+						});
 					}}
 				/>
 			</div>

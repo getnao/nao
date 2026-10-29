@@ -43,9 +43,11 @@ import {
 } from './ui/dropdown-menu';
 import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
+import type { CitationData } from '@nao/shared/types';
 import type { AgentHelpers } from '@/hooks/use-agent';
 import type { ChatAllowanceExhaustedScope } from '@/lib/ai';
 import type { StoryReferences } from '@/lib/story-reference';
+import type { QueuedMessage } from '@/types/chat-message-queue';
 import { ContextWindowRing } from '@/components/ui/chat-input-context-window-ring';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 
@@ -78,7 +80,7 @@ import { hasAnyStoryReference, mayCarryStories, readDroppedReferences } from '@/
 import { takePendingStoryReferences, usePendingStoryReferences } from '@/stores/story-references';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
-import { chatPendingCitationStore, toMessageCitations } from '@/stores/chat-pending-citation';
+import { ChatPendingCitationStore, chatPendingCitationStore, toMessageCitations } from '@/stores/chat-pending-citation';
 import { useChatPendingCitations } from '@/hooks/use-chat-pending-citation';
 import { CITATION_MENTION_TRIGGER, removeCitationTokens, writeCitedText } from '@/lib/citation-mention';
 import { useCitationPills } from '@/hooks/use-citation-pills';
@@ -101,6 +103,7 @@ type ChatInputBaseProps = {
 	variant?: ChatInputVariant;
 	placeholder?: string;
 	initialText?: string;
+	initialCitations?: CitationData[];
 	onCancel?: () => void;
 	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
 	allowQueueing?: boolean;
@@ -110,6 +113,7 @@ type ChatInputBaseProps = {
 type ChatInputInlineProps = {
 	className?: string;
 	initialText: string;
+	initialCitations?: CitationData[];
 	onCancel?: () => void;
 	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
 };
@@ -143,7 +147,13 @@ export function ChatInput({
 	);
 }
 
-export function ChatInputInline({ className, initialText, onCancel, onSubmitMessage }: ChatInputInlineProps) {
+export function ChatInputInline({
+	className,
+	initialText,
+	initialCitations,
+	onCancel,
+	onSubmitMessage,
+}: ChatInputInlineProps) {
 	const promptRef = useRef<PromptHandle>(null);
 
 	return (
@@ -151,6 +161,7 @@ export function ChatInputInline({ className, initialText, onCancel, onSubmitMess
 			promptRef={promptRef}
 			className={className}
 			initialText={initialText}
+			initialCitations={initialCitations}
 			onCancel={onCancel}
 			onSubmitMessage={onSubmitMessage}
 		/>
@@ -163,6 +174,7 @@ function ChatInputBase({
 	variant = 'default',
 	placeholder,
 	initialText,
+	initialCitations,
 	onCancel,
 	onSubmitMessage,
 	allowQueueing,
@@ -171,6 +183,8 @@ function ChatInputBase({
 	const [inputText, setInputText] = useState('');
 	const [managedCreditDialogOpen, setManagedCreditDialogOpen] = useState(false);
 	const [verifiedManagedCreditError, setVerifiedManagedCreditError] = useState<Error>();
+	const [ownCitationStore] = useState(() => new ChatPendingCitationStore());
+	const citationStore = allowQueueing ? chatPendingCitationStore : ownCitationStore;
 	const {
 		isRunning,
 		cancelAgent,
@@ -307,6 +321,19 @@ function ChatInputBase({
 
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
 
+	/** Writes a sent message back into the prompt, its numbered `❝[1]` tokens turned back into citation pills. */
+	const fillPrompt = useCallback(
+		(text: string, citations: CitationData[] = []): string => {
+			promptRef.current?.clear();
+			const restoredCitations = chatId ? citationStore.restore(chatId, citations) : [];
+			if (promptRef.current) {
+				writeCitedText(promptRef.current, text, restoredCitations);
+			}
+			return promptRef.current?.getValue() ?? removeCitationTokens(text);
+		},
+		[chatId, citationStore, promptRef],
+	);
+
 	const queryClient = useQueryClient();
 	const currentProjectId = project.data?.id;
 
@@ -375,15 +402,7 @@ function ChatInputBase({
 		}
 
 		chatInputRestoreStore.clear();
-		promptRef.current?.clear();
-		const restoredCitations =
-			chatInputRestore.citations && chatId
-				? chatPendingCitationStore.restore(chatId, chatInputRestore.citations)
-				: [];
-		if (promptRef.current) {
-			writeCitedText(promptRef.current, chatInputRestore.text, restoredCitations);
-		}
-		setInputText(promptRef.current?.getValue() ?? removeCitationTokens(chatInputRestore.text));
+		setInputText(fillPrompt(chatInputRestore.text, chatInputRestore.citations));
 		attachmentUpload.clearAttachments();
 		attachmentUpload.restoreDocuments(chatInputRestore.documents);
 
@@ -488,7 +507,7 @@ function ChatInputBase({
 	const submitMessage = useCallback(
 		async (text: string, currentMentions: SelectedMention[] = []) => {
 			const trimmedInput = text.trim();
-			const citationSnapshot = chatPendingCitationStore.getSnapshot();
+			const citationSnapshot = citationStore.getSnapshot();
 			const pendingCitations =
 				citationSnapshot && citationSnapshot.chatId === chatId ? citationSnapshot.citations : [];
 			const hasCitation = pendingCitations.length > 0;
@@ -516,7 +535,7 @@ function ChatInputBase({
 				const message = toMessageCitations(pendingCitations, trimmedInput);
 				const citations = message.citations.length > 0 ? message.citations : undefined;
 				if (hasCitation) {
-					chatPendingCitationStore.clear();
+					citationStore.clear();
 				}
 
 				setMentions(
@@ -542,6 +561,7 @@ function ChatInputBase({
 			promptRef,
 			attachmentUpload,
 			chatId,
+			citationStore,
 			runGuardedAgentSend,
 			submitQueuedMessageWithGuard,
 		],
@@ -559,32 +579,29 @@ function ChatInputBase({
 		if (typeof initialText !== 'string') {
 			return;
 		}
-		promptRef.current?.clear();
-		promptRef.current?.insertText(initialText);
-		setInputText(initialText);
+		setInputText(fillPrompt(initialText, initialCitations));
 		promptRef.current?.focus();
-	}, [initialText, promptRef]);
+	}, [initialText, initialCitations, fillPrompt, promptRef]);
 
 	const handleSubmitMessage = async (e: FormEvent) => {
 		e.preventDefault();
 		const mentions = promptRef.current?.getMentions() ?? [];
 		await submitMessage(inputText, mentions);
 	};
-	const citationChatId = allowQueueing ? chatId : undefined;
-	const pendingCitations = useChatPendingCitations(citationChatId);
+	const pendingCitations = useChatPendingCitations(citationStore, chatId);
 	const removePendingCitation = useCallback(
 		(id: string) => {
-			if (citationChatId) {
-				chatPendingCitationStore.remove(citationChatId, id);
+			if (chatId) {
+				citationStore.remove(chatId, id);
 			}
 		},
-		[citationChatId],
+		[chatId, citationStore],
 	);
 	const citationPills = useCitationPills({
 		promptRef,
 		containerRef: dropZoneRef,
 		citations: pendingCitations,
-		scope: citationChatId,
+		scope: chatId,
 		onRemove: removePendingCitation,
 	});
 	const findPendingCitation = useCallback(
@@ -611,12 +628,11 @@ function ChatInputBase({
 				: (placeholder ?? shortcutPlaceholder);
 
 	const handleEditQueuedMessage = useCallback(
-		(text: string) => {
-			promptRef.current?.clear();
-			promptRef.current?.insertText(text);
+		({ text, citations }: QueuedMessage) => {
+			setInputText(fillPrompt(text, citations));
 			promptRef.current?.focus();
 		},
-		[promptRef],
+		[fillPrompt, promptRef],
 	);
 
 	const openMentionMenu = useCallback(

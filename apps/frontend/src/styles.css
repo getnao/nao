@@ -462,6 +462,10 @@ code.dollar:before {
 	background-color: rgb(250 204 21 / 20%);
 }
 
+.cited-code-lines {
+	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
 ::highlight(nao-file-preview-search-match) {
 	background-color: rgb(245 158 11 / 18%);
 }

@@ -86,21 +86,22 @@ function findBlock({ kind, title, queryId }: StoryBlockReference, root: ParentNo
 	);
 }
 
+/** The starts of a quote searched for it, longest first, as a passage may be cut by markup the quote lost. */
+export function toQuoteStarts(text: string): string[] {
+	const quote = normalize(text).replace(/…$/, '').slice(0, MAX_SEARCHED_QUOTE_LENGTH);
+	const words = quote.split(' ').filter(Boolean);
+	return words.map((_, dropped) => words.slice(0, words.length - dropped).join(' '));
+}
+
 /** The smallest, then deepest, element holding the start of the quote, so the outline hugs the passage. */
 function findQuotedElement(text: string, root: ParentNode): HTMLElement | null {
-	const quote = normalize(text).replace(/…$/, '').slice(0, MAX_SEARCHED_QUOTE_LENGTH);
-	for (const start of shorteningStarts(quote)) {
+	for (const start of toQuoteStarts(text)) {
 		const element = findSmallestElementHolding(start, root);
 		if (element) {
 			return element;
 		}
 	}
 	return null;
-}
-
-function shorteningStarts(quote: string): string[] {
-	const words = quote.split(' ').filter(Boolean);
-	return words.map((_, dropped) => words.slice(0, words.length - dropped).join(' '));
 }
 
 function findSmallestElementHolding(quote: string, root: ParentNode): HTMLElement | null {
