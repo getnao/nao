@@ -223,12 +223,7 @@ const neverAcceptedInvitation = () => [
 	sql`not exists(select 1 from ${s.chatMessage} where ${s.chatMessage.senderUserId} = ${s.user.id})`,
 ];
 
-/**
- * True while a user row is still only an invitation: a temporary password nobody has used, with no
- * session, no chat and no message of their own. Deliberately the same test
- * `deleteExpiredInvitations` uses, so "has this person ever actually used the account" has exactly
- * one definition.
- */
+/** Still only an invitation: the same "never used" test `deleteExpiredInvitations` expires on. */
 export const isPendingInvitation = async (id: string): Promise<boolean> => {
 	const [row] = await db
 		.select({ id: s.user.id })
