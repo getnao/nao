@@ -7,6 +7,7 @@ import type { FileSelectionOptions } from '@/components/settings/file-tree';
 
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
+import { CloudSyncPanel } from '@/components/settings/cloud-sync';
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
 import {
@@ -279,6 +280,7 @@ function ContextExplorerPage() {
 										}
 									/>
 								</div>
+								<CloudSyncPanel />
 								<ContextGitPanel
 									selectedDiffPath={selectedDiffPath}
 									hasUnsavedFileChanges={isViewerDirty}
