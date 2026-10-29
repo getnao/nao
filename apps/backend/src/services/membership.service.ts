@@ -8,6 +8,7 @@ import dbConfig, { Dialect } from '../db/dbConfig';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
+import * as userGroupQueries from '../queries/user-group.queries';
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { cleanupContextWorktree } from './context-explorer-git.service';
@@ -22,6 +23,35 @@ export async function addOrganizationMember(member: NewOrgMember): Promise<DBOrg
 export async function addOrganizationMemberIfMissing(member: NewOrgMember): Promise<void> {
 	await Promise.all([requireOrganization(member.orgId), requireUser(member.userId)]);
 	await persistOrganizationMember(member, () => orgQueries.addOrgMemberIfMissing(member));
+}
+
+/**
+ * The membership and its group assignments land together: a group deleted between validation and
+ * insert must not leave the user a member of an organization they were never fully invited to.
+ */
+export async function addOrganizationMemberWithGroups(member: NewOrgMember, groupIds: string[]): Promise<void> {
+	await Promise.all([requireOrganization(member.orgId), requireUser(member.userId)]);
+	const uniqueGroupIds = [...new Set(groupIds)];
+	const groupMemberships = uniqueGroupIds.map((groupId) => ({
+		groupId,
+		userId: member.userId,
+		provider: 'manual' as const,
+	}));
+
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		db.transaction((transaction) => {
+			transaction.insert(s.orgMember).values(member).run();
+			if (groupMemberships.length) {
+				transaction.insert(s.userGroupMember).values(groupMemberships).onConflictDoNothing().run();
+			}
+		});
+		return;
+	}
+
+	await db.transaction(async (transaction) => {
+		await orgQueries.addOrgMember(member, transaction);
+		await userGroupQueries.addUserGroupMemberships(uniqueGroupIds, member.userId, transaction);
+	});
 }
 
 export async function addProjectMember(member: NewProjectMember, groupIds: string[] = []): Promise<DBProjectMember> {
@@ -55,6 +85,9 @@ export async function putOrganizationMember(
 	return { userId, role };
 }
 
+export const FOREIGN_ORGANIZATION_PURGE_MESSAGE =
+	'This user belongs to another organization: revoke without purge to keep the account.';
+
 /**
  * Removes an organization membership, refusing to leave the organization without an admin.
  *
@@ -63,11 +96,15 @@ export async function putOrganizationMember(
  * removals both see the other admin and then delete both. Sessions are deleted in the same
  * transaction, so a failed removal cannot sign the member out and a removed member cannot keep a
  * live session.
+ *
+ * `purgeAccount` takes the account itself in that same transaction, and the confinement guard rides
+ * on the user DELETE: whoever added the user to a second organization waits on the user row (its
+ * foreign key needs `user`), so a membership added after the caller's check still keeps the account.
  */
 export async function removeOrganizationMember(
 	orgId: string,
 	userId: string,
-	options: { ignoreMissing?: boolean; deleteSessions?: boolean } = {},
+	options: { ignoreMissing?: boolean; deleteSessions?: boolean; purgeAccount?: boolean } = {},
 ): Promise<void> {
 	await requireOrganization(orgId);
 
@@ -80,6 +117,7 @@ export async function removeOrganizationMember(
 				sql`(select count(*) from ${s.orgMember} where org_id = ${orgId} and role = 'admin') > 1`,
 			),
 		);
+		const purgeGuard = () => and(eq(s.user.id, userId), userQueries.confinedToOrganization(userId, orgId));
 
 		if (dbConfig.dialect === Dialect.Postgres) {
 			return (async () => {
@@ -105,6 +143,13 @@ export async function removeOrganizationMember(
 				if (options.deleteSessions) {
 					await tx.delete(s.session).where(eq(s.session.userId, userId)).execute();
 				}
+				if (options.purgeAccount) {
+					await lockUserRow(tx, userId);
+					const [purged] = await tx.delete(s.user).where(purgeGuard()).returning({ id: s.user.id }).execute();
+					if (!purged) {
+						throw new HandlerError('CONFLICT', FOREIGN_ORGANIZATION_PURGE_MESSAGE);
+					}
+				}
 				return true;
 			})();
 		}
@@ -126,6 +171,14 @@ export async function removeOrganizationMember(
 			.run();
 		if (options.deleteSessions) {
 			tx.delete(s.session).where(eq(s.session.userId, userId)).run();
+		}
+		if (options.purgeAccount) {
+			// SQLite has one writer, so the guard in this DELETE is enough: no membership can appear
+			// between the check and the delete.
+			const purged = tx.delete(s.user).where(purgeGuard()).returning({ id: s.user.id }).get();
+			if (!purged) {
+				throw new HandlerError('CONFLICT', FOREIGN_ORGANIZATION_PURGE_MESSAGE);
+			}
 		}
 		return true;
 	});
@@ -219,6 +272,11 @@ async function lockOrganizationRow(tx: DBExecutor, orgId: string): Promise<void>
 	await lockForUpdate(
 		tx.select({ id: s.organization.id }).from(s.organization).where(eq(s.organization.id, orgId)),
 	).execute();
+}
+
+/** Serialises the purge against a concurrent membership insert, whose foreign key holds a KEY SHARE on this row. */
+async function lockUserRow(tx: DBExecutor, userId: string): Promise<void> {
+	await lockForUpdate(tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.id, userId))).execute();
 }
 
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>

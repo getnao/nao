@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	events: [] as string[],
 	adminCount: 2,
 	deletes: 0,
+	userDeleteRows: 1,
 }));
 
 vi.mock('../src/db/dbConfig', () => ({
@@ -29,7 +30,10 @@ vi.mock('../src/queries/organization.queries', () => ({
 	removeOrgMemberFromProjects: async () => {},
 }));
 
-vi.mock('../src/queries/user.queries', () => ({ getUser: async () => ({ id: 'user-1' }) }));
+vi.mock('../src/queries/user.queries', () => ({
+	getUser: async () => ({ id: 'user-1' }),
+	confinedToOrganization: () => undefined,
+}));
 
 vi.mock('../src/services/context-explorer-git.service', () => ({ cleanupContextWorktree: vi.fn() }));
 
@@ -45,12 +49,43 @@ describe('PostgreSQL organization admin guards', () => {
 		mocks.events.length = 0;
 		mocks.adminCount = 2;
 		mocks.deletes = 0;
+		mocks.userDeleteRows = 1;
 	});
 
 	it('locks the organization row before the last-admin delete', async () => {
 		await removeOrganizationMember('org-1', 'user-1', { deleteSessions: true });
 
 		expect(mocks.events).toEqual(['lock-org', 'delete-member', 'delete-project-members', 'delete-sessions']);
+	});
+
+	it('locks the user row before the purge delete, after the organization lock', async () => {
+		await removeOrganizationMember('org-1', 'user-1', { deleteSessions: true, purgeAccount: true });
+
+		expect(mocks.events).toEqual([
+			'lock-org',
+			'delete-member',
+			'delete-project-members',
+			'delete-sessions',
+			'lock-user',
+			'delete-user',
+		]);
+	});
+
+	it('refuses the purge under the lock when the account is no longer confined', async () => {
+		mocks.userDeleteRows = 0;
+
+		await expect(removeOrganizationMember('org-1', 'user-1', { purgeAccount: true })).rejects.toMatchObject({
+			code: 409,
+			message: 'This user belongs to another organization: revoke without purge to keep the account.',
+		});
+
+		expect(mocks.events).toEqual([
+			'lock-org',
+			'delete-member',
+			'delete-project-members',
+			'lock-user',
+			'delete-user',
+		]);
 	});
 
 	it('locks the organization row before the demotion guard reads the admin count', async () => {
@@ -75,11 +110,15 @@ function transaction() {
 	return {
 		select: (selection?: Record<string, unknown>) => {
 			const countsAdmins = selection !== undefined && 'count' in selection;
+			let locksUser = false;
 			const builder = {
-				from: () => builder,
+				from: (table?: Record<string, unknown>) => {
+					locksUser = table !== undefined && 'email' in table;
+					return builder;
+				},
 				where: () => builder,
 				for: (_strength: string) => {
-					mocks.events.push('lock-org');
+					mocks.events.push(locksUser ? 'lock-user' : 'lock-org');
 					return builder;
 				},
 				execute: async () => {
@@ -92,11 +131,16 @@ function transaction() {
 			};
 			return builder;
 		},
-		delete: () => {
+		delete: (table?: Record<string, unknown>) => {
+			const deletesUser = table !== undefined && 'email' in table;
 			const builder = {
 				where: () => builder,
 				returning: () => builder,
 				execute: async () => {
+					if (deletesUser) {
+						mocks.events.push('delete-user');
+						return mocks.userDeleteRows ? [{ id: 'deleted' }] : [];
+					}
 					mocks.deletes += 1;
 					mocks.events.push(
 						['delete-member', 'delete-project-members', 'delete-sessions'][mocks.deletes - 1],

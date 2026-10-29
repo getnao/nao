@@ -28,6 +28,22 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 
 const idp = vi.hoisted(() => ({ rolesManagedByIdp: false }));
 
+const hooks = vi.hoisted(() => ({
+	afterConfinedCheck: null as null | ((userId: string) => Promise<void>),
+}));
+
+vi.mock('../src/queries/user.queries', async (importOriginal) => {
+	const mod = await importOriginal<typeof import('../src/queries/user.queries')>();
+	return {
+		...mod,
+		isUserConfinedToOrganization: async (userId: string, orgId: string | null) => {
+			const confined = await mod.isUserConfinedToOrganization(userId, orgId);
+			await hooks.afterConfinedCheck?.(userId);
+			return confined;
+		},
+	};
+});
+
 vi.mock('../src/services/sso-group-mapping.service', async (importOriginal) => {
 	const mod = await importOriginal<typeof import('../src/services/sso-group-mapping.service')>();
 	return { ...mod, isOrganizationRoleMappingActive: async () => idp.rolesManagedByIdp };
@@ -67,6 +83,8 @@ describe('user management API', () => {
 
 	beforeEach(async () => {
 		idp.rolesManagedByIdp = false;
+		hooks.afterConfinedCheck = null;
+		await allowGroupInsert();
 		await clearData();
 		await seedData();
 	});
@@ -86,6 +104,8 @@ describe('user management API', () => {
 		app.inject({ method: 'PUT', url: `/api${url}`, headers: auth(), ...(payload ? { payload } : {}) });
 	const del = (url: string, key?: string) =>
 		app.inject({ method: 'DELETE', url: `/api${url}`, headers: auth(key ?? USER_MANAGEMENT_KEY) });
+	const createGroup = async (name: string): Promise<string> =>
+		(await post(`/user-management/projects/${PROJECT_ID}/groups`, { name })).json().id;
 
 	it('rejects a missing, unknown or wrong-scope key', async () => {
 		const missing = await app.inject({ method: 'GET', url: '/api/user-management/users' });
@@ -257,6 +277,59 @@ describe('user management API', () => {
 		expect(defaultGroup.statusCode).toBe(400);
 	});
 
+	it('leaves no account or membership behind when the group insert fails mid-invite', async () => {
+		const groupId = await createGroup('Analysts');
+		await failGroupInsert(groupId);
+
+		const failed = await post('/user-management/users', {
+			email: 'raced@example.com',
+			name: 'Raced Invite',
+			groupIds: [groupId],
+		});
+
+		expect(failed.statusCode).toBe(500);
+		expect(await db.select().from(s.user).where(eq(s.user.email, 'raced@example.com')).execute()).toHaveLength(0);
+		expect(await orgMemberCount()).toBe(3);
+
+		// The same invitation goes through once the group insert can succeed: no 409 on the retry.
+		await allowGroupInsert();
+		const retried = await post('/user-management/users', {
+			email: 'raced@example.com',
+			name: 'Raced Invite',
+			groupIds: [groupId],
+		});
+		expect(retried.statusCode).toBe(201);
+		expect(
+			await db
+				.select()
+				.from(s.userGroupMember)
+				.where(eq(s.userGroupMember.userId, retried.json().user.id))
+				.execute(),
+		).toHaveLength(1);
+	});
+
+	it('leaves no membership behind for an existing user when the group insert fails mid-invite', async () => {
+		await db
+			.insert(s.user)
+			.values({ id: 'user-outsider', name: 'Outsider', email: 'outsider@example.com', emailVerified: true })
+			.execute();
+		const groupId = await createGroup('Analysts');
+		await failGroupInsert(groupId);
+
+		const failed = await post('/user-management/users', {
+			email: 'outsider@example.com',
+			name: 'Outsider',
+			groupIds: [groupId],
+		});
+
+		expect(failed.statusCode).toBe(500);
+		expect(
+			await db.select().from(s.orgMember).where(eq(s.orgMember.userId, 'user-outsider')).execute(),
+		).toHaveLength(0);
+		// Only the account this invitation created may be rolled back; an existing user stays.
+		expect(await db.select().from(s.user).where(eq(s.user.id, 'user-outsider')).execute()).toHaveLength(1);
+	});
+
 	it('changes an organization role but keeps the last admin', async () => {
 		const promoted = await patch(`/user-management/users/${MEMBER_ID}`, { role: 'admin' });
 		expect(promoted.statusCode).toBe(200);
@@ -348,6 +421,44 @@ describe('user management API', () => {
 		await reinstateMember(ACCEPTED_ID);
 		expect((await del(`/user-management/users/${ACCEPTED_ID}?purge=true`)).statusCode).toBe(204);
 		expect(await db.select().from(s.user).where(eq(s.user.id, ACCEPTED_ID)).execute()).toHaveLength(0);
+		expect(await selectOrgMember(ACCEPTED_ID)).toHaveLength(0);
+	});
+
+	it('keeps the account and the membership when another organization is added after the check', async () => {
+		// The membership lands between the route's confinement check and the delete. The delete has to
+		// notice on its own, and its refusal must take the whole removal with it.
+		await db
+			.insert(s.session)
+			.values({
+				id: 'sess-raced',
+				token: 'tok-raced',
+				userId: MEMBER_ID,
+				expiresAt: new Date(Date.now() + 86_400_000),
+			})
+			.execute();
+		hooks.afterConfinedCheck = async (userId) => {
+			await db.insert(s.orgMember).values({ orgId: OTHER_ORG_ID, userId, role: 'user' }).execute();
+		};
+
+		const refused = await del(`/user-management/users/${MEMBER_ID}?purge=true`);
+
+		expect(refused.statusCode).toBe(409);
+		expect(refused.json().error).toContain('revoke without purge');
+		expect(await db.select().from(s.user).where(eq(s.user.id, MEMBER_ID)).execute()).toHaveLength(1);
+		expect(await selectOrgMember(MEMBER_ID)).toHaveLength(1);
+		expect(
+			await db
+				.select()
+				.from(s.orgMember)
+				.where(and(eq(s.orgMember.orgId, OTHER_ORG_ID), eq(s.orgMember.userId, MEMBER_ID)))
+				.execute(),
+		).toHaveLength(1);
+		// Sessions and project roles were already deleted inside the transaction: the refusal has to
+		// put those back too, or the member is signed out and half-revoked by a failed request.
+		expect(await db.select().from(s.session).where(eq(s.session.userId, MEMBER_ID)).execute()).toHaveLength(1);
+		expect(
+			await db.select().from(s.projectMember).where(eq(s.projectMember.userId, MEMBER_ID)).execute(),
+		).toHaveLength(1);
 	});
 
 	it('refuses to purge an account that still belongs to another organization', async () => {
@@ -522,6 +633,20 @@ const selectOrgMember = (userId: string) =>
 		.from(s.orgMember)
 		.where(and(eq(s.orgMember.orgId, ORG_ID), eq(s.orgMember.userId, userId)))
 		.execute();
+
+const orgMemberCount = async () =>
+	(await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, ORG_ID)).execute()).length;
+
+/** Makes the group assignment write fail, as it does when the group is deleted between validation and insert. */
+const failGroupInsert = async (groupId: string): Promise<void> => {
+	await db.$client.exec(
+		`create trigger invite_group_insert_boom before insert on user_group_member when new.group_id = '${groupId}' begin select raise(abort, 'group is gone'); end`,
+	);
+};
+
+const allowGroupInsert = async (): Promise<void> => {
+	await db.$client.exec('drop trigger if exists invite_group_insert_boom');
+};
 
 function sharingConfig(projectSharing: 'allowed' | 'blocked') {
 	return {

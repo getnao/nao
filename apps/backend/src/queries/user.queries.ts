@@ -1,6 +1,6 @@
 import type { MemberStatus } from '@nao/shared/types';
 import crypto from 'crypto';
-import { and, count, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
 import { db, DBTransaction } from '../db/db';
@@ -72,28 +72,44 @@ export const updateUser = async (id: string, name: string): Promise<void> => {
 	await db.update(s.user).set({ name }).where(eq(s.user.id, id)).execute();
 };
 
-/** Whether every organization and project membership of the user sits inside the given organization. */
-export const isUserConfinedToOrganization = async (userId: string, orgId: string | null): Promise<boolean> => {
-	const [foreignOrgMembership] = await db
-		.select({ orgId: s.orgMember.orgId })
-		.from(s.orgMember)
-		.where(and(eq(s.orgMember.userId, userId), orgId === null ? undefined : ne(s.orgMember.orgId, orgId)))
-		.limit(1)
-		.execute();
-	if (foreignOrgMembership) {
-		return false;
-	}
+/**
+ * Every organization and project membership of the user sits inside the given organization.
+ *
+ * A condition rather than a query so a DELETE can fold the confinement decision and the delete into
+ * one statement: re-reading it outside the transaction left a window for a membership added meanwhile.
+ */
+export const confinedToOrganization = (userId: string, orgId: string | null) =>
+	and(
+		notExists(
+			db
+				.select({ orgId: s.orgMember.orgId })
+				.from(s.orgMember)
+				.where(and(eq(s.orgMember.userId, userId), orgId === null ? undefined : ne(s.orgMember.orgId, orgId))),
+		),
+		notExists(
+			db
+				.select({ projectId: s.projectMember.projectId })
+				.from(s.projectMember)
+				.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
+				.where(
+					and(
+						eq(s.projectMember.userId, userId),
+						orgId === null
+							? isNotNull(s.project.orgId)
+							: or(isNull(s.project.orgId), ne(s.project.orgId, orgId)),
+					),
+				),
+		),
+	);
 
-	const outsideOrganization =
-		orgId === null ? isNotNull(s.project.orgId) : or(isNull(s.project.orgId), ne(s.project.orgId, orgId));
-	const [foreignProjectMembership] = await db
-		.select({ projectId: s.projectMember.projectId })
-		.from(s.projectMember)
-		.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
-		.where(and(eq(s.projectMember.userId, userId), outsideOrganization))
+export const isUserConfinedToOrganization = async (userId: string, orgId: string | null): Promise<boolean> => {
+	const [foreignMembership] = await db
+		.select({ id: s.user.id })
+		.from(s.user)
+		.where(and(eq(s.user.id, userId), confinedToOrganization(userId, orgId)))
 		.limit(1)
 		.execute();
-	return !foreignProjectMembership;
+	return !!foreignMembership;
 };
 
 export const isUserDeactivated = async (userId: string): Promise<boolean> => {

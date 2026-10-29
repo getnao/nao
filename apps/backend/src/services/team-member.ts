@@ -47,8 +47,15 @@ export async function addTeamMember({
 			{ id: accountId, userId, accountId: userId, providerId: 'credential', password: hashedPassword },
 		);
 
-		await addMember(newUser.id);
-		await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
+		try {
+			await addMember(newUser.id);
+			await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
+		} catch (error) {
+			// Rolling the account back (memberships cascade with it) is what lets the invitation be
+			// retried instead of colliding with a half-created member.
+			await userQueries.deleteUser(newUser.id).catch(() => undefined);
+			throw error;
+		}
 
 		return {
 			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: env.DEFAULT_USER_ROLE },
