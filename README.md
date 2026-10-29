@@ -215,7 +215,7 @@ The core of nao is open source under Apache 2.0. The [Enterprise license](https:
 | Self-hosting on your infrastructure | ✅ | ✅ |
 | Google, GitHub and GitLab login | ✅ | ✅ |
 | User groups | Up to 3 | Unlimited |
-| Multiple projects (separate data, context and access) | | Cloud only |
+| Multiple projects (separate data, context and access) | | ✅ |
 | Microsoft Entra ID and OIDC SSO | | ✅ |
 | Row-level security | | ✅ |
 | Warehouse identity passthrough | | ✅ |
