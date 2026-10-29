@@ -31,6 +31,7 @@ import {
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { describeError, logger, serializeError } from '../utils/logger';
+import { createWarehouseLogRedactor, type WarehouseLogRedactor } from '../utils/warehouse-setup';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
@@ -42,6 +43,7 @@ import { reconcileProjectReadiness } from './project.service';
 import { createNewProject, createTempProjectDir } from './project-import.service';
 import { saveProjectWarehouseEnvVars } from './warehouse-credentials';
 
+const PREPARE_TIMEOUT_MS = 30_000;
 const INIT_TIMEOUT_MS = 15 * 60_000;
 const DEBUG_TIMEOUT_MS = 5 * 60_000;
 const SYNC_TIMEOUT_MS = 30 * 60_000;
@@ -82,6 +84,11 @@ const RECOVERABLE_STATUSES: WarehouseProvisioningStatus[] = [
 const CONNECTION_VERIFIED_STATUSES: WarehouseProvisioningStatus[] = ['syncing', 'registering', 'awaiting_context'];
 const COMMAND_STATUSES: WarehouseProvisioningStatus[] = ['initializing', 'debugging', 'syncing'];
 const COMMAND_FAILURE_PATTERN = /^nao (init|debug|sync) (failed|timed out)\b/i;
+
+interface CommandLogs {
+	redactor: WarehouseLogRedactor;
+	publish: (logs: string) => Promise<unknown>;
+}
 
 const preparedWarehouseSchema = z.object({
 	database_config: z.record(z.string(), z.unknown()),
@@ -266,6 +273,7 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 			provider,
 			credentials: normalizeWarehouseCredentials(provider, credentials),
 		}),
+		signal: AbortSignal.timeout(PREPARE_TIMEOUT_MS),
 	});
 
 	if (!response.ok) {
@@ -480,13 +488,13 @@ export async function submitWarehouseBusinessContext(
 	userId: string,
 	onboardingChatId: string,
 	finalization: WarehouseProvisioningFinalization,
-): Promise<{ jobId: string }> {
+): Promise<{ jobId: string; status: WarehouseProvisioningStatus }> {
 	const job = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId);
 	if (!job) {
 		throw new Error('No warehouse setup was started in this conversation.');
 	}
 	if (job.status === 'ready' || job.status === 'finalizing' || job.status === 'publishing') {
-		return { jobId: job.id };
+		return { jobId: job.id, status: job.status };
 	}
 
 	await updateJob(job.id, {
@@ -501,7 +509,8 @@ export async function submitWarehouseBusinessContext(
 	}
 
 	await maybeStartFinalization(job.id);
-	return { jobId: job.id };
+	const updatedJob = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(job.id);
+	return { jobId: job.id, status: updatedJob?.status ?? job.status };
 }
 
 export async function getWarehouseProvisioningJob(
@@ -692,16 +701,16 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		await updateJob(jobId, { status: 'initializing' });
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
-		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, (logs) =>
-			updateJob(jobId, { logs }),
-		);
+		const commandLogs: CommandLogs = {
+			redactor: createWarehouseLogRedactor(provisionConfig.env_vars),
+			publish: (logs) => updateJob(jobId, { logs }),
+		};
+		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, commandLogs);
 
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 
 		await updateJob(jobId, { status: 'debugging', logs: '' });
-		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, (logs) =>
-			updateJob(jobId, { logs }),
-		);
+		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, commandLogs);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
 		await runNaoCommand(
@@ -709,7 +718,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			projectDir,
 			commandEnvironment,
 			SYNC_TIMEOUT_MS,
-			(logs) => updateJob(jobId, { logs }),
+			commandLogs,
 		);
 
 		const projectId = crypto.randomUUID();
@@ -935,7 +944,7 @@ function runNaoCommand(
 	cwd: string,
 	env: NodeJS.ProcessEnv,
 	timeoutMs: number,
-	onOutput?: (output: string) => Promise<unknown>,
+	logs: CommandLogs,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = spawn('nao', args, {
@@ -947,13 +956,9 @@ function runNaoCommand(
 		let output = '';
 		let logUpdate: ReturnType<typeof setTimeout> | undefined;
 		let pendingLogUpdate = Promise.resolve<unknown>(undefined);
-		const publishOutput = () => {
-			if (!onOutput) {
-				return;
-			}
-			const visibleOutput = output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
+		const publishOutput = (visibleOutput: string) => {
 			pendingLogUpdate = pendingLogUpdate
-				.then(() => onOutput(visibleOutput))
+				.then(() => logs.publish(visibleOutput))
 				.catch((error) => {
 					if (error instanceof WarehouseSetupCancelledError) {
 						stopCommand(error);
@@ -976,15 +981,15 @@ function runNaoCommand(
 				clearTimeout(logUpdate);
 				logUpdate = undefined;
 			}
-			publishOutput();
+			publishOutput(toVisibleOutput(output));
 			await pendingLogUpdate;
 		};
 		const captureOutput = (chunk: Buffer) => {
-			output = `${output}${chunk.toString('utf8')}`.slice(-COMMAND_OUTPUT_LIMIT);
-			if (onOutput && !logUpdate) {
+			output = logs.redactor.redact(`${output}${chunk.toString('utf8')}`).slice(-COMMAND_OUTPUT_LIMIT);
+			if (!logUpdate) {
 				logUpdate = setTimeout(() => {
 					logUpdate = undefined;
-					publishOutput();
+					publishOutput(logs.redactor.withholdPartialSecret(toVisibleOutput(output)));
 				}, COMMAND_LOG_UPDATE_MS);
 			}
 		};
@@ -1023,6 +1028,10 @@ function runNaoCommand(
 			}
 		});
 	});
+}
+
+function toVisibleOutput(output: string): string {
+	return output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
 }
 
 let reconcilerStarted = false;

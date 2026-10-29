@@ -111,6 +111,7 @@ import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
+const BACKOFFICE_LOGS_PATH = '/api/backoffice/logs';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -171,7 +172,11 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
+	if (
+		request.url.includes('log.listLogs') ||
+		request.url.startsWith(BACKOFFICE_LOGS_PATH) ||
+		request.url === HEALTH_PATH
+	) {
 		done();
 		return;
 	}

@@ -18,7 +18,7 @@ export const SETUP_STATUSES = [
 
 export const OUTCOMES = ['not_started', 'running', 'connection_verified', 'ready', 'failed', 'cancelled'] as const;
 
-const SetupStatusSchema = z.enum(SETUP_STATUSES);
+export const SetupStatusSchema = z.enum(SETUP_STATUSES);
 
 export const SetupSchema = z.object({
 	provider: ProviderSchema,

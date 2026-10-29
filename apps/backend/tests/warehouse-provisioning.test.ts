@@ -636,11 +636,13 @@ describe('warehouse provisioning', () => {
 			},
 		});
 
-		await submitWarehouseBusinessContext('user-1', 'chat-1', {
-			businessContext: { additionalContext: 'A bicycle rental company.' },
-			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
-			modelProjectId: 'example-project',
-		});
+		await expect(
+			submitWarehouseBusinessContext('user-1', 'chat-1', {
+				businessContext: { additionalContext: 'A bicycle rental company.' },
+				modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
+				modelProjectId: 'example-project',
+			}),
+		).resolves.toEqual({ jobId, status: 'queued' });
 
 		expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('queued');
 		expect(generateOnboardingRules).not.toHaveBeenCalled();
@@ -1237,6 +1239,48 @@ describe('warehouse provisioning', () => {
 		expect(logger.error).not.toHaveBeenCalled();
 	});
 
+	it('masks secret credentials printed by a nao command before storing its logs', async () => {
+		mockSuccessfulProvisioning('project-redacted');
+		mockPreparedWarehousePassword('super-secret-value');
+		mockSyncOutput(['nao sync on port 5432 with super-secret-value\n']);
+
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+
+		expect(warehouseJobs.get(jobId)?.logs).toContain(
+			'nao sync on port 5432 with [REDACTED:NAO_ONBOARDING_POSTGRES_PASSWORD]',
+		);
+	});
+
+	it('masks a secret split across chunks before the logs are cut to their size limit', async () => {
+		mockSuccessfulProvisioning('project-trimmed-logs');
+		mockPreparedWarehousePassword('super-secret-value');
+		mockSyncOutput(['nao sync with super-secret-', `value${'y'.repeat(7990)}`]);
+
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+
+		const logs = warehouseJobs.get(jobId)?.logs ?? '';
+		expect(logs).toMatch(/y$/);
+		expect(logs).not.toContain('cret-value');
+	});
+
+	it('keeps secrets printed by a failed nao command out of the backend logs', async () => {
+		mockSuccessfulProvisioning('project-failed-command');
+		mockPreparedWarehousePassword('super-secret-value');
+		mockSyncOutput(['connection refused with super-secret-value\n'], 1);
+
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('failed'));
+
+		expect(logger.error).toHaveBeenCalledWith(
+			expect.stringContaining('connection refused with [REDACTED:NAO_ONBOARDING_POSTGRES_PASSWORD]'),
+			expect.anything(),
+		);
+		expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('super-secret-value');
+		expect(JSON.stringify(warehouseJobs.get(jobId))).not.toContain('super-secret-value');
+	});
+
 	it('rolls back a cancelled setup whose worker stopped before cleaning up', async () => {
 		const registeredProjectDirectory = mockSuccessfulProvisioning('project-abandoned');
 		const { jobId } = await startOnboardingSetup();
@@ -1393,4 +1437,37 @@ function mockSuccessfulProvisioning(projectId: string): string {
 		),
 	);
 	return registeredProjectDirectory;
+}
+
+function mockPreparedWarehousePassword(password: string): void {
+	vi.mocked(fetch).mockResolvedValue(
+		new Response(
+			JSON.stringify({
+				database_config: { type: 'postgres' },
+				env_vars: {
+					NAO_ONBOARDING_POSTGRES_PASSWORD: JSON.stringify(password),
+					NAO_ONBOARDING_POSTGRES_PORT: '5432',
+				},
+			}),
+			{ status: 200, headers: { 'Content-Type': 'application/json' } },
+		),
+	);
+}
+
+function mockSyncOutput(chunks: string[], exitCode = 0): void {
+	vi.mocked(spawn).mockImplementation((_command, args) => {
+		const child = Object.assign(new EventEmitter(), {
+			stdout: new EventEmitter(),
+			stderr: new EventEmitter(),
+			kill: vi.fn(),
+		});
+		const isSync = args?.[0] === 'sync';
+		queueMicrotask(() => {
+			for (const chunk of isSync ? chunks : [`Running nao ${args?.[0]}\n`]) {
+				child.stdout.emit('data', Buffer.from(chunk));
+			}
+			child.emit('close', isSync ? exitCode : 0);
+		});
+		return child as never;
+	});
 }
