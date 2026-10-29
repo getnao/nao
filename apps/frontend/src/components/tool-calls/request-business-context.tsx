@@ -57,6 +57,7 @@ export function RequestBusinessContext({ jobId }: { jobId: string }) {
 	const [files, setFiles] = useState<File[]>([]);
 	const [isUploadingFiles, setIsUploadingFiles] = useState(false);
 	const [fileUploadError, setFileUploadError] = useState<string | null>(null);
+	const [skipError, setSkipError] = useState<string | null>(null);
 	const preparedFiles = useRef<File[] | null>(null);
 	const validateNotion = useMutation(trpc.onboarding.validateNotionContext.mutationOptions());
 	const validateConfluence = useMutation(trpc.onboarding.validateConfluenceContext.mutationOptions());
@@ -101,7 +102,7 @@ export function RequestBusinessContext({ jobId }: { jobId: string }) {
 		contextSources: SelectedContextSources,
 		selectedBusinessContext: { additionalContext?: string } = businessContext,
 		filesToUpload = files,
-	) => {
+	): Promise<string | null> => {
 		submitContext.reset();
 		setFileUploadError(null);
 		setIsUploadingFiles(true);
@@ -115,15 +116,24 @@ export function RequestBusinessContext({ jobId }: { jobId: string }) {
 				preparedFiles.current = [...filesToUpload];
 			}
 		} catch (error) {
-			setFileUploadError(error instanceof Error ? error.message : 'File upload failed.');
+			const message = error instanceof Error ? error.message : 'File upload failed.';
+			setFileUploadError(message);
 			setIsUploadingFiles(false);
-			return;
+			return message;
 		}
 
-		await submitContext
-			.mutateAsync({ jobId, contextSources, businessContext: selectedBusinessContext })
-			.catch(() => undefined);
-		setIsUploadingFiles(false);
+		try {
+			await submitContext.mutateAsync({ jobId, contextSources, businessContext: selectedBusinessContext });
+			return null;
+		} catch (error) {
+			return error instanceof Error ? error.message : 'Could not submit business context.';
+		} finally {
+			setIsUploadingFiles(false);
+		}
+	};
+	const skip = async () => {
+		setSkipError(null);
+		setSkipError(await submit({}, {}, []));
 	};
 	const tabs: TabBarItem<BusinessContextTab>[] = [
 		{ id: 'about', label: 'About your business' },
@@ -132,35 +142,42 @@ export function RequestBusinessContext({ jobId }: { jobId: string }) {
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
-			<div className='animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-xl border border-violet/20 bg-background p-5 shadow-xs sm:flex-row sm:items-center'>
-				<div className='flex min-w-0 items-center gap-3'>
-					<div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-violet/20 bg-violet/10 text-primary'>
-						<BookOpenText className='size-5' />
-					</div>
-					<div className='min-w-0'>
-						<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
-							Business context
+			<div className='space-y-2'>
+				<div className='animate-fade-in-up flex flex-col items-start justify-between gap-4 rounded-xl border border-violet/20 bg-background p-5 shadow-xs sm:flex-row sm:items-center'>
+					<div className='flex min-w-0 items-center gap-3'>
+						<div className='flex size-10 shrink-0 items-center justify-center rounded-lg border border-violet/20 bg-violet/10 text-primary'>
+							<BookOpenText className='size-5' />
 						</div>
-						<p className='text-xs text-muted-foreground'>
-							Connect documentation or a repository before syncing.
-						</p>
+						<div className='min-w-0'>
+							<div className='font-borna text-lg font-medium tracking-tight text-foreground'>
+								Business context
+							</div>
+							<p className='text-xs text-muted-foreground'>
+								Connect documentation or a repository before syncing.
+							</p>
+						</div>
+					</div>
+					<div className='relative w-full shrink-0 sm:w-auto'>
+						<DialogTrigger asChild>
+							<Button className='w-full rounded-full sm:w-auto'>Add business context</Button>
+						</DialogTrigger>
+						<Button
+							type='button'
+							variant='ghost'
+							size='sm'
+							className='absolute left-1/2 top-full mt-1 h-auto -translate-x-1/2 py-0 text-xs text-muted-foreground/60 hover:bg-transparent hover:text-muted-foreground'
+							disabled={isStarting}
+							onClick={() => void skip()}
+						>
+							Skip
+						</Button>
 					</div>
 				</div>
-				<div className='relative w-full shrink-0 sm:w-auto'>
-					<DialogTrigger asChild>
-						<Button className='w-full rounded-full sm:w-auto'>Add business context</Button>
-					</DialogTrigger>
-					<Button
-						type='button'
-						variant='ghost'
-						size='sm'
-						className='absolute left-1/2 top-full mt-1 h-auto -translate-x-1/2 py-0 text-xs text-muted-foreground/60 hover:bg-transparent hover:text-muted-foreground'
-						disabled={isStarting}
-						onClick={() => void submit({}, {}, [])}
-					>
-						Skip
-					</Button>
-				</div>
+				{skipError && (
+					<p role='alert' className='text-center text-xs text-destructive'>
+						{skipError}
+					</p>
+				)}
 			</div>
 			<DialogContent
 				className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'

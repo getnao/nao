@@ -112,6 +112,12 @@ export function RequestWarehouseCredentialsToolCall({
 	}, [job.data, provider]);
 
 	useEffect(() => {
+		if (job.data?.status === 'awaiting_sources') {
+			setOpen(false);
+		}
+	}, [job.data?.status]);
+
+	useEffect(() => {
 		const status = job.data?.status;
 		if (
 			!jobId ||

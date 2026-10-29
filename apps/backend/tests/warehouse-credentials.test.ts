@@ -31,6 +31,8 @@ import {
 	saveProjectWarehouseEnvVars,
 } from '../src/services/warehouse-credentials';
 
+const DISABLED_GITHUB_REPOSITORY_URL = '"https://github.invalid/nao-access-revoked.git"';
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -88,7 +90,7 @@ describe('project warehouse credentials', () => {
 		expect(mocks.getGithubToken).toHaveBeenCalledWith('user-1');
 	});
 
-	it('omits GitHub access after the user disconnects', async () => {
+	it('disables GitHub access without invalidating the project after the user disconnects', async () => {
 		mocks.getProjectWarehouseCredentials.mockResolvedValue({
 			encryptedCredentials: JSON.stringify({
 				version: 2,
@@ -104,10 +106,11 @@ describe('project warehouse credentials', () => {
 
 		await expect(getProjectWarehouseEnvVars('project-1')).resolves.toEqual({
 			POSTGRES_PASSWORD: '"warehouse-secret"',
+			[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: DISABLED_GITHUB_REPOSITORY_URL,
 		});
 	});
 
-	it('omits GitHub access after the user leaves the project', async () => {
+	it('disables GitHub access without invalidating the project after the user leaves', async () => {
 		mocks.getProjectWarehouseCredentials.mockResolvedValue({
 			encryptedCredentials: JSON.stringify({
 				version: 2,
@@ -120,7 +123,9 @@ describe('project warehouse credentials', () => {
 		});
 		mocks.getUserRoleInProject.mockResolvedValue(null);
 
-		await expect(getProjectWarehouseEnvVars('project-1')).resolves.toEqual({});
+		await expect(getProjectWarehouseEnvVars('project-1')).resolves.toEqual({
+			[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: DISABLED_GITHUB_REPOSITORY_URL,
+		});
 		expect(mocks.getGithubToken).not.toHaveBeenCalled();
 	});
 
@@ -138,6 +143,7 @@ describe('project warehouse credentials', () => {
 
 		await expect(getProjectWarehouseEnvVars('project-1')).resolves.toEqual({
 			POSTGRES_PASSWORD: '"warehouse-secret"',
+			[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: DISABLED_GITHUB_REPOSITORY_URL,
 		});
 	});
 });

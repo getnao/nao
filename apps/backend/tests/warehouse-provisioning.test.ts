@@ -1177,6 +1177,8 @@ describe('warehouse provisioning', () => {
 			status: 'awaiting_sources',
 			temporaryDirectory: path.join(os.tmpdir(), `missing-warehouse-onboarding-${crypto.randomUUID()}`),
 		});
+		vi.mocked(warehouseProvisioningJobQueries.updateWarehouseProvisioningJob).mockClear();
+		vi.mocked(warehouseProvisioningJobQueries.releaseWarehouseProvisioningJobLock).mockClear();
 
 		await reconcileWarehouseProvisioningJobs();
 
@@ -1188,6 +1190,17 @@ describe('warehouse provisioning', () => {
 		expect(recoveredJob?.temporaryDirectory).toBeTruthy();
 		expect(fs.existsSync(recoveredJob!.temporaryDirectory!)).toBe(true);
 		expect(spawn).toHaveBeenCalledTimes(2);
+		const awaitingSourcesUpdateIndex = vi
+			.mocked(warehouseProvisioningJobQueries.updateWarehouseProvisioningJob)
+			.mock.calls.findIndex(([, changes]) => changes.status === 'awaiting_sources');
+		const awaitingSourcesUpdateOrder = vi.mocked(warehouseProvisioningJobQueries.updateWarehouseProvisioningJob)
+			.mock.invocationCallOrder[awaitingSourcesUpdateIndex];
+		const releaseOrder = vi
+			.mocked(warehouseProvisioningJobQueries.releaseWarehouseProvisioningJobLock)
+			.mock.invocationCallOrder.at(-1);
+		expect(awaitingSourcesUpdateOrder).toBeDefined();
+		expect(releaseOrder).toBeDefined();
+		expect(awaitingSourcesUpdateOrder!).toBeLessThan(releaseOrder!);
 		fs.rmSync(recoveredJob!.temporaryDirectory!, { recursive: true, force: true });
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});

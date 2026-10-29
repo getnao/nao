@@ -254,6 +254,68 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 		);
 	});
 
+	it('closes the setup dialog when the business context card becomes available', async () => {
+		mocks.jobStatus = 'initializing';
+		const toolPart = {
+			type: 'tool-request_warehouse_credentials',
+			toolCallId: 'tool-1',
+			state: 'output-available',
+			input: { provider: 'postgres' },
+			output: { provider: 'postgres', status: 'credentials-required' },
+		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
+		const view = render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+
+		fireEvent.click(await screen.findByRole('button', { name: 'View setup' }));
+		expect(screen.getByRole('dialog')).toBeTruthy();
+
+		mocks.jobStatus = 'awaiting_sources';
+		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(screen.getByRole('button', { name: 'Add business context' })).toBeTruthy();
+	});
+
+	it('shows file cleanup errors from the card Skip action', async () => {
+		mocks.jobStatus = 'awaiting_sources';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: false,
+				json: vi.fn().mockResolvedValue({ error: 'Could not clear uploaded files.' }),
+			}),
+		);
+		const toolPart = {
+			type: 'tool-request_warehouse_credentials',
+			toolCallId: 'tool-1',
+			state: 'output-available',
+			input: { provider: 'postgres' },
+			output: { provider: 'postgres', status: 'credentials-required' },
+		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
+		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+
+		expect((await screen.findByRole('alert')).textContent).toContain('Could not clear uploaded files.');
+		expect(mocks.submitContextSources).not.toHaveBeenCalled();
+	});
+
+	it('shows submission errors from the card Skip action', async () => {
+		mocks.jobStatus = 'awaiting_sources';
+		mocks.submitContextSources.mockRejectedValueOnce(new Error('Could not skip business context.'));
+		const toolPart = {
+			type: 'tool-request_warehouse_credentials',
+			toolCallId: 'tool-1',
+			state: 'output-available',
+			input: { provider: 'postgres' },
+			output: { provider: 'postgres', status: 'credentials-required' },
+		} as ToolCallComponentProps<'request_warehouse_credentials'>['toolPart'];
+		render(<RequestWarehouseCredentialsToolCall toolPart={toolPart} />);
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+
+		expect((await screen.findByRole('alert')).textContent).toContain('Could not skip business context.');
+	});
+
 	it('reuses uploaded context files when retrying a submission with a lost response', async () => {
 		mocks.jobStatus = 'awaiting_sources';
 		mocks.uploadContextFile.mockResolvedValue({

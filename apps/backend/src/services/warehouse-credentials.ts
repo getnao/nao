@@ -8,6 +8,7 @@ import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { authenticatedRepoUrl } from './github';
 
 export const ONBOARDING_GITHUB_REPOSITORY_URL_ENV = 'NAO_ONBOARDING_GITHUB_REPOSITORY_URL';
+const DISABLED_GITHUB_REPOSITORY_URL = JSON.stringify('https://github.invalid/nao-access-revoked.git');
 
 const storedWarehouseEnvSchema = z.discriminatedUnion('version', [
 	z.object({
@@ -64,18 +65,22 @@ export async function getProjectWarehouseEnvVars(projectId: string): Promise<Rec
 		throw new Error('Invalid warehouse environment');
 	}
 
+	const hadStoredGithubToken = ONBOARDING_GITHUB_REPOSITORY_URL_ENV in payload.envVars;
 	const envVars = withoutStoredGithubToken(payload.envVars);
-	if (payload.version === 1 || !payload.githubConnection) {
+	if (payload.version === 1) {
+		return hadStoredGithubToken ? withDisabledGithubRepository(envVars) : envVars;
+	}
+	if (!payload.githubConnection) {
 		return envVars;
 	}
 
 	const role = await projectQueries.getUserRoleInProject(projectId, payload.githubConnection.userId);
 	if (!role) {
-		return envVars;
+		return withDisabledGithubRepository(envVars);
 	}
 	const token = await userQueries.getGithubToken(payload.githubConnection.userId);
 	if (!token) {
-		return envVars;
+		return withDisabledGithubRepository(envVars);
 	}
 
 	return {
@@ -83,6 +88,13 @@ export async function getProjectWarehouseEnvVars(projectId: string): Promise<Rec
 		[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: JSON.stringify(
 			authenticatedRepoUrl(token, payload.githubConnection.repoFullName),
 		),
+	};
+}
+
+function withDisabledGithubRepository(envVars: Record<string, string>): Record<string, string> {
+	return {
+		...envVars,
+		[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: DISABLED_GITHUB_REPOSITORY_URL,
 	};
 }
 

@@ -1340,7 +1340,6 @@ async function recoverProvisioningJob(
 		return;
 	}
 	const resumeSync = job.status === 'syncing' || job.status === 'registering';
-	let awaitingContextSources = false;
 
 	await withJobLease(jobId, async () => {
 		try {
@@ -1377,7 +1376,7 @@ async function recoverProvisioningJob(
 				temporaryDirectory: null,
 				finishedAt: null,
 			});
-			awaitingContextSources = await provisionWarehouse(
+			const awaitingContextSources = await provisionWarehouse(
 				jobId,
 				{
 					userId: job.userId,
@@ -1389,6 +1388,9 @@ async function recoverProvisioningJob(
 				},
 				!resumeSync,
 			);
+			if (awaitingContextSources) {
+				await updateJob(jobId, { status: 'awaiting_sources', attempts: 0 });
+			}
 		} catch (error) {
 			const serializedError = serializeError(error);
 			logger.error('Warehouse provisioning recovery failed', {
@@ -1398,9 +1400,6 @@ async function recoverProvisioningJob(
 			await failJob(jobId, getPublicProvisioningError(error));
 		}
 	});
-	if (awaitingContextSources) {
-		await updateJob(jobId, { status: 'awaiting_sources', attempts: 0 });
-	}
 
 	await maybeStartFinalization(jobId);
 }
