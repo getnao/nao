@@ -51,7 +51,7 @@ export interface AgentHelpers {
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (
-		args: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents'>,
+		args: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents' | 'citations'>,
 	) => Promise<void | UIMessage>;
 	resendMessage: (args: { messageId: string }) => Promise<void | UIMessage>;
 	switchMessageVersion: (args: { messageId: string }) => Promise<void>;
@@ -495,7 +495,8 @@ export const useAgent = ({
 			text,
 			images: newImages,
 			documents: newDocuments,
-		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents'>) => {
+			citations,
+		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents' | 'citations'>) => {
 			if (isRunning || chatAllowanceExhausted) {
 				return;
 			}
@@ -515,7 +516,7 @@ export const useAgent = ({
 				return;
 			}
 
-			agentCitationStore.set(agentInstance, original.citations);
+			agentCitationStore.set(agentInstance, citations);
 			setMessages(currentMessages.slice(0, messageIndex));
 			const files = attachmentsToFileUIParts({ images, documents });
 			return handleSendMessage(

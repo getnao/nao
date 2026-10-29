@@ -27,6 +27,8 @@ import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { requestAskAboutCode, requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -71,6 +73,12 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		storyTitle: story.title,
 		latestCode: story.code,
 		isAgentRunning: isChatRunning,
+	});
+	useCodeRevealFollower(storySlug, () => editor.setViewMode('code'));
+	useCitedElementFollower(storySlug, () => {
+		if (editor.viewMode === 'code') {
+			editor.setViewMode('preview');
+		}
 	});
 	const { queryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
 		chatId,
@@ -385,6 +393,7 @@ function PreviewContent({
 	return (
 		<StoryTabbedContent
 			code={code}
+			storySlug={storySlug}
 			baselineQueryData={queryData}
 			filterApi={filterApi}
 			theme={theme}

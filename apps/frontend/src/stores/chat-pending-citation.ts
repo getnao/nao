@@ -13,7 +13,7 @@ interface ChatPendingCitations {
 	citations: PendingCitation[];
 }
 
-class ChatPendingCitationStore extends Store<ChatPendingCitations | null> {
+export class ChatPendingCitationStore extends Store<ChatPendingCitations | null> {
 	protected state: ChatPendingCitations | null = null;
 
 	add = (chatId: string, cited: CitationData) => {

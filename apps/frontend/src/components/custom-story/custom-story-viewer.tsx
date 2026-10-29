@@ -6,6 +6,7 @@ import type {
 	StoryTableFormatEditTarget,
 } from '@/components/custom-story/custom-story-block-edit';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import type { CodeSelection } from '@/stores/ask-bar';
 import {
 	CustomStoryBlockEditDialog,
 	CustomStoryTableFormatDialog,
@@ -29,9 +30,12 @@ import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
+import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { toAskCitation, toCodeAsk } from '@/stores/ask-bar';
 
 interface CustomStoryViewerProps {
 	chatId: string;
@@ -58,6 +62,8 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	});
 	const { handleEnlarge } = useStoryViewerEnlarge({ storyId });
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	useCodeRevealFollower(storySlug, () => setViewMode('files'));
+	useCitedElementFollower(storySlug, () => setViewMode('app'));
 	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 	const canAsk = !isReadonlyMode;
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
@@ -91,6 +97,13 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const handleAsk = useCallback(
 		(citation: StoryElementCitation) => {
 			chatPendingCitationStore.addStoryElement(chatId, storySlug, citation);
+		},
+		[chatId, storySlug],
+	);
+
+	const handleAskAboutCode = useCallback(
+		(filePath: string, selection: CodeSelection) => {
+			chatPendingCitationStore.add(chatId, toAskCitation(toCodeAsk(selection, { storySlug, filePath })));
 		},
 		[chatId, storySlug],
 	);
@@ -190,6 +203,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 							versionNumber={content.version.number}
 							files={content.files}
 							editable={canEditBlocks && customStoryCreationEnabled}
+							onAskAboutCode={canAsk ? handleAskAboutCode : undefined}
 						/>
 					)
 				}

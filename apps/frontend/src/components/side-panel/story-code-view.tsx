@@ -9,6 +9,7 @@ import type { MountedCodeEditor } from '@/components/code-selection-ask';
 import type { CodeSelection } from '@/stores/ask-bar';
 import { CodeSelectionAsk } from '@/components/code-selection-ask';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
+import { useRevealCitedLines } from '@/hooks/use-code-reveal';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
 
 const MONACO_OPTIONS = {
@@ -60,6 +61,7 @@ export const StoryCodeView = memo(function StoryCodeView({
 	const monacoRef = useRef<Monaco | null>(null);
 	const onSaveRef = useRef(onSave);
 	onSaveRef.current = onSave;
+	useRevealCitedLines(codeEditor);
 
 	useEffect(() => {
 		const nextErrors = readOnly ? [] : validateStoryCode(code);

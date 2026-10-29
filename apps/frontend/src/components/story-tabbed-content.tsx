@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
@@ -19,6 +19,7 @@ import {
 } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
+import { useActiveStoryTab } from '@/hooks/use-active-story-tab';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 
 export interface StoryEmbedRenderOptions {
@@ -37,6 +38,7 @@ interface StoryTabbedContentProps {
 	baselineQueryData?: QueryDataMap | null;
 	filterApi?: StoryFilterApi | null;
 	theme?: StoryTheme | null;
+	storySlug?: string;
 }
 
 export function StoryTabbedContent({
@@ -48,11 +50,11 @@ export function StoryTabbedContent({
 	baselineQueryData,
 	filterApi,
 	theme,
+	storySlug,
 }: StoryTabbedContentProps) {
 	const tabs = useMemo(() => parseStoryTabs(code), [code]);
-	const [activeIndex, setActiveIndex] = useState(0);
+	const [activeTabIndex, setActiveIndex] = useActiveStoryTab({ tabs, storySlug });
 	const isTabbed = Boolean(tabs?.length);
-	const activeTabIndex = tabs?.length ? Math.min(activeIndex, tabs.length - 1) : 0;
 	const activeCode = isTabbed && tabs ? tabs[activeTabIndex].innerCode : stripStoryTabsMarkup(code);
 	const segments = useMemo(() => splitCodeIntoSegments(activeCode), [activeCode]);
 	const storyFilters = useStoryFilters({
