@@ -192,6 +192,17 @@ vi.mock('../src/queries/warehouse-provisioning-job.queries', () => ({
 			(job) => statuses.includes(job.status) && (job.lockedAt === null || job.lockedAt < staleBefore),
 		),
 	),
+	listAbandonedCancelledWarehouseProvisioningJobs: vi.fn(async (staleBefore: Date) =>
+		[...warehouseJobs.values()].filter(
+			(job) => job.status === 'cancelled' && job.lockedAt !== null && job.lockedAt < staleBefore,
+		),
+	),
+	clearWarehouseProvisioningJobLock: vi.fn(async (jobId: string) => {
+		const job = warehouseJobs.get(jobId);
+		if (job) {
+			warehouseJobs.set(jobId, { ...job, lockedBy: null, lockedAt: null });
+		}
+	}),
 }));
 vi.mock('../src/services/project-import.service', () => ({
 	createNewProject: vi.fn(),
@@ -1109,6 +1120,31 @@ describe('warehouse provisioning', () => {
 		});
 		expect(createNewProject).not.toHaveBeenCalled();
 		expect(logger.error).not.toHaveBeenCalled();
+	});
+
+	it('rolls back a cancelled setup whose worker stopped before cleaning up', async () => {
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-abandoned');
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+		const job = warehouseJobs.get(jobId);
+		if (!job) {
+			throw new Error('Expected provisioning job');
+		}
+		warehouseJobs.set(jobId, { ...job, status: 'finalizing', lockedBy: 'dead-worker', lockedAt: new Date() });
+
+		await expect(cancelWarehouseProvisioning('user-1')).resolves.toBe(true);
+		expect(projectQueries.deleteProject).not.toHaveBeenCalled();
+
+		const cancelledJob = warehouseJobs.get(jobId);
+		if (!cancelledJob) {
+			throw new Error('Expected cancelled job');
+		}
+		warehouseJobs.set(jobId, { ...cancelledJob, lockedAt: new Date(Date.now() - 10 * 60_000) });
+		await reconcileWarehouseProvisioningJobs();
+
+		expect(projectQueries.deleteProject).toHaveBeenCalledWith('project-abandoned');
+		expect(warehouseJobs.get(jobId)).toMatchObject({ status: 'cancelled', lockedBy: null, lockedAt: null });
+		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});
 
 	it('has nothing to cancel when no setup is in progress', async () => {

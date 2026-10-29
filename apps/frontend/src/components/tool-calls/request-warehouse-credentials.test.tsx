@@ -148,6 +148,18 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 		expect(screen.getByText('Skipped')).toBeTruthy();
 	});
 
+	it('asks for the business context again when a new setup starts after a skip', () => {
+		mocks.latestJob = createJob({ id: 'job-1', status: 'awaiting_context' });
+		const view = render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+		fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
+
+		mocks.latestJob = createJob({ id: 'job-2', status: 'awaiting_context' });
+		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+
+		expect(screen.getByRole('button', { name: 'Skip for now' })).toBeTruthy();
+		expect(screen.queryByText('Skipped')).toBeNull();
+	});
+
 	it('offers to skip the business context only while it is requested', () => {
 		mocks.latestJob = createJob({ status: 'awaiting_context', businessContextProvided: true });
 		const view = render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);

@@ -88,7 +88,8 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 	const latestSetup = useLatestWarehouseSetup(onboardingChatId);
 	const job = latestSetup.data?.provider === provider ? latestSetup.data : null;
 	const [isEditing, setIsEditing] = useState(false);
-	const [isBusinessContextSkipped, setIsBusinessContextSkipped] = useState(false);
+	const [businessContextSkippedJobId, setBusinessContextSkippedJobId] = useState<string | null>(null);
+	const isBusinessContextSkipped = job !== null && businessContextSkippedJobId === job.id;
 	const [credentialValues, setCredentialValues] = useState<WarehouseCredentialsFormValues>();
 	const validateCredentials = useMutation(trpc.onboarding.validateWarehouseCredentials.mutationOptions());
 	const startSetup = useMutation(trpc.onboarding.startWarehouseProvisioning.mutationOptions());
@@ -141,7 +142,7 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 	};
 
 	const skipBusinessContext = () => {
-		setIsBusinessContextSkipped(true);
+		setBusinessContextSkippedJobId(job?.id ?? null);
 		reportToAgent(generateOnboardingRules.SKIP_MESSAGE);
 	};
 

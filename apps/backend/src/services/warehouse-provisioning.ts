@@ -414,7 +414,7 @@ export async function cancelWarehouseProvisioning(userId: string): Promise<boole
 		return false;
 	}
 	if (!hasLiveLease(cancelledJob)) {
-		await cleanUpStoppedJob(cancelledJob, activeJob.status);
+		await cleanUpCancelledJob(cancelledJob.id);
 	}
 	return true;
 }
@@ -1004,11 +1004,13 @@ export async function reconcileWarehouseProvisioningJobs(): Promise<void> {
 	await warehouseProvisioningJobQueries.clearFinishedWarehouseProvisioningCredentials(
 		new Date(Date.now() - FAILED_CREDENTIALS_RETENTION_MS),
 	);
-	const jobs = await warehouseProvisioningJobQueries.listRecoverableWarehouseProvisioningJobs(
-		RECOVERABLE_STATUSES,
-		new Date(Date.now() - JOB_LEASE_MS),
-	);
+	const staleBefore = new Date(Date.now() - JOB_LEASE_MS);
+	const [jobs, abandonedCancelledJobs] = await Promise.all([
+		warehouseProvisioningJobQueries.listRecoverableWarehouseProvisioningJobs(RECOVERABLE_STATUSES, staleBefore),
+		warehouseProvisioningJobQueries.listAbandonedCancelledWarehouseProvisioningJobs(staleBefore),
+	]);
 
+	await Promise.all(abandonedCancelledJobs.map((job) => cleanUpCancelledJob(job.id)));
 	await Promise.all(
 		jobs.map(async (job) => {
 			if (job.status !== 'awaiting_context' && job.attempts >= MAX_JOB_ATTEMPTS) {
@@ -1097,6 +1099,20 @@ async function failExhaustedJob(job: DBWarehouseProvisioningJob): Promise<void> 
 		lockedBy: null,
 		lockedAt: null,
 	});
+}
+
+/**
+ * A worker releases its lock once it has rolled back a cancelled setup, so a cancelled job still holding a lock
+ * was left by a worker that stopped before cleaning up.
+ */
+async function cleanUpCancelledJob(jobId: string): Promise<void> {
+	const job = await claimJob(jobId, ['cancelled']);
+	if (!job) {
+		return;
+	}
+
+	await cleanUpStoppedJob(job, job.failedStatus ?? job.status);
+	await warehouseProvisioningJobQueries.clearWarehouseProvisioningJobLock(jobId);
 }
 
 async function cleanUpStoppedJob(

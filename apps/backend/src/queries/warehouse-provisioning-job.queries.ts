@@ -220,6 +220,30 @@ export async function clearFinishedWarehouseProvisioningCredentials(finishedBefo
 		.execute();
 }
 
+export async function listAbandonedCancelledWarehouseProvisioningJobs(
+	staleBefore: Date,
+): Promise<DBWarehouseProvisioningJob[]> {
+	return db
+		.select()
+		.from(s.warehouseProvisioningJob)
+		.where(
+			and(
+				eq(s.warehouseProvisioningJob.status, 'cancelled'),
+				isNotNull(s.warehouseProvisioningJob.lockedAt),
+				lt(s.warehouseProvisioningJob.lockedAt, staleBefore),
+			),
+		)
+		.execute();
+}
+
+export async function clearWarehouseProvisioningJobLock(jobId: string): Promise<void> {
+	await db
+		.update(s.warehouseProvisioningJob)
+		.set({ lockedBy: null, lockedAt: null, updatedAt: new Date() })
+		.where(eq(s.warehouseProvisioningJob.id, jobId))
+		.execute();
+}
+
 export async function listRecoverableWarehouseProvisioningJobs(
 	statuses: WarehouseProvisioningStatus[],
 	staleBefore: Date,
