@@ -194,9 +194,7 @@ export async function validateWarehouseCredentials(
 	}
 }
 
-async function requestWarehouseValidation(
-	connection: ProjectWarehouseCredentials,
-): Promise<WarehouseValidationResult> {
+async function requestWarehouseValidation(connection: ProjectWarehouseCredentials): Promise<WarehouseValidationResult> {
 	let response: Response;
 	try {
 		response = await fetch(`http://localhost:${env.FASTAPI_PORT}/warehouse/validate`, {

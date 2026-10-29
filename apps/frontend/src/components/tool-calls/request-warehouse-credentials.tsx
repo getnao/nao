@@ -216,28 +216,28 @@ export function RequestWarehouseCredentialsToolCall({
 									? `${WAREHOUSE_PROVIDER_LABELS[provider]} setup needs attention`
 									: setupReady
 										? `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials verified`
-									: awaitingSources
-										? `${WAREHOUSE_PROVIDER_LABELS[provider]} database verified`
-										: tableSelectionReady
-											? `${WAREHOUSE_PROVIDER_LABELS[provider]} tables ready`
-											: credentialsAccepted
-												? `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials verified`
-												: `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials required`}
+										: awaitingSources
+											? `${WAREHOUSE_PROVIDER_LABELS[provider]} database verified`
+											: tableSelectionReady
+												? `${WAREHOUSE_PROVIDER_LABELS[provider]} tables ready`
+												: credentialsAccepted
+													? `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials verified`
+													: `${WAREHOUSE_PROVIDER_LABELS[provider]} credentials required`}
 							</div>
 							<p className='text-xs text-muted-foreground'>
 								{setupFailed
 									? 'Open the setup to review the problem and try again.'
 									: setupReady
 										? 'Your warehouse connection is ready.'
-									: awaitingSources
-										? 'Your credentials and table selection are ready.'
-										: setupInProgress
-											? 'Your connection is being set up.'
-											: tableSelectionReady
-												? 'Review which tables nao should sync.'
-												: credentialsVerified
-													? 'Ready to continue. You can still review or edit these details.'
-													: 'Credentials are submitted securely and are never shared with the agent.'}
+										: awaitingSources
+											? 'Your credentials and table selection are ready.'
+											: setupInProgress
+												? 'Your connection is being set up.'
+												: tableSelectionReady
+													? 'Review which tables nao should sync.'
+													: credentialsVerified
+														? 'Ready to continue. You can still review or edit these details.'
+														: 'Credentials are submitted securely and are never shared with the agent.'}
 							</p>
 						</div>
 					</div>
@@ -312,8 +312,8 @@ export function RequestWarehouseCredentialsToolCall({
 						/>
 					) : jobId && credentialDetailsUnavailable && isSqlProvider(provider) ? (
 						<div className='rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground'>
-							Your connection details are unavailable in this session. The credentials remain securely stored
-							for this connection.
+							Your connection details are unavailable in this session. The credentials remain securely
+							stored for this connection.
 						</div>
 					) : jobId ? (
 						<WarehouseProvisioningProgress
