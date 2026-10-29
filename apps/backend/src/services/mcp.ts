@@ -230,15 +230,19 @@ export class McpService {
 	public async getCallableTools(
 		projectId: string,
 		allowedServers: string[] | null,
+		access: McpAccess = ALL_MCP_ACCESS,
 	): Promise<{ server: string; tools: string[] }[]> {
-		const servers = (await this.getEnabledServers(projectId)).filter(
+		const servers = (await this.getEnabledServers(projectId, access)).filter(
 			(server) => !allowedServers || allowedServers.includes(server),
 		);
 		const disabled = await this._loadDisabled();
 		return Promise.all(
 			servers.map(async (server) => {
 				const summaries = await this._serverToolSummaries(server, disabled);
-				return { server, tools: summaries.filter((tool) => tool.enabled).map((tool) => tool.name) };
+				const tools = summaries
+					.filter((tool) => tool.enabled && isMcpToolGranted(access, server, tool.name))
+					.map((tool) => tool.name);
+				return { server, tools };
 			}),
 		);
 	}
@@ -433,8 +437,10 @@ export class McpService {
 		args: Record<string, unknown>;
 		allowedServers?: string[] | null;
 		access?: McpAccess;
+		/** Cancels the request on servers reached over HTTP with the user's OAuth token; others only skip a call not sent yet. */
+		signal?: AbortSignal;
 	}): Promise<unknown> {
-		const { projectId, userId, server, tool, args, allowedServers, access = ALL_MCP_ACCESS } = opts;
+		const { projectId, userId, server, tool, args, allowedServers, access = ALL_MCP_ACCESS, signal } = opts;
 		await this.initializeMcpState(projectId);
 
 		const config = this._mcpServers[server];
@@ -464,11 +470,11 @@ export class McpService {
 
 		try {
 			if (await this._ensureOAuthFlag(server, config)) {
-				return await this._callToolOAuth({ projectId, userId, server, tool, args, config });
+				return await this._callToolOAuth({ projectId, userId, server, tool, args, config, signal });
 			}
-			return await this._callToolMcporter(server, tool, args);
+			return await this._callToolMcporter(server, tool, args, signal);
 		} catch (error) {
-			if (error instanceof McpAuthRequiredError) {
+			if (error instanceof McpAuthRequiredError || signal?.aborted) {
 				throw error;
 			}
 			logger.error(`MCP tool call failed: ${server}/${tool}`, {
@@ -480,8 +486,14 @@ export class McpService {
 		}
 	}
 
-	private async _callToolMcporter(server: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
+	private async _callToolMcporter(
+		server: string,
+		tool: string,
+		args: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<unknown> {
 		const runtime = await this._ensureRegistered(server);
+		signal?.throwIfAborted();
 		return runtime.callTool(server, tool, { args });
 	}
 
@@ -492,8 +504,9 @@ export class McpService {
 		tool: string;
 		args: Record<string, unknown>;
 		config: McpServerConfig;
+		signal?: AbortSignal;
 	}): Promise<unknown> {
-		const { projectId, userId, server, tool, args, config } = opts;
+		const { projectId, userId, server, tool, args, config, signal } = opts;
 		const url = config.url!.toString();
 		const token = await getValidAccessToken({
 			userId,
@@ -508,7 +521,7 @@ export class McpService {
 
 		try {
 			return await this._withHttpClient(config, this._httpHeaders(config, token), (client) =>
-				client.callTool({ name: tool, arguments: args }),
+				client.callTool({ name: tool, arguments: args }, undefined, { signal }),
 			);
 		} catch (error) {
 			if (isUnauthorizedError(error)) {
@@ -909,17 +922,12 @@ export class McpService {
 	}
 
 	private async _serverToolSummaries(name: string, disabled: DisabledSets): Promise<McpToolSummary[]> {
-		const discovered = this._discovered[name];
-		if (discovered) {
-			return discovered.map((tool) => ({
-				name: tool.name,
-				description: tool.description,
-				enabled: !disabled.servers.has(name) && !disabled.tools.has(this._toolKey(name, tool.name)),
-			}));
-		}
-
-		const fromDisk = await this._readSpecTools(name);
-		return (fromDisk ?? []).map((tool) => ({ ...tool, enabled: true }));
+		const tools = this._discovered[name] ?? (await this._readSpecTools(name)) ?? [];
+		return tools.map((tool) => ({
+			name: tool.name,
+			description: tool.description,
+			enabled: !disabled.servers.has(name) && !disabled.tools.has(this._toolKey(name, tool.name)),
+		}));
 	}
 
 	private async _readSpecTools(name: string): Promise<{ name: string; description?: string }[] | null> {

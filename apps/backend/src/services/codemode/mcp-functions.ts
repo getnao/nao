@@ -1,6 +1,8 @@
+import type { McpAccess } from '@nao/shared';
+
 import { McpArgsValidationError, mcpService } from '../mcp';
 import { McpAuthRequiredError } from '../mcp-oauth';
-import type { CodemodeFunction } from './sandbox';
+import type { CodemodeFunction, CodemodeFunctionContext } from './sandbox';
 
 export const MCP_NAMESPACE = 'mcp';
 
@@ -9,6 +11,8 @@ export interface McpFunctionsOptions {
 	userId: string;
 	/** Servers scripts may call; null for every enabled server. */
 	allowedServers: string[] | null;
+	/** MCP servers and tools the user's groups grant. */
+	access: McpAccess;
 	/** Called when a call needs the user to connect their own account to the server first. */
 	onAuthRequired: (server: string) => void;
 }
@@ -23,11 +27,12 @@ interface McpCallToolResult {
 
 /** One `mcp.<server>.<tool>` function per tool the run may call. */
 export async function createMcpFunctions(options: McpFunctionsOptions): Promise<CodemodeFunction[]> {
-	const servers = await mcpService.getCallableTools(options.projectId, options.allowedServers);
+	const servers = await mcpService.getCallableTools(options.projectId, options.allowedServers, options.access);
 	return servers.flatMap(({ server, tools }) =>
 		tools.map((tool) => ({
 			path: [MCP_NAMESPACE, server, tool],
-			execute: (args: unknown) => callMcpTool(options, server, tool, args),
+			execute: (args: unknown, context: CodemodeFunctionContext) =>
+				callMcpTool(options, server, tool, args, context.signal),
 		})),
 	);
 }
@@ -50,7 +55,13 @@ export function toScriptValue(result: unknown): unknown {
 	return text ? parseJsonOrText(text) : result.content;
 }
 
-async function callMcpTool(options: McpFunctionsOptions, server: string, tool: string, args: unknown) {
+async function callMcpTool(
+	options: McpFunctionsOptions,
+	server: string,
+	tool: string,
+	args: unknown,
+	signal: AbortSignal,
+) {
 	try {
 		const result = await mcpService.callTool({
 			projectId: options.projectId,
@@ -59,6 +70,8 @@ async function callMcpTool(options: McpFunctionsOptions, server: string, tool: s
 			tool,
 			args: toArgumentsObject(args, server, tool),
 			allowedServers: options.allowedServers,
+			access: options.access,
+			signal,
 		});
 		return toScriptValue(result);
 	} catch (error) {

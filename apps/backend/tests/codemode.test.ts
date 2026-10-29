@@ -1,3 +1,4 @@
+import type { McpAccess } from '@nao/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -11,6 +12,8 @@ import { McpAuthRequiredError } from '../src/services/mcp-oauth';
 import type { ToolContext } from '../src/types/tools';
 
 const MEMORY_LIMIT_BYTES = 32 * 1024 * 1024;
+const MAX_LOG_CHARS = 10_000;
+const GROUP_ACCESS: McpAccess = { mode: 'restricted', grants: [{ kind: 'server', server: 'linear' }] };
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -51,6 +54,19 @@ describe('runCodemode', () => {
 		);
 
 		expect(result).toMatchObject({ ok: true, value: [['a'], ['a']] });
+	});
+
+	it('does not alias names that would share the same identifier', async () => {
+		const functions: CodemodeFunction[] = [
+			{ path: ['mcp', 'my-server', 'list'], execute: () => 'dash' },
+			{ path: ['mcp', 'my.server', 'list'], execute: () => 'dot' },
+		];
+
+		const brackets = await run('return [await mcp["my-server"].list(), await mcp["my.server"].list()]', functions);
+		const alias = await run('return await mcp.my_server.list()', functions);
+
+		expect(brackets).toMatchObject({ ok: true, value: ['dash', 'dot'] });
+		expect(errorOf(alias).message).toContain('mcp.my_server does not exist. Available: my-server, my.server');
 	});
 
 	it('lists the available members when the script uses an unknown function', async () => {
@@ -107,6 +123,36 @@ describe('runCodemode', () => {
 		expect(result).toMatchObject({ ok: true, value: ['undefined', 'undefined', 'undefined', 'undefined'] });
 	});
 
+	it('drops logs past the log limit inside the sandbox', async () => {
+		const result = await runCodemode({
+			code: 'for (let i = 0; i < 100000; i++) console.log(i % 2 ? "" : "0123456789"); return "done"',
+			functions: [],
+			timeoutMs: 5_000,
+			memoryLimitBytes: MEMORY_LIMIT_BYTES,
+			maxLogChars: 100,
+		});
+
+		expect(result).toMatchObject({ ok: true, value: 'done' });
+		expect(result.logs.length).toBeLessThan(20);
+		expect(result.logs.at(-1)).toContain('[log limit reached, later logs dropped]');
+	});
+
+	it('keeps the log limit when the script patches the built-ins the console relies on', async () => {
+		const result = await runCodemode({
+			code: `const big = "x".repeat(1000000);
+			Array.prototype.join = () => ({ length: 0, toString: () => big });
+			for (let i = 0; i < 1000; i++) console.log(i);
+			return "done"`,
+			functions: [],
+			timeoutMs: 5_000,
+			memoryLimitBytes: MEMORY_LIMIT_BYTES,
+			maxLogChars: 100,
+		});
+
+		expect(result).toMatchObject({ ok: true, value: 'done' });
+		expect(result.logs.join('').length).toBeLessThan(200);
+	});
+
 	it('fails a script that exceeds the memory limit', async () => {
 		const result = await run(
 			'const chunks = []; while (true) chunks.push("x".repeat(1024 * 1024) + chunks.length);',
@@ -132,6 +178,7 @@ describe('runCodemode', () => {
 			functions: [hanging],
 			timeoutMs: 5_000,
 			memoryLimitBytes: MEMORY_LIMIT_BYTES,
+			maxLogChars: MAX_LOG_CHARS,
 			signal: controller.signal,
 		});
 
@@ -162,8 +209,10 @@ describe('codemode MCP functions', () => {
 			content: [{ type: 'text', text: '{"id":"ENG-1"}' }],
 		});
 
+		const { signal } = new AbortController();
+
 		const [getTicket] = await createMcpFunctions(mcpOptions({ allowedServers: ['linear'] }));
-		const value = await getTicket.execute({ id: 'ENG-1' }, { signal: new AbortController().signal });
+		const value = await getTicket.execute({ id: 'ENG-1' }, { signal });
 
 		expect(value).toEqual({ id: 'ENG-1' });
 		expect(callTool).toHaveBeenCalledWith({
@@ -173,6 +222,8 @@ describe('codemode MCP functions', () => {
 			tool: 'get_ticket',
 			args: { id: 'ENG-1' },
 			allowedServers: ['linear'],
+			access: GROUP_ACCESS,
+			signal,
 		});
 	});
 
@@ -257,6 +308,18 @@ describe('codemode tool', () => {
 		expect(getCallableTools).not.toHaveBeenCalled();
 	});
 
+	it('only exposes the MCP tools the user groups grant', async () => {
+		const getCallableTools = vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([]);
+		const tool = createCodemodeTool({ mcpServers: ['linear'] });
+
+		await tool.execute!(
+			{ description: 'Noop', code: 'return 1' },
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext() },
+		);
+
+		expect(getCallableTools).toHaveBeenCalledWith('project-1', ['linear'], GROUP_ACCESS);
+	});
+
 	it('is only exposed behind the experimental setting', () => {
 		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue([]);
 
@@ -266,7 +329,13 @@ describe('codemode tool', () => {
 });
 
 function run(code: string, functions: CodemodeFunction[] = [], timeoutMs = 5_000): Promise<CodemodeResult> {
-	return runCodemode({ code, functions, timeoutMs, memoryLimitBytes: MEMORY_LIMIT_BYTES });
+	return runCodemode({
+		code,
+		functions,
+		timeoutMs,
+		memoryLimitBytes: MEMORY_LIMIT_BYTES,
+		maxLogChars: MAX_LOG_CHARS,
+	});
 }
 
 function errorOf(result: CodemodeResult) {
@@ -277,9 +346,16 @@ function errorOf(result: CodemodeResult) {
 }
 
 function mcpOptions(overrides: Partial<Parameters<typeof createMcpFunctions>[0]> = {}) {
-	return { projectId: 'project-1', userId: 'user-1', allowedServers: null, onAuthRequired: vi.fn(), ...overrides };
+	return {
+		projectId: 'project-1',
+		userId: 'user-1',
+		allowedServers: null,
+		access: GROUP_ACCESS,
+		onAuthRequired: vi.fn(),
+		...overrides,
+	};
 }
 
 function toolContext(): ToolContext {
-	return { projectId: 'project-1', userId: 'user-1' } as ToolContext;
+	return { projectId: 'project-1', userId: 'user-1', mcpAccess: GROUP_ACCESS } as ToolContext;
 }

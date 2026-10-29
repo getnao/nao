@@ -108,8 +108,8 @@ function renderDisplayChart(part: UIToolPart<'display_chart'>, options: ChatStor
 }
 
 function renderCodemode(part: UIToolPart<'codemode'>, options: ChatStoryCodeOptions): string | null {
-	const scriptFailed = part.output?.ok === false;
-	if (options.includeCode === false || shouldSkipErrored(part, options) || (scriptFailed && !options.includeErrors)) {
+	const scriptError = part.output?.ok === false ? part.output.error?.message : undefined;
+	if (options.includeCode === false || shouldSkipErrored(part, options) || (scriptError && !options.includeErrors)) {
 		return null;
 	}
 	const code = part.input?.code?.trim();
@@ -126,6 +126,10 @@ function renderCodemode(part: UIToolPart<'codemode'>, options: ChatStoryCodeOpti
 	const result = part.output?.result;
 	if (result !== undefined) {
 		blocks.push(`Output:${BLOCK_SEPARATOR}${codeBlock('json', prettifyJson(result))}`);
+	}
+	const error = part.errorText ?? scriptError;
+	if (error) {
+		blocks.push(`Error: ${error}`);
 	}
 	return blocks.join(BLOCK_SEPARATOR);
 }

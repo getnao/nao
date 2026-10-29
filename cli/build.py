@@ -625,6 +625,7 @@ def build(
     assets_dir = output_dir / "assets"
     rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
     rg_path = output_dir / rg_binary_name
+    quickjs_wasm_path = output_dir / "quickjs.wasm"
 
     # Bump version if requested
     if bump:
@@ -645,6 +646,7 @@ def build(
         or not postgres_migrations_dir.exists()
         or not fastapi_dir.exists()
         or not rg_path.exists()
+        or not quickjs_wasm_path.exists()
         or not build_info_path.exists()
     )
 

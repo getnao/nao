@@ -11,6 +11,7 @@ const TIMEOUT_MS = 120_000;
 const MEMORY_LIMIT_BYTES = 128 * 1024 * 1024;
 const MAX_RESULT_CHARS = 12_000;
 const MAX_LOGS_CHARS = 8_000;
+const MAX_COLLECTED_LOGS_CHARS = 100_000;
 
 export interface CodemodeToolOptions {
 	/** MCP servers scripts may call (null for every enabled server), or false when MCP is off for the run. */
@@ -33,6 +34,7 @@ export const createCodemodeTool = (options: CodemodeToolOptions) =>
 				functions,
 				timeoutMs: TIMEOUT_MS,
 				memoryLimitBytes: MEMORY_LIMIT_BYTES,
+				maxLogChars: MAX_COLLECTED_LOGS_CHARS,
 				signal: abortSignal,
 			});
 			return toOutput(result, performance.now() - startedAt, authRequiredServer);
@@ -86,6 +88,7 @@ async function createFunctions(
 		projectId: context.projectId,
 		userId: context.userId,
 		allowedServers: options.mcpServers,
+		access: context.mcpAccess,
 		onAuthRequired,
 	});
 }

@@ -47,6 +47,8 @@ export interface CodemodeRunOptions {
 	functions: CodemodeFunction[];
 	timeoutMs: number;
 	memoryLimitBytes: number;
+	/** Logs past this many characters are dropped before they leave the worker, so a logging loop cannot flood the host. */
+	maxLogChars: number;
 	signal?: AbortSignal;
 }
 
@@ -115,6 +117,7 @@ class CodemodeExecution {
 					functionPaths: this._options.functions.map((fn) => fn.path),
 					wasm,
 					memoryLimitBytes: this._options.memoryLimitBytes,
+					maxLogChars: this._options.maxLogChars,
 					interrupt: this._interrupt,
 				},
 			});

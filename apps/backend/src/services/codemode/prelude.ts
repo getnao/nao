@@ -80,11 +80,13 @@ export const PRELUDE_SOURCE = `(function (bridge, functionsJson) {
 
 	function freezeNamespace(node, path) {
 		const names = Object.keys(node);
-		for (const name of names) {
+		const aliases = names.map(toIdentifier);
+		names.forEach((name, index) => {
 			if (typeof node[name] !== "function") node[name] = freezeNamespace(node[name], path + "." + name);
-			const alias = toIdentifier(name);
-			if (!(alias in node)) node[alias] = node[name];
-		}
+			const alias = aliases[index];
+			const isUnambiguous = aliases.indexOf(alias) === aliases.lastIndexOf(alias);
+			if (isUnambiguous && !(alias in node)) node[alias] = node[name];
+		});
 		Object.freeze(node);
 		return new Proxy(node, {
 			get(target, key) {

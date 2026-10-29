@@ -7,6 +7,10 @@ import { parentPort, workerData } from 'node:worker_threads';
 
 import { JSException, MAX_STACK_SIZE, QuickJS } from 'quickjs-wasi';
 
+const LOG_LIMIT_NOTICE = '... [log limit reached, later logs dropped]';
+
+let remainingLogChars = workerData.maxLogChars;
+
 main(workerData).catch(reportCrash);
 
 async function main({ code, prelude, functionPaths, wasm, memoryLimitBytes, interrupt }) {
@@ -81,15 +85,34 @@ function forwardToHost(kind, first, second, third) {
 			});
 			return;
 		case 'log':
-			parentPort.postMessage({ type: 'log', text: first.toString() });
+			forwardLog(first);
 			return;
 		case 'done':
 			parentPort.postMessage({ type: 'done', ok: first.toBoolean(), payload: optionalString(second) });
 	}
 }
 
+/**
+ * The log budget lives here rather than in the VM, where the script can patch the built-ins the prelude
+ * relies on. Only string handles are read: converting anything else would run guest code.
+ */
+function forwardLog(handle) {
+	if (remainingLogChars < 0 || !handle.isString) {
+		return;
+	}
+	const text = handle.toString();
+	const cost = text.length + 1;
+	if (cost > remainingLogChars) {
+		parentPort.postMessage({ type: 'log', text: text.slice(0, remainingLogChars) + LOG_LIMIT_NOTICE });
+		remainingLogChars = -1;
+		return;
+	}
+	remainingLogChars -= cost;
+	parentPort.postMessage({ type: 'log', text });
+}
+
 function optionalString(handle) {
-	return handle === undefined || handle.isUndefined ? undefined : handle.toString();
+	return handle?.isString ? handle.toString() : undefined;
 }
 
 /** QuickJS engine diagnostics go to fd 1 and 2; they belong to nobody, so they are dropped. */
