@@ -14,6 +14,7 @@ import { checkApiKey } from '../services/api-key.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import {
 	addOrganizationMemberWithGroups,
+	deleteUserIfConfinedToOrganization,
 	FOREIGN_ORGANIZATION_PURGE_MESSAGE,
 	putOrganizationMember,
 	putProjectMember,
@@ -111,6 +112,9 @@ export const userManagementRoutes = async (app: App) => {
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(org.id, userId)),
 				addMember: async (userId) =>
 					addOrganizationMemberWithGroups({ orgId: org.id, userId, role: body.role }, groupIds),
+				discardNewUser: async (userId) => {
+					await deleteUserIfConfinedToOrganization(userId, org.id);
+				},
 				buildEmail: (user, password) => buildUserAddedEmail(user, org.name, 'organization', password),
 			});
 			// addTeamMember echoes DEFAULT_USER_ROLE; the membership above carries the requested role.

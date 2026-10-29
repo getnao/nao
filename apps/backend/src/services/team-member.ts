@@ -19,6 +19,7 @@ interface AddMemberOptions {
 	name?: string;
 	checkExisting: (userId: string) => Promise<boolean>;
 	addMember: (userId: string) => Promise<void>;
+	discardNewUser?: (userId: string) => Promise<void>;
 	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => Promise<CreatedEmail>;
 }
 
@@ -27,6 +28,7 @@ export async function addTeamMember({
 	name,
 	checkExisting,
 	addMember,
+	discardNewUser,
 	buildEmail,
 }: AddMemberOptions): Promise<AddMemberResult> {
 	const normalizedEmail = email.toLowerCase();
@@ -51,9 +53,11 @@ export async function addTeamMember({
 			await addMember(newUser.id);
 			await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
 		} catch (error) {
-			// Rolling the account back (memberships cascade with it) is what lets the invitation be
-			// retried instead of colliding with a half-created member.
-			await userQueries.deleteUser(newUser.id).catch(() => undefined);
+			// A failed invitation is retried, so the account it created must not survive; the caller that
+			// can tell a foreign membership apart supplies that rollback.
+			if (discardNewUser) {
+				await discardNewUser(newUser.id).catch(() => undefined);
+			}
 			throw error;
 		}
 
