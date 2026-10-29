@@ -54,7 +54,10 @@ export function requestAskAboutCode(selection: CodeSelection, source: CodeSource
 	requestAsk({ chatId: null, selection: toCodeAsk(selection, source) });
 }
 
-export function toCodeAsk({ text, lines }: CodeSelection, { storySlug, storyChatId, filePath }: CodeSource): AskSelection {
+export function toCodeAsk(
+	{ text, lines }: CodeSelection,
+	{ storySlug, storyChatId, filePath }: CodeSource,
+): AskSelection {
 	return { text, block: { kind: CODE_CITATION_KIND, title: filePath, lines }, intent: 'ask', storySlug, storyChatId };
 }
 

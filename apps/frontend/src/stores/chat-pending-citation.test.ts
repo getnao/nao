@@ -23,7 +23,15 @@ describe('chat pending citations', () => {
 		const message = toMessageCitations(citations(), `why ❝[${cited.id}]?`);
 
 		expect(message.citations).toEqual([
-			{ start: 0, end: 0, text: 'Revenue', storySlug: 'story', storyChatId: 'story-chat', block: CHART, intent: 'ask' },
+			{
+				start: 0,
+				end: 0,
+				text: 'Revenue',
+				storySlug: 'story',
+				storyChatId: 'story-chat',
+				block: CHART,
+				intent: 'ask',
+			},
 		]);
 	});
 
