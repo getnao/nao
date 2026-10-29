@@ -1,7 +1,7 @@
 import { resolveDataKey } from '@nao/shared';
 import { ChartNoAxesColumn, Rows2, TableIcon, TriangleAlert } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { ChartType } from '@nao/shared/chart-types';
 import type { displayChart } from '@nao/shared/tools';
 import type { IconSegmentedToggleOption } from '@/components/ui/icon-segmented-toggle';
@@ -33,17 +33,18 @@ interface ChartEditorPreviewProps {
 	data: Record<string, unknown>[];
 	columns: string[];
 	summary: ChartSelectionSummary;
+	palette?: string[];
 	className?: string;
 }
 
-/** Chart space of the chart editor: the live chart, the source table, or both stacked. */
-export function ChartEditorPreview({ draft, data, columns, summary, className }: ChartEditorPreviewProps) {
+export function ChartEditorPreview({ draft, data, columns, summary, palette, className }: ChartEditorPreviewProps) {
 	const [mode, setMode] = useState<PreviewMode>('chart');
+	const paletteStyle = useMemo(() => toChartPaletteStyle(palette), [palette]);
 	const chart = <LiveChart draft={draft} data={data} hasSeries={summary.series.length > 0} />;
 	const table = <SourceTable data={data} columns={columns} summary={summary} />;
 
 	return (
-		<div className={cn('flex min-h-0 flex-1 flex-col', className)}>
+		<div className={cn('flex min-h-0 flex-1 flex-col', className)} style={paletteStyle}>
 			<div className='flex min-h-12 shrink-0 items-center justify-between gap-3 px-4 py-2 select-none'>
 				<ChartSelectionIssues issues={summary.issues} />
 				<IconSegmentedToggle
@@ -73,6 +74,13 @@ export function ChartEditorPreview({ draft, data, columns, summary, className }:
 			)}
 		</div>
 	);
+}
+
+function toChartPaletteStyle(palette: string[] | undefined): CSSProperties | undefined {
+	if (!palette) {
+		return undefined;
+	}
+	return Object.fromEntries(palette.map((color, index) => [`--chart-${index + 1}`, color])) as CSSProperties;
 }
 
 function ChartSelectionIssues({ issues }: { issues: string[] }) {

@@ -1,7 +1,9 @@
+import { ChartStyleContext } from '@nao/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { StoryBlockChartConfig } from '@nao/shared/story-app';
+import type { StoryTheme } from '@nao/shared/story-theme';
 import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/story-block-edit';
 
 import { ChartConfigEditDialog, ChartConfigEditForm } from '@/components/tool-calls/display-chart-edit-dialog';
@@ -34,21 +36,25 @@ export function CustomStoryBlockEditForm({ target, onCancel, onSaved }: CustomSt
 
 interface CustomStoryBlockEditDialogProps {
 	target: StoryBlockEditTarget | null;
+	theme: StoryTheme;
 	onClose: () => void;
 }
 
-export function CustomStoryBlockEditDialog({ target, onClose }: CustomStoryBlockEditDialogProps) {
+export function CustomStoryBlockEditDialog({ target, theme, onClose }: CustomStoryBlockEditDialogProps) {
 	const edit = useChartConfigEdit(target);
+	const chartStyle = useMemo(() => ({ barRadius: theme.charts.barRadius }), [theme]);
 	if (!edit) {
 		return null;
 	}
 	return (
-		<ChartConfigEditDialog
-			{...edit}
-			open
-			onOpenChange={closeOnDismiss(onClose)}
-			description={BLOCK_EDIT_DESCRIPTION}
-		/>
+		<ChartStyleContext.Provider value={chartStyle}>
+			<ChartConfigEditDialog
+				{...edit}
+				open
+				onOpenChange={closeOnDismiss(onClose)}
+				description={BLOCK_EDIT_DESCRIPTION}
+			/>
+		</ChartStyleContext.Provider>
 	);
 }
 

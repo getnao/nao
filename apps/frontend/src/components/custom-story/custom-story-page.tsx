@@ -12,7 +12,7 @@ import {
 	CustomStoryBlockEditDialog,
 	CustomStoryTableFormatDialog,
 } from '@/components/custom-story/custom-story-block-edit';
-import { ActionErrorBanner, CustomStoryBody } from '@/components/custom-story/custom-story-body';
+import { ActionErrorBanner, CustomStoryBody, useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
 import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
 import { useCustomStory } from '@/components/custom-story/use-custom-story';
@@ -42,6 +42,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	const story = useCustomStory(chatId, storySlug);
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
+	const theme = useActiveStoryTheme(content?.theme);
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
 	const sharing = useStoryViewerSharing({ chatId, storySlug });
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
@@ -152,6 +153,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 
 			<CustomStoryBlockEditDialog
 				target={canEditBlocks ? editTarget : null}
+				theme={theme}
 				onClose={() => setEditTarget(null)}
 			/>
 			<CustomStoryTableFormatDialog

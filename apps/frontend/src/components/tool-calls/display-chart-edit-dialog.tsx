@@ -264,7 +264,13 @@ export function ChartConfigEditDialog({
 									className='flex flex-col'
 									style={PANEL_OVERFLOW_HIDDEN}
 								>
-									<ChartEditorPreview draft={draft} data={data} columns={columns} summary={summary} />
+									<ChartEditorPreview
+										draft={draft}
+										data={data}
+										columns={columns}
+										summary={summary}
+										palette={form.palette}
+									/>
 								</ResizablePanel>
 							</ResizablePanelGroup>
 						</div>
