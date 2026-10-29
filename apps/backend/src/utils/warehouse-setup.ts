@@ -38,12 +38,35 @@ export function formatWarehouseSetupForAgent(setup: WarehouseSetup): string {
 	return lines.join('\n');
 }
 
+export interface WarehouseLogRedactor {
+	redact: (logs: string) => string;
+	withholdPartialSecret: (logs: string) => string;
+}
+
 /** Masks the secret warehouse credentials a nao command could print, since its logs reach the agent and the UI. */
-export function createWarehouseLogRedactor(warehouseEnvVars: Record<string, string>): (logs: string) => string {
+export function createWarehouseLogRedactor(warehouseEnvVars: Record<string, string>): WarehouseLogRedactor {
 	const secrets = Object.entries(warehouseEnvVars)
 		.filter(([name]) => SECRET_ENV_VAR_PATTERN.test(name))
 		.flatMap(([name, encodedValue]) => toSecretValues(encodedValue).map((value) => ({ name, value })));
-	return (logs) => redactSecretValues(logs, secrets);
+	const secretValues = secrets.map(({ value }) => value);
+	return {
+		redact: (logs) => redactSecretValues(logs, secrets),
+		withholdPartialSecret: (logs) => logs.slice(0, findPartialSecretStart(logs, secretValues)),
+	};
+}
+
+/** Streamed output can end halfway through a secret, which the next chunk completes. */
+function findPartialSecretStart(logs: string, secretValues: string[]): number {
+	return Math.min(logs.length, ...secretValues.map((secretValue) => findSecretPrefixStart(logs, secretValue)));
+}
+
+function findSecretPrefixStart(logs: string, secretValue: string): number {
+	for (let index = Math.max(0, logs.length - secretValue.length + 1); index < logs.length; index++) {
+		if (secretValue.startsWith(logs.slice(index))) {
+			return index;
+		}
+	}
+	return logs.length;
 }
 
 function toSecretValues(encodedValue: string): string[] {

@@ -31,7 +31,7 @@ import {
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger, serializeError } from '../utils/logger';
-import { createWarehouseLogRedactor } from '../utils/warehouse-setup';
+import { createWarehouseLogRedactor, type WarehouseLogRedactor } from '../utils/warehouse-setup';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
@@ -74,6 +74,11 @@ const RECOVERABLE_STATUSES: WarehouseProvisioningStatus[] = [
 	...FINALIZATION_STATUSES,
 ];
 const CONNECTION_VERIFIED_STATUSES: WarehouseProvisioningStatus[] = ['syncing', 'registering', 'awaiting_context'];
+
+interface CommandLogs {
+	redactor: WarehouseLogRedactor;
+	publish: (logs: string) => Promise<unknown>;
+}
 
 const preparedWarehouseSchema = z.object({
 	database_config: z.record(z.string(), z.unknown()),
@@ -662,14 +667,16 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		await updateJob(jobId, { status: 'initializing' });
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
-		const redactLogs = createWarehouseLogRedactor(provisionConfig.env_vars);
-		const publishLogs = (logs: string) => updateJob(jobId, { logs: redactLogs(logs) });
-		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, publishLogs);
+		const commandLogs: CommandLogs = {
+			redactor: createWarehouseLogRedactor(provisionConfig.env_vars),
+			publish: (logs) => updateJob(jobId, { logs }),
+		};
+		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, commandLogs);
 
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 
 		await updateJob(jobId, { status: 'debugging', logs: '' });
-		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, publishLogs);
+		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, commandLogs);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
 		await runNaoCommand(
@@ -677,7 +684,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			projectDir,
 			commandEnvironment,
 			SYNC_TIMEOUT_MS,
-			publishLogs,
+			commandLogs,
 		);
 
 		const projectId = crypto.randomUUID();
@@ -897,7 +904,7 @@ function runNaoCommand(
 	cwd: string,
 	env: NodeJS.ProcessEnv,
 	timeoutMs: number,
-	onOutput?: (output: string) => Promise<unknown>,
+	logs: CommandLogs,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = spawn('nao', args, {
@@ -909,13 +916,9 @@ function runNaoCommand(
 		let output = '';
 		let logUpdate: ReturnType<typeof setTimeout> | undefined;
 		let pendingLogUpdate = Promise.resolve<unknown>(undefined);
-		const publishOutput = () => {
-			if (!onOutput) {
-				return;
-			}
-			const visibleOutput = output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
+		const publishOutput = (visibleOutput: string) => {
 			pendingLogUpdate = pendingLogUpdate
-				.then(() => onOutput(visibleOutput))
+				.then(() => logs.publish(visibleOutput))
 				.catch((error) => {
 					if (error instanceof WarehouseSetupCancelledError) {
 						stopCommand(error);
@@ -938,15 +941,15 @@ function runNaoCommand(
 				clearTimeout(logUpdate);
 				logUpdate = undefined;
 			}
-			publishOutput();
+			publishOutput(toVisibleOutput(output));
 			await pendingLogUpdate;
 		};
 		const captureOutput = (chunk: Buffer) => {
-			output = `${output}${chunk.toString('utf8')}`.slice(-COMMAND_OUTPUT_LIMIT);
-			if (onOutput && !logUpdate) {
+			output = logs.redactor.redact(`${output}${chunk.toString('utf8')}`).slice(-COMMAND_OUTPUT_LIMIT);
+			if (!logUpdate) {
 				logUpdate = setTimeout(() => {
 					logUpdate = undefined;
-					publishOutput();
+					publishOutput(logs.redactor.withholdPartialSecret(toVisibleOutput(output)));
 				}, COMMAND_LOG_UPDATE_MS);
 			}
 		};
@@ -985,6 +988,10 @@ function runNaoCommand(
 			}
 		});
 	});
+}
+
+function toVisibleOutput(output: string): string {
+	return output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
 }
 
 let reconcilerStarted = false;
