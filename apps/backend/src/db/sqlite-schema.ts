@@ -1865,6 +1865,7 @@ export const log = sqliteTable(
 		context: text('context', { mode: 'json' }).$type<Record<string, unknown>>(),
 		source: text('source', { enum: LOG_SOURCES }).notNull(),
 		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

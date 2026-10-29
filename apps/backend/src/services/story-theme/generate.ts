@@ -25,6 +25,7 @@ import * as llmConfigQueries from '../../queries/project-llm-config.queries';
 import { convertToTokenUsage } from '../../utils/ai';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../../utils/schedule-task';
+import { documentColors, fitDocumentsToPrompt, renderDocuments, type SourceDocument } from './document';
 import { applyGuards, type GenerateResult, type GuardContext } from './guard';
 import { detectGround, type ImageSample, sampleImage, snapToImageColors } from './pixels';
 import { fallbackProposal, modelProposalSchema, renderSignals, type ThemeProposal, toThemeProposal } from './proposal';
@@ -70,6 +71,7 @@ export interface GenerationScope {
 
 const FEW_COLORS = 4;
 const SERIES_MIN_CHROMA = 0.1;
+const DOCUMENT_CANDIDATE_MIN_CHROMA = 0.06;
 const IMAGE_APPROXIMATION_WARNING =
 	'Read from an image: colours and shapes are sampled from pixels, so radii, font names and anything not visible are approximations.';
 const SHELL_WARNING =
@@ -89,6 +91,7 @@ export interface StoryThemeSourceInput {
 	logo?: SourceImage & { fileName: string };
 	zip?: { data: Uint8Array; fileName: string };
 	pdfs?: SourcePdf[];
+	document?: SourceDocument;
 	instructions?: string;
 	useWhiteLabel?: boolean;
 }
@@ -104,6 +107,7 @@ interface Brief {
 	instructions?: string;
 	whiteLabel: WhiteLabelBrand | null;
 	uploadedLogo?: boolean;
+	documents?: SourceDocument[];
 	/** A site nao could not see properly (blocked, or read as bare stylesheets): the model recalls its brand. */
 	recall?: { site: string; reason: string };
 }
@@ -224,6 +228,13 @@ function describeSources(input: StoryThemeSourceInput, whiteLabel: WhiteLabelBra
 			detail: `${pdf.pages.length} of ${pdf.pageCount} pages read${pdf.fromZip ? ', from the ZIP' : ''}`,
 		});
 	}
+	if (input.document) {
+		sources.push({
+			kind: 'document',
+			name: input.document.fileName,
+			detail: describeBytes(Buffer.byteLength(input.document.text)),
+		});
+	}
 	if (input.zip) {
 		sources.push({ kind: 'zip', name: input.zip.fileName, detail: describeBytes(input.zip.data.byteLength) });
 	}
@@ -263,6 +274,7 @@ async function generateStoryThemeFromSources(
 	const visualImages = [...(input.image ? [input.image] : []), ...pdfs.flatMap((pdf) => pdf.pages)];
 	const hasVisualSource = visualImages.length > 0;
 	const zipWasOnlyPdfs = pdfs.some((pdf) => pdf.fromZip);
+	const hasDocument = Boolean(input.document);
 	const url = input.url;
 	const zip = input.zip;
 	const [urlOutcome, zipOutcome] = await Promise.allSettled([
@@ -274,6 +286,13 @@ async function generateStoryThemeFromSources(
 	const zipExtracted = zipOutcome.status === 'fulfilled' ? zipOutcome.value : null;
 	const urlError = urlOutcome.status === 'rejected' ? urlOutcome.reason : null;
 	const zipError = zipOutcome.status === 'rejected' ? zipOutcome.reason : null;
+
+	const documents = fitDocumentsToPrompt([
+		...(input.document ? [input.document] : []),
+		...(zipExtracted?.documents ?? []),
+	]);
+	brief.documents = documents.documents;
+	extraWarnings.push(...documents.warnings);
 
 	const blockedSite = urlError instanceof SourceRefusedError && url ? siteName(url) : undefined;
 	if (blockedSite) {
@@ -291,10 +310,10 @@ async function generateStoryThemeFromSources(
 	if (alert) {
 		extraWarnings.push(alert);
 	}
-	if (urlError && !blockedSite && !zipExtracted && !hasVisualSource) {
+	if (urlError && !blockedSite && !zipExtracted && !hasVisualSource && !hasDocument) {
 		throw urlError;
 	}
-	if (zipError && !urlExtracted && !hasVisualSource) {
+	if (zipError && !urlExtracted && !hasVisualSource && !hasDocument) {
 		throw zipError;
 	}
 	if (blockedSite) {
@@ -336,8 +355,15 @@ async function generateStoryThemeFromSources(
 		);
 	}
 	if (parts.length === 0) {
-		if (!hasVisualSource && !instructions && !whiteLabel && !brief.recall && !uploadedLogo) {
-			throw new DesignSourceError('Add a website, an image, a PDF, a ZIP or instructions.');
+		if (
+			!hasVisualSource &&
+			!instructions &&
+			!whiteLabel &&
+			!brief.recall &&
+			!uploadedLogo &&
+			documents.documents.length === 0
+		) {
+			throw new DesignSourceError('Add a website, an image, a PDF, a ZIP, a document or instructions.');
 		}
 		if (!hasVisualSource) {
 			const result = await generateStoryThemeFromBrief(scope, brief, logoImage ? [logoImage] : []);
@@ -561,30 +587,41 @@ function describePdfCoverage(pdf: SourcePdf): string[] {
 /**
  * Pixels sampled from an image include photographs (a gold bottle, a brown
  * bag), so they never override the accent the model read from the chrome;
- * only the primary the admin declared in white-label does.
+ * only a colour a brand document prints, or the primary the admin declared
+ * in white-label, does; documents come first since they were uploaded for this theme.
  */
 function declaredCandidates(brief?: Brief): BrandCandidate[] {
 	const declaredPrimary = brief?.whiteLabel?.brandColor;
-	return declaredPrimary
+	const whiteLabel = declaredPrimary
 		? [{ color: declaredPrimary, chroma: chromaOf(declaredPrimary), sources: ['white-label'] }]
 		: [];
+	const documented = documentColors(brief?.documents ?? [])
+		.map((color) => ({ color, chroma: chromaOf(color), sources: ['brand-document'] }))
+		.filter((candidate) => candidate.chroma >= DOCUMENT_CANDIDATE_MIN_CHROMA);
+	return [...documented, ...whiteLabel];
 }
 
 function declaredColors(brief: Brief): Set<string> {
 	const written = brief.instructions?.match(/#(?:[0-9a-f]{6}|[0-9a-f]{3})\b/gi) ?? [];
 	const declared = [...written, brief.whiteLabel?.brandColor ?? ''].map(normalizeColor);
-	return new Set(declared.filter((hex): hex is string => hex !== null));
+	const documented = documentColors(brief.documents ?? []);
+	return new Set([...declared.filter((hex): hex is string => hex !== null), ...documented]);
 }
 
 function describeUnappliedGuidance(brief: Brief): string[] {
-	return brief.instructions
-		? [
-				'The admin guidance needs the model to be read, so this theme does not follow it. Generate again once the model is available.',
-			]
-		: [];
+	const unapplied = [
+		brief.instructions ? 'The admin guidance needs the model to be read, so this theme does not follow it.' : null,
+		brief.documents?.length
+			? 'The brand documents need the model to be read, so this theme does not follow them.'
+			: null,
+	].filter((note): note is string => note !== null);
+	return unapplied.length > 0 ? [...unapplied, 'Generate again once the model is available.'] : [];
 }
 
 function describeBriefOnly(brief: Brief): string {
+	if (brief.documents?.length) {
+		return 'Generated from written guidelines only; no visual brand asset was read, so shapes and type voice follow what the text states.';
+	}
 	return brief.instructions
 		? 'Generated from admin instructions only; no brand asset was read.'
 		: 'Generated from the white-label settings only; no brand asset was read.';
@@ -640,7 +677,10 @@ const SYSTEM_PROMPT = [
 	'0. ADMIN GUIDANCE, when present — the admin states preferences (accent, light or dark ground, shapes,',
 	'   typefaces, colours to avoid). They win over every source below. The sources still decide whatever the',
 	'   guidance leaves open.',
-	'0b. WHITE-LABEL BRANDING, when present — the name, primary colour and logo the admin already set for nao.',
+	'0b. BRAND DOCUMENTS, when present — guidelines written as text and uploaded for this theme. The name, hex',
+	'   codes, typefaces and radii they state are the brand declaring its system; measured evidence below still',
+	'   decides whatever they leave open.',
+	'0c. WHITE-LABEL BRANDING, when present — the name, primary colour and logo the admin already set for nao.',
 	'1. ROLE EVIDENCE — measured from rendered elements. The primary button is the accent. The card is the',
 	'   block background, its radius is the shape language, and whether it carries a border is the block border.',
 	'2. An attached screenshot — what a person sees. Use it over colour frequency, and to confirm roles.',
@@ -726,7 +766,8 @@ const SYSTEM_PROMPT = [
 	'  not show; with fewer than three brand colours, add neutrals stepped in lightness instead of new hues.',
 	'  With admin guidance, give exactly six colours that follow it.',
 	'- brandName: the brand name as its wordmark spells it, letter case included: a wordmark set in capitals is',
-	'  written in capitals (HEX, CHANEL), a lowercase one in lowercase (perk). Empty when you cannot tell.',
+	'  written in capitals (HEX, CHANEL), a lowercase one in lowercase (perk). With no wordmark to read, the name',
+	'  a brand document states. Empty when you cannot tell.',
 	'- header: how the brand identity sits at the top of a story, apart from its title. "band" when the brand sets',
 	'  its logo on a coloured bar (headerBackground is that colour), "logo" for a logo on the page above a rule,',
 	'  "name" for the brand name on the page above a rule when there is no logo, "none" when there is no identity',
@@ -777,14 +818,17 @@ const IMAGE_PROMPT = [
 ].join('\n');
 
 const TEXT_PROMPT = [
-	'Generate a story theme from the admin guidance and white-label branding below. There is no visual source',
-	'beyond the logo, when one is attached.',
-	'Only choose colours, fonts and shapes the admin explicitly asks for or that are directly implied by the guidance.',
+	'Generate a story theme from the admin guidance, brand documents and white-label branding below. There is no',
+	'visual source beyond the logo, when one is attached.',
+	'Only choose colours, fonts and shapes the admin or the documents explicitly state or that are directly implied.',
 	'Use near-neutral defaults for unspecified surfaces, text, borders and grid lines.',
 ].join('\n');
 
-function withBrief(prompt: string, { instructions, whiteLabel, recall, uploadedLogo }: Brief): string {
+function withBrief(prompt: string, { instructions, whiteLabel, recall, uploadedLogo, documents }: Brief): string {
 	const sections = [prompt];
+	if (documents?.length) {
+		sections.push('', renderDocuments(documents));
+	}
 	if (uploadedLogo) {
 		sections.push(
 			'',

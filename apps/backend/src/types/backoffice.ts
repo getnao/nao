@@ -6,7 +6,8 @@ import { z } from 'zod/v4';
 import { LOG_LEVELS, LOG_SOURCES } from './log';
 import type { OrgRole } from './organization';
 
-export const INSTANCE_LOG_TEXT_COLUMNS = ['message', 'context', 'project', 'organization'] as const;
+/** `user` is the email of the user who made the request; for an API-key request, of the user who created the key. */
+export const INSTANCE_LOG_TEXT_COLUMNS = ['message', 'context', 'project', 'organization', 'user'] as const;
 export type InstanceLogTextColumn = (typeof INSTANCE_LOG_TEXT_COLUMNS)[number];
 
 export const INSTANCE_LOG_TEXT_OPERATORS = [
@@ -20,7 +21,15 @@ export const INSTANCE_LOG_TEXT_OPERATORS = [
 ] as const;
 export type InstanceLogTextOperator = (typeof INSTANCE_LOG_TEXT_OPERATORS)[number];
 
-export const INSTANCE_LOG_SORT_KEYS = ['createdAt', 'level', 'source', 'message', 'project', 'organization'] as const;
+export const INSTANCE_LOG_SORT_KEYS = [
+	'createdAt',
+	'level',
+	'source',
+	'message',
+	'project',
+	'organization',
+	'user',
+] as const;
 export type InstanceLogSortKey = (typeof INSTANCE_LOG_SORT_KEYS)[number];
 
 const VALUELESS_TEXT_OPERATORS: ReadonlySet<InstanceLogTextOperator> = new Set(['isEmpty', 'isNotEmpty']);

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6d00115b-8eab-4cb0-81a3-f04964ffb1a9",
+  "id": "a0afc439-ee40-4e24-9a6a-c39a0dee3371",
   "prevId": "08ef5e41-32a7-44bd-88b9-30c1a60dba7b",
   "tables": {
     "account": {
@@ -3338,6 +3338,13 @@
         },
         "project_id": {
           "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -10010,13 +10017,6 @@
         },
         "model_selection": {
           "name": "model_selection",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "warnings": {
-          "name": "warnings",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

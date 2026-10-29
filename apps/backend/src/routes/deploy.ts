@@ -19,10 +19,12 @@ export const deployRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Missing or invalid Authorization header' });
 		}
 
-		const org = await validateApiKey(authHeader.slice(7));
-		if (!org) {
+		const apiKey = await validateApiKey(authHeader.slice(7));
+		if (!apiKey) {
 			return reply.status(401).send({ error: 'Invalid API key' });
 		}
+		request.actorUserId = apiKey.createdBy;
+		const org = apiKey.organization;
 
 		const file = await request.file();
 		if (!file) {

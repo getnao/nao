@@ -1,8 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { describeError, serializeError } from '../src/utils/logger';
+import { insertLog } from '../src/queries/log.queries';
+import { describeError, logger, serializeError } from '../src/utils/logger';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/queries/log.queries', () => ({ insertLog: vi.fn() }));
+
+describe('logger', () => {
+	it('records who made the request next to the redacted context', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {});
+
+		logger.info('POST /api/deploy 202', { source: 'http', userId: 'user-1', context: { token: 'nao_secret' } });
+
+		await vi.waitFor(() => expect(insertLog).toHaveBeenCalledOnce());
+		expect(insertLog).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'user-1', context: { token: '[REDACTED]' } }),
+		);
+	});
+});
 
 describe('serializeError', () => {
 	it('redacts credentials embedded in a URL within the error message', () => {

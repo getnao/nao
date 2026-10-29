@@ -1,5 +1,5 @@
 {
-  "id": "914de573-edf1-4b71-819b-a9ea4bec18d1",
+  "id": "c1bff71f-5a41-4dc9-b6c5-a60d5b36868b",
   "prevId": "7c39c537-e8ac-44bc-aa42-cd25855271ca",
   "version": "7",
   "dialect": "postgresql",
@@ -3694,6 +3694,12 @@
         },
         "project_id": {
           "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -10786,12 +10792,6 @@
         },
         "model_selection": {
           "name": "model_selection",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "warnings": {
-          "name": "warnings",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
