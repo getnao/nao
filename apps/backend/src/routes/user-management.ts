@@ -144,10 +144,8 @@ export const userManagementRoutes = async (app: App) => {
 		const removed = await run(reply, async () => {
 			const org = requireOrg(request);
 			await requireOrgMember(org.id, params.userId);
-			// An invitation nobody accepted is not an account at all — it IS the invitation, so the row
-			// goes with it (that is what cancels the temporary password already sitting in their inbox).
-			// The account is global, so it is only deleted while confined to this organization: a user
-			// who also belongs elsewhere keeps the account and loses only this membership.
+			// An unaccepted invitation is not an account — deleting the row is what cancels the
+			// temporary password already sitting in their inbox.
 			const confined = await userQueries.isUserConfinedToOrganization(params.userId, org.id);
 			if (query.purge && !confined) {
 				throw new HandlerError(
@@ -357,8 +355,8 @@ async function requireGroupIdsInOrg(orgId: string, groupIds: string[]): Promise<
 	if (groups.length !== uniqueGroupIds.length) {
 		throw new HandlerError('BAD_REQUEST', 'One or more group ids do not belong to this organization.');
 	}
-	// Belonging to the organization is not the same as being assignable: the default "All Users" group
-	// and license-locked groups have to be rejected here exactly as the normal assignment path rejects them.
+	// Org membership is not assignability: the default "All Users" and license-locked groups are
+	// rejected here exactly as the assignment path rejects them.
 	const idsByProject = new Map<string, string[]>();
 	for (const group of groups) {
 		idsByProject.set(group.projectId, [...(idsByProject.get(group.projectId) ?? []), group.id]);

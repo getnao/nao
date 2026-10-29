@@ -115,7 +115,6 @@ describe('user management API', () => {
 	it("does not mutate another organization's members through this key", async () => {
 		expect((await patch(`/user-management/users/${OTHER_MEMBER_ID}`, { role: 'admin' })).statusCode).toBe(404);
 		expect((await del(`/user-management/users/${OTHER_MEMBER_ID}`)).statusCode).toBe(404);
-		// ...and the other organization's key cannot reach this one either.
 		expect(
 			(await patch(`/user-management/users/${MEMBER_ID}`, { role: 'admin' }, OTHER_ORG_USER_MANAGEMENT_KEY))
 				.statusCode,
