@@ -5,12 +5,10 @@ import { TRPCError } from '@trpc/server';
 
 import type { DBProject } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
-import * as warehouseCredentialQueries from '../queries/project-warehouse-credentials.queries';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { redactSecretValues } from '../utils/sandbox-secrets';
-import { publishManagedGithubRepositoryUpdate } from './managed-github-repository';
-import { createNaoCommandEnvironment, runNaoCommand } from './nao-command.service';
+import { createNaoCommandEnvironment, NaoCommandExitError, runNaoCommand } from './nao-command.service';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 
 const SYNC_TIMEOUT_MS = 30 * 60_000;
@@ -88,9 +86,14 @@ async function getUnavailableReason(project: DBProject): Promise<string | null> 
 	if (!project.path || !fs.existsSync(project.path)) {
 		return 'Project files are unavailable.';
 	}
-	if (!(await warehouseCredentialQueries.getProjectWarehouseCredentials(project.id))) {
-		return 'Database sync is only available for projects created with Connect my data.';
+
+	if (!fs.existsSync(path.join(project.path, 'nao_config.yaml'))) {
+		return 'This project has no nao_config.yaml.';
 	}
+	// if (!(await warehouseCredentialQueries.getProjectWarehouseCredentials(project.id))) {
+	// 	return 'Database sync is only available for projects created with Connect my data.';
+	// }
+	//this is because i wanted to try it only with connected database first
 	return null;
 }
 
@@ -114,33 +117,39 @@ async function runProjectSync(project: DBProject, runId: string): Promise<void> 
 
 		try {
 			fs.cpSync(projectPath, stagingPath, { recursive: true });
-			await runNaoCommand(
-				['sync', '--provider', 'databases', '--no-render-templates'],
-				stagingPath,
-				createNaoCommandEnvironment(projectEnvVars),
-				SYNC_TIMEOUT_MS,
-				async (logs) => {
-					updateRun(project.id, runId, { logs: redact(logs) });
-				},
-			);
-			await publishDatabaseContext(stagingPath, projectPath, async () => {
-				appendRunLog(project.id, runId, 'Publishing synced context...');
-				const result = await publishManagedGithubRepositoryUpdate({
-					projectId: project.id,
-					projectName: project.name,
-					projectDir: projectPath,
-					paths: ['databases'],
-					message: 'Sync database context',
-				});
-				if (!result) {
-					appendRunLog(project.id, runId, '✓ Updated local context');
-				} else if (result.published) {
-					appendRunLog(project.id, runId, '✓ Published synced context');
-				} else {
-					appendRunLog(project.id, runId, '✓ Synced context is already up to date');
-				}
+			const syncError = await runDatabaseSync(stagingPath, projectEnvVars, async (logs) => {
+				updateRun(project.id, runId, { logs: redact(logs) });
 			});
-			await projectQueries.touchProjectUpdatedAt(project.id);
+			// await publishDatabaseContext(stagingPath, projectPath, async () => {
+			// 	appendRunLog(project.id, runId, 'Publishing synced context...');
+			// 	const result = await publishManagedGithubRepositoryUpdate({
+			// 		projectId: project.id,
+			// 		projectName: project.name,
+			// 		projectDir: projectPath,
+			// 		paths: ['databases'],
+			// 		message: 'Sync database context',
+			// 	});
+			// 	if (!result) {
+			// 		appendRunLog(project.id, runId, '✓ Updated local context');
+			// 	} else if (result.published) {
+			// 		appendRunLog(project.id, runId, '✓ Published synced context');
+			// 	} else {
+			// 		appendRunLog(project.id, runId, '✓ Synced context is already up to date');
+			// 	}
+			// });
+			if (!syncError || fs.existsSync(path.join(stagingPath, 'databases'))) {
+				await publishDatabaseContext(stagingPath, projectPath, async () => {
+					appendRunLog(
+						project.id,
+						runId,
+						syncError ? 'Updated the databases that synced successfully' : '✓ Updated your project context',
+					);
+				});
+				await projectQueries.touchProjectUpdatedAt(project.id);
+			}
+			if (syncError) {
+				throw syncError;
+			}
 			updateRun(project.id, runId, {
 				status: 'succeeded',
 				error: null,
@@ -161,6 +170,28 @@ async function runProjectSync(project: DBProject, runId: string): Promise<void> 
 			fs.rmSync(stagingPath, { recursive: true, force: true });
 		}
 	});
+}
+
+async function runDatabaseSync(
+	stagingPath: string,
+	projectEnvVars: Record<string, string>,
+	onOutput: (logs: string) => Promise<void>,
+): Promise<NaoCommandExitError | null> {
+	try {
+		await runNaoCommand(
+			['sync', '--provider', 'databases', '--no-render-templates'],
+			stagingPath,
+			createNaoCommandEnvironment(projectEnvVars),
+			SYNC_TIMEOUT_MS,
+			onOutput,
+		);
+		return null;
+	} catch (error) {
+		if (error instanceof NaoCommandExitError) {
+			return error;
+		}
+		throw error;
+	}
 }
 
 async function publishDatabaseContext(

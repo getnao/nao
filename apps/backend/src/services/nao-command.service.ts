@@ -6,6 +6,8 @@ const COMMAND_OUTPUT_LIMIT = 8000;
 const COMMAND_LOG_UPDATE_MS = 300;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 
+export class NaoCommandExitError extends Error {}
+
 export function createNaoCommandEnvironment(projectEnvVars: Record<string, string>): NodeJS.ProcessEnv {
 	return {
 		PATH: process.env.PATH,
@@ -99,7 +101,7 @@ export function runNaoCommand(
 				resolve();
 			} else {
 				const details = toVisibleOutput(output).trim();
-				reject(new Error(`nao ${args[0]} failed${details ? `: ${details}` : ''}`));
+				reject(new NaoCommandExitError(`nao ${args[0]} failed${details ? `: ${details}` : ''}`));
 			}
 		});
 	});

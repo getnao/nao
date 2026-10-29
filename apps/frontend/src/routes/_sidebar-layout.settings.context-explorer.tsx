@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import {
 	consumeHistoricalContextDiffSearch,
@@ -48,6 +49,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/context-explorer
 function ContextExplorerPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const isCloud = useIsCloud();
 	const { path: initialPath, from: historicalFrom, to: historicalTo } = Route.useSearch();
 	const initialHistoricalDiff = getHistoricalContextDiffTarget({
 		path: initialPath,
@@ -280,7 +282,7 @@ function ContextExplorerPage() {
 										}
 									/>
 								</div>
-								<CloudSyncPanel />
+								{isCloud && <CloudSyncPanel />}
 								<ContextGitPanel
 									selectedDiffPath={selectedDiffPath}
 									hasUnsavedFileChanges={isViewerDirty}

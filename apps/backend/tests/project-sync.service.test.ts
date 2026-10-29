@@ -18,6 +18,7 @@ vi.mock('../src/services/managed-github-repository', () => ({
 }));
 vi.mock('../src/services/nao-command.service', () => ({
 	createNaoCommandEnvironment: vi.fn((env) => env),
+	NaoCommandExitError: class NaoCommandExitError extends Error {},
 	runNaoCommand: vi.fn(),
 }));
 vi.mock('../src/utils/keyed-lock', () => ({
@@ -31,7 +32,7 @@ import type { DBProject } from '../src/db/abstractSchema';
 import * as projectQueries from '../src/queries/project.queries';
 import * as warehouseCredentialQueries from '../src/queries/project-warehouse-credentials.queries';
 import { publishManagedGithubRepositoryUpdate } from '../src/services/managed-github-repository';
-import { runNaoCommand } from '../src/services/nao-command.service';
+import { NaoCommandExitError, runNaoCommand } from '../src/services/nao-command.service';
 import { getProjectRuntimeEnvVars } from '../src/services/project-runtime-env';
 import {
 	__resetProjectSyncRunsForTesting,
@@ -46,6 +47,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	__resetProjectSyncRunsForTesting();
 	projectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'project-sync-test-'));
+	fs.writeFileSync(path.join(projectDirectory, 'nao_config.yaml'), 'project_name: Sales\n');
 	project = { id: 'project-1', name: 'Sales', path: projectDirectory } as DBProject;
 	vi.mocked(warehouseCredentialQueries.getProjectWarehouseCredentials).mockResolvedValue({
 		projectId: project.id,
@@ -125,6 +127,31 @@ describe('project sync', () => {
 
 		expect(fs.readFileSync(existingFile, 'utf8')).toBe('existing');
 		expect(projectQueries.touchProjectUpdatedAt).not.toHaveBeenCalled();
+	});
+
+	it('applies databases that synced when another database fails, like the CLI', async () => {
+		const databasesPath = path.join(projectDirectory, 'databases');
+		fs.mkdirSync(path.join(databasesPath, 'sales'), { recursive: true });
+		fs.mkdirSync(path.join(databasesPath, 'finance'), { recursive: true });
+		fs.writeFileSync(path.join(databasesPath, 'sales', 'table.md'), 'old sales');
+		fs.writeFileSync(path.join(databasesPath, 'finance', 'table.md'), 'old finance');
+		vi.mocked(runNaoCommand).mockImplementation(async (_args, cwd) => {
+			fs.writeFileSync(path.join(cwd, 'databases', 'sales', 'table.md'), 'new sales');
+			throw new NaoCommandExitError('nao sync failed: Failed to sync 1 database: finance');
+		});
+
+		await startProjectSync(project);
+
+		await vi.waitFor(async () => {
+			expect((await getProjectSyncState(project)).run?.status).toBe('failed');
+		});
+
+		const state = await getProjectSyncState(project);
+		expect(state.run?.error).toBe('nao sync failed: Failed to sync 1 database: finance');
+		expect(state.run?.logs).toContain('Updated the databases that synced successfully');
+		expect(fs.readFileSync(path.join(databasesPath, 'sales', 'table.md'), 'utf8')).toBe('new sales');
+		expect(fs.readFileSync(path.join(databasesPath, 'finance', 'table.md'), 'utf8')).toBe('old finance');
+		expect(projectQueries.touchProjectUpdatedAt).toHaveBeenCalledWith(project.id);
 	});
 
 	it('is unavailable without stored warehouse credentials', async () => {
