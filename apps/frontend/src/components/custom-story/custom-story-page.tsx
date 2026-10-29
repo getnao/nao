@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import type { DownloadFormat, StoryBlockReference } from '@nao/shared/types';
 import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
-import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/story-block-edit';
+import type {
+	StoryBlockEditTarget,
+	StoryTableFormatEditTarget,
+} from '@/components/custom-story/custom-story-block-edit';
 
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';

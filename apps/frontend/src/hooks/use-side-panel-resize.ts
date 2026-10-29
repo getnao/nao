@@ -22,12 +22,9 @@ export const useSidePanelResize = (
 	containerRef: React.RefObject<HTMLDivElement | null>,
 	resizeHandleRef: React.RefObject<HTMLDivElement | null>,
 	enabled: boolean,
-	chatPanelMinWidth: number = CHAT_PANEL_MIN_WIDTH,
 ) => {
 	const ratioRef = useRef(loadPersistedWidthRatio());
 	const rafRef = useRef(0);
-	const chatPanelMinWidthRef = useRef(chatPanelMinWidth);
-	chatPanelMinWidthRef.current = chatPanelMinWidth;
 
 	useEffect(() => {
 		if (!enabled) {
@@ -47,7 +44,7 @@ export const useSidePanelResize = (
 			cancelAnimationFrame(rafRef.current);
 			rafRef.current = requestAnimationFrame(() => {
 				const deltaX = e.clientX - startX;
-				const width = clampWidth(startWidth - deltaX, containerRef.current, chatPanelMinWidthRef.current);
+				const width = clampWidth(startWidth - deltaX, containerRef.current);
 				sidePanel.style.transitionDuration = '0ms';
 				sidePanel.style.width = `${width}px`;
 			});
@@ -105,19 +102,19 @@ export const useSidePanelResize = (
 		}
 
 		const containerWidth = container.getBoundingClientRect().width;
-		const width = clampWidth(Math.floor(ratioRef.current * containerWidth), container, chatPanelMinWidth);
+		const width = clampWidth(Math.floor(ratioRef.current * containerWidth), container);
 		sidePanel.style.width = `${width}px`;
 		sidePanel.style.transitionDuration = '0ms';
-	}, [containerRef, sidePanelRef, chatPanelMinWidth]);
+	}, [containerRef, sidePanelRef]);
 
 	useResizeObserver(containerRef, applyPersistedWidth, [applyPersistedWidth]);
 
 	return { ratioRef };
 };
 
-function clampWidth(width: number, container: HTMLElement | null, chatPanelMinWidth: number): number {
+function clampWidth(width: number, container: HTMLElement | null): number {
 	const containerWidth = container?.getBoundingClientRect().width ?? Infinity;
-	const maxWidth = Math.max(SIDE_PANEL_MIN_WIDTH, containerWidth - chatPanelMinWidth);
+	const maxWidth = Math.max(SIDE_PANEL_MIN_WIDTH, containerWidth - CHAT_PANEL_MIN_WIDTH);
 	return Math.min(Math.max(width, SIDE_PANEL_MIN_WIDTH), maxWidth);
 }
 

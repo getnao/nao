@@ -94,7 +94,7 @@ interface TableFormatEditFormProps {
 	onSaved: () => void;
 }
 
-export function TableFormatEditForm({
+function TableFormatEditForm({
 	columns,
 	data,
 	formats,
