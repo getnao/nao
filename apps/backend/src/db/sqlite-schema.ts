@@ -72,7 +72,6 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
-import { EXAMPLE_CHAT_ALLOWANCE_SCOPES, type ExampleChatAllowanceScope } from '../types/example-chat-allowance';
 import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
@@ -97,16 +96,20 @@ import {
 	TelegramSettings,
 	WhatsappSettings,
 } from '../types/messaging-provider';
-import { ORG_ROLES } from '../types/organization';
-import type { StoryQuerySources } from '../types/story-cache';
-import type { StoredUserPreferences } from '../types/usage';
+import {
+	EXAMPLE_CHAT_ALLOWANCE_SCOPES,
+	type ExampleChatAllowanceScope,
+} from '../types/onboarding/example-chat-allowance';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
 	WAREHOUSE_PROVISIONING_STATUSES,
-	type WarehouseProvider,
 	type WarehouseProvisioningBusinessContext,
 	type WarehouseProvisioningModelSelection,
-} from '../types/warehouse';
+} from '../types/onboarding/warehouse-provisioning';
+import { ORG_ROLES } from '../types/organization';
+import type { StoryQuerySources } from '../types/story-cache';
+import type { StoredUserPreferences } from '../types/usage';
+import type { WarehouseProvider } from '../types/warehouse';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),

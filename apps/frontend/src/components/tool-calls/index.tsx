@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
-import { ClarificationToolCall, RequestWarehouseSelectionToolCall } from './clarification';
+import { ClarificationToolCall } from './clarification';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { DisplayMapToolCall } from './display-map';
@@ -8,22 +8,17 @@ import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSemanticQueryToolCall } from './execute-semantic-query';
 import { ExecuteSqlToolCall } from './execute-sql';
-import { GenerateOnboardingRulesToolCall } from './generate-onboarding-rules';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { McpToolCall } from './mcp';
-import { OnboardingAgentPromptToolCall } from './onboarding-agent-prompt';
-import { OnboardingCommandToolCall } from './onboarding-command';
+import { onboardingToolComponents } from './onboarding';
 import { QueryAppDbToolCall } from './query-app-db';
 import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
-import { RequestWarehouseCredentialsToolCall } from './request-warehouse-credentials';
-import { RestartOnboardingToolCall } from './restart-onboarding';
 import { SearchToolCall } from './search';
 import { StrReplaceToolCall } from './str-replace';
 import { TaskToolCall } from './task';
-import { RetryWarehouseSetupToolCall, WaitForWarehouseSetupToolCall } from './warehouse-setup-status';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
 import { WriteToolCall } from './write';
@@ -47,22 +42,15 @@ const toolComponents: Partial<{
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	execute_semantic_query: ExecuteSemanticQueryToolCall,
-	generate_onboarding_rules: GenerateOnboardingRulesToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
-	onboarding_agent_prompt: OnboardingAgentPromptToolCall,
-	onboarding_command: OnboardingCommandToolCall,
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
-	request_warehouse_credentials: RequestWarehouseCredentialsToolCall,
-	request_warehouse_selection: RequestWarehouseSelectionToolCall,
-	restart_onboarding: RestartOnboardingToolCall,
-	retry_warehouse_setup: RetryWarehouseSetupToolCall,
 	search: SearchToolCall,
 	str_replace: StrReplaceToolCall,
 	task: TaskToolCall,
-	wait_for_warehouse_setup: WaitForWarehouseSetupToolCall,
 	write: WriteToolCall,
+	...onboardingToolComponents,
 };
 
 export const dynamicToolComponents = {

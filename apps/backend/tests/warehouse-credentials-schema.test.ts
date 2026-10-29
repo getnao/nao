@@ -1,7 +1,8 @@
 import { requestWarehouseCredentials } from '@nao/shared/tools';
 import { describe, expect, it } from 'vitest';
 
-import { warehouseCredentialsSchema, warehouseProvisioningInputSchema } from '../src/types/warehouse';
+import { warehouseProvisioningInputSchema } from '../src/types/onboarding/warehouse-provisioning';
+import { warehouseCredentialsSchema } from '../src/types/warehouse';
 
 describe('warehouse credentials schema', () => {
 	it.each([...requestWarehouseCredentials.PROVIDERS])('accepts the %s credentials envelope', (provider) => {

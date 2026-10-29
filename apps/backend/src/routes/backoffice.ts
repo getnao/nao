@@ -16,7 +16,7 @@ import * as userQueries from '../queries/backoffice-user.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
 import * as creditsService from '../services/backoffice-credits.service';
-import * as onboardingService from '../services/backoffice-onboarding.service';
+import * as onboardingService from '../services/onboarding/backoffice-onboarding.service';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
 

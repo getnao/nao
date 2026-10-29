@@ -13,12 +13,12 @@ import {
 	isOnboardingComplete,
 	OnboardingProgress,
 	useOnboardingProgress,
-} from '@/components/onboarding-progress';
+} from '@/components/onboarding/onboarding-progress';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
-import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
-import { isStoppedStatus } from '@/components/tool-calls/warehouse-setup-progress';
+import { useWarehouseProvisioningJob } from '@/components/tool-calls/onboarding/request-warehouse-credentials';
+import { isStoppedStatus } from '@/components/tool-calls/onboarding/warehouse-setup-progress';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -29,8 +29,8 @@ import {
 	DialogTrigger,
 } from '@/components/ui/dialog';
 import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
-import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding-floating-slot';
-import { StartNewOnboardingProvider } from '@/contexts/onboarding-restart';
+import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding/onboarding-floating-slot';
+import { StartNewOnboardingProvider } from '@/contexts/onboarding/onboarding-restart';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
 import { getOnboardingChatIdStorage } from '@/hooks/use-agent';

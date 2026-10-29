@@ -11,6 +11,8 @@ export interface AgentProfile {
 	/** Recorded on the run's messages and analytics events. */
 	source: MessageSource;
 	tools: AgentToolsResolver;
+	/** Tools that end the turn as soon as they are called, on top of the interactive stop conditions. */
+	turnEndingTools?: string[];
 	/** Replaces the project system prompt (RULES.md, memories, connections) for runs with a dedicated purpose. */
 	systemPrompt?: (context: { timezone?: string; chat: AgentChat }) => string | Promise<string>;
 	/** Appended to the project system prompt. */

@@ -16,15 +16,19 @@ import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
-import { findWarehouseJobId, isOnboardingComplete, useOnboardingProgress } from '@/components/onboarding-progress';
+import {
+	findWarehouseJobId,
+	isOnboardingComplete,
+	useOnboardingProgress,
+} from '@/components/onboarding/onboarding-progress';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
-import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
+import { useWarehouseProvisioningJob } from '@/components/tool-calls/onboarding/request-warehouse-credentials';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
+import { TrialOnboardingBanner } from '@/components/onboarding/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
