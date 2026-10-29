@@ -89,13 +89,7 @@ function runGitWithAskpass(cwd: string, args: string[], credential: GitOAuthCred
 			cwd,
 			stdio: 'pipe',
 			timeout,
-			env: {
-				...process.env,
-				GIT_ASKPASS: helperPath,
-				GIT_TERMINAL_PROMPT: '0',
-				NAO_GIT_TOKEN: credential.token,
-				NAO_GIT_USERNAME: credential.username,
-			},
+			env: createAskpassEnvironment(helperPath, credential),
 		});
 	} catch (error) {
 		throw toGitError(error);
@@ -114,18 +108,30 @@ async function runGitWithAskpassAsync(
 	const helperPath = path.join(helperDirectory, 'askpass');
 	try {
 		fs.writeFileSync(helperPath, ASKPASS_SCRIPT, { mode: 0o700 });
-		return await execGitAsync(cwd, args, timeout, {
-			...process.env,
-			GIT_ASKPASS: helperPath,
-			GIT_TERMINAL_PROMPT: '0',
-			NAO_GIT_TOKEN: credential.token,
-			NAO_GIT_USERNAME: credential.username,
-		});
+		return await execGitAsync(cwd, args, timeout, createAskpassEnvironment(helperPath, credential));
 	} catch (error) {
 		throw toGitError(error);
 	} finally {
 		fs.rmSync(helperDirectory, { recursive: true, force: true });
 	}
+}
+
+/**
+ * Git asks credential helpers (e.g. the macOS keychain) before `GIT_ASKPASS`, so a stored token would be sent
+ * instead of ours. An empty `credential.helper` resets the helper list.
+ */
+function createAskpassEnvironment(helperPath: string, credential: GitOAuthCredential): NodeJS.ProcessEnv {
+	const configIndex = Number(process.env.GIT_CONFIG_COUNT) || 0;
+	return {
+		...process.env,
+		GIT_ASKPASS: helperPath,
+		GIT_TERMINAL_PROMPT: '0',
+		GIT_CONFIG_COUNT: String(configIndex + 1),
+		[`GIT_CONFIG_KEY_${configIndex}`]: 'credential.helper',
+		[`GIT_CONFIG_VALUE_${configIndex}`]: '',
+		NAO_GIT_TOKEN: credential.token,
+		NAO_GIT_USERNAME: credential.username,
+	};
 }
 
 function runGitWithSshKey(cwd: string, args: string[], sshKey: string, timeout: number): Buffer {
