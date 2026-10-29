@@ -3,6 +3,7 @@ import {
 	buildSeriesChartConfig,
 	buildSeriesLegendPayload,
 	seriesColorAt,
+	shouldShowLegendByDefault,
 	useSeriesVisibility,
 } from '@nao/shared/chart-series';
 import { isBuiltinChartType, isComboChart, isPercentStackedChartType, isPieChart } from '@nao/shared/chart-types';
@@ -478,7 +479,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	title,
 	titleStyle = 'default',
 	titleAccessory,
-	showLegend = true,
+	showLegend: showLegendProp,
 	showGrid = true,
 	yAxisMin,
 	yAxisMax,
@@ -516,6 +517,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const showLegend = showLegendProp ?? shouldShowLegendByDefault(chartType, series);
 	const isPercentStacked = isPercentStackedChartType(chartType);
 
 	const isPie = isPieChart(chartType);

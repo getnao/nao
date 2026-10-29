@@ -2,12 +2,17 @@ import { useCallback, useMemo, useState } from 'react';
 
 import { DEFAULT_COLORS } from './chart-builder';
 import type { ChartConfig } from './chart-tooltip';
+import { isPieChart } from './chart-types';
 import type * as displayChart from './tools/display-chart';
 
 export const SERIES_COLORS = DEFAULT_COLORS.map((_, index) => `var(--chart-${index + 1})`);
 
 export function seriesColorAt(index: number): string {
 	return SERIES_COLORS[index % SERIES_COLORS.length];
+}
+
+export function shouldShowLegendByDefault(chartType: string, series: readonly unknown[]): boolean {
+	return isPieChart(chartType) || series.length > 1;
 }
 
 export function useSeriesVisibility(series: displayChart.SeriesConfig[]) {

@@ -3,6 +3,7 @@ import {
 	buildSeriesChartConfig,
 	buildSeriesLegendPayload,
 	seriesColorAt as seriesColor,
+	shouldShowLegendByDefault,
 	useSeriesVisibility,
 } from '@nao/shared/chart-series';
 import { ChartConfigProvider, ChartLegendContent, ChartTooltipContent } from '@nao/shared/chart-tooltip';
@@ -88,7 +89,7 @@ export function ChartBlock({
 							xAxisKey={resolved.xAxisKey}
 							series={toSeriesConfigs(resolved.series, options)}
 							height={height}
-							showLegend={showLegend ?? (isPieChart(chartType) || resolved.series.length > 1)}
+							showLegend={showLegend ?? shouldShowLegendByDefault(chartType, resolved.series)}
 							showGrid={showGrid}
 							options={options}
 						/>
