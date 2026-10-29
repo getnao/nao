@@ -1,6 +1,6 @@
 import { restartOnboarding } from '@nao/shared/tools';
 
-import { cancelWarehouseProvisioning } from '../../services/warehouse-provisioning';
+import { cancelSetupForRestart } from '../../services/onboarding-restart';
 import { createTool } from '../../utils/tools';
 
 export default createTool<restartOnboarding.Input, restartOnboarding.Output>({
@@ -10,7 +10,7 @@ export default createTool<restartOnboarding.Input, restartOnboarding.Output>({
 	outputSchema: restartOnboarding.OutputSchema,
 	execute: async (_input, context) => ({
 		_version: '1',
-		cancelledWarehouseSetup: await cancelWarehouseProvisioning(context.userId),
+		cancelledWarehouseSetup: await cancelSetupForRestart(context.userId),
 	}),
 	toModelOutput: () => ({
 		type: 'text',

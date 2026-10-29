@@ -31,6 +31,7 @@ import {
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger, serializeError } from '../utils/logger';
+import { createWarehouseLogRedactor } from '../utils/warehouse-setup';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
@@ -41,6 +42,7 @@ import { reconcileProjectReadiness } from './project.service';
 import { createNewProject, createTempProjectDir } from './project-import.service';
 import { saveProjectWarehouseEnvVars } from './warehouse-credentials';
 
+const PREPARE_TIMEOUT_MS = 30_000;
 const INIT_TIMEOUT_MS = 15 * 60_000;
 const DEBUG_TIMEOUT_MS = 5 * 60_000;
 const SYNC_TIMEOUT_MS = 30 * 60_000;
@@ -256,6 +258,7 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 			provider,
 			credentials: normalizeWarehouseCredentials(provider, credentials),
 		}),
+		signal: AbortSignal.timeout(PREPARE_TIMEOUT_MS),
 	});
 
 	if (!response.ok) {
@@ -469,13 +472,13 @@ export async function submitWarehouseBusinessContext(
 	userId: string,
 	onboardingChatId: string,
 	finalization: WarehouseProvisioningFinalization,
-): Promise<{ jobId: string }> {
+): Promise<{ jobId: string; status: WarehouseProvisioningStatus }> {
 	const job = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId);
 	if (!job) {
 		throw new Error('No warehouse setup was started in this conversation.');
 	}
 	if (job.status === 'ready' || job.status === 'finalizing' || job.status === 'publishing') {
-		return { jobId: job.id };
+		return { jobId: job.id, status: job.status };
 	}
 
 	await updateJob(job.id, {
@@ -490,7 +493,8 @@ export async function submitWarehouseBusinessContext(
 	}
 
 	await maybeStartFinalization(job.id);
-	return { jobId: job.id };
+	const updatedJob = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(job.id);
+	return { jobId: job.id, status: updatedJob?.status ?? job.status };
 }
 
 export async function getWarehouseProvisioningJob(
@@ -658,16 +662,14 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		await updateJob(jobId, { status: 'initializing' });
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
-		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, (logs) =>
-			updateJob(jobId, { logs }),
-		);
+		const redactLogs = createWarehouseLogRedactor(provisionConfig.env_vars);
+		const publishLogs = (logs: string) => updateJob(jobId, { logs: redactLogs(logs) });
+		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, publishLogs);
 
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 
 		await updateJob(jobId, { status: 'debugging', logs: '' });
-		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, (logs) =>
-			updateJob(jobId, { logs }),
-		);
+		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, publishLogs);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
 		await runNaoCommand(
@@ -675,7 +677,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			projectDir,
 			commandEnvironment,
 			SYNC_TIMEOUT_MS,
-			(logs) => updateJob(jobId, { logs }),
+			publishLogs,
 		);
 
 		const projectId = crypto.randomUUID();

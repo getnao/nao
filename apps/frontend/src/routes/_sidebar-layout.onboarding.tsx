@@ -165,7 +165,10 @@ function OnboardingPage() {
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
 	const setupStatus = latestWarehouseJob.data?.status;
 	const isSetupInProgress = setupStatus !== undefined && setupStatus !== 'ready' && !isStoppedStatus(setupStatus);
-	const canRestart = hasMessages && !onboardingComplete && (!projects.data?.length || isSetupInProgress);
+	const stoppedSetupProjectId =
+		setupStatus !== undefined && isStoppedStatus(setupStatus) ? latestWarehouseJob.data?.projectId : undefined;
+	const hasConnectedProject = projects.data?.some((project) => project.id !== stoppedSetupProjectId) ?? false;
+	const canRestart = hasMessages && !onboardingComplete && (!hasConnectedProject || isSetupInProgress);
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);

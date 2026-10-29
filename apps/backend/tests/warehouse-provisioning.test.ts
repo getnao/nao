@@ -623,11 +623,13 @@ describe('warehouse provisioning', () => {
 			},
 		});
 
-		await submitWarehouseBusinessContext('user-1', 'chat-1', {
-			businessContext: { additionalContext: 'A bicycle rental company.' },
-			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
-			modelProjectId: 'example-project',
-		});
+		await expect(
+			submitWarehouseBusinessContext('user-1', 'chat-1', {
+				businessContext: { additionalContext: 'A bicycle rental company.' },
+				modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
+				modelProjectId: 'example-project',
+			}),
+		).resolves.toEqual({ jobId, status: 'queued' });
 
 		expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('queued');
 		expect(generateOnboardingRules).not.toHaveBeenCalled();
@@ -1120,6 +1122,41 @@ describe('warehouse provisioning', () => {
 		});
 		expect(createNewProject).not.toHaveBeenCalled();
 		expect(logger.error).not.toHaveBeenCalled();
+	});
+
+	it('masks secret credentials printed by a nao command before storing its logs', async () => {
+		mockSuccessfulProvisioning('project-redacted');
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					database_config: { type: 'postgres' },
+					env_vars: {
+						NAO_ONBOARDING_POSTGRES_PASSWORD: '"super-secret-value"',
+						NAO_ONBOARDING_POSTGRES_PORT: '5432',
+					},
+				}),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			),
+		);
+		vi.mocked(spawn).mockImplementation((_command, args) => {
+			const child = Object.assign(new EventEmitter(), {
+				stdout: new EventEmitter(),
+				stderr: new EventEmitter(),
+				kill: vi.fn(),
+			});
+			queueMicrotask(() => {
+				child.stdout.emit('data', Buffer.from(`nao ${args?.[0]} on port 5432 with super-secret-value\n`));
+				child.emit('close', 0);
+			});
+			return child as never;
+		});
+
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+
+		expect(warehouseJobs.get(jobId)?.logs).toContain(
+			'nao sync on port 5432 with [REDACTED:NAO_ONBOARDING_POSTGRES_PASSWORD]',
+		);
 	});
 
 	it('rolls back a cancelled setup whose worker stopped before cleaning up', async () => {

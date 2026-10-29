@@ -9,7 +9,7 @@ vi.mock('../src/services/warehouse-provisioning', () => ({
 }));
 
 import * as chatQueries from '../src/queries/chat.queries';
-import { restartOnboarding } from '../src/services/onboarding-restart';
+import { cancelSetupForRestart, restartOnboarding } from '../src/services/onboarding-restart';
 import { cancelWarehouseProvisioning, hasConnectedProject } from '../src/services/warehouse-provisioning';
 
 beforeEach(() => {
@@ -36,5 +36,18 @@ describe('restartOnboarding', () => {
 
 		await expect(restartOnboarding('user-1', 'chat-1')).rejects.toMatchObject({ code: 'CONFLICT' });
 		expect(chatQueries.upsertMessage).not.toHaveBeenCalled();
+	});
+
+	it('lets the agent restart while a setup is running even though its project is registered', async () => {
+		vi.mocked(hasConnectedProject).mockResolvedValueOnce(true);
+
+		await expect(cancelSetupForRestart('user-1')).resolves.toBe(true);
+	});
+
+	it('refuses an agent restart once the project is set up', async () => {
+		vi.mocked(cancelWarehouseProvisioning).mockResolvedValueOnce(false);
+		vi.mocked(hasConnectedProject).mockResolvedValueOnce(true);
+
+		await expect(cancelSetupForRestart('user-1')).rejects.toMatchObject({ code: 'CONFLICT' });
 	});
 });
