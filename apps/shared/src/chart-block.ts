@@ -26,6 +26,7 @@ export type StoryChartBlockInput = Pick<
 	| 'y_axis_right_max'
 	| 'y_axis_right_label'
 	| 'show_data_labels'
+	| 'show_legend'
 	| 'comparison_mode'
 	| 'hide_total'
 > & {
@@ -50,12 +51,13 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	const titleAttr =
 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
 	const dataLabelsAttr = input.show_data_labels ? ' show_data_labels="true"' : '';
+	const showLegendAttr = input.show_legend !== undefined ? ` show_legend="${input.show_legend}"` : '';
 	const comparisonModeAttr =
 		input.comparison_mode && input.comparison_mode !== 'none'
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
 	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${hideTotalAttr} />`;
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${showLegendAttr}${comparisonModeAttr}${hideTotalAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;

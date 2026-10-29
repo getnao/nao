@@ -26,6 +26,7 @@ export interface ParsedChartBlock {
 	yAxisRightLabel?: string;
 	title: string;
 	showDataLabels?: boolean;
+	showLegend?: boolean;
 	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
 	hideTotal?: boolean;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
@@ -159,6 +160,7 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		yAxisRightLabel: attrs.y_axis_right_label || undefined,
 		title: attrs.title || '',
 		showDataLabels: attrs.show_data_labels === 'true',
+		showLegend: parseOptionalBooleanAttr(attrs.show_legend),
 		comparisonMode: (attrs.comparison_mode as ParsedChartBlock['comparisonMode']) || undefined,
 		hideTotal: attrs.hide_total === 'true',
 	};
@@ -661,6 +663,16 @@ function isParsedChartSeries(entry: unknown): entry is ParsedChartSeries {
 
 function parseOptionalNumberAttr(value: string | undefined): number | undefined {
 	return value !== undefined && value !== '' && Number.isFinite(Number(value)) ? Number(value) : undefined;
+}
+
+function parseOptionalBooleanAttr(value: string | undefined): boolean | undefined {
+	if (value === 'true') {
+		return true;
+	}
+	if (value === 'false') {
+		return false;
+	}
+	return undefined;
 }
 
 function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series'] | null {

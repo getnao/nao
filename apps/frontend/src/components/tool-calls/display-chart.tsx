@@ -424,6 +424,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					yAxisRightMax={chartConfig.y_axis_right_max}
 					yAxisRightLabel={chartConfig.y_axis_right_label}
 					showDataLabels={chartConfig.show_data_labels}
+					showLegend={chartConfig.show_legend}
 					comparisonMode={'comparison_mode' in chartConfig ? chartConfig.comparison_mode : undefined}
 					hideTotal={chartConfig.hide_total}
 					className={isPieChart(chartConfig.chart_type) ? 'flex-1 justify-center' : undefined}

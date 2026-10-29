@@ -30,6 +30,7 @@ export interface RenderChartInput {
 		| 'y_axis_right_label'
 		| 'title'
 		| 'show_data_labels'
+		| 'show_legend'
 		| 'comparison_mode'
 	>;
 	data: Record<string, unknown>[];
@@ -56,7 +57,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const width = input.width ?? 800;
 	const height = input.height ?? 500;
 	const margin = input.margin ?? { top: 10, right: 20, bottom: 5, left: 0 };
-	const includeLegend = input.includeLegend !== false;
+	const includeLegend = input.includeLegend !== false && config.show_legend !== false;
 	// Query data may come from a re-execution whose column-name casing differs
 	// from the config (e.g. Snowflake uppercases unquoted identifiers, DuckDB
 	// preserves them as written), so resolve keys against the actual rows —

@@ -853,6 +853,18 @@ export function ChartConfigEditForm({
 						onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
 					/>
 				</div>
+				{draft.chart_type !== 'kpi_card' && (
+					<div className='flex h-8 items-center justify-between'>
+						<label htmlFor='show-legend' className='text-sm text-foreground'>
+							Show legend
+						</label>
+						<Switch
+							id='show-legend'
+							checked={draft.show_legend ?? true}
+							onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_legend: v }))}
+						/>
+					</div>
+				)}
 			</div>
 
 			{(error || unsupportedNumberFormat) && (

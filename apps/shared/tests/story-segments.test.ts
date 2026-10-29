@@ -594,6 +594,45 @@ describe('splitCodeIntoSegments chart total visibility', () => {
 	});
 });
 
+describe('splitCodeIntoSegments chart legend visibility', () => {
+	const chartWithLegend = (attr: string) =>
+		`<chart query_id="q1" chart_type="bar" x_axis_key="month" series='[{"data_key":"rev"}]'${attr} />`;
+
+	it('parses an explicit show_legend and leaves it unset when omitted', () => {
+		expect(chartOf(chartWithLegend(' show_legend="false"'))?.showLegend).toBe(false);
+		expect(chartOf(chartWithLegend(' show_legend="true"'))?.showLegend).toBe(true);
+		expect(chartOf(chartWithLegend(''))?.showLegend).toBeUndefined();
+	});
+
+	it.each([true, false])('round-trips show_legend=%s through buildStoryChartBlock', (showLegend) => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			x_axis_type: null,
+			series: [{ data_key: 'rev' }],
+			title: 'Revenue',
+			show_legend: showLegend,
+		});
+
+		expect(code).toContain(`show_legend="${showLegend}"`);
+		expect(chartOf(code)?.showLegend).toBe(showLegend);
+	});
+
+	it('omits show_legend from the block when unset', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			x_axis_type: null,
+			series: [{ data_key: 'rev' }],
+			title: 'Revenue',
+		});
+
+		expect(code).not.toContain('show_legend=');
+	});
+});
+
 describe('splitCodeIntoSegments slash-in-attribute handling', () => {
 	it('parses a chart whose title contains a slash', () => {
 		const code =

@@ -176,6 +176,12 @@ export const ChartInputObjectSchema = z.object({
 			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
 		)
 		.optional(),
+	show_legend: z
+		.boolean()
+		.describe(
+			'Explicitly show (true) or hide (false) the chart legend, regardless of how many series the chart has. Set to false when the legend would only repeat the title, e.g. a single-series chart such as "Total inspections". Leave unset to keep the default (legend shown).',
+		)
+		.optional(),
 	hide_total: z
 		.boolean()
 		.describe(
@@ -255,6 +261,7 @@ const BaseInputSchema = z.object({
 	y_axis_right_max: ChartInputObjectSchema.shape.y_axis_right_max,
 	y_axis_right_label: ChartInputObjectSchema.shape.y_axis_right_label,
 	show_data_labels: ChartInputObjectSchema.shape.show_data_labels,
+	show_legend: ChartInputObjectSchema.shape.show_legend,
 	hide_total: z
 		.boolean()
 		.describe(

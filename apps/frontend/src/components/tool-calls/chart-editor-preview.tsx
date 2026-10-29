@@ -135,6 +135,7 @@ function LiveChart({ draft, data, hasSeries }: LiveChartProps) {
 				yAxisRightMax={draft.y_axis_right_max}
 				yAxisRightLabel={draft.y_axis_right_label}
 				showDataLabels={draft.show_data_labels}
+				showLegend={draft.show_legend}
 				comparisonMode={draft.comparison_mode}
 				hideTotal={draft.hide_total}
 				normalSize
