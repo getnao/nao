@@ -2,7 +2,7 @@
 
 Your data team builds the analytics agent and owns the context layer. Everyone in the company builds on data.
 
-nao started as the open source analytics agent and is now the open source agentic BI builder. Build your data context layer with the nao-core CLI (or let your coding agent do it with the nao skills), then deploy this image so anyone in the company can chat with your data and build live dashboards, data apps and slides.
+Build your own agentic BI with nao. Build your data context layer with the nao-core CLI (or let your coding agent do it with the nao skills), then deploy this image so anyone in the company can chat with your data and build live dashboards, data apps and slides.
 
 🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ) · 🐙 [GitHub](https://github.com/getnao/nao)
 

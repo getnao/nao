@@ -33,7 +33,7 @@
 
 ## What is nao?
 
-nao started as the open source analytics agent. Today it is the open source agentic BI builder: your data team builds the agent on a context layer it controls and tests, and the whole company analyzes data with it. Sign up on [nao Cloud](https://app.getnao.io/signup) or self-host it.
+nao lets you build your own agentic BI: an open source analytics agent built on a context layer your data team controls and tests. Sign up on [nao Cloud](https://app.getnao.io/signup) or self-host it.
 
 1. **Build your data context layer**: your data team syncs the warehouse, dbt, docs and rules into files the agent reads, with the `nao-core` CLI or your coding agent.
 2. **Let your whole company analyze data**: anyone can chat with your data from the nao app, Slack, Teams or Claude, and build their own live dashboards, data apps and slides as stories.
