@@ -733,6 +733,15 @@ export async function upsertStoryDataCacheByStoryId(
 		.execute();
 }
 
+/** Frozen narratives are saved with a snapshot (no query sources), unlike the ones a live refresh generates. */
+export async function clearFrozenStoryNarratives(storyId: string): Promise<void> {
+	await db
+		.update(s.storyDataCache)
+		.set({ analysisResults: null })
+		.where(and(eq(s.storyDataCache.storyId, storyId), isNull(s.storyDataCache.querySources)))
+		.execute();
+}
+
 export async function getSqlQueriesFromCode(
 	chatId: string,
 	code: string,

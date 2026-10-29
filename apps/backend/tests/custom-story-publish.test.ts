@@ -62,6 +62,7 @@ describe('publishing a custom story', () => {
 	beforeEach(async () => {
 		onBuild.current = async () => {};
 		await db.delete(s.storyVersion);
+		await db.delete(s.storyDataCache);
 		await db.delete(s.storyDraftFile);
 		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: 'export default () => null;' });
 	});
@@ -83,6 +84,23 @@ describe('publishing a custom story', () => {
 
 		expect(output).toMatchObject({ success: false, error: expect.stringContaining('draft changed') });
 		expect(await db.select().from(s.storyVersion)).toEqual([]);
+	});
+
+	it('drops frozen narratives once revised files are published, so the new prose shows', async () => {
+		await publish();
+		await db.insert(s.storyDataCache).values({
+			storyId: STORY_ID,
+			queryData: {},
+			querySources: null,
+			analysisResults: { summary: 'Frozen narrative' },
+			cachedAt: new Date(),
+		});
+		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: 'export default () => 1;' });
+
+		await publish();
+
+		const [cache] = await db.select().from(s.storyDataCache);
+		expect(cache.analysisResults).toBeNull();
 	});
 });
 

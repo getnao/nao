@@ -80,6 +80,9 @@ export async function publishCustomStoryDraft(
 		}
 		return cut;
 	});
+	if (version.version > 1) {
+		await storyQueries.clearFrozenStoryNarratives(story.id);
+	}
 	queueCustomStoryThumbnail(story.id, version.id);
 	return { ok: true, version: version.version, files: files.map((file) => file.path) };
 }
