@@ -96,8 +96,10 @@ export interface StoryPageHeaderProps {
 	title: string;
 	authorName?: string;
 	storyChat?: StoryChatControls;
-	/** Offers to copy the story into a new chat of the user. */
+	/** Offers to copy the story into a new standalone story of the user. */
 	canDuplicate?: boolean;
+	/** The version the copy is made from; the latest one when omitted. */
+	viewedVersionNumber?: number;
 	live?: LiveControls;
 	download?: StoryDownloadOptions;
 	storyId?: string | null;
@@ -115,6 +117,7 @@ export function StoryPageHeader({
 	authorName,
 	storyChat,
 	canDuplicate = false,
+	viewedVersionNumber,
 	live,
 	download,
 	storyId,
@@ -190,7 +193,9 @@ export function StoryPageHeader({
 									</DropdownMenuItem>
 								)}
 								{liveMenu && <LiveStoryMenuItems live={liveMenu} />}
-								{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} />}
+								{canDuplicate && storyId && (
+									<StoryDuplicateMenuItem storyId={storyId} versionNumber={viewedVersionNumber} />
+								)}
 							</DropdownMenuContent>
 						</DropdownMenu>
 					)}

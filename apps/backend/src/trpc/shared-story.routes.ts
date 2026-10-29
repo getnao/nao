@@ -1,5 +1,5 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
-import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type StoryFormat, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -669,15 +669,16 @@ async function getStoryRefreshAccess(
 }
 
 async function getStoryForkAccess(
-	shared: { projectId: string; userId: string },
+	shared: { projectId: string; userId: string; format: StoryFormat },
 	userId: string,
 	userRole: UserRole | null,
 ): Promise<boolean> {
 	if (userRole === 'viewer') {
 		return false;
 	}
-	if (shared.userId === userId) {
-		return true;
-	}
-	return hasUserGroupFeature(shared.projectId, userId, 'storyCreation');
+	const [canCreateStory, canCreateCustomStory] = await Promise.all([
+		shared.userId === userId || hasUserGroupFeature(shared.projectId, userId, 'storyCreation'),
+		shared.format !== 'custom' || hasUserGroupFeature(shared.projectId, userId, 'customStoryCreation'),
+	]);
+	return canCreateStory && canCreateCustomStory;
 }

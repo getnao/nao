@@ -1,7 +1,7 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
-import { getLatestSqlQueryDataByChats } from '../queries/execute-sql.queries';
+import { getLatestSqlQueryDataByChats, getLatestSqlQueryDataByIds } from '../queries/execute-sql.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -48,19 +48,27 @@ export function findMissingQueryIds(code: string, cachedQueryData: StoryQueryDat
 	return [...extractQueryIds(code)].filter((id) => !cachedQueryData?.[id]);
 }
 
-export async function backfillMissingQueryData(
+export function backfillMissingQueryData(
 	code: string,
 	cachedQueryData: StoryQueryDataMap | null,
 	source: StoryQueryDataSource,
 ): Promise<StoryQueryDataMap | null> {
-	const missing = findMissingQueryIds(code, cachedQueryData);
+	return backfillMissingQueryDataByIds(extractQueryIds(code), cachedQueryData, source);
+}
+
+export async function backfillMissingQueryDataByIds(
+	queryIds: Set<string>,
+	cachedQueryData: StoryQueryDataMap | null,
+	source: StoryQueryDataSource,
+): Promise<StoryQueryDataMap | null> {
+	const missing = [...queryIds].filter((id) => !cachedQueryData?.[id]);
 	if (missing.length === 0) {
 		return cachedQueryData;
 	}
 
 	const filled =
 		'chatId' in source
-			? await fetchFromChat(source.chatId, code, missing)
+			? await fetchFromChat(source.chatId, missing)
 			: await fetchFromMcp(missing, source.projectId, source.userId);
 
 	const merged = { ...(cachedQueryData ?? {}), ...filled };
@@ -127,7 +135,7 @@ function collectKpiQueryIds(segments: SummarySegment[]): Set<string> {
 	return ids;
 }
 
-function pickQueryData(queryData: StoryQueryDataMap, queryIds: Set<string>): StoryQueryDataMap {
+export function pickQueryData(queryData: StoryQueryDataMap, queryIds: Set<string>): StoryQueryDataMap {
 	return Object.fromEntries(Object.entries(queryData).filter(([id]) => queryIds.has(id)));
 }
 
@@ -139,16 +147,8 @@ function latestRowOnly(queryData: StoryQueryDataMap): StoryQueryDataMap | null {
 	return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
-async function fetchFromChat(chatId: string, code: string, ids: string[]): Promise<StoryQueryDataMap> {
-	const fromChat = await getQueryDataFromCode(chatId, code).catch(() => null);
-
-	const filled: StoryQueryDataMap = {};
-	for (const id of ids) {
-		if (fromChat?.[id]) {
-			filled[id] = fromChat[id];
-		}
-	}
-	return filled;
+function fetchFromChat(chatId: string, ids: string[]): Promise<StoryQueryDataMap> {
+	return getLatestSqlQueryDataByIds(chatId, new Set(ids)).catch(() => ({}));
 }
 
 async function fetchFromMcp(ids: string[], projectId: string, userId?: string): Promise<StoryQueryDataMap> {

@@ -8,7 +8,7 @@ import type {
 } from '@/components/custom-story/custom-story-block-edit';
 import type { CodeSelection } from '@/stores/ask-bar';
 
-import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
+import type { CustomStoryDataSource, CustomStoryFileSource } from '@/components/custom-story/story-data-options';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
 import type { StoryPageHeaderProps } from '@/components/story-page-header';
 import { STORY_ASK_BAR_INSET, StoryAskBar } from '@/components/story-ask-bar';
@@ -32,6 +32,7 @@ import { StoryPageHeader } from '@/components/story-page-header';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
 import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { useOpenStandaloneStoryInChat } from '@/hooks/use-open-standalone-story-in-chat';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
@@ -105,7 +106,8 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
 				authorName={authorName}
 				storyChat={{ storyId, isOwner: true, canChat: !story.isArchived }}
-				canDuplicate={!story.isArchived}
+				canDuplicate={!story.isArchived && customStoryCreationEnabled}
+				viewedVersionNumber={story.viewedVersion ?? undefined}
 				live={{
 					isLive: live.isLive,
 					cachedAt: content?.cachedAt,
@@ -212,6 +214,93 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 				cacheScheduleDescription={live.cacheScheduleDescription}
 				isUpdating={live.isUpdating}
 				onSaveSettings={live.handleSaveSettings}
+			/>
+		</div>
+	);
+}
+
+/** A custom story of the user outside any chat: it renders from the rows saved with it and is edited in a new chat. */
+export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
+	const storyQuery = useQuery(trpc.standaloneCustomStory.listVersions.queryOptions({ storyId }));
+	const contentQuery = useQuery(trpc.standaloneCustomStory.getVersion.queryOptions({ storyId }));
+	const story = storyQuery.data;
+	const content = contentQuery.data;
+	const versionNumber = content?.version.number;
+	const storySlug = story?.slug ?? '';
+	const dataSource = useMemo<CustomStoryFileSource>(
+		() => ({ kind: 'standalone', storyId, storySlug, versionNumber }),
+		[storyId, storySlug, versionNumber],
+	);
+	const openInChat = useOpenStandaloneStoryInChat(storyId, story?.slug);
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
+	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const renderExport = useCallback(
+		(format: DownloadFormat, html: string) =>
+			trpcClient.standaloneCustomStory.download.mutate({ storyId, format, html, versionNumber }),
+		[storyId, versionNumber],
+	);
+	const download = useCustomStoryDownload(content, dataSource, renderExport);
+	const handleAskBlock = useCallback((block: StoryBlockReference) => {
+		requestAsk({ chatId: null, selection: { text: block.title ?? '', block } });
+	}, []);
+
+	useTrackViewDuration({ assetType: 'story', storyId, versionNumber });
+	const isArchived = Boolean(story?.archivedAt);
+	const isAskInputHidden = viewMode !== 'app';
+
+	return (
+		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
+			<StoryPageHeader
+				title={content?.title ?? story?.title ?? ''}
+				storyChat={{
+					storyId,
+					isOwner: true,
+					canChat: !isArchived,
+					onOpenInChat: openInChat.open,
+					isOpeningInChat: openInChat.isOpening,
+				}}
+				canDuplicate={!isArchived && customStoryCreationEnabled}
+				download={{ storyId, isOwner: true, onDownload: download }}
+				storyId={storyId}
+				canRename
+				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
+			/>
+
+			<div className='relative flex min-h-0 flex-1 flex-col'>
+				<CustomStoryViewLayers
+					viewMode={viewMode}
+					app={
+						<CustomStoryBody
+							bottomInset={isArchived || isAskInputHidden ? undefined : STORY_ASK_BAR_INSET}
+							dataSource={dataSource}
+							content={content}
+							isLoading={contentQuery.isLoading}
+							error={contentQuery.error}
+							hasPublishedVersion
+							onAskBlock={handleAskBlock}
+						/>
+					}
+					files={
+						content && (
+							<CustomStoryFiles
+								key={content.version.id}
+								source={dataSource}
+								versionNumber={content.version.number}
+								files={content.files}
+							/>
+						)
+					}
+				/>
+				{!isArchived && <StoryAskBar storyId={storyId} isOwner isInputHidden={isAskInputHidden} />}
+			</div>
+
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='story'
+				storyId={storyId}
 			/>
 		</div>
 	);

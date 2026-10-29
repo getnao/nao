@@ -26,10 +26,12 @@ import {
 	isCustomStoryViewMode,
 } from '@/components/custom-story/custom-story-view-mode';
 import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
+	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
 	StoryFeedbackButtons,
@@ -151,6 +153,7 @@ export const StoryHeader = memo(function StoryHeader({
 }: StoryHeaderProps) {
 	const { viewMode } = viewModeControls;
 	const isMobile = useIsMobile();
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { otherStories, switchToStory, mentionedStories, openMentionedStory } = useSwitchableStories({
 		chatId,
 		storySlug,
@@ -317,6 +320,8 @@ export const StoryHeader = memo(function StoryHeader({
 	};
 	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
 	const canFavorite = !isReadonlyMode && !!storyId;
+	const canDuplicate =
+		!isReadonlyMode && (customStoryCreationEnabled || !isCustomStoryViewModeControls(viewModeControls));
 
 	const feedbackButtons = storyId ? <StoryFeedbackButtons storyId={storyId} /> : null;
 	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
@@ -347,6 +352,7 @@ export const StoryHeader = memo(function StoryHeader({
 						</DropdownMenuItem>
 					</>
 				)}
+				{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} versionNumber={versionNumber} />}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
