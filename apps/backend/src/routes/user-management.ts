@@ -12,7 +12,13 @@ import * as userQueries from '../queries/user.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { checkApiKey } from '../services/api-key.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { putOrganizationMember, putProjectMember, removeOrganizationMember } from '../services/membership.service';
+import {
+	addOrganizationMemberWithGroups,
+	FOREIGN_ORGANIZATION_PURGE_MESSAGE,
+	putOrganizationMember,
+	putProjectMember,
+	removeOrganizationMember,
+} from '../services/membership.service';
 import { revokeUnauthorizedProjectWideShares } from '../services/project-sharing.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { addTeamMember } from '../services/team-member';
@@ -103,10 +109,8 @@ export const userManagementRoutes = async (app: App) => {
 				email: body.email,
 				name: body.name,
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(org.id, userId)),
-				addMember: async (userId) => {
-					await orgQueries.addOrgMember({ orgId: org.id, userId, role: body.role });
-					await userGroupQueries.addUserGroupMemberships(groupIds, userId);
-				},
+				addMember: async (userId) =>
+					addOrganizationMemberWithGroups({ orgId: org.id, userId, role: body.role }, groupIds),
 				buildEmail: (user, password) => buildUserAddedEmail(user, org.name, 'organization', password),
 			});
 			// addTeamMember echoes DEFAULT_USER_ROLE; the membership above carries the requested role.
@@ -148,20 +152,17 @@ export const userManagementRoutes = async (app: App) => {
 			// temporary password already sitting in their inbox.
 			const confined = await userQueries.isUserConfinedToOrganization(params.userId, org.id);
 			if (query.purge && !confined) {
-				throw new HandlerError(
-					'CONFLICT',
-					'This user belongs to another organization: revoke without purge to keep the account.',
-				);
+				throw new HandlerError('CONFLICT', FOREIGN_ORGANIZATION_PURGE_MESSAGE);
 			}
 			const deletesAccount = confined && (query.purge || (await userQueries.isPendingInvitation(params.userId)));
-			// Sessions die in the same transaction as the membership row: a failed removal cannot sign
-			// the member out, and a removed member cannot keep a live session.
-			await removeOrganizationMember(org.id, params.userId, { deleteSessions: true });
+			// Sessions and the account die in the same transaction as the membership row: a failed
+			// removal cannot sign the member out, and a removed member cannot keep a live session.
 			// purge stays opt-in: the cascade also takes the person's stories, which a membership sync
 			// has no business doing.
-			if (deletesAccount) {
-				await userQueries.deleteUser(params.userId);
-			}
+			await removeOrganizationMember(org.id, params.userId, {
+				deleteSessions: true,
+				purgeAccount: deletesAccount,
+			});
 			return true;
 		});
 		if (removed === SERVICE_ERROR) {

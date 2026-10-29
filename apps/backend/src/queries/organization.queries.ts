@@ -2,7 +2,7 @@ import type { MemberStatus, UserRole } from '@nao/shared/types';
 import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
 import { env } from '../env';
 import { OrgRole } from '../types/organization';
 import * as projectQueries from './project.queries';
@@ -54,8 +54,8 @@ export const getOrgMember = async (orgId: string, userId: string): Promise<DBOrg
 	return member ?? null;
 };
 
-export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> => {
-	const [created] = await db.insert(s.orgMember).values(member).returning().execute();
+export const addOrgMember = async (member: NewOrgMember, executor: DBExecutor = db): Promise<DBOrgMember> => {
+	const [created] = await executor.insert(s.orgMember).values(member).returning().execute();
 	return created;
 };
 
