@@ -34,6 +34,7 @@ export function useOpenCitation() {
 	return useCallback(
 		(citation: CitationData) => {
 			const { start, end, text, storySlug, block } = citation;
+			const storyChatId = citation.storyChatId ?? chatId;
 			requestCitedStoryElement(citation);
 			const pageContainer = selectionCtx?.pageContainerRef.current;
 			const revealInQuestionStory = (story: ResolvedStory) => {
@@ -51,19 +52,19 @@ export function useOpenCitation() {
 				return;
 			}
 			if (block) {
-				if (storySlug && chatId && sidePanel.currentStorySlug !== storySlug) {
-					sidePanel.open(<StoryViewer chatId={chatId} storySlug={storySlug} />, storySlug);
+				if (storySlug && storyChatId && sidePanel.currentStorySlug !== storySlug) {
+					sidePanel.open(<StoryViewer chatId={storyChatId} storySlug={storySlug} />, storySlug);
 				}
 				revealInStory(citation);
 				return;
 			}
-			if (storySlug && chatId) {
+			if (storySlug && storyChatId) {
 				if (sidePanel.currentStorySlug === storySlug) {
 					showNowOrRetry(() => scrollToStoryText(start, end, text));
 					return;
 				}
 
-				sidePanel.open(<StoryViewer chatId={chatId} storySlug={storySlug} />, storySlug);
+				sidePanel.open(<StoryViewer chatId={storyChatId} storySlug={storySlug} />, storySlug);
 				retryUntilShown(() => scrollToStoryText(start, end, text));
 				return;
 			}

@@ -8,6 +8,11 @@ export interface PendingCitation extends CitationData {
 	id: string;
 }
 
+interface CitedStory {
+	chatId: string;
+	slug: string;
+}
+
 interface ChatPendingCitations {
 	chatId: string;
 	citations: PendingCitation[];
@@ -26,8 +31,8 @@ export class ChatPendingCitationStore extends Store<ChatPendingCitations | null>
 		this.update(chatId, [...citations, withId(citation)]);
 	};
 
-	addStoryElement = (chatId: string, storySlug: string, { block, text, intent }: StoryElementCitation) => {
-		this.add(chatId, { storySlug, start: 0, end: 0, text, block, intent });
+	addStoryElement = (chatId: string, story: CitedStory, { block, text, intent }: StoryElementCitation) => {
+		this.add(chatId, { storySlug: story.slug, storyChatId: story.chatId, start: 0, end: 0, text, block, intent });
 	};
 
 	restore = (chatId: string, citations: CitationData[]): PendingCitation[] => {
@@ -84,11 +89,12 @@ export function toMessageCitations(
 			text,
 			placed.map((citation) => citation.id),
 		),
-		citations: placed.map(({ start, end, text: quote, storySlug, block, intent }) => ({
+		citations: placed.map(({ start, end, text: quote, storySlug, storyChatId, block, intent }) => ({
 			start,
 			end,
 			text: quote,
 			storySlug,
+			storyChatId,
 			block,
 			intent,
 		})),

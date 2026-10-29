@@ -173,7 +173,7 @@ export const StoryPreview = memo(function StoryPreview({
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
-				<div ref={contentRef} data-story-content className='p-6 flex flex-col gap-4'>
+				<div ref={contentRef} data-story-content data-story-chat-id={chatId} className='p-6 flex flex-col gap-4'>
 					<StoryFilterBar
 						filters={storyFilters.filters}
 						selections={storyFilters.selections}

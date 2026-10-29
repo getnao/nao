@@ -3,16 +3,28 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { chatPendingCitationStore, toMessageCitations } from './chat-pending-citation';
 
 const CHART = { kind: 'bar-chart', title: 'Revenue', queryId: 'q1' };
+const STORY = { chatId: 'story-chat', slug: 'story' };
 
 describe('chat pending citations', () => {
 	afterEach(() => chatPendingCitationStore.clear());
 
 	it('keeps each cited element once, in the order it was asked about', () => {
-		chatPendingCitationStore.addStoryElement('chat', 'story', { block: CHART, text: 'Revenue', intent: 'ask' });
+		chatPendingCitationStore.addStoryElement('chat', STORY, { block: CHART, text: 'Revenue', intent: 'ask' });
 		chatPendingCitationStore.add('chat', { start: 3, end: 8, text: 'March' });
-		chatPendingCitationStore.addStoryElement('chat', 'story', { block: CHART, text: 'Revenue', intent: 'ask' });
+		chatPendingCitationStore.addStoryElement('chat', STORY, { block: CHART, text: 'Revenue', intent: 'ask' });
 
 		expect(citations().map((citation) => citation.text)).toEqual(['Revenue', 'March']);
+	});
+
+	it('sends the chat of the cited story, which can differ from the chat quoting it', () => {
+		chatPendingCitationStore.addStoryElement('chat', STORY, { block: CHART, text: 'Revenue', intent: 'ask' });
+		const [cited] = citations();
+
+		const message = toMessageCitations(citations(), `why ❝[${cited.id}]?`);
+
+		expect(message.citations).toEqual([
+			{ start: 0, end: 0, text: 'Revenue', storySlug: 'story', storyChatId: 'story-chat', block: CHART, intent: 'ask' },
+		]);
 	});
 
 	it('starts a new list when another chat cites something', () => {

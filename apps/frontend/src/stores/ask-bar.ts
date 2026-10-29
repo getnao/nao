@@ -12,6 +12,7 @@ export type AskSelection = {
 	block?: StoryBlockReference;
 	intent?: StoryCitationIntent;
 	storySlug?: string;
+	storyChatId?: string;
 };
 
 export type AskRequest = {
@@ -45,6 +46,7 @@ export interface CodeSelection {
 
 interface CodeSource {
 	storySlug?: string;
+	storyChatId?: string;
 	filePath?: string;
 }
 
@@ -52,12 +54,20 @@ export function requestAskAboutCode(selection: CodeSelection, source: CodeSource
 	requestAsk({ chatId: null, selection: toCodeAsk(selection, source) });
 }
 
-export function toCodeAsk({ text, lines }: CodeSelection, { storySlug, filePath }: CodeSource): AskSelection {
-	return { text, block: { kind: CODE_CITATION_KIND, title: filePath, lines }, intent: 'ask', storySlug };
+export function toCodeAsk({ text, lines }: CodeSelection, { storySlug, storyChatId, filePath }: CodeSource): AskSelection {
+	return { text, block: { kind: CODE_CITATION_KIND, title: filePath, lines }, intent: 'ask', storySlug, storyChatId };
 }
 
-export function toAskCitation({ text, start = 0, end = 0, block, intent, storySlug }: AskSelection): CitationData {
-	return { text, start, end, block, intent, storySlug };
+export function toAskCitation({
+	text,
+	start = 0,
+	end = 0,
+	block,
+	intent,
+	storySlug,
+	storyChatId,
+}: AskSelection): CitationData {
+	return { text, start, end, block, intent, storySlug, storyChatId };
 }
 
 export const useAskRequest = () => useSyncExternalStore(askRequestStore.subscribe, askRequestStore.getSnapshot);
