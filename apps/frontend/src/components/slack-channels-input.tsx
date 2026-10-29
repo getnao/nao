@@ -23,37 +23,35 @@ type SlackChannelsInputProps = {
 export function SlackChannelsInput({ channels, saveError, disabled, onChange }: SlackChannelsInputProps) {
 	const [draft, setDraft] = useState('');
 	const inputRef = useRef<HTMLInputElement>(null);
-	const invalidChannels = getInvalidSlackChannels(channels);
+	const tokens = getCommittedChannels(channels, draft);
+	const invalidChannels = getInvalidSlackChannels(saveError ? channels : tokens);
 	const feedbackId = 'automation-slack-channels-feedback';
 
-	function commit(text: string) {
-		const additions = parseSlackChannels(text);
-		if (additions.length > 0) {
-			onChange(mergeSlackChannels(channels, additions));
-		}
+	/** The draft is always part of `channels` so a save shortcut pressed mid-typing keeps it. */
+	function update(nextTokens: string[], nextDraft: string) {
+		setDraft(nextDraft);
+		onChange(mergeSlackChannels(nextTokens, parseSlackChannels(nextDraft)));
 	}
 
 	function handleDraftChange(text: string) {
 		if (!hasSlackChannelSeparator(text)) {
-			setDraft(text);
+			update(tokens, text);
 			return;
 		}
 		const parts = text.split(/[,;\n]/);
 		const remainder = parts.pop() ?? '';
-		commit(parts.join(','));
-		setDraft(remainder.trimStart());
+		update(mergeSlackChannels(tokens, parseSlackChannels(parts.join(','))), remainder.trimStart());
 	}
 
 	function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
 		if ((event.key === 'Enter' || event.key === 'Tab') && draft.trim()) {
 			event.preventDefault();
-			commit(draft);
 			setDraft('');
 			return;
 		}
-		if (event.key === 'Backspace' && draft === '' && channels.length > 0) {
+		if (event.key === 'Backspace' && draft === '' && tokens.length > 0) {
 			event.preventDefault();
-			onChange(channels.slice(0, -1));
+			update(tokens.slice(0, -1), '');
 		}
 	}
 
@@ -63,23 +61,19 @@ export function SlackChannelsInput({ channels, saveError, disabled, onChange }: 
 			return;
 		}
 		event.preventDefault();
-		commit(`${draft},${pasted}`);
-		setDraft('');
-	}
-
-	function handleBlur() {
-		commit(draft);
-		setDraft('');
+		update(mergeSlackChannels(tokens, parseSlackChannels(`${draft},${pasted}`)), '');
 	}
 
 	function removeChannel(channel: string) {
-		onChange(channels.filter((item) => item !== channel));
+		update(
+			tokens.filter((item) => item !== channel),
+			draft,
+		);
 	}
 
 	function editChannel(channel: string) {
-		commit(draft);
-		removeChannel(channel);
-		setDraft(channel);
+		const remainingTokens = tokens.filter((item) => item !== channel);
+		update(mergeSlackChannels(remainingTokens, parseSlackChannels(draft)), channel);
 		requestAnimationFrame(() => inputRef.current?.focus());
 	}
 
@@ -95,7 +89,7 @@ export function SlackChannelsInput({ channels, saveError, disabled, onChange }: 
 					disabled && 'pointer-events-none opacity-50',
 				)}
 			>
-				{channels.map((channel) => (
+				{tokens.map((channel) => (
 					<SlackChannelToken
 						key={channel}
 						channel={channel}
@@ -111,17 +105,17 @@ export function SlackChannelsInput({ channels, saveError, disabled, onChange }: 
 					disabled={disabled}
 					aria-label='Slack channels'
 					aria-describedby={feedbackId}
-					placeholder={channels.length === 0 ? `Add channels, comma separated: ${SLACK_CHANNEL_EXAMPLE}` : ''}
+					placeholder={tokens.length === 0 ? `Add channels, comma separated: ${SLACK_CHANNEL_EXAMPLE}` : ''}
 					className='h-6 min-w-32 flex-1 px-1 text-sm placeholder:text-muted-foreground'
 					onChange={(event) => handleDraftChange(event.target.value)}
 					onKeyDown={handleKeyDown}
 					onPaste={handlePaste}
-					onBlur={handleBlur}
+					onBlur={() => setDraft('')}
 				/>
 			</div>
 			<SlackChannelsFeedback
 				id={feedbackId}
-				channels={channels}
+				channels={saveError ? channels : tokens}
 				invalidChannels={invalidChannels}
 				saveError={saveError}
 			/>
@@ -226,6 +220,14 @@ function SlackChannelsFeedback({
 			<p className='text-muted-foreground'>{getDeliverySummary(validCount, invalidChannels.length)}</p>
 		</div>
 	);
+}
+
+function getCommittedChannels(channels: string[], draft: string): string[] {
+	const draftChannel = draft.trim();
+	if (draftChannel && channels.at(-1) === draftChannel) {
+		return channels.slice(0, -1);
+	}
+	return channels;
 }
 
 function getDeliverySummary(validCount: number, invalidCount: number): string {
