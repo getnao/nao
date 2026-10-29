@@ -2,7 +2,7 @@ import { ChartColumn, ChartLine, ChartPie, Code, Gauge, LayoutPanelTop, MapPin, 
 import { CITATION_MENTION_TRIGGER } from '@nao/shared';
 import { CODE_CITATION_KIND, MAX_CITATION_TEXT_LENGTH } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
-import type { MentionOption, PromptHandle } from 'prompt-mentions';
+import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { CitationData, StoryBlockReference } from '@nao/shared/types';
 
 export { CITATION_MENTION_TRIGGER };
@@ -48,6 +48,13 @@ export function toSentCitationOptions(citations: CitationData[], text: string): 
 		const citation = citations[Number(id) - 1];
 		return citation ? toCitationMentionOption(citation, id) : toMissingCitationOption(id);
 	});
+}
+
+/** Skills, tables and stories the agent loads as context: citations travel with the message instead. */
+export function toContextMentions(mentions: SelectedMention[]): MentionOption[] {
+	return mentions
+		.filter((mention) => mention.trigger !== CITATION_MENTION_TRIGGER)
+		.map(({ id, label, trigger }) => ({ id, label, trigger }));
 }
 
 export function extractCitationIds(text: string): string[] {
@@ -122,6 +129,7 @@ export function capCitationText<T extends CitationData>(citation: T): T {
 export function isSameCitation(left: CitationData, right: CitationData): boolean {
 	return (
 		left.storySlug === right.storySlug &&
+		left.storyChatId === right.storyChatId &&
 		left.text === right.text &&
 		left.start === right.start &&
 		left.end === right.end &&

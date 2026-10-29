@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, X } from 'lucide-react';
 import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
-import type { PromptHandle } from 'prompt-mentions';
+import type { MentionOption, PromptHandle } from 'prompt-mentions';
 import type { UIMessage } from '@nao/backend/chat';
 
 import type { CitationData } from '@nao/shared/types';
@@ -25,7 +25,7 @@ import { ChatIdContext, useChatId } from '@/hooks/use-chat-id';
 import { useCitationPills } from '@/hooks/use-citation-pills';
 import { useIsPromptMultiline } from '@/hooks/use-is-prompt-multiline';
 import { useOpenCitation } from '@/hooks/use-open-citation';
-import { capCitationText, isSameCitation } from '@/lib/citation-mention';
+import { capCitationText, isSameCitation, toContextMentions } from '@/lib/citation-mention';
 import { cn } from '@/lib/utils';
 import { toAskCitation, useAskRequest } from '@/stores/ask-bar';
 import { toMessageCitations } from '@/stores/chat-pending-citation';
@@ -36,12 +36,14 @@ type AskSession = {
 	citations: PendingCitation[];
 	pendingText?: string;
 	pendingCitations?: CitationData[];
+	pendingMentions?: MentionOption[];
 	isPanelOpen: boolean;
 };
 
 interface AskMessage {
 	text: string;
 	citations: CitationData[];
+	mentions: MentionOption[];
 }
 
 const NO_SESSION: AskSession = { chatId: null, citations: [], isPanelOpen: false };
@@ -102,6 +104,7 @@ export function AskBar({
 			chatId,
 			pendingText: message.text,
 			pendingCitations: message.citations,
+			pendingMentions: message.mentions,
 			citations: [],
 			isPanelOpen: true,
 		}));
@@ -146,11 +149,13 @@ export function AskBar({
 					<PendingMessageSender
 						pendingText={session.pendingText}
 						pendingCitations={session.pendingCitations}
+						pendingMentions={session.pendingMentions}
 						onSent={() =>
 							setSession((current) => ({
 								...current,
 								pendingText: undefined,
 								pendingCitations: undefined,
+								pendingMentions: undefined,
 							}))
 						}
 					/>
@@ -193,13 +198,15 @@ function FloatingBar({ isHidden, children }: { isHidden: boolean; children: Reac
 function PendingMessageSender({
 	pendingText,
 	pendingCitations,
+	pendingMentions,
 	onSent,
 }: {
 	pendingText?: string;
 	pendingCitations?: CitationData[];
+	pendingMentions?: MentionOption[];
 	onSent: () => void;
 }) {
-	const { queueOrSendMessage } = useAgentContext();
+	const { queueOrSendMessage, setMentions } = useAgentContext();
 	const sentText = useRef<string | null>(null);
 
 	useEffect(() => {
@@ -208,8 +215,9 @@ function PendingMessageSender({
 		}
 		sentText.current = pendingText;
 		onSent();
+		setMentions(pendingMentions ?? []);
 		void queueOrSendMessage({ text: pendingText, citations: nonEmpty(pendingCitations) });
-	}, [pendingText, pendingCitations, onSent, queueOrSendMessage]);
+	}, [pendingText, pendingCitations, pendingMentions, onSent, queueOrSendMessage, setMentions]);
 
 	return null;
 }
@@ -281,8 +289,9 @@ function SessionInput({
 
 /** A follow-up quotes the citations added since the last message, then the input starts without any. */
 function useSendWithCitations(onCitationsSent: () => void) {
-	const { queueOrSendMessage } = useAgentContext();
-	return ({ text, citations }: AskMessage) => {
+	const { queueOrSendMessage, setMentions } = useAgentContext();
+	return ({ text, citations, mentions }: AskMessage) => {
+		setMentions(mentions);
 		void queueOrSendMessage({ text, citations: nonEmpty(citations) });
 		onCitationsSent();
 	};
@@ -447,7 +456,8 @@ function AskInput({
 		if (!text || isSending) {
 			return;
 		}
-		Promise.resolve(onSubmit(toMessageCitations(citations, text)))
+		const mentions = toContextMentions(promptRef.current?.getMentions() ?? []);
+		Promise.resolve(onSubmit({ ...toMessageCitations(citations, text), mentions }))
 			.then(() => {
 				promptRef.current?.clear();
 				setValue('');

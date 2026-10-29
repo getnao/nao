@@ -380,12 +380,12 @@ function findLatestStorySlug(messages: UIMessage[]): string | undefined {
 function resolveStoryCitationMeta(
 	currentStorySlug: string | null,
 	range: Range,
-): { storySlug: string; start: number; end: number } | null {
+): { storySlug: string; storyChatId?: string; start: number; end: number } | null {
 	if (!currentStorySlug) {
 		return null;
 	}
 
-	const storyContainer = document.querySelector('[data-story-content]');
+	const storyContainer = document.querySelector<HTMLElement>('[data-story-content]');
 	if (!storyContainer || !storyContainer.contains(range.commonAncestorContainer)) {
 		return null;
 	}
@@ -396,7 +396,7 @@ function resolveStoryCitationMeta(
 		return null;
 	}
 
-	return { storySlug: currentStorySlug, start, end };
+	return { storySlug: currentStorySlug, storyChatId: storyContainer.dataset.storyChatId, start, end };
 }
 
 function buildHeaderCitation(meta: ForkMetadata | undefined): { citation: string; text: string } | null {

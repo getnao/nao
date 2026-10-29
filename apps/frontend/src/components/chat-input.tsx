@@ -82,7 +82,7 @@ import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
 import { ChatPendingCitationStore, chatPendingCitationStore, toMessageCitations } from '@/stores/chat-pending-citation';
 import { useChatPendingCitations } from '@/hooks/use-chat-pending-citation';
-import { CITATION_MENTION_TRIGGER, removeCitationTokens, writeCitedText } from '@/lib/citation-mention';
+import { removeCitationTokens, toContextMentions, writeCitedText } from '@/lib/citation-mention';
 import { useCitationPills } from '@/hooks/use-citation-pills';
 import { useOpenCitation } from '@/hooks/use-open-citation';
 import { CitationPillPreview } from '@/components/citation-pill-preview';
@@ -538,11 +538,7 @@ function ChatInputBase({
 					citationStore.clear();
 				}
 
-				setMentions(
-					currentMentions
-						.filter((m) => m.trigger !== CITATION_MENTION_TRIGGER)
-						.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })),
-				);
+				setMentions(toContextMentions(currentMentions));
 				promptRef.current?.clear();
 				setInputText('');
 

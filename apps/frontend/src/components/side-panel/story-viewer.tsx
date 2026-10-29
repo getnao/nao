@@ -283,10 +283,10 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		(selection: CodeSelection) => {
 			chatPendingCitationStore.add(
 				citingChatId,
-				toAskCitation(toCodeAsk(selection, { storySlug: resolvedStorySlug })),
+				toAskCitation(toCodeAsk(selection, { storySlug: resolvedStorySlug, storyChatId: chatId })),
 			);
 		},
-		[citingChatId, resolvedStorySlug],
+		[citingChatId, resolvedStorySlug, chatId],
 	);
 	useEffect(() => registerBeforeChange(exitGuard.requestExit), [exitGuard.requestExit, registerBeforeChange]);
 	const handleBeforeAgentSend = useCallback(async () => {

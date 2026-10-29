@@ -106,16 +106,19 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 
 	const handleAsk = useCallback(
 		(citation: StoryElementCitation) => {
-			chatPendingCitationStore.addStoryElement(citingChatId, storySlug, citation);
+			chatPendingCitationStore.addStoryElement(citingChatId, { chatId, slug: storySlug }, citation);
 		},
-		[citingChatId, storySlug],
+		[citingChatId, chatId, storySlug],
 	);
 
 	const handleAskAboutCode = useCallback(
 		(filePath: string, selection: CodeSelection) => {
-			chatPendingCitationStore.add(citingChatId, toAskCitation(toCodeAsk(selection, { storySlug, filePath })));
+			chatPendingCitationStore.add(
+				citingChatId,
+				toAskCitation(toCodeAsk(selection, { storySlug, storyChatId: chatId, filePath })),
+			);
 		},
-		[citingChatId, storySlug],
+		[citingChatId, chatId, storySlug],
 	);
 
 	const handleRememberState = useCallback(() => {

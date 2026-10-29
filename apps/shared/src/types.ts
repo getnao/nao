@@ -467,6 +467,8 @@ export interface CitationData {
 	end: number;
 	text: string;
 	storySlug?: string;
+	/** The chat the cited story belongs to, which can differ from the chat that quotes it. */
+	storyChatId?: string;
 	block?: StoryBlockReference;
 	intent?: StoryCitationIntent;
 }

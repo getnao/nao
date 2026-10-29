@@ -197,6 +197,7 @@ const CitationDataSchema = z.object({
 	end: z.number(),
 	text: z.string().max(MAX_CITATION_TEXT_LENGTH),
 	storySlug: z.string().optional(),
+	storyChatId: z.string().optional(),
 	block: z
 		.object({
 			kind: z.string(),
