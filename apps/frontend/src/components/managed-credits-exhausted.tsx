@@ -1,9 +1,11 @@
-import { Link } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { ArrowUpRight, CircleDollarSign, KeyRound } from 'lucide-react';
 
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
+import { setActiveOrganizationId } from '@/lib/active-organization';
 
 type ManagedCreditsExhaustedProps = {
 	open: boolean;
@@ -19,9 +21,21 @@ export function ManagedCreditsExhausted({
 	creditOrganizationId,
 }: ManagedCreditsExhaustedProps) {
 	const openOrganizationBilling = useOpenOrganizationBilling();
+	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const canAddCredits = Boolean(creditOrganizationId);
 	const canManageAccess = canAddProviderKey || canAddCredits;
 	const title = 'You’re out of nao credits';
+
+	const openOrganizationMembers = async () => {
+		if (!creditOrganizationId) {
+			return;
+		}
+
+		setActiveOrganizationId(creditOrganizationId);
+		await queryClient.invalidateQueries();
+		await navigate({ to: '/settings/organization/members' });
+	};
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -35,6 +49,10 @@ export function ManagedCreditsExhausted({
 								<Link
 									to='/settings/organization/members'
 									className='inline-flex items-center gap-0.5 font-medium text-foreground hover:underline'
+									onClick={(event) => {
+										event.preventDefault();
+										void openOrganizationMembers();
+									}}
 								>
 									invite users
 									<ArrowUpRight className='size-3.5' />

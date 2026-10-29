@@ -1,22 +1,46 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { ManagedCreditsExhausted } from './managed-credits-exhausted';
-import type { ReactNode } from 'react';
+import type { MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
 	openBilling: vi.fn(async () => undefined),
+	invalidateQueries: vi.fn(async () => undefined),
+	navigate: vi.fn(async () => undefined),
+	setActiveOrganizationId: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-	Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
+	Link: ({
+		children,
+		to,
+		onClick,
+	}: {
+		children: ReactNode;
+		to: string;
+		onClick?: MouseEventHandler<HTMLAnchorElement>;
+	}) => (
+		<a href={to} onClick={onClick}>
+			{children}
+		</a>
+	),
+	useNavigate: () => mocks.navigate,
+}));
+
+vi.mock('@tanstack/react-query', () => ({
+	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
 
 vi.mock('@/hooks/use-open-organization-billing', () => ({
 	useOpenOrganizationBilling: () => mocks.openBilling,
+}));
+
+vi.mock('@/lib/active-organization', () => ({
+	setActiveOrganizationId: mocks.setActiveOrganizationId,
 }));
 
 afterEach(() => {
@@ -24,7 +48,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-it('shows both recovery actions to an organization and project admin', () => {
+it('shows both recovery actions to an organization and project admin', async () => {
 	render(
 		<ManagedCreditsExhausted
 			open
@@ -40,6 +64,14 @@ it('shows both recovery actions to an organization and project admin', () => {
 	expect(screen.getByRole('link', { name: 'Use your own AI provider' })).toBeTruthy();
 	expect(screen.getByRole('link', { name: 'invite users' }).getAttribute('href')).toBe(
 		'/settings/organization/members',
+	);
+
+	fireEvent.click(screen.getByRole('link', { name: 'invite users' }));
+	await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith({ to: '/settings/organization/members' }));
+	expect(mocks.setActiveOrganizationId).toHaveBeenCalledWith('organization-id');
+	expect(mocks.invalidateQueries).toHaveBeenCalledOnce();
+	expect(mocks.setActiveOrganizationId.mock.invocationCallOrder[0]).toBeLessThan(
+		mocks.navigate.mock.invocationCallOrder[0],
 	);
 
 	fireEvent.click(screen.getByRole('button', { name: 'Buy nao credits' }));
