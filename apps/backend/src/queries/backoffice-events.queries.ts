@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq, gte, inArray, isNotNull, lte, notInArray, ty
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import type {
 	InstanceLogFilter,
 	InstanceLogsInput,
@@ -13,7 +14,7 @@ import type {
 	MessagePaginationInput,
 	PaginatedResult,
 } from '../types/backoffice';
-import { redactContext } from '../utils/logger';
+import { redactContext, REDACTED_CONTEXT_VALUE, SENSITIVE_CONTEXT_KEYS } from '../utils/logger';
 
 type InstanceLogTextFilter = Extract<InstanceLogFilter, { column: InstanceLogTextColumn }>;
 
@@ -149,18 +150,18 @@ function toInstanceLogCondition(filter: InstanceLogFilter): SQL | undefined {
 /** Text filters are case-insensitive and treat a missing value (e.g. a log without project) as an empty string. */
 function toTextCondition(filter: InstanceLogTextFilter): SQL {
 	const text = sql`lower(coalesce(${instanceLogTextExpression(filter.column)}, ''))`;
-	const value = filter.value.toLowerCase();
+	const pattern = escapeLikePattern(filter.value);
 	switch (filter.operator) {
 		case 'contains':
-			return sql`${text} like ${`%${escapeLikePattern(value)}%`} escape '\\'`;
+			return sql`${text} like lower(${`%${pattern}%`}) escape '\\'`;
 		case 'notContains':
-			return sql`${text} not like ${`%${escapeLikePattern(value)}%`} escape '\\'`;
+			return sql`${text} not like lower(${`%${pattern}%`}) escape '\\'`;
 		case 'startsWith':
-			return sql`${text} like ${`${escapeLikePattern(value)}%`} escape '\\'`;
+			return sql`${text} like lower(${`${pattern}%`}) escape '\\'`;
 		case 'equals':
-			return sql`${text} = ${value}`;
+			return sql`${text} = lower(${filter.value})`;
 		case 'notEquals':
-			return sql`${text} <> ${value}`;
+			return sql`${text} <> lower(${filter.value})`;
 		case 'isEmpty':
 			return sql`${text} = ''`;
 		case 'isNotEmpty':
@@ -173,12 +174,35 @@ function instanceLogTextExpression(column: InstanceLogTextColumn): SQL {
 		case 'message':
 			return sql`${s.log.message}`;
 		case 'context':
-			return sql`cast(${s.log.context} as text)`;
+			return redactedContextText();
 		case 'project':
 			return sql`${s.project.name}`;
 		case 'organization':
 			return sql`${s.organization.name}`;
 	}
+}
+
+/** The context as `redactContext` returns it, so text filters can't match the values it hides. */
+function redactedContextText(): SQL {
+	return dbConfig.dialect === Dialect.Postgres ? postgresRedactedContextText() : sqliteRedactedContextText();
+}
+
+function postgresRedactedContextText(): SQL {
+	const context = s.log.context;
+	const value = sql`case when ${isSensitiveContextKey()} then to_jsonb(cast(${REDACTED_CONTEXT_VALUE} as text)) else entry.value end`;
+	const redacted = sql`(select jsonb_object_agg(entry.key, ${value}) from jsonb_each(${context}) as entry)`;
+	return sql`case when jsonb_typeof(${context}) = 'object' then cast(coalesce(${redacted}, '{}'::jsonb) as text) else cast(${context} as text) end`;
+}
+
+function sqliteRedactedContextText(): SQL {
+	const context = s.log.context;
+	const value = sql`case when ${isSensitiveContextKey()} then ${REDACTED_CONTEXT_VALUE} else ${context} -> entry.fullkey end`;
+	const redacted = sql`(select json_group_object(entry.key, ${value}) from json_each(${context}) as entry)`;
+	return sql`case when json_type(${context}) = 'object' then ${redacted} else ${context} end`;
+}
+
+function isSensitiveContextKey(): SQL {
+	return inArray(sql`lower(entry.key)`, SENSITIVE_CONTEXT_KEYS);
 }
 
 function instanceLogSortExpression(key: InstanceLogSortKey): SQL {

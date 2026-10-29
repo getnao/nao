@@ -248,7 +248,7 @@ describe('cloud backoffice routes', () => {
 				id: 'log-agent',
 				level: 'warn',
 				source: 'agent',
-				message: 'Tool call retried',
+				message: 'Échec du tool call, nouvel essai',
 				projectId: PROJECT_ID,
 				createdAt: new Date(now - 120_000),
 			},
@@ -273,8 +273,14 @@ describe('cloud backoffice routes', () => {
 		expect(logIds(await listLogs({ filters: projectlessFilter }))).toEqual(['log-http']);
 		const messageFilter = [{ column: 'message', operator: 'contains', value: 'API/CHATS' }];
 		expect(logIds(await listLogs({ filters: messageFilter }))).toEqual(['log-http']);
+		const accentedFilter = [{ column: 'message', operator: 'startsWith', value: 'Échec' }];
+		expect(logIds(await listLogs({ filters: accentedFilter }))).toEqual(['log-agent']);
 		const contextFilter = [{ column: 'context', operator: 'contains', value: 'statusCode' }];
 		expect(logIds(await listLogs({ filters: contextFilter }))).toEqual(['log-http']);
+		const redactedValueFilter = [{ column: 'context', operator: 'contains', value: SECRET }];
+		expect((await listLogs({ filters: redactedValueFilter })).json().total).toBe(0);
+		const redactedKeyFilter = [{ column: 'context', operator: 'contains', value: '"secret":"[REDACTED]"' }];
+		expect(logIds(await listLogs({ filters: redactedKeyFilter }))).toEqual(['log-1']);
 		const organizationFilter = [{ column: 'organization', operator: 'notContains', value: 'backoffice' }];
 		expect(logIds(await listLogs({ filters: organizationFilter }))).toEqual(['log-http']);
 		const combinedFilters = [

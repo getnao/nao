@@ -54,13 +54,15 @@ function getErrorLikeMessage(value: unknown): string {
 	return typeof message === 'string' ? message : String(value);
 }
 
-const SENSITIVE_KEYS = new Set(['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key']);
+export const SENSITIVE_CONTEXT_KEYS = ['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key'];
+export const REDACTED_CONTEXT_VALUE = '[REDACTED]';
+const SENSITIVE_KEYS = new Set(SENSITIVE_CONTEXT_KEYS);
 
 export function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
 	const redacted: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(ctx)) {
 		if (SENSITIVE_KEYS.has(key.toLowerCase())) {
-			redacted[key] = '[REDACTED]';
+			redacted[key] = REDACTED_CONTEXT_VALUE;
 		} else {
 			redacted[key] = value;
 		}
