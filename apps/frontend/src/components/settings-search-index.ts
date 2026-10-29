@@ -275,6 +275,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['env', 'environment', 'variable', 'secret', 'credential', 'config', 'jinja'],
 		adminOnly: true,
 	},
+	{
+		page: '/settings/project',
+		pageLabel: 'Project Settings',
+		title: 'Warehouse credentials',
+		description: 'Replace the warehouse connection details stored encrypted in nao.',
+		keywords: ['warehouse', 'credentials', 'password', 'token', 'secret', 'connection', 'database'],
+		adminOnly: true,
+	},
 
 	// ── Project > Budget ─────────────────────────────────────
 	{

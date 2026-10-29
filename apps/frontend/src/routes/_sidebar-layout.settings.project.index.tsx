@@ -4,6 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { EditableProjectName } from '@/components/settings/editable-project-name';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { ProjectIdentifier } from '@/components/settings/project-identifier';
+import { WarehouseCredentialsSection } from '@/components/settings/warehouse-credentials-section';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -53,6 +54,7 @@ function ProjectSettingsPage() {
 				) : null}
 			</SettingsCard>
 
+			<WarehouseCredentialsSection isAdmin={isAdmin} />
 			<EnvVarsSection isAdmin={isAdmin} />
 		</>
 	);

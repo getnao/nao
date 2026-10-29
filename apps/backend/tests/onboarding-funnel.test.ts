@@ -95,6 +95,29 @@ describe('onboarding funnel', () => {
 		expect(summarizeOnboarding('user-1', events)).toMatchObject({ stage: 'project_ready', path: 'direct' });
 	});
 
+	it('keeps the journey before a restart, from the interface or the agent', () => {
+		const [, cancelled] = provisioningJobEvents({
+			provider: 'postgres',
+			status: 'cancelled',
+			failedStatus: 'syncing',
+			error: 'The warehouse setup was cancelled because the onboarding was restarted.',
+			createdAt: at(1),
+			updatedAt: at(2),
+			finishedAt: at(2),
+		});
+
+		expect(cancelled).toMatchObject({
+			title: 'Postgres cloud setup cancelled while running nao sync',
+			detail: 'The warehouse setup was cancelled because the onboarding was restarted.',
+			outcome: 'neutral',
+		});
+		expect(onboardingMessage(at(3), 'I restarted the onboarding.')).toMatchObject({
+			title: 'Restarted the onboarding',
+			stage: 'onboarding',
+		});
+		expect(toolCall(at(4), 'restart_onboarding', {})).toMatchObject({ title: 'Restarted the onboarding' });
+	});
+
 	it('ignores internal onboarding messages and malformed tool inputs', () => {
 		expect(
 			onboardingMessageEvent({ createdAt: at(0), text: '[internal:onboarding-context-request] jobId=1' }),

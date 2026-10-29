@@ -1,11 +1,13 @@
 import z from 'zod/v3';
 
+/** Sent by the connection form when the user skips the business context. */
+export const SKIP_MESSAGE = 'Skip the business context for now.';
+
 export const BusinessContextSchema = z.object({
 	additionalContext: z.string().min(1).optional(),
 });
 
 export const InputSchema = z.object({
-	jobId: z.string().uuid(),
 	businessContext: BusinessContextSchema,
 });
 

@@ -6,7 +6,6 @@ import { onboardingAgent } from '../agents/profiles/onboarding';
 import type { DBProject } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import { consumeExampleChatRun, releaseExampleChatRun } from '../queries/example-chat-allowance.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as warehouseProvisioningJobQueries from '../queries/warehouse-provisioning-job.queries';
 import type { AgentRequest } from '../types/chat';
 import type { ExampleChatAllowanceScope } from '../types/example-chat-allowance';
@@ -17,6 +16,7 @@ import {
 } from '../utils/error';
 import type { AgentRun, AuthorizedAgentRunRequest } from './agent-run';
 import { getExampleProjectForUser, getSystemExampleProject } from './example-project';
+import { hasConnectedProject } from './warehouse-provisioning';
 
 const EXAMPLE_MODEL = { provider: 'nao', modelId: 'gpt-6-sol' } satisfies LlmSelectedModel;
 
@@ -76,7 +76,7 @@ export async function reserveExampleChatRun(
 	scope: ExampleChatAllowanceScope,
 	chatId?: string,
 ): Promise<boolean> {
-	const userHasProject = (await projectQueries.listUserProjects(userId)).length > 0;
+	const userHasProject = await hasConnectedProject(userId);
 	if (userHasProject && !(scope === 'onboarding' && (await isProjectSetupRunning(userId, chatId)))) {
 		return false;
 	}

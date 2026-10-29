@@ -43,11 +43,15 @@ import { MattermostConnectionError, validateMattermostConnection } from '../serv
 import { mcpService } from '../services/mcp';
 import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { updateProjectEnvVars } from '../services/project.service';
+import { reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
+import {
+	getProjectWarehouseCredentialsSummary,
+	updateProjectWarehouseCredentials,
+} from '../services/warehouse-credentials';
 import { AgentSettings } from '../types/agent-settings';
 import type { ContextUsage, MessageModel } from '../types/chat';
 import {
@@ -1326,14 +1330,29 @@ export const projectRoutes = {
 		}),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {
-		const requiredVars = ctx.project.path ? extractRequiredEnvVars(ctx.project.path) : [];
-		const storedVars = await projectQueries.getEnvVars(ctx.project.id);
+		const [storedVars, warehouseCredentials] = await Promise.all([
+			projectQueries.getEnvVars(ctx.project.id),
+			getProjectWarehouseCredentialsSummary(ctx.project.id),
+		]);
+		const warehouseCredentialNames = new Set(warehouseCredentials?.fields.map((field) => field.name));
+		const requiredVars = (ctx.project.path ? extractRequiredEnvVars(ctx.project.path) : []).filter(
+			(name) => !warehouseCredentialNames.has(name),
+		);
 		return {
 			required: requiredVars,
 			values: storedVars,
 			setFromProcessEnv: getProcessEnvSourcedVarNames(requiredVars, storedVars),
+			warehouseCredentials,
 		};
 	}),
+
+	updateWarehouseCredentials: adminProtectedProcedure
+		.input(z.object({ values: z.record(z.string(), z.string().min(1)) }))
+		.mutation(async ({ ctx, input }) => {
+			await updateProjectWarehouseCredentials(ctx.project.id, input.values);
+			await reconcileProjectReadiness(ctx.project.id);
+			void mcpService.refreshProjectConfig(ctx.project.id);
+		}),
 
 	updateEnvVars: adminProtectedProcedure
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))

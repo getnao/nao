@@ -13,12 +13,12 @@ import {
 	isOnboardingComplete,
 	OnboardingProgress,
 	useOnboardingProgress,
-	WarehouseCommandProgress,
 } from '@/components/onboarding-progress';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
 import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
+import { isStoppedStatus } from '@/components/tool-calls/warehouse-setup-progress';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -29,6 +29,8 @@ import {
 	DialogTrigger,
 } from '@/components/ui/dialog';
 import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding-floating-slot';
+import { StartNewOnboardingProvider } from '@/contexts/onboarding-restart';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
 import { getOnboardingChatIdStorage } from '@/hooks/use-agent';
@@ -59,21 +61,33 @@ export const Route = createFileRoute('/_sidebar-layout/onboarding')({
 function OnboardingRoute() {
 	const { data: session } = useSession();
 	const search = Route.useSearch();
-	const [chatId] = useState(
-		() =>
+	const navigate = Route.useNavigate();
+	const [conversation, setConversation] = useState(() => ({
+		key: 0,
+		chatId:
 			search.chatId ??
 			(session?.user.id ? (getOnboardingChatIdStorage(session.user.id).get() ?? undefined) : undefined),
-	);
+	}));
+
+	const startNewConversation = useCallback(() => {
+		setConversation((current) => ({ key: current.key + 1, chatId: undefined }));
+		navigate({ search: {}, replace: true }).catch(console.error);
+	}, [navigate]);
+
 	return (
-		<ChatIdContext.Provider value={chatId}>
-			<SetChatInputCallbackProvider>
-				<StoryBeforeAgentSendProvider>
-					<AgentProvider disableNavigation mode='onboarding'>
-						<OnboardingPage />
-					</AgentProvider>
-				</StoryBeforeAgentSendProvider>
-			</SetChatInputCallbackProvider>
-		</ChatIdContext.Provider>
+		<StartNewOnboardingProvider value={startNewConversation}>
+			<ChatIdContext.Provider key={conversation.key} value={conversation.chatId}>
+				<SetChatInputCallbackProvider>
+					<StoryBeforeAgentSendProvider>
+						<AgentProvider disableNavigation mode='onboarding'>
+							<OnboardingFloatingSlotProvider>
+								<OnboardingPage />
+							</OnboardingFloatingSlotProvider>
+						</AgentProvider>
+					</StoryBeforeAgentSendProvider>
+				</SetChatInputCallbackProvider>
+			</ChatIdContext.Provider>
+		</StartNewOnboardingProvider>
 	);
 }
 
@@ -149,6 +163,9 @@ function OnboardingPage() {
 	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
 	const onboardingComplete = isOnboardingComplete(onboardingProject != null, progress, warehouseReady);
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
+	const setupStatus = latestWarehouseJob.data?.status;
+	const isSetupInProgress = setupStatus !== undefined && setupStatus !== 'ready' && !isStoppedStatus(setupStatus);
+	const canRestart = hasMessages && !onboardingComplete && (!projects.data?.length || isSetupInProgress);
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
@@ -233,7 +250,11 @@ function OnboardingPage() {
 			<MobileHeader />
 			<div className='shrink-0 pb-2 pt-4'>
 				<div className='mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 md:px-4'>
-					<OnboardingProgress complete={onboardingComplete} warehouseStatus={warehouseJob.data?.status} />
+					<OnboardingProgress
+						complete={onboardingComplete}
+						warehouseStatus={warehouseJob.data?.status}
+						canRestart={canRestart}
+					/>
 					{showDeployKey && (
 						<Dialog>
 							<div
@@ -316,21 +337,18 @@ function OnboardingPage() {
 					)}
 				</div>
 			</div>
+			<div className='relative z-20 mx-auto w-full max-w-3xl px-3 md:px-4'>
+				<div className='absolute inset-x-3 top-0 md:inset-x-4'>
+					<OnboardingFloatingSlot />
+				</div>
+			</div>
 			{hasMessages ? (
 				<>
 					<ChatMessages />
 					<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background via-80% to-transparent pt-12'>
 						<div ref={inputAreaRef} className='pointer-events-auto bg-background'>
-							{warehouseJob.data?.status && (
-								<div className='mx-auto w-full max-w-3xl px-3 pb-2 md:px-4'>
-									<WarehouseCommandProgress
-										status={warehouseJob.data.status}
-										logs={warehouseJob.data.logs}
-									/>
-								</div>
-							)}
 							{onboardingComplete ? (
-								<div className='flex flex-col items-center gap-2 pb-4 pt-2 shadow-[0_-12px_24px_-16px_rgb(0_0_0/0.35)]'>
+								<div className='flex flex-col items-center gap-2 pb-4 pt-2'>
 									<p className='text-center text-sm font-medium text-violet'>
 										{trialActive
 											? 'Project created! Your free trial is active.'

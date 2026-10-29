@@ -663,7 +663,8 @@ export class AgentManager {
 		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithArtifacts);
 
 		const selectedSystemPrompt =
-			this._profile.systemPrompt?.({ timezone }) ?? (await this._buildProjectSystemPrompt(timezone, chatUrl));
+			(await this._profile.systemPrompt?.({ timezone, chat: this.chat })) ??
+			(await this._buildProjectSystemPrompt(timezone, chatUrl));
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
 		this._runCompaction = new RunCompaction(compactionService);

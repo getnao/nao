@@ -1,4 +1,4 @@
-import type { AgentToolsResolver } from '../../services/agent';
+import type { AgentChat, AgentToolsResolver } from '../../services/agent';
 import type { MessageSource } from '../../types/chat';
 import type { ManagedAiUsageCategory } from '../../types/managed-ai-usage';
 import type { Provider } from '../../types/messaging-provider';
@@ -12,7 +12,7 @@ export interface AgentProfile {
 	source: MessageSource;
 	tools: AgentToolsResolver;
 	/** Replaces the project system prompt (RULES.md, memories, connections) for runs with a dedicated purpose. */
-	systemPrompt?: (context: { timezone?: string }) => string;
+	systemPrompt?: (context: { timezone?: string; chat: AgentChat }) => string | Promise<string>;
 	/** Appended to the project system prompt. */
 	promptAppendix?: string;
 	/** Chat app the answer is posted to, which adapts the prompt to its formatting. */

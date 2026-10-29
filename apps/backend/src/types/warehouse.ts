@@ -1,5 +1,5 @@
 import type { generateOnboardingRules } from '@nao/shared/tools';
-import { requestWarehouseCredentials } from '@nao/shared/tools';
+import { requestWarehouseCredentials, waitForWarehouseSetup } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { z } from 'zod/v4';
 
@@ -13,22 +13,10 @@ export const warehouseCredentialsSchema = z.object({
 });
 
 export const warehouseProvisioningInputSchema = warehouseCredentialsSchema.extend({
-	onboardingChatId: z.uuid().optional(),
+	onboardingChatId: z.uuid(),
 });
 
-export const WAREHOUSE_PROVISIONING_STATUSES = [
-	'queued',
-	'initializing',
-	'debugging',
-	'syncing',
-	'registering',
-	'awaiting_context',
-	'finalizing',
-	'publishing',
-	'ready',
-	'failed',
-	'cancelled',
-] as const;
+export const WAREHOUSE_PROVISIONING_STATUSES = waitForWarehouseSetup.SETUP_STATUSES;
 
 export type WarehouseProvisioningStatus = (typeof WAREHOUSE_PROVISIONING_STATUSES)[number];
 
@@ -41,3 +29,15 @@ export type WarehouseProvider = z.infer<typeof warehouseProviderSchema>;
 export type WarehouseConnectionCredentials = z.infer<typeof warehouseConnectionCredentialsSchema>;
 export type ProjectWarehouseCredentials = z.infer<typeof warehouseCredentialsSchema>;
 export type WarehouseProvisioningInput = z.infer<typeof warehouseProvisioningInputSchema>;
+export type WarehouseSetup = waitForWarehouseSetup.Setup;
+export type WarehouseSetupOutcome = waitForWarehouseSetup.Outcome;
+
+export interface FailedWarehouseConnectionTest {
+	provider: WarehouseProvider;
+	error: string | null;
+}
+
+export interface OnboardingWarehouseState {
+	setup: WarehouseSetup | null;
+	failedConnectionTest: FailedWarehouseConnectionTest | null;
+}

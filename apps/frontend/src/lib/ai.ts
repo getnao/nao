@@ -101,7 +101,10 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'onboarding_command',
 		'request_warehouse_credentials',
 		'request_warehouse_selection',
+		'wait_for_warehouse_setup',
+		'retry_warehouse_setup',
 		'generate_onboarding_rules',
+		'restart_onboarding',
 	],
 	detailed: [
 		'story',
@@ -120,7 +123,10 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'execute_sandboxed_code',
 		'request_warehouse_credentials',
 		'request_warehouse_selection',
+		'wait_for_warehouse_setup',
+		'retry_warehouse_setup',
 		'generate_onboarding_rules',
+		'restart_onboarding',
 	],
 };
 

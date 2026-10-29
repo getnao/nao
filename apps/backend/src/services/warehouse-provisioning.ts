@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { generateOnboardingRules as generateOnboardingRulesTool } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
@@ -9,7 +10,7 @@ import { TRPCError } from '@trpc/server';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
-import type { DBWarehouseProvisioningJob } from '../db/abstractSchema';
+import type { DBWarehouseProvisioningJob, NewWarehouseProvisioningJob } from '../db/abstractSchema';
 import { env } from '../env';
 import { contextRecommendationsJobUniqueKey } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
@@ -17,12 +18,16 @@ import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as warehouseConnectionCheckQueries from '../queries/warehouse-connection-check.queries';
 import * as warehouseProvisioningJobQueries from '../queries/warehouse-provisioning-job.queries';
 import {
+	type OnboardingWarehouseState,
 	type ProjectWarehouseCredentials,
 	type WarehouseConnectionCheckOutcome,
+	type WarehouseConnectionCredentials,
 	warehouseConnectionCredentialsSchema,
 	warehouseCredentialsSchema,
 	type WarehouseProvider,
 	type WarehouseProvisioningStatus,
+	type WarehouseSetup,
+	type WarehouseSetupOutcome,
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger, serializeError } from '../utils/logger';
@@ -45,8 +50,13 @@ const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]
 const JOB_LEASE_MS = 5 * 60_000;
 const JOB_HEARTBEAT_MS = 30_000;
 const JOB_RECONCILIATION_MS = 60_000;
-const FAILED_JOB_COOLDOWN_MS = 30_000;
+const FAILED_CREDENTIALS_RETENTION_MS = 60 * 60_000;
+const SETUP_WAIT_TIMEOUT_MS = 5 * 60_000;
+const SETUP_WAIT_POLL_MS = 2_000;
+const AGENT_LOGS_LIMIT = 4000;
 const MAX_JOB_ATTEMPTS = 5;
+const SETUP_IN_PROGRESS_MESSAGE = 'A warehouse connection is already being set up.';
+const SETUP_CANCELLED_MESSAGE = 'The warehouse setup was cancelled because the onboarding was restarted.';
 const WORKER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 const PROVISIONING_STATUSES: WarehouseProvisioningStatus[] = [
 	'queued',
@@ -61,6 +71,7 @@ const RECOVERABLE_STATUSES: WarehouseProvisioningStatus[] = [
 	'awaiting_context',
 	...FINALIZATION_STATUSES,
 ];
+const CONNECTION_VERIFIED_STATUSES: WarehouseProvisioningStatus[] = ['syncing', 'registering', 'awaiting_context'];
 
 const preparedWarehouseSchema = z.object({
 	database_config: z.record(z.string(), z.unknown()),
@@ -127,6 +138,12 @@ const warehouseValidationResponseSchema = z.object({
 });
 
 class WarehousePreparationError extends Error {}
+
+class WarehouseSetupCancelledError extends Error {
+	constructor() {
+		super(SETUP_CANCELLED_MESSAGE);
+	}
+}
 
 class WarehouseValidationError extends Error {
 	constructor(
@@ -295,108 +312,185 @@ type WarehouseProvisioningFinalization = {
 
 type PublicWarehouseProvisioningJob = Pick<
 	DBWarehouseProvisioningJob,
-	'id' | 'provider' | 'status' | 'projectId' | 'projectName' | 'logs' | 'error'
->;
+	'id' | 'provider' | 'status' | 'failedStatus' | 'projectId' | 'projectName' | 'logs' | 'error'
+> & {
+	businessContextProvided: boolean;
+	canRetry: boolean;
+};
+
+type WarehouseSetupWaitResult = {
+	outcome: WarehouseSetupOutcome;
+	setup: WarehouseSetup | null;
+};
 
 export async function startWarehouseProvisioning(
 	input: StartWarehouseProvisioningInput,
 ): Promise<{ jobId: string; status: 'queued' }> {
-	await assertCanStartWarehouseProvisioning(input.userId);
+	await assertNoWarehouseSetupInProgress(input.userId);
 
 	const connection = warehouseCredentialsSchema.parse({
 		provider: input.provider,
 		credentials: input.credentials,
 	});
+	const job = await createQueuedJob({
+		id: crypto.randomUUID(),
+		userId: input.userId,
+		orgId: input.orgId,
+		projectName: input.projectName,
+		onboardingChatId: input.onboardingChatId,
+		provider: connection.provider,
+		encryptedCredentials: encryptCredentials(connection.credentials),
+	});
 
-	const validatedInput: StartWarehouseProvisioningInput = {
+	scheduleProvisioningJob(job.id, {
 		userId: input.userId,
 		orgId: input.orgId,
 		projectName: input.projectName,
 		...connection,
-	};
-
-	const jobId = crypto.randomUUID();
-	const encryptedCredentials = encryptSecret(
-		JSON.stringify({
-			version: 1,
-			credentials: connection.credentials,
-		}),
-	);
-
-	try {
-		await warehouseProvisioningJobQueries.createWarehouseProvisioningJob({
-			id: jobId,
-			userId: input.userId,
-			orgId: input.orgId,
-			projectName: input.projectName,
-			onboardingChatId: input.onboardingChatId,
-			provider: connection.provider,
-			encryptedCredentials,
-			status: 'queued',
-		});
-	} catch (error) {
-		const activeJob = await warehouseProvisioningJobQueries.getActiveWarehouseProvisioningJobByUser(input.userId);
-		if (activeJob) {
-			throw new TRPCError({
-				code: 'CONFLICT',
-				message: 'A warehouse connection is already being set up.',
-			});
-		}
-		throw error;
-	}
-
-	setImmediate(() => {
-		void runProvisioningJob(jobId, validatedInput).catch(logReconciliationError);
 	});
 
-	return { jobId, status: 'queued' };
+	return { jobId: job.id, status: 'queued' };
 }
 
-async function assertCanStartWarehouseProvisioning(userId: string): Promise<void> {
+/** Restarts the latest stopped setup of an onboarding chat with its stored credentials and business context. */
+export async function retryWarehouseProvisioning(
+	userId: string,
+	onboardingChatId: string,
+): Promise<PublicWarehouseProvisioningJob> {
+	const previousJob = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(
+		userId,
+		onboardingChatId,
+	);
+	if (!previousJob || !isStoppedStatus(previousJob.status)) {
+		throw new TRPCError({ code: 'CONFLICT', message: 'There is no stopped warehouse setup to retry.' });
+	}
+	if (!previousJob.encryptedCredentials) {
+		throw new TRPCError({
+			code: 'PRECONDITION_FAILED',
+			message: 'The connection details are no longer stored. Enter them again in the connection form.',
+		});
+	}
+	await assertNoWarehouseSetupInProgress(userId);
+
+	const connection = decryptJobConnection(previousJob);
+	const job = await createQueuedJob({
+		id: crypto.randomUUID(),
+		userId,
+		orgId: previousJob.orgId,
+		projectName: previousJob.projectName,
+		onboardingChatId,
+		provider: previousJob.provider,
+		encryptedCredentials: previousJob.encryptedCredentials,
+		businessContext: previousJob.businessContext,
+		modelSelection: previousJob.modelSelection,
+		modelProjectId: previousJob.modelProjectId,
+	});
+	await updateJob(previousJob.id, { encryptedCredentials: null });
+
+	scheduleProvisioningJob(job.id, {
+		userId,
+		orgId: job.orgId,
+		projectName: job.projectName,
+		...connection,
+	});
+
+	return toPublicWarehouseProvisioningJob(job);
+}
+
+/**
+ * Cancels the user's setup in progress. A worker still running it stops at its next update and rolls back what it
+ * created; a setup no worker holds is rolled back here.
+ */
+export async function cancelWarehouseProvisioning(userId: string): Promise<boolean> {
 	const activeJob = await warehouseProvisioningJobQueries.getActiveWarehouseProvisioningJobByUser(userId);
-	if (activeJob) {
-		throw new TRPCError({
-			code: 'CONFLICT',
-			message: 'A warehouse connection is already being set up.',
-		});
+	if (!activeJob) {
+		return false;
 	}
-
-	const projects = await projectQueries.listUserProjects(userId);
-	if (projects.length > 0) {
-		throw new TRPCError({
-			code: 'CONFLICT',
-			message: 'Your warehouse project is already connected.',
-		});
+	const cancelledJob = await warehouseProvisioningJobQueries.cancelWarehouseProvisioningJob(
+		activeJob.id,
+		SETUP_CANCELLED_MESSAGE,
+	);
+	if (!cancelledJob) {
+		return false;
 	}
-
-	const latestJob = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJobByUser(userId);
-	if (
-		latestJob?.finishedAt &&
-		(latestJob.status === 'failed' || latestJob.status === 'cancelled') &&
-		Date.now() - latestJob.finishedAt.getTime() < FAILED_JOB_COOLDOWN_MS
-	) {
-		const retryAfterSeconds = Math.ceil(
-			(FAILED_JOB_COOLDOWN_MS - (Date.now() - latestJob.finishedAt.getTime())) / 1000,
-		);
-		throw new TRPCError({
-			code: 'TOO_MANY_REQUESTS',
-			message: `Please wait ${retryAfterSeconds} seconds before trying again.`,
-		});
+	if (!hasLiveLease(cancelledJob)) {
+		await cleanUpStoppedJob(cancelledJob, activeJob.status);
 	}
+	return true;
 }
 
-async function runProvisioningJob(
-	jobId: string,
-	input: StartWarehouseProvisioningInput,
-	statuses: WarehouseProvisioningStatus[] = PROVISIONING_STATUSES,
-): Promise<void> {
-	const job = await claimJob(jobId, statuses);
-	if (!job) {
-		return;
+/**
+ * Waits until the setup of an onboarding chat needs the agent: its connection is verified while business
+ * context is still missing, it stopped, it is ready, or the wait times out.
+ */
+export async function waitForWarehouseSetup(
+	userId: string,
+	onboardingChatId: string,
+	abortSignal?: AbortSignal,
+): Promise<WarehouseSetupWaitResult> {
+	const deadline = Date.now() + SETUP_WAIT_TIMEOUT_MS;
+	let job = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId);
+
+	while (!getSetupCheckpoint(job) && Date.now() < deadline && !abortSignal?.aborted) {
+		await sleep(SETUP_WAIT_POLL_MS, undefined, { signal: abortSignal }).catch(() => undefined);
+		job = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId);
 	}
 
-	await withJobLease(jobId, () => provisionWarehouse(jobId, input));
-	await maybeStartFinalization(jobId);
+	return {
+		outcome: getSetupCheckpoint(job) ?? 'running',
+		setup: job ? toWarehouseSetup(job) : null,
+	};
+}
+
+/** What the onboarding agent knows about the warehouse setup when a turn starts. */
+export async function getOnboardingWarehouseState(
+	userId: string,
+	onboardingChatId: string,
+): Promise<OnboardingWarehouseState> {
+	const [job, connectionCheck] = await Promise.all([
+		warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId),
+		warehouseConnectionCheckQueries.getLatestWarehouseConnectionCheck(userId),
+	]);
+	const hasUnresolvedFailedTest =
+		connectionCheck !== null &&
+		connectionCheck.outcome !== 'ok' &&
+		(!job || connectionCheck.createdAt > job.createdAt);
+
+	return {
+		setup: job ? toWarehouseSetup(job) : null,
+		failedConnectionTest: hasUnresolvedFailedTest
+			? { provider: connectionCheck.provider, error: connectionCheck.error }
+			: null,
+	};
+}
+
+/** Stores the business context on the chat's latest setup, which finalizes once its metadata is synced. */
+export async function submitWarehouseBusinessContext(
+	userId: string,
+	onboardingChatId: string,
+	finalization: WarehouseProvisioningFinalization,
+): Promise<{ jobId: string }> {
+	const job = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId);
+	if (!job) {
+		throw new Error('No warehouse setup was started in this conversation.');
+	}
+	if (job.status === 'ready' || job.status === 'finalizing' || job.status === 'publishing') {
+		return { jobId: job.id };
+	}
+
+	await updateJob(job.id, {
+		businessContext: finalization.businessContext,
+		modelSelection: finalization.modelSelection ?? null,
+		modelProjectId: finalization.modelProjectId,
+	});
+	if (isStoppedStatus(job.status)) {
+		throw new Error(
+			`${job.error ?? 'The warehouse setup failed.'} The business context was saved and will be used when the setup is retried.`,
+		);
+	}
+
+	await maybeStartFinalization(job.id);
+	return { jobId: job.id };
 }
 
 export async function getWarehouseProvisioningJob(
@@ -404,11 +498,7 @@ export async function getWarehouseProvisioningJob(
 	userId: string,
 ): Promise<PublicWarehouseProvisioningJob | null> {
 	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJob(jobId, userId);
-	if (!job) {
-		return null;
-	}
-
-	return toPublicWarehouseProvisioningJob(job);
+	return job ? toPublicWarehouseProvisioningJob(job) : null;
 }
 
 export async function getActiveWarehouseProvisioningJob(
@@ -427,40 +517,127 @@ export async function getLatestWarehouseProvisioningJob(
 	return job ? toPublicWarehouseProvisioningJob(job) : null;
 }
 
+/** Projects left by a stopped setup are being rolled back, so they do not count as connected. */
+export async function hasConnectedProject(userId: string): Promise<boolean> {
+	const [projects, stoppedSetupProjectIds] = await Promise.all([
+		projectQueries.listUserProjects(userId),
+		warehouseProvisioningJobQueries.listStoppedSetupProjectIds(userId),
+	]);
+	const rolledBackProjectIds = new Set(stoppedSetupProjectIds);
+	return projects.some((project) => !rolledBackProjectIds.has(project.id));
+}
+
+async function assertNoWarehouseSetupInProgress(userId: string): Promise<void> {
+	const activeJob = await warehouseProvisioningJobQueries.getActiveWarehouseProvisioningJobByUser(userId);
+	if (activeJob) {
+		throw new TRPCError({ code: 'CONFLICT', message: SETUP_IN_PROGRESS_MESSAGE });
+	}
+
+	if (await hasConnectedProject(userId)) {
+		throw new TRPCError({
+			code: 'CONFLICT',
+			message: 'Your warehouse project is already connected.',
+		});
+	}
+}
+
+async function createQueuedJob(job: Omit<NewWarehouseProvisioningJob, 'status'>): Promise<DBWarehouseProvisioningJob> {
+	try {
+		return await warehouseProvisioningJobQueries.createWarehouseProvisioningJob({ ...job, status: 'queued' });
+	} catch (error) {
+		const activeJob = await warehouseProvisioningJobQueries.getActiveWarehouseProvisioningJobByUser(job.userId);
+		if (activeJob) {
+			throw new TRPCError({ code: 'CONFLICT', message: SETUP_IN_PROGRESS_MESSAGE });
+		}
+		throw error;
+	}
+}
+
+function scheduleProvisioningJob(jobId: string, input: StartWarehouseProvisioningInput): void {
+	setImmediate(() => {
+		void runProvisioningJob(jobId, input).catch(logReconciliationError);
+	});
+}
+
+async function runProvisioningJob(
+	jobId: string,
+	input: StartWarehouseProvisioningInput,
+	statuses: WarehouseProvisioningStatus[] = PROVISIONING_STATUSES,
+): Promise<void> {
+	const job = await claimJob(jobId, statuses);
+	if (!job) {
+		return;
+	}
+
+	await withJobLease(jobId, () => provisionWarehouse(jobId, input));
+	await maybeStartFinalization(jobId);
+}
+
+function getSetupCheckpoint(job: DBWarehouseProvisioningJob | null): WarehouseSetupOutcome | null {
+	if (!job) {
+		return 'not_started';
+	}
+	if (job.status === 'ready' || job.status === 'failed' || job.status === 'cancelled') {
+		return job.status;
+	}
+	if (!job.businessContext && CONNECTION_VERIFIED_STATUSES.includes(job.status)) {
+		return 'connection_verified';
+	}
+	return null;
+}
+
 function toPublicWarehouseProvisioningJob(job: DBWarehouseProvisioningJob): PublicWarehouseProvisioningJob {
 	return {
 		id: job.id,
 		provider: job.provider,
 		status: job.status,
+		failedStatus: job.failedStatus,
 		projectId: job.projectId,
 		projectName: job.projectName,
 		logs: job.logs,
 		error: job.error,
+		businessContextProvided: Boolean(job.businessContext),
+		canRetry: canRetryJob(job),
 	};
 }
 
-export async function queueWarehouseFinalization(
-	jobId: string,
-	userId: string,
-	finalization: WarehouseProvisioningFinalization,
-): Promise<void> {
-	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJob(jobId, userId);
-	if (!job) {
-		throw new Error('Warehouse setup job not found');
-	}
-	if (job.status === 'failed' || job.status === 'cancelled') {
-		throw new Error(job.error ?? 'Warehouse setup failed');
-	}
-	if (job.status === 'ready' || job.status === 'finalizing' || job.status === 'publishing') {
-		return;
-	}
+function toWarehouseSetup(job: DBWarehouseProvisioningJob): WarehouseSetup {
+	return {
+		provider: job.provider,
+		status: job.status,
+		failedStatus: job.failedStatus,
+		error: job.error,
+		logs: job.logs ? job.logs.slice(-AGENT_LOGS_LIMIT) : null,
+		businessContextProvided: Boolean(job.businessContext),
+		canRetry: canRetryJob(job),
+	};
+}
 
-	await updateJob(jobId, {
-		businessContext: finalization.businessContext,
-		modelSelection: finalization.modelSelection ?? null,
-		modelProjectId: finalization.modelProjectId,
+function canRetryJob(job: DBWarehouseProvisioningJob): boolean {
+	return isStoppedStatus(job.status) && job.encryptedCredentials !== null;
+}
+
+function isStoppedStatus(status: WarehouseProvisioningStatus): boolean {
+	return status === 'failed' || status === 'cancelled';
+}
+
+function hasLiveLease(job: DBWarehouseProvisioningJob): boolean {
+	return job.lockedAt !== null && job.lockedAt.getTime() > Date.now() - JOB_LEASE_MS;
+}
+
+function encryptCredentials(credentials: WarehouseConnectionCredentials): string {
+	return encryptSecret(JSON.stringify({ version: 1, credentials }));
+}
+
+function decryptJobConnection(job: DBWarehouseProvisioningJob): ProjectWarehouseCredentials {
+	if (!job.encryptedCredentials) {
+		throw new Error('Warehouse credentials are unavailable');
+	}
+	const persistedCredentials = persistedCredentialsSchema.parse(JSON.parse(decryptSecret(job.encryptedCredentials)));
+	return warehouseCredentialsSchema.parse({
+		provider: job.provider,
+		credentials: persistedCredentials.credentials,
 	});
-	await maybeStartFinalization(jobId);
 }
 
 async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioningInput): Promise<void> {
@@ -527,10 +704,15 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			status: 'awaiting_context',
 			projectId: project.projectId,
 			attempts: 0,
-			encryptedCredentials: null,
 			temporaryDirectory: null,
 		});
 	} catch (error) {
+		if (registeredProjectId && registeredProjectPath) {
+			await rollbackRegisteredProject(registeredProjectId, registeredProjectPath);
+		}
+		if (error instanceof WarehouseSetupCancelledError) {
+			return;
+		}
 		const serializedError = serializeError(error);
 		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';
 		logger.error(`Warehouse provisioning failed: ${errorMessage}`, {
@@ -540,9 +722,6 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 				error: serializedError,
 			},
 		});
-		if (registeredProjectId && registeredProjectPath) {
-			await rollbackRegisteredProject(registeredProjectId, registeredProjectPath);
-		}
 		await failJob(jobId, getPublicProvisioningError(error));
 	} finally {
 		if (projectDir) {
@@ -598,7 +777,13 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 			throw new Error('The onboarding model is unavailable');
 		}
 
-		await generateOnboardingRules(job.projectId, job.businessContext, job.modelSelection, job.modelProjectId);
+		await generateOnboardingRules(
+			job.projectId,
+			job.businessContext,
+			job.modelSelection,
+			job.modelProjectId,
+			job.userId,
+		);
 
 		await updateJob(jobId, { status: 'publishing' });
 		managedRepository = await provisionManagedGithubRepository({
@@ -614,6 +799,10 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 		});
 		await reconcileProjectReadiness(job.projectId);
 	} catch (error) {
+		await rollbackRegisteredProject(job.projectId, registeredProjectPath, managedRepository?.repoFullName);
+		if (error instanceof WarehouseSetupCancelledError) {
+			return;
+		}
 		const serializedError = serializeError(error);
 		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';
 		logger.error(`Warehouse finalization failed: ${errorMessage}`, {
@@ -625,7 +814,6 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 				error: serializedError,
 			},
 		});
-		await rollbackRegisteredProject(job.projectId, registeredProjectPath, managedRepository?.repoFullName);
 		await failJob(jobId, 'Project setup could not be completed. Please try again.');
 	}
 }
@@ -726,9 +914,22 @@ function runNaoCommand(
 			const visibleOutput = output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
 			pendingLogUpdate = pendingLogUpdate
 				.then(() => onOutput(visibleOutput))
-				.catch((error) =>
-					logger.warn(`Could not publish warehouse command logs: ${String(error)}`, { source: 'system' }),
-				);
+				.catch((error) => {
+					if (error instanceof WarehouseSetupCancelledError) {
+						stopCommand(error);
+						return;
+					}
+					logger.warn(`Could not publish warehouse command logs: ${String(error)}`, { source: 'system' });
+				});
+		};
+		const stopCommand = (error: Error) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timeout);
+			child.kill('SIGTERM');
+			reject(error);
 		};
 		const flushOutput = async () => {
 			if (logUpdate) {
@@ -800,6 +1001,9 @@ export function startWarehouseProvisioningReconciler(): void {
 }
 
 export async function reconcileWarehouseProvisioningJobs(): Promise<void> {
+	await warehouseProvisioningJobQueries.clearFinishedWarehouseProvisioningCredentials(
+		new Date(Date.now() - FAILED_CREDENTIALS_RETENTION_MS),
+	);
 	const jobs = await warehouseProvisioningJobQueries.listRecoverableWarehouseProvisioningJobs(
 		RECOVERABLE_STATUSES,
 		new Date(Date.now() - JOB_LEASE_MS),
@@ -844,16 +1048,7 @@ async function recoverProvisioningJob(jobId: string): Promise<void> {
 				);
 			}
 
-			if (!job.encryptedCredentials) {
-				throw new Error('Warehouse credentials are unavailable');
-			}
-			const persistedCredentials = persistedCredentialsSchema.parse(
-				JSON.parse(decryptSecret(job.encryptedCredentials)),
-			);
-			const connection = warehouseCredentialsSchema.parse({
-				provider: job.provider,
-				credentials: persistedCredentials.credentials,
-			});
+			const connection = decryptJobConnection(job);
 
 			await updateJob(jobId, {
 				status: 'queued',
@@ -869,6 +1064,9 @@ async function recoverProvisioningJob(jobId: string): Promise<void> {
 				...connection,
 			});
 		} catch (error) {
+			if (error instanceof WarehouseSetupCancelledError) {
+				return;
+			}
 			const serializedError = serializeError(error);
 			logger.error('Warehouse provisioning recovery failed', {
 				source: 'system',
@@ -894,11 +1092,22 @@ async function recoverFinalizationJob(jobId: string): Promise<void> {
 }
 
 async function failExhaustedJob(job: DBWarehouseProvisioningJob): Promise<void> {
+	await cleanUpStoppedJob(job, job.status);
+	await failJob(job.id, 'Warehouse setup stopped unexpectedly several times. Please try again.', {
+		lockedBy: null,
+		lockedAt: null,
+	});
+}
+
+async function cleanUpStoppedJob(
+	job: DBWarehouseProvisioningJob,
+	stoppedAtStatus: WarehouseProvisioningStatus,
+): Promise<void> {
 	if (job.temporaryDirectory) {
 		try {
 			fs.rmSync(job.temporaryDirectory, { recursive: true, force: true });
 		} catch (error) {
-			logger.error('Failed to clean up exhausted warehouse setup', {
+			logger.error('Failed to clean up stopped warehouse setup', {
 				source: 'system',
 				context: { jobId: job.id, error: serializeError(error) },
 			});
@@ -906,7 +1115,7 @@ async function failExhaustedJob(job: DBWarehouseProvisioningJob): Promise<void> 
 	}
 	if (job.projectId) {
 		const managedRepositoryFullName =
-			job.status === 'publishing'
+			stoppedAtStatus === 'publishing'
 				? getManagedGithubRepositoryFullName({ projectId: job.projectId, projectName: job.projectName })
 				: null;
 		await rollbackRegisteredProject(
@@ -915,10 +1124,6 @@ async function failExhaustedJob(job: DBWarehouseProvisioningJob): Promise<void> 
 			managedRepositoryFullName ?? undefined,
 		);
 	}
-	await failJob(job.id, 'Warehouse setup stopped unexpectedly several times. Please try again.', {
-		lockedBy: null,
-		lockedAt: null,
-	});
 }
 
 async function claimJob(
@@ -961,12 +1166,17 @@ async function updateJob(
 	update: warehouseProvisioningJobQueries.WarehouseProvisioningJobChanges,
 ): Promise<void> {
 	const persistedJob = await warehouseProvisioningJobQueries.updateWarehouseProvisioningJob(jobId, update);
-	if (!persistedJob) {
-		throw new Error('Warehouse setup job not found');
+	if (persistedJob) {
+		return;
 	}
+	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(jobId);
+	throw job?.status === 'cancelled' ? new WarehouseSetupCancelledError() : new Error('Warehouse setup job not found');
 }
 
-/** Keeps the status the job failed at, so the onboarding funnel knows which step broke. */
+/**
+ * Keeps the status the job failed at, so the onboarding funnel knows which step broke, and its encrypted
+ * credentials, so the setup can be retried until they are cleared after `FAILED_CREDENTIALS_RETENTION_MS`.
+ */
 async function failJob(
 	jobId: string,
 	error: string,
@@ -978,7 +1188,6 @@ async function failJob(
 		status: 'failed',
 		failedStatus: job?.status ?? null,
 		error,
-		encryptedCredentials: null,
 		temporaryDirectory: null,
 		finishedAt: new Date(),
 	});

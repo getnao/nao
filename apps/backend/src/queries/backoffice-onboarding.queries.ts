@@ -11,6 +11,7 @@ const ONBOARDING_TOOL_NAMES = [
 	'request_warehouse_credentials',
 	'onboarding_command',
 	'generate_onboarding_rules',
+	'restart_onboarding',
 ];
 const MESSAGE_PREFIX_LENGTH = 1_000;
 
