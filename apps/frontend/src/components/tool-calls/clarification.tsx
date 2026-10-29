@@ -1,4 +1,3 @@
-import { requestWarehouseSelection } from '@nao/shared/tools';
 import { Check, HelpCircle } from 'lucide-react';
 import { memo } from 'react';
 import { Button } from '../ui/button';
@@ -21,18 +20,7 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
 	/>
 ));
 
-export const RequestWarehouseSelectionToolCall = memo(
-	({ toolPart }: ToolCallComponentProps<'request_warehouse_selection'>) => (
-		<ClarificationQuestion
-			toolCallId={toolPart.toolCallId}
-			isStreaming={false}
-			question={requestWarehouseSelection.QUESTION}
-			options={requestWarehouseSelection.OPTIONS}
-		/>
-	),
-);
-
-function ClarificationQuestion({
+export function ClarificationQuestion({
 	toolCallId,
 	isStreaming,
 	question,

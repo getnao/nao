@@ -19,27 +19,19 @@ import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSemanticQuery from './execute-semantic-query';
 import executeSql, { localOnlyExecuteSql } from './execute-sql';
-import generateOnboardingRules from './generate-onboarding-rules';
 import grep from './grep';
 import list from './list';
 import loadSkill from './load-skill';
 import { createMcpCallTool } from './mcp-call';
 import { createMcpConnectTool } from './mcp-connect';
-import onboardingAgentPrompt from './onboarding-agent-prompt';
-import onboardingCommand from './onboarding-command';
-import onboardingProgress from './onboarding-progress';
+import { onboardingTools } from './onboarding';
 import read from './read';
 import readQueryResult from './read-query-result';
-import requestWarehouseCredentials from './request-warehouse-credentials';
-import requestWarehouseSelection from './request-warehouse-selection';
-import restartOnboarding from './restart-onboarding';
-import retryWarehouseSetup from './retry-warehouse-setup';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import strReplace, { buildStrReplaceToolDescription } from './str-replace';
 import suggestFollowUps from './suggest-follow-ups';
 import task from './task';
-import waitForWarehouseSetup from './wait-for-warehouse-setup';
 import write, { buildWriteToolDescription } from './write';
 
 /**
@@ -61,15 +53,6 @@ export const tools = {
 	grep,
 	list,
 	load_skill: loadSkill,
-	onboarding_agent_prompt: onboardingAgentPrompt,
-	onboarding_command: onboardingCommand,
-	onboarding_progress: onboardingProgress,
-	request_warehouse_credentials: requestWarehouseCredentials,
-	request_warehouse_selection: requestWarehouseSelection,
-	wait_for_warehouse_setup: waitForWarehouseSetup,
-	retry_warehouse_setup: retryWarehouseSetup,
-	generate_onboarding_rules: generateOnboardingRules,
-	restart_onboarding: restartOnboarding,
 	read,
 	search,
 	task,
@@ -78,7 +61,7 @@ export const tools = {
 	suggest_follow_ups: suggestFollowUps,
 };
 
-export const uiToolset = { ...tools, display_map: createDisplayMapTool() };
+export const uiToolset = { ...tools, ...onboardingTools, display_map: createDisplayMapTool() };
 
 export const getTools = (
 	agentSettings: AgentSettings | null,
@@ -89,7 +72,6 @@ export const getTools = (
 		/** MCP servers the run's user may reach through their groups; the MCP tools are dropped when none is. */
 		mcpAccess?: McpAccess;
 		excludeFollowUps?: boolean;
-		onboarding?: boolean;
 		/**
 		 * Restricts generated tools to this allowlist by tool name. `extraTools` are always
 		 * kept. Used by focused runs (e.g. context recommendations) that should only discover
@@ -139,15 +121,6 @@ export const getTools = (
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
-		onboarding_agent_prompt: onboardingAgentPromptTool,
-		onboarding_command: onboardingCommandTool,
-		onboarding_progress: onboardingProgressTool,
-		request_warehouse_credentials: requestWarehouseCredentialsTool,
-		request_warehouse_selection: requestWarehouseSelectionTool,
-		wait_for_warehouse_setup: waitForWarehouseSetupTool,
-		retry_warehouse_setup: retryWarehouseSetupTool,
-		generate_onboarding_rules: generateOnboardingRulesTool,
-		restart_onboarding: restartOnboardingTool,
 		suggest_follow_ups,
 		task: taskTool,
 		write: writeTool,
@@ -171,17 +144,6 @@ export const getTools = (
 
 	const allTools = {
 		...baseTools,
-		...(options.onboarding && {
-			onboarding_agent_prompt: onboardingAgentPromptTool,
-			onboarding_command: onboardingCommandTool,
-			onboarding_progress: onboardingProgressTool,
-			request_warehouse_credentials: requestWarehouseCredentialsTool,
-			request_warehouse_selection: requestWarehouseSelectionTool,
-			wait_for_warehouse_setup: waitForWarehouseSetupTool,
-			retry_warehouse_setup: retryWarehouseSetupTool,
-			generate_onboarding_rules: generateOnboardingRulesTool,
-			restart_onboarding: restartOnboardingTool,
-		}),
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),

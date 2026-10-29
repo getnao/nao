@@ -11,7 +11,7 @@ import type { AgentRequest } from '../types/chat';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
-import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './example-agent-run';
+import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './onboarding/example-agent-run';
 
 export interface AgentRunRequest {
 	userId: string;
