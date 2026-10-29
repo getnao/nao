@@ -22,6 +22,7 @@ import { RequestWarehouseCredentialsToolCall } from './request-warehouse-credent
 import { SearchToolCall } from './search';
 import { StrReplaceToolCall } from './str-replace';
 import { TaskToolCall } from './task';
+import { ToolCallErrorBoundary } from './tool-call-error-boundary';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
 import { WriteToolCall } from './write';
@@ -101,7 +102,9 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 				isSettled: isMessageSettled || isToolSettled(toolPart),
 			}}
 		>
-			{Rendered}
+			<ToolCallErrorBoundary toolName={toolName} resetKey={`${toolPart.toolCallId}:${toolPart.state}`}>
+				{Rendered}
+			</ToolCallErrorBoundary>
 		</ToolCallProvider>
 	);
 });

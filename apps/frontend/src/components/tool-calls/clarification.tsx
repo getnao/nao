@@ -40,30 +40,25 @@ function ClarificationQuestion({
 }: {
 	toolCallId: string;
 	isStreaming: boolean;
-	question: string | undefined;
-	options: readonly unknown[] | undefined;
+	question: unknown;
+	options: unknown;
 }) {
 	const { isSettled } = useToolCallContext();
 	const { queueOrSendMessage, isRunning } = useAgentContext();
 	const answer = useAgentMessagesSelector((messages) => findAnswerForToolCall(messages, toolCallId));
 	const answeredState: AnsweredState = answer !== null ? { isAnswered: true, answer } : { isAnswered: false };
 
-	if (isStreaming && !question) {
+	const questionText = typeof question === 'string' ? question : '';
+
+	if (isStreaming && !questionText) {
 		return <ClarificationSkeleton />;
 	}
 
-	if (!question) {
+	if (!questionText) {
 		return null;
 	}
 
-	const options: string[] =
-		rawOptions?.flatMap((option) => {
-			if (typeof option !== 'string') {
-				return [];
-			}
-			const trimmed = option.trim();
-			return trimmed ? [trimmed] : [];
-		}) ?? [];
+	const options = toOptionLabels(rawOptions);
 
 	const { isAnswered } = answeredState;
 	const canSubmit = !isStreaming && isSettled && !isAnswered && !isRunning;
@@ -88,7 +83,7 @@ function ClarificationQuestion({
 					<span className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
 						{isAnswered ? 'Answered' : 'Quick question'}
 					</span>
-					<p className='text-sm leading-relaxed text-foreground whitespace-pre-wrap'>{question}</p>
+					<p className='text-sm leading-relaxed text-foreground whitespace-pre-wrap'>{questionText}</p>
 				</div>
 			</div>
 
@@ -123,6 +118,20 @@ function ClarificationQuestion({
 			)}
 		</div>
 	);
+}
+
+/** Model-produced input is unvalidated, so `options` can arrive as a non-array. */
+function toOptionLabels(rawOptions: unknown): string[] {
+	if (!Array.isArray(rawOptions)) {
+		return [];
+	}
+	return rawOptions.flatMap((option) => {
+		if (typeof option !== 'string') {
+			return [];
+		}
+		const trimmed = option.trim();
+		return trimmed ? [trimmed] : [];
+	});
 }
 
 /**
