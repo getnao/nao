@@ -15,8 +15,8 @@ interface UseStoryChartSourceQueryOptions {
 }
 
 /**
- * The query behind a story chart: the chat's execute_sql part when the chat is loaded, otherwise
- * the story's saved SQL paired with the rows the chart is drawn from.
+ * The query behind a story chart: the chat's query part when the chat is loaded, otherwise
+ * the story's saved query paired with the rows the chart is drawn from.
  */
 export function useStoryChartSourceQuery({
 	queryId,
@@ -37,6 +37,7 @@ export function useStoryChartSourceQuery({
 	const storySqlQuery = storyQuery.data?.sqlQuery;
 	const storyDatabaseId = storyQuery.data?.databaseId;
 	const storyDialect = storyQuery.data?.dialect;
+	const storySemanticQuery = storyQuery.data?.semanticQuery;
 
 	return useMemo(() => {
 		if (chatSourceQuery) {
@@ -54,6 +55,7 @@ export function useStoryChartSourceQuery({
 				row_count: data.length,
 				dialect: storyDialect,
 			},
+			...(storySemanticQuery && { semanticQuery: storySemanticQuery }),
 		};
-	}, [chatSourceQuery, storySqlQuery, storyDatabaseId, storyDialect, queryId, columns, data]);
+	}, [chatSourceQuery, storySqlQuery, storyDatabaseId, storyDialect, storySemanticQuery, queryId, columns, data]);
 }

@@ -147,6 +147,47 @@ describe('quick questions on a story', () => {
 		});
 	});
 
+	it('copies a semantic query to the story chat as a semantic query, so the story keeps compiling it', async () => {
+		const linkedStory = await resolveLinkedStory({
+			userId: OWNER_ID,
+			projectId: PROJECT_ID,
+			forkMetadata: questionMetadata(),
+		});
+		const queryResults: ToolContext['queryResults'] = new Map([
+			[
+				'query_semantic_same_turn',
+				{
+					columns: ['orders'],
+					data: [{ orders: 3 }],
+					sqlQuery: 'SELECT count(*) AS orders FROM orders',
+					databaseId: 'warehouse',
+					semanticQuery: { metrics: ['orders'] },
+				},
+			],
+		]);
+		const code = `${ORIGINAL_CODE}<table query_id="query_semantic" />\n<table query_id="query_semantic_same_turn" />\n`;
+
+		await runStoryTool(
+			{ action: 'replace', id: SLUG, code },
+			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory, queryResults },
+		);
+
+		expect(
+			await getLatestSqlQueriesByIds(ORIGIN_CHAT_ID, new Set(['query_semantic', 'query_semantic_same_turn'])),
+		).toMatchObject({
+			query_semantic: {
+				sqlQuery: 'SELECT sum(amount) AS revenue FROM orders',
+				databaseId: 'warehouse',
+				semanticQuery: { metrics: ['revenue'], group_by: ['metric_time__month'] },
+			},
+			query_semantic_same_turn: {
+				sqlQuery: 'SELECT count(*) AS orders FROM orders',
+				databaseId: 'warehouse',
+				semanticQuery: { metrics: ['orders'] },
+			},
+		});
+	});
+
 	it('keeps the story read-only for anyone else', async () => {
 		const linkedStory = await resolveLinkedStory({
 			userId: VIEWER_ID,
@@ -281,6 +322,29 @@ async function seed() {
 		.values({ storyId: STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' });
 	await insertQuery(ORIGIN_CHAT_ID, 'query_origin', 'select month, sum(amount) from orders group by 1');
 	await insertQuery(QUESTION_CHAT_ID, 'query_question', 'select region, sum(amount) from orders group by 1');
+	await insertSemanticQuery(QUESTION_CHAT_ID, 'query_semantic');
+}
+
+async function insertSemanticQuery(chatId: string, queryId: string) {
+	const messageId = `${chatId}-${queryId}`;
+	await db.insert(s.chatMessage).values({ id: messageId, chatId, role: 'assistant' });
+	await db.insert(s.messagePart).values({
+		messageId,
+		order: 0,
+		type: 'tool-execute_semantic_query',
+		toolName: 'execute_semantic_query',
+		toolCallId: `${messageId}-call`,
+		toolState: 'output-available',
+		toolInput: { metrics: ['revenue'], group_by: ['metric_time__month'], name: 'Revenue by month' },
+		toolOutput: {
+			id: queryId,
+			columns: ['metric_time__month', 'revenue'],
+			data: [{ metric_time__month: '2026-01-01', revenue: 100 }],
+			row_count: 1,
+			compiled_sql: 'SELECT sum(amount) AS revenue FROM orders',
+			database_id: 'warehouse',
+		},
+	} as typeof s.messagePart.$inferInsert);
 }
 
 async function insertQuery(chatId: string, queryId: string, sqlQuery: string) {

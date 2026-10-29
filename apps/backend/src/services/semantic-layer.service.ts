@@ -7,7 +7,7 @@ import type { ToolContext } from '../types/tools';
 import { extractConfiguredSemanticLayer } from '../utils/nao-config';
 
 /** A metric query in semantic terms, mirroring the `/semantic_layer/compile` request body. */
-export type SemanticQuery = Omit<executeSemanticQuery.Input, 'name'>;
+export type SemanticQuery = executeSemanticQuery.SemanticQuery;
 
 /** The semantic layer rejected the query (for example an unknown metric or dimension); its message is safe to show to the caller. */
 export class SemanticQueryCompileError extends Error {}
@@ -47,7 +47,10 @@ export function isWarehouseSqlEnabled(mode: SemanticLayerMode | null | undefined
 }
 
 /** Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql. */
-export async function compileSemanticQuery(query: SemanticQuery, context: ToolContext): Promise<CompiledSemanticQuery> {
+export async function compileSemanticQuery(
+	query: SemanticQuery,
+	context: Pick<ToolContext, 'projectFolder' | 'envVars'>,
+): Promise<CompiledSemanticQuery> {
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/semantic_layer/compile`, {
 		method: 'POST',
 		headers: {
