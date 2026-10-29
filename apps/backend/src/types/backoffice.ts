@@ -1,8 +1,53 @@
 /* @license Enterprise */
 
 import type { UserRole } from '@nao/shared/types';
+import { z } from 'zod/v4';
 
+import { LOG_LEVELS, LOG_SOURCES } from './log';
 import type { OrgRole } from './organization';
+
+export const INSTANCE_LOG_TEXT_COLUMNS = ['message', 'context', 'project', 'organization'] as const;
+export type InstanceLogTextColumn = (typeof INSTANCE_LOG_TEXT_COLUMNS)[number];
+
+export const INSTANCE_LOG_TEXT_OPERATORS = [
+	'contains',
+	'notContains',
+	'equals',
+	'notEquals',
+	'startsWith',
+	'isEmpty',
+	'isNotEmpty',
+] as const;
+export type InstanceLogTextOperator = (typeof INSTANCE_LOG_TEXT_OPERATORS)[number];
+
+export const INSTANCE_LOG_SORT_KEYS = ['createdAt', 'level', 'source', 'message', 'project', 'organization'] as const;
+export type InstanceLogSortKey = (typeof INSTANCE_LOG_SORT_KEYS)[number];
+
+const VALUELESS_TEXT_OPERATORS: ReadonlySet<InstanceLogTextOperator> = new Set(['isEmpty', 'isNotEmpty']);
+
+export const instanceLogFilterSchema = z.discriminatedUnion('column', [
+	z.object({ column: z.literal('createdAt'), operator: z.enum(['after', 'before']), value: z.coerce.date() }),
+	z.object({
+		column: z.literal('level'),
+		operator: z.enum(['in', 'notIn']),
+		values: z.array(z.enum(LOG_LEVELS)).min(1),
+	}),
+	z.object({
+		column: z.literal('source'),
+		operator: z.enum(['in', 'notIn']),
+		values: z.array(z.enum(LOG_SOURCES)).min(1),
+	}),
+	z
+		.object({
+			column: z.enum(INSTANCE_LOG_TEXT_COLUMNS),
+			operator: z.enum(INSTANCE_LOG_TEXT_OPERATORS),
+			value: z.string().max(500).default(''),
+		})
+		.refine((filter) => VALUELESS_TEXT_OPERATORS.has(filter.operator) || filter.value.length > 0, {
+			message: 'Text filters need a value',
+		}),
+]);
+export type InstanceLogFilter = z.infer<typeof instanceLogFilterSchema>;
 
 export interface PaginationInput {
 	limit: number;
@@ -24,6 +69,12 @@ export interface MessagePaginationInput extends PaginationInput {
 
 export interface LogPaginationInput extends PaginationInput {
 	level?: 'error' | 'warn' | 'info';
+}
+
+export interface InstanceLogsInput extends PaginationInput {
+	sort: InstanceLogSortKey;
+	direction: 'asc' | 'desc';
+	filters: InstanceLogFilter[];
 }
 
 export interface PaginatedResult<T> {

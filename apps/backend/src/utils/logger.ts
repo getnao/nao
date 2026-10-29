@@ -56,7 +56,7 @@ function getErrorLikeMessage(value: unknown): string {
 
 const SENSITIVE_KEYS = new Set(['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key']);
 
-function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
+export function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
 	const redacted: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(ctx)) {
 		if (SENSITIVE_KEYS.has(key.toLowerCase())) {
