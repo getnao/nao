@@ -111,6 +111,7 @@ type AutomationFormProps = {
 	autoSaveControls?: boolean;
 	saveShortcut?: boolean;
 	onDirtyChange?: (isDirty: boolean) => void;
+	onSaveBlockedChange?: (isBlocked: boolean) => void;
 	onSubmit: (value: AutomationFormValue) => Promise<void>;
 };
 
@@ -144,6 +145,7 @@ const MODE_MENTION_TRIGGER = '#';
 const DEFAULT_SCHEDULE_CRON = '0 9 * * 1';
 const DEFAULT_SCHEDULE_DESCRIPTION = 'Every Monday at 9am';
 const CUSTOM_SCHEDULE_DESCRIPTION = 'Custom schedule';
+const SLACK_CHANNEL_SEPARATOR_PATTERN = /[\s,;]/;
 
 const defaultValue: AutomationFormValue = {
 	title: '',
@@ -179,6 +181,7 @@ export function AutomationForm({
 	autoSaveControls = false,
 	saveShortcut = false,
 	onDirtyChange,
+	onSaveBlockedChange,
 	onSubmit,
 }: AutomationFormProps) {
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
@@ -188,6 +191,7 @@ export function AutomationForm({
 		autoSaveControls,
 		saveShortcut,
 		onDirtyChange,
+		onSaveBlockedChange,
 		onSubmit,
 	});
 
@@ -247,6 +251,7 @@ export function AutomationForm({
 					value={form.value}
 					mcpServers={form.mcpServers}
 					emailRecipientsError={form.emailRecipientsError}
+					slackChannelError={form.slackChannelError}
 					onClearEmailRecipientsError={form.clearEmailRecipientsError}
 					onChange={form.handleValueChange}
 					onAutoSaveChange={form.handleControlValueChange}
@@ -258,7 +263,7 @@ export function AutomationForm({
 					<Button
 						type='submit'
 						variant='primary-gradient'
-						disabled={isPending}
+						disabled={isPending || form.isSaveBlocked}
 						className='justify-self-start'
 					>
 						{isPending ? 'Saving...' : submitLabel}
@@ -279,7 +284,12 @@ export function AutomationForm({
 					{form.submitError && <ErrorMessage message={form.submitError} />}
 
 					{showSubmitButton && (
-						<Button type='submit' variant='primary-gradient' disabled={isPending} className='w-full'>
+						<Button
+							type='submit'
+							variant='primary-gradient'
+							disabled={isPending || form.isSaveBlocked}
+							className='w-full'
+						>
 							{isPending ? 'Saving...' : submitLabel}
 						</Button>
 					)}
@@ -295,10 +305,17 @@ function useAutomationFormController({
 	autoSaveControls,
 	saveShortcut,
 	onDirtyChange,
+	onSaveBlockedChange,
 	onSubmit,
 }: Pick<
 	AutomationFormProps,
-	'initialValue' | 'isPending' | 'autoSaveControls' | 'saveShortcut' | 'onDirtyChange' | 'onSubmit'
+	| 'initialValue'
+	| 'isPending'
+	| 'autoSaveControls'
+	| 'saveShortcut'
+	| 'onDirtyChange'
+	| 'onSaveBlockedChange'
+	| 'onSubmit'
 >) {
 	const initialValueSnapshot = serializeAutomationValue(mergeValue(initialValue));
 	const [savedValue, setSavedValue] = useState<AutomationFormValue>(() =>
@@ -326,6 +343,8 @@ function useAutomationFormController({
 		availableModels.data?.find((model) => model.provider === value.modelProvider && model.modelId === value.modelId)
 			?.name ?? value.modelId;
 	const controlsDisabled = isPending || isAutoSaving;
+	const slackChannelError = getSlackChannelError(value.integrations.slack);
+	const isSaveBlocked = slackChannelError !== null;
 	const titlePlaceholder =
 		value.prompt.trim().length > 0 ? 'A title will be generated from your prompt' : 'Untitled automation';
 
@@ -344,6 +363,10 @@ function useAutomationFormController({
 	useEffect(() => {
 		onDirtyChange?.(isDirty);
 	}, [isDirty, onDirtyChange]);
+
+	useEffect(() => {
+		onSaveBlockedChange?.(isSaveBlocked);
+	}, [isSaveBlocked, onSaveBlockedChange]);
 
 	useEffect(() => {
 		if (!saveShortcut) {
@@ -453,6 +476,10 @@ function useAutomationFormController({
 			return false;
 		}
 
+		if (getSlackChannelError(nextValue.integrations.slack)) {
+			return false;
+		}
+
 		return true;
 	}
 
@@ -541,6 +568,7 @@ function useAutomationFormController({
 		handleSubmit,
 		handleValueChange,
 		hasSchedule,
+		isSaveBlocked,
 		mcpServers: mcpServersQuery.data,
 		promptError,
 		promptRef,
@@ -549,6 +577,7 @@ function useAutomationFormController({
 		selectedModelValue,
 		setCustomCron,
 		setTitle,
+		slackChannelError,
 		submitError,
 		titlePlaceholder,
 		triggerError,
@@ -1080,6 +1109,7 @@ function ToolsSection({
 	value,
 	mcpServers,
 	emailRecipientsError,
+	slackChannelError,
 	onClearEmailRecipientsError,
 	onChange,
 	onAutoSaveChange,
@@ -1088,6 +1118,7 @@ function ToolsSection({
 	value: AutomationFormValue;
 	mcpServers: McpServerStatus[] | undefined;
 	emailRecipientsError: string | null;
+	slackChannelError: string | null;
 	onClearEmailRecipientsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
 	onAutoSaveChange: (value: AutomationFormValue) => void;
@@ -1158,6 +1189,7 @@ function ToolsSection({
 						tool={tool}
 						value={value}
 						emailRecipientsError={emailRecipientsError}
+						slackChannelError={slackChannelError}
 						onClearEmailRecipientsError={onClearEmailRecipientsError}
 						onChange={onChange}
 						onRemoveEmail={() => setEmailEnabled(false)}
@@ -1196,6 +1228,7 @@ function ToolRow({
 	tool,
 	value,
 	emailRecipientsError,
+	slackChannelError,
 	onClearEmailRecipientsError,
 	onChange,
 	onRemoveEmail,
@@ -1210,6 +1243,7 @@ function ToolRow({
 	tool: AddedTool;
 	value: AutomationFormValue;
 	emailRecipientsError: string | null;
+	slackChannelError: string | null;
 	onClearEmailRecipientsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
 	onRemoveEmail: () => void;
@@ -1290,20 +1324,29 @@ function ToolRow({
 				onRemove={onRemoveSlack}
 				disabled={disabled}
 			>
-				<Input
-					className='h-8'
-					placeholder='Slack channel ID, for example C0123456789'
-					value={slack.channelId}
-					onChange={(event) =>
-						onChange({
-							...value,
-							integrations: {
-								...value.integrations,
-								slack: { ...slack, channelId: event.target.value },
-							},
-						})
-					}
-				/>
+				<div className='grid gap-1.5'>
+					<Input
+						className='h-8'
+						placeholder='One Slack channel ID, for example C0123456789'
+						value={slack.channelId}
+						aria-invalid={Boolean(slackChannelError)}
+						aria-describedby={slackChannelError ? 'automation-slack-channel-error' : undefined}
+						onChange={(event) =>
+							onChange({
+								...value,
+								integrations: {
+									...value.integrations,
+									slack: { ...slack, channelId: event.target.value },
+								},
+							})
+						}
+					/>
+					{slackChannelError && (
+						<p id='automation-slack-channel-error' className='text-xs text-destructive'>
+							{slackChannelError}
+						</p>
+					)}
+				</div>
 			</ToolRowShell>
 		);
 	}
@@ -1894,6 +1937,13 @@ function getEmailRecipientsError(email: IntegrationConfig['email']): string | nu
 		return null;
 	}
 	return `Enter valid email recipients: ${invalidRecipients.join(', ')}.`;
+}
+
+function getSlackChannelError(slack: IntegrationConfig['slack']): string | null {
+	if (!slack?.enabled || !SLACK_CHANNEL_SEPARATOR_PATTERN.test(slack.channelId.trim())) {
+		return null;
+	}
+	return 'Only one Slack channel is supported per automation. Create a separate automation for each additional channel.';
 }
 
 function isValidEmailAddress(value: string): boolean {

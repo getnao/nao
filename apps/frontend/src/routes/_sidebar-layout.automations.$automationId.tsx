@@ -28,6 +28,7 @@ function AutomationDetailPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+	const [isSaveBlocked, setIsSaveBlocked] = useState(false);
 	const detail = useQuery(
 		trpc.automation.get.queryOptions(
 			{ id: automationId },
@@ -104,7 +105,7 @@ function AutomationDetailPage() {
 							<Button
 								type='submit'
 								form={automationFormId}
-								disabled={updateAutomation.isPending}
+								disabled={updateAutomation.isPending || isSaveBlocked}
 								className='gap-1.5'
 							>
 								{updateAutomation.isPending ? (
@@ -183,6 +184,7 @@ function AutomationDetailPage() {
 						autoSaveControls
 						saveShortcut
 						onDirtyChange={setHasUnsavedChanges}
+						onSaveBlockedChange={setIsSaveBlocked}
 						onSubmit={handleUpdate}
 					/>
 				)}
