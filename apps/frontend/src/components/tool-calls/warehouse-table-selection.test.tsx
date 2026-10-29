@@ -87,6 +87,32 @@ describe('WarehouseTableSelection', () => {
 		expect(screen.getByRole('button', { name: /Specific selection/ }).getAttribute('aria-pressed')).toBe('true');
 	});
 
+	it('keeps every table editable once its whole schema is selected', () => {
+		render(<SelectionHarness onSubmit={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: /Specific selection/ }));
+		fireEvent.click(screen.getByRole('button', { name: 'Expand public folder' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'public schema access' }));
+		expect(screen.getByText('2 of 3 selected')).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'public schema access' }).dataset.state).toBe('checked');
+
+		const orders = screen.getByRole('checkbox', { name: 'orders table access' }) as HTMLButtonElement;
+		expect(orders.disabled).toBe(false);
+		fireEvent.click(orders);
+		expect(screen.getByText('1 of 3 selected')).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'customers table access' }).dataset.state).toBe('checked');
+		expect(screen.getByRole('checkbox', { name: 'public schema access' }).dataset.state).toBe('indeterminate');
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'orders table access' }));
+		expect(screen.getByRole('checkbox', { name: 'public schema access' }).dataset.state).toBe('checked');
+		expect((screen.getByRole('checkbox', { name: 'customers table access' }) as HTMLButtonElement).disabled).toBe(
+			false,
+		);
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'public schema access' }));
+		expect(screen.getByText('0 of 3 selected')).toBeTruthy();
+	});
+
 	it('collapses and expands a schema from the arrow beside its name', () => {
 		render(<SelectionHarness onSubmit={vi.fn()} />);
 

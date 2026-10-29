@@ -73,7 +73,7 @@ describe('onboarding system prompt', () => {
 	it('uses the optional business context already collected by the setup card', () => {
 		const prompt = renderOnboardingSystemPrompt();
 
-		expect(prompt).toContain('End the turn without writing a message');
+		expect(prompt).toContain('Otherwise, end the turn without writing a message');
 		expect(prompt).toContain('never ask for business context in chat');
 		expect(prompt).toContain(
 			'When the business context card reports "I added my business context." or "Skip the business context for now."',
@@ -83,6 +83,15 @@ describe('onboarding system prompt', () => {
 		expect(prompt).not.toContain('additionalContext');
 		expect(prompt).not.toContain('companyDescription');
 		expect(prompt).not.toContain('jobId');
+	});
+
+	it('finishes setups started before the business context card without asking for context', () => {
+		const prompt = renderOnboardingSystemPrompt();
+
+		expect(prompt).toContain(
+			'If the setup status is awaiting_context, the setup started before the business context card existed',
+		);
+		expect(prompt).toContain('Call generate_onboarding_rules with an empty "businessContext" object right away');
 	});
 
 	it('follows the warehouse setup through the agent loop instead of internal events', () => {

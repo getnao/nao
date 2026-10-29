@@ -60,21 +60,11 @@ export function WarehouseTableSelection({
 			: {
 					mode: 'restricted',
 					strict: true,
-					grants: schemas.flatMap(({ schema, tables }): DatabaseContextGrant[] => {
-						const selectedTables = tables.filter((table) =>
-							selectedTableKeys.has(getWarehouseTableKey(schema, table)),
-						);
-						if (tables.length > 0 && selectedTables.length === tables.length) {
-							return [{ kind: 'schema', databaseType, database: databaseLabel, schema }];
-						}
-						return selectedTables.map((table) => ({
-							kind: 'table',
-							databaseType,
-							database: databaseLabel,
-							schema,
-							table,
-						}));
-					}),
+					grants: schemas.flatMap(({ schema, tables }): DatabaseContextGrant[] =>
+						tables
+							.filter((table) => selectedTableKeys.has(getWarehouseTableKey(schema, table)))
+							.map((table) => ({ kind: 'table', databaseType, database: databaseLabel, schema, table })),
+					),
 					patterns: [],
 				};
 	const isSearching = databaseAccess.mode === 'restricted' && search.trim().length > 0;
@@ -146,6 +136,7 @@ export function WarehouseTableSelection({
 								draftPattern=''
 								showDatabaseRoot={false}
 								showSelectionSourceLabels={false}
+								checkFullySelectedSchemas
 							/>
 						</ul>
 					)}

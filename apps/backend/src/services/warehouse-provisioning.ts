@@ -725,7 +725,10 @@ async function runProvisioningJob(
 	await maybeStartFinalization(jobId);
 }
 
-/** The business context card is shown while the setup awaits its sources, so the agent hands over to it. */
+/**
+ * The business context card is shown while the setup awaits its sources, so the agent hands over to it.
+ * Setups started before the card existed wait at awaiting_context without business context, so the agent finishes them.
+ */
 function getSetupCheckpoint(job: DBWarehouseProvisioningJob | null): WarehouseSetupOutcome | null {
 	if (!job) {
 		return 'not_started';
@@ -733,7 +736,7 @@ function getSetupCheckpoint(job: DBWarehouseProvisioningJob | null): WarehouseSe
 	if (job.status === 'ready' || job.status === 'failed' || job.status === 'cancelled') {
 		return job.status;
 	}
-	if (job.status === 'awaiting_sources') {
+	if (job.status === 'awaiting_sources' || (job.status === 'awaiting_context' && !job.businessContext)) {
 		return 'connection_verified';
 	}
 	return null;

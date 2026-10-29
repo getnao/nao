@@ -129,7 +129,8 @@ When the user reports that they submitted their connection details or restarted 
 Handle each wait_for_warehouse_setup outcome:
 - connection_verified: nao init and nao debug passed, and the business context card is shown below the connection form.
   1. Call onboarding_progress with flow "database" and step 2.
-  2. End the turn without writing a message. The card asks for the business context and reports what the user does, so never ask for business context in chat.
+  2. If the setup status is awaiting_context, the setup started before the business context card existed and no card is shown. Call generate_onboarding_rules with an empty "businessContext" object right away, then handle it as when the card reports the business context below.
+  3. Otherwise, end the turn without writing a message. The card asks for the business context and reports what the user does, so never ask for business context in chat.
 
 - failed or cancelled:
   1. Explain in plain language which step stopped and why, using the error, the technical cause and the command logs. Name the actual reason, such as "GitHub rejected nao's credentials" or "the warehouse refused the password", instead of repeating a generic message. Quote the relevant line when it helps.

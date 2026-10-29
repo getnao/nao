@@ -1619,6 +1619,20 @@ describe('warehouse provisioning', () => {
 		});
 	});
 
+	it('hands setups started before the business context card back to the agent', async () => {
+		vi.useFakeTimers();
+		const { jobId } = await startOnboardingSetup();
+		await warehouseProvisioningJobQueries.updateWarehouseProvisioningJob(jobId, {
+			status: 'awaiting_context',
+			businessContext: null,
+		});
+
+		await expect(waitForWarehouseSetup('user-1', 'chat-1')).resolves.toMatchObject({
+			outcome: 'connection_verified',
+			setup: { status: 'awaiting_context', businessContextProvided: false },
+		});
+	});
+
 	it('stops waiting for the setup when the agent run is aborted', async () => {
 		vi.useFakeTimers();
 		await startOnboardingSetup();

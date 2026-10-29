@@ -379,6 +379,7 @@ export function DatabaseContextTree({
 	draftPattern,
 	showDatabaseRoot = true,
 	showSelectionSourceLabels = true,
+	checkFullySelectedSchemas = false,
 }: {
 	objects: DatabaseContextObject[];
 	selectionObjects: DatabaseContextObject[];
@@ -388,6 +389,7 @@ export function DatabaseContextTree({
 	draftPattern: string;
 	showDatabaseRoot?: boolean;
 	showSelectionSourceLabels?: boolean;
+	checkFullySelectedSchemas?: boolean;
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
 	const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -426,6 +428,7 @@ export function DatabaseContextTree({
 								draftPattern={draftPattern}
 								selectionObjects={selectionObjects}
 								showSelectionSourceLabels={showSelectionSourceLabels}
+								checkFullySelectedSchemas={checkFullySelectedSchemas}
 							/>,
 						]
 					: database.schemas.map((schema) => (
@@ -441,6 +444,7 @@ export function DatabaseContextTree({
 								draftPattern={draftPattern}
 								selectionObjects={selectionObjects}
 								showSelectionSourceLabels={showSelectionSourceLabels}
+								checkFullySelectedSchemas={checkFullySelectedSchemas}
 							/>
 						)),
 			)}
@@ -487,6 +491,7 @@ function DatabaseNode({
 	draftPattern,
 	selectionObjects,
 	showSelectionSourceLabels,
+	checkFullySelectedSchemas,
 }: {
 	database: GroupedDatabase;
 	expandedKeys: Set<string>;
@@ -497,6 +502,7 @@ function DatabaseNode({
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
 	showSelectionSourceLabels: boolean;
+	checkFullySelectedSchemas: boolean;
 }) {
 	const folderChain = getSingleChildFolderChain(database, DATABASE_TREE_EXPANSION_ADAPTER);
 	const compactSchema = folderChain.length === 2 ? folderChain[1] : undefined;
@@ -515,6 +521,7 @@ function DatabaseNode({
 				draftPattern={draftPattern}
 				selectionObjects={selectionObjects}
 				showSelectionSourceLabels={showSelectionSourceLabels}
+				checkFullySelectedSchemas={checkFullySelectedSchemas}
 			/>
 		);
 	}
@@ -576,6 +583,7 @@ function DatabaseNode({
 							draftPattern={draftPattern}
 							selectionObjects={selectionObjects}
 							showSelectionSourceLabels={showSelectionSourceLabels}
+							checkFullySelectedSchemas={checkFullySelectedSchemas}
 						/>
 					))}
 				</ul>
@@ -596,6 +604,7 @@ function SchemaRow({
 	draftPattern,
 	selectionObjects,
 	showSelectionSourceLabels,
+	checkFullySelectedSchemas,
 }: {
 	schema: GroupedSchema;
 	label: string;
@@ -608,6 +617,7 @@ function SchemaRow({
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
 	showSelectionSourceLabels: boolean;
+	checkFullySelectedSchemas: boolean;
 }) {
 	const schemaGrant: DatabaseSchemaGrant = {
 		kind: 'schema',
@@ -617,7 +627,12 @@ function SchemaRow({
 	};
 	const explicitSchema = hasDatabaseContextGrant(databaseAccess, schemaGrant);
 	const inherited = databaseAccess.mode === 'all';
-	const selected = inherited || explicitSchema;
+	const schemaObjects = selectionObjects.filter((object) => sameSchema(object, schema));
+	const fullySelected =
+		checkFullySelectedSchemas &&
+		schemaObjects.length > 0 &&
+		schemaObjects.every((object) => isDatabaseContextTableGranted(databaseAccess, object));
+	const selected = inherited || explicitSchema || fullySelected;
 	const partial =
 		!selected &&
 		selectionObjects.some(
