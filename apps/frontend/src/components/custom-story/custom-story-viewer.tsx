@@ -37,7 +37,15 @@ interface CustomStoryViewerProps {
 
 /** Side-panel view of a custom story */
 export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps) {
-	const { close, setCurrentStorySlug, isReadonlyMode, isReplay, shareSource } = useSidePanel();
+	const {
+		close,
+		setCurrentStorySlug,
+		isReadonlyMode,
+		isReplay,
+		shareSource,
+		chatId: conversationChatId,
+	} = useSidePanel();
+	const citingChatId = conversationChatId ?? chatId;
 	const story = useCustomStory(chatId, storySlug);
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
@@ -98,16 +106,16 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 
 	const handleAsk = useCallback(
 		(citation: StoryElementCitation) => {
-			chatPendingCitationStore.addStoryElement(chatId, storySlug, citation);
+			chatPendingCitationStore.addStoryElement(citingChatId, storySlug, citation);
 		},
-		[chatId, storySlug],
+		[citingChatId, storySlug],
 	);
 
 	const handleAskAboutCode = useCallback(
 		(filePath: string, selection: CodeSelection) => {
-			chatPendingCitationStore.add(chatId, toAskCitation(toCodeAsk(selection, { storySlug, filePath })));
+			chatPendingCitationStore.add(citingChatId, toAskCitation(toCodeAsk(selection, { storySlug, filePath })));
 		},
-		[chatId, storySlug],
+		[citingChatId, storySlug],
 	);
 
 	const handleRememberState = useCallback(() => {
