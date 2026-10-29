@@ -158,7 +158,9 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		shareSource,
 		setCurrentStorySlug,
 		setCurrentStoryTabIndex,
+		chatId: conversationChatId,
 	} = useSidePanel();
+	const citingChatId = conversationChatId ?? chatId;
 	const isReadonlyMode = isReplay ? contextReadonlyMode : (readonlyProp ?? contextReadonlyMode);
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
@@ -279,9 +281,12 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	});
 	const handleAskAboutCode = useCallback(
 		(selection: CodeSelection) => {
-			chatPendingCitationStore.add(chatId, toAskCitation(toCodeAsk(selection, { storySlug: resolvedStorySlug })));
+			chatPendingCitationStore.add(
+				citingChatId,
+				toAskCitation(toCodeAsk(selection, { storySlug: resolvedStorySlug })),
+			);
 		},
-		[chatId, resolvedStorySlug],
+		[citingChatId, resolvedStorySlug],
 	);
 	useEffect(() => registerBeforeChange(exitGuard.requestExit), [exitGuard.requestExit, registerBeforeChange]);
 	const handleBeforeAgentSend = useCallback(async () => {
