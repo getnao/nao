@@ -145,6 +145,36 @@ describe('custom stories through MCP without a chat', () => {
 		});
 		expect(mocks.publishCustomStoryDraft).toHaveBeenCalled();
 	});
+
+	it('saves the rows given with a starter app so a later update can use them', async () => {
+		mocks.listDraftFiles.mockResolvedValue([]);
+
+		await createCustomStoryForMcp(
+			{ chatId: undefined, title: 'Revenue app', files: undefined, queryData: { query_ask: rows() } },
+			ctx,
+		);
+
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('story-id', { query_ask: rows() });
+		expect(mocks.publishCustomStoryDraft).not.toHaveBeenCalled();
+	});
+
+	it('only replaces the published rows once the update builds', async () => {
+		const published = { columns: ['value'], data: [{ value: 'published' }] };
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({ queryData: { query_ask: published } });
+		mocks.publishCustomStoryDraft.mockResolvedValue({ ok: false, buildErrors: ['broken'], files: [] });
+
+		await updateCustomStoryForMcp(
+			STANDALONE_STORY as never,
+			{ title: undefined, files: APP_FILES, deletePaths: [], queryData: { query_ask: rows() } },
+			ctx,
+		);
+
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledTimes(1);
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('story-id', {
+			query_ask: published,
+			query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
+		});
+	});
 });
 
 function rows() {

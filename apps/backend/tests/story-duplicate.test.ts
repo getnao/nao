@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	createCustomStoryDraft: vi.fn(),
 	createStandaloneStory: vi.fn(),
 	deleteStory: vi.fn(),
+	executeLiveQuery: vi.fn(),
 	getFolderById: vi.fn(),
 	getLatestSqlQueryDataByIds: vi.fn(),
 	getLatestVersionByStoryId: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	listOwnedStoryTitlesStartingWith: vi.fn(),
 	listProjectStoryAppState: vi.fn(),
 	listStandaloneSlugsStartingWith: vi.fn(),
+	listUserStoryAppState: vi.fn(),
 	listVersionFiles: vi.fn(),
 	moveStoryToFolder: vi.fn(),
 	publishCustomStoryDraft: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock('../src/queries/execute-sql.queries', () => ({
 vi.mock('../src/queries/mcp-query-data.queries', () => ({ getMcpQueryData: mocks.getMcpQueryData }));
 vi.mock('../src/queries/story-app-state.queries', () => ({
 	listProjectStoryAppState: mocks.listProjectStoryAppState,
+	listUserStoryAppState: mocks.listUserStoryAppState,
 	upsertStoryAppState: mocks.upsertStoryAppState,
 }));
 vi.mock('../src/queries/story-file.queries', () => ({ listVersionFiles: mocks.listVersionFiles }));
@@ -51,10 +54,13 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 	moveStoryToFolder: mocks.moveStoryToFolder,
 	saveStoryInPrivateRoot: mocks.saveStoryInPrivateRoot,
 }));
+vi.mock('../src/services/live-story', () => ({ executeLiveQuery: mocks.executeLiveQuery }));
 vi.mock('../src/services/custom-story-authoring', () => ({
 	createCustomStoryDraft: mocks.createCustomStoryDraft,
 	publishCustomStoryDraft: mocks.publishCustomStoryDraft,
 }));
+
+import { NO_CACHE_SCHEDULE } from '@nao/shared';
 
 import { duplicateStory, StoryDuplicateError } from '../src/services/story-duplicate';
 
@@ -74,6 +80,7 @@ describe('duplicateStory', () => {
 		mocks.createStandaloneStory.mockResolvedValue({ id: 'copy-id' });
 		mocks.getStoryFolderItem.mockResolvedValue(null);
 		mocks.listProjectStoryAppState.mockResolvedValue([]);
+		mocks.listUserStoryAppState.mockResolvedValue([]);
 	});
 
 	it('creates a standalone copy named after the original, in the private folder of the user', async () => {
@@ -157,6 +164,18 @@ describe('duplicateStory', () => {
 		);
 	});
 
+	it('freezes the rows a live story without cache shows, by rerunning its queries', async () => {
+		mocks.getStoryById.mockResolvedValue(createStory({ isLive: true, cacheSchedule: NO_CACHE_SCHEDULE }));
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({ queryData: { query_a: rows('cached') } });
+		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({ query_a: rows('chat') });
+		mocks.executeLiveQuery.mockResolvedValue(rows('live'));
+
+		await duplicateStory({ storyId: 'story-id' }, OWNER);
+
+		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-id', 'query_a');
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('copy-id', { query_a: rows('live') }, null);
+	});
+
 	it('keeps the copy next to the original when it sits in a private folder of the user', async () => {
 		mocks.getStoryFolderItem.mockResolvedValue({ folderId: 'folder-id' });
 		mocks.getFolderById.mockResolvedValue({
@@ -203,7 +222,12 @@ describe('duplicateStory', () => {
 		});
 
 		it('publishes a standalone copy of the version files that reads the frozen rows', async () => {
-			mocks.listProjectStoryAppState.mockResolvedValue([{ key: 'scenario', value: { growth: 3 } }]);
+			mocks.listProjectStoryAppState.mockResolvedValue([
+				{ scope: 'project', userId: null, key: 'scenario', value: { growth: 3 } },
+			]);
+			mocks.listUserStoryAppState.mockResolvedValue([
+				{ scope: 'user', userId: 'user-id', key: 'region', value: 'EMEA' },
+			]);
 
 			await duplicateStory({ storyId: 'story-id' }, OWNER);
 
@@ -222,6 +246,12 @@ describe('duplicateStory', () => {
 			expect(mocks.upsertStoryAppState).toHaveBeenCalledWith(
 				{ storyId: 'copy-id', scope: 'project', userId: null, key: 'scenario' },
 				{ growth: 3 },
+				'user-id',
+			);
+			expect(mocks.listUserStoryAppState).toHaveBeenCalledWith('story-id', 'user-id');
+			expect(mocks.upsertStoryAppState).toHaveBeenCalledWith(
+				{ storyId: 'copy-id', scope: 'user', userId: 'user-id', key: 'region' },
+				'EMEA',
 				'user-id',
 			);
 			expect(mocks.publishCustomStoryDraft).toHaveBeenCalledWith({ id: 'copy-id' }, OWNER, 'user');
