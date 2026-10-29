@@ -18,8 +18,10 @@ import {
 	generateText,
 	InferUIMessageChunk,
 	ModelMessage,
+	type PrepareStepResult,
 	pruneMessages,
 	stepCountIs,
+	type StepResult,
 	type StopCondition,
 	StreamTextResult,
 	ToolLoopAgent,
@@ -464,7 +466,7 @@ export class AgentManager {
 				...args,
 				instructions: cachedSystemInstructions(this._systemPrompt, this._modelSelection),
 			}),
-			prepareStep: async ({ messages }) => this._prepareStep(messages),
+			prepareStep: async ({ messages, steps }) => this._prepareStep(messages, steps),
 			stopWhen: this._stopConditions,
 			experimental_context: this._toolContext,
 			experimental_telemetry: llmTelemetry('nao-agent', {
@@ -491,7 +493,10 @@ export class AgentManager {
 		return this._profile.maxSteps ? [stepCountIs(this._profile.maxSteps)] : interactiveStopConditions;
 	}
 
-	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
+	private async _prepareStep(
+		messages: ModelMessage[],
+		steps: StepResult<AgentTools>[],
+	): Promise<PrepareStepResult<AgentTools>> {
 		const workingMessages: ModelMessage[] =
 			this._systemPrompt && messages[0]?.role !== 'system'
 				? [{ role: 'system', content: this._systemPrompt }, ...messages]
@@ -521,7 +526,10 @@ export class AgentManager {
 		});
 
 		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
-		return { messages: this._addCache(this._pruneMessages(conversationMessages)) };
+		return {
+			...this._profile.stepTools?.(steps),
+			messages: this._addCache(this._pruneMessages(conversationMessages)),
+		};
 	}
 
 	get generatedArtifacts(): ToolContext['generatedArtifacts'] {
