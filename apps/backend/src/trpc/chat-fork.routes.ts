@@ -1,3 +1,4 @@
+import type { StoryFormat } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -9,6 +10,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { compactionService } from '../services/compaction';
 import { attachChatToStandaloneStory } from '../services/standalone-story';
+import { duplicateStory, StoryDuplicateError } from '../services/story-duplicate';
 import { forkStoryIntoChat } from '../services/story-fork';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
@@ -128,7 +130,7 @@ export const chatForkRoutes = {
 			const hasAttachedStoryChat = !story.chatId && story.ownerId === user.id;
 			if (hasAttachedStoryChat) {
 				await attachChatToStandaloneStory(
-					{ id: story.storyId, slug: story.slug, title: story.title, code: story.code },
+					{ id: story.storyId, slug: story.slug, title: story.title, code: story.code, format: story.format },
 					{ userId: user.id, projectId },
 				);
 			}
@@ -146,15 +148,25 @@ export const chatForkRoutes = {
 			return { chatId: chat.id, hasAttachedStoryChat };
 		}),
 
-	forkStory: storyForkProcedure.mutation(async ({ ctx }): Promise<{ chatId: string }> => {
-		const { story, projectId, user } = ctx;
-		if (story.ownerId !== user.id) {
-			await assertUserGroupFeatureForTrpc(projectId, user.id, 'storyCreation');
-		}
-		const { chatId } = await forkStoryIntoChat(story, { userId: user.id, projectId });
-		logStoryFork({ ...story, projectId }, user.id, chatId, 'full');
-		return { chatId };
-	}),
+	duplicateStory: resolvedStoryForkProcedure
+		.input(z.object({ versionNumber: z.number().int().positive().optional() }))
+		.mutation(async ({ ctx, input }): Promise<{ storyId: string; title: string }> => {
+			const { story, projectId, user } = ctx;
+			const isOwner = story.ownerId === user.id;
+			await assertCanDuplicateStory(story, { projectId, userId: user.id, isOwner });
+			const versionNumber = isOwner ? (input.versionNumber ?? story.version) : story.version;
+			const duplicate = await duplicateStoryAsTrpc({ storyId: story.storyId, versionNumber }, user.id, projectId);
+			logAnalyticsEvent({
+				projectId,
+				type: 'fork',
+				assetType: 'story',
+				actorUserId: user.id,
+				storyId: story.storyId,
+				chatId: story.chatId,
+				metadata: { type: 'fork', resultId: duplicate.storyId, scope: 'full', versionNumber },
+			});
+			return duplicate;
+		}),
 
 	openStandalone: openStandaloneProcedure.mutation(async ({ ctx }): Promise<{ chatId: string }> => {
 		const { story } = ctx;
@@ -175,6 +187,34 @@ export const chatForkRoutes = {
 		return { chatId };
 	}),
 };
+
+/** A copy of someone else's story is a new story of the user; any copy of a custom story is a new custom story. */
+async function assertCanDuplicateStory(
+	story: { format: StoryFormat },
+	actor: { projectId: string; userId: string; isOwner: boolean },
+): Promise<void> {
+	if (!actor.isOwner) {
+		await assertUserGroupFeatureForTrpc(actor.projectId, actor.userId, 'storyCreation');
+	}
+	if (story.format === 'custom') {
+		await assertUserGroupFeatureForTrpc(actor.projectId, actor.userId, 'customStoryCreation');
+	}
+}
+
+async function duplicateStoryAsTrpc(
+	source: { storyId: string; versionNumber: number },
+	userId: string,
+	projectId: string,
+): Promise<{ storyId: string; title: string }> {
+	try {
+		return await duplicateStory(source, { userId, projectId });
+	} catch (error) {
+		if (error instanceof StoryDuplicateError) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+		}
+		throw error;
+	}
+}
 
 async function forkSharedChat(
 	share: sharedChatQueries.SharedChatWithDetails,

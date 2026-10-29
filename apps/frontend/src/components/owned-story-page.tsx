@@ -98,6 +98,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				title={story.title}
 				storyChat={{ storyId, isOwner: true, canChat: !isArchived }}
 				canDuplicate={!isArchived}
+				viewedVersionNumber={editor.versionNav.storedVersionNumber || undefined}
 				live={{
 					isLive,
 					cachedAt: story.cachedAt,
