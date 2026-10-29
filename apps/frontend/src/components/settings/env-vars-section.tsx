@@ -34,6 +34,7 @@ export function EnvVarsSection({ isAdmin, unstyled = false, onSaved }: EnvVarsSe
 		onSuccess: (_data, variables) => {
 			initializedRef.current = false;
 			queryClient.invalidateQueries({ queryKey: trpc.project.getEnvVars.queryKey() });
+			queryClient.invalidateQueries({ queryKey: trpc.project.getMissingEnvVars.queryKey() });
 			setHasChanges(false);
 			onSaved?.(variables.envVars);
 		},

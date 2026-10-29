@@ -50,6 +50,7 @@ export function GitHubRepoPicker({ open, onOpenChange, onImported, dialogStyle }
 				setActiveProjectId(data.projectId);
 				queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.project.getEnvVars.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.project.getMissingEnvVars.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.organization.getProjects.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() });

@@ -353,15 +353,22 @@ function OnboardingPage() {
 							ref={actionAreaRef}
 							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 max-h-[50vh] w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 overflow-y-auto rounded-xl border border-violet/20 bg-background p-5 shadow-lg'
 						>
-							<EnvVarsSection
-								isAdmin={isAdmin}
-								unstyled
-								onSaved={(savedEnvVars) =>
-									queueOrSendMessage({
-										text: formatSavedEnvVarsMessage(missingEnvVars ?? [], savedEnvVars),
-									}).catch(console.error)
-								}
-							/>
+							{isAdmin ? (
+								<EnvVarsSection
+									isAdmin
+									unstyled
+									onSaved={(savedEnvVars) =>
+										queueOrSendMessage({
+											text: formatSavedEnvVarsMessage(missingEnvVars ?? [], savedEnvVars),
+										}).catch(console.error)
+									}
+								/>
+							) : (
+								<p className='text-sm text-muted-foreground'>
+									A project admin must set these environment variables before nao can connect:{' '}
+									<span className='font-mono text-foreground'>{missingEnvVars?.join(', ')}</span>
+								</p>
+							)}
 						</div>
 					)}
 				</div>

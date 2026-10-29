@@ -187,21 +187,14 @@ export function isOnboardingComplete(
 	return hasOnboardingProject && (warehouseReady || progressComplete);
 }
 
-/** Missing env vars of the imported GitHub project, or `undefined` while they are loading. */
+/** Missing env vars of the imported GitHub project, or `undefined` while they are unknown. */
 export function useOnboardingMissingEnvVars(
 	progress: OnboardingProgressState | null,
 	hasOnboardingProject: boolean,
 ): string[] | undefined {
 	const enabled = isGithubImportStepReached(progress) && hasOnboardingProject;
-	const envVars = useQuery({ ...trpc.project.getEnvVars.queryOptions(), enabled });
-	if (!enabled || envVars.isError) {
-		return [];
-	}
-	if (!envVars.data) {
-		return undefined;
-	}
-	const { required, values, setFromProcessEnv } = envVars.data;
-	return required.filter((name) => !values[name]?.trim() && !setFromProcessEnv.includes(name));
+	const missingEnvVars = useQuery({ ...trpc.project.getMissingEnvVars.queryOptions(), enabled });
+	return enabled ? missingEnvVars.data : [];
 }
 
 function isGithubImportStepReached(progress: OnboardingProgressState | null): boolean {
