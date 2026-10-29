@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 
@@ -9,11 +10,12 @@ import { Button } from '@/components/ui/button';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useRestartOnboarding } from '@/contexts/onboarding-restart';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 const ONBOARDING_STEPS = {
 	new: ['Install', 'Initialize', 'Verify & sync', 'Deploy'],
 	local: ['Locate project', 'Verify', 'Sync', 'Deploy'],
-	github: ['Connect GitHub', 'Import repository'],
+	github: ['Connect GitHub', 'Import repository', 'Set environment variables'],
 	database: ['Connect warehouse', 'Initialize', 'Verify', 'Sync metadata', 'Prepare context'],
 } as const;
 
@@ -179,9 +181,31 @@ export function isOnboardingComplete(
 	hasOnboardingProject: boolean,
 	progress: OnboardingProgressState | null,
 	warehouseReady: boolean,
+	envVarsReady: boolean,
 ): boolean {
-	const progressComplete = isDeployStepReached(progress) || (progress?.flow === 'github' && progress.step === 2);
+	const progressComplete = isDeployStepReached(progress) || (isGithubImportStepReached(progress) && envVarsReady);
 	return hasOnboardingProject && (warehouseReady || progressComplete);
+}
+
+/** Missing env vars of the imported GitHub project, or `undefined` while they are loading. */
+export function useOnboardingMissingEnvVars(
+	progress: OnboardingProgressState | null,
+	hasOnboardingProject: boolean,
+): string[] | undefined {
+	const enabled = isGithubImportStepReached(progress) && hasOnboardingProject;
+	const envVars = useQuery({ ...trpc.project.getEnvVars.queryOptions(), enabled });
+	if (!enabled || envVars.isError) {
+		return [];
+	}
+	if (!envVars.data) {
+		return undefined;
+	}
+	const { required, values, setFromProcessEnv } = envVars.data;
+	return required.filter((name) => !values[name]?.trim() && !setFromProcessEnv.includes(name));
+}
+
+function isGithubImportStepReached(progress: OnboardingProgressState | null): boolean {
+	return progress?.flow === 'github' && progress.step === 2;
 }
 
 export function findCreatedOnboardingProject<T extends { createdAt: Date }>(

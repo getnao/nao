@@ -16,7 +16,12 @@ import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
-import { findWarehouseJobId, isOnboardingComplete, useOnboardingProgress } from '@/components/onboarding-progress';
+import {
+	findWarehouseJobId,
+	isOnboardingComplete,
+	useOnboardingMissingEnvVars,
+	useOnboardingProgress,
+} from '@/components/onboarding-progress';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
 import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
@@ -113,10 +118,12 @@ function ChatPage() {
 	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
+	const onboardingMissingEnvVars = useOnboardingMissingEnvVars(onboardingProgress, currentProject.data != null);
 	const onboardingComplete = isOnboardingComplete(
 		currentProject.data != null,
 		onboardingProgress,
 		onboardingWarehouseJob.data?.status === 'ready',
+		onboardingMissingEnvVars?.length === 0,
 	);
 
 	const containerRef = useRef<HTMLDivElement>(null);

@@ -9,7 +9,13 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { trpc } from '@/main';
 
-export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
+interface EnvVarsSectionProps {
+	isAdmin: boolean;
+	unstyled?: boolean;
+	onSaved?: (envVars: Record<string, string>) => void;
+}
+
+export function EnvVarsSection({ isAdmin, unstyled = false, onSaved }: EnvVarsSectionProps) {
 	const queryClient = useQueryClient();
 	const envVarsQuery = useQuery(trpc.project.getEnvVars.queryOptions());
 	const [localValues, setLocalValues] = useState<Record<string, string>>({});
@@ -25,10 +31,11 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 
 	const updateMutation = useMutation({
 		...trpc.project.updateEnvVars.mutationOptions(),
-		onSuccess: () => {
+		onSuccess: (_data, variables) => {
 			initializedRef.current = false;
 			queryClient.invalidateQueries({ queryKey: trpc.project.getEnvVars.queryKey() });
 			setHasChanges(false);
+			onSaved?.(variables.envVars);
 		},
 	});
 
@@ -70,6 +77,7 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 		<SettingsCard
 			title='Environment Variables'
 			description='Variables referenced in nao_config.yaml via {{ env("...") }} or in agent/mcps/mcp.json via ${...}.'
+			unstyled={unstyled}
 			action={
 				isAdmin && hasChanges ? (
 					<Button size='sm' onClick={handleSave} disabled={updateMutation.isPending}>

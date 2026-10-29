@@ -24,18 +24,19 @@ describe('isDeployStepReached', () => {
 
 describe('isOnboardingComplete', () => {
 	it.each([
-		[false, { flow: 'local', step: 4 }, false, false],
-		[true, { flow: 'local', step: 2 }, false, false],
-		[true, { flow: 'local', step: 3 }, false, true],
-		[true, { flow: 'local', step: 4 }, false, true],
-		[true, { flow: 'github', step: 2 }, false, true],
-		[true, { flow: 'github', step: 4 }, false, false],
-		[true, { flow: 'database', step: 4 }, false, false],
-		[true, { flow: 'database', step: 2 }, true, true],
+		[false, { flow: 'local', step: 4 }, false, true, false],
+		[true, { flow: 'local', step: 2 }, false, true, false],
+		[true, { flow: 'local', step: 3 }, false, true, true],
+		[true, { flow: 'local', step: 4 }, false, true, true],
+		[true, { flow: 'github', step: 2 }, false, true, true],
+		[true, { flow: 'github', step: 2 }, false, false, false],
+		[true, { flow: 'github', step: 4 }, false, true, false],
+		[true, { flow: 'database', step: 4 }, false, true, false],
+		[true, { flow: 'database', step: 2 }, true, true, true],
 	] as const)(
 		'requires a project and a completed setup milestone',
-		(hasProject, progress, warehouseReady, expected) => {
-			expect(isOnboardingComplete(hasProject, progress, warehouseReady)).toBe(expected);
+		(hasProject, progress, warehouseReady, envVarsReady, expected) => {
+			expect(isOnboardingComplete(hasProject, progress, warehouseReady, envVarsReady)).toBe(expected);
 		},
 	);
 });

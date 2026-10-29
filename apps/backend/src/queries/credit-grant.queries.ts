@@ -14,7 +14,7 @@ export async function listPendingOrganizationSetupCandidates(
 	input: { after?: CreditGrantCandidateCursor; limit?: number } = {},
 ): Promise<Array<{ id: string; orgId: string | null; projectId: string | null; cursorCreatedAt: string }>> {
 	const query = db
-		.selectDistinct({
+		.select({
 			id: s.creditGrantCandidate.id,
 			orgId: s.creditGrantCandidate.orgId,
 			projectId: s.creditGrantCandidate.projectId,
