@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { CircleDollarSign, KeyRound } from 'lucide-react';
+import { ArrowUpRight, CircleDollarSign, KeyRound } from 'lucide-react';
 
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
@@ -22,18 +22,33 @@ export function ManagedCreditsExhausted({
 	const canAddCredits = Boolean(creditOrganizationId);
 	const canManageAccess = canAddProviderKey || canAddCredits;
 	const title = 'You’re out of nao credits';
-	const description = canManageAccess
-		? 'Add credits or use your own AI provider to continue chatting. Your chats, projects, and data are safe.'
-		: 'Ask your organization admin to add credits or connect an AI provider. Your chats, projects, and data are safe.';
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent showCloseButton={false} className='sm:max-w-md'>
-				<DialogHeader>
+			<DialogContent showCloseButton={false} className='gap-6 p-8 sm:max-w-lg'>
+				<DialogHeader className='gap-3 text-left'>
 					<DialogTitle>{title}</DialogTitle>
-					<DialogDescription>{description}</DialogDescription>
+					<DialogDescription className='leading-relaxed'>
+						{canAddCredits ? (
+							<>
+								{canAddProviderKey ? 'Add credits, bring your own API key, or ' : 'Add credits or '}
+								<Link
+									to='/settings/organization/members'
+									className='inline-flex items-center gap-0.5 font-medium text-foreground hover:underline'
+								>
+									invite users
+									<ArrowUpRight className='size-3.5' />
+								</Link>{' '}
+								to continue chatting. Your chats, projects, and data are safe.
+							</>
+						) : canAddProviderKey ? (
+							'Bring your own API key to continue chatting. Your chats, projects, and data are safe.'
+						) : (
+							'Ask your organization admin to add credits or connect an AI provider. Your chats, projects, and data are safe.'
+						)}
+					</DialogDescription>
 				</DialogHeader>
-				<DialogFooter className='sm:flex-wrap sm:justify-center'>
+				<DialogFooter className='flex-row flex-wrap gap-3'>
 					{canManageAccess ? (
 						<ManagedCreditsActions
 							canAddProviderKey={canAddProviderKey}
@@ -71,7 +86,7 @@ function ManagedCreditsActions({
 				<Button
 					variant='primary-gradient'
 					size='sm'
-					className='h-8 rounded-full px-4'
+					className='h-10 flex-1 rounded-full px-5'
 					onClick={() => void onAddCredits(creditOrganizationId)}
 				>
 					<CircleDollarSign />
@@ -83,7 +98,7 @@ function ManagedCreditsActions({
 					asChild
 					variant='outline'
 					size='sm'
-					className='h-8 rounded-full border-primary/20 bg-background/80 px-4'
+					className='h-10 flex-1 rounded-full border-primary/20 bg-background/80 px-5'
 				>
 					<Link to='/settings/project/agent' search={{ tab: 'models' }}>
 						<KeyRound />

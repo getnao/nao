@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-	Link: ({ children }: { children: ReactNode }) => <a href='/settings/project/agent'>{children}</a>,
+	Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));
 
 vi.mock('@/hooks/use-open-organization-billing', () => ({
@@ -38,6 +38,9 @@ it('shows both recovery actions to an organization and project admin', () => {
 	expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
 	expect(screen.getByRole('button', { name: 'Buy nao credits' })).toBeTruthy();
 	expect(screen.getByRole('link', { name: 'Use your own AI provider' })).toBeTruthy();
+	expect(screen.getByRole('link', { name: 'invite users' }).getAttribute('href')).toBe(
+		'/settings/organization/members',
+	);
 
 	fireEvent.click(screen.getByRole('button', { name: 'Buy nao credits' }));
 	expect(mocks.openBilling).toHaveBeenCalledWith('organization-id');
@@ -61,6 +64,7 @@ it('shows only the action each admin is authorized to use', () => {
 	);
 	expect(screen.queryByRole('button', { name: 'Buy nao credits' })).toBeNull();
 	expect(screen.getByRole('link', { name: 'Use your own AI provider' })).toBeTruthy();
+	expect(screen.queryByRole('link', { name: 'invite users' })).toBeNull();
 });
 
 it('directs members to their organization admin without management actions', () => {
@@ -76,6 +80,7 @@ it('directs members to their organization admin without management actions', () 
 	expect(screen.getByText(/Ask your organization admin/)).toBeTruthy();
 	expect(screen.queryByRole('button', { name: 'Buy nao credits' })).toBeNull();
 	expect(screen.queryByRole('link', { name: 'Use your own AI provider' })).toBeNull();
+	expect(screen.queryByRole('link', { name: 'invite users' })).toBeNull();
 	expect(screen.getByRole('button', { name: 'Got it' })).toBeTruthy();
 });
 
