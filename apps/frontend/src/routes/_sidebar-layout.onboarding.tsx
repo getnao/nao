@@ -84,13 +84,13 @@ function OnboardingPage() {
 	const progress = useOnboardingProgress();
 	const messageWarehouseJobId = useMemo(() => findWarehouseJobId(messages), [messages]);
 	const isSavedChat = Boolean(chatId && chatId !== NEW_CHAT_ID);
-	const activeWarehouseJob = useQuery({
-		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+	const latestWarehouseJob = useQuery({
+		...trpc.onboarding.getLatestWarehouseProvisioningJob.queryOptions({
 			onboardingChatId: isSavedChat ? chatId! : '',
 		}),
 		enabled: isSavedChat,
 	});
-	const warehouseJobId = activeWarehouseJob.data?.id ?? messageWarehouseJobId;
+	const warehouseJobId = latestWarehouseJob.data?.id ?? messageWarehouseJobId;
 	const warehouseJob = useWarehouseProvisioningJob(warehouseJobId);
 	const { isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();

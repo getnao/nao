@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleCheck, Loader2 } from 'lucide-react';
+import { CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { buildWarehouseCredentials } from './warehouse-credentials';
@@ -26,7 +26,6 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from '@/components/ui/dialog';
-import { FormError } from '@/components/ui/form-fields';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { findWarehouseJobId } from '@/components/onboarding-progress';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
@@ -61,8 +60,8 @@ export function RequestWarehouseCredentialsToolCall({
 		const cardBounds = cardRef.current?.getBoundingClientRect();
 		setDialogCenter(cardBounds ? cardBounds.left + cardBounds.width / 2 : undefined);
 	}, []);
-	const activeJob = useQuery({
-		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+	const latestJob = useQuery({
+		...trpc.onboarding.getLatestWarehouseProvisioningJob.queryOptions({
 			onboardingChatId: canRestoreJob ? chatId! : '',
 		}),
 		enabled: canRestoreJob,
@@ -85,7 +84,7 @@ export function RequestWarehouseCredentialsToolCall({
 				setJobId(nextJobId);
 				if (canRestoreJob) {
 					void queryClient.invalidateQueries({
-						queryKey: trpc.onboarding.getActiveWarehouseProvisioningJob.queryKey({
+						queryKey: trpc.onboarding.getLatestWarehouseProvisioningJob.queryKey({
 							onboardingChatId: chatId!,
 						}),
 					});
@@ -95,16 +94,16 @@ export function RequestWarehouseCredentialsToolCall({
 	);
 
 	useEffect(() => {
-		if (canRestoreJob && !activeJob.isFetched) {
+		if (canRestoreJob && !latestJob.isFetched) {
 			return;
 		}
-		const restoredId = activeJob.data && activeJob.data.provider === provider ? activeJob.data.id : persistedJobId;
+		const restoredId = latestJob.data && latestJob.data.provider === provider ? latestJob.data.id : persistedJobId;
 		if (restoredJobId.current || !restoredId) {
 			return;
 		}
 		restoredJobId.current = true;
 		setJobId(restoredId);
-	}, [activeJob.data, activeJob.isFetched, canRestoreJob, persistedJobId, provider]);
+	}, [latestJob.data, latestJob.isFetched, canRestoreJob, persistedJobId, provider]);
 
 	useEffect(() => {
 		if (job.data && job.data.provider !== provider) {
@@ -437,9 +436,15 @@ function WarehouseProvisioningProgress({
 			: null;
 	if (setupError) {
 		return (
-			<div className='flex flex-col gap-3 rounded-lg border border-destructive/50 bg-destructive/5 p-4'>
-				<FormError error={setupError} />
-				<Button variant='outline' size='sm' onClick={onRetry}>
+			<div className='flex flex-col gap-4 rounded-lg border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between'>
+				<div className='flex items-start gap-3'>
+					<CircleAlert className='mt-0.5 size-4 shrink-0' />
+					<div className='space-y-1'>
+						<p className='text-sm font-medium'>Project setup stopped</p>
+						<p className='text-xs text-muted-foreground'>{setupError}</p>
+					</div>
+				</div>
+				<Button variant='outline' size='sm' className='w-full rounded-full sm:w-auto' onClick={onRetry}>
 					Try again
 				</Button>
 			</div>

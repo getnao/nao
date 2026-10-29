@@ -97,6 +97,26 @@ export async function getActiveWarehouseProvisioningJob(
 	return job ?? null;
 }
 
+export async function getLatestWarehouseProvisioningJob(
+	userId: string,
+	onboardingChatId: string,
+): Promise<DBWarehouseProvisioningJob | null> {
+	const [job] = await db
+		.select()
+		.from(s.warehouseProvisioningJob)
+		.where(
+			and(
+				eq(s.warehouseProvisioningJob.userId, userId),
+				eq(s.warehouseProvisioningJob.onboardingChatId, onboardingChatId),
+			),
+		)
+		.orderBy(desc(s.warehouseProvisioningJob.createdAt))
+		.limit(1)
+		.execute();
+
+	return job ?? null;
+}
+
 export async function updateWarehouseProvisioningJob(
 	jobId: string,
 	changes: WarehouseProvisioningJobChanges,
