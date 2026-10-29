@@ -1,5 +1,8 @@
+import type { StoryFormat } from '@nao/shared/types';
+
 import * as chatQueries from '../queries/chat.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyFileQueries from '../queries/story-file.queries';
 import { buildQueryDataMessages, pinStoryMessageToChat } from '../utils/chat-message-story';
 
 export interface StandaloneStory {
@@ -7,6 +10,7 @@ export interface StandaloneStory {
 	slug: string;
 	title: string;
 	code: string;
+	format: StoryFormat;
 }
 
 interface StoryOwner {
@@ -38,9 +42,15 @@ export async function attachChatToStandaloneStory(
 		chatId: chat.id,
 		slug: story.slug,
 		title: story.title,
-		code: story.code,
+		code: story.format === 'custom' ? '' : story.code,
 		version: latestVersion?.version ?? 1,
+		...(story.format === 'custom' && { files: await listVersionFilePaths(latestVersion?.id) }),
 	});
 
 	return { chatId: chat.id };
+}
+
+async function listVersionFilePaths(versionId: string | undefined): Promise<string[]> {
+	const files = versionId ? await storyFileQueries.listVersionFiles(versionId) : [];
+	return files.map((file) => file.path);
 }
