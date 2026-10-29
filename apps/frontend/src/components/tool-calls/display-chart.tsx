@@ -65,6 +65,7 @@ const ANGLE_SIN = Math.sin((35 * Math.PI) / 180);
 const MIN_TICK_FONT = 9;
 const MAX_TICK_FONT = 12;
 const MAX_TICK_LABEL_HEIGHT = 44;
+const LEGENDLESS_COMPACT_AXIS_FOOTROOM = 16;
 
 type ViewMode = 'chart' | 'data' | 'query';
 
@@ -615,6 +616,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 		}
 	}
 
+	// Rotated tick labels overflow the x-axis band; the bottom legend usually absorbs that overflow.
+	const chartBottomMargin = compactXAxis && !showLegend ? LEGENDLESS_COMPACT_AXIS_FOOTROOM : 0;
+
 	const tooltipLabelFormatter = useMemo(
 		() => (value: unknown, items: unknown) =>
 			isPie
@@ -649,7 +653,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				comparisonMode,
 				gradientIdPrefix,
 				kpiLeadingSlot,
-				margin: { top: 0, right: 0, bottom: 0, left: 0 },
+				margin: { top: 0, right: 0, bottom: chartBottomMargin, left: 0 },
 				yAxisMin,
 				yAxisMax,
 				yAxisLabel,
@@ -707,6 +711,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			compactXAxisInterval,
 			xAxisTickFontSize,
 			xAxisMaxLabelChars,
+			chartBottomMargin,
 			xAxisKey,
 			pieValueKey,
 			xAxisType,
