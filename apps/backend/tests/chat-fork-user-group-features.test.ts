@@ -243,7 +243,7 @@ describe('chat fork Story creation permission', () => {
 					},
 					{
 						type: 'dynamic-tool',
-						toolName: 'read_query_result',
+						toolName: 'page_query_result',
 						toolCallId: 'owner-query-page',
 						state: 'output-available',
 						input: { query_id: 'query_owner' },

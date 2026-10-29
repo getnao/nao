@@ -71,6 +71,46 @@ describe('file parts', () => {
 	});
 });
 
+describe('tool parts', () => {
+	it('loads a stored read_query_result call under its current name, page_query_result', () => {
+		const part = asDBPart({
+			type: 'tool-read_query_result',
+			toolName: 'read_query_result',
+			toolCallId: 'call-1',
+			toolState: 'output-available',
+			toolInput: { query_id: 'query_a1b2c3d4', offset: 20 },
+			toolOutput: {
+				id: 'query_a1b2c3d4',
+				columns: ['id'],
+				data: [{ id: 21 }],
+				row_count: 30,
+				offset: 20,
+				limit: 20,
+			},
+		});
+
+		expect(convertDBPartToUIPart(part)).toMatchObject({
+			type: 'tool-page_query_result',
+			toolName: 'page_query_result',
+			toolCallId: 'call-1',
+			state: 'output-available',
+			input: { query_id: 'query_a1b2c3d4', offset: 20 },
+			output: { id: 'query_a1b2c3d4', row_count: 30 },
+		});
+	});
+
+	it('keeps the stored name of tools that were not renamed', () => {
+		const part = asDBPart({
+			type: 'tool-execute_sql',
+			toolName: 'execute_sql',
+			toolCallId: 'call-2',
+			toolState: 'output-available',
+		});
+
+		expect(convertDBPartToUIPart(part)).toMatchObject({ type: 'tool-execute_sql', toolName: 'execute_sql' });
+	});
+});
+
 describe('compaction parts', () => {
 	it('stores a compaction summary and reads it back', () => {
 		const dbPart = convertUIPartToDBPart(

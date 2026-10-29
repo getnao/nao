@@ -16,7 +16,7 @@ import { OnboardingAgentPromptToolCall } from './onboarding-agent-prompt';
 import { OnboardingCommandToolCall } from './onboarding-command';
 import { QueryAppDbToolCall } from './query-app-db';
 import { ReadToolCall } from './read';
-import { ReadQueryResultToolCall } from './read-query-result';
+import { PageQueryResultToolCall } from './page-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
 import { RequestWarehouseCredentialsToolCall } from './request-warehouse-credentials';
 import { RestartOnboardingToolCall } from './restart-onboarding';
@@ -53,7 +53,7 @@ const toolComponents: Partial<{
 	onboarding_agent_prompt: OnboardingAgentPromptToolCall,
 	onboarding_command: OnboardingCommandToolCall,
 	read: ReadToolCall,
-	read_query_result: ReadQueryResultToolCall,
+	page_query_result: PageQueryResultToolCall,
 	request_warehouse_credentials: RequestWarehouseCredentialsToolCall,
 	request_warehouse_selection: RequestWarehouseSelectionToolCall,
 	restart_onboarding: RestartOnboardingToolCall,

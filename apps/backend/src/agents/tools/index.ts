@@ -28,8 +28,8 @@ import { createMcpConnectTool } from './mcp-connect';
 import onboardingAgentPrompt from './onboarding-agent-prompt';
 import onboardingCommand from './onboarding-command';
 import onboardingProgress from './onboarding-progress';
+import pageQueryResult from './page-query-result';
 import read from './read';
-import readQueryResult from './read-query-result';
 import requestWarehouseCredentials from './request-warehouse-credentials';
 import requestWarehouseSelection from './request-warehouse-selection';
 import restartOnboarding from './restart-onboarding';
@@ -57,7 +57,7 @@ export const tools = {
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
 	execute_semantic_query: executeSemanticQuery,
-	read_query_result: readQueryResult,
+	page_query_result: pageQueryResult,
 	grep,
 	list,
 	load_skill: loadSkill,

@@ -166,7 +166,7 @@ id: 2
 name: Bob
 \`\`\`
 
-...(1 more — call read_query_result with query_id "query_1" and offset 2 to see more)`,
+...(1 more — call page_query_result with query_id "query_1" and offset 2 to see more)`,
 		);
 	});
 });

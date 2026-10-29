@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
+RENAMED_TOOLS = {"read_query_result": "page_query_result"}
+
 
 class AssertionConfigError(ValueError):
     """Raised when an assertion definition in a test YAML is invalid."""
@@ -93,11 +95,11 @@ def evaluate_tool_call_assertion(
 ) -> tuple[bool, str]:
     """Evaluate a single tool_call assertion against recorded tool calls."""
     calls = tool_calls or []
+    same_tool_calls = [call for call in calls if _is_same_tool(call.get("toolName"), assertion.tool)]
     matches = [
         call
-        for call in calls
-        if call.get("toolName") == assertion.tool
-        and (assertion.args is None or _args_match(assertion.args, call.get("args") or {}))
+        for call in same_tool_calls
+        if assertion.args is None or _args_match(assertion.args, call.get("args") or {})
     ]
     count = len(matches)
     if count >= assertion.min_count:
@@ -112,7 +114,7 @@ def evaluate_tool_call_assertion(
         return True, detail
 
     if assertion.args is not None:
-        same_tool = sum(1 for call in calls if call.get("toolName") == assertion.tool)
+        same_tool = len(same_tool_calls)
         if same_tool:
             return (
                 False,
@@ -127,6 +129,13 @@ def evaluate_tool_call_assertion(
             f"missing tool_call: {assertion.tool} (found {count}, need >= {assertion.min_count})",
         )
     return False, f"missing tool_call: {assertion.tool}"
+
+
+def _is_same_tool(called_tool: Any, expected_tool: str) -> bool:
+    """Match a tool under its current or former name, so a test passes against servers before and after a rename."""
+    if not isinstance(called_tool, str):
+        return False
+    return RENAMED_TOOLS.get(called_tool, called_tool) == RENAMED_TOOLS.get(expected_tool, expected_tool)
 
 
 def evaluate_assertions(

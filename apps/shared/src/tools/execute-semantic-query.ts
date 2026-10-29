@@ -29,7 +29,7 @@ export const InputSchema = z.object({
 	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
 });
 
-/** Same shape as an execute_sql result, so charts, stories and read_query_result treat it as one. */
+/** Same shape as an execute_sql result, so charts, stories and page_query_result treat it as one. */
 export const OutputSchema = ExecuteSqlOutputSchema.extend({
 	/** The SQL the semantic layer compiled and ran. Shown in the UI, never sent back to the model. */
 	compiled_sql: z.string(),

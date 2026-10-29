@@ -850,7 +850,7 @@ function SemanticLayerQueryRules({ exclusive }: { exclusive: boolean }) {
 			</ListItem>
 			<ListItem>
 				A semantic result is a normal query result: its query id works with display_chart, stories and
-				read_query_result. To change it, call execute_semantic_query again; its SQL is not editable.
+				page_query_result. To change it, call execute_semantic_query again; its SQL is not editable.
 			</ListItem>
 		</>
 	);

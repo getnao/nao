@@ -30,9 +30,9 @@ describe('redactDataToolAttributes', () => {
 		});
 	});
 
-	it('redacts read_query_result arguments and results while preserving tool identity', () => {
+	it('redacts page_query_result arguments and results while preserving tool identity', () => {
 		const attributes: Attributes = {
-			'ai.toolCall.name': 'read_query_result',
+			'ai.toolCall.name': 'page_query_result',
 			'ai.toolCall.id': 'tool-call-2',
 			'ai.toolCall.args': JSON.stringify({ queryId: 'query-123' }),
 			'ai.toolCall.result': JSON.stringify([{ customer_email: DISTINCTIVE_ROW_VALUE }]),
@@ -41,7 +41,7 @@ describe('redactDataToolAttributes', () => {
 		redactDataToolAttributes(attributes);
 
 		expect(attributes).toEqual({
-			'ai.toolCall.name': 'read_query_result',
+			'ai.toolCall.name': 'page_query_result',
 			'ai.toolCall.id': 'tool-call-2',
 			'ai.toolCall.args': LANGFUSE_REDACTION_PLACEHOLDER,
 			'ai.toolCall.result': LANGFUSE_REDACTION_PLACEHOLDER,
@@ -144,7 +144,7 @@ describe('redactDataToolAttributes', () => {
 						content: [
 							{
 								type: 'tool-call',
-								toolName: 'read_query_result',
+								toolName: 'page_query_result',
 								args: { queryId: 'query-123' },
 							},
 						],
@@ -154,7 +154,7 @@ describe('redactDataToolAttributes', () => {
 						content: [
 							{
 								type: 'tool-result',
-								toolName: 'read_query_result',
+								toolName: 'page_query_result',
 								result: [{ customer_email: DISTINCTIVE_ROW_VALUE }],
 							},
 						],
