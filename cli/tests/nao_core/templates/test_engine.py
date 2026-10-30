@@ -1,6 +1,7 @@
 """Unit tests for the template engine."""
 
 import json
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,6 +10,7 @@ import pytest
 
 from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.templates.engine import (
+    ANTHROPIC_MAX_OUTPUT_TOKENS,
     DEFAULT_TEMPLATES_DIR,
     TemplateEngine,
     get_template_engine,
@@ -20,6 +22,22 @@ def _openai_llm(*, api_key: str, annotation_model: str) -> LLMConfig:
         providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key=api_key)],
         annotation_model=annotation_model,
     )
+
+
+def _anthropic_llm() -> LLMConfig:
+    return LLMConfig(
+        providers=[ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant-test")],
+        annotation_model="claude-sonnet-5-5",
+    )
+
+
+def _install_fake_anthropic(monkeypatch, *, text: str, stop_reason: str) -> MagicMock:
+    fake_client = MagicMock()
+    fake_client.messages.create.return_value = MagicMock(content=[MagicMock(text=text)], stop_reason=stop_reason)
+    fake_module = MagicMock()
+    fake_module.Anthropic.return_value = fake_client
+    monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+    return fake_client
 
 
 def _bedrock_llm(*, aws_region: str) -> LLMConfig:
@@ -532,9 +550,84 @@ class TestTemplateEngine:
 
         fake_client.messages.create.assert_called_once_with(
             model="claude-sonnet-5-5",
-            max_tokens=1024,
+            max_tokens=ANTHROPIC_MAX_OUTPUT_TOKENS,
             messages=[{"role": "user", "content": "summarize this"}],
         )
+
+    def test_generate_anthropic_returns_complete_output_without_warning(self, tmp_path: Path, monkeypatch, caplog):
+        engine = TemplateEngine(project_path=tmp_path, llm_config=_anthropic_llm())
+        fake_client = _install_fake_anthropic(monkeypatch, text="Full summary.", stop_reason="end_turn")
+
+        with caplog.at_level(logging.WARNING, logger="nao_core.templates.engine"):
+            result = engine._generate_anthropic("claude-sonnet-5-5", "summarize this")
+
+        assert result == "Full summary."
+        assert fake_client.messages.create.call_args.kwargs["max_tokens"] == ANTHROPIC_MAX_OUTPUT_TOKENS
+        assert caplog.records == []
+
+    def test_generate_anthropic_warns_and_returns_truncated_output(self, tmp_path: Path, monkeypatch, caplog):
+        engine = TemplateEngine(project_path=tmp_path, llm_config=_anthropic_llm())
+        _install_fake_anthropic(monkeypatch, text="Partial summary — likely data", stop_reason="max_tokens")
+
+        with caplog.at_level(logging.WARNING, logger="nao_core.templates.engine"):
+            result = engine._generate_anthropic("claude-sonnet-5-5", "summarize this")
+
+        assert result == "Partial summary — likely data"
+        assert len(caplog.records) == 1
+        assert "claude-sonnet-5-5" in caplog.records[0].getMessage()
+        assert "truncated" in caplog.records[0].getMessage()
+
+    def test_generate_openai_compatible_warns_on_length_finish_reason(self, tmp_path: Path, caplog):
+        engine = TemplateEngine(project_path=tmp_path, llm_config=_openai_llm(api_key="k", annotation_model="gpt-4.1"))
+        choice = MagicMock(finish_reason="length", message=MagicMock(content="Partial"))
+
+        with (
+            patch("openai.OpenAI") as fake_openai_cls,
+            caplog.at_level(logging.WARNING, logger="nao_core.templates.engine"),
+        ):
+            fake_openai_cls.return_value.chat.completions.create.return_value = MagicMock(choices=[choice])
+            result = engine._generate_openai_compatible("gpt-4.1", "summarize this")
+
+        assert result == "Partial"
+        assert "truncated" in caplog.text
+
+    def test_generate_mistral_warns_on_length_finish_reason(self, tmp_path: Path, caplog):
+        llm_config = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.MISTRAL, api_key="k")],
+            annotation_model="mistral-large-latest",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        choice = MagicMock(finish_reason="length", message=MagicMock(content="Partial"))
+
+        with (
+            patch("mistralai.Mistral") as fake_mistral_cls,
+            caplog.at_level(logging.WARNING, logger="nao_core.templates.engine"),
+        ):
+            fake_mistral_cls.return_value.chat.complete.return_value = MagicMock(choices=[choice])
+            result = engine._generate_mistral("mistral-large-latest", "summarize this")
+
+        assert result == "Partial"
+        assert "truncated" in caplog.text
+
+    def test_generate_gemini_warns_on_max_tokens_finish_reason(self, tmp_path: Path, caplog):
+        from google.genai import types
+
+        llm_config = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.GEMINI, api_key="k")],
+            annotation_model="gemini-2.5-flash",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        response = MagicMock(text="Partial", candidates=[MagicMock(finish_reason=types.FinishReason.MAX_TOKENS)])
+
+        with (
+            patch("google.genai.Client") as fake_genai_cls,
+            caplog.at_level(logging.WARNING, logger="nao_core.templates.engine"),
+        ):
+            fake_genai_cls.return_value.models.generate_content.return_value = response
+            result = engine._generate_gemini("gemini-2.5-flash", "summarize this")
+
+        assert result == "Partial"
+        assert "truncated" in caplog.text
 
     def test_prompt_helper_anthropic_with_base_url(self, tmp_path: Path):
         """prompt helper should pass through to _generate_anthropic when provider is anthropic."""
