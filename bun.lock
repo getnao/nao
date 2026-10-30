@@ -8,7 +8,6 @@
         "@boxlite-ai/boxlite": "^0.10.0",
         "@emnapi/core": "^1.9.2",
         "@emnapi/runtime": "^1.9.2",
-        "@pydantic/monty": "^0.0.7",
         "@streamdown/code": "^1.1.1",
         "depd": "^2.0.0",
       },
@@ -57,7 +56,6 @@
         "@nao/shared": "*",
         "@openrouter/ai-sdk-provider": "^2.10.0",
         "@opentelemetry/sdk-trace-node": "^2.9.0",
-        "@pydantic/monty": "^0.0.7",
         "@resvg/resvg-js": "^2.6.2",
         "@slack/socket-mode": "^2.0.6",
         "@slack/web-api": "^7.13.0",
@@ -95,6 +93,7 @@
         "prettier": "^3.5.3",
         "prompt-mentions": "^0.0.32",
         "puppeteer-core": "^25.9.0",
+        "quickjs-wasi": "^3.6.2",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
         "sharp": "^0.35.4",
@@ -886,20 +885,6 @@
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.0", "", {}, "sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw=="],
 
     "@puppeteer/browsers": ["@puppeteer/browsers@3.2.3", "", { "dependencies": { "modern-tar": "^0.8.4", "yargs": "^18.0.0" }, "peerDependencies": { "proxy-agent": ">=8.0.1", "yauzl": "^2.10.0 || ^3.4.0" }, "optionalPeers": ["proxy-agent", "yauzl"], "bin": { "browsers": "lib/main-cli.js" } }, "sha512-2Bt3m6dDAJqmZehn0wiXSYyQmuhyiHHZ7FjvrVaS1W2RoFGV6eCK71UvKYkNJjkwC1Q9nobjhvTMhLQztFVINA=="],
-
-    "@pydantic/monty": ["@pydantic/monty@0.0.7", "", { "optionalDependencies": { "@pydantic/monty-darwin-arm64": "0.0.7", "@pydantic/monty-darwin-x64": "0.0.7", "@pydantic/monty-linux-arm64-gnu": "0.0.7", "@pydantic/monty-linux-x64-gnu": "0.0.7", "@pydantic/monty-wasm32-wasi": "0.0.7", "@pydantic/monty-win32-x64-msvc": "0.0.7" } }, "sha512-xC2BbsauHDm6LTfqGHC9HlnUBClW0vJBe9kmSZgTPfqVngV09mPVmdsTDjq5R0ZOxQScZpvInzq+RfgXYQGGGQ=="],
-
-    "@pydantic/monty-darwin-arm64": ["@pydantic/monty-darwin-arm64@0.0.7", "", { "os": "darwin", "cpu": "arm64" }, "sha512-+qncYK5TAPys/yn6ZJ6h3Tk1ToBjNYfLmCX1LameHMx9yWDYqk7+uRhJi5Xec5Wz4OARbftkXxEbHhPodr5ehA=="],
-
-    "@pydantic/monty-darwin-x64": ["@pydantic/monty-darwin-x64@0.0.7", "", { "os": "darwin", "cpu": "x64" }, "sha512-R934apWGpZYL1zPZp3zkd7Y9um8OPjKprqkzEq8HnJ5MAKECCIv51rmvMpjf/oT9cnsjOdgE6FcNeTUoeY2hCw=="],
-
-    "@pydantic/monty-linux-arm64-gnu": ["@pydantic/monty-linux-arm64-gnu@0.0.7", "", { "os": "linux", "cpu": "arm64" }, "sha512-iLLhOjo915y3yuNTiMWmWd8Swra+xlLqAi2lF7Y9ndOMxaH00ayPqxUo26cIM7wiKxvV7ULuHO21UKUpbkOvvA=="],
-
-    "@pydantic/monty-linux-x64-gnu": ["@pydantic/monty-linux-x64-gnu@0.0.7", "", { "os": "linux", "cpu": "x64" }, "sha512-nRaIqM6s4tqc/tX8T5AUKqJbPXDQ7N5uVf+66C46oOxuzaDhbnArFXm8//cpQHwVgaE8fE44K6FnSXz+efT8jA=="],
-
-    "@pydantic/monty-wasm32-wasi": ["@pydantic/monty-wasm32-wasi@0.0.7", "", { "dependencies": { "@napi-rs/wasm-runtime": "^1.1.1" }, "cpu": "none" }, "sha512-VDBv4j0eF9mG0Nl1CFrNJ+oEB1KacnIGDsk02QrUhS8Y3al0xuQlsweQhui2guVPyvXTWhLXnD4fBrHB5R6wwA=="],
-
-    "@pydantic/monty-win32-x64-msvc": ["@pydantic/monty-win32-x64-msvc@0.0.7", "", { "os": "win32", "cpu": "x64" }, "sha512-DVNEpXGIAygZvSCNe26B0w1b6nDeLNcYDY0tfR9v55wPi7GoTLAhO/8LbsjNWV/rYjn4S7pfGqU48XRLegP0wg=="],
 
     "@radix-ui/number": ["@radix-ui/number@1.1.1", "", {}, "sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g=="],
 
@@ -3168,6 +3153,8 @@
     "query-selector-shadow-dom": ["query-selector-shadow-dom@1.0.1", "", {}, "sha512-lT5yCqEBgfoMYpf3F2xQRK7zEr1rhIIZuceDK6+xRkJQ4NMbHTwXqk4NkwDwQMNqXgG9r9fyHnzwNVs6zV5KRw=="],
 
     "quick-format-unescaped": ["quick-format-unescaped@4.0.4", "", {}, "sha512-tYC1Q1hgyRuHgloV/YXs2w15unPVh8qfu/qCTfhTYamaw7fyhumKa2yGpdSo87vY32rIclj+4fWYQXUMs9EHvg=="],
+
+    "quickjs-wasi": ["quickjs-wasi@3.6.3", "", {}, "sha512-gDXhV2yi6oyVcGPYnACIzVbMNsmMlwjryhh3vAk8K589Xk/J06fb2SGbx8GJQnxyJv43pdrNbfP815dTkSYb9g=="],
 
     "quickselect": ["quickselect@3.0.0", "", {}, "sha512-XdjUArbK4Bm5fLLvlm5KpTFOiOThgfWWI4axAZDWg4E/0mKdZyI9tNEfds27qCi1ze/vwTR16kvmmGhRra3c2g=="],
 

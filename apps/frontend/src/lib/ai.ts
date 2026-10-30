@@ -119,7 +119,7 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'clarification',
 		'onboarding_agent_prompt',
 		'onboarding_command',
-		'execute_python',
+		'codemode',
 		'execute_sandboxed_code',
 		'request_warehouse_credentials',
 		'request_warehouse_selection',
