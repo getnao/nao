@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as testRunQueries from '../queries/test-run.queries';
+import { getLatestOutcomesByTest } from '../services/test-history.service';
 import { cancelTestRun, startTestRun, TestRunConflictError, TestRunInputError } from '../services/test-runner.service';
 import { discoverTests } from '../services/test-suite.service';
 import { llmSelectedModelSchema } from '../types/llm';
@@ -10,9 +11,14 @@ import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 export const testRunRoutes = {
-	listTests: contextAdminProtectedProcedure.query(({ ctx }) => {
+	listTests: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const projectFolder = requireProjectFolder(ctx.project.path);
-		return { ...discoverTests(projectFolder), settings: extractConfiguredTestSettings(projectFolder) };
+		const suite = discoverTests(projectFolder);
+		return {
+			...suite,
+			settings: extractConfiguredTestSettings(projectFolder),
+			latestOutcomes: await getLatestOutcomesByTest(ctx.project.id, suite.tests),
+		};
 	}),
 
 	startRun: cloudBillingContextAdminProcedure

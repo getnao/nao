@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, max, notInArray, or, sql } from 'drizzle-orm';
 
 import s, { DBTestRun, DBTestRunResult, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -32,13 +32,66 @@ export async function getRunStatus(runId: string): Promise<DBTestRun['status'] |
 	return run?.status ?? null;
 }
 
-export async function listRuns(projectId: string, limit = DEFAULT_RUN_LIST_LIMIT): Promise<DBTestRun[]> {
-	return db
-		.select()
+export async function listRuns(
+	projectId: string,
+	limit = DEFAULT_RUN_LIST_LIMIT,
+): Promise<(DBTestRun & { triggeredByName: string | null })[]> {
+	const rows = await db
+		.select({ run: s.testRun, triggeredByName: s.user.name })
 		.from(s.testRun)
+		.leftJoin(s.user, eq(s.user.id, s.testRun.triggeredByUserId))
 		.where(eq(s.testRun.projectId, projectId))
 		.orderBy(desc(s.testRun.createdAt))
 		.limit(limit)
+		.execute();
+	return rows.map(({ run, triggeredByName }) => ({ ...run, triggeredByName }));
+}
+
+/**
+ * Attempt counts of each test in the latest completed run that included it, one row per test, run and
+ * file hash. Active, failed and cancelled runs are left out because their results are partial.
+ */
+export async function listLatestCompletedOutcomes(projectId: string, testPaths: string[]) {
+	if (testPaths.length === 0) {
+		return [];
+	}
+	const completedResults = and(
+		eq(s.testRun.projectId, projectId),
+		eq(s.testRun.status, 'completed'),
+		inArray(s.testRunResult.testPath, testPaths),
+	);
+	const latestRunByTest = db.$with('latest_run_by_test').as(
+		db
+			.select({
+				testPath: s.testRunResult.testPath,
+				runCreatedAt: max(s.testRun.createdAt).as('latest_run_created_at'),
+			})
+			.from(s.testRunResult)
+			.innerJoin(s.testRun, eq(s.testRun.id, s.testRunResult.runId))
+			.where(completedResults)
+			.groupBy(s.testRunResult.testPath),
+	);
+	return db
+		.with(latestRunByTest)
+		.select({
+			testPath: s.testRunResult.testPath,
+			runId: s.testRun.id,
+			runCreatedAt: s.testRun.createdAt,
+			testHash: s.testRunResult.testHash,
+			totalAttempts: sql<number>`count(*)`.mapWith(Number),
+			passedAttempts: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
+		})
+		.from(s.testRunResult)
+		.innerJoin(s.testRun, eq(s.testRun.id, s.testRunResult.runId))
+		.innerJoin(
+			latestRunByTest,
+			and(
+				eq(latestRunByTest.testPath, s.testRunResult.testPath),
+				eq(latestRunByTest.runCreatedAt, s.testRun.createdAt),
+			),
+		)
+		.where(completedResults)
+		.groupBy(s.testRunResult.testPath, s.testRun.id, s.testRun.createdAt, s.testRunResult.testHash)
 		.execute();
 }
 
