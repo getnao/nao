@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Github, Loader2, Mail, Play, Trash, X } from 'lucide-react';
+import { ArrowLeft, Check, Github, Loader2, Mail, Play, Trash, X } from 'lucide-react';
 import { useState } from 'react';
 
 import type { AutomationFormValue } from '@/components/automations-form';
@@ -201,13 +201,21 @@ type AutomationRun = {
 	status: string;
 	errorMessage?: string | null;
 	chatId?: string | null;
-	integrationResults: {
-		type: string;
-		label: string;
-		ok: boolean;
-		message?: string | null;
-		url?: string | null;
-	}[];
+	integrationResults: IntegrationResult[];
+};
+
+type IntegrationResult = {
+	type: string;
+	label: string;
+	ok: boolean;
+	message?: string | null;
+	url?: string | null;
+	destination?: string | null;
+};
+
+type IntegrationResultGroup = {
+	type: string;
+	destinations: IntegrationResult[];
 };
 
 function PreviousRuns({
@@ -329,19 +337,93 @@ function getRunStatusBadgeVariant(status: string): 'default' | 'secondary' | 'de
 	return 'secondary';
 }
 
-function IntegrationResultIcons({ runId, results }: { runId: string; results: AutomationRun['integrationResults'] }) {
-	const distinctResults = getDistinctIntegrationResults(results);
+function IntegrationResultIcons({ runId, results }: { runId: string; results: IntegrationResult[] }) {
+	const groups = groupIntegrationResults(results);
 
 	return (
 		<div className='mt-2 flex flex-wrap gap-1.5'>
-			{distinctResults.map((result) => (
-				<IntegrationResultIcon key={`${runId}-${result.type}`} result={result} />
-			))}
+			{groups.map((group) =>
+				group.destinations.length === 1 ? (
+					<IntegrationResultIcon key={`${runId}-${group.type}`} result={group.destinations[0]} />
+				) : (
+					<MultiDestinationResultIcon key={`${runId}-${group.type}`} group={group} />
+				),
+			)}
 		</div>
 	);
 }
 
-function IntegrationResultIcon({ result }: { result: AutomationRun['integrationResults'][number] }) {
+function MultiDestinationResultIcon({ group }: { group: IntegrationResultGroup }) {
+	const config = getIntegrationIconConfig(group.type);
+	const deliveredCount = group.destinations.filter((result) => result.ok).length;
+	const totalCount = group.destinations.length;
+	const summary = `${config.label}: ${deliveredCount} of ${totalCount} delivered`;
+
+	return (
+		<Tooltip delayDuration={150}>
+			<TooltipTrigger asChild>
+				<span
+					className={cn(
+						'flex h-6 items-center gap-1 rounded-full border bg-background pl-1.5 pr-2 text-[10px] font-medium shadow-xs transition-colors',
+						getDeliveryClassName(deliveredCount, totalCount, config.successClassName),
+					)}
+					aria-label={summary}
+				>
+					{config.icon}
+					<span>
+						{deliveredCount}/{totalCount}
+					</span>
+				</span>
+			</TooltipTrigger>
+			<TooltipContent className='max-w-[300px]'>
+				<DestinationResultsBreakdown summary={summary} destinations={group.destinations} />
+			</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function DestinationResultsBreakdown({
+	summary,
+	destinations,
+}: {
+	summary: string;
+	destinations: IntegrationResult[];
+}) {
+	return (
+		<div className='grid gap-1 py-0.5'>
+			<p className='font-medium'>{summary}</p>
+			<ul className='grid gap-0.5'>
+				{destinations.map((result) => (
+					<li key={result.destination ?? result.label} className='flex items-start gap-1.5'>
+						{result.ok ? (
+							<Check className='mt-0.5 size-3 shrink-0 text-green-600' />
+						) : (
+							<X className='mt-0.5 size-3 shrink-0 text-destructive' />
+						)}
+						<span className='min-w-0'>
+							<span className='font-mono'>{result.destination ?? result.label}</span>
+							{!result.ok && result.message && (
+								<span className='text-muted-foreground'>: {result.message}</span>
+							)}
+						</span>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+function getDeliveryClassName(deliveredCount: number, totalCount: number, successClassName: string): string {
+	if (deliveredCount === totalCount) {
+		return successClassName;
+	}
+	if (deliveredCount === 0) {
+		return 'border-muted text-muted-foreground opacity-60 grayscale';
+	}
+	return 'border-amber-300 bg-amber-50 text-amber-700';
+}
+
+function IntegrationResultIcon({ result }: { result: IntegrationResult }) {
 	const config = getIntegrationIconConfig(result.type);
 	const content = (
 		<span
@@ -380,31 +462,28 @@ function IntegrationResultIcon({ result }: { result: AutomationRun['integrationR
 	);
 }
 
-function getDistinctIntegrationResults(results: AutomationRun['integrationResults']) {
-	const resultsByType = new Map<string, AutomationRun['integrationResults'][number]>();
+/** Several tool calls can target one destination (e.g. a Slack headline and its thread replies); they count once. */
+function groupIntegrationResults(results: IntegrationResult[]): IntegrationResultGroup[] {
+	const destinationsByType = new Map<string, Map<string, IntegrationResult>>();
 
 	for (const result of results) {
-		const current = resultsByType.get(result.type);
-		if (!current) {
-			resultsByType.set(result.type, result);
-			continue;
-		}
-
-		resultsByType.set(result.type, mergeIntegrationResults(current, result));
+		const destinations = destinationsByType.get(result.type) ?? new Map<string, IntegrationResult>();
+		const destinationKey = result.destination ?? result.label;
+		const current = destinations.get(destinationKey);
+		destinations.set(destinationKey, current ? mergeIntegrationResults(current, result) : result);
+		destinationsByType.set(result.type, destinations);
 	}
 
-	return [...resultsByType.values()];
+	return [...destinationsByType].map(([type, destinations]) => ({ type, destinations: [...destinations.values()] }));
 }
 
-function mergeIntegrationResults(
-	current: AutomationRun['integrationResults'][number],
-	next: AutomationRun['integrationResults'][number],
-): AutomationRun['integrationResults'][number] {
+function mergeIntegrationResults(current: IntegrationResult, next: IntegrationResult): IntegrationResult {
 	const failedResult = !current.ok ? current : !next.ok ? next : null;
 
 	return {
 		type: current.type,
 		label: current.label,
+		destination: current.destination,
 		ok: current.ok && next.ok,
 		message: failedResult?.message ?? current.message ?? next.message,
 		url: current.url ?? next.url,
@@ -440,6 +519,6 @@ function getIntegrationIconConfig(type: string) {
 	};
 }
 
-function getIntegrationResultLabel(result: AutomationRun['integrationResults'][number], label: string) {
+function getIntegrationResultLabel(result: IntegrationResult, label: string) {
 	return result.ok ? `${label} sent successfully` : `${label} has failed`;
 }
