@@ -1,4 +1,5 @@
-import { skipToken, useQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
+import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { executeSemanticQuery } from '@nao/shared/tools';
 
 import { trpc } from '@/main';
@@ -17,13 +18,15 @@ export interface SavedSemanticQuery {
 
 /**
  * Compiles the saved metric query with the semantic layer's current definitions, without running it,
- * to tell whether the result was computed from SQL the layer would no longer produce.
+ * to tell whether the result was computed from SQL the layer would no longer produce. The definitions
+ * can change at any time, so every mount compiles again instead of trusting a cached compile.
  */
 export function useSemanticQueryFreshness(saved: SavedSemanticQuery | null): SemanticQueryFreshness {
 	const compiled = useQuery({
 		...trpc.sql.compileSemanticQuery.queryOptions(
 			saved ? { queryId: saved.queryId, query: saved.semanticQuery } : skipToken,
 		),
+		staleTime: 0,
 		retry: false,
 	});
 
@@ -36,9 +39,15 @@ export function useSemanticQueryFreshness(saved: SavedSemanticQuery | null): Sem
 	if (!compiled.data) {
 		return { status: 'unknown' };
 	}
-	return normalizeSql(compiled.data.sql) === normalizeSql(saved.compiledSql)
-		? { status: 'current' }
-		: { status: 'outdated' };
+	return compiled.data.sql.trim() === saved.compiledSql.trim() ? { status: 'current' } : { status: 'outdated' };
+}
+
+/** Drops cached compiles once a save ran the query with the current definitions, so the check runs again. */
+export function useRecheckSemanticQueryFreshness(): () => void {
+	const queryClient = useQueryClient();
+	return useCallback(() => {
+		void queryClient.resetQueries(trpc.sql.compileSemanticQuery.pathFilter());
+	}, [queryClient]);
 }
 
 /** Why a chart built on this query deserves a look, or undefined when its result is up to date. */
@@ -50,8 +59,4 @@ export function describeSemanticQueryFreshness(freshness: SemanticQueryFreshness
 		return 'This query no longer compiles with the current semantic layer.';
 	}
 	return undefined;
-}
-
-function normalizeSql(sql: string): string {
-	return sql.replace(/\s+/g, ' ').trim();
 }

@@ -10,7 +10,11 @@ import type { SemanticQueryDraft } from '@/lib/semantic-query-draft';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { usePublishSavedQuery } from '@/hooks/use-publish-saved-query';
 import { useQueryRowsSource, useServerPaginatedRows } from '@/hooks/use-query-rows';
-import { describeSemanticQueryFreshness, useSemanticQueryFreshness } from '@/hooks/use-semantic-query-freshness';
+import {
+	describeSemanticQueryFreshness,
+	useRecheckSemanticQueryFreshness,
+	useSemanticQueryFreshness,
+} from '@/hooks/use-semantic-query-freshness';
 import { getMutationErrorMessage } from '@/components/side-panel/sql-editor';
 import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { TableDisplay } from '@/components/tool-calls/display-table';
@@ -97,6 +101,7 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 	const draftQuery = useMemo(() => fromSemanticQueryDraft(draft), [draft]);
 	const isDirty = !areStructurallyEqual(draftQuery, saved.semanticQuery);
 	const freshness = useSemanticQueryFreshness(canEdit ? saved : null);
+	const recheckFreshness = useRecheckSemanticQueryFreshness();
 
 	const previewMutation = useMutation(trpc.sql.previewSemanticQuery.mutationOptions());
 	const saveMutation = useMutation(trpc.sql.updateSemanticQuery.mutationOptions());
@@ -138,6 +143,7 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 					});
 					setDraft(toSemanticQueryDraft(semanticQuery));
 					showOutput(result.output);
+					recheckFreshness();
 					publishSavedQuery((messages) =>
 						applySemanticQueryResultToMessages(messages, result.output.id, result.input, result.output),
 					);
@@ -145,7 +151,7 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 				onError: (err) => setError(getMutationErrorMessage(err)),
 			},
 		);
-	}, [canRun, draftQuery, publishSavedQuery, queryId, saveMutation, showOutput]);
+	}, [canRun, draftQuery, publishSavedQuery, queryId, recheckFreshness, saveMutation, showOutput]);
 
 	useEffect(() => {
 		if (!canEdit) {
