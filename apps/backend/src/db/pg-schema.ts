@@ -14,6 +14,7 @@ import {
 	type StoredUserGroupRowPolicies,
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
+import { API_KEY_SCOPES, DEFAULT_API_KEY_SCOPE } from '@nao/shared/api-key';
 import type { DisplaySettings } from '@nao/shared/date';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
@@ -1720,6 +1721,7 @@ export const apiKey = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
+		scope: text('scope', { enum: API_KEY_SCOPES }).default(DEFAULT_API_KEY_SCOPE).notNull(),
 		keyHash: text('key_hash').notNull().unique(),
 		keyPrefix: text('key_prefix').notNull(),
 		createdBy: text('created_by')

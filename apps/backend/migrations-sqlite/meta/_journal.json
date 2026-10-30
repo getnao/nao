@@ -659,6 +659,13 @@
       "when": 1793281514563,
       "tag": "0093_log_user",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1793285762501,
+      "tag": "0094_api_key_scope",
+      "breakpoints": true
     }
   ]
 }

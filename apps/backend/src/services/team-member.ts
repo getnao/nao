@@ -19,6 +19,7 @@ interface AddMemberOptions {
 	name?: string;
 	checkExisting: (userId: string) => Promise<boolean>;
 	addMember: (userId: string) => Promise<void>;
+	discardNewUser?: (userId: string) => Promise<void>;
 	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => Promise<CreatedEmail>;
 }
 
@@ -27,6 +28,7 @@ export async function addTeamMember({
 	name,
 	checkExisting,
 	addMember,
+	discardNewUser,
 	buildEmail,
 }: AddMemberOptions): Promise<AddMemberResult> {
 	const normalizedEmail = email.toLowerCase();
@@ -47,8 +49,17 @@ export async function addTeamMember({
 			{ id: accountId, userId, accountId: userId, providerId: 'credential', password: hashedPassword },
 		);
 
-		await addMember(newUser.id);
-		await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
+		try {
+			await addMember(newUser.id);
+			await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
+		} catch (error) {
+			// A failed invitation is retried, so the account it created must not survive; the caller that
+			// can tell a foreign membership apart supplies that rollback.
+			if (discardNewUser) {
+				await discardNewUser(newUser.id).catch(() => undefined);
+			}
+			throw error;
+		}
 
 		return {
 			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: env.DEFAULT_USER_ROLE },
