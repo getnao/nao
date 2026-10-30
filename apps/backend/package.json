@@ -20,7 +20,7 @@
 	},
 	"scripts": {
 		"dev": "PATH=\"$(cd ../../cli && pwd)/.venv/bin:$PATH\" bun --watch src/index.ts",
-		"fastapi": "cd ../../cli && uv run ../apps/backend/fastapi/main.py",
+		"fastapi": "cd ../../cli && uv run ../apps/backend/fastapi/main.py --reload",
 		"build": "tsup src/index.ts --format esm --target node20 --minify --external bun:sqlite --external @boxlite-ai/boxlite && cp src/services/codemode/worker.mjs dist/worker.mjs",
 		"build:standalone": "bun build src/cli.ts src/services/codemode/worker.mjs --compile --outfile nao-chat-server --external playwright-core --external puppeteer-core --external @boxlite-ai/boxlite --external @duckdb/node-bindings --external sharp --compile-autoload-package-json",
 		"start": "node dist/index.js",

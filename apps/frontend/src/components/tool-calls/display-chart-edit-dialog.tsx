@@ -24,6 +24,7 @@ import { ChartEditorDataPanel, ChartEditorDataRail } from './chart-editor-data-p
 import { ChartEditorPreview } from './chart-editor-preview';
 import { ChartEditorQueryPane } from './chart-editor-query-pane';
 import { ChartTypePicker, chartTypeLabel } from './chart-type-picker';
+import type { ChartEditorQuerySource } from './chart-editor-data-panel';
 import type { ColumnValueKind } from '@/lib/chart-selection-summary';
 import type { SourceQuery } from '@/lib/execute-sql-messages';
 import type { LucideIcon } from 'lucide-react';
@@ -31,6 +32,8 @@ import type { executeSql } from '@nao/shared/tools';
 import type { ChartType } from '@nao/shared/chart-types';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { acceptNumericKind, useColumnDropTarget, useDraggedColumnKind } from '@/hooks/use-column-drag';
+import { describeSemanticQueryFreshness, useSemanticQueryFreshness } from '@/hooks/use-semantic-query-freshness';
+import { isSemanticSourceQuery } from '@/lib/execute-sql-messages';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 import { resolveCssVariableColorHex } from '@/lib/css-color';
@@ -165,6 +168,7 @@ export function ChartConfigEditDialog({
 	const unsupportedNumberFormat = findUnsupportedNumberFormat(draft.series, form.enforceExportSafeFormats ?? true);
 	const editableQuery = sourceQuery && isEditableSourceQuery(sourceQuery) ? sourceQuery : null;
 	const canEditQuery = Boolean(editableQuery && !agent?.isReadonly && !agent?.isRunning);
+	const querySource = useChartEditorQuerySource(open && canEditQuery ? editableQuery : null);
 	const dataPanelRef = usePanelRef();
 	const [isDataPanelCollapsed, setIsDataPanelCollapsed] = useState(false);
 	const openQueryEditor = canEditQuery ? () => setQueryEditorState('open') : undefined;
@@ -206,7 +210,7 @@ export function ChartConfigEditDialog({
 								onExpand={() => dataPanelRef.current?.expand()}
 								onEditQuery={openQueryEditor}
 								isEditingQuery={isEditingQuery}
-								dialect={editableQuery?.output.dialect}
+								querySource={querySource}
 							/>
 						) : (
 							<ChartEditorDataPanel
@@ -217,7 +221,7 @@ export function ChartConfigEditDialog({
 								onCollapse={() => dataPanelRef.current?.collapse()}
 								onEditQuery={openQueryEditor}
 								isEditingQuery={isEditingQuery}
-								dialect={editableQuery?.output.dialect}
+								querySource={querySource}
 							/>
 						)}
 					</ResizablePanel>
@@ -226,9 +230,7 @@ export function ChartConfigEditDialog({
 						{canEditQuery && editableQuery && queryEditorState !== 'unopened' && (
 							<ChartEditorQueryPane
 								className={cn(queryEditorState === 'hidden' && 'hidden')}
-								input={editableQuery.input}
-								output={editableQuery.output}
-								toolCallId={editableQuery.toolCallId}
+								sourceQuery={editableQuery}
 								onOutputChange={setEditedOutput}
 								onClose={() => setQueryEditorState('hidden')}
 							/>
@@ -1337,9 +1339,27 @@ const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~?s$
 
 type EditableSourceQuery = SourceQuery & { input: executeSql.Input };
 
-/** Semantic queries are read as their compiled SQL, which the backend refuses to edit. */
+/** A semantic query is edited through its metric query, never through the SQL the layer compiled. */
 function isEditableSourceQuery(sourceQuery: SourceQuery): sourceQuery is EditableSourceQuery {
-	return Boolean(sourceQuery.input && sourceQuery.output.id) && !('compiled_sql' in sourceQuery.output);
+	if (!sourceQuery.input || !sourceQuery.output.id) {
+		return false;
+	}
+	return isSemanticSourceQuery(sourceQuery) || !('compiled_sql' in sourceQuery.output);
+}
+
+function useChartEditorQuerySource(editableQuery: EditableSourceQuery | null): ChartEditorQuerySource {
+	const semanticQuery = editableQuery && isSemanticSourceQuery(editableQuery) ? editableQuery : null;
+	const freshness = useSemanticQueryFreshness(
+		semanticQuery && {
+			queryId: semanticQuery.output.id,
+			semanticQuery: semanticQuery.semanticQuery,
+			compiledSql: semanticQuery.input.sql_query,
+		},
+	);
+	if (semanticQuery) {
+		return { kind: 'semantic', warning: describeSemanticQueryFreshness(freshness) };
+	}
+	return { kind: 'sql', dialect: editableQuery?.output.dialect };
 }
 
 function findUnsupportedNumberFormat(

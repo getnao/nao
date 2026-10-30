@@ -156,6 +156,30 @@ class CompileSemanticQueryResponse(BaseModel):
     dialect: str
 
 
+class SemanticLayerCatalogRequest(BaseModel):
+    nao_project_folder: str
+    env_vars: dict[str, str] | None = None
+
+
+class SemanticLayerMetric(BaseModel):
+    name: str
+    label: str | None
+    description: str | None
+    dimensions: list[str]
+
+
+class SemanticLayerDimension(BaseModel):
+    name: str
+    type: str
+    granularity: str | None
+    description: str | None
+
+
+class SemanticLayerCatalogResponse(BaseModel):
+    metrics: list[SemanticLayerMetric]
+    dimensions: list[SemanticLayerDimension]
+
+
 class PrepareWarehouseRequest(BaseModel):
     provider: str
     credentials: dict[str, object]
@@ -678,23 +702,8 @@ async def validate_row_predicate(request: ValidateRowPredicateRequest):
 def compile_semantic_query(request: CompileSemanticQueryRequest):
     """Compile a metric query to SQL with the project's semantic layer. Execution stays with /execute_sql."""
     try:
-        project_path = Path(request.nao_project_folder)
-        config = NaoConfig.try_load(
-            project_path, raise_on_error=True, extra_env=request.env_vars
-        )
-        assert config is not None
-
-        semantic_layer = config.semantic_layer
-        if semantic_layer is None:
-            raise HTTPException(
-                status_code=400,
-                detail="No semantic_layer configured in nao_config.yaml",
-            )
-
-        db_config = _resolve_semantic_layer_database(config, semantic_layer.database)
-        dialect = metricflow_dialect_for(db_config.type)
-        engine = MetricFlowSemanticLayer.load(
-            runtime_manifest_path(semantic_layer, project_path), dialect
+        engine, db_config = _load_semantic_layer(
+            request.nao_project_folder, request.env_vars
         )
         sql = engine.compile(
             SemanticQuery(
@@ -720,6 +729,66 @@ def compile_semantic_query(request: CompileSemanticQueryRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/semantic_layer/catalog",
+    response_model=SemanticLayerCatalogResponse,
+    dependencies=internal_only,
+)
+def describe_semantic_layer(request: SemanticLayerCatalogRequest):
+    """List the metrics and dimensions a semantic query can reference, e.g. to autocomplete an editor."""
+    try:
+        engine, _ = _load_semantic_layer(request.nao_project_folder, request.env_vars)
+        return SemanticLayerCatalogResponse(
+            metrics=[
+                SemanticLayerMetric(
+                    name=metric.name,
+                    label=metric.label,
+                    description=metric.description,
+                    dimensions=metric.dimensions,
+                )
+                for metric in engine.list_metrics()
+            ],
+            dimensions=[
+                SemanticLayerDimension(
+                    name=dimension.name,
+                    type=dimension.type,
+                    granularity=dimension.granularity,
+                    description=dimension.description,
+                )
+                for dimension in engine.list_dimensions()
+            ],
+        )
+    except HTTPException:
+        raise
+    except SemanticLayerUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except (NaoConfigError, SemanticLayerError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _load_semantic_layer(project_folder: str, env_vars: dict[str, str] | None):
+    """The project's semantic layer engine, rendering SQL for the database that runs semantic queries."""
+    project_path = Path(project_folder)
+    config = NaoConfig.try_load(project_path, raise_on_error=True, extra_env=env_vars)
+    assert config is not None
+
+    semantic_layer = config.semantic_layer
+    if semantic_layer is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No semantic_layer configured in nao_config.yaml",
+        )
+
+    db_config = _resolve_semantic_layer_database(config, semantic_layer.database)
+    dialect = metricflow_dialect_for(db_config.type)
+    engine = MetricFlowSemanticLayer.load(
+        runtime_manifest_path(semantic_layer, project_path), dialect
+    )
+    return engine, db_config
 
 
 def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | None):
@@ -813,4 +882,11 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+    should_reload = "--reload" in sys.argv[1:]
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=port,
+        reload=should_reload,
+        reload_dirs=[str(fastapi_path), str(cli_path / "nao_core")] if should_reload else None,
+    )

@@ -12,6 +12,7 @@ import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
 import { createStoryExecutionContext, executeRawSql, executeStoryQueries } from './live-story';
+import type { SemanticQuery } from './semantic-layer.service';
 
 const FILTER_OPTIONS_LIMIT = 100;
 
@@ -90,7 +91,13 @@ export async function getStoryQuerySql(
 	storySlug: string,
 	queryId: string,
 	selections: StoryFilterSelections = {},
-): Promise<{ sqlQuery: string; renderedSql: string; databaseId?: string; dialect?: string }> {
+): Promise<{
+	sqlQuery: string;
+	renderedSql: string;
+	databaseId?: string;
+	dialect?: string;
+	semanticQuery?: SemanticQuery;
+}> {
 	const { code, sqlQueries } = await loadStoryCodeAndQueries(chatId, storySlug);
 	const query = sqlQueries[queryId];
 	if (!query) {
@@ -102,6 +109,7 @@ export async function getStoryQuerySql(
 		renderedSql: renderStorySql(query.sqlQuery, selections, filterTypesFromCode(code)),
 		databaseId: query.databaseId,
 		dialect: query.dialect,
+		semanticQuery: query.semanticQuery,
 	};
 }
 

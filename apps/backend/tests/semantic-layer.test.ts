@@ -140,7 +140,7 @@ describe('execute_semantic_query exposure', () => {
 		await expect(run()).rejects.toThrow('query metrics with execute_semantic_query');
 		await expect(run('duckdb_local')).resolves.toMatchObject({ columns: ['1'], row_count: 1 });
 		const compiledError = await executeQuery({ sql_query: 'SELECT 1', database_id: 'warehouse' }, context, {
-			compiledBySemanticLayer: true,
+			semanticQuery: { metrics: ['revenue'] },
 		}).catch((error: Error) => error.message);
 		expect(compiledError).not.toContain('query metrics with execute_semantic_query');
 	});

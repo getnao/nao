@@ -112,7 +112,13 @@ Homepage = "https://getnao.io"
 Repository = "https://github.com/naolabs/chat"
 
 [dependency-groups]
-dev = ["pytest>=9.0.2", "ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.8.0",
+    "ty>=0.0.9",
+    "nao-core[all]",
+    "watchfiles>=1.3.0",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import type { StoryQuerySqlSource } from '@/contexts/story-query-sql';
 
+import { SemanticQueryDefinition } from '@/components/tool-calls/execute-semantic-query';
 import { SqlQueryDisplay } from '@/components/tool-calls/sql-query-display';
 import { trpc } from '@/main';
 
@@ -41,6 +42,26 @@ export function StoryChartQueryView({ queryId, source }: { queryId: string; sour
 		return (
 			<div className='rounded-lg border border-dashed p-4 text-sm text-muted-foreground'>
 				{query.error?.message ?? 'Query unavailable'}
+			</div>
+		);
+	}
+
+	if (data.semanticQuery) {
+		return (
+			<div className='flex flex-col gap-4 rounded-lg border bg-muted/20 p-3'>
+				<section className='flex flex-col gap-1'>
+					<h4 className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
+						Semantic query
+					</h4>
+					<SemanticQueryDefinition query={data.semanticQuery} />
+				</section>
+				<section className='flex flex-col gap-1'>
+					<h4 className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>Compiled SQL</h4>
+					<p className='text-xs text-muted-foreground'>
+						Compiled again from the current semantic layer each time the story refreshes.
+					</p>
+					<SqlQueryDisplay query={data.sqlQuery} />
+				</section>
 			</div>
 		);
 	}

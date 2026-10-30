@@ -703,14 +703,14 @@ export async function getSqlQueriesFromCode(
 export async function getSqlQueriesByIds(
 	chatId: string,
 	queryIds: Set<string>,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
+): Promise<Record<string, executeSqlQueries.StoredSqlQuery>> {
 	return executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
 }
 
 export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
-): Promise<{ sqlQuery: string; databaseId?: string; adminMode: boolean } | null> {
+): Promise<executeSqlQueries.StoredSqlQuery | null> {
 	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
 	if (!part) {
 		return null;
@@ -719,6 +719,7 @@ export async function getSqlQueryById(
 		sqlQuery: part.toolInput.sql_query,
 		...(part.toolInput.database_id && { databaseId: part.toolInput.database_id }),
 		adminMode: part.adminMode,
+		...(part.semanticQuery && { semanticQuery: part.semanticQuery }),
 	};
 }
 

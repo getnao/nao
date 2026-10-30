@@ -57,7 +57,7 @@ describe('execute_sql in-place edit of a query created in the current turn', () 
 	it('refuses to edit a same-turn semantic query as SQL', async () => {
 		const context = createContext();
 		const created = await executeQuery({ sql_query: 'SELECT 1 AS n' }, context, {
-			compiledBySemanticLayer: true,
+			semanticQuery: { metrics: ['orders'] },
 		});
 
 		await expect(runTool({ sql_query: 'SELECT 2 AS n', query_id: created.id }, context)).rejects.toThrow(
