@@ -1,14 +1,11 @@
-import type { DBProject } from '../db/abstractSchema';
 import { isCloud } from '../env';
 import * as creditGrantQueries from '../queries/credit-grant.queries';
 import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { logger, serializeError } from '../utils/logger';
-import { extractConfiguredDatabases } from '../utils/nao-config';
 import { issueCreditGrant } from './credit-wallet.service';
-import { assessProjectReadiness } from './project-readiness.service';
-import { getProjectRuntimeEnvVars } from './project-runtime-env';
+import { isProjectSetupComplete } from './project-readiness.service';
 
 export interface CreditGrantReconciliationCursor {
 	organizationSetupCandidate?: ReconciliationCandidateCursor;
@@ -152,7 +149,7 @@ async function reconcileOrganizationSetupGrantUnsafe(projectId: string): Promise
 		creditGrantQueries.getOrganizationSetupCandidate(projectId),
 		projectQueries.getProjectById(projectId),
 	]);
-	if (!candidate?.orgId || !project || !(await isProjectReady(project))) {
+	if (!candidate?.orgId || !project || !(await isProjectSetupComplete(project))) {
 		return;
 	}
 	await issueOrganizationSetupCredits(candidate.orgId, projectId);
@@ -163,7 +160,7 @@ async function reconcileOrganizationSetupCandidatesUnsafe(orgId: string, project
 		let reconciled = false;
 		await runBestEffort('reconcile organization setup grant', { orgId, projectId }, async () => {
 			const project = await projectQueries.getProjectById(projectId);
-			if (project && (await isProjectReady(project))) {
+			if (project && (await isProjectSetupComplete(project))) {
 				await issueOrganizationSetupCredits(orgId, projectId);
 				reconciled = true;
 			}
@@ -274,21 +271,13 @@ async function hasEligibleProjectAccess(orgId: string, userId: string): Promise<
 			projectQueries.getProjectById(projectId),
 			projectQueries.getUserRoleInProject(projectId, userId),
 		]);
-		if (project && role && (await isProjectReady(project))) {
+		if (project && role && (await isProjectSetupComplete(project))) {
 			return true;
 		}
 	}
 	return false;
 }
 
-async function isProjectReady(project: Pick<DBProject, 'id' | 'path' | 'envVars'>): Promise<boolean> {
-	const envVars = await getProjectRuntimeEnvVars(project.id);
-	return (
-		assessProjectReadiness({ ...project, envVars }).ready &&
-		project.path !== null &&
-		extractConfiguredDatabases(project.path).length > 0
-	);
-}
 async function isUserActive(userId: string): Promise<boolean> {
 	const [user, hasSession] = await Promise.all([
 		userQueries.getUser({ id: userId }),

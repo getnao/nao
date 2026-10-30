@@ -257,7 +257,9 @@ it('offers an available trial to non-managers and lets them dismiss it', () => {
 
 	render(<CloudBillingAccessBanner />);
 
-	expect(screen.getByRole('status').textContent).toContain('An organization admin can start the free trial.');
+	expect(screen.getByRole('status').textContent).toContain(
+		'An organization admin can finish setting up the first project.',
+	);
 	expect(screen.getByText('Ask an organization admin to manage billing.')).toBeTruthy();
 	expect(screen.queryByRole('button', { name: 'Manage billing' })).toBeNull();
 	fireEvent.click(screen.getByRole('button', { name: 'Dismiss trial banner' }));

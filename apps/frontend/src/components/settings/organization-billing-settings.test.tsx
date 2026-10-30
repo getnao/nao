@@ -218,25 +218,18 @@ it('hides a cached payment estimate when the subscription will not renew', () =>
 	expect(screen.queryByText('Next payment estimate from Stripe')).toBeNull();
 });
 
-it('explains trial and recurring amounts before opening Stripe Checkout', () => {
+it('waits for project setup before offering Stripe Checkout', () => {
 	mocks.trialAvailable = true;
 	mocks.trialEndsAt = null;
 	mocks.trialStartedAt = null;
 
 	render(<OrganizationBillingSettings search={{}} />);
 
-	expect(screen.getByText('Due today')).toBeTruthy();
-	expect(screen.getByText('No charge')).toBeTruthy();
-	expect(screen.getByText(/Stripe applies promotion codes to the recurring price/)).toBeTruthy();
-	expect(screen.getByRole('link', { name: 'Privacy policy' }).getAttribute('href')).toBe('https://getnao.io/privacy');
-	fireEvent.click(screen.getByRole('button', { name: 'Start your free trial in Stripe' }));
-	expect(mocks.openTrialCheckout).toHaveBeenCalledOnce();
+	expect(screen.queryByRole('button', { name: 'Start your free trial in Stripe' })).toBeNull();
 });
 
 it('defaults to monthly and shows the Stripe-derived yearly discount before Checkout', () => {
-	mocks.trialAvailable = true;
-	mocks.trialEndsAt = null;
-	mocks.trialStartedAt = null;
+	mocks.localTrialActive = true;
 
 	render(<OrganizationBillingSettings search={{}} />);
 
@@ -251,9 +244,7 @@ it('defaults to monthly and shows the Stripe-derived yearly discount before Chec
 });
 
 it('does not claim savings when the yearly Price has no discount', () => {
-	mocks.trialAvailable = true;
-	mocks.trialEndsAt = null;
-	mocks.trialStartedAt = null;
+	mocks.localTrialActive = true;
 	mocks.yearlyPlanAmount = 2_400_000;
 
 	render(<OrganizationBillingSettings search={{}} />);

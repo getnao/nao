@@ -8,6 +8,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
 import {
 	getLastUserMessageIdx,
+	isOnboardingCompleteError,
 	parseBudgetError,
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
@@ -62,7 +63,8 @@ export function ChatError({ className }: Props) {
 		!error ||
 		parseBudgetError(error) ||
 		parseManagedCreditsError(error) ||
-		parseChatAllowanceExhaustedError(error)
+		parseChatAllowanceExhaustedError(error) ||
+		isOnboardingCompleteError(error)
 	) {
 		return null;
 	}

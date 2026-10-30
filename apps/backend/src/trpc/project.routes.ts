@@ -38,6 +38,7 @@ import { mcpService } from '../services/mcp';
 import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
+import { isProjectSetupComplete } from '../services/project-readiness.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -192,6 +193,11 @@ export const projectRoutes = {
 				throw new TRPCError({ code: 'CONFLICT', message: `A project named "${input.name}" already exists.` });
 			}
 		}),
+
+	isCurrentSetupComplete: protectedProcedure.query(async ({ ctx }) => {
+		const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+		return project ? isProjectSetupComplete(project) : false;
+	}),
 
 	getDatabaseObjects: projectProtectedProcedure
 		.output(

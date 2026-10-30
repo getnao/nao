@@ -16,16 +16,15 @@ import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
-import { findWarehouseJobId, isOnboardingComplete, useOnboardingProgress } from '@/components/onboarding-progress';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
-import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
@@ -95,16 +94,15 @@ function ChatPage() {
 		}
 	}, [shouldRedirectToReplay, chatId, router]);
 
+	const isOnboardingChat = chat.data?.isOnboarding === true;
 	const shareQuery = useQuery({
 		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
-		enabled: !!chat.data && !shouldShowChatError,
+		enabled: !!chat.data && !shouldShowChatError && !isOnboardingChat,
 	});
 	const isShared = !!shareQuery.data?.shareId;
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const onboardingProgress = useOnboardingProgress();
-	const onboardingWarehouseJobId = useAgentMessagesSelector(findWarehouseJobId);
-	const onboardingWarehouseJob = useWarehouseProvisioningJob(onboardingWarehouseJobId);
+	const { complete: onboardingComplete } = useOnboardingCompletion(chatId, isOnboardingChat);
 	const showTrialOnboardingBanner =
 		config.data?.naoMode === 'cloud' &&
 		currentProject.isSuccess &&
@@ -113,11 +111,6 @@ function ChatPage() {
 	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
-	const onboardingComplete = isOnboardingComplete(
-		currentProject.data != null,
-		onboardingProgress,
-		onboardingWarehouseJob.data?.status === 'ready',
-	);
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const chatColumnRef = useRef<HTMLDivElement>(null);

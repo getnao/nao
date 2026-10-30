@@ -99,8 +99,8 @@ function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now(
 			dismissible: true,
 			title: 'A 14-day free trial is available.',
 			description: access.canManageBilling
-				? 'Start your free trial now, or it will begin when you create your first project.'
-				: 'An organization admin can start the free trial.',
+				? 'It will begin when your first project is fully set up.'
+				: 'An organization admin can finish setting up the first project.',
 		};
 	}
 	if (!access.hasAccess) {

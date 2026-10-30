@@ -151,6 +151,19 @@ it('retries a failed billing access refetch and clears the error', async () => {
 	expect(screen.getByRole('button', { name: 'Manage billing' })).toBeTruthy();
 });
 
+it('hides the expected error when onboarding has completed', () => {
+	mocks.error = new Error(
+		JSON.stringify({
+			error: 'Onboarding conversations are unavailable after project setup',
+		}),
+	);
+
+	render(<ChatError />);
+
+	expect(screen.queryByText('Onboarding conversations are unavailable after project setup')).toBeNull();
+	expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+});
+
 it('shows parsed provider details for a non-billing error without loading billing access', () => {
 	mocks.error = new Error(
 		JSON.stringify({
