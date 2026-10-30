@@ -87,7 +87,6 @@ export type McpToolContext = Omit<ToolContext, 'chatId'> & {
 export interface LinkedStory {
 	storyId: string;
 	chatId: string;
-	slug: string;
 	title: string;
 	format: StoryFormat;
 	canEdit: boolean;

@@ -42,8 +42,8 @@ export function buildStoryToolDescription({
 }: { mapsEnabled?: boolean; customStories?: boolean; canReplace?: boolean } = {}) {
 	return [
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
-		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
-		'or "replace" to overwrite the entire content (producing a new version).',
+		'Use "create" to initialize a new story under a slug of your choice, "update" to search-and-replace within it (producing a new version),',
+		'or "replace" to overwrite the entire content (producing a new version). Every action but "create" takes the story id, which "create" returns.',
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
 		'For kpi_card charts you may add comparison_mode="percentage|variation|absolute" to show a period-over-period change pill; this requires the query to return at least two time-ordered rows (one per period) for the metric, and kpi_card does not need x_axis_key.',
 		'SQL result tables are embedded via <table query_id="..." title="..." />.',
@@ -79,7 +79,7 @@ export default createTool<story.Input, story.Output>({
 
 	execute: async (input, context) => {
 		if (input.action === 'create') {
-			if (context.linkedStory?.slug === input.id) {
+			if (context.linkedStory?.storyId === input.id) {
 				return fail(input.id, `Story "${input.id}" already exists: it is the story this question is about.`);
 			}
 			return input.format === 'custom' ? createCustomStory(input, context) : createClassicStory(input, context);
@@ -96,17 +96,18 @@ export default createTool<story.Input, story.Output>({
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
 
-/** A failed edit leaves a standalone story without a chat, so it only has its id to be reached by. */
+/** A failed edit leaves a standalone story without a chat. */
 async function withStoryLocation(
 	output: story.Output,
 	existingStory: DBStory,
 	context: ToolContext,
 ): Promise<story.Output> {
-	if (existingStory.chatId === context.chatId) {
-		return output;
-	}
 	const chatId = existingStory.chatId ?? (await storyQueries.getStoryById(existingStory.id))?.chatId;
-	return { ...output, story_id: existingStory.id, ...(chatId && { story_chat_id: chatId }) };
+	return {
+		...output,
+		story_id: existingStory.id,
+		...(chatId && chatId !== context.chatId && { story_chat_id: chatId }),
+	};
 }
 
 async function runStoryAction(input: story.Input, existingStory: DBStory, context: ToolContext): Promise<story.Output> {
@@ -162,7 +163,7 @@ async function createClassicStory(input: story.Input, context: ToolContext): Pro
 		await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.storyId, tx);
 		return created;
 	});
-	return classicResult(input.id, version, context);
+	return { ...(await classicResult(input.id, version, context)), story_id: version.storyId };
 }
 
 async function updateClassicStory(
@@ -259,9 +260,14 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 	}
 
 	try {
-		const { files } = await createCustomStoryDraft({ chatId, slug: input.id, title, files: input.files ?? [] });
+		const { story: created, files } = await createCustomStoryDraft({
+			chatId,
+			slug: input.id,
+			title,
+			files: input.files ?? [],
+		});
 		rememberStoryArtifact(context, input.id, title);
-		return customResult(input.id, { title, version: 0 }, files);
+		return { ...customResult(input.id, { title, version: 0 }, files), story_id: created.id };
 	} catch (error) {
 		return fail(input.id, `Could not create story "${input.id}": ${(error as Error).message}`);
 	}
@@ -285,15 +291,10 @@ function runCustomStoryAction(input: story.Input, existingStory: DBStory, contex
 			return Promise.resolve(
 				fail(
 					slug,
-					`Story "${slug}" is a custom story: edit its files under /${STORIES_MOUNT}/${storyMountFolder(existingStory, context)}/, then use "publish".`,
+					`Story "${slug}" is a custom story: edit its files under /${STORIES_MOUNT}/${existingStory.id}/, then use "publish".`,
 				),
 			);
 	}
-}
-
-/** A story of this chat is mounted under its slug, a story of another chat under its id. */
-function storyMountFolder(story: DBStory, context: ToolContext): string {
-	return story.chatId === context.chatId ? story.slug : story.id;
 }
 
 async function deleteCustomStoryFiles(
@@ -308,7 +309,7 @@ async function deleteCustomStoryFiles(
 	}
 	let targets: string[];
 	try {
-		targets = paths.map((path) => normalizeStoryFilePath(toStoryFilePath(existingStory, path)));
+		targets = paths.map((path) => normalizeStoryFilePath(toStoryFilePath(existingStory.id, path)));
 	} catch (error) {
 		return fail(slug, (error as Error).message, published);
 	}
@@ -366,16 +367,11 @@ async function publishedState(existingStory: DBStory): Promise<ExistingStory> {
 	return { code: '', version: latest?.version ?? 0, title: existingStory.title };
 }
 
-/**
- * Accepts a path relative to the story root or the full `/stories/<slug or id>/…` path the file tools use, as the
- * mount resolves a story by either.
- */
-function toStoryFilePath(story: DBStory, path: string): string {
+/** Accepts a path relative to the story root or the full `/stories/<id>/…` path the file tools use. */
+function toStoryFilePath(storyId: string, path: string): string {
+	const prefix = `/${STORIES_MOUNT}/${storyId}/`;
 	const trimmed = path.trim();
-	const prefix = [story.slug, story.id]
-		.map((folder) => `/${STORIES_MOUNT}/${folder}/`)
-		.find((folderPrefix) => trimmed.startsWith(folderPrefix));
-	return prefix ? trimmed.slice(prefix.length) : trimmed.replace(/^\.?\//, '');
+	return trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed.replace(/^\.?\//, '');
 }
 
 async function publishCustomStory(existingStory: DBStory, context: ToolContext): Promise<story.Output> {
@@ -385,7 +381,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 		if (draft.length === 0) {
 			return fail(
 				existingStory.slug,
-				`Story "${existingStory.slug}" has no files yet. Write them under /${STORIES_MOUNT}/${storyMountFolder(existingStory, context)}/ first.`,
+				`Story "${existingStory.slug}" has no files yet. Write them under /${STORIES_MOUNT}/${existingStory.id}/ first.`,
 				published,
 			);
 		}

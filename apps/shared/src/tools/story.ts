@@ -18,7 +18,7 @@ export const InputSchema = z.object({
 	id: z
 		.string()
 		.describe(
-			'For "create": a new kebab-case slug (e.g. "revenue-dashboard"). For any other action: the story to act on, either its slug if it belongs to this conversation, or its id if it belongs to another one.',
+			'For "create": a new kebab-case slug (e.g. "revenue-dashboard"). For any other action: the id of the story to act on.',
 		),
 	title: z.string().optional().describe('A concise, descriptive title for the story. Required for "create".'),
 	format: z
@@ -58,7 +58,7 @@ export const InputSchema = z.object({
 export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),
 	success: z.boolean(),
-	id: z.string(),
+	id: z.string().describe('The slug of the story.'),
 	version: z.number(),
 	code: z.string().describe('The full story code after the operation.'),
 	title: z.string(),
@@ -74,12 +74,7 @@ export const OutputSchema = z.object({
 		.describe(
 			'Only set when the story belongs to another conversation: the chat holding its versions, where the UI opens it.',
 		),
-	story_id: z
-		.string()
-		.optional()
-		.describe(
-			'Only set when the story belongs to another conversation: the id to pass as "id" to keep editing the story from here.',
-		),
+	story_id: z.string().optional().describe('The id of the story.'),
 });
 
 export type Input = z.infer<typeof InputSchema>;

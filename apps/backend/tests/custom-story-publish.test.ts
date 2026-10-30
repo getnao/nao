@@ -124,7 +124,7 @@ describe('publishing a custom story', () => {
 
 function publish() {
 	const tool = storyTool as Tool<{ action: 'publish'; id: string }, { success: boolean }>;
-	return tool.execute!({ action: 'publish', id: 'revenue' }, {
+	return tool.execute!({ action: 'publish', id: STORY_ID }, {
 		experimental_context: {
 			chatId: 'chat-1',
 			userId: 'user-1',

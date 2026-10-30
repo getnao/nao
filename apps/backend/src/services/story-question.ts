@@ -25,7 +25,6 @@ export async function resolveLinkedStory(chat: {
 	return {
 		storyId: story.storyId,
 		chatId: story.chatId,
-		slug: story.slug,
 		title: story.title,
 		format: story.format,
 		canEdit: story.canEdit,

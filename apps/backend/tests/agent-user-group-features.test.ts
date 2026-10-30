@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	getStoryById: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
 	getLatestVersionByStoryId: vi.fn(),
 	createStoryVersion: vi.fn(),
@@ -8,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/queries/story.queries', () => ({
+	getStoryById: mocks.getStoryById,
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getLatestVersionByStoryId: mocks.getLatestVersionByStoryId,
 	createStoryVersion: mocks.createStoryVersion,
@@ -91,7 +93,7 @@ describe('agent user group feature tools', () => {
 			expectedCode: '# Replaced',
 		},
 	])('allows restricted users to run Story $action', async ({ action, input, expectedCode }) => {
-		mocks.getStoryByChatAndSlug.mockResolvedValue({
+		mocks.getStoryById.mockResolvedValue({
 			id: 'story-1',
 			chatId: 'chat-id',
 			slug: 'existing-story',
@@ -104,7 +106,7 @@ describe('agent user group feature tools', () => {
 		});
 		mocks.createStoryVersion.mockImplementation(async (values) => ({ ...values, version: 2 }));
 
-		const output = await executeStory({ action, id: 'existing-story', ...input }, false);
+		const output = await executeStory({ action, id: 'story-1', ...input }, false);
 
 		expect(output).toMatchObject({ success: true, code: expectedCode, version: 2 });
 		expect(mocks.createStoryVersion).toHaveBeenCalledWith(

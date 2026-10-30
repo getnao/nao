@@ -13,7 +13,7 @@ export type StoryModelOutput = story.Output & {
 };
 
 export function StoryOutput({ output }: { output: StoryModelOutput }) {
-	const slugOrId = output.story_id ?? output.id;
+	const storyId = output.story_id ?? output.id;
 
 	if (output.error) {
 		return (
@@ -22,7 +22,7 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 				{output.build_errors && output.build_errors.length > 0 && (
 					<Block>
 						<Span>
-							Build errors (fix these in /stories/{slugOrId}/ with the write tool, then publish again):
+							Build errors (fix these in /stories/{storyId}/ with the write tool, then publish again):
 						</Span>
 						<List>
 							{output.build_errors.map((buildError) => (
@@ -38,21 +38,22 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 	if (output._stale) {
 		return (
 			<Block>
-				Story "{output.title}" ({slugOrId}) — v{output.version} at the time. {describeCurrentContent(output)}
+				Story "{output.title}" ({storyId}) — v{output.version} at the time.{' '}
+				{describeCurrentContent(output, storyId)}
 			</Block>
 		);
 	}
 
 	if (output.format === 'custom') {
-		return <CustomStoryOutput output={output} slugOrId={slugOrId} />;
+		return <CustomStoryOutput output={output} storyId={storyId} />;
 	}
 
 	const templateWarnings = output.template_warnings ?? [];
 
 	return (
 		<Block>
-			Story "{output.title}" (v{output.version}) — {slugOrId}
-			{output.story_id && <Span>{ANOTHER_CHAT_STORY_NOTE}</Span>}
+			Story "{output.title}" (v{output.version}) — {storyId}
+			{output.story_chat_id && <Span>{ANOTHER_CHAT_STORY_NOTE}</Span>}
 			{templateWarnings.length > 0 && (
 				<Block>
 					<Span>
@@ -71,11 +72,11 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 	);
 }
 
-const ANOTHER_CHAT_STORY_NOTE = 'It belongs to another conversation: keep passing this story id to edit it.';
+const ANOTHER_CHAT_STORY_NOTE = 'It belongs to another conversation.';
 
-function describeCurrentContent(output: StoryModelOutput): string {
-	if (output.story_id) {
-		return `It belongs to another conversation: its current content is in its <${REFERENCED_STORY_TAG}> block when the user references it, and under ${toStoryLibraryVirtualPath(output.story_id)}/.`;
+function describeCurrentContent(output: StoryModelOutput, storyId: string): string {
+	if (output.story_chat_id) {
+		return `It belongs to another conversation: its current content is in its <${REFERENCED_STORY_TAG}> block when the user references it, and under ${toStoryLibraryVirtualPath(storyId)}/.`;
 	}
 	if (output._inArtifacts) {
 		return `Its current content is in the <${CHAT_ARTIFACTS_TAG}> block of the latest user message.`;
@@ -83,14 +84,14 @@ function describeCurrentContent(output: StoryModelOutput): string {
 	return 'It is no longer part of this conversation.';
 }
 
-function CustomStoryOutput({ output, slugOrId }: { output: StoryModelOutput; slugOrId: string }) {
+function CustomStoryOutput({ output, storyId }: { output: StoryModelOutput; storyId: string }) {
 	const files = output.files ?? [];
 	const state = output.version > 0 ? `published v${output.version}` : 'draft, not published yet';
 
 	return (
 		<Block>
 			{output.message && <Block>{output.message}</Block>}
-			Custom story "{output.title}" ({slugOrId}) — {state}. Files under /stories/{slugOrId}/:
+			Custom story "{output.title}" ({storyId}) — {state}. Files under /stories/{storyId}/:
 			{files.length === 0 ? (
 				<Block>(no files yet — add them with the write tool, then "publish")</Block>
 			) : (
@@ -100,7 +101,7 @@ function CustomStoryOutput({ output, slugOrId }: { output: StoryModelOutput; slu
 					))}
 				</List>
 			)}
-			{output.story_id && <Span>{ANOTHER_CHAT_STORY_NOTE}</Span>}
+			{output.story_chat_id && <Span>{ANOTHER_CHAT_STORY_NOTE}</Span>}
 		</Block>
 	);
 }

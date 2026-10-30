@@ -55,6 +55,19 @@ describe('findStoryDraft', () => {
 		expect(findStoryDraft(messages, 'sales')?.code).toBe('# this chat');
 	});
 
+	it('finds a streaming edit of the viewed story from its id', () => {
+		const messages = [
+			createStoryMessage({
+				messageId: 'message-1',
+				state: 'input-streaming',
+				input: { id: 'story-uuid', action: 'replace', code: '# editing' },
+			}),
+		];
+
+		expect(findStoryDraft(messages, 'sales', 'story-uuid')).toMatchObject({ id: 'sales', code: '# editing' });
+		expect(findStoryDraft(messages, 'sales', 'other-uuid')).toBeNull();
+	});
+
 	it('returns no draft when the only story call failed', () => {
 		const messages = [
 			createStoryMessage({

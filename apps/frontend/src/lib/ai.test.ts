@@ -216,15 +216,15 @@ describe('story actions', () => {
 		expect(groupToolCalls([failed, retried])).toEqual([{ type: 'story-status', part: failed }, retried]);
 	});
 
-	it('follows the story id from a streaming input before any output exists', () => {
+	it('keeps a story card until the streaming edit that follows names its slug in its output', () => {
 		const created = createStoryPart('call-1');
 		const streaming = createStoryPart('call-2', {
 			state: 'input-streaming',
-			input: { action: 'update', id: 'revenue' },
+			input: { action: 'update', id: 'story-id' },
 			output: undefined,
 		});
 
-		expect(groupToolCalls([created, streaming])).toEqual([{ type: 'story-status', part: created }, streaming]);
+		expect(groupToolCalls([created, streaming])).toEqual([created, streaming]);
 	});
 
 	it('leaves a story action whose id is not known yet as a card', () => {

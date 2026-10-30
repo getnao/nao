@@ -6,26 +6,23 @@ import { attachChatToStandaloneStory } from './standalone-story';
 
 export type EditableStoryScope = Pick<ToolContext, 'chatId' | 'linkedStory' | 'userId' | 'projectId'>;
 
-/**
- * The story an agent addresses from a chat: the slug of the story a quick question is about, the slug of a story of
- * this chat, or the id of any story the user can edit. Slugs win as they are what the chat knows its stories by.
- */
+/** A story of this chat, or of any other chat when the user can edit it. */
 export async function findEditableStory(
 	scope: EditableStoryScope,
-	slugOrId: string,
+	storyId: string,
 ): Promise<{ story: DBStory } | { error: string }> {
-	const { linkedStory } = scope;
-	if (linkedStory?.slug === slugOrId) {
-		if (!linkedStory.canEdit) {
-			return readOnlyError(slugOrId);
-		}
-		const story = await storyQueries.getStoryById(linkedStory.storyId);
-		if (story) {
-			return { story };
-		}
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story) {
+		return notFoundError(storyId);
 	}
-	const ownStory = await storyQueries.getStoryByChatAndSlug(scope.chatId, slugOrId);
-	return ownStory ? { story: ownStory } : findEditableStoryById(scope, slugOrId);
+	if (story.chatId === scope.chatId) {
+		return { story };
+	}
+	const referenceable = await storyReferenceQueries.getReferenceableStory(scope.userId, scope.projectId, storyId);
+	if (!referenceable) {
+		return notFoundError(storyId);
+	}
+	return referenceable.canEdit ? { story } : readOnlyError(storyId);
 }
 
 /** The chat holding the story's versions: a standalone story gets one the first time an edit goes through. */
@@ -41,25 +38,12 @@ export async function ensureStoryChat(story: DBStory, scope: EditableStoryScope)
 	return chatId;
 }
 
-async function findEditableStoryById(
-	scope: EditableStoryScope,
-	storyId: string,
-): Promise<{ story: DBStory } | { error: string }> {
-	const referenceable = await storyReferenceQueries.getReferenceableStory(scope.userId, scope.projectId, storyId);
-	if (!referenceable) {
-		return notFoundError(storyId);
-	}
-	if (!referenceable.canEdit) {
-		return readOnlyError(storyId);
-	}
-	const story = await storyQueries.getStoryById(storyId);
-	return story ? { story } : notFoundError(storyId);
+function readOnlyError(storyId: string): { error: string } {
+	return { error: `Story "${storyId}" is read-only here: only its owner can edit it.` };
 }
 
-function readOnlyError(slugOrId: string): { error: string } {
-	return { error: `Story "${slugOrId}" is read-only here: only its owner can edit it.` };
-}
-
-function notFoundError(slugOrId: string): { error: string } {
-	return { error: `Story "${slugOrId}" does not exist. Create it first with the story tool.` };
+function notFoundError(storyId: string): { error: string } {
+	return {
+		error: `No story with the id "${storyId}". Stories are addressed by their id, given in the conversation artifacts; "create" starts a new one.`,
+	};
 }

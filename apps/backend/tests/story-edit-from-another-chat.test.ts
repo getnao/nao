@@ -105,7 +105,7 @@ describe('editing a story from another chat', () => {
 
 	it('tells apart a story of this chat and one of another chat under the same slug', async () => {
 		const output = await runStoryTool(
-			{ action: 'update', id: SLUG, search: '# Same slug', replace: '# Same slug, edited' },
+			{ action: 'update', id: SAME_SLUG_STORY_ID, search: '# Same slug', replace: '# Same slug, edited' },
 			{ chatId: EDITING_CHAT_ID, userId: OWNER_ID },
 		);
 
@@ -113,6 +113,16 @@ describe('editing a story from another chat', () => {
 		expect(output).not.toHaveProperty('story_chat_id');
 		expect((await getLatestVersionByChatAndSlug(EDITING_CHAT_ID, SLUG))?.code).toBe('# Same slug, edited');
 		expect((await getLatestVersionByChatAndSlug(ORIGIN_CHAT_ID, SLUG))?.code).not.toContain('Same slug');
+	});
+
+	it('no longer finds a story by its slug', async () => {
+		const output = await runStoryTool(
+			{ action: 'replace', id: SLUG, code: '# Wrong id' },
+			{ chatId: EDITING_CHAT_ID, userId: OWNER_ID },
+		);
+
+		expect(output).toMatchObject({ success: false, error: expect.stringContaining('No story with the id') });
+		expect((await getLatestVersionByChatAndSlug(EDITING_CHAT_ID, SLUG))?.code).not.toBe('# Wrong id');
 	});
 
 	it('keeps the story read-only for a user who can only see it', async () => {
@@ -138,7 +148,7 @@ describe('editing a story from another chat', () => {
 
 		expect(output).toMatchObject({
 			success: false,
-			error: `Story "${STORY_ID}" does not exist. Create it first with the story tool.`,
+			error: expect.stringContaining('No story with the id'),
 		});
 		await db.update(s.sharedStory).set({ visibility: 'project' }).where(eq(s.sharedStory.storyId, STORY_ID));
 	});
