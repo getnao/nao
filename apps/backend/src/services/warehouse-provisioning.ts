@@ -46,7 +46,6 @@ import { saveProjectWarehouseEnvVars } from './warehouse-credentials';
 const PREPARE_TIMEOUT_MS = 30_000;
 const INIT_TIMEOUT_MS = 15 * 60_000;
 const DEBUG_TIMEOUT_MS = 5 * 60_000;
-const SYNC_TIMEOUT_MS = 30 * 60_000;
 const COMMAND_OUTPUT_LIMIT = 8000;
 const COMMAND_LOG_UPDATE_MS = 300;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
@@ -713,13 +712,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, commandLogs);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
-		await runNaoCommand(
-			['sync', '--provider', 'databases'],
-			projectDir,
-			commandEnvironment,
-			SYNC_TIMEOUT_MS,
-			commandLogs,
-		);
+		await runNaoCommand(['sync', '--provider', 'databases'], projectDir, commandEnvironment, null, commandLogs);
 
 		const projectId = crypto.randomUUID();
 		registeredProjectId = projectId;
@@ -943,7 +936,7 @@ function runNaoCommand(
 	args: string[],
 	cwd: string,
 	env: NodeJS.ProcessEnv,
-	timeoutMs: number,
+	timeoutMs: number | null,
 	logs: CommandLogs,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
@@ -995,14 +988,17 @@ function runNaoCommand(
 		};
 		child.stdout.on('data', captureOutput);
 		child.stderr.on('data', captureOutput);
-		const timeout = setTimeout(() => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill('SIGTERM');
-			void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
-		}, timeoutMs);
+		const timeout =
+			timeoutMs === null
+				? undefined
+				: setTimeout(() => {
+						if (settled) {
+							return;
+						}
+						settled = true;
+						child.kill('SIGTERM');
+						void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
+					}, timeoutMs);
 
 		child.once('error', async (error) => {
 			if (settled) {

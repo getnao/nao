@@ -1340,8 +1340,8 @@ describe('warehouse provisioning', () => {
 			expected: 'nao sync failed. Check the logs for details.',
 		},
 		{
-			error: new Error('nao sync timed out'),
-			expected: 'nao sync timed out. Check the logs for details.',
+			error: new Error('nao debug timed out'),
+			expected: 'nao debug timed out. Check the logs for details.',
 		},
 		{
 			error: new Error('password authentication failed for user "nao"'),
