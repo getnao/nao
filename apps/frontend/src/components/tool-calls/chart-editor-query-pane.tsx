@@ -21,7 +21,7 @@ export function ChartEditorQueryPane({ sourceQuery, onOutputChange, onClose, cla
 
 	return (
 		<div className={cn('flex min-h-0 flex-1 flex-col', className)}>
-			<div className='flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4'>
+			<div className='flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 select-none'>
 				<span className='text-sm font-semibold text-foreground'>
 					{isSemantic ? 'Semantic query' : 'Query editor'}
 				</span>

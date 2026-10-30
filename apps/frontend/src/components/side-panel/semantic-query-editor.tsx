@@ -189,7 +189,7 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 	return (
 		<div ref={rootRef} className='flex min-h-0 flex-1 flex-col bg-background'>
 			{canEdit && (
-				<div className='flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2'>
+				<div className='flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 select-none'>
 					<div className='text-xs text-muted-foreground'>
 						{isDirty ? 'Unsaved changes' : 'Edit the semantic query, then run or save'}
 					</div>
@@ -235,7 +235,12 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 			<SemanticQueryFreshnessNotice freshness={freshness} />
 
 			<ResizablePanelGroup orientation='vertical' className='min-h-0 flex-1'>
-				<ResizablePanel id='definition' minSize={DEFINITION_MIN_HEIGHT} style={PANEL_SCROLL_Y}>
+				<ResizablePanel
+					id='definition'
+					minSize={DEFINITION_MIN_HEIGHT}
+					className='select-none'
+					style={PANEL_SCROLL_Y}
+				>
 					<SemanticQueryForm draft={draft} onChange={setDraft} readOnly={!canEdit} catalog={catalog} />
 				</ResizablePanel>
 
@@ -253,7 +258,7 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 						activeTab={resultsTab}
 						onTabChange={setResultsTab}
 						idBase={tabsId}
-						className='shrink-0 border-b px-2'
+						className='shrink-0 border-b px-2 select-none'
 					/>
 					<TabPanel idBase={tabsId} tabId={resultsTab} className='flex min-h-0 flex-1 flex-col'>
 						{resultsTab === 'results' ? (
