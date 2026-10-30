@@ -101,12 +101,14 @@ it('offers billing management and retry actions for a billing access error', asy
 	});
 });
 
-it('offers the free trial for an eligible billing access error', () => {
+it('directs trial-eligible admins to finish project setup', () => {
 	mocks.access.trialAvailable = true;
 
 	render(<ChatError />);
 
-	expect(screen.getByText('Start your free trial, then retry your message.')).toBeTruthy();
+	expect(
+		screen.getByText('Finish setting up your first project to start your free trial, then retry your message.'),
+	).toBeTruthy();
 });
 
 it('directs trial-eligible members to an organization admin without offering billing management', () => {
@@ -116,9 +118,8 @@ it('directs trial-eligible members to an organization admin without offering bil
 	render(<ChatError />);
 
 	expect(
-		screen.getByText('Ask an organization admin to start the free trial, then retry your message.'),
+		screen.getByText('Ask an organization admin to finish setting up the first project, then retry your message.'),
 	).toBeTruthy();
-	expect(screen.queryByText('Start your free trial, then retry your message.')).toBeNull();
 	expect(screen.getByText('Ask an organization admin to manage billing.')).toBeTruthy();
 	expect(screen.queryByRole('button', { name: 'Manage billing' })).toBeNull();
 });

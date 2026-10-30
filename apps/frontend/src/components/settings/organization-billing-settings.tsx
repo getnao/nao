@@ -165,7 +165,7 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 								: hasStripeSubscription
 									? statusView.description
 									: billing.data.trialAvailable
-										? 'Start your free trial to unlock nao Cloud for this organization.'
+										? 'Your free trial starts when your first project is fully set up.'
 										: 'Subscribe to nao Cloud to restore access.'}
 						</p>
 					</div>

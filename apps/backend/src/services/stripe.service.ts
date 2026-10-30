@@ -155,14 +155,13 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 	);
 }
 
-export async function createCloudCheckoutSession(
-	input: {
-		billingInterval: CloudBillingInterval;
-		currency?: CloudBillingCurrency;
-		organizationId: string;
-		stripeCustomerId: string;
-	} & ({ trialDays: number; trialEnd?: never } | { trialDays?: never; trialEnd: Date }),
-): Promise<string> {
+export async function createCloudCheckoutSession(input: {
+	billingInterval: CloudBillingInterval;
+	currency?: CloudBillingCurrency;
+	organizationId: string;
+	stripeCustomerId: string;
+	trialEnd: Date;
+}): Promise<string> {
 	const classified = await listCloudSubscriptions(input.stripeCustomerId);
 	const hasPaidHistory = classified.some(({ kind }) => kind === 'paid-cloud');
 	const currentPlaceholders = classified.filter(
@@ -173,11 +172,10 @@ export async function createCloudCheckoutSession(
 			'This organization already has cloud subscription history; use resubscribe instead',
 		);
 	}
-	if (input.trialEnd && input.trialEnd.getTime() <= Date.now()) {
+	if (input.trialEnd.getTime() <= Date.now()) {
 		throw new CloudInitialCheckoutUnavailableError('This organization trial has expired');
 	}
 	const preservesTrial =
-		input.trialEnd !== undefined &&
 		input.trialEnd.getTime() >= Date.now() + MIN_CHECKOUT_TRIAL_MS + CHECKOUT_TRIAL_CLOCK_SKEW_MS;
 	const sourceTrialEnd = preservesTrial ? stripeTimestamp(input.trialEnd) : null;
 	return createSubscriptionCheckoutSession({
@@ -185,12 +183,7 @@ export async function createCloudCheckoutSession(
 		trialEnd: preservesTrial ? input.trialEnd : undefined,
 		currency: input.currency ?? 'usd',
 		kind: 'initial',
-		operationKey:
-			input.trialDays !== undefined
-				? `trial-${input.trialDays}`
-				: sourceTrialEnd === null
-					? 'immediate'
-					: `trial-${sourceTrialEnd}-${sourceTrialEnd}`,
+		operationKey: sourceTrialEnd === null ? 'immediate' : `trial-${sourceTrialEnd}-${sourceTrialEnd}`,
 		effectiveTrialEnd: sourceTrialEnd,
 	});
 }
@@ -227,7 +220,6 @@ async function createSubscriptionCheckoutSession(input: {
 	stripeCustomerId: string;
 	kind: 'initial' | 'resubscribe';
 	operationKey: string;
-	trialDays?: number;
 	trialEnd?: Date;
 	effectiveTrialEnd?: number | null;
 }): Promise<string> {
@@ -235,13 +227,11 @@ async function createSubscriptionCheckoutSession(input: {
 	const sourceTrialEnd = input.trialEnd ? stripeTimestamp(input.trialEnd) : null;
 	const effectiveTrialEnd = input.effectiveTrialEnd ?? null;
 	const trialMessage =
-		input.trialDays !== undefined
-			? checkoutTrialDaysMessage(input.trialDays)
-			: effectiveTrialEnd !== null
-				? checkoutTrialMessage(new Date(effectiveTrialEnd * 1_000))
-				: input.kind === 'initial'
-					? checkoutImmediateStartMessage()
-					: null;
+		effectiveTrialEnd !== null
+			? checkoutTrialMessage(new Date(effectiveTrialEnd * 1_000))
+			: input.kind === 'initial'
+				? checkoutImmediateStartMessage()
+				: null;
 	const matchesCheckout = (session: Stripe.Checkout.Session) =>
 		session.mode === 'subscription' &&
 		session.currency === input.currency &&
@@ -286,17 +276,12 @@ async function createSubscriptionCheckoutSession(input: {
 					[ORGANIZATION_METADATA_KEY]: input.organizationId,
 					[PLAN_METADATA_KEY]: plan.key,
 				},
-				...(input.trialDays !== undefined
+				...(effectiveTrialEnd !== null
 					? {
-							trial_period_days: input.trialDays,
+							trial_end: effectiveTrialEnd,
 							trial_settings: { end_behavior: { missing_payment_method: 'pause' as const } },
 						}
-					: effectiveTrialEnd !== null
-						? {
-								trial_end: effectiveTrialEnd,
-								trial_settings: { end_behavior: { missing_payment_method: 'pause' as const } },
-							}
-						: {}),
+					: {}),
 			},
 			success_url: `${billingUrl}?checkout=${input.kind === 'initial' ? 'success' : 'subscribed'}`,
 			cancel_url: `${billingUrl}?checkout=canceled`,
@@ -360,24 +345,26 @@ export async function listCloudInvoices(stripeCustomerId: string): Promise<Cloud
 	})) {
 		invoices.push(invoice);
 	}
-	return invoices.map((invoice) => ({
-		id: invoice.id,
-		number: invoice.number,
-		invoiceKind: isCreditTopUpInvoice(invoice)
-			? 'credit_top_up'
-			: invoice.total !== 0
-				? 'subscription'
-				: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
-					? 'trial'
-					: 'no_charge',
-		promotionCodes: invoicePromotionCodes(invoice),
-		status: invoice.status,
-		createdAt: new Date(invoice.created * 1_000),
-		total: invoice.total,
-		currency: invoice.currency,
-		hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
-		invoicePdf: invoice.invoice_pdf ?? null,
-	}));
+	return invoices
+		.filter((invoice) => !isCloudTrialPlaceholderInvoice(invoice))
+		.map((invoice) => ({
+			id: invoice.id,
+			number: invoice.number,
+			invoiceKind: isCreditTopUpInvoice(invoice)
+				? 'credit_top_up'
+				: invoice.total !== 0
+					? 'subscription'
+					: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
+						? 'trial'
+						: 'no_charge',
+			promotionCodes: invoicePromotionCodes(invoice),
+			status: invoice.status,
+			createdAt: new Date(invoice.created * 1_000),
+			total: invoice.total,
+			currency: invoice.currency,
+			hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
+			invoicePdf: invoice.invoice_pdf ?? null,
+		}));
 }
 
 export async function getCloudUpcomingInvoice(stripeSubscriptionId: string): Promise<CloudUpcomingInvoice> {
@@ -399,6 +386,9 @@ export async function listStripeInvoicesCreatedSince(createdSince: Date): Promis
 		created: { gte: Math.floor(createdSince.getTime() / 1_000) },
 		limit: 100,
 	})) {
+		if (isCloudTrialPlaceholderInvoice(invoice)) {
+			continue;
+		}
 		invoices.push({
 			id: invoice.id,
 			number: invoice.number,
@@ -892,10 +882,6 @@ function checkoutTrialMessage(trialEnd: Date): string {
 	return `Nothing is charged today. Your recurring price, including any promotion code discount, starts when your trial ends on ${date}.`;
 }
 
-function checkoutTrialDaysMessage(trialDays: number): string {
-	return `Nothing is charged today. Your ${trialDays}-day free trial starts when you confirm. The recurring price shown, including any promotion code discount, starts after the trial.`;
-}
-
 function checkoutImmediateStartMessage(): string {
 	return 'Not enough time remains to preserve your free trial in Checkout, so your subscription starts when you confirm. The recurring price shown, including any promotion code discount, is charged today.';
 }
@@ -998,6 +984,11 @@ async function findCheckoutSession(
 
 function isCreditTopUpInvoice(invoice: Pick<Stripe.Invoice, 'metadata'>): boolean {
 	return invoice.metadata?.[CHECKOUT_KIND_METADATA_KEY] === CREDIT_TOP_UP_CHECKOUT_KIND;
+}
+
+function isCloudTrialPlaceholderInvoice(invoice: Pick<Stripe.Invoice, 'lines'>): boolean {
+	const trialProductId = configuredCloudTrialProductId();
+	return invoice.lines.data.some((line) => line.pricing?.price_details?.product === trialProductId);
 }
 
 function invoicePromotionCodes(invoice: Pick<Stripe.Invoice, 'discounts'>): string[] {
