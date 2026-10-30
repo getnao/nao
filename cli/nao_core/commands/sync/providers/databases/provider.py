@@ -5,12 +5,13 @@ from __future__ import annotations
 import fnmatch
 import re
 import time
+from collections.abc import Callable, Collection
 from concurrent.futures import Executor, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Collection
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.markup import escape
@@ -644,11 +645,17 @@ class DatabaseSyncProvider(SyncProvider):
                         failures.append(f"{database_name}: {error}")
                         UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
             else:
-                with ThreadPoolExecutor(max_workers=threads) as pool:
-                    whole_database_futures = [
-                        None
-                        if db.supports_parallel_table_sync is True
-                        else pool.submit(
+                # Parallel-safe databases need a coordinator outside the shared
+                # worker pool: their coordinator submits table work to that pool
+                # and waits for it, which would deadlock if every pool worker were
+                # itself coordinating a database. The coordinators also let
+                # connection and table-discovery work overlap across databases.
+                with (
+                    ThreadPoolExecutor(max_workers=threads) as pool,
+                    ThreadPoolExecutor(max_workers=min(threads, len(items))) as coordinator_pool,
+                ):
+                    database_futures = [
+                        (coordinator_pool if db.supports_parallel_table_sync is True else pool).submit(
                             sync_database,
                             db,
                             output_path,
@@ -658,25 +665,13 @@ class DatabaseSyncProvider(SyncProvider):
                             db_folder=db_folder,
                             nao_ctx=nao_ctx,
                             select=select,
+                            **({"pool": pool} if db.supports_parallel_table_sync is True else {}),
                         )
                         for db, db_folder in zip(items, db_folders, strict=False)
                     ]
-                    for db, db_folder, future in zip(items, db_folders, whole_database_futures, strict=False):
+                    for db, future in zip(items, database_futures, strict=False):
                         try:
-                            if future is not None:
-                                state = future.result()
-                            else:
-                                state = sync_database(
-                                    db,
-                                    output_path,
-                                    progress,
-                                    project_path,
-                                    llm_config,
-                                    db_folder=db_folder,
-                                    nao_ctx=nao_ctx,
-                                    select=select,
-                                    pool=pool,
-                                )
+                            state = future.result()
                             sync_states.append(state)
                             total_datasets += state.schemas_synced
                             total_tables += state.tables_synced

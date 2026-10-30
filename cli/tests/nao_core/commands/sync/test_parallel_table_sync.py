@@ -71,6 +71,18 @@ def test_one_large_database_uses_the_whole_pool(tmp_path: Path):
     assert run.result.items_synced == TABLE_COUNT
 
 
+def test_small_parallel_databases_run_together(tmp_path: Path):
+    configs = _configs({f"warehouse_{index}": True for index in range(4)})
+    for config in configs:
+        config.get_schemas.return_value = ["sales"]
+        config.connect.return_value.list_tables.side_effect = lambda database: ["orders"] if database == "sales" else []
+
+    run = _run_sync(tmp_path, configs, threads=4)
+
+    assert run.recorder.max_active == 4
+    assert run.result.items_synced == 4
+
+
 def test_databases_share_one_pool(tmp_path: Path):
     databases = {"warehouse": True, "events": True, "lake": False, "local": False}
 
