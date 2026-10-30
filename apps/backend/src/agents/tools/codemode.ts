@@ -137,7 +137,7 @@ function formatForModel(output: codemode.Output): string {
 	if (output.ok) {
 		sections.push(output.result === undefined ? emptyResultText(output) : `Result:\n${output.result}`);
 	} else if (output.error) {
-		sections.push(formatError(output.error, output.calls.length));
+		sections.push(formatError(output.error, output.calls));
 	}
 	return sections.join('\n\n');
 }
@@ -153,13 +153,29 @@ function emptyResultText(output: codemode.Output): string {
 	].join(' ');
 }
 
-function formatError(error: NonNullable<codemode.Output['error']>, callCount: number): string {
+function formatError(error: NonNullable<codemode.Output['error']>, calls: codemode.Call[]): string {
 	const lines = [`${error.kind.toUpperCase()}_ERROR: ${error.message}`];
 	if (error.stack) {
 		lines.push(error.stack);
 	}
-	if (callCount > 0) {
-		lines.push(`${callCount} call(s) ran before the failure; their side effects are kept.`);
+	if (calls.length > 0) {
+		lines.push(describeCallsBeforeFailure(calls));
 	}
 	return lines.join('\n');
+}
+
+function describeCallsBeforeFailure(calls: codemode.Call[]): string {
+	const interruptedCount = calls.filter((call) => call.status === 'cancelled').length;
+	const completedCount = calls.length - interruptedCount;
+	const sentences = [];
+	if (completedCount > 0) {
+		sentences.push(`${completedCount} call(s) completed before the failure; their side effects are kept.`);
+	}
+	if (interruptedCount > 0) {
+		sentences.push(
+			`${interruptedCount} call(s) were interrupted while running and may or may not have taken effect.`,
+		);
+	}
+	sentences.push('No other call started.');
+	return sentences.join(' ');
 }

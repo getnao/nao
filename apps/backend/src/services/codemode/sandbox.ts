@@ -34,6 +34,7 @@ export interface CodemodeError {
 
 interface CodemodeOutcome {
 	logs: string[];
+	/** Calls that started, in start order; a call still waiting for a slot when the run ends is left out. */
 	calls: CodemodeCall[];
 }
 
@@ -196,7 +197,6 @@ class CodemodeExecution {
 		const fn = this._options.functions[message.index];
 		const call: CodemodeCall = { name: fn?.path.join('.') ?? 'unknown', status: 'cancelled', durationMs: 0 };
 		const pending: PendingCall = { call, startedAt: performance.now(), controller: new AbortController() };
-		this._calls.push(call);
 		this._pending.set(message.id, pending);
 
 		await this._acquireCallSlot();
@@ -212,6 +212,7 @@ class CodemodeExecution {
 		if (controller.signal.aborted) {
 			return;
 		}
+		this._calls.push(call);
 		pending.startedAt = performance.now();
 
 		let reply: { id: number; ok: boolean; payload: string | undefined };

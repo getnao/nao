@@ -3,7 +3,6 @@
  * the server's event loop. Plain JavaScript so Bun, Bun compiled binaries and Node can all start it.
  * The host terminates the worker once the script settles, times out, or is aborted.
  */
-import { setImmediate } from 'node:timers';
 import { parentPort, workerData } from 'node:worker_threads';
 
 import { JSException, MAX_STACK_SIZE, QuickJS } from 'quickjs-wasi';
@@ -45,23 +44,25 @@ async function main({ code, prelude, functionPaths, wasm, memoryLimitBytes, inte
 		vm.callFunction(stalled, api).dispose();
 	};
 
-	const settleCall = ({ id, ok, payload }) => {
+	const settleCall = (id, ok, payload) => {
+		vm.withScope(() => {
+			vm.callFunction(
+				settle,
+				api,
+				vm.newNumber(id),
+				ok ? vm.true : vm.false,
+				payload === undefined ? vm.undefined : vm.newString(payload),
+			);
+		});
+	};
+	parentPort.on('message', ({ id, ok, payload }) => {
 		try {
-			vm.withScope(() => {
-				vm.callFunction(
-					settle,
-					api,
-					vm.newNumber(id),
-					ok ? vm.true : vm.false,
-					payload === undefined ? vm.undefined : vm.newString(payload),
-				);
-			});
+			settleCall(id, ok, payload);
 			drainJobs();
 		} catch (error) {
 			reportCrash(error);
 		}
-	};
-	parentPort.on('message', settleCall);
+	});
 
 	let script;
 	try {
@@ -111,13 +112,13 @@ function forwardLog(handle) {
 }
 
 /**
- * Call budgets live here for the same reason as the log budget. A rejected call is settled on a later
- * turn, since the bridge runs while the VM is still executing the script.
+ * Call budgets live here for the same reason as the log budget. An over-budget call is rejected right
+ * away, inside the VM, so a script calling in a loop past its budget allocates nothing outside the VM.
  */
 function forwardCall(id, index, args, settleCall) {
 	const rejection = consumeCallBudget(args);
 	if (rejection) {
-		setImmediate(() => settleCall({ id, ok: false, payload: rejection }));
+		settleCall(id, false, rejection);
 		return;
 	}
 	parentPort.postMessage({ type: 'call', id, index, args });

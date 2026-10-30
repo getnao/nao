@@ -190,6 +190,21 @@ describe('runCodemode', () => {
 		expect(execute).toHaveBeenCalledTimes(3);
 	});
 
+	it('rejects the calls past the call limit synchronously, even when the script replaces Promise', async () => {
+		const ping: CodemodeFunction = { path: ['mcp', 'test', 'ping'], execute: () => new Promise(() => {}) };
+
+		const result = await run(
+			`let rejected = 0;
+			globalThis.Promise = function (executor) { executor(() => {}, () => { rejected++; }); };
+			for (let i = 0; i < 1000; i++) mcp.test.ping({});
+			return rejected`,
+			[ping],
+			{ maxCalls: 1 },
+		);
+
+		expect(result).toMatchObject({ ok: true, value: 999 });
+	});
+
 	it('rejects the calls past the call arguments budget without reaching the host', async () => {
 		const execute = vi.fn(() => 'ok');
 		const ping: CodemodeFunction = { path: ['mcp', 'test', 'ping'], execute };
@@ -228,6 +243,19 @@ describe('runCodemode', () => {
 
 		expect(result).toMatchObject({ ok: true, value: Array(6).fill('done') });
 		expect(maxRunning).toBe(2);
+	});
+
+	it('only reports the calls that started when the run ends with calls still waiting for a slot', async () => {
+		const hanging: CodemodeFunction = { path: ['mcp', 'test', 'hang'], execute: () => new Promise(() => {}) };
+
+		const result = await run(
+			'await Promise.all([mcp.test.hang({}), mcp.test.hang({}), mcp.test.hang({})])',
+			[hanging],
+			{ maxConcurrentCalls: 1, timeoutMs: 300 },
+		);
+
+		expect(errorOf(result).kind).toBe('timeout');
+		expect(result.calls).toMatchObject([{ name: 'mcp.test.hang', status: 'cancelled' }]);
 	});
 
 	it('fails a script that exceeds the memory limit', async () => {
@@ -368,6 +396,32 @@ describe('codemode tool', () => {
 		});
 		expect(modelOutput).toMatchObject({ type: 'text' });
 		expect((modelOutput as { value: string }).value).toContain('AUTH_REQUIRED');
+	});
+
+	it('tells the model which calls completed and which were interrupted when a script fails', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([{ server: 'linear', tools: ['get_ticket'] }]);
+		const controller = new AbortController();
+		vi.spyOn(mcpService, 'callTool')
+			.mockResolvedValueOnce({ content: [{ type: 'text', text: '{}' }] })
+			.mockImplementationOnce(() => {
+				controller.abort();
+				return new Promise(() => {});
+			});
+		const tool = createCodemodeTool({ mcpServers: null });
+
+		const output = await tool.execute!(
+			{ description: 'Fetch', code: 'await mcp.linear.get_ticket({}); await mcp.linear.get_ticket({})' },
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext(), abortSignal: controller.signal },
+		);
+		const modelOutput = tool.toModelOutput!({
+			toolCallId: 'call-1',
+			input: undefined as never,
+			output: output as never,
+		});
+
+		expect((modelOutput as { value: string }).value).toContain(
+			'1 call(s) completed before the failure; their side effects are kept. 1 call(s) were interrupted while running and may or may not have taken effect. No other call started.',
+		);
 	});
 
 	it('runs without MCP functions when MCP is off for the run', async () => {
