@@ -7,9 +7,16 @@ import {
 	createDraftFile,
 	MAX_CONTEXT_FILE_SIZE,
 } from '../services/context-explorer.service';
-import { createStrictFileAccess } from '../services/context-explorer-access.service';
-import { getLatestOutcomesByTest } from '../services/test-history.service';
-import { cancelTestRun, startTestRun, TestRunConflictError, TestRunInputError } from '../services/test-runner.service';
+import { createSafeFileAccess, createStrictFileAccess } from '../services/context-explorer-access.service';
+import { hasContextWorktree, readDraftContext } from '../services/draft-context.service';
+import { getLatestOutcomesByTest, listRunsWithVariantTotals } from '../services/test-history.service';
+import {
+	cancelTestRun,
+	startComparisonRun,
+	startTestRun,
+	TestRunConflictError,
+	TestRunInputError,
+} from '../services/test-runner.service';
 import {
 	discoverTests,
 	isInvalidTestFile,
@@ -21,7 +28,17 @@ import {
 import { llmSelectedModelSchema } from '../types/llm';
 import { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS } from '../types/test-run';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
+import { compareContextVariants } from '../utils/test-comparison';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
+
+const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with production.';
+
+const runSelectionSchema = z.object({
+	paths: z.array(z.string()).optional(),
+	tags: z.array(z.string()).optional(),
+	models: z.array(llmSelectedModelSchema).max(MAX_TEST_RUN_MODELS).optional(),
+	attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
+});
 
 const draftTestFileSchema = z.object({
 	path: z.string(),
@@ -41,28 +58,62 @@ export const testRunRoutes = {
 		};
 	}),
 
-	startRun: cloudBillingContextAdminProcedure
-		.input(
-			z.object({
-				paths: z.array(z.string()).optional(),
-				tags: z.array(z.string()).optional(),
-				models: z.array(llmSelectedModelSchema).max(MAX_TEST_RUN_MODELS).optional(),
-				attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			try {
-				return await startTestRun({ ...input, projectId: ctx.project.id, userId: ctx.user.id });
-			} catch (error) {
-				throw toTestRunTrpcError(error);
-			}
-		}),
+	startRun: cloudBillingContextAdminProcedure.input(runSelectionSchema).mutation(async ({ ctx, input }) => {
+		try {
+			return await startTestRun({ ...input, projectId: ctx.project.id, userId: ctx.user.id });
+		} catch (error) {
+			throw toTestRunTrpcError(error);
+		}
+	}),
 
-	listRuns: contextAdminProtectedProcedure.query(({ ctx }) => testRunQueries.listRuns(ctx.project.id)),
+	getDraftContext: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const projectFolder = requireProjectFolder(ctx.project.path);
+		if (!hasContextWorktree(ctx.project.id, projectFolder, ctx.user.id)) {
+			return { status: 'unavailable' as const, message: NO_DRAFT_MESSAGE };
+		}
+		const access = await createSafeFileAccess(ctx.project.id, projectFolder, ctx.user);
+		if (access.git.status === 'unavailable') {
+			return { status: 'unavailable' as const, message: access.git.message };
+		}
+		try {
+			return { status: 'available' as const, ...readDraftContext(access.git.repo, projectFolder) };
+		} catch {
+			return { status: 'unavailable' as const, message: 'Your context changes could not be read.' };
+		}
+	}),
+
+	startComparisonRun: cloudBillingContextAdminProcedure.input(runSelectionSchema).mutation(async ({ ctx, input }) => {
+		const projectFolder = requireProjectFolder(ctx.project.path);
+		if (!hasContextWorktree(ctx.project.id, projectFolder, ctx.user.id)) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: NO_DRAFT_MESSAGE });
+		}
+		const access = await createStrictFileAccess(ctx.project.id, projectFolder, ctx.user);
+		if (access.git.status === 'unavailable') {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: access.git.message });
+		}
+		try {
+			return await startComparisonRun({
+				...input,
+				projectId: ctx.project.id,
+				userId: ctx.user.id,
+				repo: access.git.repo,
+			});
+		} catch (error) {
+			throw toTestRunTrpcError(error);
+		}
+	}),
+
+	listRuns: contextAdminProtectedProcedure.query(({ ctx }) => listRunsWithVariantTotals(ctx.project.id)),
 
 	getRun: contextAdminProtectedProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
 		const run = await getProjectRun(ctx.project.id, input.runId);
-		return { ...run, results: await testRunQueries.listResults(run.id) };
+		const results = await testRunQueries.listResults(run.id);
+		return {
+			...run,
+			results,
+			comparison:
+				run.trigger === 'comparison' ? compareContextVariants(results, run.models.length * run.attempts) : null,
+		};
 	}),
 
 	validateTestFile: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(({ input }) => {

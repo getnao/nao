@@ -200,6 +200,7 @@ export async function buildToolContext(opts: {
 	modelSelection?: LlmSelectedModel;
 	usageRunId?: string;
 	managedAiBillingMode?: ManagedAiUsageContext['billingMode'];
+	contextFolder?: string;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -230,25 +231,28 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
+	/** A copy of the context to run against instead of the project folder, such as a draft being tested. */
+	contextFolder?: string;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
 		throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 	}
+	const projectFolder = opts.contextFolder ?? project.path;
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
-		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
+		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
 	]);
 	return {
-		projectFolder: project.path,
+		projectFolder,
 		userId: opts.userId,
 		projectId: opts.projectId,
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
-		semanticLayerMode: resolveSemanticLayerMode(project.path, agentSettings),
+		semanticLayerMode: resolveSemanticLayerMode(projectFolder, agentSettings),
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
@@ -306,6 +310,8 @@ export class AgentService {
 			isBudgetChecked?: boolean;
 			/** Records managed usage without charging an organization wallet. */
 			unbilledManagedAiUsage?: boolean;
+			/** Runs against this copy of the context instead of the project folder. */
+			contextFolder?: string;
 		} = {},
 	): Promise<AgentManager> {
 		await assertUserIsActive(chat.userId);
@@ -341,6 +347,7 @@ export class AgentService {
 			modelSelection: resolvedLlmSelectedModel,
 			usageRunId: usageContext.runId,
 			managedAiBillingMode: usageContext.billingMode,
+			contextFolder: options.contextFolder,
 		});
 		toolContext.linkedStory = await resolveLinkedStory(chat);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);

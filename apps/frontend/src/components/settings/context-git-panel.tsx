@@ -7,6 +7,7 @@ import {
 	FilePen,
 	FilePlus,
 	FileX,
+	FlaskConical,
 	GitBranch,
 	GitPullRequest,
 	Pencil,
@@ -299,6 +300,7 @@ export function ContextGitPanel({
 	const unpushedCommitCount = branches?.unpushedCommitCount ?? 0;
 	const isReviewBranch = currentBranch !== null && defaultBranch !== null && currentBranch !== defaultBranch;
 	const canPush = isReviewBranch && (unpushedCommitCount > 0 || (aheadCommitCount > 0 && openReviewRequest === null));
+	const hasDraftChanges = hasUncommittedChanges || (isReviewBranch && aheadCommitCount > 0);
 	const reviewRequest = pushedReviewRequest ?? openReviewRequest;
 	const reviewRequestUrl = reviewRequest?.url ?? null;
 	const reviewRequestNumber = reviewRequestUrl ? getReviewRequestNumber(reviewRequestUrl) : null;
@@ -498,6 +500,20 @@ export function ContextGitPanel({
 												: 'Nothing to push'}
 									</span>
 									<div className='flex shrink-0 items-center gap-1'>
+										{hasDraftChanges && (
+											<Button
+												variant='ghost-muted'
+												size='sm'
+												className='h-6 gap-1 px-1.5 text-[11px]'
+												title='Run the tests on your changes and on production side by side'
+												onClick={() =>
+													navigate({ to: '/settings/tests', search: { run: undefined } })
+												}
+											>
+												<FlaskConical className='size-3' />
+												test
+											</Button>
+										)}
 										{reviewRequestUrl && (
 											<Button
 												variant='ghost-muted'

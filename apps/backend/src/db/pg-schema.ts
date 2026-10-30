@@ -104,7 +104,14 @@ import {
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
-import { TEST_RUN_STATUSES, TEST_RUN_TRIGGERS, TestRunModels, TestRunResultDetails } from '../types/test-run';
+import {
+	TEST_CONTEXT_VARIANTS,
+	TEST_RUN_STATUSES,
+	TEST_RUN_TRIGGERS,
+	TestContextChange,
+	TestRunModels,
+	TestRunResultDetails,
+} from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
@@ -1150,6 +1157,7 @@ export const testRun = pgTable(
 		status: text('status', { enum: TEST_RUN_STATUSES }).notNull().default('queued'),
 		contextRef: text('context_ref'),
 		contextCommit: text('context_commit'),
+		contextChanges: jsonb('context_changes').$type<TestContextChange[]>(),
 		models: jsonb('models').$type<TestRunModels>().notNull(),
 		attempts: integer('attempts').notNull().default(1),
 		selection: jsonb('selection').$type<string[]>(),
@@ -1187,6 +1195,7 @@ export const testRunResult = pgTable(
 		tags: jsonb('tags').$type<string[]>().notNull().default([]),
 		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
+		contextVariant: text('context_variant', { enum: TEST_CONTEXT_VARIANTS }).notNull().default('production'),
 		attempt: integer('attempt').notNull(),
 		passed: boolean('passed').notNull(),
 		message: text('message').notNull(),

@@ -72,10 +72,11 @@ export class TestAgentService extends AgentService {
 		chat: AgentChat,
 		messages: UIMessage[],
 		modelSelection: LlmSelectedModel,
-		options: { billingAccessVerifiedProjectId?: string; abortSignal?: AbortSignal } = {},
+		options: { billingAccessVerifiedProjectId?: string; abortSignal?: AbortSignal; contextFolder?: string } = {},
 	): Promise<AgentRunResult> {
 		const agent = await this.create(chat, modelSelection, testRunAgent, {
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+			contextFolder: options.contextFolder,
 		});
 		const stopAgent = () => agent.stop();
 		options.abortSignal?.addEventListener('abort', stopAgent, { once: true });

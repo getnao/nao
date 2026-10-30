@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
 	runTestInChat: vi.fn(),
 	evaluateTestAttempt: vi.fn(),
 	resolveDefaultChatModel: vi.fn(),
+	createDraftContextSnapshot: vi.fn(),
+	removeContextSnapshot: vi.fn(),
 }));
 
 vi.mock('../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
@@ -41,13 +43,20 @@ vi.mock('../src/services/mcp', () => ({ mcpService: { initializeMcpState: vi.fn(
 vi.mock('../src/services/skill', () => ({ skillService: { initializeSkills: vi.fn() } }));
 vi.mock('../src/utils/llm', () => ({ resolveDefaultChatModel: mocks.resolveDefaultChatModel }));
 vi.mock('../src/utils/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+vi.mock('../src/services/draft-context.service', () => ({
+	createDraftContextSnapshot: mocks.createDraftContextSnapshot,
+	removeContextSnapshot: mocks.removeContextSnapshot,
+	removeContextSnapshotsOlderThan: vi.fn(),
+}));
 
 import {
 	cancelTestRun,
+	startComparisonRun,
 	startTestRun,
 	TestRunConflictError,
 	TestRunInputError,
 } from '../src/services/test-runner.service';
+import type { ResolvedContextRepo } from '../src/utils/context-repo';
 
 const DEFAULT_MODEL = { provider: 'openai', modelId: 'gpt-4.1' };
 
@@ -228,6 +237,93 @@ describe('startTestRun', () => {
 	});
 });
 
+describe('startComparisonRun', () => {
+	let draftFolder: string;
+
+	beforeEach(() => {
+		draftFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-test-draft-'));
+		mocks.createDraftContextSnapshot.mockReturnValue({
+			folder: draftFolder,
+			branch: 'improve-revenue',
+			productionCommit: 'abc123',
+			changes: [{ path: 'RULES.md', kind: 'modified' }],
+			excludedChanges: [],
+			outdatedPaths: [],
+		});
+	});
+
+	afterEach(() => {
+		fs.rmSync(draftFolder, { recursive: true, force: true });
+	});
+
+	it('runs each attempt of the draft tests against production and the draft, then removes the snapshot', async () => {
+		writeTestFile('revenue.yml', 'prompt: An outdated production prompt');
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
+
+		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', repo: worktreeRepo() });
+		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
+
+		expect(run.totalAttempts).toBe(4);
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(
+			expect.objectContaining({
+				trigger: 'comparison',
+				contextRef: 'improve-revenue',
+				contextCommit: 'abc123',
+				contextChanges: [{ path: 'RULES.md', kind: 'modified' }],
+				selection: ['margin.yml', 'revenue.yml'],
+			}),
+		);
+		const contextFolders = mocks.runTestInChat.mock.calls.map(([, , , options]) => options.contextFolder);
+		expect(contextFolders.filter((folder) => folder === draftFolder)).toHaveLength(2);
+		expect(contextFolders.filter((folder) => folder === undefined)).toHaveLength(2);
+		expect(mocks.createChat).toHaveBeenCalledWith(
+			{ title: 'Test: revenue (draft context)', userId: 'user-1', projectId: 'project-1' },
+			{ text: 'What is the revenue?', source: 'test' },
+		);
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
+			expect.objectContaining({ testPath: 'revenue.yml', contextVariant: 'draft' }),
+		);
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
+			expect.objectContaining({ testPath: 'revenue.yml', contextVariant: 'production' }),
+		);
+	});
+
+	it('rejects a draft without changes and removes its snapshot', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		mocks.createDraftContextSnapshot.mockReturnValue({
+			folder: draftFolder,
+			branch: null,
+			productionCommit: 'abc123',
+			changes: [],
+			excludedChanges: [{ path: 'nao_config.yaml', kind: 'modified' }],
+			outdatedPaths: [],
+		});
+
+		await expect(
+			startComparisonRun({ projectId: 'project-1', userId: 'user-1', repo: worktreeRepo() }),
+		).rejects.toBeInstanceOf(TestRunInputError);
+		expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder);
+		expect(mocks.createRunUnlessActive).not.toHaveBeenCalled();
+	});
+
+	it('removes the snapshot when another run is active', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		mocks.createRunUnlessActive.mockResolvedValue(null);
+
+		await expect(
+			startComparisonRun({ projectId: 'project-1', userId: 'user-1', repo: worktreeRepo() }),
+		).rejects.toBeInstanceOf(TestRunConflictError);
+		expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder);
+	});
+
+	function writeDraftTestFile(relativePath: string, content: string) {
+		const filePath = path.join(draftFolder, 'tests', relativePath);
+		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		fs.writeFileSync(filePath, content);
+	}
+});
+
 describe('cancelTestRun', () => {
 	it('aborts the attempts in flight, including those still setting up their agent', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
@@ -259,4 +355,15 @@ function writeTestFile(relativePath: string, content: string) {
 
 function writeConfig(content: string) {
 	fs.writeFileSync(path.join(projectFolder, 'nao_config.yaml'), content);
+}
+
+function worktreeRepo(): ResolvedContextRepo {
+	return {
+		provider: 'github',
+		repoFullName: 'acme/context',
+		branch: 'improve-revenue',
+		source: 'settings',
+		worktreeRoot: '/worktree',
+		projectPrefix: '',
+	};
 }

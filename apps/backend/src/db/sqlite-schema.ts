@@ -100,7 +100,14 @@ import {
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
-import { TEST_RUN_STATUSES, TEST_RUN_TRIGGERS, TestRunModels, TestRunResultDetails } from '../types/test-run';
+import {
+	TEST_CONTEXT_VARIANTS,
+	TEST_RUN_STATUSES,
+	TEST_RUN_TRIGGERS,
+	TestContextChange,
+	TestRunModels,
+	TestRunResultDetails,
+} from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
@@ -1230,6 +1237,7 @@ export const testRun = sqliteTable(
 		status: text('status', { enum: TEST_RUN_STATUSES }).notNull().default('queued'),
 		contextRef: text('context_ref'),
 		contextCommit: text('context_commit'),
+		contextChanges: text('context_changes', { mode: 'json' }).$type<TestContextChange[]>(),
 		models: text('models', { mode: 'json' }).$type<TestRunModels>().notNull(),
 		attempts: integer('attempts').notNull().default(1),
 		selection: text('selection', { mode: 'json' }).$type<string[]>(),
@@ -1269,6 +1277,7 @@ export const testRunResult = sqliteTable(
 		tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
+		contextVariant: text('context_variant', { enum: TEST_CONTEXT_VARIANTS }).notNull().default('production'),
 		attempt: integer('attempt').notNull(),
 		passed: integer('passed', { mode: 'boolean' }).notNull(),
 		message: text('message').notNull(),

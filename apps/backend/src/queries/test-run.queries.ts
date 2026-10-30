@@ -97,12 +97,35 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 		.execute();
 }
 
+/** Passed and recorded attempts of each run per context variant, to compare the variants of a comparison run. */
+export async function listVariantTotals(runIds: string[]) {
+	if (runIds.length === 0) {
+		return [];
+	}
+	return db
+		.select({
+			runId: s.testRunResult.runId,
+			contextVariant: s.testRunResult.contextVariant,
+			total: sql<number>`count(*)`.mapWith(Number),
+			passed: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
+		})
+		.from(s.testRunResult)
+		.where(inArray(s.testRunResult.runId, runIds))
+		.groupBy(s.testRunResult.runId, s.testRunResult.contextVariant)
+		.execute();
+}
+
 export async function listResults(runId: string): Promise<DBTestRunResult[]> {
 	return db
 		.select()
 		.from(s.testRunResult)
 		.where(eq(s.testRunResult.runId, runId))
-		.orderBy(asc(s.testRunResult.testPath), asc(s.testRunResult.llmModelId), asc(s.testRunResult.attempt))
+		.orderBy(
+			asc(s.testRunResult.testPath),
+			asc(s.testRunResult.llmModelId),
+			asc(s.testRunResult.attempt),
+			desc(s.testRunResult.contextVariant),
+		)
 		.execute();
 }
 

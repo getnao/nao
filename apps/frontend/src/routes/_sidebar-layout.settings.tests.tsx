@@ -3,7 +3,14 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { TestDefinition, TestRunSummary, TestSuiteListing } from '@/components/settings/test-run-types';
+import type {
+	TestDefinition,
+	TestRunSummary,
+	TestRunWithResults,
+	TestSuiteListing,
+} from '@/components/settings/test-run-types';
+import { DraftComparisonCard } from '@/components/settings/draft-comparison-card';
+import { TestComparisonResults } from '@/components/settings/test-comparison-results';
 import { isActiveRun } from '@/components/settings/test-run-types';
 import { TestRunResults } from '@/components/settings/test-run-results';
 import { TestRunsTable } from '@/components/settings/test-runs-table';
@@ -27,7 +34,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/tests')({
 });
 
 const PAGE_DESCRIPTION =
-	'Check that the agent answers your reference questions correctly. Tests are the YAML files in the tests/ folder of the context and run against the production context.';
+	'Check that the agent answers your reference questions correctly. Tests are the YAML files in the tests/ folder of the context and run against the production context, or against your File Explorer changes to compare them with production.';
 const DOCS_URL = 'https://docs.getnao.io/nao-agent/context-engineering/evaluation';
 const ACTIVE_RUN_REFETCH_MS = 3000;
 const NO_TESTS: TestDefinition[] = [];
@@ -40,6 +47,7 @@ function TestsPage() {
 	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
 	const suite = useQuery(trpc.testRun.listTests.queryOptions());
+	const draftContext = useQuery(trpc.testRun.getDraftContext.queryOptions());
 	const runs = useQuery({
 		...trpc.testRun.listRuns.queryOptions(),
 		refetchInterval: (query) => (query.state.data?.some(isActiveRun) ? ACTIVE_RUN_REFETCH_MS : false),
@@ -70,11 +78,22 @@ function TestsPage() {
 			},
 		}),
 	);
+	const startComparison = useMutation(
+		trpc.testRun.startComparisonRun.mutationOptions({
+			onSuccess: (run) => {
+				invalidateRuns();
+				setSelectedPaths(new Set());
+				openRun(run.id);
+			},
+		}),
+	);
 	const cancelRun = useMutation(trpc.testRun.cancelRun.mutationOptions({ onSuccess: invalidateRuns }));
 
 	const tests = suite.data?.tests ?? NO_TESTS;
 	const visibleTests = useMemo(() => filterByTags(tests, selectedTags), [tests, selectedTags]);
 	const runTargets = selectedPaths.size > 0 ? [...selectedPaths] : visibleTests.map((test) => test.path);
+	const draft =
+		draftContext.data?.status === 'available' && draftContext.data.changes.length > 0 ? draftContext.data : null;
 
 	return (
 		<SettingsPageWrapper>
@@ -98,6 +117,17 @@ function TestsPage() {
 
 			{startRun.error && <ErrorMessage message={startRun.error.message} />}
 
+			{draft && (
+				<DraftComparisonCard
+					draft={draft}
+					testCount={runTargets.length}
+					isStarting={startComparison.isPending}
+					isDisabled={!!activeRun}
+					onCompare={() => startComparison.mutate({ paths: runTargets })}
+				/>
+			)}
+			{startComparison.error && <ErrorMessage message={startComparison.error.message} />}
+
 			{search.run && openedRun.isLoading && <Spinner className='mx-auto' />}
 			{search.run && openedRun.error && (
 				<Callout variant='destructive'>
@@ -110,7 +140,7 @@ function TestsPage() {
 				</Callout>
 			)}
 			{search.run && openedRun.data && (
-				<TestRunResults
+				<OpenedRun
 					run={openedRun.data}
 					isCancelling={cancelRun.isPending}
 					onCancel={() => cancelRun.mutate({ runId: openedRun.data.id })}
@@ -146,6 +176,20 @@ function TestsPage() {
 			</SettingsCard>
 		</SettingsPageWrapper>
 	);
+}
+
+interface OpenedRunProps {
+	run: TestRunWithResults;
+	isCancelling: boolean;
+	onCancel: () => void;
+	onClose: () => void;
+}
+
+function OpenedRun({ run, ...actions }: OpenedRunProps) {
+	if (run.comparison) {
+		return <TestComparisonResults run={run} comparison={run.comparison} {...actions} />;
+	}
+	return <TestRunResults run={run} {...actions} />;
 }
 
 interface TestSuiteContentProps {

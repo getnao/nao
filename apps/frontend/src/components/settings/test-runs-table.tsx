@@ -54,15 +54,12 @@ export function TestRunsTable({ runs, selectedRunId, onSelectRun }: TestRunsTabl
 							<div className='flex items-center gap-1'>
 								<TestRunStatusBadge status={run.status} />
 								{run.trigger === 'draft' && <Badge variant='outline'>Draft</Badge>}
+								{run.trigger === 'comparison' && <Badge variant='outline'>Comparison</Badge>}
 							</div>
 						</TableCell>
 						<TableCell className='text-xs text-muted-foreground'>{run.selection?.length ?? '—'}</TableCell>
 						<TableCell className='text-xs'>
-							{formatPassRate(run.passedAttempts, run.completedAttempts)}
-							<span className='text-muted-foreground'>
-								{' '}
-								({run.passedAttempts}/{run.totalAttempts})
-							</span>
+							<RunPassRate run={run} />
 						</TableCell>
 						<TableCell className='text-xs text-muted-foreground'>{formatCost(run.totalCost)}</TableCell>
 						<TableCell className='text-xs text-muted-foreground'>{run.triggeredByName ?? '—'}</TableCell>
@@ -76,4 +73,26 @@ export function TestRunsTable({ runs, selectedRunId, onSelectRun }: TestRunsTabl
 export function TestRunStatusBadge({ status }: { status: TestRunSummary['status'] }) {
 	const badge = STATUS_BADGES[status];
 	return <Badge variant={badge.variant}>{badge.label}</Badge>;
+}
+
+function RunPassRate({ run }: { run: TestRunSummary }) {
+	if (run.variantTotals) {
+		const { production, draft } = run.variantTotals;
+		return (
+			<span title='Production → your changes'>
+				{formatPassRate(production.passed, production.total)}
+				<span className='text-muted-foreground'> → </span>
+				{formatPassRate(draft.passed, draft.total)}
+			</span>
+		);
+	}
+	return (
+		<>
+			{formatPassRate(run.passedAttempts, run.completedAttempts)}
+			<span className='text-muted-foreground'>
+				{' '}
+				({run.passedAttempts}/{run.totalAttempts})
+			</span>
+		</>
+	);
 }
