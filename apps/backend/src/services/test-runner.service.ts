@@ -1,19 +1,28 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 
-import type { DBTestRun, NewTestRunResult } from '../db/abstractSchema';
+import type { DBTestRun, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as testRunQueries from '../queries/test-run.queries';
 import {
 	type InvalidTestFile,
 	MAX_TEST_RUN_ATTEMPTS,
+	TEST_CONTEXT_VARIANTS,
 	type TestComparisonTolerances,
+	type TestContextVariant,
 	type TestDefinition,
 	type TestRunResultDetails,
+	type TestSuite,
 } from '../types/test-run';
+import type { ResolvedContextRepo } from '../utils/context-repo';
 import { resolveDefaultChatModel } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
+import {
+	createDraftContextSnapshot,
+	removeContextSnapshot,
+	removeContextSnapshotsOlderThan,
+} from './draft-context.service';
 import { mcpService } from './mcp';
 import { skillService } from './skill';
 import { testAgentService } from './test-agent.service';
@@ -24,6 +33,7 @@ const TEST_RUN_CONCURRENCY = 3;
 const TEST_RUN_STALE_MS = 6 * 60 * 60_000;
 const TEST_RUN_STALE_MESSAGE = 'The test run was interrupted before it finished.';
 const MAX_STORED_ROWS = 50;
+const NO_CONTEXT_CHANGES_MESSAGE = 'Your File Explorer has no context changes to compare with production.';
 
 /** Runs this process is executing, so a cancellation can stop their attempts. */
 const liveRuns = new Map<string, AbortController>();
@@ -47,47 +57,76 @@ export interface StartTestRunInput {
 	tests?: TestDefinition[];
 }
 
-interface TestRunPlan {
+export interface StartComparisonRunInput extends Omit<StartTestRunInput, 'tests'> {
+	/** The user's File Explorer worktree, whose changes are tested against the production context. */
+	repo: ResolvedContextRepo;
+}
+
+interface TestSuitePlan {
 	tests: TestDefinition[];
 	models: LlmSelectedModel[];
 	attempts: number;
 	tolerances: TestComparisonTolerances;
 }
 
+interface TestRunPlan extends TestSuitePlan {
+	variants: TestContextVariant[];
+	/** The context folder of the draft variant. */
+	draftFolder: string | null;
+}
+
+type TestRunContext = Pick<NewTestRun, 'trigger' | 'contextRef' | 'contextCommit' | 'contextChanges'>;
+
 interface TestAttemptJob {
 	test: TestDefinition;
 	model: LlmSelectedModel;
 	attempt: number;
+	variant: TestContextVariant;
 }
 
 /** Creates a run against the production context and executes it in the background. */
 export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun> {
 	const projectFolder = await getProjectFolder(input.projectId);
-	await testRunQueries.failStaleRuns({
-		projectId: input.projectId,
-		staleAfterMs: TEST_RUN_STALE_MS,
-		errorMessage: TEST_RUN_STALE_MESSAGE,
-		liveRunIds: [...liveRuns.keys()],
-	});
+	await failStaleRuns(input.projectId);
 
-	const plan = await planTestRun(input, projectFolder);
-	const run = await testRunQueries.createRunUnlessActive({
-		projectId: input.projectId,
-		triggeredByUserId: input.userId,
-		trigger: input.tests ? 'draft' : 'manual',
-		models: plan.models,
-		attempts: plan.attempts,
-		selection: plan.tests.map((test) => test.path),
-		totalAttempts: plan.tests.length * plan.models.length * plan.attempts,
-	});
-	if (!run) {
-		throw new TestRunConflictError();
+	const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(projectFolder);
+	const plan = await planTestRun(input, projectFolder, suite);
+	return createAndExecuteRun(
+		input,
+		{ ...plan, variants: ['production'], draftFolder: null },
+		{ trigger: input.tests ? 'draft' : 'manual' },
+	);
+}
+
+/**
+ * Runs the tests of the user's draft against both the production context and the production context with
+ * the user's changes, interleaving the attempts so both variants face the same warehouse data and model.
+ */
+export async function startComparisonRun(input: StartComparisonRunInput): Promise<DBTestRun> {
+	const projectFolder = await getProjectFolder(input.projectId);
+	await failStaleRuns(input.projectId);
+	removeContextSnapshotsOlderThan(projectFolder, input.projectId, TEST_RUN_STALE_MS);
+
+	const snapshot = createDraftContextSnapshot({ projectId: input.projectId, projectFolder, repo: input.repo });
+	try {
+		if (snapshot.changes.length === 0) {
+			throw new TestRunInputError(NO_CONTEXT_CHANGES_MESSAGE);
+		}
+		const plan = await planTestRun(input, projectFolder, discoverTests(snapshot.folder));
+		return await createAndExecuteRun(
+			input,
+			{ ...plan, variants: [...TEST_CONTEXT_VARIANTS], draftFolder: snapshot.folder },
+			{
+				trigger: 'comparison',
+				contextRef: snapshot.branch,
+				contextCommit: snapshot.productionCommit,
+				contextChanges: snapshot.changes,
+			},
+		);
+	} catch (error) {
+		removeContextSnapshot(snapshot.folder);
+		throw error;
 	}
-
-	void executeTestRun(run, input.userId, plan).catch((error) => {
-		logger.error(`Test run ${run.id} crashed: ${String(error)}`, { source: 'agent', projectId: run.projectId });
-	});
-	return run;
 }
 
 export async function cancelTestRun(run: DBTestRun): Promise<boolean> {
@@ -98,8 +137,50 @@ export async function cancelTestRun(run: DBTestRun): Promise<boolean> {
 	return true;
 }
 
-async function planTestRun(input: StartTestRunInput, projectFolder: string): Promise<TestRunPlan> {
-	const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(projectFolder);
+async function failStaleRuns(projectId: string): Promise<void> {
+	await testRunQueries.failStaleRuns({
+		projectId,
+		staleAfterMs: TEST_RUN_STALE_MS,
+		errorMessage: TEST_RUN_STALE_MESSAGE,
+		liveRunIds: [...liveRuns.keys()],
+	});
+}
+
+async function createAndExecuteRun(
+	input: Pick<StartTestRunInput, 'projectId' | 'userId'>,
+	plan: TestRunPlan,
+	context: TestRunContext,
+): Promise<DBTestRun> {
+	const run = await testRunQueries.createRunUnlessActive({
+		projectId: input.projectId,
+		triggeredByUserId: input.userId,
+		...context,
+		models: plan.models,
+		attempts: plan.attempts,
+		selection: plan.tests.map((test) => test.path),
+		totalAttempts: plan.tests.length * plan.models.length * plan.attempts * plan.variants.length,
+	});
+	if (!run) {
+		throw new TestRunConflictError();
+	}
+
+	void executeTestRun(run, input.userId, plan)
+		.catch((error) => {
+			logger.error(`Test run ${run.id} crashed: ${String(error)}`, { source: 'agent', projectId: run.projectId });
+		})
+		.finally(() => {
+			if (plan.draftFolder) {
+				removeContextSnapshot(plan.draftFolder);
+			}
+		});
+	return run;
+}
+
+async function planTestRun(
+	input: Omit<StartTestRunInput, 'tests'>,
+	projectFolder: string,
+	suite: TestSuite,
+): Promise<TestSuitePlan> {
 	const invalidFiles = selectInvalidFiles(suite.invalidFiles, input.paths);
 	if (invalidFiles.length > 0) {
 		throw new TestRunInputError(
@@ -133,7 +214,7 @@ function selectInvalidFiles(invalidFiles: InvalidTestFile[], paths: string[] | u
 	return invalidFiles.filter((file) => selectedPaths.has(file.path));
 }
 
-async function resolveFallbackModels(input: StartTestRunInput): Promise<LlmSelectedModel[]> {
+async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>): Promise<LlmSelectedModel[]> {
 	const defaultModel = await resolveDefaultChatModel(input.projectId);
 	if (!defaultModel) {
 		throw new TestRunInputError('No LLM model is configured for this project.');
@@ -153,7 +234,7 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 		await mcpService.initializeMcpState(run.projectId);
 		await skillService.initializeSkills(run.projectId);
 		await runWithConcurrency(jobs, TEST_RUN_CONCURRENCY, (job) =>
-			runAttemptUnlessCancelled(run, userId, job, plan.tolerances, abortController.signal),
+			runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
 		);
 		await testRunQueries.completeRun(run.id);
 	} catch (error) {
@@ -166,7 +247,9 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 function buildAttemptJobs(plan: TestRunPlan): TestAttemptJob[] {
 	return plan.tests.flatMap((test) =>
 		plan.models.flatMap((model) =>
-			Array.from({ length: plan.attempts }, (_, index) => ({ test, model, attempt: index + 1 })),
+			Array.from({ length: plan.attempts }, (_, index) => index + 1).flatMap((attempt) =>
+				plan.variants.map((variant) => ({ test, model, attempt, variant })),
+			),
 		),
 	);
 }
@@ -175,13 +258,13 @@ async function runAttemptUnlessCancelled(
 	run: DBTestRun,
 	userId: string,
 	job: TestAttemptJob,
-	tolerances: TestComparisonTolerances,
+	plan: TestRunPlan,
 	abortSignal: AbortSignal,
 ): Promise<void> {
 	if (abortSignal.aborted || (await testRunQueries.getRunStatus(run.id)) !== 'running') {
 		return;
 	}
-	const result = await runAttempt(run, userId, job, tolerances, abortSignal);
+	const result = await runAttempt(run, userId, job, plan, abortSignal);
 	await testRunQueries.recordResultWhileRunning(result);
 }
 
@@ -189,10 +272,10 @@ async function runAttempt(
 	run: DBTestRun,
 	userId: string,
 	job: TestAttemptJob,
-	tolerances: TestComparisonTolerances,
+	plan: TestRunPlan,
 	abortSignal: AbortSignal,
 ): Promise<NewTestRunResult> {
-	const { test, model, attempt } = job;
+	const { test, model, attempt, variant } = job;
 	const baseResult = {
 		runId: run.id,
 		testPath: test.path,
@@ -201,13 +284,14 @@ async function runAttempt(
 		tags: test.tags,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		contextVariant: variant,
 		attempt,
 	};
 
 	let chatId: string | null = null;
 	try {
 		const [chat] = await chatQueries.createChat(
-			{ title: `Test: ${test.name}`, userId, projectId: run.projectId },
+			{ title: testChatTitle(test, variant), userId, projectId: run.projectId },
 			{ text: test.prompt, source: 'test' },
 		);
 		chatId = chat.id;
@@ -221,12 +305,16 @@ async function runAttempt(
 			{ ...uiChat, userId, projectId: run.projectId },
 			uiChat.messages,
 			model,
-			{ billingAccessVerifiedProjectId: run.projectId, abortSignal },
+			{
+				billingAccessVerifiedProjectId: run.projectId,
+				abortSignal,
+				...(variant === 'draft' && plan.draftFolder && { contextFolder: plan.draftFolder }),
+			},
 		);
 		const evaluation = await evaluateTestAttempt({
 			projectId: run.projectId,
 			userId,
-			test: { ...test, tolerances },
+			test: { ...test, tolerances: plan.tolerances },
 			result: agentResult,
 			modelSelection: model,
 		});
@@ -246,6 +334,10 @@ async function runAttempt(
 		const errorMessage = error instanceof Error ? error.message : String(error);
 		return { ...baseResult, chatId, passed: false, message: `error: ${errorMessage}`, errorMessage };
 	}
+}
+
+function testChatTitle(test: TestDefinition, variant: TestContextVariant): string {
+	return variant === 'draft' ? `Test: ${test.name} (draft context)` : `Test: ${test.name}`;
 }
 
 function buildResultDetails(

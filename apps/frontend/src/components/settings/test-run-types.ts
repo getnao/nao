@@ -10,6 +10,11 @@ export type LatestTestOutcome = TestSuiteListing['latestOutcomes'][string];
 export type TestRunSummary = TestRunOutputs['listRuns'][number];
 export type TestRunWithResults = TestRunOutputs['getRun'];
 export type TestRunResult = TestRunWithResults['results'][number];
+export type TestComparison = NonNullable<TestRunWithResults['comparison']>;
+export type TestComparisonRow = TestComparison['tests'][number];
+export type TestComparisonChange = TestComparisonRow['change'];
+export type DraftContextStatus = TestRunOutputs['getDraftContext'];
+export type DraftContext = Extract<DraftContextStatus, { status: 'available' }>;
 
 export function isActiveRun(run: Pick<TestRunSummary, 'status'>): boolean {
 	return run.status === 'queued' || run.status === 'running';

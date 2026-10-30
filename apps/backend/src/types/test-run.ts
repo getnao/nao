@@ -4,8 +4,18 @@ import { z } from 'zod/v4';
 export const TEST_RUN_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const;
 export type TestRunStatus = (typeof TEST_RUN_STATUSES)[number];
 
-export const TEST_RUN_TRIGGERS = ['manual', 'draft'] as const;
+export const TEST_RUN_TRIGGERS = ['manual', 'draft', 'comparison'] as const;
 export type TestRunTrigger = (typeof TEST_RUN_TRIGGERS)[number];
+
+/** The context an attempt ran against: the production one, or the production one with the user's changes. */
+export const TEST_CONTEXT_VARIANTS = ['production', 'draft'] as const;
+export type TestContextVariant = (typeof TEST_CONTEXT_VARIANTS)[number];
+
+export interface TestContextChange {
+	/** Path relative to the context folder. */
+	path: string;
+	kind: 'added' | 'modified' | 'deleted';
+}
 
 export const MAX_TEST_RUN_ATTEMPTS = 10;
 export const MAX_TEST_RUN_MODELS = 10;

@@ -29,17 +29,7 @@ export function TestRunResults({ run, isCancelling, onCancel, onClose }: TestRun
 			title={`Run of ${new Date(run.createdAt).toLocaleString()}`}
 			description={<TestRunProgress run={run} />}
 			action={
-				<div className='flex items-center gap-1'>
-					{isActive && (
-						<Button size='sm' variant='ghost' onClick={onCancel} disabled={isCancelling}>
-							{isCancelling ? <Spinner className='size-4' /> : <X className='size-4' />}
-							Cancel run
-						</Button>
-					)}
-					<Button size='icon-sm' variant='ghost' onClick={onClose} aria-label='Close run'>
-						<X className='size-4' />
-					</Button>
-				</div>
+				<TestRunActions isActive={isActive} isCancelling={isCancelling} onCancel={onCancel} onClose={onClose} />
 			}
 			flush
 		>
@@ -86,7 +76,30 @@ export function TestRunResults({ run, isCancelling, onCancel, onClose }: TestRun
 	);
 }
 
-function TestRunProgress({ run }: { run: TestRunWithResults }) {
+interface TestRunActionsProps {
+	isActive: boolean;
+	isCancelling: boolean;
+	onCancel: () => void;
+	onClose: () => void;
+}
+
+export function TestRunActions({ isActive, isCancelling, onCancel, onClose }: TestRunActionsProps) {
+	return (
+		<div className='flex items-center gap-1'>
+			{isActive && (
+				<Button size='sm' variant='ghost' onClick={onCancel} disabled={isCancelling}>
+					{isCancelling ? <Spinner className='size-4' /> : <X className='size-4' />}
+					Cancel run
+				</Button>
+			)}
+			<Button size='icon-sm' variant='ghost' onClick={onClose} aria-label='Close run'>
+				<X className='size-4' />
+			</Button>
+		</div>
+	);
+}
+
+export function TestRunProgress({ run }: { run: TestRunWithResults }) {
 	return (
 		<span className='flex flex-wrap items-center gap-x-3 gap-y-1'>
 			<TestRunStatusBadge status={run.status} />
@@ -145,37 +158,58 @@ function ResultRow({ result, showAttempt, isExpanded, onToggle }: ResultRowProps
 			</TableCell>
 			<TableCell className='text-right text-xs text-muted-foreground'>{formatCost(result.totalCost)}</TableCell>
 			<TableCell onClick={(event) => event.stopPropagation()}>
-				{result.chatId && (
-					<Button size='icon-sm' variant='ghost' asChild>
-						<Link
-							to='/settings/usage/replay/$chatId'
-							params={{ chatId: result.chatId }}
-							search={{ ...DEFAULT_USAGE_SEARCH, origin: 'tests', testRunId: result.runId }}
-							aria-label='Open the chat of this attempt'
-						>
-							<MessageSquare className='size-3.5' />
-						</Link>
-					</Button>
-				)}
+				<AttemptChatLink result={result} />
 			</TableCell>
 		</TableRow>
 	);
 }
 
-function ResultDetails({ result }: { result: TestRunResult }) {
+export function AttemptChatLink({ result }: { result: TestRunResult }) {
+	if (!result.chatId) {
+		return null;
+	}
+	return (
+		<Button size='icon-sm' variant='ghost' asChild>
+			<Link
+				to='/settings/usage/replay/$chatId'
+				params={{ chatId: result.chatId }}
+				search={{ ...DEFAULT_USAGE_SEARCH, origin: 'tests', testRunId: result.runId }}
+				aria-label='Open the chat of this attempt'
+			>
+				<MessageSquare className='size-3.5' />
+			</Link>
+		</Button>
+	);
+}
+
+export function ResultDetails({
+	result,
+	showReferenceSql = true,
+}: {
+	result: TestRunResult;
+	showReferenceSql?: boolean;
+}) {
 	const details = result.details;
 	return (
 		<div className='flex flex-col gap-3 py-1 text-xs'>
 			<DetailBlock label='Result' value={result.errorMessage ?? result.message} />
 			<DetailBlock label='Differences' value={details?.comparison} isCode />
 			<DetailBlock label='Answer' value={details?.responseText} />
-			<DetailBlock label='Reference SQL' value={details?.referenceSql} isCode />
+			{showReferenceSql && <DetailBlock label='Reference SQL' value={details?.referenceSql} isCode />}
 			<DetailBlock label='Verification SQL' value={details?.verificationSql} isCode />
 		</div>
 	);
 }
 
-function DetailBlock({ label, value, isCode }: { label: string; value: string | null | undefined; isCode?: boolean }) {
+export function DetailBlock({
+	label,
+	value,
+	isCode,
+}: {
+	label: string;
+	value: string | null | undefined;
+	isCode?: boolean;
+}) {
 	if (!value) {
 		return null;
 	}

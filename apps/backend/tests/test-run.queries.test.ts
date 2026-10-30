@@ -11,6 +11,7 @@ import {
 	failStaleRuns,
 	getRunStatus,
 	listResults,
+	listVariantTotals,
 	markRunRunning,
 	recordResultWhileRunning,
 } from '../src/queries/test-run.queries';
@@ -101,6 +102,28 @@ describe('test run queries', () => {
 		await db.update(s.testRun).set({ startedAt: longAgo }).where(eq(s.testRun.id, live.id)).execute();
 		await expect(failStaleRuns(staleInput([live.id]))).resolves.toBe(0);
 		await expect(failStaleRuns(staleInput([]))).resolves.toBe(1);
+	});
+
+	it('totals the attempts of a comparison run per context variant', async () => {
+		const run = (await createRunUnlessActive({ ...RUN_INPUT, trigger: 'comparison', totalAttempts: 3 }))!;
+		await markRunRunning(run.id, 3);
+		await recordResultWhileRunning(attemptResult(run.id, 1));
+		await recordResultWhileRunning({ ...attemptResult(run.id, 1), contextVariant: 'draft' });
+		await recordResultWhileRunning({ ...attemptResult(run.id, 2), contextVariant: 'draft', passed: false });
+
+		const totals = await listVariantTotals([run.id]);
+
+		expect(totals).toEqual(
+			expect.arrayContaining([
+				{ runId: run.id, contextVariant: 'production', passed: 1, total: 1 },
+				{ runId: run.id, contextVariant: 'draft', passed: 1, total: 2 },
+			]),
+		);
+		expect((await listResults(run.id)).map((result) => result.contextVariant)).toEqual([
+			'production',
+			'draft',
+			'draft',
+		]);
 	});
 });
 

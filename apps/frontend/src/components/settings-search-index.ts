@@ -1598,4 +1598,12 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['tests', 'evaluation', 'eval', 'benchmark', 'nao test', 'run tests', 'pass rate', 'reliability'],
 		adminOrContextAdmin: true,
 	},
+	{
+		page: '/settings/tests',
+		pageLabel: 'Tests',
+		title: 'Compare with production',
+		description: 'Run the tests on your File Explorer changes and on production side by side.',
+		keywords: ['compare', 'comparison', 'draft', 'changes', 'regression', 'before after', 'production', 'branch'],
+		adminOrContextAdmin: true,
+	},
 ];
