@@ -10,7 +10,7 @@ export interface LatestTestOutcome {
 	isOutdated: boolean;
 }
 
-/** The outcome of each test in the latest run that included it. */
+/** The outcome of each test in the latest completed run that included it. */
 export async function getLatestOutcomesByTest(
 	projectId: string,
 	tests: TestDefinition[],
@@ -18,24 +18,20 @@ export async function getLatestOutcomesByTest(
 	const hashByPath = new Map(tests.map((test) => [test.path, test.hash]));
 	const outcomes: Record<string, LatestTestOutcome> = {};
 
-	for (const result of await testRunQueries.listRecentResultOutcomes(projectId)) {
-		const currentHash = hashByPath.get(result.testPath);
-		if (currentHash === undefined) {
-			continue;
-		}
-		const outcome = (outcomes[result.testPath] ??= {
-			runId: result.runId,
-			runCreatedAt: result.runCreatedAt,
+	for (const row of await testRunQueries.listLatestCompletedOutcomes(projectId, [...hashByPath.keys()])) {
+		const outcome = (outcomes[row.testPath] ??= {
+			runId: row.runId,
+			runCreatedAt: row.runCreatedAt,
 			passedAttempts: 0,
 			totalAttempts: 0,
 			isOutdated: false,
 		});
-		if (outcome.runId !== result.runId) {
+		if (outcome.runId !== row.runId) {
 			continue;
 		}
-		outcome.totalAttempts += 1;
-		outcome.passedAttempts += result.passed ? 1 : 0;
-		outcome.isOutdated ||= result.testHash !== currentHash;
+		outcome.totalAttempts += row.totalAttempts;
+		outcome.passedAttempts += row.passedAttempts;
+		outcome.isOutdated ||= row.testHash !== hashByPath.get(row.testPath);
 	}
 
 	return outcomes;

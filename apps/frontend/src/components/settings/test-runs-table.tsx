@@ -1,5 +1,5 @@
 import type { TestRunSummary } from '@/components/settings/test-run-types';
-import { formatCost, formatPassRate } from '@/components/settings/test-run-types';
+import { formatCost, formatPassRate, onEnterOrSpace } from '@/components/settings/test-run-types';
 import { Badge } from '@/components/ui/badge';
 import { Empty } from '@/components/ui/empty';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -43,7 +43,10 @@ export function TestRunsTable({ runs, selectedRunId, onSelectRun }: TestRunsTabl
 				{runs.map((run) => (
 					<TableRow
 						key={run.id}
+						tabIndex={0}
+						aria-selected={run.id === selectedRunId}
 						onClick={() => onSelectRun(run.id)}
+						onKeyDown={onEnterOrSpace(() => onSelectRun(run.id))}
 						className={cn('cursor-pointer', run.id === selectedRunId && 'bg-muted/50')}
 					>
 						<TableCell className='text-xs'>{new Date(run.createdAt).toLocaleString()}</TableCell>

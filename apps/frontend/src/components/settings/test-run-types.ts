@@ -1,5 +1,6 @@
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
+import type { KeyboardEvent } from 'react';
 
 type TestRunOutputs = inferRouterOutputs<TrpcRouter>['testRun'];
 
@@ -19,5 +20,15 @@ export function formatPassRate(passed: number, total: number): string {
 }
 
 export function formatCost(cost: number | null | undefined): string {
-	return cost ? `$${cost.toFixed(cost < 1 ? 4 : 2)}` : '—';
+	return cost === null || cost === undefined ? '—' : `$${cost.toFixed(cost < 1 ? 4 : 2)}`;
+}
+
+/** Activates a clickable row from the keyboard, like a button. */
+export function onEnterOrSpace(activate: () => void) {
+	return (event: KeyboardEvent) => {
+		if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+			event.preventDefault();
+			activate();
+		}
+	};
 }

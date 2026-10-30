@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { TestDefinition, TestSuiteListing } from '@/components/settings/test-run-types';
+import type { TestDefinition, TestRunSummary, TestSuiteListing } from '@/components/settings/test-run-types';
 import { isActiveRun } from '@/components/settings/test-run-types';
 import { TestRunResults } from '@/components/settings/test-run-results';
 import { TestRunsTable } from '@/components/settings/test-runs-table';
@@ -98,6 +98,17 @@ function TestsPage() {
 
 			{startRun.error && <ErrorMessage message={startRun.error.message} />}
 
+			{search.run && openedRun.isLoading && <Spinner className='mx-auto' />}
+			{search.run && openedRun.error && (
+				<Callout variant='destructive'>
+					<div className='flex items-center justify-between gap-2'>
+						<span>Could not open this run: {openedRun.error.message}</span>
+						<Button size='sm' variant='ghost' onClick={() => openRun(undefined)}>
+							Dismiss
+						</Button>
+					</div>
+				</Callout>
+			)}
 			{search.run && openedRun.data && (
 				<TestRunResults
 					run={openedRun.data}
@@ -125,11 +136,13 @@ function TestsPage() {
 			</SettingsCard>
 
 			<SettingsCard title='Run history' flush>
-				{runs.isLoading ? (
-					<Spinner className='m-6 mx-auto' />
-				) : (
-					<TestRunsTable runs={runs.data ?? []} selectedRunId={search.run} onSelectRun={openRun} />
-				)}
+				<RunHistoryContent
+					runs={runs.data}
+					isLoading={runs.isLoading}
+					error={runs.error?.message}
+					selectedRunId={search.run}
+					onSelectRun={openRun}
+				/>
 			</SettingsCard>
 		</SettingsPageWrapper>
 	);
@@ -175,6 +188,20 @@ function TestSuiteContent({
 
 	return (
 		<>
+			{suite.settings.errors.length > 0 && (
+				<Callout variant='destructive' className='m-4 mb-0'>
+					<div className='flex flex-col gap-1'>
+						<span className='font-medium'>
+							The test settings of nao_config.yaml are invalid, so tests cannot run:
+						</span>
+						{suite.settings.errors.map((settingsError) => (
+							<span key={settingsError} className='font-mono whitespace-pre-wrap'>
+								{settingsError}
+							</span>
+						))}
+					</div>
+				</Callout>
+			)}
 			{suite.invalidFiles.length > 0 && (
 				<Callout variant='warning' className='m-4 mb-0'>
 					<div className='flex flex-col gap-1'>
@@ -199,6 +226,24 @@ function TestSuiteContent({
 			/>
 		</>
 	);
+}
+
+interface RunHistoryContentProps {
+	runs: TestRunSummary[] | undefined;
+	isLoading: boolean;
+	error: string | undefined;
+	selectedRunId: string | undefined;
+	onSelectRun: (runId: string) => void;
+}
+
+function RunHistoryContent({ runs, isLoading, error, selectedRunId, onSelectRun }: RunHistoryContentProps) {
+	if (isLoading) {
+		return <Spinner className='m-6 mx-auto' />;
+	}
+	if (error || !runs) {
+		return <ErrorMessage message={error ?? 'Failed to load the run history.'} />;
+	}
+	return <TestRunsTable runs={runs} selectedRunId={selectedRunId} onSelectRun={onSelectRun} />;
 }
 
 interface TagFilterProps {
