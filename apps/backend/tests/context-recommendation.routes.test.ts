@@ -6,12 +6,14 @@ import type * as EnvModule from '../src/env';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertRepositoryEditable: vi.fn(),
 	getFirstProjectAdminUserId: vi.fn(),
 	getLatestRun: vi.fn(),
 	getProjectAvailableModels: vi.fn(),
 	getProjectByUserId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	runContextRecommendations: vi.fn(),
+	updateConfig: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getSession: vi.fn() }));
@@ -25,6 +27,7 @@ vi.mock('../src/handlers/context-recommendations.handler', () => ({
 vi.mock('../src/queries/context-recommendation.queries', () => ({
 	getFirstProjectAdminUserId: mocks.getFirstProjectAdminUserId,
 	getLatestRun: mocks.getLatestRun,
+	updateConfig: mocks.updateConfig,
 }));
 vi.mock('../src/queries/organization.queries', () => ({}));
 vi.mock('../src/queries/project.queries', () => ({
@@ -51,6 +54,9 @@ vi.mock('../src/services/context-recommendations.service', () => ({
 }));
 vi.mock('../src/services/github', () => ({}));
 vi.mock('../src/services/gitlab', () => ({}));
+vi.mock('../src/services/managed-github-repository', () => ({
+	assertRepositoryEditable: mocks.assertRepositoryEditable,
+}));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(),
 }));
@@ -114,6 +120,19 @@ describe('context recommendation routes', () => {
 		await expect(caller().contextRecommendation.latestRun()).resolves.toEqual(latestRun);
 
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('refuses to change the repository of a nao-managed project', async () => {
+		mocks.assertOrganizationCloudBillingAccess.mockResolvedValue(undefined);
+		mocks.getProjectByUserId.mockResolvedValue({ id: 'project-id', orgId: 'org-id', path: '/projects/managed' });
+		mocks.assertRepositoryEditable.mockRejectedValue(new TRPCError({ code: 'FORBIDDEN', message: 'Managed' }));
+
+		await expect(
+			caller().contextRecommendation.setRepo({ repoFullName: 'someone/repo', provider: 'github' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+		expect(mocks.assertRepositoryEditable).toHaveBeenCalledWith('/projects/managed');
+		expect(mocks.updateConfig).not.toHaveBeenCalled();
 	});
 });
 

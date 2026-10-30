@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
 import { TRPCError } from '@trpc/server';
 
 import type { DBProject } from '../db/abstractSchema';
@@ -8,12 +5,10 @@ import { env } from '../env';
 import { getWorktreeProjectRoot } from '../utils/context-repo';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
+import { canonicalizeWriteRoot } from '../utils/safe-file-write';
 import { redactSecretValues } from '../utils/sandbox-secrets';
-import {
-	type ContextExplorerGitContext,
-	requireContextExplorerGit,
-	resolveContextExplorerGitSafely,
-} from './context-explorer-git.service';
+import { type ContextExplorerGitContext, resolveContextExplorerGitSafely } from './context-explorer-git.service';
+import { publishManagedGithubRepositoryUpdate, readManagedGithubRepositoryFullName } from './managed-github-repository';
 import { createNaoCommandEnvironment, NaoCommandExitError, runNaoCommand } from './nao-command.service';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 
@@ -35,6 +30,11 @@ export interface ProjectSyncState {
 	available: boolean;
 	unavailableReason: string | null;
 	run: ProjectSyncRun | null;
+}
+
+interface SyncTarget {
+	root: string;
+	managedRepoFullName: string | null;
 }
 
 const runs = new Map<string, ProjectSyncRun>();
@@ -96,17 +96,25 @@ export async function startProjectSync(
 }
 
 async function getUnavailableReason(gitContext: ContextExplorerGitContext): Promise<string | null> {
+	const target = await resolveSyncTarget(gitContext);
+	return 'unavailableReason' in target ? target.unavailableReason : null;
+}
+
+async function resolveSyncTarget(
+	gitContext: ContextExplorerGitContext,
+): Promise<SyncTarget | { unavailableReason: string }> {
 	if (env.NAO_MODE !== 'cloud') {
-		return 'Project sync in UI is only available in cloud mode.';
+		return { unavailableReason: 'Project sync in UI is only available in cloud mode.' };
 	}
 	const git = await resolveContextExplorerGitSafely(gitContext);
-	if (git.status === 'unavailable') {
-		return git.message;
+	if (git.status === 'available') {
+		return { root: getWorktreeProjectRoot(git.repo), managedRepoFullName: null };
 	}
-	if (!fs.existsSync(path.join(getWorktreeProjectRoot(git.repo), 'nao_config.yaml'))) {
-		return 'This project has no nao_config.yaml.';
-	}
-	return null;
+	const managedRepoFullName =
+		git.reason === 'no-repo' ? await readManagedGithubRepositoryFullName(gitContext.projectFolder) : null;
+	return managedRepoFullName
+		? { root: gitContext.projectFolder, managedRepoFullName }
+		: { unavailableReason: git.message };
 }
 
 // ponytail: the editor's Git actions don't take this lock, so switching branches mid-sync mixes outputs; lock on the worktree if that bites.
@@ -132,17 +140,25 @@ async function runProjectSync(
 			);
 
 		try {
-			const { repo } = await requireContextExplorerGit(gitContext);
-			const syncError = await runNaoSync(getWorktreeProjectRoot(repo), projectEnvVars, async (logs) => {
+			const target = await resolveSyncTarget(gitContext);
+			if ('unavailableReason' in target) {
+				throw new Error(target.unavailableReason);
+			}
+			const syncError = await runNaoSync(target.root, projectEnvVars, async (logs) => {
 				updateRun(runKey, runId, { logs: redact(logs) });
 			});
-			appendRunLog(
-				runKey,
-				runId,
-				syncError
-					? 'Files that synced are ready to review in your changes'
-					: '✓ Synced files are ready to review in your changes',
-			);
+			if (target.managedRepoFullName) {
+				const published = await publishSyncedFiles(target.root, target.managedRepoFullName, gitContext);
+				appendRunLog(runKey, runId, published ? '✓ Synced files were published' : '✓ Everything is up to date');
+			} else {
+				appendRunLog(
+					runKey,
+					runId,
+					syncError
+						? 'Files that synced are ready to review in your changes'
+						: '✓ Synced files are ready to review in your changes',
+				);
+			}
 			if (syncError) {
 				throw syncError;
 			}
@@ -186,6 +202,22 @@ async function runNaoSync(
 		}
 		throw error;
 	}
+}
+
+function publishSyncedFiles(
+	projectDir: string,
+	repoFullName: string,
+	gitContext: ContextExplorerGitContext,
+): Promise<boolean> {
+	return withKeyedLock(`managed-context-write:${canonicalizeWriteRoot(projectDir)}`, () =>
+		publishManagedGithubRepositoryUpdate({
+			projectDir,
+			repoFullName,
+			paths: ['.'],
+			message: 'Sync project',
+			author: gitContext.user,
+		}),
+	);
 }
 
 function getRunKey(projectId: string, userId: string): string {

@@ -9,8 +9,11 @@ vi.mock('../src/utils/context-repo', () => ({
 	getWorktreeProjectRoot: (repo: { worktreeRoot: string }) => repo.worktreeRoot,
 }));
 vi.mock('../src/services/context-explorer-git.service', () => ({
-	requireContextExplorerGit: vi.fn(),
 	resolveContextExplorerGitSafely: vi.fn(),
+}));
+vi.mock('../src/services/managed-github-repository', () => ({
+	publishManagedGithubRepositoryUpdate: vi.fn(),
+	readManagedGithubRepositoryFullName: vi.fn(),
 }));
 vi.mock('../src/services/project-runtime-env', () => ({
 	getProjectRuntimeEnvVars: vi.fn(),
@@ -30,9 +33,12 @@ vi.mock('../src/utils/logger', () => ({
 import type { DBProject } from '../src/db/abstractSchema';
 import {
 	type ContextExplorerGitContext,
-	requireContextExplorerGit,
 	resolveContextExplorerGitSafely,
 } from '../src/services/context-explorer-git.service';
+import {
+	publishManagedGithubRepositoryUpdate,
+	readManagedGithubRepositoryFullName,
+} from '../src/services/managed-github-repository';
 import { NaoCommandExitError, runNaoCommand } from '../src/services/nao-command.service';
 import { getProjectRuntimeEnvVars } from '../src/services/project-runtime-env';
 import {
@@ -52,7 +58,7 @@ beforeEach(() => {
 	fs.writeFileSync(path.join(worktreeRoot, 'nao_config.yaml'), 'project_name: edited in the editor\n');
 	const resolution = { status: 'available', repo: { worktreeRoot }, context: {} } as never;
 	vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue(resolution);
-	vi.mocked(requireContextExplorerGit).mockResolvedValue(resolution);
+	vi.mocked(readManagedGithubRepositoryFullName).mockResolvedValue(null);
 	vi.mocked(getProjectRuntimeEnvVars).mockResolvedValue({ POSTGRES_PASSWORD: 'super-secret' });
 });
 
@@ -100,6 +106,42 @@ describe('project sync', () => {
 		expect(fs.readFileSync(path.join(worktreeRoot, 'sales.md'), 'utf8')).toBe('synced');
 	});
 
+	it('syncs nao-managed projects in the live folder and publishes the results to main', async () => {
+		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
+			status: 'unavailable',
+			reason: 'no-repo',
+			message: 'Connect a repository first.',
+			repo: null,
+		});
+		vi.mocked(readManagedGithubRepositoryFullName).mockResolvedValue('nao-projects/sales');
+		vi.mocked(publishManagedGithubRepositoryUpdate).mockResolvedValue(true);
+		vi.mocked(runNaoCommand).mockResolvedValue(undefined);
+		const managedContext = gitContext('user-1', worktreeRoot);
+
+		await startProjectSync(project, managedContext);
+		await vi.waitFor(async () => {
+			expect((await getProjectSyncState(project, managedContext)).run?.status).toBe('succeeded');
+		});
+
+		expect(runNaoCommand).toHaveBeenCalledWith(
+			['sync'],
+			worktreeRoot,
+			expect.anything(),
+			expect.any(Number),
+			expect.any(Function),
+		);
+		expect(publishManagedGithubRepositoryUpdate).toHaveBeenCalledWith({
+			projectDir: worktreeRoot,
+			repoFullName: 'nao-projects/sales',
+			paths: ['.'],
+			message: 'Sync project',
+			author: { name: 'Leo', email: 'leo@example.com' },
+		});
+		expect((await getProjectSyncState(project, managedContext)).run?.logs).toContain(
+			'✓ Synced files were published',
+		);
+	});
+
 	it('is unavailable when the editor has no Git access to the project', async () => {
 		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
 			status: 'unavailable',
@@ -124,10 +166,10 @@ describe('project sync', () => {
 	});
 });
 
-function gitContext(userId: string): ContextExplorerGitContext {
+function gitContext(userId: string, projectFolder = project.path!): ContextExplorerGitContext {
 	return {
 		projectId: project.id,
-		projectFolder: project.path!,
+		projectFolder,
 		userId,
 		user: { name: 'Leo', email: 'leo@example.com' },
 		token: 'github-token',
