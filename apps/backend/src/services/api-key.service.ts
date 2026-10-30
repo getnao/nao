@@ -29,8 +29,12 @@ export const hashKey = (plaintext: string): string => {
 	return crypto.createHash('sha256').update(plaintext).digest('hex');
 };
 
+export const isApiKey = (token: string): boolean => {
+	return token.startsWith(KEY_PREFIX);
+};
+
 export const validateApiKey = async (plaintext: string): Promise<ValidatedApiKey | null> => {
-	if (!plaintext.startsWith(KEY_PREFIX)) {
+	if (!isApiKey(plaintext)) {
 		return null;
 	}
 
