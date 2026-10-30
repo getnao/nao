@@ -3,23 +3,27 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { buildWarehouseCredentials } from './warehouse-credentials';
+import { RequestBusinessContext } from './request-business-context';
 import { WarehouseCredentialsForm } from './warehouse-credentials-form';
 import { isSqlProvider, WAREHOUSE_PROVIDER_LABELS } from './warehouse-provider-config';
-import { FloatingConnectionSummary } from './floating-connection-summary';
 import {
-	describeCurrentSetupStep,
-	isBusinessContextRequested,
-	isStoppedStatus,
-	WarehouseSetupProgress,
-} from './warehouse-setup-progress';
+	getAllWarehouseTableKeys,
+	getCompactWarehouseTableSelection,
+	WarehouseTableSelection,
+} from './warehouse-table-selection';
+import { FloatingConnectionSummary } from './floating-connection-summary';
+import { describeCurrentSetupStep, isStoppedStatus, WarehouseSetupProgress } from './warehouse-setup-progress';
 import type { WarehouseCredentialsFormValues } from './warehouse-credentials';
 import type { WarehouseSetupJob } from './warehouse-setup-progress';
+import type { WarehouseSchemaInventory, WarehouseTableSelectionMode } from './warehouse-table-selection';
 import type { ToolCallComponentProps } from '.';
 import type { UIMessage } from '@nao/backend/chat';
 import type { requestWarehouseCredentials } from '@nao/shared/tools';
+import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import { Button } from '@/components/ui/button';
 import { DatabaseIcon } from '@/components/ui/database-icon';
+import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { OnboardingFloatingContent } from '@/contexts/onboarding-floating-slot';
 import { useIsScrolledAbove } from '@/hooks/use-is-scrolled-above';
@@ -29,6 +33,7 @@ import { trpc } from '@/main';
 
 type Provider = requestWarehouseCredentials.Provider;
 type CardState = 'required' | 'running' | 'stopped' | 'ready';
+type SetupStep = 'credentials' | 'tables';
 
 const RUNNING_POLL_INTERVAL_MS = 1_000;
 const IDLE_POLL_INTERVAL_MS = 5_000;
@@ -88,9 +93,12 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 	const latestSetup = useLatestWarehouseSetup(onboardingChatId);
 	const job = latestSetup.data?.provider === provider ? latestSetup.data : null;
 	const [isEditing, setIsEditing] = useState(false);
-	const [businessContextSkippedJobId, setBusinessContextSkippedJobId] = useState<string | null>(null);
-	const isBusinessContextSkipped = job !== null && businessContextSkippedJobId === job.id;
 	const [credentialValues, setCredentialValues] = useState<WarehouseCredentialsFormValues>();
+	const [validatedCredentialFingerprint, setValidatedCredentialFingerprint] = useState<string | null>(null);
+	const [setupStep, setSetupStep] = useState<SetupStep>('credentials');
+	const [discoveredSchemas, setDiscoveredSchemas] = useState<WarehouseSchemaInventory[]>();
+	const [tableSelectionMode, setTableSelectionMode] = useState<WarehouseTableSelectionMode>('all');
+	const [selectedTableKeys, setSelectedTableKeys] = useState<Set<string>>(new Set());
 	const validateCredentials = useMutation(trpc.onboarding.validateWarehouseCredentials.mutationOptions());
 	const startSetup = useMutation(trpc.onboarding.startWarehouseProvisioning.mutationOptions());
 	const retrySetup = useMutation(trpc.onboarding.retryWarehouseProvisioning.mutationOptions());
@@ -100,6 +108,10 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 	const copy = CARD_COPY[cardState];
 	const [cardElement, setCardElement] = useState<HTMLElement | null>(null);
 	const isCardScrolledAbove = useIsScrolledAbove(cardElement);
+	const tablesUnlocked =
+		discoveredSchemas !== undefined &&
+		credentialValues !== undefined &&
+		validatedCredentialFingerprint === JSON.stringify(credentialValues);
 
 	const refreshSetup = () =>
 		queryClient.invalidateQueries({
@@ -112,18 +124,47 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 		queueOrSendMessage({ text }).catch(console.error);
 	};
 
-	const connect = async (values: WarehouseCredentialsFormValues) => {
-		if (!onboardingChatId) {
+	const validate = async (values: WarehouseCredentialsFormValues) => {
+		let result;
+		try {
+			result = await validateCredentials.mutateAsync({
+				provider,
+				credentials: buildWarehouseCredentials(provider, values),
+			});
+		} catch {
 			return;
 		}
-		const credentials = buildWarehouseCredentials(provider, values);
+		setValidatedCredentialFingerprint(JSON.stringify(values));
+		setDiscoveredSchemas(result.schemas);
+		setTableSelectionMode('all');
+		setSelectedTableKeys(getAllWarehouseTableKeys(result.schemas));
+		setSetupStep('tables');
+	};
+
+	const connect = async () => {
+		if (!onboardingChatId || !credentialValues || !discoveredSchemas) {
+			return;
+		}
+		const selected = getCompactWarehouseTableSelection(discoveredSchemas, selectedTableKeys);
 		try {
-			await validateCredentials.mutateAsync({ provider, credentials });
-			await startSetup.mutateAsync({ provider, credentials, onboardingChatId });
+			await startSetup.mutateAsync({
+				provider,
+				credentials: buildWarehouseCredentials(provider, credentialValues),
+				onboardingChatId,
+				tableSelection:
+					tableSelectionMode === 'all'
+						? { mode: 'all' }
+						: {
+								mode: 'selected',
+								...(selected.schemas.length > 0 && { schemas: selected.schemas }),
+								tables: selected.tables,
+							},
+			});
 		} catch {
 			return;
 		}
 		setIsEditing(false);
+		setSetupStep('credentials');
 		await refreshSetup();
 		reportToAgent(`I submitted my ${label} connection details.`);
 	};
@@ -139,11 +180,6 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 		}
 		await refreshSetup();
 		reportToAgent(`I restarted the ${label} setup.`);
-	};
-
-	const skipBusinessContext = () => {
-		setBusinessContextSkippedJobId(job?.id ?? null);
-		reportToAgent(generateOnboardingRules.SKIP_MESSAGE);
 	};
 
 	const editConnectionDetails = () => {
@@ -166,13 +202,7 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 						tone={cardState === 'stopped' ? 'error' : 'neutral'}
 						action={
 							setupJob && (
-								<FloatingSetupAction
-									job={setupJob}
-									onRetry={retry}
-									isRetrying={retrySetup.isPending}
-									onSkipBusinessContext={skipBusinessContext}
-									isBusinessContextSkipped={isBusinessContextSkipped}
-								/>
+								<FloatingSetupAction job={setupJob} onRetry={retry} isRetrying={retrySetup.isPending} />
 							)
 						}
 						onShow={() => cardElement?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -209,16 +239,42 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 				</div>
 				{onboardingChatId && latestSetup.isPending ? null : showForm ? (
 					isSqlProvider(provider) ? (
-						<WarehouseCredentialsForm
-							provider={provider}
-							onSubmit={connect}
-							onCancel={job ? () => setIsEditing(false) : undefined}
-							isValidating={validateCredentials.isPending}
-							isPending={startSetup.isPending}
-							error={validateCredentials.error ?? startSetup.error}
-							initialValues={credentialValues}
-							onValuesChange={setCredentialValues}
-						/>
+						<div className='flex flex-col gap-4'>
+							<SetupStepNavigation
+								activeStep={setupStep}
+								unlocked={tablesUnlocked}
+								selectedTableCount={selectedTableKeys.size}
+								onStepChange={setSetupStep}
+							/>
+							<TabPanel idBase='warehouse-setup' tabId={setupStep}>
+								{setupStep === 'tables' && discoveredSchemas ? (
+									<WarehouseTableSelection
+										schemas={discoveredSchemas}
+										databaseType={provider}
+										databaseLabel={label}
+										selectionMode={tableSelectionMode}
+										selectedTableKeys={selectedTableKeys}
+										isPending={startSetup.isPending}
+										error={startSetup.error}
+										onSelectionModeChange={setTableSelectionMode}
+										onChange={setSelectedTableKeys}
+										onBack={() => setSetupStep('credentials')}
+										onSubmit={() => void connect()}
+									/>
+								) : (
+									<WarehouseCredentialsForm
+										provider={provider}
+										onSubmit={validate}
+										onCancel={job ? () => setIsEditing(false) : undefined}
+										isValidating={validateCredentials.isPending}
+										isPending={false}
+										error={validateCredentials.error}
+										initialValues={credentialValues}
+										onValuesChange={setCredentialValues}
+									/>
+								)}
+							</TabPanel>
+						</div>
 					) : (
 						<p className='text-sm text-muted-foreground'>{label} connection setup is not available yet.</p>
 					)
@@ -230,13 +286,57 @@ function WarehouseConnectionCard({ provider }: { provider: Provider }) {
 							onEdit={editConnectionDetails}
 							isRetrying={retrySetup.isPending}
 							retryError={retrySetup.error?.message ?? null}
-							onSkipBusinessContext={skipBusinessContext}
-							isBusinessContextSkipped={isBusinessContextSkipped}
 						/>
 					)
 				)}
 			</section>
+			{setupJob?.status === 'awaiting_sources' && (
+				<RequestBusinessContext
+					key={setupJob.id}
+					jobId={setupJob.id}
+					onSubmitted={(provided) =>
+						reportToAgent(
+							provided
+								? generateOnboardingRules.CONTEXT_SUBMITTED_MESSAGE
+								: generateOnboardingRules.SKIP_MESSAGE,
+						)
+					}
+				/>
+			)}
 		</>
+	);
+}
+
+function SetupStepNavigation({
+	activeStep,
+	unlocked,
+	selectedTableCount,
+	onStepChange,
+}: {
+	activeStep: SetupStep;
+	unlocked: boolean;
+	selectedTableCount: number;
+	onStepChange: (step: SetupStep) => void;
+}) {
+	const tabs: TabBarItem<SetupStep>[] = [
+		{ id: 'credentials', label: 'Credentials' },
+		{
+			id: 'tables',
+			label: 'Tables',
+			count: unlocked ? selectedTableCount : undefined,
+			disabled: !unlocked,
+			disabledReason: 'Validate credentials to unlock',
+		},
+	];
+
+	return (
+		<TabBar
+			tabs={tabs}
+			activeTab={activeStep}
+			onTabChange={onStepChange}
+			idBase='warehouse-setup'
+			className='-mx-5 border-b px-5'
+		/>
 	);
 }
 
@@ -244,14 +344,10 @@ function FloatingSetupAction({
 	job,
 	onRetry,
 	isRetrying,
-	onSkipBusinessContext,
-	isBusinessContextSkipped,
 }: {
 	job: WarehouseSetupJob;
 	onRetry: () => void;
 	isRetrying: boolean;
-	onSkipBusinessContext: () => void;
-	isBusinessContextSkipped: boolean;
 }) {
 	if (isStoppedStatus(job.status) && job.canRetry) {
 		return (
@@ -262,18 +358,6 @@ function FloatingSetupAction({
 				isLoading={isRetrying}
 			>
 				Retry
-			</Button>
-		);
-	}
-	if (isBusinessContextRequested(job) && !isBusinessContextSkipped) {
-		return (
-			<Button
-				variant='outline'
-				size='sm'
-				className='h-7 shrink-0 rounded-full px-2.5 text-xs'
-				onClick={onSkipBusinessContext}
-			>
-				Skip for now
 			</Button>
 		);
 	}

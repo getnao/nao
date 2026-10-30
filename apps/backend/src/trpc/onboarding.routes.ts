@@ -9,16 +9,38 @@ import {
 	getWarehouseProvisioningJob,
 	retryWarehouseProvisioning,
 	startWarehouseProvisioning,
+	submitWarehouseContextSources,
+	validateConfluenceContext,
+	validateNotionContext,
 	validateWarehouseCredentials,
 } from '../services/warehouse-provisioning';
-import { warehouseCredentialsSchema, warehouseProvisioningInputSchema } from '../types/warehouse';
+import {
+	confluenceContextSourceSchema,
+	confluenceContextValidationResultSchema,
+	notionContextSourceSchema,
+	notionContextValidationResultSchema,
+	warehouseContextSourcesInputSchema,
+	warehouseCredentialsSchema,
+	warehouseProvisioningInputSchema,
+	warehouseValidationResultSchema,
+} from '../types/warehouse';
 import { organizationProtectedProcedure, protectedProcedure, router } from './trpc';
 
 export const onboardingRoutes = router({
 	validateWarehouseCredentials: organizationProtectedProcedure
 		.input(warehouseCredentialsSchema)
-		.output(z.object({ valid: z.literal(true) }))
+		.output(warehouseValidationResultSchema)
 		.mutation(({ ctx, input }) => validateWarehouseCredentials(ctx.user.id, input)),
+
+	validateNotionContext: organizationProtectedProcedure
+		.input(notionContextSourceSchema)
+		.output(notionContextValidationResultSchema)
+		.mutation(({ input }) => validateNotionContext(input)),
+
+	validateConfluenceContext: organizationProtectedProcedure
+		.input(confluenceContextSourceSchema)
+		.output(confluenceContextValidationResultSchema)
+		.mutation(({ input }) => validateConfluenceContext(input)),
 
 	startWarehouseProvisioning: organizationProtectedProcedure
 		.input(warehouseProvisioningInputSchema)
@@ -51,6 +73,14 @@ export const onboardingRoutes = router({
 		.mutation(async ({ ctx, input }) => {
 			await assertOwnsChat(input.onboardingChatId, ctx.user.id);
 			return restartOnboarding(ctx.user.id, input.onboardingChatId);
+		}),
+
+	submitWarehouseContextSources: organizationProtectedProcedure
+		.input(warehouseContextSourcesInputSchema)
+		.output(z.object({ status: z.literal('syncing') }))
+		.mutation(async ({ ctx, input }) => {
+			await submitWarehouseContextSources(input.jobId, ctx.user.id, input.contextSources, input.businessContext);
+			return { status: 'syncing' as const };
 		}),
 
 	getWarehouseProvisioningStatus: protectedProcedure

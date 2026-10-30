@@ -13,6 +13,7 @@ import {
 	isOnboardingComplete,
 	OnboardingProgress,
 	useOnboardingProgress,
+	WarehouseProvisioningWarnings,
 } from '@/components/onboarding-progress';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
@@ -258,6 +259,7 @@ function OnboardingPage() {
 						warehouseStatus={warehouseJob.data?.status}
 						canRestart={canRestart}
 					/>
+					<WarehouseProvisioningWarnings warnings={warehouseJob.data?.warnings} />
 					{showDeployKey && (
 						<Dialog>
 							<div

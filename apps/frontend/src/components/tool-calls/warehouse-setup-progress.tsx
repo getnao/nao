@@ -24,14 +24,12 @@ const SETUP_STEPS: SetupStep[] = [
 	{ status: 'queued', label: 'Prepare the connection' },
 	{ status: 'initializing', label: 'Initialize the project', command: 'nao init' },
 	{ status: 'debugging', label: 'Check the connection', command: 'nao debug' },
+	{ status: 'awaiting_sources', label: 'Add business context' },
 	{ status: 'syncing', label: 'Sync warehouse metadata', command: 'nao sync' },
 	{ status: 'registering', label: 'Register the project' },
-	{ status: 'awaiting_context', label: 'Add business context' },
 	{ status: 'finalizing', label: 'Generate RULES.md' },
 	{ status: 'publishing', label: 'Publish the project' },
 ];
-
-const BUSINESS_CONTEXT_REQUESTED_STATUSES: SetupStatus[] = ['syncing', 'registering', 'awaiting_context'];
 
 interface WarehouseSetupProgressProps {
 	job: WarehouseSetupJob;
@@ -39,37 +37,14 @@ interface WarehouseSetupProgressProps {
 	onEdit: () => void;
 	isRetrying: boolean;
 	retryError: string | null;
-	onSkipBusinessContext: () => void;
-	isBusinessContextSkipped: boolean;
 }
 
-export function WarehouseSetupProgress({
-	job,
-	onRetry,
-	onEdit,
-	isRetrying,
-	retryError,
-	onSkipBusinessContext,
-	isBusinessContextSkipped,
-}: WarehouseSetupProgressProps) {
+export function WarehouseSetupProgress({ job, onRetry, onEdit, isRetrying, retryError }: WarehouseSetupProgressProps) {
 	return (
 		<div className='flex flex-col gap-4'>
 			<ol aria-label='Warehouse setup steps' className='flex flex-col gap-2.5'>
 				{SETUP_STEPS.map((step, index) => (
-					<SetupStepItem
-						key={step.status}
-						step={step}
-						state={getStepState(job, index)}
-						job={job}
-						action={
-							step.status === 'awaiting_context' && isBusinessContextRequested(job) ? (
-								<BusinessContextAction
-									onSkip={onSkipBusinessContext}
-									isSkipped={isBusinessContextSkipped}
-								/>
-							) : null
-						}
-					/>
+					<SetupStepItem key={step.status} step={step} state={getStepState(job, index)} job={job} />
 				))}
 			</ol>
 			{isStoppedStatus(job.status) && (
@@ -85,17 +60,7 @@ export function WarehouseSetupProgress({
 	);
 }
 
-function SetupStepItem({
-	step,
-	state,
-	job,
-	action,
-}: {
-	step: SetupStep;
-	state: StepState;
-	job: WarehouseSetupJob;
-	action: React.ReactNode;
-}) {
+function SetupStepItem({ step, state, job }: { step: SetupStep; state: StepState; job: WarehouseSetupJob }) {
 	const logs = job.logs?.trim();
 	const showLogs = Boolean(step.command && logs && (state === 'active' || state === 'failed'));
 
@@ -117,12 +82,11 @@ function SetupStepItem({
 						{step.command}
 					</code>
 				)}
-				{action ??
-					(state === 'active' && (
-						<span className='ml-auto shrink-0 text-xs text-muted-foreground'>
-							{getActiveStepDetail(step, job)}
-						</span>
-					))}
+				{state === 'active' && (
+					<span className='ml-auto shrink-0 text-xs text-muted-foreground'>
+						{getActiveStepDetail(step, job)}
+					</span>
+				)}
 			</div>
 			{showLogs && (
 				<details open={state === 'failed'} className='group ml-6'>
@@ -136,20 +100,6 @@ function SetupStepItem({
 				</details>
 			)}
 		</li>
-	);
-}
-
-function BusinessContextAction({ onSkip, isSkipped }: { onSkip: () => void; isSkipped: boolean }) {
-	if (isSkipped) {
-		return <span className='ml-auto shrink-0 text-xs text-muted-foreground'>Skipped</span>;
-	}
-	return (
-		<div className='ml-auto flex shrink-0 items-center gap-2'>
-			<span className='text-xs text-muted-foreground'>Answer in the chat</span>
-			<Button variant='outline' size='sm' className='h-6 rounded-full px-2.5 text-xs' onClick={onSkip}>
-				Skip for now
-			</Button>
-		</div>
 	);
 }
 
@@ -218,11 +168,8 @@ function getStepState(job: WarehouseSetupJob, stepIndex: number): StepState {
 	}
 
 	const isStopped = isStoppedStatus(job.status);
-	const currentStatus = isStopped ? job.failedStatus : job.status;
+	const currentStatus = getStepStatus(isStopped ? job.failedStatus : job.status);
 	const currentIndex = SETUP_STEPS.findIndex((step) => step.status === currentStatus);
-	if (SETUP_STEPS[stepIndex].status === 'awaiting_context' && job.businessContextProvided) {
-		return 'done';
-	}
 	if (stepIndex === currentIndex) {
 		return isStopped ? 'failed' : 'active';
 	}
@@ -230,8 +177,8 @@ function getStepState(job: WarehouseSetupJob, stepIndex: number): StepState {
 }
 
 function getActiveStepDetail(step: SetupStep, job: WarehouseSetupJob): string {
-	if (step.status === 'awaiting_context') {
-		return 'Answer in the chat';
+	if (step.status === 'awaiting_sources') {
+		return 'Use the card below';
 	}
 	if (step.status === 'syncing') {
 		const percentage = getLatestPercentage(job.logs);
@@ -245,20 +192,19 @@ export function describeCurrentSetupStep(job: WarehouseSetupJob): string {
 		return 'Setup complete';
 	}
 	const isStopped = isStoppedStatus(job.status);
-	const step = SETUP_STEPS.find((candidate) => candidate.status === (isStopped ? job.failedStatus : job.status));
+	const stepStatus = getStepStatus(isStopped ? job.failedStatus : job.status);
+	const step = SETUP_STEPS.find((candidate) => candidate.status === stepStatus);
 	if (!step) {
 		return isStopped ? 'Setup stopped' : 'In progress';
 	}
 	if (isStopped) {
 		return `Stopped at: ${step.label}`;
 	}
-	return step.status === 'syncing' || step.status === 'awaiting_context'
-		? `${step.label} · ${getActiveStepDetail(step, job)}`
-		: step.label;
+	return step.status === 'syncing' ? `${step.label} · ${getActiveStepDetail(step, job)}` : step.label;
 }
 
-export function isBusinessContextRequested(job: WarehouseSetupJob): boolean {
-	return !job.businessContextProvided && BUSINESS_CONTEXT_REQUESTED_STATUSES.includes(job.status);
+function getStepStatus(status: SetupStatus | null): SetupStatus | null {
+	return status === 'awaiting_context' ? 'finalizing' : status;
 }
 
 export function isStoppedStatus(status: SetupStatus): boolean {

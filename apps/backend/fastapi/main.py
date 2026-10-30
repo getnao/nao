@@ -16,7 +16,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from pydantic_core import to_jsonable_python
 
 __all__ = ["BlockedRowAccessTable", "EnforcedRowSecurity", "PredicateRowAccessTable"]
@@ -69,8 +69,12 @@ from nao_core.semantic_layer import (  # noqa: E402
     runtime_manifest_path,
 )
 from warehouse_provisioning import (  # noqa: E402
+    ConfluenceContextValidationError,
+    NotionContextValidationError,
     infer_warehouse_error_fields,
     prepare_warehouse_config,
+    validate_confluence_context,
+    validate_notion_context,
     validate_warehouse_credentials,
 )
 
@@ -121,9 +125,7 @@ async def _refresh_context_task():
         if updated:
             print(f"[Scheduler] Context refreshed at {datetime.now().isoformat()}")
         else:
-            print(
-                f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}"
-            )
+            print(f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}")
     except Exception as e:
         print(f"[Scheduler] Failed to refresh context: {e}")
 
@@ -166,8 +168,41 @@ class PrepareWarehouseResponse(BaseModel):
     env_vars: dict[str, str]
 
 
+class WarehouseSchemaInventory(BaseModel):
+    schema_name: str = Field(alias="schema", serialization_alias="schema")
+    tables: list[str]
+
+
 class ValidateWarehouseResponse(BaseModel):
     valid: bool
+    schemas: list[WarehouseSchemaInventory]
+
+
+class ValidateNotionRequest(BaseModel):
+    api_key: str
+    pages: list[str]
+
+
+class ValidatedNotionPage(BaseModel):
+    url: str
+    title: str
+
+
+class ValidateNotionResponse(BaseModel):
+    valid: bool
+    pages: list[ValidatedNotionPage]
+
+
+class ValidateConfluenceRequest(BaseModel):
+    base_url: str
+    email: str
+    api_token: str
+    pages: list[str]
+
+
+class ValidateConfluenceResponse(BaseModel):
+    valid: bool
+    pages: list[ValidatedNotionPage]
 
 
 def _validate_sql(
@@ -189,9 +224,7 @@ def _validate_sql(
         database_folder=database_folder,
     )
     if enforce_excluded_columns:
-        validated_sql = validate_column_access(
-            validated_sql, db_config, project_path, database_folder
-        )
+        validated_sql = validate_column_access(validated_sql, db_config, project_path, database_folder)
     validated_sql = enforce_row_security(
         validated_sql,
         db_config,
@@ -242,10 +275,7 @@ def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
 
 def _column_values(column: pd.Series) -> list:
     """Python datetimes serialize natively but drop nanoseconds, which only `pd.Timestamp` keeps."""
-    if (
-        pd.api.types.is_datetime64_any_dtype(column.dtype)
-        and not column.dt.nanosecond.gt(0).any()
-    ):
+    if pd.api.types.is_datetime64_any_dtype(column.dtype) and not column.dt.nanosecond.gt(0).any():
         return column.array.to_pydatetime().tolist()
     return column.tolist()
 
@@ -305,9 +335,7 @@ def require_internal_secret(
     """Only the nao backend, which shares BETTER_AUTH_SECRET, may call internal routes."""
     expected = os.environ.get("BETTER_AUTH_SECRET")
     if not expected:
-        raise HTTPException(
-            status_code=503, detail="BETTER_AUTH_SECRET is not configured"
-        )
+        raise HTTPException(status_code=503, detail="BETTER_AUTH_SECRET is not configured")
     if provided is None or not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid internal secret")
 
@@ -339,21 +367,14 @@ def _resolve_database(config: Any, database_id: str | None) -> tuple[Any, str]:
     if duplicate_names:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Database connection names must be unique. Duplicate name(s): "
-                + ", ".join(duplicate_names)
-            ),
+            detail=("Database connection names must be unique. Duplicate name(s): " + ", ".join(duplicate_names)),
         )
 
     if len(config.databases) == 1:
         selected_index = 0
     elif database_id:
         selected_index = next(
-            (
-                index
-                for index, db in enumerate(config.databases)
-                if db.name == database_id
-            ),
+            (index for index, db in enumerate(config.databases) if db.name == database_id),
             None,
         )
         if selected_index is None:
@@ -379,9 +400,7 @@ def _resolve_database(config: Any, database_id: str | None) -> tuple[Any, str]:
     authorization_identity = (str(db_config.type).lower(), database_folder)
     matching_identities = [
         index
-        for index, (candidate, candidate_folder) in enumerate(
-            zip(config.databases, database_folders, strict=True)
-        )
+        for index, (candidate, candidate_folder) in enumerate(zip(config.databases, database_folders, strict=True))
         if (str(candidate.type).lower(), candidate_folder) == authorization_identity
     ]
     if len(matching_identities) != 1:
@@ -409,8 +428,7 @@ def _active_group_allowed_tables(
     return {
         (entry.schema_name, entry.table)
         for entry in table_access.tables
-        if entry.database_type.lower() == database_type
-        and entry.database == database_folder_name
+        if entry.database_type.lower() == database_type and entry.database == database_folder_name
     }
 
 
@@ -426,10 +444,7 @@ def _active_row_security_policies(
     database_type = str(db_config.type).lower()
     policies: dict[tuple[str, str], RowSecurityPolicy] = {}
     for entry in row_security.tables:
-        if (
-            entry.database_type.lower() != database_type
-            or entry.database != database_folder_name
-        ):
+        if entry.database_type.lower() != database_type or entry.database != database_folder_name:
             continue
         identity = (entry.schema_name, entry.table)
         if identity in policies:
@@ -453,9 +468,7 @@ def _active_row_security_policies(
 
 
 def _is_azure_entra_id(db_config: Any) -> bool:
-    return getattr(getattr(db_config, "auth_mode", None), "value", None) == (
-        "azure_entra_id"
-    )
+    return getattr(getattr(db_config, "auth_mode", None), "value", None) == ("azure_entra_id")
 
 
 def _assert_azure_request_can_validate(
@@ -477,17 +490,12 @@ def _assert_azure_request_can_validate(
         )
 
     table_validation_enabled = (
-        db_config.allow_listed_only
-        or group_allowed_tables is not None
-        or row_security_policies is not None
+        db_config.allow_listed_only or group_allowed_tables is not None or row_security_policies is not None
     )
     if (
         table_validation_enabled
         and query_references_base_tables(request.sql, db_config.type)
-        and (
-            not getattr(db_config, "user", None)
-            or not getattr(db_config, "password", None)
-        )
+        and (not getattr(db_config, "user", None) or not getattr(db_config, "password", None))
     ):
         raise HTTPException(
             status_code=400,
@@ -509,9 +517,7 @@ def _validate_request(
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> str:
-    _assert_azure_request_can_validate(
-        request, db_config, group_allowed_tables, row_security_policies
-    )
+    _assert_azure_request_can_validate(request, db_config, group_allowed_tables, row_security_policies)
     return _validate_sql(
         request.sql,
         db_config,
@@ -553,12 +559,8 @@ async def health_check():
 def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
-        group_allowed_tables = _active_group_allowed_tables(
-            request.table_access, db_config, database_folder
-        )
-        row_security_policies = _active_row_security_policies(
-            request.row_security, db_config, database_folder
-        )
+        group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
+        row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
         try:
             if _is_azure_entra_id(db_config):
                 validated_sql = _validate_request(
@@ -573,11 +575,7 @@ def execute_sql(request: ExecuteSQLRequest):
                     validated_sql,
                     request.azure_access_token,
                 )
-            elif (
-                db_config.allow_listed_only
-                or group_allowed_tables is not None
-                or row_security_policies is not None
-            ):
+            elif db_config.allow_listed_only or group_allowed_tables is not None or row_security_policies is not None:
                 df = _execute_sql_with_guards(
                     request.sql,
                     db_config,
@@ -620,12 +618,8 @@ def execute_sql(request: ExecuteSQLRequest):
 def validate_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
-        group_allowed_tables = _active_group_allowed_tables(
-            request.table_access, db_config, database_folder
-        )
-        row_security_policies = _active_row_security_policies(
-            request.row_security, db_config, database_folder
-        )
+        group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
+        row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
         try:
             _validate_request(
                 request,
@@ -679,9 +673,7 @@ def compile_semantic_query(request: CompileSemanticQueryRequest):
     """Compile a metric query to SQL with the project's semantic layer. Execution stays with /execute_sql."""
     try:
         project_path = Path(request.nao_project_folder)
-        config = NaoConfig.try_load(
-            project_path, raise_on_error=True, extra_env=request.env_vars
-        )
+        config = NaoConfig.try_load(project_path, raise_on_error=True, extra_env=request.env_vars)
         assert config is not None
 
         semantic_layer = config.semantic_layer
@@ -693,9 +685,7 @@ def compile_semantic_query(request: CompileSemanticQueryRequest):
 
         db_config = _resolve_semantic_layer_database(config, semantic_layer.database)
         dialect = metricflow_dialect_for(db_config.type)
-        engine = MetricFlowSemanticLayer.load(
-            runtime_manifest_path(semantic_layer, project_path), dialect
-        )
+        engine = MetricFlowSemanticLayer.load(runtime_manifest_path(semantic_layer, project_path), dialect)
         sql = engine.compile(
             SemanticQuery(
                 metrics=request.metrics,
@@ -707,9 +697,7 @@ def compile_semantic_query(request: CompileSemanticQueryRequest):
                 end_time=request.end_time,
             )
         )
-        return CompileSemanticQueryResponse(
-            sql=sql, database_id=db_config.name, dialect=db_config.type
-        )
+        return CompileSemanticQueryResponse(sql=sql, database_id=db_config.name, dialect=db_config.type)
     except HTTPException:
         raise
     except SemanticLayerUnavailableError as e:
@@ -724,9 +712,7 @@ def compile_semantic_query(request: CompileSemanticQueryRequest):
 
 def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | None):
     if database_name is not None:
-        db_config = next(
-            (db for db in config.databases if db.name == database_name), None
-        )
+        db_config = next((db for db in config.databases if db.name == database_name), None)
         if db_config is None:
             raise HTTPException(
                 status_code=400,
@@ -748,17 +734,10 @@ def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | Non
 )
 async def validate_warehouse(request: PrepareWarehouseRequest):
     try:
-        await asyncio.to_thread(
-            validate_warehouse_credentials, request.provider, request.credentials
-        )
-        return ValidateWarehouseResponse(valid=True)
+        schemas = await asyncio.to_thread(validate_warehouse_credentials, request.provider, request.credentials)
+        return ValidateWarehouseResponse(valid=True, schemas=schemas)
     except ValidationError as error:
-        fields = sorted(
-            {
-                ".".join(str(part) for part in issue["loc"])
-                for issue in error.errors(include_input=False)
-            }
-        )
+        fields = sorted({".".join(str(part) for part in issue["loc"]) for issue in error.errors(include_input=False)})
         raise HTTPException(
             status_code=422,
             detail={
@@ -792,12 +771,7 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
             env_vars=env_vars,
         )
     except ValidationError as error:
-        fields = sorted(
-            {
-                ".".join(str(part) for part in issue["loc"])
-                for issue in error.errors(include_input=False)
-            }
-        )
+        fields = sorted({".".join(str(part) for part in issue["loc"]) for issue in error.errors(include_input=False)})
         raise HTTPException(
             status_code=422,
             detail={
@@ -809,6 +783,52 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
         raise HTTPException(
             status_code=422,
             detail="Invalid warehouse credentials",
+        ) from error
+
+
+@app.post(
+    "/context/notion/validate",
+    response_model=ValidateNotionResponse,
+    dependencies=internal_only,
+)
+async def validate_notion(request: ValidateNotionRequest):
+    try:
+        pages = await asyncio.to_thread(
+            validate_notion_context,
+            request.api_key,
+            request.pages,
+        )
+        return ValidateNotionResponse(valid=True, pages=pages)
+    except NotionContextValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not access the selected Notion pages",
+        ) from error
+
+
+@app.post(
+    "/context/confluence/validate",
+    response_model=ValidateConfluenceResponse,
+    dependencies=internal_only,
+)
+async def validate_confluence(request: ValidateConfluenceRequest):
+    try:
+        pages = await asyncio.to_thread(
+            validate_confluence_context,
+            request.base_url,
+            request.email,
+            request.api_token,
+            request.pages,
+        )
+        return ValidateConfluenceResponse(valid=True, pages=pages)
+    except ConfluenceContextValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not access the selected Confluence pages",
         ) from error
 
 

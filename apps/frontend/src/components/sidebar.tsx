@@ -464,7 +464,9 @@ function SidebarNav({
 		},
 		refetchOnWindowFocus: 'always',
 	});
-	const onboardingNeedsAttention = activeOnboardingJob.data?.status === 'awaiting_context';
+	const onboardingNeedsAttention =
+		activeOnboardingJob.data?.status === 'awaiting_sources' ||
+		activeOnboardingJob.data?.status === 'awaiting_context';
 
 	const groups = groupedChats.data?.groups.map((group) => ({
 		...group,

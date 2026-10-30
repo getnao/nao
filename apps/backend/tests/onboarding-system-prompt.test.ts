@@ -70,18 +70,28 @@ describe('onboarding system prompt', () => {
 		expect(prompt).not.toContain('make their DuckDB file public');
 	});
 
-	it('collects optional business context in one open-ended question', () => {
+	it('uses the optional business context already collected by the setup card', () => {
 		const prompt = renderOnboardingSystemPrompt();
 
-		expect(prompt).toContain('warehouse metadata is synchronizing in the background');
-		expect(prompt).toContain('write one or two sentences, paste a link to your company website, or reply Skip');
-		expect(prompt).toContain('The direct open-ended business-context question');
-		expect(prompt).toContain('"additionalContext": "<their complete answer>"');
+		expect(prompt).toContain('Otherwise, end the turn without writing a message');
+		expect(prompt).toContain('never ask for business context in chat');
 		expect(prompt).toContain(
-			'If they reply Skip, or the connection form reports "Skip the business context for now.", use an empty "businessContext" object',
+			'When the business context card reports "I added my business context." or "Skip the business context for now."',
 		);
+		expect(prompt).toContain('the context added in the card is already stored with the setup');
+		expect(prompt).not.toContain('Would you like to provide any additional business context');
+		expect(prompt).not.toContain('additionalContext');
 		expect(prompt).not.toContain('companyDescription');
 		expect(prompt).not.toContain('jobId');
+	});
+
+	it('finishes setups started before the business context card without asking for context', () => {
+		const prompt = renderOnboardingSystemPrompt();
+
+		expect(prompt).toContain(
+			'If the setup status is awaiting_context, the setup started before the business context card existed',
+		);
+		expect(prompt).toContain('Call generate_onboarding_rules with an empty "businessContext" object right away');
 	});
 
 	it('follows the warehouse setup through the agent loop instead of internal events', () => {

@@ -1,4 +1,6 @@
+import importlib
 import json
+from unittest.mock import MagicMock, Mock
 
 import pytest
 import yaml
@@ -7,8 +9,13 @@ from main import app
 from nao_core.config import NaoConfig
 from pydantic import ValidationError
 from warehouse_provisioning import (
+    ConfluenceContextValidationError,
+    NotionContextValidationError,
     infer_warehouse_error_fields,
     prepare_warehouse_config,
+    validate_confluence_context,
+    validate_notion_context,
+    validate_warehouse_credentials,
 )
 
 INTERNAL_SECRET = "test-internal-secret-at-least-20-characters"
@@ -199,6 +206,111 @@ def test_infer_warehouse_error_fields(provider, message, expected):
     assert infer_warehouse_error_fields(provider, ValueError(message)) == expected
 
 
+def test_validate_warehouse_credentials_returns_sorted_inventory(monkeypatch):
+    connection = Mock()
+    connection.list_tables.side_effect = lambda database: {
+        "sales": ["orders", "customers"],
+        "public": ["users"],
+    }[database]
+    config = Mock()
+    config.connect.return_value = connection
+    config.get_schemas.return_value = ["sales", "public"]
+    monkeypatch.setattr("warehouse_provisioning.parse_database_config", lambda _: config)
+
+    result = validate_warehouse_credentials(
+        POSTGRES_REQUEST["provider"],
+        POSTGRES_REQUEST["credentials"],
+    )
+
+    assert result == [
+        {"schema": "public", "tables": ["users"]},
+        {"schema": "sales", "tables": ["customers", "orders"]},
+    ]
+    assert connection.list_tables.call_count == 2
+    connection.disconnect.assert_called_once_with()
+
+
+def test_validate_warehouse_credentials_fails_incomplete_discovery(monkeypatch):
+    connection = Mock()
+    connection.list_tables.side_effect = RuntimeError("table discovery failed")
+    config = Mock()
+    config.connect.return_value = connection
+    config.get_schemas.return_value = ["public"]
+    monkeypatch.setattr("warehouse_provisioning.parse_database_config", lambda _: config)
+
+    with pytest.raises(RuntimeError, match="table discovery failed"):
+        validate_warehouse_credentials(
+            POSTGRES_REQUEST["provider"],
+            POSTGRES_REQUEST["credentials"],
+        )
+
+    connection.disconnect.assert_called_once_with()
+
+
+def test_validate_notion_context_returns_accessible_pages(monkeypatch):
+    notion_provider = importlib.import_module("nao_core.commands.sync.providers.notion.provider")
+    client = Mock()
+    page_id = "a" * 32
+    database_id = "b" * 32
+    monkeypatch.setattr(notion_provider, "create_client", lambda api_key: client)
+    monkeypatch.setattr(
+        notion_provider,
+        "retrieve_page",
+        Mock(
+            side_effect=[
+                {
+                    "icon": None,
+                    "properties": {
+                        "Name": {
+                            "type": "title",
+                            "title": [{"plain_text": "Company context"}],
+                        }
+                    },
+                },
+                None,
+            ]
+        ),
+    )
+    client.databases.retrieve.return_value = {
+        "icon": None,
+        "title": [{"plain_text": "Metrics"}],
+    }
+
+    assert validate_notion_context(
+        "secret",
+        [f"https://notion.so/company-{page_id}", database_id],
+    ) == [
+        {
+            "url": f"https://notion.so/company-{page_id}",
+            "title": "Company context",
+        },
+        {"url": database_id, "title": "Metrics"},
+    ]
+    client.databases.retrieve.assert_called_once_with(database_id=database_id)
+
+
+def test_validate_confluence_context_returns_accessible_pages(monkeypatch):
+    confluence_client = importlib.import_module("nao_core.commands.sync.providers.confluence.client")
+    client_class = MagicMock()
+    client = client_class.return_value.__enter__.return_value
+    client.get_page.side_effect = lambda page_id: Mock(title=f"Page {page_id}")
+    monkeypatch.setattr(confluence_client, "ConfluenceClient", client_class)
+
+    assert validate_confluence_context(
+        "https://acme.atlassian.net/wiki",
+        "person@acme.com",
+        "secret",
+        ["https://acme.atlassian.net/wiki/spaces/ENG/pages/123/Page", "456"],
+    ) == [
+        {
+            "url": "https://acme.atlassian.net/wiki/spaces/ENG/pages/123/Page",
+            "title": "Page 123",
+        },
+        {"url": "456", "title": "Page 456"},
+    ]
+    assert [entry.args[0] for entry in client.get_page.call_args_list] == ["123", "456"]
+
+
 @pytest.mark.parametrize(("provider", "credentials"), SCALAR_WAREHOUSE_CASES)
 def test_prepare_scalar_warehouse_config(provider, credentials):
     database_config, env_vars = prepare_warehouse_config(
@@ -315,9 +427,7 @@ def test_prepare_nested_bigquery_credentials_round_trip(tmp_path):
         ),
     ],
 )
-def test_prepare_rejects_server_side_credentials(
-    provider, credentials, expected_fields
-):
+def test_prepare_rejects_server_side_credentials(provider, credentials, expected_fields):
     with pytest.raises(ValidationError) as error:
         prepare_warehouse_config(provider=provider, credentials=credentials)
 
@@ -376,7 +486,7 @@ def test_prepare_warehouse_endpoint_requires_internal_secret():
 def test_validate_warehouse_endpoint_accepts_working_credentials(monkeypatch):
     monkeypatch.setattr(
         "main.validate_warehouse_credentials",
-        lambda provider, credentials: None,
+        lambda provider, credentials: [{"schema": "public", "tables": ["customers", "orders"]}],
     )
 
     response = TestClient(app, headers=INTERNAL_HEADERS).post(
@@ -385,7 +495,10 @@ def test_validate_warehouse_endpoint_accepts_working_credentials(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"valid": True}
+    assert response.json() == {
+        "valid": True,
+        "schemas": [{"schema": "public", "tables": ["customers", "orders"]}],
+    }
 
 
 def test_validate_warehouse_endpoint_rejects_invalid_credentials(monkeypatch):
@@ -408,6 +521,82 @@ def test_validate_warehouse_endpoint_rejects_invalid_credentials(monkeypatch):
     }
 
 
+def test_validate_notion_endpoint_returns_accessible_pages(monkeypatch):
+    monkeypatch.setattr(
+        "main.validate_notion_context",
+        lambda api_key, pages: [{"url": pages[0], "title": "Company context"}],
+    )
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/context/notion/validate",
+        json={"api_key": "secret", "pages": ["https://notion.so/page"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "pages": [{"url": "https://notion.so/page", "title": "Company context"}],
+    }
+
+
+def test_validate_notion_endpoint_returns_actionable_error(monkeypatch):
+    monkeypatch.setattr(
+        "main.validate_notion_context",
+        Mock(side_effect=NotionContextValidationError("Notion rejected the integration token.")),
+    )
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/context/notion/validate",
+        json={"api_key": "wrong", "pages": ["https://notion.so/page"]},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Notion rejected the integration token."}
+
+
+def test_validate_confluence_endpoint_returns_accessible_pages(monkeypatch):
+    monkeypatch.setattr(
+        "main.validate_confluence_context",
+        lambda base_url, email, api_token, pages: [{"url": pages[0], "title": "Company handbook"}],
+    )
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/context/confluence/validate",
+        json={
+            "base_url": "https://acme.atlassian.net/wiki",
+            "email": "person@acme.com",
+            "api_token": "secret",
+            "pages": ["123"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "pages": [{"url": "123", "title": "Company handbook"}],
+    }
+
+
+def test_validate_confluence_endpoint_returns_actionable_error(monkeypatch):
+    monkeypatch.setattr(
+        "main.validate_confluence_context",
+        Mock(side_effect=ConfluenceContextValidationError("Confluence rejected the email or API token.")),
+    )
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/context/confluence/validate",
+        json={
+            "base_url": "https://acme.atlassian.net/wiki",
+            "email": "person@acme.com",
+            "api_token": "wrong",
+            "pages": ["123"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Confluence rejected the email or API token."}
+
+
 def test_prepare_warehouse_endpoint_returns_postgres_config():
     response = TestClient(app, headers=INTERNAL_HEADERS).post(
         "/warehouse/prepare",
@@ -417,9 +606,7 @@ def test_prepare_warehouse_endpoint_returns_postgres_config():
     assert response.status_code == 200
     body = response.json()
     assert body["database_config"]["type"] == "postgres"
-    assert (
-        body["database_config"]["host"] == "${{ env('NAO_ONBOARDING_POSTGRES_HOST') }}"
-    )
+    assert body["database_config"]["host"] == "${{ env('NAO_ONBOARDING_POSTGRES_HOST') }}"
     assert body["env_vars"]["NAO_ONBOARDING_POSTGRES_PASSWORD"] == json.dumps("secret")
     assert "secret" not in json.dumps(body["database_config"])
 

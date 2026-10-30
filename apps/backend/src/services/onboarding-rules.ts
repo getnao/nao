@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { BUSINESS_CONTEXT_FILE_EXTENSIONS, documentExtension } from '@nao/shared/attachments';
 import type { generateOnboardingRules as generateOnboardingRulesTool } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText } from 'ai';
@@ -16,8 +17,11 @@ import { safeFetch } from '../utils/safe-fetch';
 
 const MAX_CONTEXT_FILES = 60;
 const MAX_CONTEXT_CHARACTERS = 60_000;
+const MAX_BUSINESS_CONTEXT_FILES = 20;
+const MAX_BUSINESS_CONTEXT_CHARACTERS = 20_000;
 const MAX_ADDITIONAL_CONTEXT_CHARACTERS = 15_000;
 const MAX_WEBSITE_CONTEXT_CHARACTERS = 15_000;
+const READABLE_CONTEXT_EXTENSIONS = new Set<string>([...BUSINESS_CONTEXT_FILE_EXTENSIONS, 'yaml', 'yml']);
 
 type BusinessContext = generateOnboardingRulesTool.Input['businessContext'];
 
@@ -122,8 +126,29 @@ async function resolveAdditionalContext(businessContext: BusinessContext): Promi
 }
 
 function readProjectContext(projectPath: string): string {
-	const files = collectContextFiles(projectPath);
-	let remainingCharacters = MAX_CONTEXT_CHARACTERS;
+	const { businessContextFiles, metadataFiles } = collectContextFiles(projectPath);
+	const selectedBusinessContextFiles = businessContextFiles.slice(0, MAX_BUSINESS_CONTEXT_FILES);
+	const selectedMetadataFiles = metadataFiles.slice(0, MAX_CONTEXT_FILES - selectedBusinessContextFiles.length);
+	const businessContext = readContextFiles(
+		projectPath,
+		selectedBusinessContextFiles,
+		MAX_BUSINESS_CONTEXT_CHARACTERS,
+	);
+	const metadata = readContextFiles(
+		projectPath,
+		selectedMetadataFiles,
+		MAX_CONTEXT_CHARACTERS - businessContext.characters,
+	);
+
+	return [...businessContext.sections, ...metadata.sections].join('\n\n');
+}
+
+function readContextFiles(
+	projectPath: string,
+	files: string[],
+	maxCharacters: number,
+): { sections: string[]; characters: number } {
+	let remainingCharacters = maxCharacters;
 	const sections: string[] = [];
 
 	for (const file of files) {
@@ -144,17 +169,21 @@ function readProjectContext(projectPath: string): string {
 		}
 	}
 
-	return sections.join('\n\n');
+	return { sections, characters: maxCharacters - remainingCharacters };
 }
 
-function collectContextFiles(projectPath: string): string[] {
-	const files: string[] = [];
+function collectContextFiles(projectPath: string): { businessContextFiles: string[]; metadataFiles: string[] } {
+	const businessContextFiles: string[] = [];
+	const metadataFiles: string[] = [];
 
-	for (const directory of ['databases', 'docs', 'repos', 'semantics']) {
-		collectFiles(path.join(projectPath, directory), files);
+	for (const directory of ['docs', 'repos']) {
+		collectFiles(path.join(projectPath, directory), businessContextFiles);
+	}
+	for (const directory of ['databases', 'semantics']) {
+		collectFiles(path.join(projectPath, directory), metadataFiles);
 	}
 
-	return files;
+	return { businessContextFiles, metadataFiles };
 }
 
 function collectFiles(directory: string, files: string[]): void {
@@ -181,12 +210,11 @@ function collectFiles(directory: string, files: string[]): void {
 }
 
 function shouldReadContextFile(filePath: string): boolean {
-	const extension = path.extname(filePath);
 	const fileName = path.basename(filePath);
 
 	if (filePath.includes(`${path.sep}databases${path.sep}`)) {
 		return ['columns.md', 'profiling.md', 'ai_summary.md'].includes(fileName);
 	}
 
-	return ['.md', '.yaml', '.yml'].includes(extension);
+	return READABLE_CONTEXT_EXTENSIONS.has(documentExtension(fileName) ?? '');
 }

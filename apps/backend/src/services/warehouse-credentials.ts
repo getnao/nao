@@ -1,14 +1,41 @@
 import { z } from 'zod/v4';
 
+import * as projectQueries from '../queries/project.queries';
 import * as credentialsQueries from '../queries/project-warehouse-credentials.queries';
+import * as userQueries from '../queries/user.queries';
 import { type WarehouseProvider, warehouseProviderSchema } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { HandlerError } from '../utils/error';
+import { authenticatedRepoUrl } from './github';
 
-const storedWarehouseEnvSchema = z.object({
-	version: z.literal(1),
-	envVars: z.record(z.string(), z.string()),
-});
+export const ONBOARDING_GITHUB_REPOSITORY_URL_ENV = 'NAO_ONBOARDING_GITHUB_REPOSITORY_URL';
+const DISABLED_GITHUB_REPOSITORY_URL = JSON.stringify('https://github.invalid/nao-access-revoked.git');
+
+const storedWarehouseEnvSchema = z.discriminatedUnion('version', [
+	z.object({
+		version: z.literal(1),
+		envVars: z.record(z.string(), z.string()),
+	}),
+	z.object({
+		version: z.literal(2),
+		envVars: z.record(z.string(), z.string()),
+		githubConnection: z
+			.object({
+				userId: z.string().min(1),
+				repoFullName: z.string().min(1),
+			})
+			.optional(),
+	}),
+]);
+
+type StoredWarehouseEnv = z.infer<typeof storedWarehouseEnvSchema>;
+
+type ProjectWarehouseCredentialReferences = {
+	githubConnection?: {
+		userId: string;
+		repoFullName: string;
+	};
+};
 
 export type ProjectWarehouseCredentialsSummary = {
 	provider: WarehouseProvider;
@@ -20,9 +47,14 @@ export async function saveProjectWarehouseEnvVars(
 	projectId: string,
 	provider: WarehouseProvider,
 	envVars: Record<string, string>,
+	references: ProjectWarehouseCredentialReferences = {},
 ): Promise<void> {
 	const validatedProvider = warehouseProviderSchema.parse(provider);
-	const payload = storedWarehouseEnvSchema.parse({ version: 1, envVars });
+	const payload = storedWarehouseEnvSchema.parse({
+		version: 2,
+		envVars: withoutStoredGithubToken(envVars),
+		...references,
+	});
 	const encryptedPayload = encryptSecret(JSON.stringify(payload));
 
 	await credentialsQueries.upsertProjectWarehouseCredentials(projectId, validatedProvider, encryptedPayload);
@@ -30,7 +62,35 @@ export async function saveProjectWarehouseEnvVars(
 
 export async function getProjectWarehouseEnvVars(projectId: string): Promise<Record<string, string>> {
 	const storedCredentials = await credentialsQueries.getProjectWarehouseCredentials(projectId);
-	return storedCredentials ? decryptStoredEnvVars(storedCredentials.encryptedCredentials) : {};
+	if (!storedCredentials) {
+		return {};
+	}
+
+	const payload = decryptStoredWarehouseEnv(storedCredentials.encryptedCredentials);
+	const hadStoredGithubToken = ONBOARDING_GITHUB_REPOSITORY_URL_ENV in payload.envVars;
+	const envVars = withoutStoredGithubToken(payload.envVars);
+	if (payload.version === 1) {
+		return hadStoredGithubToken ? withDisabledGithubRepository(envVars) : envVars;
+	}
+	if (!payload.githubConnection) {
+		return envVars;
+	}
+
+	const role = await projectQueries.getUserRoleInProject(projectId, payload.githubConnection.userId);
+	if (!role) {
+		return withDisabledGithubRepository(envVars);
+	}
+	const token = await userQueries.getGithubToken(payload.githubConnection.userId);
+	if (!token) {
+		return withDisabledGithubRepository(envVars);
+	}
+
+	return {
+		...envVars,
+		[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: JSON.stringify(
+			authenticatedRepoUrl(token, payload.githubConnection.repoFullName),
+		),
+	};
 }
 
 /** Describes the stored warehouse credentials of a project without revealing their values. */
@@ -42,7 +102,7 @@ export async function getProjectWarehouseCredentialsSummary(
 		return null;
 	}
 
-	const envVars = decryptStoredEnvVars(storedCredentials.encryptedCredentials);
+	const envVars = withoutStoredGithubToken(decryptStoredWarehouseEnv(storedCredentials.encryptedCredentials).envVars);
 	return {
 		provider: storedCredentials.provider,
 		updatedAt: storedCredentials.updatedAt,
@@ -62,7 +122,8 @@ export async function updateProjectWarehouseCredentials(
 		throw new HandlerError('NOT_FOUND', 'This project has no stored warehouse credentials.');
 	}
 
-	const envVars = decryptStoredEnvVars(storedCredentials.encryptedCredentials);
+	const payload = decryptStoredWarehouseEnv(storedCredentials.encryptedCredentials);
+	const envVars = withoutStoredGithubToken(payload.envVars);
 	const updatedEnvVars = { ...envVars };
 	for (const [name, value] of Object.entries(values)) {
 		if (!(name in envVars)) {
@@ -71,16 +132,32 @@ export async function updateProjectWarehouseCredentials(
 		updatedEnvVars[name] = encodeLikeStoredValue(envVars[name], value, name);
 	}
 
-	await saveProjectWarehouseEnvVars(projectId, storedCredentials.provider, updatedEnvVars);
+	await saveProjectWarehouseEnvVars(
+		projectId,
+		storedCredentials.provider,
+		updatedEnvVars,
+		payload.version === 2 ? { githubConnection: payload.githubConnection } : {},
+	);
 }
 
-function decryptStoredEnvVars(encryptedCredentials: string): Record<string, string> {
+function decryptStoredWarehouseEnv(encryptedCredentials: string): StoredWarehouseEnv {
 	try {
-		const payload = storedWarehouseEnvSchema.parse(JSON.parse(decryptSecret(encryptedCredentials)));
-		return payload.envVars;
+		return storedWarehouseEnvSchema.parse(JSON.parse(decryptSecret(encryptedCredentials)));
 	} catch {
 		throw new Error('Invalid warehouse environment');
 	}
+}
+
+function withDisabledGithubRepository(envVars: Record<string, string>): Record<string, string> {
+	return {
+		...envVars,
+		[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: DISABLED_GITHUB_REPOSITORY_URL,
+	};
+}
+
+function withoutStoredGithubToken(envVars: Record<string, string>): Record<string, string> {
+	const { [ONBOARDING_GITHUB_REPOSITORY_URL_ENV]: _githubRepositoryUrl, ...safeEnvVars } = envVars;
+	return safeEnvVars;
 }
 
 function encodeLikeStoredValue(storedValue: string, value: string, name: string): string {

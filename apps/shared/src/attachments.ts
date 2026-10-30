@@ -53,6 +53,13 @@ export const BINARY_DOCUMENT_EXTENSIONS = [
 
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
 export const MAX_IMAGE_SIZE_MB = 5;
+export const BUSINESS_CONTEXT_FILE_EXTENSIONS = ['md', 'txt'] as const;
+export const BUSINESS_CONTEXT_FILE_ACCEPT = BUSINESS_CONTEXT_FILE_EXTENSIONS.map((extension) => `.${extension}`).join(
+	',',
+);
+export const MAX_BUSINESS_CONTEXT_FILE_SIZE_MB = 5;
+export const MAX_BUSINESS_CONTEXT_FILES = 10;
+export const MAX_BUSINESS_CONTEXT_TOTAL_SIZE_MB = 25;
 
 /** `accept` value for a file input taking every kind of attachment. */
 export const ATTACHMENT_ACCEPT = [

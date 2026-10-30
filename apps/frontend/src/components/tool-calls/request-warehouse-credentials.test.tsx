@@ -68,10 +68,45 @@ vi.mock('./warehouse-credentials', () => ({
 }));
 
 vi.mock('./warehouse-credentials-form', () => ({
-	WarehouseCredentialsForm: ({ onSubmit }: { onSubmit: (values: Record<string, never>) => Promise<void> }) => (
-		<button type='button' onClick={() => onSubmit({})}>
+	WarehouseCredentialsForm: ({
+		onSubmit,
+		onValuesChange,
+	}: {
+		onSubmit: (values: Record<string, never>) => Promise<void>;
+		onValuesChange: (values: Record<string, never>) => void;
+	}) => (
+		<button
+			type='button'
+			onClick={() => {
+				onValuesChange({});
+				void onSubmit({});
+			}}
+		>
 			Submit credentials
 		</button>
+	),
+}));
+
+vi.mock('./warehouse-table-selection', () => ({
+	getAllWarehouseTableKeys: () => new Set(['public.orders']),
+	getCompactWarehouseTableSelection: () => ({ schemas: [], tables: [] }),
+	WarehouseTableSelection: ({ onSubmit }: { onSubmit: () => void }) => (
+		<button type='button' onClick={onSubmit}>
+			Start setup
+		</button>
+	),
+}));
+
+vi.mock('./request-business-context', () => ({
+	RequestBusinessContext: ({ onSubmitted }: { onSubmitted: (provided: boolean) => void }) => (
+		<div>
+			<button type='button' onClick={() => onSubmitted(true)}>
+				Submit business context
+			</button>
+			<button type='button' onClick={() => onSubmitted(false)}>
+				Skip business context
+			</button>
+		</div>
 	),
 }));
 
@@ -95,10 +130,12 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
-	it('validates, starts the setup and reports the submission to the agent', async () => {
+	it('validates, asks for the tables, starts the setup and reports the submission to the agent', async () => {
+		mocks.mutations.validate.mutateAsync.mockResolvedValue({ schemas: [{ schema: 'public', tables: ['orders'] }] });
 		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Submit credentials' }));
+		fireEvent.click(await screen.findByRole('button', { name: 'Start setup' }));
 
 		await waitFor(() =>
 			expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({
@@ -113,6 +150,7 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 			provider: 'postgres',
 			credentials: { host: 'localhost' },
 			onboardingChatId: 'chat-1',
+			tableSelection: { mode: 'all' },
 		});
 	});
 
@@ -137,37 +175,34 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 		expect(activeStep.textContent).toContain('42%');
 	});
 
-	it('lets users skip the business context and tells the agent', () => {
-		mocks.latestJob = createJob({ status: 'awaiting_context' });
+	it('shows the business context card once the connection is verified and reports it to the agent', () => {
+		mocks.latestJob = createJob({ status: 'awaiting_sources' });
 		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
+		expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Add business context');
 
+		fireEvent.click(screen.getByRole('button', { name: 'Submit business context' }));
+		expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({ text: 'I added my business context.' });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Skip business context' }));
 		expect(mocks.queueOrSendMessage).toHaveBeenCalledWith({ text: 'Skip the business context for now.' });
-		expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull();
-		expect(screen.getByText('Skipped')).toBeTruthy();
 	});
 
-	it('asks for the business context again when a new setup starts after a skip', () => {
-		mocks.latestJob = createJob({ id: 'job-1', status: 'awaiting_context' });
-		const view = render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
-		fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
+	it('hides the business context card once the sources are submitted', () => {
+		mocks.latestJob = createJob({ status: 'syncing' });
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		mocks.latestJob = createJob({ id: 'job-2', status: 'awaiting_context' });
-		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
-
-		expect(screen.getByRole('button', { name: 'Skip for now' })).toBeTruthy();
-		expect(screen.queryByText('Skipped')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Submit business context' })).toBeNull();
 	});
 
-	it('offers to skip the business context only while it is requested', () => {
+	it('only asks for the business context in the card, never in the chat', () => {
+		mocks.isCardScrolledAbove = true;
 		mocks.latestJob = createJob({ status: 'awaiting_context', businessContextProvided: true });
-		const view = render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
-		expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull();
+		render(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
 
-		mocks.latestJob = createJob({ status: 'debugging' });
-		view.rerender(<RequestWarehouseCredentialsToolCall toolPart={createToolPart()} />);
+		expect(screen.queryByText('Answer in the chat')).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull();
+		expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Generate RULES.md');
 	});
 
 	it('lets users retry a failed setup and tells the agent', async () => {
@@ -234,7 +269,6 @@ describe('RequestWarehouseCredentialsToolCall', () => {
 		const floating = within(screen.getByTestId('floating-slot'));
 		expect(floating.getByText('Setting up Postgres')).toBeTruthy();
 		expect(floating.getByText('Sync warehouse metadata · 42%')).toBeTruthy();
-		expect(floating.getByRole('button', { name: 'Skip for now' })).toBeTruthy();
 	});
 
 	it('offers to retry a failed setup from the floating summary', async () => {
