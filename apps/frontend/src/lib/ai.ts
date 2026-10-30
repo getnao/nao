@@ -416,7 +416,7 @@ const isSettledEmptyReasoning = (part: UIMessagePart): boolean => {
 	return isReasoningPart(part) && part.state !== 'streaming' && part.text.trim() === '';
 };
 
-/** The backend promotes the note Claude writes before `suggest_follow_ups` to the visible answer, which makes the note redundant. */
+/** Older messages repeat the note Claude wrote before `suggest_follow_ups` as the visible answer, which makes the note redundant. */
 const isProgressUpdateShownAsText = (part: UIMessagePart, next: UIMessagePart | undefined): boolean => {
 	return isProgressUpdatePart(part) && next?.type === 'text' && next.text.trim() === part.text.trim();
 };

@@ -16,6 +16,6 @@ export default tool<suggestFollowUps.Input, suggestFollowUps.Output>({
 
 	toModelOutput: () => ({
 		type: 'text',
-		value: 'Follow-ups suggested successfully.',
+		value: 'Follow-ups recorded, but this response carried no visible answer: notes written before a tool call are hidden from the user. Write your complete answer now as your final message, following every rule of your instructions, and call no other tool. If you already wrote it as visible text earlier in this turn, end the turn without repeating it.',
 	}),
 });
