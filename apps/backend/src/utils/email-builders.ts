@@ -112,6 +112,49 @@ export async function buildNotificationEmail(
 	);
 }
 
+export async function buildScheduledWorkPausedEmail(
+	user: { name: string },
+	organizationName: string,
+	resources: Array<{ type: string; id: string | null }>,
+): Promise<CreatedEmail> {
+	const bodyHtml = `<p>Your scheduled work in ${escapeEmailText(organizationName)} is paused because you currently have viewer access.</p><ul>${resources
+		.map(
+			(resource) =>
+				`<li>${escapeEmailText(resource.type)}${resource.id ? ` (${escapeEmailText(resource.id)})` : ''}</li>`,
+		)
+		.join('')}</ul><p>An organization admin can restore access by adding or reallocating a seat.</p>`;
+	return buildNotificationEmail(
+		user,
+		'Scheduled work paused',
+		undefined,
+		'/settings/organization/billing',
+		'View billing and seats',
+		undefined,
+		undefined,
+		bodyHtml,
+	);
+}
+
+export async function buildCapacityContractionEmail(
+	user: { name: string },
+	organizationName: string,
+	readOnlyUsers: Array<{ name: string; email: string }>,
+): Promise<CreatedEmail> {
+	const bodyHtml = `<p>${escapeEmailText(organizationName)} now has ${readOnlyUsers.length} ${readOnlyUsers.length === 1 ? 'person' : 'people'} with viewer access because capacity decreased.</p><ul>${readOnlyUsers
+		.map(({ name, email }) => `<li>${escapeEmailText(name)} (${escapeEmailText(email)})</li>`)
+		.join('')}</ul><p>Add seats, change the seat selection, or update memberships to restore access.</p>`;
+	return buildNotificationEmail(
+		user,
+		'Organization capacity changed',
+		undefined,
+		'/settings/organization/billing',
+		'Manage seats',
+		undefined,
+		undefined,
+		bodyHtml,
+	);
+}
+
 export async function buildBudgetLimitReachedEmail(
 	user: { name: string },
 	providerLabel: string,
@@ -147,4 +190,13 @@ function createEmail(
 	const html = `<!DOCTYPE html>${renderToString(element)}`;
 	const attachments = [...(branding.logo ? [branding.logo] : []), ...extraAttachments];
 	return attachments.length > 0 ? { subject, html, attachments } : { subject, html };
+}
+
+function escapeEmailText(value: string): string {
+	return value
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('"', '&quot;')
+		.replaceAll("'", '&#39;');
 }

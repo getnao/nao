@@ -11,12 +11,14 @@ import {
 const mocks = vi.hoisted(() => ({
 	deleteJobByUniqueKey: vi.fn(),
 	ensureRecurring: vi.fn(),
+	getFirstProjectAdminUserId: vi.fn(),
 	getLatestRun: vi.fn(),
 	listProjectRecommendationScheduleConfigs: vi.fn(),
 	runContextRecommendations: vi.fn(),
 }));
 
 vi.mock('../src/queries/context-recommendation.queries', () => ({
+	getFirstProjectAdminUserId: mocks.getFirstProjectAdminUserId,
 	getLatestRun: mocks.getLatestRun,
 	listProjectRecommendationScheduleConfigs: mocks.listProjectRecommendationScheduleConfigs,
 }));
@@ -40,6 +42,7 @@ vi.mock('../src/services/scheduler.service', () => ({
 describe('context recommendations scheduling', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.getFirstProjectAdminUserId.mockResolvedValue('admin-1');
 		mocks.getLatestRun.mockResolvedValue(null);
 	});
 
@@ -97,6 +100,7 @@ describe('context recommendations scheduling', () => {
 
 		expect(mocks.runContextRecommendations).toHaveBeenCalledWith('project-1', {
 			billingAccessVerifiedProjectId: 'project-1',
+			triggeredByUserId: 'admin-1',
 		});
 	});
 

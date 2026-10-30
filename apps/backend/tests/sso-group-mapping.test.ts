@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	readVerifiedClaims: vi.fn(),
 	getUserOrgMembership: vi.fn(),
 	updateOrgMemberRole: vi.fn(),
+	putOrganizationMember: vi.fn(),
 	countOrgAdmins: vi.fn(),
 	updateProjectMemberRole: vi.fn(),
 	cleanupContextWorktree: vi.fn(),
@@ -40,6 +41,9 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { sso: 'sso' },
+}));
+vi.mock('../src/services/membership.service', () => ({
+	putOrganizationMember: mocks.putOrganizationMember,
 }));
 
 vi.mock('../src/services/microsoft-auth.service', () => ({
@@ -92,6 +96,11 @@ beforeEach(() => {
 	mocks.readDecodedClaims.mockReset();
 	mocks.getUserOrgMembership.mockReset().mockResolvedValue({ orgId: 'org-1', role: 'viewer' });
 	mocks.updateOrgMemberRole.mockReset().mockResolvedValue(undefined);
+	mocks.putOrganizationMember.mockReset().mockResolvedValue({
+		userId: 'user-1',
+		role: 'viewer',
+		outcome: null,
+	});
 	mocks.countOrgAdmins.mockReset().mockResolvedValue(2);
 	mocks.updateProjectMemberRole.mockReset().mockResolvedValue(undefined);
 	mocks.cleanupContextWorktree.mockReset().mockResolvedValue(undefined);
@@ -169,7 +178,9 @@ describe('syncOrganizationRoleFromSsoGroups', () => {
 
 		await syncOrganizationRoleFromSsoGroups('user-1');
 
-		expect(mocks.updateOrgMemberRole).toHaveBeenCalledWith('org-1', 'user-1', 'viewer');
+		expect(mocks.putOrganizationMember).toHaveBeenCalledWith('org-1', 'user-1', 'viewer', {
+			addIfMissing: false,
+		});
 		expect(mocks.updateProjectMemberRole).not.toHaveBeenCalled();
 		expect(mocks.cleanupContextWorktree).not.toHaveBeenCalled();
 	});
@@ -215,7 +226,9 @@ describe('syncOrganizationRoleFromMicrosoftGroups', () => {
 			'11111111-2222-3333-4444-555555555555',
 		]);
 
-		expect(mocks.updateOrgMemberRole).toHaveBeenCalledWith('org-1', 'user-1', 'admin');
+		expect(mocks.putOrganizationMember).toHaveBeenCalledWith('org-1', 'user-1', 'admin', {
+			addIfMissing: false,
+		});
 		expect(mocks.updateProjectMemberRole).not.toHaveBeenCalled();
 	});
 

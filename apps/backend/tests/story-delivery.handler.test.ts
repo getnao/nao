@@ -63,7 +63,7 @@ vi.mock('../src/utils/story-links', () => ({
 }));
 
 import {
-	resolveStoryDeliveryProjectId,
+	resolveStoryDeliveryProjectPrincipal,
 	runScheduledStoryDelivery,
 	storyDeliveryHandler,
 } from '../src/handlers/story-delivery.handler';
@@ -79,6 +79,7 @@ it('delivers the refreshed story with scheduler-verified billing access', async 
 
 	expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-id', 'story-slug', {
 		billingAccessVerifiedProjectId: 'project-id',
+		principalUserId: 'user-id',
 	});
 	expect(mocks.notifyUsers).toHaveBeenCalledOnce();
 	expect(mocks.notifyUsers).toHaveBeenCalledWith(
@@ -91,7 +92,7 @@ it('delivers the refreshed story with scheduler-verified billing access', async 
 it('lets the handler no-op when the scheduled story no longer exists', async () => {
 	mocks.getStoryById.mockResolvedValueOnce(undefined);
 
-	await expect(resolveStoryDeliveryProjectId({ storyId: 'deleted-story-id' })).resolves.toBeNull();
+	await expect(resolveStoryDeliveryProjectPrincipal({ storyId: 'deleted-story-id' })).resolves.toBeNull();
 });
 
 it('preserves successful channels when the scheduler retries delivery', async () => {

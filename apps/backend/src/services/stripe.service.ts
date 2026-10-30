@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 
-import { env, isCloudBillingEnabled } from '../env';
+import { env, isCloudBillingEnabled, isCloudFreeTierEnabled } from '../env';
 import type { SubscriptionProjection } from '../queries/billing.queries';
 import {
 	BILLING_STATUSES,
@@ -11,8 +11,16 @@ import {
 	type CloudBillingInterval,
 	type CloudBillingPlan,
 	type CloudBillingPlanDefinition,
+	type CloudBillingPlanKey,
+	type CurrentCloudBillingPlanDefinition,
+	getCloudBillingPlanDefinition,
 	isCloudBillingPlanKey,
+	isLegacyCloudBillingPlanKey,
 	isTerminalBillingStatus,
+	LEGACY_CLOUD_BILLING_PLANS,
+	type LegacyCloudBillingPlanDefinition,
+	type LegacyCloudBillingPlanKey,
+	type PaidCloudBillingTier,
 } from '../types/billing';
 
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2026-08-26.dahlia';
@@ -47,6 +55,12 @@ type CloudSubscriptionItem = Stripe.SubscriptionItem & {
 	price: CloudRecurringPriceDetails;
 };
 
+type CloudPaidProductItem = {
+	item: CloudSubscriptionItem;
+	tier: PaidCloudBillingTier;
+	legacy: boolean;
+};
+
 export type CloudSubscriptionKind = 'paid-cloud' | 'trial-placeholder';
 
 export interface ClassifiedCloudSubscription {
@@ -72,6 +86,22 @@ interface CloudUpcomingInvoice {
 	currency: string;
 	nextPaymentAt: Date;
 	promotionCodes: string[];
+}
+
+export interface CloudSubscriptionChangePreview {
+	amountDue: number;
+	subtotal: number;
+	tax: number;
+	discount: number;
+	currency: CloudBillingCurrency;
+	lines: Array<{
+		description: string;
+		amount: number;
+		currency: CloudBillingCurrency;
+		proration: boolean;
+		periodStartsAt: Date | null;
+		periodEndsAt: Date | null;
+	}>;
 }
 
 export interface StripeAccountInvoice {
@@ -106,7 +136,7 @@ export class CloudSubscriptionResumeError extends Error {}
 
 let stripeClient: Stripe | undefined;
 const cloudPriceCache = new Map<
-	CloudBillingInterval,
+	CloudBillingPlanKey | LegacyCloudBillingPlanKey,
 	{ lookupKey: string; productId: string; expiresAt: number; price: Promise<CloudPrice> }
 >();
 let cloudTrialPriceCache:
@@ -157,7 +187,9 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 
 export async function createCloudCheckoutSession(
 	input: {
-		billingInterval: CloudBillingInterval;
+		billingInterval?: CloudBillingInterval;
+		planKey?: CloudBillingPlanKey;
+		quantity?: number;
 		currency?: CloudBillingCurrency;
 		organizationId: string;
 		stripeCustomerId: string;
@@ -196,7 +228,9 @@ export async function createCloudCheckoutSession(
 }
 
 export async function createCloudResubscribeSession(input: {
-	billingInterval: CloudBillingInterval;
+	billingInterval?: CloudBillingInterval;
+	planKey?: CloudBillingPlanKey;
+	quantity?: number;
 	currency?: CloudBillingCurrency;
 	organizationId: string;
 	stripeCustomerId: string;
@@ -221,7 +255,9 @@ export async function createCloudResubscribeSession(input: {
 }
 
 async function createSubscriptionCheckoutSession(input: {
-	billingInterval: CloudBillingInterval;
+	billingInterval?: CloudBillingInterval;
+	planKey?: CloudBillingPlanKey;
+	quantity?: number;
 	currency: CloudBillingCurrency;
 	organizationId: string;
 	stripeCustomerId: string;
@@ -231,7 +267,10 @@ async function createSubscriptionCheckoutSession(input: {
 	trialEnd?: Date;
 	effectiveTrialEnd?: number | null;
 }): Promise<string> {
-	const plan = CLOUD_BILLING_PLANS[input.billingInterval];
+	const plan = input.planKey
+		? CLOUD_BILLING_PLANS[input.planKey]
+		: legacyCloudBillingPlanDefinition(requireCloudBillingInterval(input.billingInterval));
+	const quantity = input.planKey ? (input.quantity ?? 1) : 1;
 	const sourceTrialEnd = input.trialEnd ? stripeTimestamp(input.trialEnd) : null;
 	const effectiveTrialEnd = input.effectiveTrialEnd ?? null;
 	const trialMessage =
@@ -248,6 +287,7 @@ async function createSubscriptionCheckoutSession(input: {
 		session.allow_promotion_codes === true &&
 		session.metadata?.[ORGANIZATION_METADATA_KEY] === input.organizationId &&
 		session.metadata?.[PLAN_METADATA_KEY] === plan.key &&
+		(input.planKey === undefined || session.metadata?.nao_quantity === String(quantity)) &&
 		session.metadata?.[CHECKOUT_KIND_METADATA_KEY] === input.kind &&
 		(session.metadata?.[TRIAL_END_METADATA_KEY] ?? null) ===
 			(sourceTrialEnd === null ? null : String(sourceTrialEnd)) &&
@@ -258,7 +298,9 @@ async function createSubscriptionCheckoutSession(input: {
 	}
 	const latestExpiredSession = await findCheckoutSession(input.stripeCustomerId, 'expired', matchesCheckout);
 
-	const price = await getCloudPrice(input.billingInterval);
+	const price = input.planKey
+		? await getCloudPrice(input.planKey)
+		: await getLegacyCloudPrice(requireCloudBillingInterval(input.billingInterval));
 	const billingUrl = billingPageUrl();
 	const session = await getStripeClient().checkout.sessions.create(
 		{
@@ -270,7 +312,7 @@ async function createSubscriptionCheckoutSession(input: {
 			tax_id_collection: { enabled: true },
 			billing_address_collection: 'required',
 			client_reference_id: input.organizationId,
-			line_items: [{ price: price.id, quantity: 1 }],
+			line_items: [{ price: price.id, quantity }],
 			allow_promotion_codes: true,
 			payment_method_collection: 'always',
 			payment_method_types: ['card'],
@@ -279,6 +321,7 @@ async function createSubscriptionCheckoutSession(input: {
 				[ORGANIZATION_METADATA_KEY]: input.organizationId,
 				[PLAN_METADATA_KEY]: plan.key,
 				[CHECKOUT_KIND_METADATA_KEY]: input.kind,
+				...(input.planKey ? { nao_quantity: String(quantity) } : {}),
 				...(sourceTrialEnd === null ? {} : { [TRIAL_END_METADATA_KEY]: String(sourceTrialEnd) }),
 			},
 			subscription_data: {
@@ -302,7 +345,7 @@ async function createSubscriptionCheckoutSession(input: {
 			cancel_url: `${billingUrl}?checkout=canceled`,
 		},
 		{
-			idempotencyKey: `cloud-checkout-${input.kind}-v12:${input.organizationId}:${plan.key}:${input.currency}:${input.operationKey}${latestExpiredSession ? `:${latestExpiredSession.id}` : ''}`,
+			idempotencyKey: `cloud-checkout-${input.kind}-v12:${input.organizationId}:${plan.key}:${input.currency}:${input.operationKey}${input.planKey ? `:${quantity}` : ''}${latestExpiredSession ? `:${latestExpiredSession.id}` : ''}`,
 		},
 	);
 	if (!session.url) {
@@ -393,6 +436,178 @@ export async function getCloudUpcomingInvoice(stripeSubscriptionId: string): Pro
 	};
 }
 
+export async function previewCloudSubscriptionChange(input: {
+	subscription: Stripe.Subscription;
+	targetPlanKey: CloudBillingPlanKey;
+	targetQuantity: number;
+	prorationDate: Date;
+	prorationBehavior: 'always_invoice' | 'none';
+}): Promise<CloudSubscriptionChangePreview> {
+	const paidItem = requireCloudPaidProductItem(input.subscription);
+	const price = await getCloudPrice(input.targetPlanKey);
+	const invoice = await getStripeClient().invoices.createPreview({
+		subscription: input.subscription.id,
+		subscription_details: {
+			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
+			proration_date: stripeTimestamp(input.prorationDate),
+			proration_behavior: input.prorationBehavior,
+		},
+	});
+	const currency = assertCloudBillingCurrency(invoice.currency);
+	return {
+		amountDue: invoice.amount_due,
+		subtotal: invoice.subtotal,
+		tax: (invoice.total_taxes ?? []).reduce((total, tax) => total + tax.amount, 0),
+		discount: (invoice.total_discount_amounts ?? []).reduce((total, discount) => total + discount.amount, 0),
+		currency,
+		lines: invoice.lines.data.map((line) => ({
+			description: line.description ?? '',
+			amount: line.amount,
+			currency: assertCloudBillingCurrency(line.currency),
+			proration: line.parent?.subscription_item_details?.proration === true,
+			periodStartsAt: stripeDate(line.period?.start ?? null),
+			periodEndsAt: stripeDate(line.period?.end ?? null),
+		})),
+	};
+}
+
+export async function updateCloudSubscriptionQuantity(input: {
+	organizationId: string;
+	subscription: Stripe.Subscription;
+	targetQuantity: number;
+	prorationDate: Date;
+	requestId: string;
+}): Promise<Stripe.Subscription> {
+	const paidItem = requireCloudPaidProductItem(input.subscription);
+	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
+	const currentQuantity = paidItem.item.quantity ?? 1;
+	const paidIncrease = input.subscription.status !== 'trialing' && input.targetQuantity > currentQuantity;
+	return getStripeClient().subscriptions.update(
+		input.subscription.id,
+		{
+			items: [{ id: paidItem.item.id, quantity: input.targetQuantity }],
+			proration_behavior: paidIncrease ? 'always_invoice' : 'none',
+			proration_date: stripeTimestamp(input.prorationDate),
+			...(paidIncrease ? { payment_behavior: 'error_if_incomplete' as const } : {}),
+		},
+		{
+			idempotencyKey: `cloud-seat-quantity-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetQuantity}`,
+		},
+	);
+}
+
+export async function updateCloudSubscriptionPlan(input: {
+	organizationId: string;
+	subscription: Stripe.Subscription;
+	targetPlanKey: CloudBillingPlanKey;
+	targetQuantity: number;
+	prorationDate: Date;
+	requestId: string;
+	chargeImmediately: boolean;
+}): Promise<Stripe.Subscription> {
+	const paidItem = requireCloudPaidProductItem(input.subscription);
+	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
+	const price = await getCloudPrice(input.targetPlanKey);
+	const paidUpgrade = input.subscription.status !== 'trialing' && input.chargeImmediately;
+	return getStripeClient().subscriptions.update(
+		input.subscription.id,
+		{
+			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
+			proration_behavior: paidUpgrade ? 'always_invoice' : 'none',
+			proration_date: stripeTimestamp(input.prorationDate),
+			...(paidUpgrade ? { payment_behavior: 'error_if_incomplete' as const } : {}),
+			...(input.subscription.status === 'trialing' && input.subscription.trial_end
+				? { trial_end: input.subscription.trial_end }
+				: {}),
+		},
+		{
+			idempotencyKey: `cloud-plan-change-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}:${input.targetQuantity}`,
+		},
+	);
+}
+
+export async function setCloudSubscriptionCancellation(input: {
+	organizationId: string;
+	subscription: Stripe.Subscription;
+	cancelAtPeriodEnd: boolean;
+	requestId: string;
+}): Promise<Stripe.Subscription> {
+	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
+	return getStripeClient().subscriptions.update(
+		input.subscription.id,
+		{ cancel_at_period_end: input.cancelAtPeriodEnd, proration_behavior: 'none' },
+		{
+			idempotencyKey: `cloud-switch-free-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}`,
+		},
+	);
+}
+
+export async function createCloudPlanChangeSchedule(input: {
+	organizationId: string;
+	subscription: Stripe.Subscription;
+	targetPlanKey: CloudBillingPlanKey;
+	requestId: string;
+}): Promise<Stripe.SubscriptionSchedule> {
+	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
+	return getStripeClient().subscriptionSchedules.create(
+		{ from_subscription: input.subscription.id },
+		{
+			idempotencyKey: `cloud-plan-schedule-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}`,
+		},
+	);
+}
+
+export async function getCloudPlanChangeSchedule(scheduleId: string): Promise<Stripe.SubscriptionSchedule> {
+	return getStripeClient().subscriptionSchedules.retrieve(scheduleId, {
+		expand: ['phases.items.price.product'],
+	});
+}
+
+export async function updateCloudPlanChangeSchedule(input: {
+	schedule: Stripe.SubscriptionSchedule;
+	targetPlanKey: CloudBillingPlanKey;
+	targetQuantity: number;
+	effectiveAt: Date;
+}): Promise<Stripe.SubscriptionSchedule> {
+	const price = await getCloudPrice(input.targetPlanKey);
+	const currentPhase = input.schedule.phases.find(
+		(phase) =>
+			phase.start_date <= stripeTimestamp(input.effectiveAt) &&
+			phase.end_date >= stripeTimestamp(input.effectiveAt),
+	);
+	if (!currentPhase) {
+		throw new Error(`Stripe Subscription Schedule "${input.schedule.id}" has no current phase`);
+	}
+	const currentPhaseParams = copyCloudSchedulePhase(
+		currentPhase,
+		currentPhase.start_date,
+		stripeTimestamp(input.effectiveAt),
+	);
+	const {
+		start_date: _currentStartDate,
+		end_date: _currentEndDate,
+		items: _currentItems,
+		...futurePhaseSettings
+	} = copyCloudSchedulePhase(currentPhase, currentPhase.start_date, stripeTimestamp(input.effectiveAt));
+	return getStripeClient().subscriptionSchedules.update(input.schedule.id, {
+		end_behavior: 'release',
+		proration_behavior: 'none',
+		phases: [
+			currentPhaseParams,
+			{
+				...futurePhaseSettings,
+				start_date: stripeTimestamp(input.effectiveAt),
+				items: [{ price: price.id, quantity: input.targetQuantity }],
+				proration_behavior: 'none',
+			},
+		],
+	});
+}
+
+export async function releaseCloudPlanChangeSchedule(scheduleId: string): Promise<Stripe.SubscriptionSchedule> {
+	return getStripeClient().subscriptionSchedules.release(scheduleId, { preserve_cancel_date: true });
+}
+
 export async function listStripeInvoicesCreatedSince(createdSince: Date): Promise<StripeAccountInvoice[]> {
 	const invoices: StripeAccountInvoice[] = [];
 	for await (const invoice of getStripeClient().invoices.list({
@@ -420,7 +635,6 @@ export async function listStripeInvoicesCreatedSince(createdSince: Date): Promis
 
 /** Monthly amounts are normalized from the plan interval and net of recurring coupons. */
 export async function listCurrentCloudSubscriptions(): Promise<CloudSubscriptionRevenue[]> {
-	const productId = configuredCloudProductId();
 	const subscriptions: CloudSubscriptionRevenue[] = [];
 	for (const status of ['active', 'past_due', 'trialing'] as const) {
 		for await (const subscription of getStripeClient().subscriptions.list({
@@ -428,8 +642,8 @@ export async function listCurrentCloudSubscriptions(): Promise<CloudSubscription
 			expand: ['data.discounts.source.coupon'],
 			limit: 100,
 		})) {
-			const item = cloudProductItem(subscription, productId);
-			if (!item) {
+			const paidItem = cloudPaidProductItem(subscription);
+			if (!paidItem) {
 				continue;
 			}
 			subscriptions.push({
@@ -437,7 +651,7 @@ export async function listCurrentCloudSubscriptions(): Promise<CloudSubscription
 				stripeCustomerId: stripeCustomerId(subscription.customer),
 				status: subscription.status,
 				currency: subscription.currency,
-				monthlyAmount: await monthlyRecurringAmount(subscription, item),
+				monthlyAmount: await monthlyRecurringAmount(subscription, paidItem.item),
 			});
 		}
 	}
@@ -515,11 +729,8 @@ export async function hasCloudDefaultPaymentMethod(stripeCustomerIdValue: string
 }
 
 export function cloudSubscriptionKind(subscription: Stripe.Subscription): CloudSubscriptionKind | null {
-	const paidItem = cloudProductItem(subscription, configuredCloudProductId());
+	const paidItem = cloudPaidProductItem(subscription);
 	const placeholderItem = cloudTrialPlaceholderItem(subscription);
-	if (paidItem && placeholderItem) {
-		throw new Error(`Stripe Subscription "${subscription.id}" mixes paid and trial placeholder Products`);
-	}
 	if (paidItem) {
 		return 'paid-cloud';
 	}
@@ -570,7 +781,7 @@ export function getCloudSubscriptionCurrency(stripeSubscriptionId: string): Prom
 
 export async function findCloudSubscription(stripeSubscriptionId: string): Promise<Stripe.Subscription | null> {
 	const subscription = await getStripeClient().subscriptions.retrieve(stripeSubscriptionId);
-	return hasProduct(subscription, configuredCloudProductId()) ? subscription : null;
+	return cloudPaidProductItem(subscription) ? subscription : null;
 }
 
 export async function findManagedCloudSubscription(stripeSubscriptionId: string): Promise<Stripe.Subscription | null> {
@@ -626,10 +837,11 @@ export async function cloudSubscriptionProjection(subscription: Stripe.Subscript
 	if (kind === 'trial-placeholder') {
 		return cloudTrialPlaceholderProjection(subscription, billingStatus);
 	}
-	const item = cloudProductItem(subscription, configuredCloudProductId());
-	if (!item) {
+	const paidItem = cloudPaidProductItem(subscription);
+	if (!paidItem) {
 		throw new Error(`Stripe Subscription "${subscription.id}" has no cloud plan item`);
 	}
+	const { item } = paidItem;
 
 	const trialEndsAt = stripeDate(subscription.trial_end);
 	const currentPeriodStartsAt = stripeDate(item.current_period_start);
@@ -640,13 +852,17 @@ export async function cloudSubscriptionProjection(subscription: Stripe.Subscript
 	const hasDefaultPaymentMethod =
 		hasSubscriptionDefaultPaymentMethod(subscription) ||
 		(await hasCloudDefaultPaymentMethod(stripeCustomerId(subscription.customer)));
-	const plan = cloudBillingPlanDefinition(item.price);
+	const plan = cloudBillingPlanDefinition(item.price, paidItem);
+	const schedule = await cloudSubscriptionScheduleProjection(subscription, item.current_period_end);
 	return {
 		billingPlan: plan.key,
 		billingStatus,
 		stripeCustomerId: stripeCustomerId(subscription.customer),
 		stripeSubscriptionId: subscription.id,
+		stripeSubscriptionItemId: item.id,
 		stripePriceId: item.price.id,
+		seatQuantity: paidItem.tier === 'team' ? (item.quantity ?? null) : null,
+		...schedule,
 		trialStartedAt: stripeDate(subscription.trial_start),
 		trialEndsAt,
 		currentPeriodStartsAt,
@@ -683,7 +899,12 @@ async function cloudTrialPlaceholderProjection(
 		billingStatus,
 		stripeCustomerId: stripeCustomerId(subscription.customer),
 		stripeSubscriptionId: subscription.id,
+		stripeSubscriptionItemId: null,
 		stripePriceId: item.price.id,
+		seatQuantity: null,
+		stripeSubscriptionScheduleId: null,
+		pendingBillingPlan: null,
+		pendingSeatQuantity: null,
 		trialStartedAt: stripeDate(subscription.trial_start),
 		trialEndsAt,
 		currentPeriodStartsAt: stripeDate(item.current_period_start),
@@ -694,8 +915,106 @@ async function cloudTrialPlaceholderProjection(
 	};
 }
 
+async function cloudSubscriptionScheduleProjection(
+	subscription: Stripe.Subscription,
+	currentPeriodEnd: number,
+): Promise<
+	Pick<SubscriptionProjection, 'pendingBillingPlan' | 'pendingSeatQuantity' | 'stripeSubscriptionScheduleId'>
+> {
+	if (!subscription.schedule) {
+		return emptyCloudSubscriptionScheduleProjection();
+	}
+	const schedule = await expandedSubscriptionSchedule(subscription.schedule);
+	if (['canceled', 'completed', 'released'].includes(schedule.status)) {
+		return emptyCloudSubscriptionScheduleProjection();
+	}
+	const pendingPhase = schedule.phases.find((phase) => phase.start_date >= currentPeriodEnd);
+	if (!pendingPhase) {
+		return {
+			stripeSubscriptionScheduleId: schedule.id,
+			pendingBillingPlan: null,
+			pendingSeatQuantity: null,
+		};
+	}
+	const pendingItem = cloudPaidSchedulePhaseItem(schedule, pendingPhase);
+	if (!pendingItem) {
+		return {
+			stripeSubscriptionScheduleId: schedule.id,
+			pendingBillingPlan: null,
+			pendingSeatQuantity: null,
+		};
+	}
+	const plan = cloudBillingPlanDefinition(pendingItem.price, pendingItem);
+	return {
+		stripeSubscriptionScheduleId: schedule.id,
+		pendingBillingPlan: plan.key,
+		pendingSeatQuantity: pendingItem.tier === 'team' ? (pendingItem.quantity ?? null) : null,
+	};
+}
+
+function emptyCloudSubscriptionScheduleProjection(): Pick<
+	SubscriptionProjection,
+	'pendingBillingPlan' | 'pendingSeatQuantity' | 'stripeSubscriptionScheduleId'
+> {
+	return {
+		stripeSubscriptionScheduleId: null,
+		pendingBillingPlan: null,
+		pendingSeatQuantity: null,
+	};
+}
+
+async function expandedSubscriptionSchedule(
+	schedule: string | Stripe.SubscriptionSchedule,
+): Promise<Stripe.SubscriptionSchedule> {
+	if (typeof schedule !== 'string' && hasExpandedSchedulePrices(schedule)) {
+		return schedule;
+	}
+	const scheduleId = typeof schedule === 'string' ? schedule : schedule.id;
+	return getStripeClient().subscriptionSchedules.retrieve(scheduleId, {
+		expand: ['phases.items.price.product'],
+	});
+}
+
+function hasExpandedSchedulePrices(schedule: Stripe.SubscriptionSchedule): boolean {
+	return schedule.phases.every((phase) => phase.items.every((item) => typeof item.price !== 'string'));
+}
+
+function cloudPaidSchedulePhaseItem(
+	schedule: Stripe.SubscriptionSchedule,
+	phase: Stripe.SubscriptionSchedule.Phase,
+):
+	| (Stripe.SubscriptionSchedule.Phase.Item &
+			Pick<CloudPaidProductItem, 'legacy' | 'tier'> & {
+				price: CloudRecurringPriceDetails;
+			})
+	| null {
+	const paidItems = phase.items.flatMap((item) => {
+		if (typeof item.price === 'string' || item.price.deleted) {
+			return [];
+		}
+		const product = cloudPaidProductForPrice(item.price);
+		return product ? [{ ...item, ...product, price: item.price }] : [];
+	});
+	const productIds = new Set(paidItems.map(({ price }) => stripeProductId(price.product)));
+	if (productIds.size > 1) {
+		throw new Error(`Stripe Subscription Schedule "${schedule.id}" mixes paid cloud Products`);
+	}
+	const paidItem = paidItems[0];
+	if (!paidItem) {
+		return null;
+	}
+	if (!isCloudRecurringPriceDetails(paidItem.price)) {
+		throw new Error(`Stripe Subscription Schedule "${schedule.id}" has an invalid paid cloud Price`);
+	}
+	return { ...paidItem, price: paidItem.price };
+}
+
 export async function validateCloudBillingConfiguration(): Promise<void> {
-	await Promise.all([getAvailableCloudPrices(), getCloudTrialPrice()]);
+	await Promise.all([
+		...Object.keys(CLOUD_BILLING_PLANS).map((planKey) => getCloudPrice(planKey as CloudBillingPlanKey)),
+		...(!isCloudFreeTierEnabled() ? [getAvailableLegacyCloudPrices()] : []),
+		getCloudTrialPrice(),
+	]);
 	const taxSettings = await getStripeClient().tax.settings.retrieve();
 	if (taxSettings.status !== 'active') {
 		const missingFields = taxSettings.status_details.pending?.missing_fields?.join(', ');
@@ -703,25 +1022,21 @@ export async function validateCloudBillingConfiguration(): Promise<void> {
 	}
 }
 
-export async function getCloudPrice(billingInterval: CloudBillingInterval): Promise<CloudPrice> {
-	const plan = CLOUD_BILLING_PLANS[billingInterval];
-	const lookupKeyVariable =
-		billingInterval === 'monthly'
-			? 'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY'
-			: 'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY';
+export async function getCloudPrice(planKey: CloudBillingPlanKey): Promise<CloudPrice> {
+	const plan = CLOUD_BILLING_PLANS[planKey];
+	const { lookupKeyVariable, productId, unitAmount } = currentCloudPriceConfiguration(plan);
 	const lookupKey = env[lookupKeyVariable];
 	if (!lookupKey) {
 		throw new Error(`${lookupKeyVariable} is required when cloud billing is enabled`);
 	}
-	const productId = configuredCloudProductId();
-	const cached = cloudPriceCache.get(billingInterval);
+	const cached = cloudPriceCache.get(planKey);
 
 	if (cached?.lookupKey === lookupKey && cached.productId === productId && cached.expiresAt > Date.now()) {
 		return cached.price;
 	}
 
-	const price = fetchCloudPrice(lookupKey, productId, plan);
-	cloudPriceCache.set(billingInterval, {
+	const price = fetchCloudPrice(lookupKey, productId, plan, unitAmount);
+	cloudPriceCache.set(planKey, {
 		lookupKey,
 		productId,
 		expiresAt: Date.now() + CLOUD_PRICE_CACHE_TTL_MS,
@@ -730,8 +1045,62 @@ export async function getCloudPrice(billingInterval: CloudBillingInterval): Prom
 	try {
 		return await price;
 	} catch (error) {
-		if (cloudPriceCache.get(billingInterval)?.price === price) {
-			cloudPriceCache.delete(billingInterval);
+		if (cloudPriceCache.get(planKey)?.price === price) {
+			cloudPriceCache.delete(planKey);
+		}
+		throw error;
+	}
+}
+
+export async function getCurrentCloudBillingPlans(currency: CloudBillingCurrency) {
+	return Promise.all(
+		(Object.keys(CLOUD_BILLING_PLANS) as CloudBillingPlanKey[]).map(async (planKey) => {
+			const plan = CLOUD_BILLING_PLANS[planKey];
+			const price = await getCloudPrice(planKey);
+			const unitAmount = cloudPriceAmount(price, currency);
+			if (unitAmount === null) {
+				throw new Error(`Stripe Price "${price.id}" does not support ${currency.toUpperCase()}`);
+			}
+			return {
+				planKey,
+				tier: plan.tier,
+				interval: plan.interval === 'month' ? ('monthly' as const) : ('yearly' as const),
+				currency,
+				unitAmount,
+				perSeat: plan.perSeat,
+			};
+		}),
+	);
+}
+
+async function getLegacyCloudPrice(billingInterval: CloudBillingInterval): Promise<CloudPrice> {
+	const plan = legacyCloudBillingPlanDefinition(billingInterval);
+	const lookupKeyVariable =
+		billingInterval === 'monthly'
+			? 'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY'
+			: 'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY';
+	const lookupKey = env[lookupKeyVariable];
+	if (!lookupKey) {
+		throw new Error(`${lookupKeyVariable} is required when cloud billing is enabled`);
+	}
+	const productId = configuredCloudPaidProductIds().legacyUnlimited;
+	const cached = cloudPriceCache.get(plan.key);
+	if (cached?.lookupKey === lookupKey && cached.productId === productId && cached.expiresAt > Date.now()) {
+		return cached.price;
+	}
+
+	const price = fetchLegacyCloudPrice(lookupKey, productId, plan);
+	cloudPriceCache.set(plan.key, {
+		lookupKey,
+		productId,
+		expiresAt: Date.now() + CLOUD_PRICE_CACHE_TTL_MS,
+		price,
+	});
+	try {
+		return await price;
+	} catch (error) {
+		if (cloudPriceCache.get(plan.key)?.price === price) {
+			cloudPriceCache.delete(plan.key);
 		}
 		throw error;
 	}
@@ -743,8 +1112,8 @@ async function getCloudTrialPrice(): Promise<CloudTrialPrice> {
 		throw new Error('STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY is required when cloud billing is enabled');
 	}
 	const productId = configuredCloudTrialProductId();
-	if (productId === configuredCloudProductId()) {
-		throw new Error('STRIPE_CLOUD_TRIAL_PRODUCT_ID must differ from STRIPE_CLOUD_PRODUCT_ID');
+	if (Object.values(configuredCloudPaidProductIds()).includes(productId)) {
+		throw new Error('STRIPE_CLOUD_TRIAL_PRODUCT_ID must differ from all paid cloud Product ids');
 	}
 	if (
 		cloudTrialPriceCache?.lookupKey === lookupKey &&
@@ -795,7 +1164,8 @@ async function fetchCloudTrialPrice(lookupKey: string, productId: string): Promi
 async function fetchCloudPrice(
 	lookupKey: string,
 	productId: string,
-	plan: CloudBillingPlanDefinition,
+	plan: CurrentCloudBillingPlanDefinition,
+	unitAmount: number,
 ): Promise<CloudPrice> {
 	const [price] = (
 		await getStripeClient().prices.list({
@@ -809,12 +1179,36 @@ async function fetchCloudPrice(
 	if (!price) {
 		throw new Error(`No active Stripe Price found for lookup key "${lookupKey}"`);
 	}
-	if (!isExpectedCloudPrice(price, plan) || price.product.id !== productId) {
+	if (!isExpectedCloudPrice(price, plan, unitAmount) || price.product.id !== productId) {
 		throw new Error(
-			`Stripe Price "${price.id}" must belong to configured active Product "${productId}" and be a fixed positive USD and EUR ${plan.interval}ly licensed Price`,
+			`Stripe Price "${price.id}" must belong to configured active Product "${productId}" and be a fixed USD ${unitAmount} and EUR ${unitAmount} ${plan.interval}ly licensed Price`,
 		);
 	}
 
+	return price;
+}
+
+async function fetchLegacyCloudPrice(
+	lookupKey: string,
+	productId: string,
+	plan: LegacyCloudBillingPlanDefinition,
+): Promise<CloudPrice> {
+	const [price] = (
+		await getStripeClient().prices.list({
+			active: true,
+			expand: ['data.currency_options', 'data.product'],
+			lookup_keys: [lookupKey],
+			limit: 1,
+		})
+	).data;
+	if (!price) {
+		throw new Error(`No active Stripe Price found for lookup key "${lookupKey}"`);
+	}
+	if (!isExpectedLegacyCloudPrice(price, plan) || price.product.id !== productId) {
+		throw new Error(
+			`Stripe Price "${price.id}" must belong to configured active legacy Product "${productId}" and be a fixed positive USD and EUR ${plan.interval}ly licensed Price`,
+		);
+	}
 	return price;
 }
 
@@ -834,34 +1228,35 @@ export async function getCloudBillingPlans(
 	availablePlans: Record<CloudBillingInterval, CloudBillingPlan>;
 	subscriptionPlan: CloudBillingPlan | null;
 }> {
-	const { monthly: monthlyPrice, yearly: yearlyPrice } = await getAvailableCloudPrices();
+	const { monthly: monthlyPrice, yearly: yearlyPrice } = await getAvailableLegacyCloudPrices();
+	const monthlyPlan = LEGACY_CLOUD_BILLING_PLANS.cloud_monthly_v2;
+	const yearlyPlan = LEGACY_CLOUD_BILLING_PLANS.cloud_yearly_v1;
 	const availablePlans = {
-		monthly: cloudBillingPlan(monthlyPrice, currency),
-		yearly: cloudBillingPlan(yearlyPrice, currency),
+		monthly: cloudBillingPlan(monthlyPrice, monthlyPlan, currency),
+		yearly: cloudBillingPlan(yearlyPrice, yearlyPlan, currency),
 	};
 	if (!stripePriceId) {
 		return { availablePlans, subscriptionPlan: null };
 	}
 	const currentCurrency = subscriptionCurrency ?? currency;
 	if (stripePriceId === monthlyPrice.id) {
-		return { availablePlans, subscriptionPlan: cloudBillingPlan(monthlyPrice, currentCurrency) };
+		return { availablePlans, subscriptionPlan: cloudBillingPlan(monthlyPrice, monthlyPlan, currentCurrency) };
 	}
 	if (stripePriceId === yearlyPrice.id) {
-		return { availablePlans, subscriptionPlan: cloudBillingPlan(yearlyPrice, currentCurrency) };
+		return { availablePlans, subscriptionPlan: cloudBillingPlan(yearlyPrice, yearlyPlan, currentCurrency) };
 	}
 
 	const subscriptionPrice = await getStripeClient().prices.retrieve(stripePriceId, {
 		expand: ['currency_options'],
 	});
-	if (
-		!isCloudRecurringPriceDetails(subscriptionPrice) ||
-		stripeProductId(subscriptionPrice.product) !== configuredCloudProductId()
-	) {
+	const paidProduct = cloudPaidProductForPrice(subscriptionPrice);
+	if (!isCloudRecurringPriceDetails(subscriptionPrice) || !paidProduct) {
 		throw new Error(`Stripe Price "${stripePriceId}" is not a valid historical cloud Price`);
 	}
+	const plan = cloudBillingPlanDefinition(subscriptionPrice, paidProduct);
 	return {
 		availablePlans,
-		subscriptionPlan: cloudBillingPlan(subscriptionPrice, subscriptionCurrency ?? subscriptionPrice.currency),
+		subscriptionPlan: cloudBillingPlan(subscriptionPrice, plan, subscriptionCurrency ?? subscriptionPrice.currency),
 	};
 }
 
@@ -944,7 +1339,8 @@ function isOrganizationCheckoutSession(
 	return (
 		session.metadata?.[ORGANIZATION_METADATA_KEY] === input.organizationId &&
 		session.metadata?.[CHECKOUT_KIND_METADATA_KEY] === input.kind &&
-		isCloudBillingPlanKey(session.metadata?.[PLAN_METADATA_KEY])
+		(isCloudBillingPlanKey(session.metadata?.[PLAN_METADATA_KEY]) ||
+			isLegacyCloudBillingPlanKey(session.metadata?.[PLAN_METADATA_KEY]))
 	);
 }
 
@@ -974,8 +1370,8 @@ async function expireSupersededCheckoutSession(
 	}
 }
 
-async function getAvailableCloudPrices(): Promise<Record<CloudBillingInterval, CloudPrice>> {
-	const [monthly, yearly] = await Promise.all([getCloudPrice('monthly'), getCloudPrice('yearly')]);
+async function getAvailableLegacyCloudPrices(): Promise<Record<CloudBillingInterval, CloudPrice>> {
+	const [monthly, yearly] = await Promise.all([getLegacyCloudPrice('monthly'), getLegacyCloudPrice('yearly')]);
 	return { monthly, yearly };
 }
 
@@ -1013,17 +1409,48 @@ function invoicePromotionCodes(invoice: Pick<Stripe.Invoice, 'discounts'>): stri
 	});
 }
 
-function hasProduct(subscription: Stripe.Subscription, productId: string): boolean {
-	return cloudProductItem(subscription, productId) !== null;
+function cloudPaidProductItem(subscription: Stripe.Subscription): CloudPaidProductItem | null {
+	const paidItems = subscription.items.data.flatMap((item) => {
+		const product = cloudPaidProductForPrice(item.price);
+		return product ? [{ item, ...product }] : [];
+	});
+	const productIds = new Set(paidItems.map(({ item }) => stripeProductId(item.price.product)));
+	if (productIds.size > 1) {
+		throw new Error(`Stripe Subscription "${subscription.id}" mixes paid cloud Products`);
+	}
+	if (
+		paidItems.length > 0 &&
+		subscription.items.data.some((item) => stripeProductId(item.price.product) === configuredCloudTrialProductId())
+	) {
+		throw new Error(`Stripe Subscription "${subscription.id}" mixes paid and trial placeholder Products`);
+	}
+	const paidItem = paidItems[0];
+	if (!paidItem) {
+		return null;
+	}
+	if (!isCloudRecurringPriceDetails(paidItem.item.price)) {
+		throw new Error(`Stripe Subscription "${subscription.id}" has an invalid paid cloud Price`);
+	}
+	const classifiedItem = { ...paidItem, item: paidItem.item as CloudSubscriptionItem };
+	if (!findCloudBillingPlanDefinition(classifiedItem.item.price, classifiedItem)) {
+		throw new Error(`Stripe Price "${classifiedItem.item.price.id}" is not configured for its paid cloud Product`);
+	}
+	return classifiedItem;
 }
 
-function cloudProductItem(subscription: Stripe.Subscription, productId: string): CloudSubscriptionItem | null {
-	return (
-		subscription.items.data.find(
-			(item): item is CloudSubscriptionItem =>
-				stripeProductId(item.price.product) === productId && isCloudRecurringPriceDetails(item.price),
-		) ?? null
-	);
+function cloudPaidProductForPrice(price: Stripe.Price): Pick<CloudPaidProductItem, 'tier' | 'legacy'> | null {
+	const productId = stripeProductId(price.product);
+	const productIds = configuredCloudPaidProductIds();
+	if (productId === productIds.team) {
+		return { tier: 'team', legacy: false };
+	}
+	if (productId === productIds.unlimited) {
+		return { tier: 'unlimited', legacy: false };
+	}
+	if (productId === productIds.legacyUnlimited) {
+		return { tier: 'unlimited', legacy: true };
+	}
+	return null;
 }
 
 function cloudTrialPlaceholderItem(subscription: Stripe.Subscription): Stripe.SubscriptionItem | null {
@@ -1040,11 +1467,23 @@ function cloudTrialPlaceholderItem(subscription: Stripe.Subscription): Stripe.Su
 	);
 }
 
-function configuredCloudProductId(): string {
-	if (!env.STRIPE_CLOUD_PRODUCT_ID) {
-		throw new Error('STRIPE_CLOUD_PRODUCT_ID is required when cloud billing is enabled');
+function configuredCloudPaidProductIds(): {
+	team: string;
+	unlimited: string;
+	legacyUnlimited: string;
+} {
+	if (
+		!env.STRIPE_CLOUD_TEAM_PRODUCT_ID ||
+		!env.STRIPE_CLOUD_UNLIMITED_PRODUCT_ID ||
+		!env.STRIPE_CLOUD_LEGACY_PRODUCT_ID
+	) {
+		throw new Error('All paid cloud Product ids are required when cloud billing is enabled');
 	}
-	return env.STRIPE_CLOUD_PRODUCT_ID;
+	return {
+		team: env.STRIPE_CLOUD_TEAM_PRODUCT_ID,
+		unlimited: env.STRIPE_CLOUD_UNLIMITED_PRODUCT_ID,
+		legacyUnlimited: env.STRIPE_CLOUD_LEGACY_PRODUCT_ID,
+	};
 }
 
 function configuredCloudTrialProductId(): string {
@@ -1068,8 +1507,125 @@ function assertCloudSubscriptionOrganization(subscription: Stripe.Subscription, 
 	}
 }
 
+function requireCloudPaidProductItem(subscription: Stripe.Subscription): CloudPaidProductItem {
+	const paidItem = cloudPaidProductItem(subscription);
+	if (!paidItem) {
+		throw new Error(`Stripe Subscription "${subscription.id}" has no cloud plan item`);
+	}
+	return paidItem;
+}
+
+function assertCloudBillingCurrency(currency: string): CloudBillingCurrency {
+	if (!(CLOUD_BILLING_CURRENCIES as readonly string[]).includes(currency)) {
+		throw new Error(`Stripe returned unsupported billing currency "${currency}"`);
+	}
+	return currency as CloudBillingCurrency;
+}
+
+function copyCloudSchedulePhase(phase: Stripe.SubscriptionSchedule.Phase, startDate: number, endDate: number) {
+	return {
+		start_date: startDate,
+		end_date: endDate,
+		items: phase.items.map((item) => ({
+			price: typeof item.price === 'string' ? item.price : item.price.id,
+			quantity: item.quantity ?? 1,
+			...(item.metadata ? { metadata: item.metadata } : {}),
+			...(item.tax_rates ? { tax_rates: item.tax_rates.map(stripeId) } : {}),
+			...(item.billing_thresholds?.usage_gte
+				? { billing_thresholds: { usage_gte: item.billing_thresholds.usage_gte } }
+				: {}),
+			...(item.discounts?.length > 0 ? { discounts: item.discounts.map(copyCloudScheduleDiscount) } : {}),
+		})),
+		proration_behavior: phase.proration_behavior,
+		...(phase.automatic_tax
+			? {
+					automatic_tax: {
+						enabled: phase.automatic_tax.enabled,
+						...(phase.automatic_tax.liability
+							? {
+									liability: {
+										type: phase.automatic_tax.liability.type,
+										...(phase.automatic_tax.liability.account
+											? { account: stripeId(phase.automatic_tax.liability.account) }
+											: {}),
+									},
+								}
+							: {}),
+					},
+				}
+			: {}),
+		...(phase.billing_cycle_anchor ? { billing_cycle_anchor: phase.billing_cycle_anchor } : {}),
+		...(phase.billing_thresholds
+			? {
+					billing_thresholds: {
+						...(phase.billing_thresholds.amount_gte === null
+							? {}
+							: { amount_gte: phase.billing_thresholds.amount_gte }),
+						...(phase.billing_thresholds.reset_billing_cycle_anchor === null
+							? {}
+							: { reset_billing_cycle_anchor: phase.billing_thresholds.reset_billing_cycle_anchor }),
+					},
+				}
+			: {}),
+		...(phase.collection_method ? { collection_method: phase.collection_method } : {}),
+		...(phase.default_payment_method ? { default_payment_method: stripeId(phase.default_payment_method) } : {}),
+		...(phase.default_tax_rates ? { default_tax_rates: phase.default_tax_rates.map(stripeId) } : {}),
+		...(phase.description ? { description: phase.description } : {}),
+		...(phase.discounts?.length > 0 ? { discounts: phase.discounts.map(copyCloudScheduleDiscount) } : {}),
+		...(phase.invoice_settings
+			? { invoice_settings: copyCloudScheduleInvoiceSettings(phase.invoice_settings) }
+			: {}),
+		...(phase.metadata ? { metadata: phase.metadata } : {}),
+		...(phase.on_behalf_of ? { on_behalf_of: stripeId(phase.on_behalf_of) } : {}),
+		...(phase.transfer_data
+			? {
+					transfer_data: {
+						amount_percent: phase.transfer_data.amount_percent ?? undefined,
+						destination: stripeId(phase.transfer_data.destination),
+					},
+				}
+			: {}),
+		...(phase.trial_end ? { trial_end: phase.trial_end } : {}),
+	};
+}
+
+function copyCloudScheduleInvoiceSettings(settings: Stripe.SubscriptionSchedule.Phase.InvoiceSettings) {
+	return {
+		...(settings.account_tax_ids ? { account_tax_ids: settings.account_tax_ids.map(stripeId) } : {}),
+		...(settings.custom_fields ? { custom_fields: settings.custom_fields } : {}),
+		...(settings.days_until_due === null ? {} : { days_until_due: settings.days_until_due }),
+		...(settings.description === null ? {} : { description: settings.description }),
+		...(settings.footer === null ? {} : { footer: settings.footer }),
+		...(settings.issuer
+			? {
+					issuer: {
+						type: settings.issuer.type,
+						...(settings.issuer.account ? { account: stripeId(settings.issuer.account) } : {}),
+					},
+				}
+			: {}),
+	};
+}
+
+function copyCloudScheduleDiscount(discount: Stripe.SubscriptionSchedule.Phase.Discount) {
+	if (discount.discount) {
+		return { discount: stripeId(discount.discount) };
+	}
+	if (discount.promotion_code) {
+		return { promotion_code: stripeId(discount.promotion_code) };
+	}
+	if (discount.coupon) {
+		return { coupon: stripeId(discount.coupon) };
+	}
+	throw new Error('Stripe Subscription Schedule contains an invalid discount');
+}
+
 function stripeCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer): string {
 	return typeof customer === 'string' ? customer : customer.id;
+}
+
+function stripeId(value: string | { id: string }): string {
+	return typeof value === 'string' ? value : value.id;
 }
 
 function stripeProductId(product: string | Stripe.Product | Stripe.DeletedProduct): string {
@@ -1095,7 +1651,28 @@ function isBillingStatus(status: string): status is BillingStatus {
 	return (BILLING_STATUSES as readonly string[]).includes(status);
 }
 
-function isExpectedCloudPrice(price: Stripe.Price, plan: CloudBillingPlanDefinition): price is CloudPrice {
+function isExpectedCloudPrice(
+	price: Stripe.Price,
+	plan: CurrentCloudBillingPlanDefinition,
+	unitAmount: number,
+): price is CloudPrice {
+	const { lookupKeyVariable } = currentCloudPriceConfiguration(plan);
+	return (
+		price.active &&
+		typeof price.product !== 'string' &&
+		!price.product.deleted &&
+		price.product.active &&
+		isCloudRecurringPriceDetails(price) &&
+		price.currency === 'usd' &&
+		price.unit_amount === unitAmount &&
+		price.currency_options?.eur?.unit_amount === unitAmount &&
+		price.lookup_key === env[lookupKeyVariable] &&
+		price.recurring.interval === plan.interval &&
+		price.recurring.interval_count === plan.intervalCount
+	);
+}
+
+function isExpectedLegacyCloudPrice(price: Stripe.Price, plan: LegacyCloudBillingPlanDefinition): price is CloudPrice {
 	return (
 		price.active &&
 		typeof price.product !== 'string' &&
@@ -1127,39 +1704,118 @@ function isCloudRecurringPriceDetails(price: Stripe.Price): price is CloudRecurr
 		typeof price.unit_amount === 'number' &&
 		price.unit_amount > 0 &&
 		price.type === 'recurring' &&
-		price.recurring?.usage_type === 'licensed' &&
-		findCloudBillingPlanDefinition(price) !== undefined
+		price.recurring?.usage_type === 'licensed'
 	);
 }
 
-function cloudBillingPlanDefinition(price: CloudRecurringPriceDetails): CloudBillingPlanDefinition {
-	const plan = findCloudBillingPlanDefinition(price);
+function cloudBillingPlanDefinition(
+	price: CloudRecurringPriceDetails,
+	product: Pick<CloudPaidProductItem, 'tier' | 'legacy'>,
+): CloudBillingPlanDefinition {
+	const plan = findCloudBillingPlanDefinition(price, product);
 	if (!plan) {
-		throw new Error(`Stripe Price "${price.id}" has an unsupported billing interval`);
+		throw new Error(`Stripe Price "${price.id}" is not configured for its paid cloud Product`);
 	}
 	return plan;
 }
 
-function findCloudBillingPlanDefinition(price: Stripe.Price): CloudBillingPlanDefinition | undefined {
+function findCloudBillingPlanDefinition(
+	price: Stripe.Price,
+	product: Pick<CloudPaidProductItem, 'tier' | 'legacy'>,
+): CloudBillingPlanDefinition | undefined {
 	const recurring = price.recurring;
 	if (!recurring) {
 		return undefined;
 	}
-	return Object.values(CLOUD_BILLING_PLANS).find(
-		(plan) => plan.interval === recurring.interval && plan.intervalCount === recurring.interval_count,
-	);
+	if (product.legacy) {
+		return Object.values(LEGACY_CLOUD_BILLING_PLANS).find(
+			(plan) => plan.interval === recurring.interval && plan.intervalCount === recurring.interval_count,
+		);
+	}
+	const interval = cloudBillingInterval(recurring);
+	if (!interval) {
+		return undefined;
+	}
+	const plan = getCloudBillingPlanDefinition(product.tier, interval);
+	const { lookupKeyVariable } = currentCloudPriceConfiguration(plan);
+	return price.lookup_key === env[lookupKeyVariable] ? plan : undefined;
 }
 
-function cloudBillingPlan(price: CloudRecurringPriceDetails, currency: string): CloudBillingPlan {
+function cloudBillingPlan(
+	price: CloudRecurringPriceDetails,
+	plan: CloudBillingPlanDefinition,
+	currency: string,
+): CloudBillingPlan {
 	const amount = cloudPriceAmount(price, currency);
 	if (amount === null) {
 		throw new Error(`Stripe Price "${price.id}" does not support ${currency.toUpperCase()}`);
 	}
 	return {
-		...cloudBillingPlanDefinition(price),
+		...plan,
 		amount,
 		currency,
 	};
+}
+
+function cloudBillingInterval(recurring: Stripe.Price.Recurring): CloudBillingInterval | null {
+	if (recurring.interval_count !== 1) {
+		return null;
+	}
+	if (recurring.interval === 'month') {
+		return 'monthly';
+	}
+	return recurring.interval === 'year' ? 'yearly' : null;
+}
+
+function legacyCloudBillingPlanDefinition(billingInterval: CloudBillingInterval): LegacyCloudBillingPlanDefinition {
+	return billingInterval === 'monthly'
+		? LEGACY_CLOUD_BILLING_PLANS.cloud_monthly_v2
+		: LEGACY_CLOUD_BILLING_PLANS.cloud_yearly_v1;
+}
+
+function requireCloudBillingInterval(interval: CloudBillingInterval | undefined): CloudBillingInterval {
+	if (!interval) {
+		throw new Error('A cloud billing interval is required for legacy Checkout');
+	}
+	return interval;
+}
+
+function currentCloudPriceConfiguration(plan: CurrentCloudBillingPlanDefinition): {
+	lookupKeyVariable:
+		| 'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY'
+		| 'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY'
+		| 'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY'
+		| 'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY';
+	productId: string;
+	unitAmount: number;
+} {
+	const productIds = configuredCloudPaidProductIds();
+	switch (plan.key) {
+		case 'cloud_team_monthly_v1':
+			return {
+				lookupKeyVariable: 'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY',
+				productId: productIds.team,
+				unitAmount: 5_000,
+			};
+		case 'cloud_team_yearly_v1':
+			return {
+				lookupKeyVariable: 'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY',
+				productId: productIds.team,
+				unitAmount: 50_000,
+			};
+		case 'cloud_unlimited_monthly_v1':
+			return {
+				lookupKeyVariable: 'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY',
+				productId: productIds.unlimited,
+				unitAmount: 200_000,
+			};
+		case 'cloud_unlimited_yearly_v1':
+			return {
+				lookupKeyVariable: 'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY',
+				productId: productIds.unlimited,
+				unitAmount: 2_000_000,
+			};
+	}
 }
 
 function cloudPriceAmount(price: CloudRecurringPriceDetails, currency: string): number | null {

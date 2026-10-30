@@ -39,20 +39,23 @@ describe('cloud billing environment', () => {
 	});
 
 	it('requires Stripe configuration when enabled in cloud mode', () => {
-		const result = loadEnvWithOverrides({
-			CLOUD_BILLING_ENABLED: 'true',
-			NAO_MODE: 'cloud',
-		});
+		const result = loadEnvWithOverrides({ CLOUD_BILLING_ENABLED: 'true', NAO_MODE: 'cloud' });
 
 		expect(result.status).toBe(1);
 		for (const variable of [
 			'STRIPE_SECRET_KEY',
 			'STRIPE_WEBHOOK_SECRET',
-			'STRIPE_CLOUD_PRODUCT_ID',
+			'STRIPE_CLOUD_LEGACY_PRODUCT_ID',
+			'STRIPE_CLOUD_TEAM_PRODUCT_ID',
+			'STRIPE_CLOUD_UNLIMITED_PRODUCT_ID',
 			'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
 			'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
 			'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
 			'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+			'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY',
+			'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY',
+			'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY',
+			'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY',
 			'STRIPE_CREDIT_PRODUCT_ID',
 			'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
 		]) {
@@ -69,22 +72,79 @@ describe('cloud billing environment', () => {
 		expect(result.status).toBe(0);
 	});
 
-	it('accepts the minimal Stripe configuration', () => {
-		const result = loadEnvWithOverrides({
-			CLOUD_BILLING_ENABLED: 'true',
-			NAO_MODE: 'cloud',
-			STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
-			STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_cloud_trial',
-			STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'nao_trial',
-			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'nao_cloud_monthly_v2',
-			STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'yearly_sub',
-			STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
-			STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
-			STRIPE_SECRET_KEY: 'sk_test_sandbox',
-			STRIPE_WEBHOOK_SECRET: 'whsec_sandbox',
-		});
+	it.each(['true', 'false'] as const)('accepts an explicit free-tier flag of %s', (flag) => {
+		const result = loadEnvWithOverrides(validCloudBillingEnv({ CLOUD_FREE_TIER_ENABLED: flag }));
 
 		expect(result.status).toBe(0);
+	});
+
+	it.each([
+		'STRIPE_SECRET_KEY',
+		'STRIPE_WEBHOOK_SECRET',
+		'STRIPE_CLOUD_LEGACY_PRODUCT_ID',
+		'STRIPE_CLOUD_TEAM_PRODUCT_ID',
+		'STRIPE_CLOUD_UNLIMITED_PRODUCT_ID',
+		'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
+		'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
+		'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
+		'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+		'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY',
+		'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY',
+		'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY',
+		'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY',
+		'STRIPE_CREDIT_PRODUCT_ID',
+		'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
+	] as const)('rejects missing %s while the flag is off', (variable) => {
+		const configured = validCloudBillingEnv();
+		delete configured[variable];
+		const result = loadEnvWithOverrides(configured);
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(`${variable} is required when cloud billing is enabled`);
+	});
+
+	it.each(['STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY', 'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY'] as const)(
+		'allows missing legacy lookup key %s while the flag is on',
+		(variable) => {
+			const configured = validCloudBillingEnv({ CLOUD_FREE_TIER_ENABLED: 'true' });
+			delete configured[variable];
+
+			expect(loadEnvWithOverrides(configured).status).toBe(0);
+		},
+	);
+
+	it.each([
+		['STRIPE_CLOUD_TEAM_PRODUCT_ID', 'STRIPE_CLOUD_UNLIMITED_PRODUCT_ID'],
+		['STRIPE_CLOUD_LEGACY_PRODUCT_ID', 'STRIPE_CLOUD_TRIAL_PRODUCT_ID'],
+	] as const)('rejects duplicate Product ids in %s and %s', (first, second) => {
+		const configured = validCloudBillingEnv();
+		configured[second] = configured[first];
+		const result = loadEnvWithOverrides(configured);
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('Stripe Product ids must be distinct');
+	});
+
+	it('rejects duplicate lookup keys across current and legacy Prices', () => {
+		const result = loadEnvWithOverrides(
+			validCloudBillingEnv({
+				STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY: 'legacy_monthly',
+			}),
+		);
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('Stripe cloud Price lookup keys must be distinct');
+	});
+
+	it('rejects the deprecated cloud Product variable', () => {
+		const result = loadEnvWithOverrides(
+			validCloudBillingEnv({
+				STRIPE_CLOUD_PRODUCT_ID: 'prod_deprecated',
+			}),
+		);
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('STRIPE_CLOUD_PRODUCT_ID is deprecated; use STRIPE_CLOUD_LEGACY_PRODUCT_ID');
 	});
 });
 
@@ -122,6 +182,30 @@ function loadEnv(mode: 'cloud' | 'self-hosted', contextSource: (typeof contextSo
 		NAO_DEFAULT_PROJECT_PATH: '',
 		NAO_MODE: mode,
 	});
+}
+
+function validCloudBillingEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+	return {
+		CLOUD_BILLING_ENABLED: 'true',
+		CLOUD_FREE_TIER_ENABLED: 'false',
+		NAO_MODE: 'cloud',
+		STRIPE_CLOUD_LEGACY_PRODUCT_ID: 'prod_legacy',
+		STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'legacy_monthly',
+		STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY: 'team_monthly',
+		STRIPE_CLOUD_TEAM_PRODUCT_ID: 'prod_team',
+		STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY: 'team_yearly',
+		STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'trial',
+		STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_trial',
+		STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY: 'unlimited_monthly',
+		STRIPE_CLOUD_UNLIMITED_PRODUCT_ID: 'prod_unlimited',
+		STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY: 'unlimited_yearly',
+		STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'legacy_yearly',
+		STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
+		STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
+		STRIPE_SECRET_KEY: 'sk_test_sandbox',
+		STRIPE_WEBHOOK_SECRET: 'whsec_sandbox',
+		...overrides,
+	};
 }
 
 function loadEnvWithOverrides(overrides: NodeJS.ProcessEnv) {

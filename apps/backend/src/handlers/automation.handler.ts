@@ -49,7 +49,9 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	});
 }
 
-export async function resolveAutomationProjectId(payload: AutomationJobPayload): Promise<string> {
+export async function resolveAutomationProjectPrincipal(
+	payload: AutomationJobPayload,
+): Promise<{ projectId: string; principalUserId: string }> {
 	const automationId = payload.automationId;
 	if (!automationId) {
 		throw new Error('automationId is required.');
@@ -58,7 +60,7 @@ export async function resolveAutomationProjectId(payload: AutomationJobPayload):
 	if (!automation) {
 		throw new Error(`Automation not found: ${automationId}`);
 	}
-	return automation.projectId;
+	return { projectId: automation.projectId, principalUserId: automation.userId };
 }
 
 export async function runAutomation(

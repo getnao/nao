@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 		cloudBillingEnabled: false,
 	},
 	isCloud: false,
+	freeTierEnabled: false,
 	permissions: {
 		canViewUsage: false,
 		isAdmin: false,
@@ -30,6 +31,10 @@ vi.mock('@/hooks/use-license', () => ({
 
 vi.mock('@/hooks/use-can-see-advanced-settings', () => ({
 	useCanSeeAdvancedSettings: () => true,
+}));
+
+vi.mock('@/hooks/use-cloud-billing-access', () => ({
+	useCloudBillingAccess: () => ({ data: { freeTierEnabled: mocks.freeTierEnabled } }),
 }));
 
 vi.mock('@/hooks/use-nao-mode', () => ({
@@ -54,6 +59,7 @@ describe('useSettingsSearch', () => {
 	beforeEach(() => {
 		mocks.config.cloudBillingEnabled = false;
 		mocks.isCloud = false;
+		mocks.freeTierEnabled = false;
 		Object.assign(mocks.permissions, {
 			canViewUsage: false,
 			isAdmin: false,
@@ -61,6 +67,20 @@ describe('useSettingsSearch', () => {
 			isOrgAdmin: false,
 			isViewer: true,
 		});
+	});
+
+	it('only returns seat and plan controls when the backend enables the Free tier', () => {
+		mocks.isCloud = true;
+		mocks.config.cloudBillingEnabled = true;
+		Object.assign(mocks.permissions, { isOrgAdmin: true, isViewer: false });
+		const { result, rerender } = renderHook(() => useSettingsSearch('Paid seats'));
+
+		expect(result.current.some((entry) => entry.title === 'Paid seats')).toBe(false);
+
+		mocks.freeTierEnabled = true;
+		rerender();
+
+		expect(result.current.some((entry) => entry.title === 'Paid seats')).toBe(true);
 	});
 
 	afterEach(cleanup);
@@ -99,7 +119,9 @@ describe('useSettingsSearch', () => {
 		const billingEntry = result.current.find((entry) => entry.title === searchTitle);
 		expect(billingEntry?.page).toBe('/settings/organization/billing');
 		if (searchTitle === 'nao AI usage') {
-			expect(billingEntry?.search).toEqual({ creditsTab: 'usage' });
+			expect(billingEntry?.search).toEqual({ tab: 'credits', creditsTab: 'usage' });
+		} else {
+			expect(billingEntry?.search).toEqual({ tab: 'credits' });
 		}
 	});
 });

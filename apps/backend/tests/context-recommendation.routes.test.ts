@@ -6,6 +6,7 @@ import type * as EnvModule from '../src/env';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
 	getFirstProjectAdminUserId: vi.fn(),
 	getLatestRun: vi.fn(),
 	getProjectAvailableModels: vi.fn(),
@@ -36,6 +37,9 @@ vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
+	isUserReadOnlyInOrganization: vi.fn(async () => false),
 }));
 vi.mock('../src/services/context-pr.service', () => ({
 	ContextPullRequestInputError: class extends Error {},

@@ -12,6 +12,7 @@ export function getBillingStatusView(
 	cancellationScheduled: boolean,
 	hasDefaultPaymentMethod: boolean,
 	hasPaidPlan: boolean,
+	freeTierEnabled = false,
 ): BillingStatusView {
 	switch (status) {
 		case 'trialing':
@@ -35,7 +36,9 @@ export function getBillingStatusView(
 		case 'past_due':
 			return {
 				label: 'Payment past due',
-				description: 'A payment failed and Stripe is retrying it. Update your payment details to keep access.',
+				description: freeTierEnabled
+					? 'A payment failed. Stripe is retrying it; Free capacity applies if paid access ends.'
+					: 'A payment failed and Stripe is retrying it. Update your payment details to keep access.',
 				variant: 'destructive',
 			};
 		case 'unpaid':
@@ -47,7 +50,9 @@ export function getBillingStatusView(
 		case 'paused':
 			return {
 				label: 'Paused',
-				description: 'Your trial ended without a payment method. Add one, then resume the subscription.',
+				description: freeTierEnabled
+					? 'Paid access is paused. Free capacity applies until you add a payment method and resume.'
+					: 'Your trial ended without a payment method. Add one, then resume the subscription.',
 				variant: 'secondary',
 			};
 		case 'incomplete':
@@ -65,8 +70,10 @@ export function getBillingStatusView(
 		case 'canceled':
 			if (!hasPaidPlan) {
 				return {
-					label: 'Free trial ended',
-					description: 'Your free trial has ended. Subscribe to restore access.',
+					label: freeTierEnabled ? 'Free' : 'Free trial ended',
+					description: freeTierEnabled
+						? 'Your trial ended and the organization is now on Free.'
+						: 'Your free trial has ended. Subscribe to restore access.',
 					variant: 'outline',
 				};
 			}
@@ -78,8 +85,10 @@ export function getBillingStatusView(
 			};
 		default:
 			return {
-				label: 'Not started',
-				description: 'No subscription has been started.',
+				label: freeTierEnabled ? 'Free' : 'Not started',
+				description: freeTierEnabled
+					? 'Free includes up to 3 seated users and unlimited viewers.'
+					: 'No subscription has been started.',
 				variant: 'outline',
 			};
 	}

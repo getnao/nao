@@ -244,7 +244,12 @@ export const organizationBilling = sqliteTable('organization_billing', {
 	trialEndsAt: integer('trial_ends_at', { mode: 'timestamp_ms' }),
 	stripeCustomerId: text('stripe_customer_id').unique(),
 	stripeSubscriptionId: text('stripe_subscription_id').unique(),
+	stripeSubscriptionItemId: text('stripe_subscription_item_id'),
 	stripePriceId: text('stripe_price_id'),
+	seatQuantity: integer('seat_quantity'),
+	stripeSubscriptionScheduleId: text('stripe_subscription_schedule_id'),
+	pendingBillingPlan: text('pending_billing_plan'),
+	pendingSeatQuantity: integer('pending_seat_quantity'),
 	currentPeriodStartsAt: integer('current_period_starts_at', { mode: 'timestamp_ms' }),
 	currentPeriodEndsAt: integer('current_period_ends_at', { mode: 'timestamp_ms' }),
 	cancellationScheduled: integer('cancellation_scheduled', { mode: 'boolean' }),
@@ -281,6 +286,25 @@ export const orgMember = sqliteTable(
 			.notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
+);
+
+export const organizationSeatState = sqliteTable(
+	'organization_seat_state',
+	{
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organization.id),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id),
+		selectedAt: integer('selected_at', { mode: 'timestamp_ms' }),
+		isReadOnly: integer('is_read_only', { mode: 'boolean' }).default(false).notNull(),
+		stateChangedAt: integer('state_changed_at', { mode: 'timestamp_ms' }),
+		ownerInAppNotifiedAt: integer('owner_in_app_notified_at', { mode: 'timestamp_ms' }),
+		ownerEmailNotifiedAt: integer('owner_email_notified_at', { mode: 'timestamp_ms' }),
+		adminEmailNotifiedAt: integer('admin_email_notified_at', { mode: 'timestamp_ms' }),
+	},
+	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('organization_seat_state_userId_idx').on(t.userId)],
 );
 
 export const project = sqliteTable(

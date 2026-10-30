@@ -5,7 +5,10 @@ import type { App } from '../app';
 import { resolveMcpFacingOrigin } from '../env';
 import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { getUserRoleInProject } from '../queries/project.queries';
-import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
+import {
+	assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess,
+} from '../services/cloud-billing-access.service';
 import type { McpUserRole } from '../types/mcp-endpoint';
 import { resolveUserId } from './auth';
 import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
@@ -71,6 +74,7 @@ async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: Fasti
 
 async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): Promise<void> {
 	await assertProjectCloudBillingAccess(request.mcpProjectId);
+	await assertProjectUserCloudBillingAccess(request.mcpProjectId, request.mcpUserId);
 	const settings = await getMcpEndpointSettings(request.mcpProjectId);
 	if (!settings.enabled) {
 		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });

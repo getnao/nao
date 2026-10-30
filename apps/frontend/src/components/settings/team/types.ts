@@ -6,4 +6,5 @@ export interface TeamMember {
 	email: string;
 	role: UserRole;
 	status: MemberStatus;
+	membershipSource?: 'organization' | 'project';
 }

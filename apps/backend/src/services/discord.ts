@@ -57,6 +57,7 @@ import {
 	hasExplicitDiscordMention,
 	resolveDiscordReactionFeedback,
 } from './discord-helpers';
+import { assertMessagingUserCloudBillingAccess } from './messaging-cloud-billing-access';
 
 /** Matches Slack's 200ms cadence; Discord rate-limits per-channel edits. */
 const UPDATE_INTERVAL_MS = 200;
@@ -278,6 +279,13 @@ class ProjectDiscordBot {
 
 		try {
 			if (!(await this._validateUserAccess(ctx))) {
+				return;
+			}
+			if (
+				!(await assertMessagingUserCloudBillingAccess(this._config.projectId, ctx.user!.id, (message) =>
+					ctx.thread.post(message),
+				))
+			) {
 				return;
 			}
 			await assertProjectCloudBillingAccess(this._config.projectId);

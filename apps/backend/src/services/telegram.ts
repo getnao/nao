@@ -32,6 +32,8 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertMessagingUserCloudBillingAccess } from './messaging-cloud-billing-access';
+
 const UPDATE_INTERVAL_MS = 200;
 
 class TelegramService {
@@ -149,6 +151,13 @@ class TelegramService {
 
 		try {
 			if (!(await this._validateUserAccess(ctx))) {
+				return;
+			}
+			if (
+				!(await assertMessagingUserCloudBillingAccess(this._projectId, ctx.user!.id, (message) =>
+					ctx.thread.post(message),
+				))
+			) {
 				return;
 			}
 			await assertProjectCloudBillingAccess(this._projectId);

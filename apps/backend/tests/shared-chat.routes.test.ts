@@ -22,6 +22,7 @@ vi.mock('../src/queries/chat.queries', () => ({
 	getChatOwnerId: mocks.getChatOwnerId,
 }));
 vi.mock('../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async () => null),
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-1', name: 'Project' })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	listUsersWithProjectAccess: mocks.listUsersWithProjectAccess,

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	getInvoice: vi.fn(),
 	getPaymentMethod: vi.fn(),
 	getPaymentIntent: vi.fn(),
+	getSchedule: vi.fn(),
 	getCreditTopUpPurchase: vi.fn(),
 	getCreditPurchase: vi.fn(),
 	getCharge: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	markFailed: vi.fn(),
 	markProcessed: vi.fn(),
 	reconcileCustomer: vi.fn(),
+	releaseSchedule: vi.fn(),
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
@@ -43,6 +45,7 @@ vi.mock('../src/services/credit-wallet.service', () => ({
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
 	reconcileCloudBillingCustomer: mocks.reconcileCustomer,
+	reconcileCloudBillingCustomerUnderLock: mocks.reconcileCustomer,
 }));
 
 vi.mock('../src/services/credit-top-up.service', () => ({
@@ -63,6 +66,8 @@ vi.mock('../src/services/stripe.service', () => ({
 	getStripeInvoice: mocks.getInvoice,
 	getStripePaymentIntent: mocks.getPaymentIntent,
 	getStripePaymentMethod: mocks.getPaymentMethod,
+	getCloudPlanChangeSchedule: mocks.getSchedule,
+	releaseCloudPlanChangeSchedule: mocks.releaseSchedule,
 }));
 
 import { stripeWebhookProcessHandler } from '../src/handlers/stripe-webhook.handler';
@@ -298,6 +303,66 @@ describe('stripeWebhookProcessHandler', () => {
 
 		expect(mocks.getEvent).not.toHaveBeenCalled();
 		expect(mocks.reconcileCustomer).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		'subscription_schedule.updated',
+		'subscription_schedule.released',
+		'subscription_schedule.completed',
+		'subscription_schedule.canceled',
+	])('reconciles current Stripe state after %s', async (eventType) => {
+		mocks.getEvent.mockResolvedValue({
+			type: eventType,
+			data: {
+				object: {
+					id: 'sched_cloud',
+					subscription: 'sub_cloud',
+					released_subscription: null,
+				},
+			},
+		});
+		mocks.findManagedSubscription.mockResolvedValue({
+			id: 'sub_cloud',
+			customer: 'cus_cloud',
+			metadata: { nao_org_id: 'org-id' },
+		});
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_cloud',
+			organizationIdHint: 'org-id',
+		});
+		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
+	});
+
+	it('releases an activated schedule and reconciles again under the organization lock', async () => {
+		mocks.getEvent.mockResolvedValue({
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_cloud' } },
+		});
+		mocks.findManagedSubscription.mockResolvedValue({
+			id: 'sub_cloud',
+			customer: 'cus_cloud',
+			metadata: { nao_org_id: 'org-id' },
+		});
+		mocks.reconcileCustomer
+			.mockResolvedValueOnce({
+				applied: true,
+				ignored: false,
+				before: { pendingBillingPlan: 'cloud_unlimited_yearly' },
+				after: {
+					billingPlan: 'cloud_unlimited_yearly',
+					stripeSubscriptionScheduleId: 'sched_cloud',
+				},
+			})
+			.mockResolvedValueOnce({ applied: true, ignored: false });
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.releaseSchedule).toHaveBeenCalledWith('sched_cloud');
+		expect(mocks.reconcileCustomer).toHaveBeenCalledTimes(2);
+		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
 	});
 
 	it.each(CHECKOUT_EVENT_TYPES)('reconciles subscription state after %s', async (eventType) => {

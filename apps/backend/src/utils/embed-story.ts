@@ -90,6 +90,7 @@ async function loadEmbedStoryData(
 		version.code,
 		version.isLive,
 		version.cacheSchedule,
+		{ deferRefresh: true, principalUserId: ownerId },
 	);
 	const queryData = result.allowsPersistedFallback
 		? await backfillMissingQueryDataForSandbox(version.code, {

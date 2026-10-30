@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
 	hasFeature: vi.fn(),
 	hasSyncState: vi.fn(),
 	listIdentifiers: vi.fn(),
+	listCandidates: vi.fn(),
+	putProjectMember: vi.fn(),
 	reconcile: vi.fn(),
 	syncOrganizationRole: vi.fn(),
 	decodeClaims: vi.fn(),
@@ -23,7 +25,11 @@ vi.mock('../src/queries/account.queries', () => ({
 vi.mock('../src/queries/sso-user-group-membership.queries', () => ({
 	hasSsoUserGroupSyncState: mocks.hasSyncState,
 	listConfiguredSsoGroupIdentifiers: mocks.listIdentifiers,
+	listSsoProjectRoleCandidates: mocks.listCandidates,
 	reconcileSsoUserGroupMemberships: mocks.reconcile,
+}));
+vi.mock('../src/services/membership.service', () => ({
+	putProjectMember: mocks.putProjectMember,
 }));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
@@ -64,6 +70,8 @@ beforeEach(() => {
 	mocks.hasFeature.mockReset().mockResolvedValue(true);
 	mocks.hasSyncState.mockReset().mockResolvedValue(true);
 	mocks.listIdentifiers.mockReset().mockResolvedValue([GROUP_1, GROUP_2]);
+	mocks.listCandidates.mockReset().mockResolvedValue([]);
+	mocks.putProjectMember.mockReset();
 	mocks.reconcile.mockReset().mockResolvedValue(undefined);
 	mocks.syncOrganizationRole.mockReset().mockResolvedValue(undefined);
 	mocks.decodeClaims.mockReset();
@@ -90,6 +98,21 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		expect(mocks.syncOrganizationRole).toHaveBeenCalledWith('user-1', [GROUP_1.toLowerCase()]);
 		expect(mocks.listIdentifiers).not.toHaveBeenCalled();
 		expect(mocks.fetch).not.toHaveBeenCalled();
+	});
+
+	it('routes Entra project provisioning through seat activation', async () => {
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
+		mocks.listCandidates.mockResolvedValue([{ projectId: 'project-1', role: 'user' }]);
+		mocks.putProjectMember.mockResolvedValue({
+			userId: 'user-1',
+			role: 'viewer',
+			outcome: { status: 'viewer_fallback', role: 'viewer', reason: 'capacity_full' },
+		});
+
+		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toMatchObject({
+			status: 'viewer_fallback',
+		});
+		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-1', 'user-1', 'user');
 	});
 
 	it('syncs the organization role when User Group reconciliation rejects', async () => {
@@ -120,7 +143,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		['unavailable', { status: 'no-token' }],
 	])('preserves memberships for %s Microsoft membership data', async (_name, token) => {
 		mocks.decodeClaims.mockReturnValue(token);
-		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toBeUndefined();
+		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toBeNull();
 		expect(mocks.reconcile).not.toHaveBeenCalled();
 		expect(mocks.syncOrganizationRole).not.toHaveBeenCalled();
 		expect(mocks.logger.warn).toHaveBeenCalledOnce();
@@ -174,7 +197,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		mocks.listIdentifiers.mockResolvedValue(createGroupIds(21));
 		mocks.fetch.mockResolvedValueOnce(graphResponse([])).mockResolvedValueOnce(graphResponse([], 403));
 
-		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toBeUndefined();
+		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toBeNull();
 
 		expect(mocks.fetch).toHaveBeenCalledTimes(2);
 		expect(mocks.reconcile).not.toHaveBeenCalled();

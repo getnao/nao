@@ -7,6 +7,10 @@ import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
 import { getUserRoleInProject, retrieveProjectById } from '../queries/project.queries';
+import {
+	assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess,
+} from '../services/cloud-billing-access.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
 import { getProjectRuntimeEnvVars } from '../services/project-runtime-env';
@@ -68,6 +72,8 @@ export const testRoutes = async (app: App) => {
 			if (!userRole || userRole === 'viewer') {
 				return reply.status(403).send({ error: 'Viewers cannot run tests' });
 			}
+			await assertProjectCloudBillingAccess(projectId);
+			await assertProjectUserCloudBillingAccess(projectId, userId);
 
 			try {
 				const modelSelection = model as LlmSelectedModel | undefined;

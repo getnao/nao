@@ -540,6 +540,7 @@ describe('warehouse provisioning', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'example-project',
+			{ organizationId: 'org-1', userId: 'user-1' },
 		);
 		expect(provisionManagedGithubRepository).toHaveBeenCalledWith({
 			projectId: 'project-2',
@@ -863,6 +864,7 @@ describe('warehouse provisioning', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'example-project',
+			{ organizationId: 'org-1', userId: 'user-1' },
 		);
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});

@@ -17,6 +17,7 @@ const FILTER_OPTIONS_LIMIT = 100;
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
+	principalUserId: string;
 }
 
 export function assertStoryFiltersEnabled() {
@@ -29,7 +30,7 @@ export async function getStoryFilterOptions(
 	chatId: string,
 	storySlug: string,
 	filterId: string,
-	executionOptions: StoryFilterExecutionOptions = {},
+	executionOptions: StoryFilterExecutionOptions,
 ): Promise<{ options: string[] }> {
 	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
 	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
@@ -55,6 +56,7 @@ export async function getStoryFilterOptions(
 		executionContext,
 		databaseId: filter.databaseId ?? databaseId,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		principalUserId: executionOptions.principalUserId,
 	});
 	const options = result.data
 		.map((row) => {
@@ -73,7 +75,7 @@ export async function getFilteredStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	selections: StoryFilterSelections,
-	executionOptions: StoryFilterExecutionOptions = {},
+	executionOptions: StoryFilterExecutionOptions,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
 	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
 	const types = filterTypesFromCode(code);
@@ -82,6 +84,7 @@ export async function getFilteredStoryQueryData(
 		executionContext,
 		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, types),
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		principalUserId: executionOptions.principalUserId,
 	});
 }
 

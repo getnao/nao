@@ -33,6 +33,7 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertMessagingUserCloudBillingAccess } from './messaging-cloud-billing-access';
 import * as transcribeService from './transcribe.service';
 
 const SUPPORTED_WHATSAPP_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -132,6 +133,13 @@ class WhatsappService {
 
 		try {
 			await this._validateUserAccess(ctx);
+			if (
+				!(await assertMessagingUserCloudBillingAccess(this._projectId, ctx.user!.id, (message) =>
+					ctx.thread.post(message),
+				))
+			) {
+				return;
+			}
 			await assertProjectCloudBillingAccess(this._projectId);
 			await this._saveOrUpdateUserMessage(ctx);
 

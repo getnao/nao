@@ -7,6 +7,7 @@ import * as accountQueries from '../queries/account.queries';
 import {
 	hasSsoUserGroupSyncState,
 	listConfiguredSsoGroupIdentifiers,
+	listSsoProjectRoleCandidates,
 	reconcileSsoUserGroupMemberships,
 } from '../queries/sso-user-group-membership.queries';
 import { logger, serializeError } from '../utils/logger';
@@ -19,6 +20,7 @@ import {
 } from '../utils/sso-group-mapping';
 import { chunk } from '../utils/utils';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { putProjectMember, type SeatActivationOutcome } from './membership.service';
 import { isMicrosoftConfigured } from './microsoft-auth.service';
 import { syncOrganizationRoleFromMicrosoftGroups } from './sso-group-mapping.service';
 import { verifyMicrosoftIdTokenClaims } from './sso-token.service';
@@ -29,10 +31,10 @@ const GRAPH_CHECK_MEMBER_OBJECTS_URL = 'https://graph.microsoft.com/v1.0/me/chec
 const GRAPH_BATCH_SIZE = 20;
 const GRAPH_TIMEOUT_MS = 10_000;
 
-export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void> {
+export async function syncUserGroupsFromMicrosoft(userId: string): Promise<SeatActivationOutcome | null> {
 	try {
 		if (!(await canSyncMicrosoftUserGroups(userId))) {
-			return;
+			return null;
 		}
 
 		const envMappings = parseEntraGroupNaoGroupMapping(env.AZURE_AD_GROUP_NAO_GROUP_MAPPING);
@@ -42,7 +44,7 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 				source: 'system',
 				context: { userId },
 			});
-			return;
+			return null;
 		}
 		const hasUnlimitedUserGroups = await hasFeature(LICENSE_FEATURES.userGroups);
 		const hasUserGroupSyncState =
@@ -54,7 +56,7 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 				source: 'system',
 				context: { userId, problem: token.status },
 			});
-			return;
+			return null;
 		}
 
 		const directGroups = readGroupsClaim(token.claims, MICROSOFT_GROUPS_CLAIM);
@@ -62,24 +64,23 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 			const groupIds = normalizeMicrosoftGroupIds(directGroups.groups);
 			if (!groupIds) {
 				logUnavailableMemberships(userId, 'malformed-groups-claim');
-				return;
+				return null;
 			}
-			await synchronizeMicrosoftMappings(
+			return await synchronizeMicrosoftMappings(
 				userId,
 				groupIds,
 				hasUserGroupSyncState,
 				hasUnlimitedUserGroups,
 				envMappings.mappings,
 			);
-			return;
 		}
 		if (directGroups.status === 'malformed') {
 			logUnavailableMemberships(userId, 'malformed-groups-claim');
-			return;
+			return null;
 		}
 		if (!hasMicrosoftGroupsOverage(token.claims)) {
 			logUnavailableMemberships(userId, 'groups-claim-missing');
-			return;
+			return null;
 		}
 
 		const uiCandidateIds = hasUserGroupSyncState
@@ -91,22 +92,21 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 			...roleMapping.mapping.keys(),
 		]).filter(isMicrosoftEntraGroupId);
 		if (candidateIds.length === 0) {
-			await synchronizeMicrosoftMappings(
+			return await synchronizeMicrosoftMappings(
 				userId,
 				[],
 				hasUserGroupSyncState,
 				hasUnlimitedUserGroups,
 				envMappings.mappings,
 			);
-			return;
 		}
 		if (!hasFreshAccessToken(tokens)) {
 			logUnavailableMemberships(userId, 'access-token-unavailable');
-			return;
+			return null;
 		}
 
 		const resolvedIds = await resolveMicrosoftGraphMemberships(tokens.accessToken, candidateIds);
-		await synchronizeMicrosoftMappings(
+		return await synchronizeMicrosoftMappings(
 			userId,
 			resolvedIds,
 			hasUserGroupSyncState,
@@ -118,6 +118,7 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 			source: 'system',
 			context: { userId, error: serializeError(error) },
 		});
+		return null;
 	}
 }
 
@@ -127,17 +128,36 @@ async function synchronizeMicrosoftMappings(
 	hasUserGroupSyncState: boolean,
 	hasUnlimitedUserGroups: boolean,
 	envMappings: EntraGroupNaoGroupMapping[],
-): Promise<void> {
+): Promise<SeatActivationOutcome | null> {
+	let outcome: SeatActivationOutcome | null = null;
 	try {
 		if (hasUserGroupSyncState) {
-			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, {
+			const options = {
 				hasUnlimitedUserGroups,
 				entraMappings: envMappings,
-			});
+			};
+			for (const candidate of await listSsoProjectRoleCandidates(
+				userId,
+				MICROSOFT_PROVIDER_ID,
+				groupIds,
+				options,
+			)) {
+				const result = await putProjectMember(candidate.projectId, userId, candidate.role);
+				if (
+					result.outcome &&
+					(!outcome ||
+						result.outcome.status === 'viewer_fallback' ||
+						result.outcome.status === 'promotion_rejected')
+				) {
+					outcome = result.outcome;
+				}
+			}
+			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
 		}
 	} finally {
 		await syncOrganizationRoleFromMicrosoftGroups(userId, groupIds);
 	}
+	return outcome;
 }
 
 export async function resolveMicrosoftGraphMemberships(

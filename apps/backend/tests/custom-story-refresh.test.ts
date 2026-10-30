@@ -83,7 +83,10 @@ describe('custom story background refresh', () => {
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue(null);
 
 		await expect(
-			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { deferRefresh: true }),
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				deferRefresh: true,
+				principalUserId: 'actor-1',
+			}),
 		).resolves.toEqual(CHAT_ORDERS);
 		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 	});
@@ -97,7 +100,10 @@ describe('custom story background refresh', () => {
 		mocks.getLatestStoryRefreshFailure.mockResolvedValue(FAILURE);
 
 		await expect(
-			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { deferRefresh: true }),
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				deferRefresh: true,
+				principalUserId: 'actor-1',
+			}),
 		).resolves.toEqual(CACHED_ORDERS);
 		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 	});
@@ -110,8 +116,30 @@ describe('custom story background refresh', () => {
 		mocks.isCacheExpired.mockReturnValue(true);
 
 		await expect(
-			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { deferRefresh: true }),
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				deferRefresh: true,
+				principalUserId: 'actor-1',
+			}),
 		).resolves.toEqual(REFRESHED_ORDERS);
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+			deferRefresh: true,
+			principalUserId: 'actor-1',
+		});
+	});
+
+	it('serves stale cached data without refreshing for cached-only viewers', async () => {
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+			queryData: { query_orders: CACHED_ORDERS },
+			cachedAt: new Date(0),
+		});
+		mocks.isCacheExpired.mockReturnValue(true);
+
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				cachedOnly: true,
+				principalUserId: 'viewer-1',
+			}),
+		).resolves.toEqual(CACHED_ORDERS);
+		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 	});
 });

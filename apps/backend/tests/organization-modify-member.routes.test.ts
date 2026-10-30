@@ -36,6 +36,15 @@ describe('organization.modifyMember', () => {
 		vi.clearAllMocks();
 		mocks.getUserRoleInOrg.mockResolvedValue('user');
 		mocks.getUserName.mockResolvedValue('Original Name');
+		mocks.putOrganizationMember.mockResolvedValue({
+			userId: 'member-1',
+			role: 'viewer',
+			outcome: {
+				status: 'promotion_rejected',
+				role: 'viewer',
+				reason: 'capacity_full',
+			},
+		});
 	});
 
 	it('refuses to rename a member who also belongs to another organization', async () => {
@@ -61,6 +70,18 @@ describe('organization.modifyMember', () => {
 
 		await createCaller().organization.modifyMember({ userId: 'admin-1', name: 'New Name' });
 		expect(mocks.updateUser).toHaveBeenCalledWith('admin-1', 'New Name');
+	});
+
+	it('leaves a Viewer unchanged when no seat is available', async () => {
+		mocks.getUserRoleInOrg.mockResolvedValue('viewer');
+
+		await expect(
+			createCaller().organization.updateMemberRole({ userId: 'member-1', role: 'user' }),
+		).resolves.toMatchObject({
+			role: 'viewer',
+			outcome: { status: 'promotion_rejected', reason: 'capacity_full' },
+		});
+		expect(mocks.putOrganizationMember).toHaveBeenCalledWith('org-1', 'member-1', 'user', { addIfMissing: false });
 	});
 });
 

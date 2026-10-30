@@ -14,6 +14,7 @@ vi.mock('../src/queries/chat.queries', () => ({
 	getChatOwnerId: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async () => null),
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
 vi.mock('../src/queries/shared-chat.queries', () => ({

@@ -3,7 +3,10 @@ import type Stripe from 'stripe';
 import * as billingQueries from '../queries/billing.queries';
 import { getCreditPurchaseByPaymentIntent } from '../queries/credit-wallet.queries';
 import { settleCreditTopUpCheckout } from '../services/billing-management.service';
-import { reconcileCloudBillingCustomer } from '../services/billing-reconciliation.service';
+import {
+	reconcileCloudBillingCustomer,
+	reconcileCloudBillingCustomerUnderLock,
+} from '../services/billing-reconciliation.service';
 import { isCreditTopUpCheckoutSession, isCreditTopUpPaymentIntent } from '../services/credit-top-up.service';
 import { setCreditPurchaseMovement } from '../services/credit-wallet.service';
 import type { JobHandler } from '../services/scheduler.service';
@@ -11,6 +14,7 @@ import {
 	findCloudSubscription,
 	findManagedCloudSubscription,
 	getCloudCheckoutSubscription,
+	getCloudPlanChangeSchedule,
 	getStripeCharge,
 	getStripeCheckoutSession,
 	getStripeDispute,
@@ -18,8 +22,10 @@ import {
 	getStripeInvoice,
 	getStripePaymentIntent,
 	getStripePaymentMethod,
+	releaseCloudPlanChangeSchedule,
 } from '../services/stripe.service';
-import { isCloudBillingPlanKey } from '../types/billing';
+import { isCloudBillingPlanKey, isLegacyCloudBillingPlanKey } from '../types/billing';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { stripeId } from '../utils/stripe';
 
 export const STRIPE_WEBHOOK_PROCESS_JOB_NAME = 'stripe.webhook.process';
@@ -55,6 +61,10 @@ const STRIPE_EVENT_HANDLERS: Record<string, StripeEventHandler> = {
 	'customer.subscription.deleted': processSubscriptionEvent,
 	'customer.subscription.paused': processSubscriptionEvent,
 	'customer.subscription.resumed': processSubscriptionEvent,
+	'subscription_schedule.updated': processSubscriptionScheduleEvent,
+	'subscription_schedule.released': processSubscriptionScheduleEvent,
+	'subscription_schedule.completed': processSubscriptionScheduleEvent,
+	'subscription_schedule.canceled': processSubscriptionScheduleEvent,
 	'invoice.paid': processInvoiceEvent,
 	'invoice.payment_failed': processInvoiceEvent,
 	'invoice.payment_action_required': processInvoiceEvent,
@@ -137,7 +147,7 @@ async function processCheckoutEvent(event: ProcessableStripeEvent): Promise<void
 		await settleCreditTopUpCheckout(event.objectId);
 		return;
 	}
-	if (session.mode === 'subscription' && isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
+	if (session.mode === 'subscription' && isRecognizedCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
 		await processCheckoutSession(event.objectId);
 	}
 }
@@ -151,7 +161,25 @@ async function processDisputeEvent(event: ProcessableStripeEvent): Promise<void>
 }
 
 async function processSubscriptionEvent(event: ProcessableStripeEvent): Promise<void> {
-	await processSubscription(event.objectId);
+	await processSubscription(event.objectId, event.type);
+}
+
+async function processSubscriptionScheduleEvent(event: ProcessableStripeEvent): Promise<void> {
+	const schedule = event.stripeObject
+		? (event.stripeObject as Stripe.SubscriptionSchedule)
+		: await getCloudPlanChangeSchedule(event.objectId);
+	const subscriptionId = schedule.subscription ?? schedule.released_subscription;
+	if (!subscriptionId) {
+		return;
+	}
+	const subscription = await findManagedCloudSubscription(stripeId(subscriptionId));
+	if (!subscription) {
+		return;
+	}
+	await reconcileCloudBillingCustomer({
+		stripeCustomerId: stripeId(subscription.customer),
+		organizationIdHint: subscription.metadata.nao_org_id,
+	});
 }
 
 async function processInvoiceEvent(event: ProcessableStripeEvent): Promise<void> {
@@ -178,10 +206,11 @@ async function processPaymentMethodEvent(event: ProcessableStripeEvent): Promise
 
 async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<void> {
 	const { session, subscription } = await getCloudCheckoutSubscription(stripeCheckoutSessionId);
-	if (session.mode !== 'subscription' || !isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
+	const metadata = session.metadata;
+	if (session.mode !== 'subscription' || !metadata || !isRecognizedCloudBillingPlanKey(metadata.nao_plan_key)) {
 		return;
 	}
-	const organizationId = session.metadata.nao_org_id ?? session.client_reference_id;
+	const organizationId = metadata.nao_org_id ?? session.client_reference_id;
 	if (!organizationId) {
 		throw new Error(`Stripe Checkout Session "${session.id}" has no organization metadata`);
 	}
@@ -192,6 +221,10 @@ async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<
 		stripeCustomerId: stripeId(session.customer),
 		organizationIdHint: organizationId,
 	});
+}
+
+function isRecognizedCloudBillingPlanKey(value: string | null | undefined): boolean {
+	return isCloudBillingPlanKey(value) || isLegacyCloudBillingPlanKey(value);
 }
 
 async function processRefundedCharge(stripeChargeId: string): Promise<void> {
@@ -267,14 +300,36 @@ async function getCreditPurchaseForClawback(paymentIntentId: string) {
 	throw new Error(`Credit purchase for Stripe PaymentIntent "${paymentIntentId}" has not been credited yet`);
 }
 
-async function processSubscription(stripeSubscriptionId: string): Promise<void> {
+async function processSubscription(stripeSubscriptionId: string, eventType?: string): Promise<void> {
 	const subscription = await findManagedCloudSubscription(stripeSubscriptionId);
 	if (!subscription) {
 		return;
 	}
-	await reconcileCloudBillingCustomer({
-		stripeCustomerId: stripeId(subscription.customer),
-		organizationIdHint: subscription.metadata.nao_org_id,
+	const organizationId = subscription.metadata.nao_org_id;
+	const stripeCustomerId = stripeId(subscription.customer);
+	if (eventType !== 'customer.subscription.updated' || !organizationId) {
+		await reconcileCloudBillingCustomer({
+			stripeCustomerId,
+			organizationIdHint: organizationId,
+		});
+		return;
+	}
+	await withKeyedLock(`cloud-seats:${organizationId}`, async () => {
+		const result = await reconcileCloudBillingCustomerUnderLock({
+			stripeCustomerId,
+			organizationIdHint: organizationId,
+		});
+		if (
+			result.before?.pendingBillingPlan &&
+			result.after?.billingPlan === result.before.pendingBillingPlan &&
+			result.after.stripeSubscriptionScheduleId
+		) {
+			await releaseCloudPlanChangeSchedule(result.after.stripeSubscriptionScheduleId);
+			await reconcileCloudBillingCustomerUnderLock({
+				stripeCustomerId: stripeId(subscription.customer),
+				organizationIdHint: organizationId,
+			});
+		}
 	});
 }
 

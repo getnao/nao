@@ -86,7 +86,8 @@ export function TrialStartedDialog({ open, onOpenChange, creditAmountMicroUsd, u
 							className={cn(enterClass, '[animation-delay:160ms] max-w-md text-center leading-relaxed')}
 						>
 							We’ve added {formattedCreditAmount} of nao credits so your team can start asking questions
-							right away.
+							right away. Your 14-day trial gives every seat user full access. Afterward, Free keeps up to
+							3 people seated with unlimited viewers.
 						</DialogDescription>
 					</DialogHeader>
 					<div className={cn(enterClass, '[animation-delay:260ms] relative my-8 flex flex-col items-center')}>

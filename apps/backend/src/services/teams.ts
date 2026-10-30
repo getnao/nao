@@ -38,6 +38,7 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertMessagingUserCloudBillingAccess } from './messaging-cloud-billing-access';
 interface TeamsRawMessage {
 	from?: { aadObjectId?: string };
 	conversation?: { tenantId?: string };
@@ -170,6 +171,13 @@ class TeamsService {
 		await this._validateUserAccess(ctx);
 
 		try {
+			if (
+				!(await assertMessagingUserCloudBillingAccess(ctx.config.projectId, ctx.user!.id, (message) =>
+					ctx.thread.post(message),
+				))
+			) {
+				return;
+			}
 			await assertProjectCloudBillingAccess(ctx.config.projectId);
 			ctx.convMessage = await ctx.thread.post(`✨ ${await getAppName()} is answering...`);
 			await this._saveOrUpdateUserMessage(ctx);

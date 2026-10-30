@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	assertUserCloudBillingAccess: vi.fn(),
 	generateText: vi.fn(),
 	getProjectById: vi.fn(),
 	resolveProviderModel: vi.fn(),
@@ -34,6 +35,10 @@ vi.mock('../src/utils/safe-fetch', () => ({
 	safeFetch: vi.fn(),
 }));
 
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
+}));
+
 import { generateOnboardingRules } from '../src/services/onboarding-rules';
 
 let projectPath: string;
@@ -57,6 +62,7 @@ describe('generateOnboardingRules', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'model-project-1',
+			{ organizationId: 'org-1', userId: 'user-1' },
 		);
 
 		const systemPrompt = mocks.generateText.mock.calls[0]?.[0].system as string;
@@ -66,6 +72,7 @@ describe('generateOnboardingRules', () => {
 		expect(systemPrompt).toContain('## RULES.md template');
 		expect(systemPrompt).toContain('## Business overview');
 		expect(systemPrompt).not.toContain('The document should:');
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledTimes(2);
 		expect(fs.readFileSync(path.join(projectPath, 'RULES.md'), 'utf8')).toBe('# Generated rules\n');
 	});
 });

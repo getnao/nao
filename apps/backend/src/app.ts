@@ -10,7 +10,11 @@ import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { env, isCloud, isCloudBillingEnabled } from './env';
-import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
+import {
+	AUTOMATION_JOB_NAME,
+	automationHandler,
+	resolveAutomationProjectPrincipal,
+} from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
@@ -24,7 +28,7 @@ import {
 	CONTEXT_RECOMMENDATIONS_JOB_NAME,
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
-	resolveContextRecommendationsProjectId,
+	resolveContextRecommendationsProjectPrincipal,
 } from './handlers/context-recommendations.handler';
 import {
 	INVITATION_CLEANUP_JOB_NAME,
@@ -39,12 +43,12 @@ import {
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import {
-	resolveStoryDeliveryProjectId,
+	resolveStoryDeliveryProjectPrincipal,
 	STORY_DELIVERY_JOB_NAME,
 	storyDeliveryHandler,
 } from './handlers/story-delivery.handler';
 import {
-	resolveStoryRefreshProjectId,
+	resolveStoryRefreshProjectPrincipal,
 	STORY_REFRESH_JOB_NAME,
 	storyRefreshHandler,
 } from './handlers/story-refresh.handler';
@@ -526,9 +530,15 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		uniqueKey: INVITATION_CLEANUP_JOB_NAME,
 	});
 
-	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
-	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
-	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
+	registerJob(AUTOMATION_JOB_NAME, automationHandler, {
+		resolveProjectPrincipal: resolveAutomationProjectPrincipal,
+	});
+	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, {
+		resolveProjectPrincipal: resolveStoryRefreshProjectPrincipal,
+	});
+	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, {
+		resolveProjectPrincipal: resolveStoryDeliveryProjectPrincipal,
+	});
 	if (isCloud) {
 		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
 		await ensureRecurring({
@@ -572,7 +582,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
 		registerJob(CONTEXT_RECOMMENDATIONS_JOB_NAME, contextRecommendationsHandler, {
-			resolveProjectId: resolveContextRecommendationsProjectId,
+			resolveProjectPrincipal: resolveContextRecommendationsProjectPrincipal,
 		});
 		try {
 			await ensureContextRecommendationsSchedules();

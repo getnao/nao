@@ -4,7 +4,12 @@ import type { DBOrganizationBilling } from '../db/abstractSchema';
 import { isCloudBillingEnabled } from '../env';
 import * as backofficeBillingQueries from '../queries/backoffice-billing.queries';
 import * as billingQueries from '../queries/billing.queries';
-import { type BillingStatus, CLOUD_BILLING_PLANS, type CloudBillingInterval } from '../types/billing';
+import {
+	type BillingStatus,
+	CLOUD_BILLING_PLANS,
+	type CloudBillingInterval,
+	LEGACY_CLOUD_BILLING_PLANS,
+} from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
 import { getCreditsOverview } from './backoffice-credits.service';
@@ -110,8 +115,13 @@ function billingState(bypassBilling: boolean, status: BillingStatus | null): Bac
 }
 
 function billingInterval(plan: string | null): CloudBillingInterval | null {
-	const entry = Object.entries(CLOUD_BILLING_PLANS).find(([, definition]) => definition.key === plan);
-	return entry ? (entry[0] as CloudBillingInterval) : null;
+	const definition = [...Object.values(CLOUD_BILLING_PLANS), ...Object.values(LEGACY_CLOUD_BILLING_PLANS)].find(
+		(entry) => entry.key === plan,
+	);
+	if (definition?.interval === 'month') {
+		return 'monthly';
+	}
+	return definition?.interval === 'year' ? 'yearly' : null;
 }
 
 async function loadOrganizationStripeDetail(billing: DBOrganizationBilling, stripeCustomerId: string) {

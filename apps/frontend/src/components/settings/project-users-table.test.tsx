@@ -70,6 +70,9 @@ vi.mock('@/main', () => ({
 		account: {
 			resetPassword: { mutationOptions: () => ({ mutationKey: ['reset-password'] }) },
 		},
+		billing: {
+			getAccess: { queryKey: () => ['billing-access'] },
+		},
 		project: {
 			listAllUsersWithRoles: { queryKey: () => ['project-members'] },
 			listUsersWithAccess: { queryOptions: () => ({ queryKey: ['users-with-access'] }) },

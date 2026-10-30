@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 	roles: {} as Record<string, 'admin' | 'user' | 'viewer' | null>,
 }));
 
-vi.mock('../src/env', () => ({ env: { BETA_AUTOMATIONS_ENABLED: true } }));
+vi.mock('../src/env', () => ({
+	env: { BETA_AUTOMATIONS_ENABLED: true },
+	isCloudFreeTierEnabled: vi.fn(() => false),
+}));
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/handlers/automation.handler', () => ({
@@ -46,6 +49,8 @@ vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
 }));
 
 import { automationRoutes } from '../src/trpc/automation.routes';

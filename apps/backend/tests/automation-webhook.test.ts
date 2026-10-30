@@ -7,7 +7,10 @@ vi.mock('../src/handlers/automation.handler', () => ({ startAutomationRun: vi.fn
 vi.mock('../src/queries/automation.queries', () => ({ getAutomationById: vi.fn() }));
 vi.mock('../src/queries/project.queries', () => ({ getProjectById: vi.fn() }));
 vi.mock('../src/services/api-key.service', () => ({ validateApiKey: vi.fn() }));
-vi.mock('../src/services/cloud-billing-access.service', () => ({ assertProjectCloudBillingAccess: vi.fn() }));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
+}));
 vi.mock('../src/utils/logger', () => ({ logger: { info: vi.fn(), error: vi.fn() } }));
 
 import { startAutomationRun } from '../src/handlers/automation.handler';
@@ -15,13 +18,16 @@ import * as automationQueries from '../src/queries/automation.queries';
 import * as projectQueries from '../src/queries/project.queries';
 import { automationWebhookRoutes } from '../src/routes/automation-webhook';
 import { validateApiKey } from '../src/services/api-key.service';
-import { assertProjectCloudBillingAccess } from '../src/services/cloud-billing-access.service';
+import {
+	assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess,
+} from '../src/services/cloud-billing-access.service';
 
 const ORG = { id: 'org-1' };
 const AUTOMATION_ID = 'automation-1';
 
 function buildAutomation(overrides: Record<string, unknown> = {}) {
-	return { id: AUTOMATION_ID, projectId: 'project-1', webhookEnabled: true, ...overrides };
+	return { id: AUTOMATION_ID, projectId: 'project-1', userId: 'owner-1', webhookEnabled: true, ...overrides };
 }
 
 async function post(app: FastifyInstance, headers: Record<string, string> = {}) {
@@ -104,6 +110,7 @@ describe('automation webhook route', () => {
 		expect(res.statusCode).toBe(202);
 		expect(res.json()).toEqual({ runId: 'run-1', automationId: AUTOMATION_ID, status: 'running' });
 		expect(vi.mocked(assertProjectCloudBillingAccess)).toHaveBeenCalledWith('project-1');
+		expect(vi.mocked(assertProjectUserCloudBillingAccess)).toHaveBeenCalledWith('project-1', 'owner-1');
 		expect(vi.mocked(startAutomationRun)).toHaveBeenCalledWith(AUTOMATION_ID, {
 			billingAccessVerifiedProjectId: 'project-1',
 			requireEnabled: false,

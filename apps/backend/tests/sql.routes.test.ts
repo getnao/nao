@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	assertProjectCloudBillingAccess: vi.fn(),
+	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
 	buildToolContext: vi.fn(),
 	executeQuery: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(),
 	getLatestExecuteSqlByQueryId: vi.fn(),
 	updateExecuteSqlPart: vi.fn(),
 }));
@@ -16,11 +18,15 @@ vi.mock('../src/queries/execute-sql.queries', () => ({
 	updateExecuteSqlPart: mocks.updateExecuteSqlPart,
 }));
 vi.mock('../src/queries/organization.queries', () => ({}));
-vi.mock('../src/queries/project.queries', () => ({}));
+vi.mock('../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async () => ({ id: 'project-id', orgId: 'organization-id' })),
+}));
 vi.mock('../src/services/agent', () => ({ buildToolContext: mocks.buildToolContext }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
-	assertOrganizationCloudBillingAccess: vi.fn(),
-	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
+	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
+	getOrganizationCloudEntitlement: mocks.getOrganizationCloudEntitlement,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(async () => false),
@@ -54,7 +60,8 @@ describe('SQL edit routes', () => {
 
 		expect(mocks.getLatestExecuteSqlByQueryId).toHaveBeenCalledTimes(1);
 		expect(mocks.getLatestExecuteSqlByQueryId).toHaveBeenCalledWith('query_1');
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-id', undefined);
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('organization-id', 'user-id', undefined);
 	});
 });
 

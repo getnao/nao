@@ -34,6 +34,7 @@ type DeliveryContext = {
 	delivery: DBStoryDelivery;
 	story: DBStory;
 	projectId: string;
+	ownerId: string;
 	recipientUserIds: string[];
 };
 
@@ -56,7 +57,9 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job
 	}
 }
 
-export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPayload): Promise<string | null> {
+export async function resolveStoryDeliveryProjectPrincipal(
+	payload: StoryDeliveryJobPayload,
+): Promise<{ projectId: string; principalUserId: string } | null> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
@@ -68,7 +71,11 @@ export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPay
 	if (!projectId) {
 		throw new Error(`Story ${payload.storyId} is missing a project; cannot deliver.`);
 	}
-	return projectId;
+	const principalUserId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
+	if (!principalUserId) {
+		throw new Error(`Story ${payload.storyId} is missing an owner; cannot deliver.`);
+	}
+	return { projectId, principalUserId };
 }
 
 export async function runScheduledStoryDelivery(
@@ -82,6 +89,7 @@ export async function runScheduledStoryDelivery(
 		}
 		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug, {
 			billingAccessVerifiedProjectId: context.projectId,
+			principalUserId: context.ownerId,
 		});
 		await deliver(context, queryData, skipDeliveries);
 	});
@@ -125,13 +133,17 @@ async function loadDeliveryContext(storyId: string): Promise<DeliveryContext | n
 	if (!projectId) {
 		throw new Error(`Story ${storyId} is missing a project; cannot deliver.`);
 	}
+	const ownerId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
+	if (!ownerId) {
+		throw new Error(`Story ${storyId} is missing an owner; cannot deliver.`);
+	}
 
-	const recipientUserIds = await resolveDeliveryRecipientUserIds(delivery, storyId, projectId, story.userId ?? null);
+	const recipientUserIds = await resolveDeliveryRecipientUserIds(delivery, storyId, projectId, ownerId);
 	if (recipientUserIds.length === 0) {
 		return null;
 	}
 
-	return { delivery, story, projectId, recipientUserIds };
+	return { delivery, story, projectId, ownerId, recipientUserIds };
 }
 
 async function deliver(
@@ -139,15 +151,14 @@ async function deliver(
 	queryData: StoryQueryData,
 	skipDeliveries: ChannelDeliveryAttempt[] = [],
 ): Promise<void> {
-	const { delivery, story, projectId, recipientUserIds } = context;
+	const { delivery, story, projectId, ownerId, recipientUserIds } = context;
 
 	const version = await storyQueries.getLatestVersionByChatAndSlug(story.chatId!, story.slug);
 	if (!version) {
 		throw new Error(`Story ${story.id} has no version to deliver.`);
 	}
 
-	const ownerId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id)) ?? null;
-	const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
+	const ownerName = await userQueries.getUserName(ownerId);
 	await ensureRecipientsCanOpenStory(story.id, projectId, ownerId, recipientUserIds);
 	const linkUrl = storyPath(story.id);
 	const isCustom = story.format === 'custom';

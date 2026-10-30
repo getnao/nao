@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { Info, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
+import type { CloudSeatCandidate } from '@/components/settings/cloud-billing-seats-card';
+import type { MemberAccessState } from '@/components/settings/member-access-badge';
 import {
 	AddMemberDialog,
 	EditMemberDialog,
@@ -17,9 +20,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
+import { getBrowserBillingCurrency } from '@/lib/billing-currency';
 import { trpc } from '@/main';
 
 export function OrgMembers() {
@@ -29,31 +34,88 @@ export function OrgMembers() {
 	const userCountsQuery = useQuery(trpc.organization.getUserCounts.queryOptions());
 	const { isOrgAdmin } = usePermissions();
 	const isCloud = useIsCloud();
+	const billingAccess = useCloudBillingAccess({ enabled: isCloud });
+	const billingStatus = useQuery({
+		...trpc.billing.getStatus.queryOptions({ currency: getBrowserBillingCurrency() }),
+		enabled: isCloud && isOrgAdmin && billingAccess.data?.freeTierEnabled === true,
+	});
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+	const [seatAccessError, setSeatAccessError] = useState<string | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
 	const invalidateMembers = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() });
+		return Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.organization.getUserCounts.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.billing.getStatus.queryKey() }),
+		]);
 	}, [queryClient]);
 
 	const addMember = useMutation(trpc.organization.addMember.mutationOptions());
 	const modifyMember = useMutation(trpc.organization.modifyMember.mutationOptions());
 	const removeOrgMember = useMutation(trpc.organization.removeMember.mutationOptions());
 	const resetPassword = useMutation(trpc.organization.resetMemberPassword.mutationOptions());
+	const selectSeats = useMutation(trpc.billing.selectSeats.mutationOptions());
 
-	const members: TeamMember[] =
+	const organizationMembers: TeamMember[] =
 		membersQuery.data?.map((member) => ({
 			id: member.id,
 			name: member.name,
 			email: member.email,
 			role: member.role as UserRole,
 			status: member.status,
+			membershipSource: 'organization',
 		})) ?? [];
+	const cloudBillingStatus =
+		billingStatus.data && 'access' in billingStatus.data && 'seatCandidates' in billingStatus.data
+			? billingStatus.data
+			: undefined;
+	const seatCandidates: CloudSeatCandidate[] = cloudBillingStatus?.seatCandidates ?? [];
+	const projectMembers: TeamMember[] = seatCandidates
+		.filter((candidate) => candidate.membershipClass === 'project_only')
+		.map((candidate) => ({
+			id: candidate.userId,
+			name: candidate.name,
+			email: candidate.email,
+			role: candidate.storedProjectRoles?.find((role) => role !== 'viewer') ?? 'user',
+			status: 'active',
+			membershipSource: 'project',
+		}));
+	const members = [...organizationMembers, ...projectMembers];
+	const accessByUserId: Record<string, MemberAccessState> | undefined = cloudBillingStatus
+		? Object.fromEntries(
+				members.map((member) => {
+					const candidate = seatCandidates.find(({ userId }) => userId === member.id);
+					return [member.id, candidate ? (candidate.isSeated ? 'seated' : 'read-only') : 'viewer'] as const;
+				}),
+			)
+		: undefined;
+	const assignmentsEditable =
+		cloudBillingStatus?.access.tier === 'free' ||
+		cloudBillingStatus?.access.tier === 'team' ||
+		cloudBillingStatus?.access.tier === 'trial';
+	const seatCapacity =
+		cloudBillingStatus?.access.tier === 'team'
+			? cloudBillingStatus.access.seatQuantity
+			: cloudBillingStatus?.access.tier === 'free'
+				? cloudBillingStatus.access.seatLimit
+				: null;
+	const accessSummary =
+		seatCapacity === null || seatCapacity === undefined
+			? undefined
+			: `${seatCandidates.filter(({ isSeated }) => isSeated).length}/${seatCapacity}`;
+	const accessDisabledByUserId = Object.fromEntries(
+		seatCandidates.map((candidate) => [
+			candidate.userId,
+			candidate.storedOrgRole === 'admin' || !assignmentsEditable || selectSeats.isPending,
+		]),
+	);
 
 	const handleAdd = async (data: { email: string; name?: string }) => {
 		try {
@@ -65,7 +127,7 @@ export function OrgMembers() {
 			if (result.password) {
 				setCredentials({ email: data.email, password: result.password });
 			}
-			return {};
+			return result;
 		} catch (err: any) {
 			if (err.message === 'USER_DOES_NOT_EXIST') {
 				return { needsName: true };
@@ -75,7 +137,7 @@ export function OrgMembers() {
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
-		await modifyMember.mutateAsync({
+		const result = await modifyMember.mutateAsync({
 			...data,
 			newRole: data.newRole as (typeof ORG_MEMBER_ROLES)[number] | undefined,
 		});
@@ -83,6 +145,7 @@ export function OrgMembers() {
 		if (session?.user) {
 			await queryClient.invalidateQueries({ queryKey: ['session'] });
 		}
+		return result;
 	};
 
 	const handleRemove = async () => {
@@ -91,6 +154,34 @@ export function OrgMembers() {
 		}
 		await removeOrgMember.mutateAsync({ userId: removeMember.id });
 		invalidateMembers();
+	};
+
+	const handleAccessChange = async (member: TeamMember, access: 'seated' | 'read-only') => {
+		const candidate = seatCandidates.find(({ userId }) => userId === member.id);
+		if (!candidate || candidate.storedOrgRole === 'admin') {
+			return;
+		}
+		const availableSeats = cloudBillingStatus?.access.availableSeats;
+		if (access === 'seated' && availableSeats !== null && availableSeats !== undefined && availableSeats <= 0) {
+			setSeatAccessError('No seats are available. Add capacity in Billing → Seats first.');
+			return;
+		}
+
+		const selectedUserIds = seatCandidates
+			.filter(({ storedOrgRole, isSeated }) => storedOrgRole !== 'admin' && isSeated)
+			.map(({ userId }) => userId);
+		const nextSelectedUserIds =
+			access === 'seated'
+				? [...new Set([...selectedUserIds, member.id])]
+				: selectedUserIds.filter((userId) => userId !== member.id);
+
+		setSeatAccessError(null);
+		try {
+			await selectSeats.mutateAsync({ selectedUserIds: nextSelectedUserIds });
+			await invalidateMembers();
+		} catch (error) {
+			setSeatAccessError(error instanceof Error ? error.message : 'Unable to update seat access.');
+		}
 	};
 
 	const handleResetPassword = async () => {
@@ -125,12 +216,7 @@ export function OrgMembers() {
 					<OrgUserStat
 						label='People with access'
 						value={userCountsQuery.data?.totalUsers}
-						hint="Organization members plus people added directly to a project from its Users & Groups page, or created automatically by Slack. They aren't in the list below; see each project's user list."
-					/>
-					<OrgUserStat
-						label='Active in the last 90 days'
-						value={userCountsQuery.data?.activeUsers}
-						hint='Distinct people who sent at least one message on any channel. This is the number that maps to licensed seats at renewal.'
+						hint='Organization members plus people with project-only access, including users created automatically by integrations.'
 					/>
 				</div>
 				<SettingsCard
@@ -144,6 +230,18 @@ export function OrgMembers() {
 						) : undefined
 					}
 				>
+					{seatAccessError && (
+						<p className='border-b border-border p-4 text-sm text-destructive' role='alert'>
+							{seatAccessError}{' '}
+							<Link
+								to='/settings/organization/billing'
+								search={{ tab: 'seats' }}
+								className='font-medium underline underline-offset-4'
+							>
+								Manage seats
+							</Link>
+						</p>
+					)}
 					{membersQuery.isLoading ? (
 						<div className='p-4 text-sm text-muted-foreground'>Loading members...</div>
 					) : membersQuery.isError ? (
@@ -160,6 +258,14 @@ export function OrgMembers() {
 							isAdmin={isOrgAdmin}
 							onEdit={setEditMember}
 							onRemove={setRemoveMember}
+							accessByUserId={accessByUserId}
+							accessDisabledByUserId={accessDisabledByUserId}
+							accessSummary={accessSummary}
+							onAccessChange={
+								assignmentsEditable
+									? (member, access) => void handleAccessChange(member, access)
+									: undefined
+							}
 							extraActions={
 								isCloud
 									? undefined

@@ -10,7 +10,7 @@ import * as projectQueries from '../queries/project.queries';
 import type { AgentRequest } from '../types/chat';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertProjectCloudBillingAccess, assertProjectUserCloudBillingAccess } from './cloud-billing-access.service';
 import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './example-agent-run';
 
 export interface AgentRunRequest {
@@ -87,6 +87,7 @@ async function authorizeMemberAgentRun({ userId, body, projectId }: AuthorizedAg
 		throw new HandlerError('FORBIDDEN', 'Viewers cannot send messages');
 	}
 	await assertProjectCloudBillingAccess(projectId);
+	await assertProjectUserCloudBillingAccess(projectId, userId);
 	const canUseAdminAgent = userRole === 'admin' || userRole === 'context_admin';
 	return {
 		projectId,

@@ -3,19 +3,21 @@
 import { env } from '../env';
 import {
 	hasSsoUserGroupSyncState,
+	listSsoProjectRoleCandidates,
 	reconcileSsoUserGroupMemberships,
 } from '../queries/sso-user-group-membership.queries';
 import { logger, serializeError } from '../utils/logger';
 import { parseOidcGroupNaoGroupMapping, readGroupsClaim } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { putProjectMember, type SeatActivationOutcome } from './membership.service';
 import { isOidcConfigured } from './oidc-auth.service';
 import { DEFAULT_GROUPS_CLAIM } from './sso-group-mapping.service';
 import { readVerifiedOidcIdTokenClaims } from './sso-token.service';
 
-export async function syncUserGroupsFromOidc(userId: string): Promise<void> {
+export async function syncUserGroupsFromOidc(userId: string): Promise<SeatActivationOutcome | null> {
 	try {
 		if (!(await canSyncOidcUserGroups(userId))) {
-			return;
+			return null;
 		}
 
 		const token = await readVerifiedOidcIdTokenClaims(userId);
@@ -24,7 +26,7 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<void> {
 				source: 'system',
 				context: { userId, problem: token.status },
 			});
-			return;
+			return null;
 		}
 
 		const claimName = env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM;
@@ -34,7 +36,7 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<void> {
 				source: 'system',
 				context: { userId, claimName, problem: claim.status },
 			});
-			return;
+			return null;
 		}
 
 		const envMappings = parseOidcGroupNaoGroupMapping(env.OIDC_GROUP_NAO_GROUP_MAPPING);
@@ -43,18 +45,36 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<void> {
 				source: 'system',
 				context: { problem: envMappings.problem },
 			});
-			return;
+			return null;
 		}
-		await reconcileSsoUserGroupMemberships(userId, 'oidc', claim.groups, {
+		const options = {
 			hasUnlimitedUserGroups: await hasFeature(LICENSE_FEATURES.userGroups),
 			oidcMappings: envMappings.mappings,
-		});
+		};
+		const outcomes: SeatActivationOutcome[] = [];
+		for (const candidate of await listSsoProjectRoleCandidates(userId, 'oidc', claim.groups, options)) {
+			const result = await putProjectMember(candidate.projectId, userId, candidate.role);
+			if (result.outcome) {
+				outcomes.push(result.outcome);
+			}
+		}
+		await reconcileSsoUserGroupMemberships(userId, 'oidc', claim.groups, options);
+		return mostRestrictiveOutcome(outcomes);
 	} catch (error) {
 		logger.error('Failed to sync User Group memberships from OIDC', {
 			source: 'system',
 			context: { userId, error: serializeError(error) },
 		});
+		return null;
 	}
+}
+
+function mostRestrictiveOutcome(outcomes: SeatActivationOutcome[]): SeatActivationOutcome | null {
+	return (
+		outcomes.find(({ status }) => status === 'viewer_fallback' || status === 'promotion_rejected') ??
+		outcomes.at(-1) ??
+		null
+	);
 }
 
 async function canSyncOidcUserGroups(userId: string): Promise<boolean> {

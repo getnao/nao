@@ -109,6 +109,20 @@ it('offers the free trial for an eligible billing access error', () => {
 	expect(screen.getByText('Start your free trial, then retry your message.')).toBeTruthy();
 });
 
+it('maps a seat restriction to read-only access without retrying the blocked message', () => {
+	mocks.error = new Error(
+		JSON.stringify({
+			error: 'Cloud billing seat access is restricted. Ask an organization admin to add a seat.',
+		}),
+	);
+
+	render(<ChatError />);
+
+	expect(screen.getByRole('status').textContent).toContain('You have read-only access.');
+	expect(screen.getByText(/Ask an organization admin to add a seat/)).toBeTruthy();
+	expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+});
+
 it('directs trial-eligible members to an organization admin without offering billing management', () => {
 	mocks.access.canManageBilling = false;
 	mocks.access.trialAvailable = true;

@@ -15,7 +15,12 @@ export interface SubscriptionProjection {
 	billingStatus: BillingStatus;
 	stripeCustomerId: string;
 	stripeSubscriptionId: string;
+	stripeSubscriptionItemId: string | null;
 	stripePriceId: string;
+	seatQuantity: number | null;
+	stripeSubscriptionScheduleId: string | null;
+	pendingBillingPlan: string | null;
+	pendingSeatQuantity: number | null;
 	trialStartedAt: Date | null;
 	trialEndsAt: Date | null;
 	currentPeriodStartsAt: Date | null;
@@ -236,6 +241,39 @@ export async function updatePaymentMethodProjection(
 		.returning({ orgId: s.organizationBilling.orgId })
 		.execute();
 	return Boolean(updated);
+}
+
+export async function setPendingBillingChange(
+	orgId: string,
+	pendingBillingPlan: string,
+	pendingSeatQuantity: number | null,
+): Promise<void> {
+	await db
+		.update(s.organizationBilling)
+		.set({ pendingBillingPlan, pendingSeatQuantity, billingUpdatedAt: new Date() })
+		.where(eq(s.organizationBilling.orgId, orgId))
+		.execute();
+}
+
+export async function attachSubscriptionSchedule(orgId: string, stripeSubscriptionScheduleId: string): Promise<void> {
+	await db
+		.update(s.organizationBilling)
+		.set({ stripeSubscriptionScheduleId, billingUpdatedAt: new Date() })
+		.where(eq(s.organizationBilling.orgId, orgId))
+		.execute();
+}
+
+export async function clearPendingBillingChange(orgId: string): Promise<void> {
+	await db
+		.update(s.organizationBilling)
+		.set({
+			stripeSubscriptionScheduleId: null,
+			pendingBillingPlan: null,
+			pendingSeatQuantity: null,
+			billingUpdatedAt: new Date(),
+		})
+		.where(eq(s.organizationBilling.orgId, orgId))
+		.execute();
 }
 
 export async function insertStripeWebhookEvent(event: NewStripeWebhookEvent): Promise<DBStripeWebhookEvent | null> {

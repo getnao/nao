@@ -148,6 +148,11 @@ describe('Cloud Google organization enrollment', () => {
 	});
 
 	it('adds a matched organization member through the membership service', async () => {
+		mocks.addOrgMemberIfMissing.mockResolvedValue({
+			userId: 'google-user',
+			role: 'viewer',
+			outcome: { status: 'viewer_fallback', role: 'viewer', reason: 'capacity_full' },
+		});
 		await getAuth();
 		const options = mocks.betterAuth.mock.calls[0]?.[0] as {
 			databaseHooks: {

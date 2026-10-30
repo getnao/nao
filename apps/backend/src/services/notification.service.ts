@@ -18,6 +18,8 @@ import { storyPath } from '../utils/story-links';
 import { notificationChannels } from './notification-channels';
 import { resolveDeliverySubscriberIds } from './story-recipients';
 
+export { notifyScheduledWorkPaused } from './scheduled-work-paused-notification.service';
+
 const sharedItemPaths: Record<SharedItemLabel, (itemId: string) => string> = {
 	story: (storyId) => storyPath(storyId),
 	chat: (shareId) => `/shared-chat/${shareId}`,

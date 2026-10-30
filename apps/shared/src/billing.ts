@@ -61,32 +61,91 @@ export function calculateCreditTopUp(creditAmountCents: number): {
 }
 
 export const CLOUD_BILLING_TRIAL_DAYS = 14;
+export const FREE_TIER_SEAT_LIMIT = 3;
+export const TEAM_MIN_SEATS = 4;
 
 export const CLOUD_BILLING_PLANS = {
-	monthly: {
-		key: 'cloud_monthly_v2',
-		name: 'nao Cloud',
+	cloud_team_monthly_v1: {
+		key: 'cloud_team_monthly_v1',
+		name: 'nao Cloud Team',
+		tier: 'team',
 		interval: 'month',
 		intervalCount: 1,
 		trialDays: CLOUD_BILLING_TRIAL_DAYS,
 		userLimit: null,
+		perSeat: true,
 	},
-	yearly: {
-		key: 'cloud_yearly_v1',
-		name: 'nao Cloud',
+	cloud_team_yearly_v1: {
+		key: 'cloud_team_yearly_v1',
+		name: 'nao Cloud Team',
+		tier: 'team',
 		interval: 'year',
 		intervalCount: 1,
 		trialDays: CLOUD_BILLING_TRIAL_DAYS,
 		userLimit: null,
+		perSeat: true,
+	},
+	cloud_unlimited_monthly_v1: {
+		key: 'cloud_unlimited_monthly_v1',
+		name: 'nao Cloud Unlimited',
+		tier: 'unlimited',
+		interval: 'month',
+		intervalCount: 1,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
+		userLimit: null,
+		perSeat: false,
+	},
+	cloud_unlimited_yearly_v1: {
+		key: 'cloud_unlimited_yearly_v1',
+		name: 'nao Cloud Unlimited',
+		tier: 'unlimited',
+		interval: 'year',
+		intervalCount: 1,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
+		userLimit: null,
+		perSeat: false,
 	},
 } as const;
 
-export type CloudBillingInterval = keyof typeof CLOUD_BILLING_PLANS;
-export type CloudBillingPlanDefinition = (typeof CLOUD_BILLING_PLANS)[CloudBillingInterval];
-export type CloudBillingPlanKey = CloudBillingPlanDefinition['key'];
+export const LEGACY_CLOUD_BILLING_PLANS = {
+	cloud_monthly_v2: {
+		key: 'cloud_monthly_v2',
+		name: 'nao Cloud Legacy Unlimited',
+		tier: 'unlimited',
+		interval: 'month',
+		intervalCount: 1,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
+		userLimit: null,
+		perSeat: false,
+		legacy: true,
+	},
+	cloud_yearly_v1: {
+		key: 'cloud_yearly_v1',
+		name: 'nao Cloud Legacy Unlimited',
+		tier: 'unlimited',
+		interval: 'year',
+		intervalCount: 1,
+		trialDays: CLOUD_BILLING_TRIAL_DAYS,
+		userLimit: null,
+		perSeat: false,
+		legacy: true,
+	},
+} as const;
+
+export const CLOUD_BILLING_TIERS = ['team', 'unlimited'] as const;
+export const CLOUD_BILLING_TIER_ORDER = ['free', 'team', 'unlimited'] as const;
+
+export type CloudBillingInterval = 'monthly' | 'yearly';
+export type CloudBillingTier = 'trial' | (typeof CLOUD_BILLING_TIER_ORDER)[number];
+export type PaidCloudBillingTier = (typeof CLOUD_BILLING_TIERS)[number];
+export type CloudBillingPlanKey = keyof typeof CLOUD_BILLING_PLANS;
+export type LegacyCloudBillingPlanKey = keyof typeof LEGACY_CLOUD_BILLING_PLANS;
+export type CurrentCloudBillingPlanDefinition = (typeof CLOUD_BILLING_PLANS)[CloudBillingPlanKey];
+export type LegacyCloudBillingPlanDefinition = (typeof LEGACY_CLOUD_BILLING_PLANS)[LegacyCloudBillingPlanKey];
+export type CloudBillingPlanDefinition = CurrentCloudBillingPlanDefinition | LegacyCloudBillingPlanDefinition;
 
 export interface CloudBillingPlan {
-	key: CloudBillingPlanKey;
+	key: CloudBillingPlanKey | LegacyCloudBillingPlanKey;
 	name: string;
 	amount: number;
 	currency: string;
@@ -94,6 +153,9 @@ export interface CloudBillingPlan {
 	intervalCount: number;
 	trialDays: number;
 	userLimit: null;
+	tier: PaidCloudBillingTier;
+	perSeat: boolean;
+	legacy?: true;
 }
 
 export type TrialBillingState = {
@@ -114,5 +176,23 @@ export function isTrialAvailable(billing: TrialBillingState | null | undefined):
 }
 
 export function isCloudBillingPlanKey(value: string | null | undefined): value is CloudBillingPlanKey {
-	return Object.values(CLOUD_BILLING_PLANS).some((plan) => plan.key === value);
+	return value !== null && value !== undefined && Object.hasOwn(CLOUD_BILLING_PLANS, value);
+}
+
+export function isLegacyCloudBillingPlanKey(value: string | null | undefined): value is LegacyCloudBillingPlanKey {
+	return value !== null && value !== undefined && Object.hasOwn(LEGACY_CLOUD_BILLING_PLANS, value);
+}
+
+export function getCloudBillingPlanDefinition(
+	tier: PaidCloudBillingTier,
+	interval: CloudBillingInterval,
+): CurrentCloudBillingPlanDefinition {
+	const stripeInterval = interval === 'monthly' ? 'month' : 'year';
+	const plan = Object.values(CLOUD_BILLING_PLANS).find(
+		(definition) => definition.tier === tier && definition.interval === stripeInterval,
+	);
+	if (!plan) {
+		throw new Error(`No cloud billing plan exists for ${tier}/${interval}`);
+	}
+	return plan;
 }

@@ -365,10 +365,14 @@ describe('cloud backoffice routes', () => {
 		expect(updatedUser.json()).toMatchObject({ name: 'Renamed Member', email: 'renamed@example.com' });
 
 		const orgMember = await request('PUT', `/organizations/${ORG_ID}/members/${MEMBER_ID}`, { role: 'viewer' });
-		expect(orgMember.json()).toEqual({ userId: MEMBER_ID, role: 'viewer' });
+		expect(orgMember.json()).toEqual({ userId: MEMBER_ID, role: 'viewer', outcome: null });
 
 		const projectMember = await request('PUT', `/projects/${PROJECT_ID}/members/${MEMBER_ID}`, { role: 'user' });
-		expect(projectMember.json()).toEqual({ userId: MEMBER_ID, role: 'user' });
+		expect(projectMember.json()).toEqual({
+			userId: MEMBER_ID,
+			role: 'user',
+			outcome: { status: 'activated', role: 'user', usedExistingSeat: false },
+		});
 
 		const removedProjectMember = await request('DELETE', `/projects/${PROJECT_ID}/members/${MEMBER_ID}`);
 		expect(removedProjectMember.statusCode).toBe(204);

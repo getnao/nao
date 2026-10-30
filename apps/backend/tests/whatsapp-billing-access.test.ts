@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	createAgent: vi.fn(),
 	getLinkedWhatsappUser: vi.fn(),
 	getUser: vi.fn(),
@@ -24,6 +25,8 @@ vi.mock('../src/services/agent', () => ({
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: mocks.assertProjectUserCloudBillingAccess,
+	CloudBillingSeatRestrictedError: class CloudBillingSeatRestrictedError extends Error {},
 }));
 vi.mock('../src/services/transcribe.service', () => ({
 	transcribeAudio: mocks.transcribeAudio,

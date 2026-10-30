@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const testState = vi.hoisted(() => ({
 	billing: null as Record<string, unknown> | null,
 	billingEnabled: true,
+	freeTierEnabled: false,
 	membership: null as Record<string, unknown> | null,
 }));
 const stripeMocks = vi.hoisted(() => ({
@@ -34,6 +35,15 @@ vi.mock('../src/queries/organization.queries', () => ({
 	getUserOrgMembership: vi.fn(async () => testState.membership),
 	getOrgMember: vi.fn(async () => testState.membership),
 	getOrganizationById: vi.fn(async () => testState.membership?.organization ?? null),
+	listReadOnlyOrgUsers: vi.fn(async () => []),
+	resolveSeatedOrgUserIds: (
+		candidates: Array<{ id: string; membershipClass: string; storedReadOnly?: boolean }>,
+		seatLimit: number | null,
+	) =>
+		candidates
+			.filter((candidate) => candidate.membershipClass === 'org_admin' || candidate.storedReadOnly !== true)
+			.slice(0, seatLimit === null ? undefined : seatLimit)
+			.map(({ id }) => id),
 }));
 
 vi.mock('../src/queries/user.queries', () => ({
@@ -85,6 +95,7 @@ vi.mock('../src/utils/logger', () => ({
 vi.mock('../src/env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/env')>()),
 	isCloudBillingEnabled: vi.fn(() => testState.billingEnabled),
+	isCloudFreeTierEnabled: vi.fn(() => testState.freeTierEnabled),
 }));
 
 import * as orgQueries from '../src/queries/organization.queries';
@@ -95,6 +106,10 @@ import { HandlerError } from '../src/utils/error';
 
 const testRouter = router({ billing: billingRoutes });
 
+beforeEach(() => {
+	testState.freeTierEnabled = false;
+});
+
 describe('billing.getAccess', () => {
 	beforeEach(() => {
 		testState.billing = null;
@@ -103,7 +118,7 @@ describe('billing.getAccess', () => {
 		vi.clearAllMocks();
 	});
 
-	it('returns minimal entitlement state to organization members', async () => {
+	it('returns canonical entitlement state to organization members', async () => {
 		const trialEndsAt = new Date('2099-10-05T00:00:00.000Z');
 		testState.membership = membership(
 			{ billingStatus: 'trialing', stripeSubscriptionId: 'sub_trial', trialEndsAt },
@@ -114,12 +129,21 @@ describe('billing.getAccess', () => {
 			organizationId: 'org-id',
 			hasAccess: true,
 			bypassBilling: false,
+			billingPlan: null,
 			status: 'trialing',
+			tier: 'trial',
 			trialEndsAt,
 			accessEndsAt: trialEndsAt,
 			canManageBilling: false,
+			seatUserCount: 0,
+			seatQuantity: null,
+			seatLimit: null,
+			availableSeats: null,
+			overCapacity: false,
+			isReadOnly: false,
 			trialAvailable: false,
 			requiresBillingAction: true,
+			freeTierEnabled: false,
 		});
 	});
 
@@ -723,6 +747,37 @@ describe('billing management mutations', () => {
 		).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 			message: 'Subscription cannot be resumed',
+		});
+	});
+});
+
+describe('Phase 6 billing route guards', () => {
+	beforeEach(() => {
+		testState.billingEnabled = true;
+		testState.freeTierEnabled = true;
+		testState.membership = membership({}, 'admin');
+		vi.clearAllMocks();
+	});
+
+	it('validates the Team minimum at the route boundary', async () => {
+		await expect(caller().billing.previewSeatChange({ targetQuantity: 3 })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+	});
+
+	it('requires organization-admin access for billing commands', async () => {
+		testState.membership = membership({}, 'member');
+
+		await expect(caller().billing.previewSeatChange({ targetQuantity: 4 })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+	});
+
+	it('keeps Phase 6 commands hidden while the rollout flag is off', async () => {
+		testState.freeTierEnabled = false;
+
+		await expect(caller().billing.previewSeatChange({ targetQuantity: 4 })).rejects.toMatchObject({
+			code: 'NOT_FOUND',
 		});
 	});
 });

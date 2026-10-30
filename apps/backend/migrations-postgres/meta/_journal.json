@@ -645,6 +645,13 @@
       "when": 1793197360141,
       "tag": "0091_onboarding_funnel",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793358552708,
+      "tag": "0092_add_cloud_billing_seats",
+      "breakpoints": true
     }
   ]
 }

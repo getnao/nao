@@ -1,5 +1,5 @@
 import type { MemberStatus, UserRole } from '@nao/shared/types';
-import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -501,6 +501,225 @@ export const countOrgUsers = async (orgId: string): Promise<number> => {
 
 	return Number(rows[0]?.total ?? 0);
 };
+
+export type OrgSeatCandidate = {
+	id: string;
+	name: string;
+	email: string;
+	role: UserRole;
+	roles: UserRole[];
+	orgRole: OrgRole | null;
+	projectRoles: UserRole[];
+	membershipClass: 'org_admin' | 'org_member' | 'project_only';
+	joinedAt: Date;
+	selectedAt: Date | null;
+	storedReadOnly: boolean | null;
+};
+
+export const countOrgSeatUsers = async (orgId: string): Promise<number> => {
+	const seatUsers = db.$with('org_seat_users').as(
+		db
+			.select({ userId: s.orgMember.userId })
+			.from(s.orgMember)
+			.where(and(eq(s.orgMember.orgId, orgId), ne(s.orgMember.role, 'viewer')))
+			.unionAll(
+				db
+					.select({ userId: s.projectMember.userId })
+					.from(s.projectMember)
+					.innerJoin(s.project, eq(s.projectMember.projectId, s.project.id))
+					.where(and(eq(s.project.orgId, orgId), ne(s.projectMember.role, 'viewer'))),
+			),
+	);
+	const [result] = await db
+		.with(seatUsers)
+		.select({ total: sql<number>`count(distinct ${seatUsers.userId})` })
+		.from(seatUsers)
+		.execute();
+	return Number(result?.total ?? 0);
+};
+
+export const listOrgSeatCandidates = async (orgId: string): Promise<OrgSeatCandidate[]> => {
+	const memberships = db.$with('org_seat_memberships').as(
+		db
+			.select({
+				userId: s.orgMember.userId,
+				source: sql<'organization' | 'project'>`'organization'`.as('source'),
+				role: sql<UserRole>`${s.orgMember.role}`.as('role'),
+				createdAt: s.orgMember.createdAt,
+			})
+			.from(s.orgMember)
+			.where(eq(s.orgMember.orgId, orgId))
+			.unionAll(
+				db
+					.select({
+						userId: s.projectMember.userId,
+						source: sql<'organization' | 'project'>`'project'`.as('source'),
+						role: sql<UserRole>`${s.projectMember.role}`.as('role'),
+						createdAt: s.projectMember.createdAt,
+					})
+					.from(s.projectMember)
+					.innerJoin(s.project, eq(s.projectMember.projectId, s.project.id))
+					.where(eq(s.project.orgId, orgId)),
+			),
+	);
+	const rows = await db
+		.with(memberships)
+		.select({
+			userId: memberships.userId,
+			source: memberships.source,
+			role: memberships.role,
+			createdAt: memberships.createdAt,
+			name: s.user.name,
+			email: s.user.email,
+			selectedAt: s.organizationSeatState.selectedAt,
+			storedReadOnly: s.organizationSeatState.isReadOnly,
+		})
+		.from(memberships)
+		.innerJoin(s.user, eq(s.user.id, memberships.userId))
+		.leftJoin(
+			s.organizationSeatState,
+			and(eq(s.organizationSeatState.orgId, orgId), eq(s.organizationSeatState.userId, memberships.userId)),
+		)
+		.execute();
+
+	const candidates = new Map<
+		string,
+		{
+			id: string;
+			name: string;
+			email: string;
+			orgRole: OrgRole | null;
+			projectRoles: Set<UserRole>;
+			orgJoinedAt: Date | null;
+			projectJoinedAt: Date | null;
+			selectedAt: Date | null;
+			storedReadOnly: boolean | null;
+		}
+	>();
+	for (const row of rows) {
+		const candidate = candidates.get(row.userId) ?? {
+			id: row.userId,
+			name: row.name,
+			email: row.email,
+			orgRole: null,
+			projectRoles: new Set<UserRole>(),
+			orgJoinedAt: null,
+			projectJoinedAt: null,
+			selectedAt: row.selectedAt,
+			storedReadOnly: row.storedReadOnly,
+		};
+		if (row.source === 'organization') {
+			candidate.orgRole = row.role as OrgRole;
+			candidate.orgJoinedAt = row.createdAt;
+		} else {
+			candidate.projectRoles.add(row.role);
+			if (row.role !== 'viewer' && (!candidate.projectJoinedAt || row.createdAt < candidate.projectJoinedAt)) {
+				candidate.projectJoinedAt = row.createdAt;
+			}
+		}
+		candidates.set(row.userId, candidate);
+	}
+
+	return [...candidates.values()]
+		.filter(
+			(candidate) =>
+				(candidate.orgRole !== null && candidate.orgRole !== 'viewer') ||
+				[...candidate.projectRoles].some((role) => role !== 'viewer'),
+		)
+		.map(toOrgSeatCandidate)
+		.sort(compareOrgSeatCandidates);
+};
+
+export const listSeatedOrgUserIds = async (orgId: string, seatLimit: number | null): Promise<string[]> => {
+	const candidates = await listOrgSeatCandidates(orgId);
+	return resolveSeatedOrgUserIds(candidates, seatLimit);
+};
+
+export const listReadOnlyOrgUsers = async (orgId: string, seatLimit: number | null): Promise<OrgSeatCandidate[]> => {
+	if (seatLimit === null) {
+		return [];
+	}
+	const candidates = await listOrgSeatCandidates(orgId);
+	const seatedIds = new Set(resolveSeatedOrgUserIds(candidates, seatLimit));
+	return candidates.filter(({ id }) => !seatedIds.has(id));
+};
+
+export function resolveSeatedOrgUserIds(candidates: OrgSeatCandidate[], seatLimit: number | null): string[] {
+	const eligibleCandidates =
+		seatLimit === null
+			? candidates
+			: candidates.filter(
+					(candidate) => candidate.membershipClass === 'org_admin' || candidate.storedReadOnly !== true,
+				);
+	return eligibleCandidates.slice(0, seatLimit === null ? undefined : Math.max(0, seatLimit)).map(({ id }) => id);
+}
+
+function toOrgSeatCandidate(candidate: {
+	id: string;
+	name: string;
+	email: string;
+	orgRole: OrgRole | null;
+	projectRoles: Set<UserRole>;
+	orgJoinedAt: Date | null;
+	projectJoinedAt: Date | null;
+	selectedAt: Date | null;
+	storedReadOnly: boolean | null;
+}): OrgSeatCandidate {
+	const projectRoles = [...candidate.projectRoles].sort(compareRoles);
+	const membershipClass =
+		candidate.orgRole === 'admin' ? 'org_admin' : candidate.orgRole !== null ? 'org_member' : 'project_only';
+	const joinedAt = membershipClass === 'project_only' ? candidate.projectJoinedAt : candidate.orgJoinedAt;
+	if (!joinedAt) {
+		throw new Error(`Seat candidate "${candidate.id}" has no eligible membership date`);
+	}
+	const roles = [...new Set<UserRole>([...(candidate.orgRole ? [candidate.orgRole] : []), ...projectRoles])].sort(
+		compareRoles,
+	);
+	return {
+		id: candidate.id,
+		name: candidate.name,
+		email: candidate.email,
+		role: roles.find((role) => role !== 'viewer') ?? 'viewer',
+		roles,
+		orgRole: candidate.orgRole,
+		projectRoles,
+		membershipClass,
+		joinedAt,
+		selectedAt: candidate.selectedAt,
+		storedReadOnly: candidate.storedReadOnly,
+	};
+}
+
+function compareOrgSeatCandidates(left: OrgSeatCandidate, right: OrgSeatCandidate): number {
+	const classDifference = seatClassRank(left.membershipClass) - seatClassRank(right.membershipClass);
+	if (classDifference !== 0) {
+		return classDifference;
+	}
+	if (left.membershipClass !== 'org_admin') {
+		const selectionDifference = Number(right.selectedAt !== null) - Number(left.selectedAt !== null);
+		if (selectionDifference !== 0) {
+			return selectionDifference;
+		}
+		if (left.selectedAt && right.selectedAt) {
+			const selectedAtDifference = left.selectedAt.getTime() - right.selectedAt.getTime();
+			if (selectedAtDifference !== 0) {
+				return selectedAtDifference;
+			}
+		}
+	}
+	return left.joinedAt.getTime() - right.joinedAt.getTime() || left.id.localeCompare(right.id);
+}
+
+function seatClassRank(membershipClass: OrgSeatCandidate['membershipClass']): number {
+	return { org_admin: 0, org_member: 1, project_only: 2 }[membershipClass];
+}
+
+function compareRoles(left: UserRole, right: UserRole): number {
+	return (
+		['admin', 'context_admin', 'user', 'viewer'].indexOf(left) -
+		['admin', 'context_admin', 'user', 'viewer'].indexOf(right)
+	);
+}
 
 export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberWithUser[]> => {
 	const rows = await db

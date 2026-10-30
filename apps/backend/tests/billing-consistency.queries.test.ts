@@ -135,6 +135,7 @@ describe('billing consistency queries', () => {
 
 	it('starts one local trial when the first project is created', async () => {
 		const originalEnv = { ...process.env };
+		delete process.env.STRIPE_CLOUD_PRODUCT_ID;
 		Object.assign(process.env, {
 			NAO_MODE: 'cloud',
 			CLOUD_BILLING_ENABLED: 'true',
@@ -145,11 +146,17 @@ describe('billing consistency queries', () => {
 			SMTP_HOST: 'smtp.example.com',
 			SMTP_MAIL_FROM: 'hello@example.com',
 			SMTP_PASSWORD: 'secret',
-			STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
-			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'monthly_sub',
+			STRIPE_CLOUD_LEGACY_PRODUCT_ID: 'prod_cloud',
+			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'legacy_monthly',
+			STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY: 'team_monthly',
+			STRIPE_CLOUD_TEAM_PRODUCT_ID: 'prod_team',
+			STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY: 'team_yearly',
 			STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'trial_sub',
 			STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_cloud_trial',
-			STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'yearly_sub',
+			STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY: 'unlimited_monthly',
+			STRIPE_CLOUD_UNLIMITED_PRODUCT_ID: 'prod_unlimited',
+			STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY: 'unlimited_yearly',
+			STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'legacy_yearly',
 			STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
 			STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
 			STRIPE_SECRET_KEY: 'sk_test_example',
@@ -244,6 +251,7 @@ describe('billing consistency queries', () => {
 
 	it('does not consume a trial for a bypass-billing organization', async () => {
 		const originalEnv = { ...process.env };
+		delete process.env.STRIPE_CLOUD_PRODUCT_ID;
 		Object.assign(process.env, {
 			NAO_MODE: 'cloud',
 			CLOUD_BILLING_ENABLED: 'true',
@@ -254,11 +262,17 @@ describe('billing consistency queries', () => {
 			SMTP_HOST: 'smtp.example.com',
 			SMTP_MAIL_FROM: 'hello@example.com',
 			SMTP_PASSWORD: 'secret',
-			STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
-			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'monthly_sub',
+			STRIPE_CLOUD_LEGACY_PRODUCT_ID: 'prod_cloud',
+			STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'legacy_monthly',
+			STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY: 'team_monthly',
+			STRIPE_CLOUD_TEAM_PRODUCT_ID: 'prod_team',
+			STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY: 'team_yearly',
 			STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'trial_sub',
 			STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_cloud_trial',
-			STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'yearly_sub',
+			STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY: 'unlimited_monthly',
+			STRIPE_CLOUD_UNLIMITED_PRODUCT_ID: 'prod_unlimited',
+			STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY: 'unlimited_yearly',
+			STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'legacy_yearly',
 			STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
 			STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
 			STRIPE_SECRET_KEY: 'sk_test_example',
@@ -310,6 +324,53 @@ describe('billing consistency queries', () => {
 		expect(billing).toMatchObject({
 			billingStatus: 'active',
 			stripeSubscriptionId: 'sub_active',
+			stripeSubscriptionItemId: 'si_team',
+			seatQuantity: 7,
+			stripeSubscriptionScheduleId: 'sub_sched_team',
+			pendingBillingPlan: 'cloud_team_yearly_v1',
+			pendingSeatQuantity: 6,
+		});
+	});
+
+	it('replaces and clears every expanded Stripe projection field', async () => {
+		const replacement = await claimBillingSync('billing-sync-org', 'cus_sync');
+		await expect(
+			updateSubscriptionProjection('billing-sync-org', replacement.token, {
+				...activeProjection(),
+				stripeSubscriptionItemId: 'si_replacement',
+				seatQuantity: 9,
+				stripeSubscriptionScheduleId: null,
+				pendingBillingPlan: null,
+				pendingSeatQuantity: null,
+			}),
+		).resolves.toBe(true);
+
+		await expect(getOrganizationBilling('billing-sync-org')).resolves.toMatchObject({
+			stripeSubscriptionItemId: 'si_replacement',
+			seatQuantity: 9,
+			stripeSubscriptionScheduleId: null,
+			pendingBillingPlan: null,
+			pendingSeatQuantity: null,
+		});
+
+		const clearing = await claimBillingSync('billing-sync-org', 'cus_sync');
+		await expect(
+			updateSubscriptionProjection('billing-sync-org', clearing.token, {
+				...activeProjection(),
+				stripeSubscriptionItemId: null,
+				seatQuantity: null,
+				stripeSubscriptionScheduleId: null,
+				pendingBillingPlan: null,
+				pendingSeatQuantity: null,
+			}),
+		).resolves.toBe(true);
+
+		await expect(getOrganizationBilling('billing-sync-org')).resolves.toMatchObject({
+			stripeSubscriptionItemId: null,
+			seatQuantity: null,
+			stripeSubscriptionScheduleId: null,
+			pendingBillingPlan: null,
+			pendingSeatQuantity: null,
 		});
 	});
 
@@ -413,11 +474,16 @@ describe('billing consistency queries', () => {
 
 function activeProjection(): SubscriptionProjection {
 	return {
-		billingPlan: 'cloud_monthly_v2',
+		billingPlan: 'cloud_team_monthly_v1',
 		billingStatus: 'active',
 		stripeCustomerId: 'cus_sync',
 		stripeSubscriptionId: 'sub_active',
-		stripePriceId: 'price_cloud',
+		stripeSubscriptionItemId: 'si_team',
+		stripePriceId: 'price_team',
+		seatQuantity: 7,
+		stripeSubscriptionScheduleId: 'sub_sched_team',
+		pendingBillingPlan: 'cloud_team_yearly_v1',
+		pendingSeatQuantity: 6,
 		trialStartedAt: new Date('2026-01-01T00:00:00.000Z'),
 		trialEndsAt: new Date('2026-01-15T00:00:00.000Z'),
 		currentPeriodStartsAt: new Date('2026-01-15T00:00:00.000Z'),

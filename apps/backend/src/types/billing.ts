@@ -5,6 +5,11 @@ export type {
 	CloudBillingPlan,
 	CloudBillingPlanDefinition,
 	CloudBillingPlanKey,
+	CloudBillingTier,
+	CurrentCloudBillingPlanDefinition,
+	LegacyCloudBillingPlanDefinition,
+	LegacyCloudBillingPlanKey,
+	PaidCloudBillingTier,
 	TrialBillingState,
 } from '@nao/shared/billing';
 export {
@@ -12,14 +17,21 @@ export {
 	calculateCreditTopUp,
 	CLOUD_BILLING_CURRENCIES,
 	CLOUD_BILLING_PLANS,
+	CLOUD_BILLING_TIER_ORDER,
+	CLOUD_BILLING_TIERS,
 	CLOUD_BILLING_TRIAL_DAYS,
 	CREDIT_TOP_UP_CURRENCY,
 	CREDIT_TOP_UP_MAX_CENTS,
 	CREDIT_TOP_UP_MIN_CENTS,
 	CREDIT_TOP_UP_PLATFORM_FEE_BASIS_POINTS,
+	FREE_TIER_SEAT_LIMIT,
+	getCloudBillingPlanDefinition,
 	isCloudBillingPlanKey,
+	isLegacyCloudBillingPlanKey,
 	isTerminalBillingStatus,
 	isTrialAvailable,
+	LEGACY_CLOUD_BILLING_PLANS,
+	TEAM_MIN_SEATS,
 } from '@nao/shared/billing';
 
 export const CLOUD_TRIAL_PROVISIONING_JOB_NAME = 'billing.cloud.provision-trial';

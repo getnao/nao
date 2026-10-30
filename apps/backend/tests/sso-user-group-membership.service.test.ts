@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
 	env: {} as Record<string, string | undefined>,
 	hasFeature: vi.fn(),
 	hasSyncState: vi.fn(),
+	listCandidates: vi.fn(),
+	putProjectMember: vi.fn(),
 	readClaims: vi.fn(),
 	reconcile: vi.fn(),
 	logger: {
@@ -23,7 +25,11 @@ vi.mock('../src/services/license.service', () => ({
 }));
 vi.mock('../src/queries/sso-user-group-membership.queries', () => ({
 	hasSsoUserGroupSyncState: mocks.hasSyncState,
+	listSsoProjectRoleCandidates: mocks.listCandidates,
 	reconcileSsoUserGroupMemberships: mocks.reconcile,
+}));
+vi.mock('../src/services/membership.service', () => ({
+	putProjectMember: mocks.putProjectMember,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	DEFAULT_GROUPS_CLAIM: 'groups',
@@ -43,6 +49,8 @@ beforeEach(() => {
 	mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = undefined;
 	mocks.hasFeature.mockReset().mockResolvedValue(true);
 	mocks.hasSyncState.mockReset().mockResolvedValue(true);
+	mocks.listCandidates.mockReset().mockResolvedValue([]);
+	mocks.putProjectMember.mockReset();
 	mocks.readClaims.mockReset();
 	mocks.reconcile.mockReset().mockResolvedValue(undefined);
 	mocks.logger.error.mockReset();
@@ -75,7 +83,7 @@ describe('syncUserGroupsFromOidc', () => {
 		['no token', { status: 'no-token' }],
 	])('preserves memberships when the claim is %s', async (_name, token) => {
 		mocks.readClaims.mockResolvedValue(token);
-		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeUndefined();
+		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeNull();
 		expect(mocks.reconcile).not.toHaveBeenCalled();
 		expect(mocks.logger.warn).toHaveBeenCalledOnce();
 	});
@@ -113,6 +121,23 @@ describe('syncUserGroupsFromOidc', () => {
 		});
 	});
 
+	it('routes project provisioning through seat activation and reports viewer fallback', async () => {
+		mocks.readClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['Finance'] } });
+		mocks.listCandidates.mockResolvedValue([{ projectId: 'project-1', role: 'user' }]);
+		mocks.putProjectMember.mockResolvedValue({
+			userId: 'user-1',
+			role: 'viewer',
+			outcome: { status: 'viewer_fallback', role: 'viewer', reason: 'capacity_full' },
+		});
+
+		await expect(syncUserGroupsFromOidc('user-1')).resolves.toEqual({
+			status: 'viewer_fallback',
+			role: 'viewer',
+			reason: 'capacity_full',
+		});
+		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-1', 'user-1', 'user');
+	});
+
 	it('skips when no mapping or stale membership exists', async () => {
 		mocks.hasSyncState.mockResolvedValue(false);
 		await syncUserGroupsFromOidc('user-1');
@@ -121,7 +146,7 @@ describe('syncUserGroupsFromOidc', () => {
 
 	it('logs failures without rejecting login', async () => {
 		mocks.readClaims.mockRejectedValue(new Error('token read failed'));
-		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeUndefined();
+		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeNull();
 		expect(mocks.logger.error).toHaveBeenCalledWith('Failed to sync User Group memberships from OIDC', {
 			source: 'system',
 			context: { userId: 'user-1', error: { message: 'token read failed' } },

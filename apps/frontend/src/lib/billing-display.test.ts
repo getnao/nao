@@ -39,3 +39,11 @@ it.each([
 		variant: 'outline',
 	});
 });
+
+it('describes canceled and paused subscriptions as Free fallback when enabled', () => {
+	expect(getBillingStatusView('canceled', false, false, false, true)).toMatchObject({
+		label: 'Free',
+		description: 'Your trial ended and the organization is now on Free.',
+	});
+	expect(getBillingStatusView('paused', false, false, true, true).description).toContain('Free capacity applies');
+});

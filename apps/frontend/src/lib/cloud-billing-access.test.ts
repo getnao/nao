@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
-import { getCloudBillingAccessRefetchInterval, isCloudBillingAccessError } from './cloud-billing-access';
+import {
+	getCloudBillingAccessRefetchInterval,
+	isCloudBillingAccessError,
+	isCloudBillingSeatError,
+} from './cloud-billing-access';
 
 describe('cloud billing access UI', () => {
 	it('recognizes restricted-access errors', () => {
 		expect(isCloudBillingAccessError({ message: 'Cloud billing access is restricted. Ask an admin.' })).toBe(true);
 		expect(isCloudBillingAccessError({ message: 'Provider failed' })).toBe(false);
+	});
+
+	it('distinguishes seat restrictions from organization restrictions', () => {
+		expect(isCloudBillingSeatError({ message: 'Cloud billing seat access is restricted. Ask an admin.' })).toBe(
+			true,
+		);
+		expect(isCloudBillingAccessError({ message: 'Cloud billing seat access is restricted.' })).toBe(false);
 	});
 
 	it('refetches active access when its entitlement expires', () => {
@@ -48,5 +59,20 @@ describe('cloud billing access UI', () => {
 
 		expect(getCloudBillingAccessRefetchInterval({ ...access, canManageBilling: false })).toBe(false);
 		expect(getCloudBillingAccessRefetchInterval({ ...access, canManageBilling: true })).toBe(60_000);
+	});
+
+	it('polls while seat allocation can restore read-only access', () => {
+		expect(
+			getCloudBillingAccessRefetchInterval({
+				status: 'active',
+				hasAccess: true,
+				accessEndsAt: null,
+				bypassBilling: false,
+				canManageBilling: false,
+				freeTierEnabled: true,
+				isReadOnly: true,
+				overCapacity: true,
+			}),
+		).toBe(60_000);
 	});
 });

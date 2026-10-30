@@ -26,6 +26,7 @@ import {
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger, serializeError } from '../utils/logger';
+import { assertUserCloudBillingAccess } from './cloud-billing-access.service';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
@@ -302,6 +303,7 @@ export async function startWarehouseProvisioning(
 	input: StartWarehouseProvisioningInput,
 ): Promise<{ jobId: string; status: 'queued' }> {
 	await assertCanStartWarehouseProvisioning(input.userId);
+	await assertUserCloudBillingAccess(input.orgId, input.userId);
 
 	const connection = warehouseCredentialsSchema.parse({
 		provider: input.provider,
@@ -446,6 +448,7 @@ export async function queueWarehouseFinalization(
 	if (job.status === 'ready' || job.status === 'finalizing' || job.status === 'publishing') {
 		return;
 	}
+	await assertUserCloudBillingAccess(job.orgId, job.userId);
 
 	await updateJob(jobId, {
 		businessContext: finalization.businessContext,
@@ -468,21 +471,25 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			throw new ProjectNameConflictError(input.projectName);
 		}
 
+		await assertUserCloudBillingAccess(input.orgId, input.userId);
 		const provisionConfig = await prepareWarehouseConfig(input.provider, input.credentials);
 
 		await updateJob(jobId, { status: 'initializing' });
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
+		await assertUserCloudBillingAccess(input.orgId, input.userId);
 		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS);
 
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 
 		await updateJob(jobId, { status: 'debugging', logs: '' });
+		await assertUserCloudBillingAccess(input.orgId, input.userId);
 		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, (logs) =>
 			updateJob(jobId, { logs }),
 		);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
+		await assertUserCloudBillingAccess(input.orgId, input.userId);
 		await runNaoCommand(
 			['sync', '--provider', 'databases'],
 			projectDir,
@@ -495,11 +502,13 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		registeredProjectId = projectId;
 		registeredProjectPath = path.resolve(env.NAO_PROJECTS_DIR, projectId);
 		await updateJob(jobId, { status: 'registering' });
+		await assertUserCloudBillingAccess(input.orgId, input.userId);
 		const project = await createNewProject({
 			sourceDir: projectDir,
 			projectName: input.projectName,
 			orgId: input.orgId,
 			projectId,
+			actingUserId: input.userId,
 		});
 		registeredProjectId = project.projectId;
 		registeredProjectPath = path.resolve(env.NAO_PROJECTS_DIR, project.projectId);
@@ -588,9 +597,14 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 			throw new Error('The onboarding model is unavailable');
 		}
 
-		await generateOnboardingRules(job.projectId, job.businessContext, job.modelSelection, job.modelProjectId);
+		await assertUserCloudBillingAccess(job.orgId, job.userId);
+		await generateOnboardingRules(job.projectId, job.businessContext, job.modelSelection, job.modelProjectId, {
+			organizationId: job.orgId,
+			userId: job.userId,
+		});
 
 		await updateJob(jobId, { status: 'publishing' });
+		await assertUserCloudBillingAccess(job.orgId, job.userId);
 		managedRepository = await provisionManagedGithubRepository({
 			projectId: job.projectId,
 			projectName: job.projectName,

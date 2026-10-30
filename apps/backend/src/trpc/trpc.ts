@@ -4,12 +4,17 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { getSession } from '../auth';
+import { isCloudFreeTierEnabled } from '../env';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import {
 	assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess,
+	assertUserCloudBillingAccess,
+	type CloudEntitlement,
+	getOrganizationCloudEntitlement,
+	isUserReadOnlyInOrganization,
 } from '../services/cloud-billing-access.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
@@ -64,9 +69,44 @@ export function cloudBillingMiddleware<TContext, TInput = unknown>(
 		if (!scope) {
 			return next();
 		}
+		const sessionUserId = (ctx as { session?: { user?: { id: string } } | null }).session?.user?.id;
+		const cachedEntitlement = getCachedCloudEntitlement(ctx, scope.organizationId);
 		if (scope.organizationId) {
-			await assertOrganizationCloudBillingAccess(scope.organizationId);
+			const entitlement =
+				cachedEntitlement ??
+				(sessionUserId ? await getOrganizationCloudEntitlement(scope.organizationId) : undefined);
+			if (entitlement) {
+				await assertOrganizationCloudBillingAccess(scope.organizationId, entitlement);
+			} else {
+				await assertOrganizationCloudBillingAccess(scope.organizationId);
+			}
+			if (sessionUserId) {
+				await assertUserCloudBillingAccess(scope.organizationId, sessionUserId, entitlement);
+			}
+			return next({
+				ctx: {
+					billingAccessVerifiedProjectId: scope.projectId,
+					cloudEntitlement: entitlement,
+					cloudEntitlementOrganizationId: scope.organizationId,
+				},
+			});
 		} else if (scope.projectId) {
+			if (sessionUserId) {
+				const project = await projectQueries.getProjectById(scope.projectId);
+				if (!project?.orgId) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: 'Cloud billing organization was not found' });
+				}
+				const entitlement = await getOrganizationCloudEntitlement(project.orgId);
+				await assertOrganizationCloudBillingAccess(project.orgId, entitlement);
+				await assertUserCloudBillingAccess(project.orgId, sessionUserId, entitlement);
+				return next({
+					ctx: {
+						billingAccessVerifiedProjectId: scope.projectId,
+						cloudEntitlement: entitlement,
+						cloudEntitlementOrganizationId: project.orgId,
+					},
+				});
+			}
 			await assertProjectCloudBillingAccess(scope.projectId);
 		} else {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Cloud billing organization was not found' });
@@ -130,9 +170,21 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ne
 	if (!project) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
 	}
-	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+	const storedUserRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+	const { cloudEntitlement, userRole } = await resolveEffectiveProjectAccess(
+		project.orgId,
+		ctx.user.id,
+		storedUserRole,
+	);
 
-	return next({ ctx: { project, userRole } });
+	return next({
+		ctx: {
+			project,
+			userRole,
+			cloudEntitlement,
+			cloudEntitlementOrganizationId: project.orgId,
+		},
+	});
 });
 
 const selectedProjectBillingMiddleware = cloudBillingMiddleware<{
@@ -180,10 +232,19 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 			throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
 		}
 
-		const userRole: UserRole | null = await projectQueries.getUserRoleInProject(resource.projectId, ctx.user.id);
-		if (!userRole) {
+		const storedUserRole: UserRole | null = await projectQueries.getUserRoleInProject(
+			resource.projectId,
+			ctx.user.id,
+		);
+		if (!storedUserRole) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 		}
+		const project = await projectQueries.getProjectById(resource.projectId);
+		const { cloudEntitlement, userRole } = await resolveEffectiveProjectAccess(
+			project?.orgId ?? null,
+			ctx.user.id,
+			storedUserRole,
+		);
 
 		if (checkAccess) {
 			const canAccess = await checkAccess(resource, ctx.user.id);
@@ -195,7 +256,14 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 			}
 		}
 
-		return next({ ctx: { resource, userRole } });
+		return next({
+			ctx: {
+				resource,
+				userRole,
+				cloudEntitlement,
+				cloudEntitlementOrganizationId: project?.orgId ?? null,
+			},
+		});
 	});
 }
 
@@ -243,7 +311,9 @@ export const organizationProtectedProcedure = protectedProcedure.use(async ({ ct
 
 export const cloudBillingProjectImportProcedure = organizationProtectedProcedure.use(async ({ ctx, next }) => {
 	if (await projectQueries.organizationHasProjects(ctx.organization.id)) {
-		await assertOrganizationCloudBillingAccess(ctx.organization.id);
+		const entitlement = await getOrganizationCloudEntitlement(ctx.organization.id);
+		await assertOrganizationCloudBillingAccess(ctx.organization.id, entitlement);
+		await assertUserCloudBillingAccess(ctx.organization.id, ctx.user.id, entitlement);
 	}
 	return next({ ctx });
 });
@@ -306,4 +376,27 @@ export function ownedResourceProcedure(
 
 		return next({ ctx });
 	});
+}
+
+function getCachedCloudEntitlement(ctx: unknown, organizationId?: string | null): CloudEntitlement | undefined {
+	const cached = ctx as {
+		cloudEntitlement?: CloudEntitlement | null;
+		cloudEntitlementOrganizationId?: string | null;
+	};
+	return cached.cloudEntitlementOrganizationId === organizationId
+		? (cached.cloudEntitlement ?? undefined)
+		: undefined;
+}
+
+async function resolveEffectiveProjectAccess(
+	organizationId: string | null,
+	userId: string,
+	storedUserRole: UserRole | null,
+): Promise<{ cloudEntitlement: CloudEntitlement | undefined; userRole: UserRole | null }> {
+	if (!organizationId || !storedUserRole || !isCloudFreeTierEnabled()) {
+		return { cloudEntitlement: undefined, userRole: storedUserRole };
+	}
+	const cloudEntitlement = await getOrganizationCloudEntitlement(organizationId);
+	const isReadOnly = await isUserReadOnlyInOrganization(organizationId, userId, cloudEntitlement);
+	return { cloudEntitlement: cloudEntitlement ?? undefined, userRole: isReadOnly ? 'viewer' : storedUserRole };
 }

@@ -27,8 +27,10 @@ import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlug: string }) {
+	const { isSeatReadOnly } = usePermissions();
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
 	const queryClient = useQueryClient();
 	const { running: isChatRunning } = useChatActivity(chatId);
@@ -49,7 +51,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	} = useStoryViewerLiveSettings({ chatId, storySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
-		needsRefresh: story.needsRefresh,
+		needsRefresh: story.needsRefresh && !isSeatReadOnly,
 		isRefreshing,
 		refresh: handleRefreshData,
 	});
@@ -84,7 +86,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	);
 
 	const isArchived = Boolean(story.archivedAt);
-	const canEditCharts = !isArchived;
+	const canEditCharts = !isArchived && !isSeatReadOnly;
 	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 	const showAskBar = Boolean(storyId) && !isArchived;
 	const isAskInputHidden = editor.viewMode !== 'preview';
@@ -96,8 +98,8 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		>
 			<StoryPageHeader
 				title={story.title}
-				storyChat={{ storyId, isOwner: true, canChat: !isArchived }}
-				canDuplicate={!isArchived}
+				storyChat={{ storyId, isOwner: true, canChat: !isArchived && !isSeatReadOnly }}
+				canDuplicate={!isArchived && !isSeatReadOnly}
 				live={{
 					isLive,
 					cachedAt: story.cachedAt,
@@ -109,7 +111,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
-				canRename
+				canRename={!isSeatReadOnly}
 				isShared={isShared}
 				onShare={() => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}

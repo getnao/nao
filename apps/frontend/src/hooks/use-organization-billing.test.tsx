@@ -44,6 +44,21 @@ vi.mock('@/main', () => {
 				createResubscribeSession: mutation('createResubscribeSession'),
 				resumeSubscription: mutation('resumeSubscription'),
 				syncStripeBilling: mutation('syncStripeBilling'),
+				previewSeatChange: mutation('previewSeatChange'),
+				changeSeatQuantity: mutation('changeSeatQuantity'),
+				previewPlanChange: mutation('previewPlanChange'),
+				changePlan: mutation('changePlan'),
+				selectSeats: mutation('selectSeats'),
+				switchToFree: mutation('switchToFree'),
+				keepPlan: mutation('keepPlan'),
+				cancelPendingPlanChange: mutation('cancelPendingPlanChange'),
+			},
+			organization: {
+				getMembers: query('getMembers', async () => []),
+				getUserCounts: query('getUserCounts', async () => ({})),
+			},
+			project: {
+				listAllUsersWithRoles: query('listAllUsersWithRoles', async () => []),
 			},
 		},
 	};
@@ -135,6 +150,31 @@ describe('useOrganizationBilling', () => {
 			expect(mocks.mutationInput).toHaveBeenCalledWith('createTrialCheckoutSession', {
 				billingInterval: 'monthly',
 				currency: 'eur',
+			}),
+		);
+	});
+
+	it('submits the backend plan key for Free-tier Checkout', async () => {
+		mocks.getStatus.mockResolvedValue({
+			access: { freeTierEnabled: true },
+			availablePlans: [],
+			hasStripeSubscription: false,
+			paidPlanSelected: false,
+			trialAvailable: true,
+			status: null,
+			canManageBilling: true,
+		});
+		const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
+
+		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
+		act(() => {
+			result.current.openTrialCheckoutForPlan('cloud_team_monthly_v1');
+		});
+
+		await waitFor(() =>
+			expect(mocks.mutationInput).toHaveBeenCalledWith('createTrialCheckoutSession', {
+				planKey: 'cloud_team_monthly_v1',
+				currency: expect.any(String),
 			}),
 		);
 	});

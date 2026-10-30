@@ -25,6 +25,8 @@ vi.mock('../src/queries/chat.queries', () => ({
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: slackHarness.startedWorkflows,
+	assertProjectUserCloudBillingAccess: vi.fn(),
+	CloudBillingSeatRestrictedError: class CloudBillingSeatRestrictedError extends Error {},
 }));
 vi.mock('../src/utils/keyed-lock', () => ({
 	claimOnce: vi.fn(async (key: string) => {
@@ -95,7 +97,11 @@ describe('Slack mention delivered as both `message` and `app_mention` events', (
 
 function stubWorkflowStepsAfterClaim(): void {
 	const prototype = ProjectSlackBot.prototype as unknown as Record<string, unknown>;
-	for (const step of ['_validateUserAccess', '_saveOrUpdateUserMessage', '_handleStreamAgent']) {
+	vi.spyOn(prototype as never, '_validateUserAccess' as never).mockImplementation(async (context: unknown) => {
+		(context as { user: { id: string } }).user = { id: 'user-1' };
+		return true as never;
+	});
+	for (const step of ['_saveOrUpdateUserMessage', '_handleStreamAgent']) {
 		vi.spyOn(prototype as never, step as never).mockResolvedValue(undefined as never);
 	}
 	vi.spyOn(prototype as never, '_postSlackCard' as never).mockResolvedValue('1760942786.000300' as never);

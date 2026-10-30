@@ -38,6 +38,10 @@ export interface CustomStoryVersionView {
 interface CustomStoryDataOptions {
 	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
 	deferRefresh?: boolean;
+	/** Never execute a query or refresh; return only persisted data. */
+	cachedOnly?: boolean;
+	principalUserId: string;
+	billingAccessVerifiedProjectId?: string;
 }
 
 export interface CustomStoryFileSummary {
@@ -135,29 +139,32 @@ export async function getCustomStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	queryId: string,
-	options: CustomStoryDataOptions = {},
+	options: CustomStoryDataOptions,
 ): Promise<StoryQueryResult> {
 	const story = await getCustomStory(chatId, storySlug);
 	if (!story.isLive) {
-		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
+		return resolveStoredOrRunQuery(chatId, queryId, options);
 	}
 	if (story.cacheSchedule === NO_CACHE_SCHEDULE) {
-		return runStoryQuery(chatId, queryId);
+		return resolveStoredOrRunQuery(chatId, queryId, options);
 	}
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	if (isCacheFresh(story, cache)) {
-		return cache?.queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
+		return cache?.queryData?.[queryId] ?? resolveStoredOrRunQuery(chatId, queryId, options);
 	}
 	if (options.deferRefresh && (await isAwaitingBackgroundRefresh(story.id, cache))) {
 		const stored = cache?.queryData?.[queryId] ?? (await getChatQueryData(chatId, queryId));
-		return stored ?? runStoryQuery(chatId, queryId);
+		return stored ?? resolveStoredOrRunQuery(chatId, queryId, options);
 	}
-	const queryData = await refreshOnce(chatId, storySlug).then(
+	if (options.cachedOnly) {
+		return cache?.queryData?.[queryId] ?? resolveStoredOrRunQuery(chatId, queryId, options);
+	}
+	const queryData = await refreshOnce(chatId, storySlug, options).then(
 		(result) => result.queryData,
 		() => cache?.queryData,
 	);
-	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
+	return queryData?.[queryId] ?? resolveStoredOrRunQuery(chatId, queryId, options);
 }
 
 async function getChatQueryData(chatId: string, queryId: string): Promise<StoryQueryResult | undefined> {
@@ -165,9 +172,28 @@ async function getChatQueryData(chatId: string, queryId: string): Promise<StoryQ
 	return stored[queryId];
 }
 
-async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQueryResult> {
+async function resolveStoredOrRunQuery(
+	chatId: string,
+	queryId: string,
+	options: CustomStoryDataOptions,
+): Promise<StoryQueryResult> {
+	const stored = await getChatQueryData(chatId, queryId);
+	if (stored) {
+		return stored;
+	}
+	if (options.cachedOnly) {
+		throw new CustomStoryQueryExecutionError('No cached query result is available.');
+	}
+	return runStoryQuery(chatId, queryId, options);
+}
+
+async function runStoryQuery(
+	chatId: string,
+	queryId: string,
+	options: CustomStoryDataOptions,
+): Promise<StoryQueryResult> {
 	try {
-		return await executeLiveQuery(chatId, queryId);
+		return await executeLiveQuery(chatId, queryId, options);
 	} catch (error) {
 		throw new CustomStoryQueryExecutionError(error instanceof Error ? error.message : String(error));
 	}
@@ -176,7 +202,7 @@ async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQuer
 export async function getCustomStoryNarratives(
 	chatId: string,
 	storySlug: string,
-	options: CustomStoryDataOptions = {},
+	options: CustomStoryDataOptions,
 ): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
 	if (!story.isLive || !story.isLiveTextDynamic) {
@@ -192,7 +218,10 @@ export async function getCustomStoryNarratives(
 	if (options.deferRefresh && (await isAwaitingBackgroundRefresh(story.id, cache))) {
 		return cachedNarratives;
 	}
-	return refreshOnce(chatId, storySlug).then(
+	if (options.cachedOnly) {
+		return cachedNarratives;
+	}
+	return refreshOnce(chatId, storySlug, options).then(
 		(result) => result.narratives,
 		() => cachedNarratives,
 	);
@@ -233,6 +262,7 @@ export async function getSharedCustomStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	queryId: string,
+	options: CustomStoryDataOptions,
 	versionNumber?: number,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
@@ -240,7 +270,7 @@ export async function getSharedCustomStoryQueryData(
 	if (!referencedIds.has(queryId)) {
 		throw new CustomStoryQueryNotAllowedError(queryId);
 	}
-	return getCustomStoryQueryData(chatId, storySlug, queryId);
+	return getCustomStoryQueryData(chatId, storySlug, queryId, options);
 }
 
 export async function getCustomStoryQuerySql(chatId: string, storySlug: string, queryId: string): Promise<string> {
@@ -323,13 +353,13 @@ async function getCustomStoryVersionRow(chatId: string, storySlug: string, versi
 }
 
 /** Every block and narrative of a story asks at once; they share one refresh instead of each starting its own. */
-function refreshOnce(chatId: string, storySlug: string): Promise<RefreshResult> {
-	const key = `${chatId}:${storySlug}`;
+function refreshOnce(chatId: string, storySlug: string, options: CustomStoryDataOptions): Promise<RefreshResult> {
+	const key = `${chatId}:${storySlug}:${options.principalUserId}`;
 	const pending = pendingRefreshes.get(key);
 	if (pending) {
 		return pending;
 	}
-	const refresh = refreshStoryData(chatId, storySlug).finally(() => pendingRefreshes.delete(key));
+	const refresh = refreshStoryData(chatId, storySlug, options).finally(() => pendingRefreshes.delete(key));
 	pendingRefreshes.set(key, refresh);
 	return refresh;
 }
