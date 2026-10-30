@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CompletionInput } from './completion-input';
+import { Dialog, DialogContent, DialogTitle } from './dialog';
 import type { CompletionOptions } from './completion-input';
 
 vi.stubGlobal(
@@ -60,6 +61,23 @@ describe('CompletionInput', () => {
 
 		expect(enter).toBe(true);
 		expect(input().value).toBe('xyz');
+	});
+
+	it('keeps its options under the pointer inside a modal dialog', () => {
+		render(
+			<Dialog open>
+				<DialogContent aria-describedby={undefined}>
+					<DialogTitle>Edit chart</DialogTitle>
+					<Harness />
+				</DialogContent>
+			</Dialog>,
+		);
+
+		type('or');
+
+		const options = screen.getByRole('listbox').closest<HTMLElement>('[data-slot=popover-content]');
+		expect(document.body.style.pointerEvents).toBe('none');
+		expect(options?.style.pointerEvents).toBe('auto');
 	});
 
 	it('closes on Escape', () => {
