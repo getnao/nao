@@ -1,5 +1,4 @@
 import { capitalizeWords } from '@nao/shared';
-import { isTerminalBillingStatus } from '@nao/shared/billing';
 
 type BillingStatusView = {
 	label: string;
