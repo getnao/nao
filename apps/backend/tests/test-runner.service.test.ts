@@ -7,18 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
 	failStaleRuns: vi.fn(),
-	hasActiveRun: vi.fn(),
-	createRun: vi.fn(),
+	createRunUnlessActive: vi.fn(),
 	markRunRunning: vi.fn(),
 	getRunStatus: vi.fn(),
-	recordResult: vi.fn(),
+	recordResultWhileRunning: vi.fn(),
 	completeRun: vi.fn(),
 	failRun: vi.fn(),
 	cancelRun: vi.fn(),
 	createChat: vi.fn(),
 	getChat: vi.fn(),
 	runTestInChat: vi.fn(),
-	getAgent: vi.fn(),
 	evaluateTestAttempt: vi.fn(),
 	resolveDefaultChatModel: vi.fn(),
 }));
@@ -26,18 +24,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
 vi.mock('../src/queries/test-run.queries', () => ({
 	failStaleRuns: mocks.failStaleRuns,
-	hasActiveRun: mocks.hasActiveRun,
-	createRun: mocks.createRun,
+	createRunUnlessActive: mocks.createRunUnlessActive,
 	markRunRunning: mocks.markRunRunning,
 	getRunStatus: mocks.getRunStatus,
-	recordResult: mocks.recordResult,
+	recordResultWhileRunning: mocks.recordResultWhileRunning,
 	completeRun: mocks.completeRun,
 	failRun: mocks.failRun,
 	cancelRun: mocks.cancelRun,
 }));
 vi.mock('../src/queries/chat.queries', () => ({ createChat: mocks.createChat, getChat: mocks.getChat }));
 vi.mock('../src/services/test-agent.service', () => ({
-	testAgentService: { runTestInChat: mocks.runTestInChat, get: mocks.getAgent },
+	testAgentService: { runTestInChat: mocks.runTestInChat },
 }));
 vi.mock('../src/services/test-evaluation.service', () => ({ evaluateTestAttempt: mocks.evaluateTestAttempt }));
 vi.mock('../src/services/mcp', () => ({ mcpService: { initializeMcpState: vi.fn() } }));
@@ -62,8 +59,8 @@ beforeEach(() => {
 	projectFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-test-runner-'));
 	chatCount = 0;
 	mocks.getProjectById.mockResolvedValue({ id: 'project-1', path: projectFolder });
-	mocks.hasActiveRun.mockResolvedValue(false);
-	mocks.createRun.mockImplementation(async (input) => ({ id: 'run-1', status: 'queued', ...input }));
+	mocks.createRunUnlessActive.mockImplementation(async (input) => ({ id: 'run-1', status: 'queued', ...input }));
+	mocks.recordResultWhileRunning.mockResolvedValue(true);
 	mocks.markRunRunning.mockResolvedValue(true);
 	mocks.getRunStatus.mockResolvedValue('running');
 	mocks.resolveDefaultChatModel.mockResolvedValue(DEFAULT_MODEL);
@@ -96,7 +93,7 @@ describe('startTestRun', () => {
 		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalledWith('run-1'));
 
 		expect(run.totalAttempts).toBe(4);
-		expect(mocks.createRun).toHaveBeenCalledWith(
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(
 			expect.objectContaining({ selection: ['revenue.yml'], attempts: 2, triggeredByUserId: 'user-1' }),
 		);
 		expect(mocks.markRunRunning).toHaveBeenCalledWith('run-1', 4);
@@ -104,8 +101,8 @@ describe('startTestRun', () => {
 			{ title: 'Test: revenue', userId: 'user-1', projectId: 'project-1' },
 			{ text: 'What is the revenue?', source: 'test' },
 		);
-		expect(mocks.recordResult).toHaveBeenCalledTimes(4);
-		expect(mocks.recordResult).toHaveBeenCalledWith(
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledTimes(4);
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
 			expect.objectContaining({
 				runId: 'run-1',
 				testPath: 'revenue.yml',
@@ -132,6 +129,7 @@ describe('startTestRun', () => {
 		expect(run.models).toEqual([DEFAULT_MODEL]);
 		expect(mocks.runTestInChat).toHaveBeenCalledWith(expect.anything(), [], DEFAULT_MODEL, {
 			billingAccessVerifiedProjectId: 'project-1',
+			abortSignal: expect.any(AbortSignal),
 		});
 	});
 
@@ -142,7 +140,7 @@ describe('startTestRun', () => {
 		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
 		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
 
-		expect(mocks.recordResult).toHaveBeenCalledWith(
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
 			expect.objectContaining({
 				chatId: 'chat-1',
 				passed: false,
@@ -152,25 +150,47 @@ describe('startTestRun', () => {
 		);
 	});
 
-	it('stops recording attempts once the run is cancelled', async () => {
+	it('starts no further attempt once the run is cancelled', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeConfig('test:\n  k: 3');
 		mocks.getRunStatus.mockResolvedValueOnce('running').mockResolvedValue('cancelled');
 
 		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
 		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
 
 		expect(mocks.runTestInChat).toHaveBeenCalledTimes(1);
-		expect(mocks.recordResult).not.toHaveBeenCalled();
 	});
 
 	it('rejects a run while another one is active', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
-		mocks.hasActiveRun.mockResolvedValue(true);
+		mocks.createRunUnlessActive.mockResolvedValue(null);
 
 		await expect(startTestRun({ projectId: 'project-1', userId: 'user-1' })).rejects.toBeInstanceOf(
 			TestRunConflictError,
 		);
-		expect(mocks.createRun).not.toHaveBeenCalled();
+		expect(mocks.markRunRunning).not.toHaveBeenCalled();
+	});
+
+	it('rejects a run that covers an invalid test file, as nao test does', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeTestFile('broken.yml', 'name: Missing prompt');
+
+		await expect(startTestRun({ projectId: 'project-1', userId: 'user-1' })).rejects.toThrow(
+			'Fix the invalid test files first: broken.yml',
+		);
+		await expect(
+			startTestRun({ projectId: 'project-1', userId: 'user-1', paths: ['revenue.yml'] }),
+		).resolves.toMatchObject({ id: 'run-1' });
+	});
+
+	it('rejects a run when the test settings of nao_config.yaml are invalid', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeConfig('test:\n  models: [nocolon]');
+
+		await expect(startTestRun({ projectId: 'project-1', userId: 'user-1' })).rejects.toThrow(
+			'test.models has an invalid entry "nocolon", expected \'provider:model_id\'.',
+		);
+		expect(mocks.createRunUnlessActive).not.toHaveBeenCalled();
 	});
 
 	it('rejects a selection that matches no test', async () => {
@@ -183,15 +203,15 @@ describe('startTestRun', () => {
 });
 
 describe('cancelTestRun', () => {
-	it('stops the agents of the attempts in flight', async () => {
+	it('aborts the attempts in flight, including those still setting up their agent', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
-		const stop = vi.fn();
-		mocks.getAgent.mockReturnValue({ stop });
 		mocks.cancelRun.mockResolvedValue(true);
+		let abortSignal: AbortSignal | undefined;
 		let finishAttempt: () => void = () => {};
 		mocks.runTestInChat.mockImplementation(
-			() =>
+			(_chat, _messages, _model, options: { abortSignal: AbortSignal }) =>
 				new Promise((resolve) => {
+					abortSignal = options.abortSignal;
 					finishAttempt = () => resolve({ text: '', usage: {}, cost: {}, durationMs: 0 });
 				}),
 		);
@@ -200,8 +220,7 @@ describe('cancelTestRun', () => {
 		await vi.waitFor(() => expect(mocks.runTestInChat).toHaveBeenCalled());
 
 		await expect(cancelTestRun(run)).resolves.toBe(true);
-		expect(mocks.getAgent).toHaveBeenCalledWith('chat-1');
-		expect(stop).toHaveBeenCalled();
+		expect(abortSignal?.aborted).toBe(true);
 		finishAttempt();
 	});
 });

@@ -70,13 +70,18 @@ function collectTestFiles(folder: string, relativeFolder: string): string[] {
 }
 
 function parseTestFile(testsFolder: string, relativePath: string): TestDefinition | InvalidTestFile {
-	const content = fs.readFileSync(path.join(testsFolder, relativePath), 'utf-8');
+	let content: string;
+	try {
+		content = fs.readFileSync(path.join(testsFolder, relativePath), 'utf-8');
+	} catch (error) {
+		return { path: relativePath, error: `Unreadable file: ${describeError(error)}` };
+	}
 
 	let data: unknown;
 	try {
-		data = yaml.load(content);
+		data = yaml.load(content, { schema: yaml.CORE_SCHEMA });
 	} catch (error) {
-		return { path: relativePath, error: `Invalid YAML: ${error instanceof Error ? error.message : String(error)}` };
+		return { path: relativePath, error: `Invalid YAML: ${describeError(error)}` };
 	}
 
 	const parsed = testFileSchema.safeParse(data);
@@ -96,4 +101,8 @@ function parseTestFile(testsFolder: string, relativePath: string): TestDefinitio
 		owner: test.owner ?? null,
 		hash: createHash('sha256').update(content).digest('hex'),
 	};
+}
+
+function describeError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }

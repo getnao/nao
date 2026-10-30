@@ -5,6 +5,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as testRunQueries from '../queries/test-run.queries';
 import {
+	type InvalidTestFile,
 	MAX_TEST_RUN_ATTEMPTS,
 	type TestComparisonTolerances,
 	type TestDefinition,
@@ -24,8 +25,8 @@ const TEST_RUN_STALE_MS = 6 * 60 * 60_000;
 const TEST_RUN_STALE_MESSAGE = 'The test run was interrupted before it finished.';
 const MAX_STORED_ROWS = 50;
 
-/** Chats of the attempts in flight for each run, so a cancellation can stop them. */
-const activeRunChats = new Map<string, Set<string>>();
+/** Runs this process is executing, so a cancellation can stop their attempts. */
+const liveRuns = new Map<string, AbortController>();
 
 export class TestRunInputError extends Error {}
 
@@ -60,13 +61,15 @@ interface TestAttemptJob {
 /** Creates a run against the production context and executes it in the background. */
 export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun> {
 	const projectFolder = await getProjectFolder(input.projectId);
-	await testRunQueries.failStaleRuns(input.projectId, TEST_RUN_STALE_MS, TEST_RUN_STALE_MESSAGE);
-	if (await testRunQueries.hasActiveRun(input.projectId)) {
-		throw new TestRunConflictError();
-	}
+	await testRunQueries.failStaleRuns({
+		projectId: input.projectId,
+		staleAfterMs: TEST_RUN_STALE_MS,
+		errorMessage: TEST_RUN_STALE_MESSAGE,
+		liveRunIds: [...liveRuns.keys()],
+	});
 
 	const plan = await planTestRun(input, projectFolder);
-	const run = await testRunQueries.createRun({
+	const run = await testRunQueries.createRunUnlessActive({
 		projectId: input.projectId,
 		triggeredByUserId: input.userId,
 		trigger: 'manual',
@@ -75,6 +78,9 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 		selection: plan.tests.map((test) => test.path),
 		totalAttempts: plan.tests.length * plan.models.length * plan.attempts,
 	});
+	if (!run) {
+		throw new TestRunConflictError();
+	}
 
 	void executeTestRun(run, input.userId, plan).catch((error) => {
 		logger.error(`Test run ${run.id} crashed: ${String(error)}`, { source: 'agent', projectId: run.projectId });
@@ -86,19 +92,27 @@ export async function cancelTestRun(run: DBTestRun): Promise<boolean> {
 	if (!(await testRunQueries.cancelRun(run.id))) {
 		return false;
 	}
-	for (const chatId of activeRunChats.get(run.id) ?? []) {
-		testAgentService.get(chatId)?.stop();
-	}
+	liveRuns.get(run.id)?.abort();
 	return true;
 }
 
 async function planTestRun(input: StartTestRunInput, projectFolder: string): Promise<TestRunPlan> {
-	const tests = filterTests(discoverTests(projectFolder).tests, { paths: input.paths, tags: input.tags });
+	const suite = discoverTests(projectFolder);
+	const invalidFiles = selectInvalidFiles(suite.invalidFiles, input.paths);
+	if (invalidFiles.length > 0) {
+		throw new TestRunInputError(
+			`Fix the invalid test files first: ${invalidFiles.map((file) => file.path).join(', ')}`,
+		);
+	}
+	const tests = filterTests(suite.tests, { paths: input.paths, tags: input.tags });
 	if (tests.length === 0) {
 		throw new TestRunInputError('No tests match the selection.');
 	}
 
 	const settings = extractConfiguredTestSettings(projectFolder);
+	if (settings.errors.length > 0) {
+		throw new TestRunInputError(`Fix the test settings in nao_config.yaml first: ${settings.errors.join(' ')}`);
+	}
 	const models = input.models?.length ? input.models : (settings.models ?? (await resolveFallbackModels(input)));
 	return {
 		tests,
@@ -106,6 +120,15 @@ async function planTestRun(input: StartTestRunInput, projectFolder: string): Pro
 		attempts: Math.min(input.attempts ?? settings.attempts, MAX_TEST_RUN_ATTEMPTS),
 		tolerances: settings.tolerances,
 	};
+}
+
+/** Invalid files block the run when they are selected, or when the whole suite runs, as with `nao test`. */
+function selectInvalidFiles(invalidFiles: InvalidTestFile[], paths: string[] | undefined): InvalidTestFile[] {
+	if (!paths?.length) {
+		return invalidFiles;
+	}
+	const selectedPaths = new Set(paths);
+	return invalidFiles.filter((file) => selectedPaths.has(file.path));
 }
 
 async function resolveFallbackModels(input: StartTestRunInput): Promise<LlmSelectedModel[]> {
@@ -122,18 +145,19 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 		return;
 	}
 
-	activeRunChats.set(run.id, new Set());
+	const abortController = new AbortController();
+	liveRuns.set(run.id, abortController);
 	try {
 		await mcpService.initializeMcpState(run.projectId);
 		await skillService.initializeSkills(run.projectId);
 		await runWithConcurrency(jobs, TEST_RUN_CONCURRENCY, (job) =>
-			runAttemptUnlessCancelled(run, userId, job, plan.tolerances),
+			runAttemptUnlessCancelled(run, userId, job, plan.tolerances, abortController.signal),
 		);
 		await testRunQueries.completeRun(run.id);
 	} catch (error) {
 		await testRunQueries.failRun(run.id, error instanceof Error ? error.message : String(error));
 	} finally {
-		activeRunChats.delete(run.id);
+		liveRuns.delete(run.id);
 	}
 }
 
@@ -150,15 +174,13 @@ async function runAttemptUnlessCancelled(
 	userId: string,
 	job: TestAttemptJob,
 	tolerances: TestComparisonTolerances,
+	abortSignal: AbortSignal,
 ): Promise<void> {
-	if ((await testRunQueries.getRunStatus(run.id)) !== 'running') {
+	if (abortSignal.aborted || (await testRunQueries.getRunStatus(run.id)) !== 'running') {
 		return;
 	}
-	const result = await runAttempt(run, userId, job, tolerances);
-	if ((await testRunQueries.getRunStatus(run.id)) !== 'running') {
-		return;
-	}
-	await testRunQueries.recordResult(result);
+	const result = await runAttempt(run, userId, job, tolerances, abortSignal);
+	await testRunQueries.recordResultWhileRunning(result);
 }
 
 async function runAttempt(
@@ -166,6 +188,7 @@ async function runAttempt(
 	userId: string,
 	job: TestAttemptJob,
 	tolerances: TestComparisonTolerances,
+	abortSignal: AbortSignal,
 ): Promise<NewTestRunResult> {
 	const { test, model, attempt } = job;
 	const baseResult = {
@@ -186,7 +209,6 @@ async function runAttempt(
 			{ text: test.prompt, source: 'test' },
 		);
 		chatId = chat.id;
-		activeRunChats.get(run.id)?.add(chat.id);
 
 		const [uiChat] = await chatQueries.getChat(chat.id);
 		if (!uiChat) {
@@ -197,7 +219,7 @@ async function runAttempt(
 			{ ...uiChat, userId, projectId: run.projectId },
 			uiChat.messages,
 			model,
-			{ billingAccessVerifiedProjectId: run.projectId },
+			{ billingAccessVerifiedProjectId: run.projectId, abortSignal },
 		);
 		const evaluation = await evaluateTestAttempt({
 			projectId: run.projectId,
@@ -221,10 +243,6 @@ async function runAttempt(
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
 		return { ...baseResult, chatId, passed: false, message: `error: ${errorMessage}`, errorMessage };
-	} finally {
-		if (chatId) {
-			activeRunChats.get(run.id)?.delete(chatId);
-		}
 	}
 }
 

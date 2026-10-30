@@ -48,6 +48,7 @@ ALTER TABLE "test_run_result" ADD CONSTRAINT "test_run_result_run_id_test_run_id
 ALTER TABLE "test_run_result" ADD CONSTRAINT "test_run_result_chat_id_chat_id_fk" FOREIGN KEY ("chat_id") REFERENCES "public"."chat"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "test_run_projectId_idx" ON "test_run" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "test_run_status_idx" ON "test_run" USING btree ("status");--> statement-breakpoint
+CREATE UNIQUE INDEX "test_run_active_project_idx" ON "test_run" USING btree ("project_id") WHERE "test_run"."status" IN ('queued', 'running');--> statement-breakpoint
 CREATE INDEX "test_run_result_runId_idx" ON "test_run_result" USING btree ("run_id");--> statement-breakpoint
 CREATE INDEX "test_run_result_chatId_idx" ON "test_run_result" USING btree ("chat_id");--> statement-breakpoint
 CREATE INDEX "test_run_result_testPath_idx" ON "test_run_result" USING btree ("test_path");

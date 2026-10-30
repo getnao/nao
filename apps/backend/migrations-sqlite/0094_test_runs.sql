@@ -24,6 +24,7 @@ CREATE TABLE `test_run` (
 --> statement-breakpoint
 CREATE INDEX `test_run_projectId_idx` ON `test_run` (`project_id`);--> statement-breakpoint
 CREATE INDEX `test_run_status_idx` ON `test_run` (`status`);--> statement-breakpoint
+CREATE UNIQUE INDEX `test_run_active_project_idx` ON `test_run` (`project_id`) WHERE "test_run"."status" IN ('queued', 'running');--> statement-breakpoint
 CREATE TABLE `test_run_result` (
 	`id` text PRIMARY KEY NOT NULL,
 	`run_id` text NOT NULL,

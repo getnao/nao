@@ -8,11 +8,12 @@ export const TEST_RUN_TRIGGERS = ['manual'] as const;
 export type TestRunTrigger = (typeof TEST_RUN_TRIGGERS)[number];
 
 export const MAX_TEST_RUN_ATTEMPTS = 10;
+export const MAX_TEST_RUN_MODELS = 10;
 
 export const testComparisonTolerancesSchema = z.object({
 	rtol: z.number().min(0).default(1e-5),
 	atol: z.number().min(0).default(1e-8),
-	decimals: z.number().int().min(0).default(2),
+	decimals: z.number().int().min(0).max(100).default(2),
 });
 export type TestComparisonTolerances = z.infer<typeof testComparisonTolerancesSchema>;
 
@@ -65,6 +66,8 @@ export interface ConfiguredTestSettings {
 	models: TestRunModels | null;
 	attempts: number;
 	tolerances: TestComparisonTolerances;
+	/** Invalid values of the `test` block, which `nao test` rejects too. */
+	errors: string[];
 }
 
 export interface TestDefinition {

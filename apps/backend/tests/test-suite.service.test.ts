@@ -78,6 +78,17 @@ describe('discoverTests', () => {
 		expect(suite.invalidFiles[0].error).toContain('Invalid YAML');
 	});
 
+	it('keeps unquoted dates of assertion args as strings, as the agent sends them', () => {
+		writeTestFile(
+			'dates.yml',
+			'prompt: Revenue since January\nassertions:\n  - type: tool_call\n    tool: query_metrics\n    args:\n      start_date: 2025-01-01',
+		);
+
+		const [test] = discoverTests(projectFolder).tests;
+
+		expect(test.assertions[0].args).toEqual({ start_date: '2025-01-01' });
+	});
+
 	it('changes the hash when the file content changes', () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		const [before] = discoverTests(projectFolder).tests;
@@ -109,13 +120,14 @@ describe('extractConfiguredTestSettings', () => {
 			models: null,
 			attempts: 1,
 			tolerances: { rtol: 1e-5, atol: 1e-8, decimals: 2 },
+			errors: [],
 		});
 	});
 
 	it('reads models, k and comparison tolerances', () => {
 		fs.writeFileSync(
 			path.join(projectFolder, 'nao_config.yaml'),
-			'test:\n  models: [openai:gpt-4.1, anthropic:claude-sonnet-4-5, unknown:model, nocolon]\n  k: 3\n  comparison:\n    decimals: 4',
+			'test:\n  models: [openai:gpt-4.1, anthropic:claude-sonnet-4-5]\n  k: 3\n  comparison:\n    decimals: 4',
 		);
 
 		expect(extractConfiguredTestSettings(projectFolder)).toEqual({
@@ -125,7 +137,25 @@ describe('extractConfiguredTestSettings', () => {
 			],
 			attempts: 3,
 			tolerances: { rtol: 1e-5, atol: 1e-8, decimals: 4 },
+			errors: [],
 		});
+	});
+
+	it('reports invalid values instead of falling back to the defaults', () => {
+		fs.writeFileSync(
+			path.join(projectFolder, 'nao_config.yaml'),
+			'test:\n  models: [openai:gpt-4.1, unknown:model, nocolon]\n  k: 0\n  comparison:\n    decimals: -1',
+		);
+
+		const settings = extractConfiguredTestSettings(projectFolder);
+
+		expect(settings.models).toEqual([{ provider: 'openai', modelId: 'gpt-4.1' }]);
+		expect(settings.errors).toEqual([
+			'test.models has an invalid entry "unknown:model", expected \'provider:model_id\'.',
+			'test.models has an invalid entry "nocolon", expected \'provider:model_id\'.',
+			'test.k must be an integer of at least 1, got 0.',
+			expect.stringContaining('test.comparison is invalid'),
+		]);
 	});
 });
 

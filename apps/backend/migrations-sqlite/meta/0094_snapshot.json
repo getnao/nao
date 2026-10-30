@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e1922ee0-ce70-4ed9-bd38-d88f57ed9373",
+  "id": "af44d05e-429d-47f3-8212-186987706a9d",
   "prevId": "a0afc439-ee40-4e24-9a6a-c39a0dee3371",
   "tables": {
     "account": {
@@ -9588,6 +9588,14 @@
             "status"
           ],
           "isUnique": false
+        },
+        "test_run_active_project_idx": {
+          "name": "test_run_active_project_idx",
+          "columns": [
+            "project_id"
+          ],
+          "isUnique": true,
+          "where": "\"test_run\".\"status\" IN ('queued', 'running')"
         }
       },
       "foreignKeys": {

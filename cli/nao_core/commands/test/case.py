@@ -10,6 +10,16 @@ from .assertions import Assertion, parse_assertions
 TESTS_FOLDER = "tests/"
 
 
+class _TestFileLoader(yaml.SafeLoader):
+    """Keeps unquoted dates as strings, the way the agent sends them in tool call args."""
+
+
+_TestFileLoader.yaml_implicit_resolvers = {
+    first_char: [(tag, regexp) for tag, regexp in resolvers if tag != "tag:yaml.org,2002:timestamp"]
+    for first_char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
 class InvalidTestFileError(Exception):
     """Raised when one or more test YAML files cannot be loaded."""
 
@@ -29,7 +39,7 @@ class TestCase:
     def from_yaml(cls, file_path: Path) -> "TestCase":
         """Load a test case from a YAML file."""
         with open(file_path) as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f, Loader=_TestFileLoader)
 
         return cls(
             name=data.get("name", file_path.stem),

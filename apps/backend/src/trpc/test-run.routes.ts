@@ -5,7 +5,7 @@ import * as testRunQueries from '../queries/test-run.queries';
 import { cancelTestRun, startTestRun, TestRunConflictError, TestRunInputError } from '../services/test-runner.service';
 import { discoverTests } from '../services/test-suite.service';
 import { llmSelectedModelSchema } from '../types/llm';
-import { MAX_TEST_RUN_ATTEMPTS } from '../types/test-run';
+import { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS } from '../types/test-run';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
@@ -20,7 +20,7 @@ export const testRunRoutes = {
 			z.object({
 				paths: z.array(z.string()).optional(),
 				tags: z.array(z.string()).optional(),
-				models: z.array(llmSelectedModelSchema).optional(),
+				models: z.array(llmSelectedModelSchema).max(MAX_TEST_RUN_MODELS).optional(),
 				attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
 			}),
 		)

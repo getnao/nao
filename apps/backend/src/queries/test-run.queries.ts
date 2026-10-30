@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, notInArray, or, sql } from 'drizzle-orm';
 
 import s, { DBTestRun, DBTestRunResult, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -6,9 +6,10 @@ import { db } from '../db/db';
 const ACTIVE_STATUSES: DBTestRun['status'][] = ['queued', 'running'];
 const DEFAULT_RUN_LIST_LIMIT = 50;
 
-export async function createRun(input: NewTestRun): Promise<DBTestRun> {
-	const [run] = await db.insert(s.testRun).values(input).returning().execute();
-	return run;
+/** Returns null when the project already has an active run, which a partial unique index enforces. */
+export async function createRunUnlessActive(input: NewTestRun): Promise<DBTestRun | null> {
+	const [run] = await db.insert(s.testRun).values(input).onConflictDoNothing().returning().execute();
+	return run ?? null;
 }
 
 export async function getRun(projectId: string, runId: string): Promise<DBTestRun | null> {
@@ -41,16 +42,6 @@ export async function listRuns(projectId: string, limit = DEFAULT_RUN_LIST_LIMIT
 		.execute();
 }
 
-export async function hasActiveRun(projectId: string): Promise<boolean> {
-	const [run] = await db
-		.select({ id: s.testRun.id })
-		.from(s.testRun)
-		.where(and(eq(s.testRun.projectId, projectId), inArray(s.testRun.status, ACTIVE_STATUSES)))
-		.limit(1)
-		.execute();
-	return !!run;
-}
-
 export async function listResults(runId: string): Promise<DBTestRunResult[]> {
 	return db
 		.select()
@@ -70,11 +61,10 @@ export async function markRunRunning(runId: string, totalAttempts: number): Prom
 	return rows.length > 0;
 }
 
-/** Inserts an attempt result and folds it into the run totals in one transaction. */
-export async function recordResult(result: NewTestRunResult): Promise<void> {
-	await db.transaction(async (t) => {
-		await t.insert(s.testRunResult).values(result).execute();
-		await t
+/** Folds an attempt result into the run totals and stores it, unless the run stopped running meanwhile. */
+export async function recordResultWhileRunning(result: NewTestRunResult): Promise<boolean> {
+	return db.transaction(async (t) => {
+		const updated = await t
 			.update(s.testRun)
 			.set({
 				completedAttempts: sql`${s.testRun.completedAttempts} + 1`,
@@ -82,8 +72,14 @@ export async function recordResult(result: NewTestRunResult): Promise<void> {
 				totalTokens: sql`${s.testRun.totalTokens} + ${result.totalTokens ?? 0}`,
 				totalCost: sql`coalesce(${s.testRun.totalCost}, 0) + ${result.totalCost ?? 0}`,
 			})
-			.where(eq(s.testRun.id, result.runId))
+			.where(and(eq(s.testRun.id, result.runId), eq(s.testRun.status, 'running')))
+			.returning({ id: s.testRun.id })
 			.execute();
+		if (updated.length === 0) {
+			return false;
+		}
+		await t.insert(s.testRunResult).values(result).execute();
+		return true;
 	});
 }
 
@@ -113,17 +109,28 @@ export async function cancelRun(runId: string): Promise<boolean> {
 	return rows.length > 0;
 }
 
-/** Fails runs left active by a server restart, which would otherwise block new runs forever. */
-export async function failStaleRuns(projectId: string, staleAfterMs: number, errorMessage: string): Promise<number> {
-	const cutoff = new Date(Date.now() - staleAfterMs);
+/**
+ * Fails runs left active by a server restart, which would otherwise block new runs forever.
+ * Queued runs age from their creation and running ones from their start; runs this process is executing are kept.
+ */
+export async function failStaleRuns(input: {
+	projectId: string;
+	staleAfterMs: number;
+	errorMessage: string;
+	liveRunIds: string[];
+}): Promise<number> {
+	const cutoff = new Date(Date.now() - input.staleAfterMs);
 	const rows = await db
 		.update(s.testRun)
-		.set({ status: 'failed', completedAt: new Date(), errorMessage })
+		.set({ status: 'failed', completedAt: new Date(), errorMessage: input.errorMessage })
 		.where(
 			and(
-				eq(s.testRun.projectId, projectId),
-				inArray(s.testRun.status, ACTIVE_STATUSES),
-				lte(s.testRun.createdAt, cutoff),
+				eq(s.testRun.projectId, input.projectId),
+				or(
+					and(eq(s.testRun.status, 'queued'), lte(s.testRun.createdAt, cutoff)),
+					and(eq(s.testRun.status, 'running'), lte(s.testRun.startedAt, cutoff)),
+				),
+				input.liveRunIds.length > 0 ? notInArray(s.testRun.id, input.liveRunIds) : undefined,
 			),
 		)
 		.returning({ id: s.testRun.id })

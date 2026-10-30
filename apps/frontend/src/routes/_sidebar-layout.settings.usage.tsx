@@ -75,6 +75,7 @@ const messageSeries = [
 		color: 'var(--chart-8)',
 		label: 'Context recommendations',
 	},
+	{ data_key: 'testMessageCount', color: 'var(--chart-9)', label: 'Tests' },
 ] as const;
 
 function UsagePage() {

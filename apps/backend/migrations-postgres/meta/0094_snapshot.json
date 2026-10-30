@@ -1,5 +1,5 @@
 {
-  "id": "ad542b74-f4aa-4edb-a759-686445922b44",
+  "id": "a32a8f8a-dcac-4e9a-9c1d-4170b846624d",
   "prevId": "c1bff71f-5a41-4dc9-b6c5-a60d5b36868b",
   "version": "7",
   "dialect": "postgresql",
@@ -10345,6 +10345,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "test_run_active_project_idx": {
+          "name": "test_run_active_project_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"test_run\".\"status\" IN ('queued', 'running')",
           "concurrently": false,
           "method": "btree",
           "with": {}
