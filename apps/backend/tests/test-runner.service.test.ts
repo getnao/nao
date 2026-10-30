@@ -193,6 +193,32 @@ describe('startTestRun', () => {
 		expect(mocks.createRunUnlessActive).not.toHaveBeenCalled();
 	});
 
+	it('runs the given draft tests instead of the context ones, as a draft run', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		const draft = {
+			path: 'revenue.yml',
+			name: 'revenue',
+			prompt: 'What is the revenue in 2026?',
+			sql: null,
+			databaseId: null,
+			assertions: [],
+			tags: [],
+			owner: null,
+			hash: 'draft-hash',
+		};
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1', tests: [draft] });
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(
+			expect.objectContaining({ trigger: 'draft', selection: ['revenue.yml'] }),
+		);
+		expect(mocks.createChat).toHaveBeenCalledWith(expect.anything(), {
+			text: 'What is the revenue in 2026?',
+			source: 'test',
+		});
+	});
+
 	it('rejects a selection that matches no test', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 

@@ -1,7 +1,7 @@
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CircleAlert, CircleCheck, CircleX, FlaskConical, Play } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { TestRunWithResults } from '@/components/settings/test-run-types';
 import { formatPassRate, isActiveRun } from '@/components/settings/test-run-types';
@@ -21,24 +21,28 @@ interface TestFileToolbarProps {
 
 export function TestFileToolbar({ filePath, content }: TestFileToolbarProps) {
 	const debouncedContent = useDebouncedValue(content, VALIDATION_DEBOUNCE_MS);
-	const [runId, setRunId] = useState<string | null>(null);
-	const validation = useQuery({
-		...trpc.testRun.validateTestFile.queryOptions({ path: filePath, content: debouncedContent }),
-		placeholderData: keepPreviousData,
-	});
+	const [startedRun, setStartedRun] = useState<{ id: string; content: string } | null>(null);
+	const validation = useMutation(trpc.testRun.validateTestFile.mutationOptions());
+	const { mutate: validate } = validation;
 	const run = useQuery({
-		...trpc.testRun.getRun.queryOptions({ runId: runId ?? '' }),
-		enabled: runId !== null,
+		...trpc.testRun.getRun.queryOptions({ runId: startedRun?.id ?? '' }),
+		enabled: startedRun !== null,
 		refetchInterval: (query) => (query.state.data && isActiveRun(query.state.data) ? ACTIVE_RUN_REFETCH_MS : false),
 	});
 	const startRun = useMutation(
 		trpc.testRun.startDraftRun.mutationOptions({
-			onSuccess: (startedRun) => setRunId(startedRun.id),
+			onSuccess: (createdRun, input) => setStartedRun({ id: createdRun.id, content: input.content }),
 		}),
 	);
 
+	useEffect(() => {
+		validate({ path: filePath, content: debouncedContent });
+	}, [validate, filePath, debouncedContent]);
+
+	const isValidationCurrent = validation.isSuccess && validation.variables.content === content;
 	const isRunning = startRun.isPending || (!!run.data && isActiveRun(run.data));
-	const canRun = !!validation.data?.test && content === debouncedContent && !isRunning;
+	const isRunOfCurrentContent = startedRun?.content === content;
+	const canRun = isValidationCurrent && !!validation.data.test && !isRunning;
 
 	return (
 		<div
@@ -48,9 +52,15 @@ export function TestFileToolbar({ filePath, content }: TestFileToolbarProps) {
 		>
 			<FlaskConical className='size-3.5 shrink-0 text-muted-foreground' />
 			<div className='min-w-0 flex-1'>
-				<ValidationSummary validation={validation.data} isLoading={validation.isLoading} />
+				<ValidationSummary
+					validation={isValidationCurrent ? validation.data : undefined}
+					error={validation.error?.message}
+				/>
 			</div>
-			<RunOutcome run={run.data} error={startRun.error?.message} />
+			<RunOutcome
+				run={isRunOfCurrentContent || isRunning ? run.data : undefined}
+				error={startRun.error?.message}
+			/>
 			<Button
 				type='button'
 				size='sm'
@@ -74,20 +84,23 @@ export function isTestFilePath(filePath: string): boolean {
 		segments.length > 1 &&
 		segments[0] === 'tests' &&
 		!segments.slice(1, -1).includes('outputs') &&
-		/\.ya?ml$/i.test(fileName)
+		/\.ya?ml$/.test(fileName)
 	);
 }
 
 function ValidationSummary({
 	validation,
-	isLoading,
+	error,
 }: {
 	validation:
 		| { test: { name: string; tags: string[]; assertions: unknown[] } | null; error: string | null }
 		| undefined;
-	isLoading: boolean;
+	error: string | undefined;
 }) {
-	if (isLoading || !validation) {
+	if (error) {
+		return <span className='block truncate text-destructive'>Could not check the test: {error}</span>;
+	}
+	if (!validation) {
 		return <span className='text-muted-foreground'>Checking test…</span>;
 	}
 	if (validation.error !== null || !validation.test) {

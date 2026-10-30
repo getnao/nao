@@ -24,7 +24,6 @@ import {
 	BUILT_IN_EXCLUSION_GLOBS,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
-	matchesNaoignorePattern,
 	type NaoignoreOptions,
 	shouldExcludeEntry,
 	toRealPath,
@@ -265,12 +264,41 @@ export function assertFileEditable(
 	});
 }
 
+/**
+ * Searches the context with its `.naoignore` rules, then each exempt folder without them, so search
+ * shows the same files as the explorer tree.
+ */
 export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
-	const args = buildSearchArguments(query, projectFolder);
-	return runContentSearch(getRipgrepPath(), args, projectFolder);
+	const exemptFolders = (EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? []).filter((folder) =>
+		fsSync.existsSync(path.join(projectFolder, folder)),
+	);
+	const [contextSearch, ...exemptFolderSearches] = await Promise.all([
+		runContentSearch(
+			getRipgrepPath(),
+			buildSearchArguments(query, projectFolder, loadNaoignorePatterns(projectFolder)),
+			projectFolder,
+		),
+		...exemptFolders.map((folder) =>
+			runContentSearch(
+				getRipgrepPath(),
+				buildSearchArguments(query, path.join(projectFolder, folder), []),
+				projectFolder,
+			),
+		),
+	]);
+	const results = [
+		...contextSearch.results.filter((result) => !isInFolders(result.path, exemptFolders)),
+		...exemptFolderSearches.flatMap((search) => search.results),
+	];
+	return {
+		results: results.slice(0, MAX_SEARCH_FILES),
+		truncated:
+			results.length > MAX_SEARCH_FILES ||
+			[contextSearch, ...exemptFolderSearches].some((search) => search.truncated),
+	};
 }
 
-function buildSearchArguments(query: string, projectFolder: string): string[] {
+function buildSearchArguments(query: string, searchPath: string, naoignorePatterns: string[]): string[] {
 	const args = [
 		'--json',
 		'--no-heading',
@@ -292,23 +320,19 @@ function buildSearchArguments(query: string, projectFolder: string): string[] {
 		args.push('--glob', exclusionGlob);
 	}
 
-	for (const ignorePattern of loadExplorerNaoignorePatterns(projectFolder)) {
+	for (const ignorePattern of naoignorePatterns) {
 		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
 		args.push('--glob', `!${cleanPattern}`);
 		args.push('--glob', `!${cleanPattern}/**`);
 	}
 
 	args.push('--regexp', query);
-	args.push('--', projectFolder);
+	args.push('--', searchPath);
 	return args;
 }
 
-/** Patterns that would hide an exempt folder are dropped; results are filtered by `isWithinProjectFolder` anyway. */
-function loadExplorerNaoignorePatterns(projectFolder: string): string[] {
-	const exemptFolders = EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? [];
-	return loadNaoignorePatterns(projectFolder).filter(
-		(pattern) => !exemptFolders.some((folder) => matchesNaoignorePattern(folder, pattern)),
-	);
+function isInFolders(virtualPath: string, folders: string[]): boolean {
+	return folders.some((folder) => virtualPath === `/${folder}` || virtualPath.startsWith(`/${folder}/`));
 }
 
 function runContentSearch(

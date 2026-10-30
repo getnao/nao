@@ -51,7 +51,10 @@ export function TestRunsTable({ runs, selectedRunId, onSelectRun }: TestRunsTabl
 					>
 						<TableCell className='text-xs'>{new Date(run.createdAt).toLocaleString()}</TableCell>
 						<TableCell>
-							<TestRunStatusBadge status={run.status} />
+							<div className='flex items-center gap-1'>
+								<TestRunStatusBadge status={run.status} />
+								{run.trigger === 'draft' && <Badge variant='outline'>Draft</Badge>}
+							</div>
 						</TableCell>
 						<TableCell className='text-xs text-muted-foreground'>{run.selection?.length ?? '—'}</TableCell>
 						<TableCell className='text-xs'>

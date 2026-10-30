@@ -12,6 +12,9 @@ describe('isTestFilePath', () => {
 		['/tests/readme.md', false],
 		['/tests.yml', false],
 		['/semantics/revenue.yml', false],
+		['tests/revenue.yml', true],
+		['\\tests\\sales\\orders.yml', true],
+		['/tests/revenue.YML', false],
 	])('detects %s as %s', (filePath, expected) => {
 		expect(isTestFilePath(filePath)).toBe(expected);
 	});
