@@ -7,6 +7,7 @@ import {
 	ArchiveRestoreIcon,
 	Circle,
 	CircleCheck,
+	CopyPlus,
 	FolderInput,
 	Pin,
 	ShieldCheck,
@@ -39,6 +40,8 @@ import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
 import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useDuplicateStory } from '@/hooks/use-duplicate-story';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { usePermissions } from '@/hooks/use-permissions';
 import { hasAnyStoryReference, setStoryDragData } from '@/lib/story-reference';
 import { selectedStoryReferencesStore } from '@/stores/story-references';
@@ -387,12 +390,47 @@ function StoryActions({
 		<div className='flex items-center' onPointerDown={(e) => e.stopPropagation()}>
 			<StoryQuickActions item={item} onRequestPinShare={onRequestPinShare} />
 			<div className='flex items-center gap-0.5 max-w-0 overflow-hidden group-hover:max-w-[80px] transition-[max-width] duration-200 ease-out'>
+				{!showArchived && <StoryDuplicateButton item={item} />}
 				{!showArchived && onMoveToFolder && (
 					<StoryMoveToFolderButton item={item} onMoveToFolder={onMoveToFolder} />
 				)}
 				<StoryArchiveButton item={item} showArchived={showArchived} />
 			</div>
 		</div>
+	);
+}
+
+function StoryDuplicateButton({ item }: { item: StoryItem }) {
+	const { isViewer } = usePermissions();
+	const { storyCreationEnabled, customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
+	const { duplicate, isPending, error } = useDuplicateStory();
+	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
+	const canDuplicate =
+		!isViewer &&
+		(isOwnedByUser || storyCreationEnabled) &&
+		(item.format !== 'custom' || customStoryCreationEnabled);
+
+	if (!canDuplicate) {
+		return null;
+	}
+
+	function handleClick(e: MouseEvent<HTMLButtonElement>) {
+		e.preventDefault();
+		e.stopPropagation();
+		duplicate(item.storyId);
+	}
+
+	return (
+		<QuickActionButton
+			active={false}
+			interactive
+			pending={isPending}
+			onClick={handleClick}
+			tooltip={error ? `Could not duplicate: ${error.message}` : 'Duplicate'}
+			fillOnHover={false}
+		>
+			<CopyPlus className='size-3' />
+		</QuickActionButton>
 	);
 }
 

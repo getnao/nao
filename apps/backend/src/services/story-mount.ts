@@ -192,7 +192,7 @@ async function readPublishedVersionFile(
 }
 
 async function requirePublishedVersion(story: DBStory, versionNumber: number) {
-	const version = await storyQueries.getVersionByNumber(story.chatId!, story.slug, versionNumber);
+	const version = await storyQueries.getVersionByStoryIdAndNumber(story.id, versionNumber);
 	if (!version) {
 		throw new Error(`Story "${story.slug}" has no published version ${versionNumber}.`);
 	}
