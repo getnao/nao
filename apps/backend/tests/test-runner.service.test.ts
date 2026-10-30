@@ -49,6 +49,7 @@ vi.mock('../src/services/draft-context.service', () => ({
 	removeContextSnapshotsOlderThan: vi.fn(),
 }));
 
+import type { DraftSource } from '../src/services/draft-context.service';
 import {
 	cancelTestRun,
 	startComparisonRun,
@@ -56,7 +57,6 @@ import {
 	TestRunConflictError,
 	TestRunInputError,
 } from '../src/services/test-runner.service';
-import type { ResolvedContextRepo } from '../src/utils/context-repo';
 
 const DEFAULT_MODEL = { provider: 'openai', modelId: 'gpt-4.1' };
 
@@ -261,7 +261,7 @@ describe('startComparisonRun', () => {
 		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
 		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
 
-		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', repo: worktreeRepo() });
+		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', draft: gitDraft() });
 		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
 
 		expect(run.totalAttempts).toBe(4);
@@ -301,7 +301,7 @@ describe('startComparisonRun', () => {
 		});
 
 		await expect(
-			startComparisonRun({ projectId: 'project-1', userId: 'user-1', repo: worktreeRepo() }),
+			startComparisonRun({ projectId: 'project-1', userId: 'user-1', draft: gitDraft() }),
 		).rejects.toBeInstanceOf(TestRunInputError);
 		expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder);
 		expect(mocks.createRunUnlessActive).not.toHaveBeenCalled();
@@ -312,7 +312,7 @@ describe('startComparisonRun', () => {
 		mocks.createRunUnlessActive.mockResolvedValue(null);
 
 		await expect(
-			startComparisonRun({ projectId: 'project-1', userId: 'user-1', repo: worktreeRepo() }),
+			startComparisonRun({ projectId: 'project-1', userId: 'user-1', draft: gitDraft() }),
 		).rejects.toBeInstanceOf(TestRunConflictError);
 		expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder);
 	});
@@ -357,13 +357,16 @@ function writeConfig(content: string) {
 	fs.writeFileSync(path.join(projectFolder, 'nao_config.yaml'), content);
 }
 
-function worktreeRepo(): ResolvedContextRepo {
+function gitDraft(): DraftSource {
 	return {
-		provider: 'github',
-		repoFullName: 'acme/context',
-		branch: 'improve-revenue',
-		source: 'settings',
-		worktreeRoot: '/worktree',
-		projectPrefix: '',
+		context: {
+			storage: 'git',
+			branch: 'improve-revenue',
+			productionCommit: 'abc123',
+			changes: [{ path: 'RULES.md', kind: 'modified' }],
+			excludedChanges: [],
+			outdatedPaths: [],
+		},
+		readChangedFile: () => null,
 	};
 }

@@ -14,12 +14,12 @@ import {
 	type TestRunResultDetails,
 	type TestSuite,
 } from '../types/test-run';
-import type { ResolvedContextRepo } from '../utils/context-repo';
 import { resolveDefaultChatModel } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import {
 	createDraftContextSnapshot,
+	type DraftSource,
 	removeContextSnapshot,
 	removeContextSnapshotsOlderThan,
 } from './draft-context.service';
@@ -58,8 +58,8 @@ export interface StartTestRunInput {
 }
 
 export interface StartComparisonRunInput extends Omit<StartTestRunInput, 'tests'> {
-	/** The user's File Explorer worktree, whose changes are tested against the production context. */
-	repo: ResolvedContextRepo;
+	/** The user's File Explorer changes, tested against the production context. */
+	draft: DraftSource;
 }
 
 interface TestSuitePlan {
@@ -107,7 +107,7 @@ export async function startComparisonRun(input: StartComparisonRunInput): Promis
 	await failStaleRuns(input.projectId);
 	removeContextSnapshotsOlderThan(projectFolder, input.projectId, TEST_RUN_STALE_MS);
 
-	const snapshot = createDraftContextSnapshot({ projectId: input.projectId, projectFolder, repo: input.repo });
+	const snapshot = createDraftContextSnapshot({ projectId: input.projectId, projectFolder, draft: input.draft });
 	try {
 		if (snapshot.changes.length === 0) {
 			throw new TestRunInputError(NO_CONTEXT_CHANGES_MESSAGE);

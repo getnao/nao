@@ -28,7 +28,8 @@ export function DraftComparisonCard({ draft, testCount, isStarting, isDisabled, 
 						Test your context changes
 					</span>
 					<span className='text-xs text-muted-foreground'>
-						{draft.changes.length} changed file{draft.changes.length === 1 ? '' : 's'} in the{' '}
+						{draft.changes.length} changed file{draft.changes.length === 1 ? '' : 's'} in{' '}
+						{draft.storage === 'nao' ? 'your draft in the ' : 'the '}
 						<Link to='/settings/context-explorer' className='underline'>
 							File Explorer
 						</Link>
@@ -61,7 +62,10 @@ export function DraftComparisonCard({ draft, testCount, isStarting, isDisabled, 
 			{draft.outdatedPaths.length > 0 && (
 				<Callout variant='warning'>
 					Production changed {draft.outdatedPaths.join(', ')} since your changes started, so the comparison
-					would also undo those updates. Update the File Explorer first for a fair comparison.
+					would also undo those updates.{' '}
+					{draft.storage === 'git'
+						? 'Update the File Explorer first for a fair comparison.'
+						: 'Discard your draft of these files and redo the edits on the latest version for a fair comparison.'}
 				</Callout>
 			)}
 			{draft.excludedChanges.length > 0 && (

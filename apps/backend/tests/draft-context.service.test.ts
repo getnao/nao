@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
 	createDraftContextSnapshot,
 	readDraftContext,
+	readGitDraft,
 	removeContextSnapshot,
 	removeContextSnapshotsOlderThan,
 } from '../src/services/draft-context.service';
@@ -104,7 +105,7 @@ describe('createDraftContextSnapshot', () => {
 		const snapshot = createDraftContextSnapshot({
 			projectId: 'project-1',
 			projectFolder: liveFolder,
-			repo: resolvedRepo(),
+			draft: readGitDraft(resolvedRepo(), liveFolder),
 		});
 
 		expect(snapshot.folder.startsWith(path.join(root, '.nao', 'test-contexts', 'project-1'))).toBe(true);
@@ -128,10 +129,41 @@ describe('createDraftContextSnapshot', () => {
 		writeFiles(worktreeRoot, { 'linked/escape.md': 'escaped\n' });
 
 		expect(() =>
-			createDraftContextSnapshot({ projectId: 'project-1', projectFolder: liveFolder, repo: resolvedRepo() }),
+			createDraftContextSnapshot({
+				projectId: 'project-1',
+				projectFolder: liveFolder,
+				draft: readGitDraft(resolvedRepo(), liveFolder),
+			}),
 		).toThrow();
 		expect(fs.existsSync(path.join(outside, 'escape.md'))).toBe(false);
 		expect(fs.readdirSync(path.join(root, '.nao', 'test-contexts', 'project-1'))).toEqual([]);
+	});
+
+	it('applies a draft that nao keeps, without a worktree', () => {
+		const snapshot = createDraftContextSnapshot({
+			projectId: 'project-1',
+			projectFolder: liveFolder,
+			draft: {
+				context: {
+					storage: 'nao',
+					branch: null,
+					productionCommit: null,
+					changes: [
+						{ path: 'RULES.md', kind: 'modified' },
+						{ path: 'docs/margin.md', kind: 'added' },
+					],
+					excludedChanges: [],
+					outdatedPaths: [],
+				},
+				readChangedFile: (projectPath) => Buffer.from(`draft of ${projectPath}\n`),
+			},
+		});
+
+		expect(read(snapshot.folder, 'RULES.md')).toBe('draft of RULES.md\n');
+		expect(read(snapshot.folder, 'docs/margin.md')).toBe('draft of docs/margin.md\n');
+		expect(read(snapshot.folder, 'docs/revenue.md')).toBe('Revenue is net of refunds.\n');
+		expect(read(liveFolder, 'RULES.md')).toBe('# Rules\n');
+		removeContextSnapshot(snapshot.folder);
 	});
 });
 

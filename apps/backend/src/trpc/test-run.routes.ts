@@ -8,7 +8,8 @@ import {
 	MAX_CONTEXT_FILE_SIZE,
 } from '../services/context-explorer.service';
 import { createSafeFileAccess, createStrictFileAccess } from '../services/context-explorer-access.service';
-import { hasContextWorktree, readDraftContext } from '../services/draft-context.service';
+import { type DraftSource, hasContextWorktree, readGitDraft } from '../services/draft-context.service';
+import { hasContextRepository, readNaoDraft } from '../services/nao-draft.service';
 import { getLatestOutcomesByTest, listRunsWithVariantTotals } from '../services/test-history.service';
 import {
 	cancelTestRun,
@@ -32,6 +33,11 @@ import { compareContextVariants } from '../utils/test-comparison';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with production.';
+
+interface TestRunRouteContext {
+	project: { id: string };
+	user: { id: string; name: string; email: string };
+}
 
 const runSelectionSchema = z.object({
 	paths: z.array(z.string()).optional(),
@@ -68,15 +74,12 @@ export const testRunRoutes = {
 
 	getDraftContext: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const projectFolder = requireProjectFolder(ctx.project.path);
-		if (!hasContextWorktree(ctx.project.id, projectFolder, ctx.user.id)) {
-			return { status: 'unavailable' as const, message: NO_DRAFT_MESSAGE };
-		}
-		const access = await createSafeFileAccess(ctx.project.id, projectFolder, ctx.user);
-		if (access.git.status === 'unavailable') {
-			return { status: 'unavailable' as const, message: access.git.message };
-		}
 		try {
-			return { status: 'available' as const, ...readDraftContext(access.git.repo, projectFolder) };
+			const draft = await readUserDraft(ctx, projectFolder, createSafeFileAccess);
+			if ('message' in draft) {
+				return { status: 'unavailable' as const, message: draft.message };
+			}
+			return { status: 'available' as const, ...draft.context };
 		} catch {
 			return { status: 'unavailable' as const, message: 'Your context changes could not be read.' };
 		}
@@ -84,20 +87,12 @@ export const testRunRoutes = {
 
 	startComparisonRun: cloudBillingContextAdminProcedure.input(runSelectionSchema).mutation(async ({ ctx, input }) => {
 		const projectFolder = requireProjectFolder(ctx.project.path);
-		if (!hasContextWorktree(ctx.project.id, projectFolder, ctx.user.id)) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: NO_DRAFT_MESSAGE });
-		}
-		const access = await createStrictFileAccess(ctx.project.id, projectFolder, ctx.user);
-		if (access.git.status === 'unavailable') {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: access.git.message });
+		const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
+		if ('message' in draft) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: draft.message });
 		}
 		try {
-			return await startComparisonRun({
-				...input,
-				projectId: ctx.project.id,
-				userId: ctx.user.id,
-				repo: access.git.repo,
-			});
+			return await startComparisonRun({ ...input, projectId: ctx.project.id, userId: ctx.user.id, draft });
 		} catch (error) {
 			throw toTestRunTrpcError(error);
 		}
@@ -156,6 +151,25 @@ export const testRunRoutes = {
 			return { cancelled: await cancelTestRun(run) };
 		}),
 };
+
+/** Without a context repository nao keeps the draft, otherwise it is the user's File Explorer worktree. */
+async function readUserDraft(
+	ctx: TestRunRouteContext,
+	projectFolder: string,
+	createFileAccess: typeof createSafeFileAccess,
+): Promise<DraftSource | { message: string }> {
+	if (!(await hasContextRepository(ctx.project.id))) {
+		return readNaoDraft({ projectId: ctx.project.id, userId: ctx.user.id }, projectFolder);
+	}
+	if (!hasContextWorktree(ctx.project.id, projectFolder, ctx.user.id)) {
+		return { message: NO_DRAFT_MESSAGE };
+	}
+	const access = await createFileAccess(ctx.project.id, projectFolder, ctx.user);
+	if (access.git.status === 'unavailable') {
+		return { message: access.git.message };
+	}
+	return readGitDraft(access.git.repo, projectFolder);
+}
 
 function parseDraftTest(projectPath: string, content: string) {
 	const testPath = toTestPath(projectPath);
