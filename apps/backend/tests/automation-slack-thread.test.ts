@@ -28,6 +28,7 @@ vi.mock('../src/services/slack', () => ({
 	},
 }));
 
+import { generateChartImage } from '../src/components/generate-chart';
 import { createAutomationTools } from '../src/services/automation-tools';
 import { slackService } from '../src/services/slack';
 
@@ -320,13 +321,45 @@ describe('send_automation_slack_message with several channels', () => {
 		expect(vi.mocked(slackService.postMessage).mock.calls[1][3]).toEqual({ chatId: 'chat-1', threadId: undefined });
 	});
 
-	it('fails when no channel receives the message', async () => {
+	it('reports every channel when no channel receives the message', async () => {
 		mockPostMessageByChannel({});
 		const tool = createSlackTool('#archived, general');
 
-		await expect(runTool(tool, { text: 'Weekly Report' }, emptyContext())).rejects.toThrow(
-			'Slack message was not delivered to any channel. #archived: channel_not_found general: Add # before channel names, like #general.',
-		);
+		await expect(runTool(tool, { text: 'Weekly Report' }, emptyContext())).resolves.toEqual({
+			ok: false,
+			error: 'Slack message was not delivered to any channel. #archived: channel_not_found general: Add # before channel names, like #general.',
+			deliveries: [
+				{ channel: '#archived', ok: false, error: 'channel_not_found' },
+				{ channel: 'general', ok: false, error: 'Add # before channel names, like #general.' },
+			],
+		});
+	});
+
+	it('still delivers the text when attachments cannot be generated', async () => {
+		mockPostMessageByChannel({ [CHANNEL_ID]: ROOT_THREAD_ID, [SECOND_CHANNEL]: SECOND_THREAD_ID });
+		vi.mocked(generateChartImage).mockImplementationOnce(() => {
+			throw new Error('canvas_failed');
+		});
+		const tool = createSlackTool(`${CHANNEL_ID}, ${SECOND_CHANNEL}`);
+		const context = emptyContext();
+		context.generatedArtifacts.charts = [
+			{ type: 'bar', title: 'Revenue', query_id: 'q1' } as ToolContext['generatedArtifacts']['charts'][number],
+		];
+
+		const headline = await runTool(tool, { text: 'Weekly Report' }, context);
+
+		expect(headline).toMatchObject({
+			ok: true,
+			threadId: ROOT_THREAD_ID,
+			attachments: [],
+			attachmentError: 'Files could not be generated: canvas_failed',
+			deliveries: [
+				{ channel: CHANNEL_ID, ok: true, attachmentError: 'Files could not be generated: canvas_failed' },
+				{ channel: SECOND_CHANNEL, ok: true, attachmentError: 'Files could not be generated: canvas_failed' },
+			],
+		});
+		expect(slackService.postMessage).toHaveBeenCalledTimes(2);
+		expect(slackService.uploadFiles).not.toHaveBeenCalled();
 	});
 
 	it('rejects a thread_id that was not returned by a previous call', async () => {

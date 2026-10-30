@@ -201,30 +201,67 @@ function createSlackTools(
 	const malformedDeliveries = getInvalidSlackChannels(channels).map(
 		(channel): SlackChannelDelivery => ({ channel, ok: false, error: getSlackChannelError(channel) ?? undefined }),
 	);
-	// Charts/stories accumulate across the run; track which ones were already
-	// uploaded to each channel so multiple thread replies don't re-attach the same files.
 	const uploadedArtifactsByChannel = new Map<string, Set<string>>();
-	// The agent only sees one threadId per headline; it maps to the matching thread in every channel.
-	const channelThreadsByThreadId = new Map<string, SlackChannelThread[]>();
+	const channelThreadsByHeadlineThreadId = new Map<string, SlackChannelThread[]>();
 
-	async function deliverToChannel(
+	async function postToChannels(
+		targets: SlackChannelThread[],
+		text: string,
+		isReply: boolean,
+	): Promise<SlackChannelDelivery[]> {
+		const deliveries: SlackChannelDelivery[] = [];
+		let isChatLinked = isReply;
+		for (const target of targets) {
+			const delivery = await postToChannel(target, text, !isChatLinked);
+			isChatLinked ||= delivery.ok;
+			deliveries.push(delivery);
+		}
+		return deliveries;
+	}
+
+	async function postToChannel(
 		target: SlackChannelThread,
 		text: string,
-		attachments: GeneratedArtifactAttachment[],
 		linkChat: boolean,
 	): Promise<SlackChannelDelivery> {
-		let threadId: string;
 		try {
 			const result = await slackService.postMessage(projectId, target.channel, text, {
 				chatId: linkChat ? chatId : undefined,
 				threadId: target.threadId,
 			});
-			threadId = result.threadId;
+			return { channel: target.channel, ok: true, threadId: result.threadId };
 		} catch (error) {
 			return { channel: target.channel, ok: false, error: getErrorMessage(error) };
 		}
-		const upload = await uploadArtifactsToThread(target.channel, threadId, attachments);
-		return { channel: target.channel, ok: true, threadId, ...upload };
+	}
+
+	async function attachArtifacts(
+		deliveries: SlackChannelDelivery[],
+		context: ToolContext,
+	): Promise<SlackChannelDelivery[]> {
+		let attachments: GeneratedArtifactAttachment[];
+		try {
+			attachments = await buildGeneratedArtifactAttachments(projectId, context);
+		} catch (error) {
+			const errorMessage = getErrorMessage(error);
+			logger.warn(`Slack automation attachments could not be generated: ${errorMessage}`, {
+				source: 'system',
+				projectId,
+			});
+			const attachmentError = `Files could not be generated: ${errorMessage}`;
+			return deliveries.map((delivery) =>
+				delivery.threadId ? { ...delivery, attachments: [], attachmentError } : delivery,
+			);
+		}
+
+		const deliveriesWithAttachments: SlackChannelDelivery[] = [];
+		for (const delivery of deliveries) {
+			const upload = delivery.threadId
+				? await uploadArtifactsToThread(delivery.channel, delivery.threadId, attachments)
+				: {};
+			deliveriesWithAttachments.push({ ...delivery, ...upload });
+		}
+		return deliveriesWithAttachments;
 	}
 
 	async function uploadArtifactsToThread(
@@ -264,7 +301,7 @@ function createSlackTools(
 		if (!threadId) {
 			return deliverableChannels.map((channel) => ({ channel }));
 		}
-		const targets = channelThreadsByThreadId.get(threadId);
+		const targets = channelThreadsByHeadlineThreadId.get(threadId);
 		if (!targets) {
 			throw new Error(
 				`Unknown thread_id "${threadId}". Reuse the threadId returned by a previous call, or omit thread_id to post a new headline.`,
@@ -286,38 +323,34 @@ function createSlackTools(
 					),
 			}),
 			execute: async ({ text, thread_id }, context: ToolContext) => {
-				const targets = resolveTargets(thread_id);
-				const attachments = await buildGeneratedArtifactAttachments(projectId, context);
-				const deliveries: SlackChannelDelivery[] = [];
-				let isChatLinked = Boolean(thread_id);
-				for (const target of targets) {
-					const delivery = await deliverToChannel(target, text, attachments, !isChatLinked);
-					isChatLinked ||= delivery.ok;
-					deliveries.push(delivery);
-				}
-
-				const allDeliveries = thread_id ? deliveries : [...deliveries, ...malformedDeliveries];
-				const delivered = deliveries.filter((delivery) => delivery.ok && delivery.threadId);
+				const posts = await postToChannels(resolveTargets(thread_id), text, Boolean(thread_id));
+				const delivered = posts.filter((delivery) => delivery.ok && delivery.threadId);
 				const threadId = thread_id ?? delivered[0]?.threadId;
 				if (!threadId || delivered.length === 0) {
-					throw new Error(
-						`Slack message was not delivered to any channel. ${formatDeliveryErrors(allDeliveries)}`,
-					);
+					const deliveries = thread_id ? posts : [...posts, ...malformedDeliveries];
+					return {
+						ok: false,
+						error: `Slack message was not delivered to any channel. ${formatDeliveryErrors(deliveries)}`,
+						deliveries,
+					};
 				}
 
 				if (!thread_id) {
-					channelThreadsByThreadId.set(
+					channelThreadsByHeadlineThreadId.set(
 						threadId,
 						delivered.map((delivery) => ({ channel: delivery.channel, threadId: delivery.threadId })),
 					);
 				}
-				const attachmentError = delivered.find((delivery) => delivery.attachmentError)?.attachmentError;
+				const postsWithAttachments = await attachArtifacts(posts, context);
+				const attachmentError = postsWithAttachments.find(
+					(delivery) => delivery.attachmentError,
+				)?.attachmentError;
 				return {
 					ok: true,
 					threadId,
-					attachments: [...new Set(delivered.flatMap((delivery) => delivery.attachments ?? []))],
+					attachments: [...new Set(postsWithAttachments.flatMap((delivery) => delivery.attachments ?? []))],
 					...(attachmentError && { attachmentError }),
-					deliveries: allDeliveries,
+					deliveries: thread_id ? postsWithAttachments : [...postsWithAttachments, ...malformedDeliveries],
 				};
 			},
 		}),
