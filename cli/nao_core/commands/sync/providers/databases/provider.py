@@ -5,10 +5,12 @@ from __future__ import annotations
 import fnmatch
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Collection
+from typing import TYPE_CHECKING, Any, Callable, Collection
 
 from rich.console import Console
 from rich.markup import escape
@@ -17,6 +19,7 @@ from rich.progress import (
     MofNCompleteColumn,
     Progress,
     SpinnerColumn,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
@@ -46,7 +49,7 @@ from nao_core.config.databases.column_catalog import (
 )
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.context import NaoContext, create_nao_context
-from nao_core.templates.engine import get_template_engine
+from nao_core.templates.engine import TemplateEngine, get_template_engine
 from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
@@ -112,6 +115,7 @@ def _placeholder_for_failed_render(
     template_name: str,
     output_file: Path,
     error: Exception,
+    log: Callable[[str], None],
 ) -> str | None:
     """Decide what to write when a template fails: keep a previous file, else a short placeholder.
 
@@ -119,7 +123,7 @@ def _placeholder_for_failed_render(
     read a provider error as a table summary.
     """
     if output_file.exists():
-        UI.print(f"    [dim]↩ keeping previous {output_file.name}[/dim]")
+        log(f"    [dim]↩ keeping previous {output_file.name}[/dim]")
         return None
     reason = str(error).splitlines()[0] if str(error) else error.__class__.__name__
     return f"# {table}\n\n{_failed_render_notice(template_name)} {reason}\n"
@@ -248,6 +252,9 @@ def _save_column_catalog(
     )
 
 
+TableSubmit = Callable[..., "Future[Any]"]
+
+
 def sync_database(
     db_config: AnyDatabaseConfig,
     base_path: Path,
@@ -258,32 +265,101 @@ def sync_database(
     nao_ctx: NaoContext | None = None,
     select: list[str] | None = None,
 ) -> DatabaseSyncState:
-    """Sync a single database by rendering all database templates for each table.
+    """Sync a single database by rendering all database templates for each table, one table at a time.
 
     When `select` is provided, only schemas/tables matching the patterns are
     synced (applied on top of the config include/exclude filters).
     """
+    job = start_database_sync(db_config, base_path, progress, project_path, llm_config, db_folder, nao_ctx, select)
+    return job.finish()
+
+
+def start_database_sync(
+    db_config: AnyDatabaseConfig,
+    base_path: Path,
+    progress: Progress,
+    project_path: Path | None = None,
+    llm_config: LLMConfig | None = None,
+    db_folder: str | None = None,
+    nao_ctx: NaoContext | None = None,
+    select: list[str] | None = None,
+    submit: TableSubmit | None = None,
+) -> DatabaseSyncJob:
+    """Connect, list the tables to sync and hand each table to `submit`.
+
+    Without `submit`, tables render inline, one at a time. With a thread pool's
+    `submit`, tables render concurrently and `finish()` applies their results in
+    table order. Only pass `submit` for databases with `supports_parallel_table_sync`.
+    """
     engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
-
-    has_query_history = DatabaseTemplate.QUERY_HISTORY in db_config.templates
+    if db_folder is None:
+        db_folder = get_database_folder_names([db_config])[0]
 
     t_connect = time.monotonic()
     conn = db_config.connect()
+    job = DatabaseSyncJob(
+        db_config=db_config,
+        conn=conn,
+        progress=progress,
+        base_path=base_path,
+        project_path=project_path,
+        db_folder=db_folder,
+        select=select,
+        renderer=_TableRenderer(db_config, conn, engine, templates, nao_ctx, progress),
+        submit=submit,
+    )
     try:
         UI.print(
             f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
             f"[dim]({_fmt_duration(time.monotonic() - t_connect)})[/dim]"
         )
+        job.start()
+    except BaseException:
+        job.close()
+        raise
+    return job
+
+
+class DatabaseSyncJob:
+    """One database sync: `start()` submits every table, `finish()` applies the results in table order."""
+
+    def __init__(
+        self,
+        db_config: AnyDatabaseConfig,
+        conn: BaseBackend,
+        progress: Progress,
+        base_path: Path,
+        project_path: Path | None,
+        db_folder: str,
+        select: list[str] | None,
+        renderer: _TableRenderer,
+        submit: TableSubmit | None,
+    ) -> None:
+        self.db_config = db_config
+        self.conn = conn
+        self.progress = progress
+        self.project_path = project_path
+        self.base_path = base_path
+        self.db_folder = db_folder
+        self.select = select
+        self.renderer = renderer
+        self.submit = submit or _run_inline
+        self.buffer_output = submit is not None
+        self.state = DatabaseSyncState(db_path=base_path / f"type={db_config.type}" / db_folder)
+        self.schema_task: TaskID
+        self.failed_schemas: set[str] = set()
+        self.failed_tables: set[tuple[str, str]] = set()
+        self.pending_schemas: list[_SchemaSync] = []
+        self.total_errors = 0
+
+    def start(self) -> None:
+        db_config, conn, select = self.db_config, self.conn, self.select
 
         raw_queries: list[str] = []
+        has_query_history = DatabaseTemplate.QUERY_HISTORY in db_config.templates
         if has_query_history:
             raw_queries = _fetch_query_history(db_config, conn)
-
-        if db_folder is None:
-            db_folder = get_database_folder_names([db_config])[0]
-        db_path = base_path / f"type={db_config.type}" / db_folder
-        state = DatabaseSyncState(db_path=db_path)
 
         t_schemas = time.monotonic()
         schemas = db_config.get_schemas(conn)
@@ -291,26 +367,17 @@ def sync_database(
             f"  [dim]Found[/dim] [bold]{len(schemas)}[/bold] "
             f"[dim]schemas ({_fmt_duration(time.monotonic() - t_schemas)})[/dim]"
         )
-
-        schema_task = progress.add_task(
-            f"[dim]{db_config.name}[/dim]",
-            total=len(schemas),
-        )
-
-        total_errors = 0
+        self.schema_task = self.progress.add_task(f"[dim]{db_config.name}[/dim]", total=len(schemas))
 
         schema_tables: dict[str, list[str]] = {}
-        failed_schemas: set[str] = set()
-        failed_tables: set[tuple[str, str]] = set()
-
         for schema in schemas:
             try:
                 t_list = time.monotonic()
                 all_tables = conn.list_tables(database=schema)
             except Exception as e:
                 UI.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {_fmt_error(e)}")
-                failed_schemas.add(schema)
-                progress.update(schema_task, advance=1)
+                self.failed_schemas.add(schema)
+                self.progress.update(self.schema_task, advance=1)
                 continue
 
             tables = [
@@ -335,166 +402,288 @@ def sync_database(
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
         for schema, tables in schema_tables.items():
-            semantic_views = db_config.get_semantic_views(conn, schema)
-            semantic_views = [
-                sv
-                for sv in semantic_views
-                if db_config.matches_pattern(schema, sv["name"])
-                and (not select or _matches_selection(schema, sv["name"], select))
-            ]
+            self._submit_schema(schema, tables, usage_stats)
 
-            if not tables and not semantic_views:
-                progress.update(schema_task, advance=1)
-                continue
+    def finish(self) -> DatabaseSyncState:
+        try:
+            for schema_sync in self.pending_schemas:
+                self._finish_schema(schema_sync)
+            self.pending_schemas.clear()
 
-            schema_path = db_path / f"schema={schema}"
-            schema_path.mkdir(parents=True, exist_ok=True)
+            if self.total_errors:
+                self.state.render_errors = self.total_errors
+                UI.print(f"  [yellow]⚠ {self.total_errors} total errors during sync[/yellow]")
 
-            state.add_schema(schema)
-            table_task = progress.add_task(
-                f"    [cyan]{schema}[/cyan]",
-                total=len(tables),
+            catalog_project_path = self.project_path if self.project_path is not None else self.base_path.parent
+            _save_column_catalog(
+                self.state,
+                self.db_config,
+                self.db_folder,
+                catalog_project_path,
+                partial=bool(self.select),
+                preserved_schemas=self.failed_schemas,
+                preserved_tables=self.failed_tables,
             )
+            return self.state
+        finally:
+            self.close()
 
-            schema_errors = 0
-            schema_start = time.monotonic()
+    def close(self) -> None:
+        """Cancel tables that have not started, wait for the running ones, then disconnect."""
+        futures = [pending.future for schema_sync in self.pending_schemas for pending in schema_sync.tables]
+        for future in futures:
+            future.cancel()
+        wait(futures)
+        self.conn.disconnect()
 
-            for table in tables:
-                table_path = schema_path / f"table={table}"
-                table_path.mkdir(parents=True, exist_ok=True)
-                ensure_annotations_file(table_path)
+    def _submit_schema(self, schema: str, tables: list[str], usage_stats: dict[str, TableUsageStats]) -> None:
+        db_config, select = self.db_config, self.select
+        semantic_views = db_config.get_semantic_views(self.conn, schema)
+        semantic_views = [
+            sv
+            for sv in semantic_views
+            if db_config.matches_pattern(schema, sv["name"])
+            and (not select or _matches_selection(schema, sv["name"], select))
+        ]
 
-                progress.update(
-                    table_task,
-                    description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
-                )
+        if not tables and not semantic_views:
+            self.progress.update(self.schema_task, advance=1)
+            return
 
-                ctx = db_config.create_context(conn, schema, table)
-                ctx.set_exclude_columns(db_config.exclude_columns)
-                ctx.set_preview_max_value_length(db_config.preview_max_value_length)
-                table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
-                has_profiling = DatabaseTemplate.PROFILING in db_config.templates
-                has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
-                profiling_due = has_profiling and _should_refresh(
-                    table_path / "profiling.md",
-                    db_config.profiling,
-                )
-                summary_due = has_ai_summary and _should_refresh(
-                    table_path / "ai_summary.md",
-                    db_config.ai_summary,
-                )
-                profiling_data = ctx.profiling() if profiling_due or summary_due else None
+        schema_path = self.state.db_path / f"schema={schema}"
+        schema_path.mkdir(parents=True, exist_ok=True)
 
-                for template_name in templates:
-                    output_filename = Path(template_name).stem
-                    tpl_name = output_filename.replace(".md", "")
-                    output_file = table_path / output_filename
-
-                    extra_ctx: dict[str, Any] = {}
-                    if tpl_name == "query_history":
-                        extra_ctx["usage_stats"] = table_usage
-
-                    if tpl_name == "profiling":
-                        if not profiling_due:
-                            UI.print(
-                                f"    [dim]⏭ {schema}.{table} profiling skipped "
-                                f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
-                            )
-                            continue
-                        extra_ctx["profiling"] = profiling_data
-                    if tpl_name == "ai_summary":
-                        if not summary_due:
-                            UI.print(
-                                f"    [dim]⏭ {schema}.{table} ai_summary skipped "
-                                f"(policy: {db_config.ai_summary.refresh_policy.value})[/dim]"
-                            )
-                            continue
-                        extra_ctx["profiling"] = profiling_data
-                        extra_ctx["computed_at"] = datetime.now(timezone.utc).isoformat()
-
-                    t_render = time.monotonic()
-                    try:
-                        content: str | None = engine.render(
-                            template_name,
-                            db=ctx,
-                            table_name=table,
-                            dataset=schema,
-                            **({"nao": nao_ctx} if nao_ctx else {}),
-                            **extra_ctx,
-                        )
-                        render_dur = time.monotonic() - t_render
-                        if render_dur > 5:
-                            UI.print(
-                                f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
-                                f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
-                            )
-                    except Exception as e:
-                        render_dur = time.monotonic() - t_render
-                        schema_errors += 1
-                        total_errors += 1
-                        UI.print(
-                            f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
-                            f"[red]{tpl_name}[/red] [dim]failed after "
-                            f"{_fmt_duration(render_dur)}:[/dim] {_fmt_error(e)}"
-                        )
-                        content = _placeholder_for_failed_render(table, tpl_name, output_file, e)
-
-                    if content is not None:
-                        output_file.write_text(with_generated_marker(content))
-
-                columns = ctx.all_columns()
-                if columns is None:
-                    failed_tables.add((schema, table))
-                state.add_table(schema, table, columns)
-                progress.update(table_task, advance=1)
-
-            progress.update(
-                table_task,
-                description=f"    [cyan]{schema}[/cyan]",
-            )
-            if tables:
-                schema_dur = _fmt_duration(time.monotonic() - schema_start)
-                error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
-                UI.print(
-                    f"  [green]✓ {schema}[/green] [dim]— {len(tables)} tables synced in {schema_dur}{error_suffix}[/dim]"
-                )
-
-            if semantic_views:
-                for sv in semantic_views:
-                    sv_path = schema_path / f"semantic_view={sv['name']}"
-                    sv_path.mkdir(parents=True, exist_ok=True)
-                    content_parts = [f"# {sv['name']}\n"]
-                    content_parts.append(
-                        "This is a Snowflake **semantic view** — use this to understand the intended way to query and aggregate data.\n"
-                    )
-                    if sv.get("comment"):
-                        content_parts.append(f"{sv['comment']}\n")
-                    if sv.get("definition"):
-                        content_parts.append("## Definition\n")
-                        content_parts.append(f"```sql\n{sv['definition']}\n```\n")
-                    (sv_path / "definition.md").write_text(with_generated_marker("\n".join(content_parts)))
-                    state.add_table(schema, sv["name"])
-                UI.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
-
-            progress.update(schema_task, advance=1)
-
-        if total_errors:
-            state.render_errors = total_errors
-            UI.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
-
-        catalog_project_path = project_path if project_path is not None else base_path.parent
-        _save_column_catalog(
-            state,
-            db_config,
-            db_folder,
-            catalog_project_path,
-            partial=bool(select),
-            preserved_schemas=failed_schemas,
-            preserved_tables=failed_tables,
+        self.state.add_schema(schema)
+        schema_sync = _SchemaSync(
+            schema=schema,
+            schema_path=schema_path,
+            semantic_views=semantic_views,
+            table_task=self.progress.add_task(f"    [cyan]{schema}[/cyan]", total=len(tables)),
+            start=time.monotonic(),
         )
-        return state
-    finally:
-        conn.disconnect()
+        self.pending_schemas.append(schema_sync)
+
+        for table in tables:
+            messages: list[str] = []
+            future = self.submit(
+                self.renderer.render,
+                schema,
+                table,
+                schema_path / f"table={table}",
+                schema_sync.table_task,
+                usage_stats.get(f"{schema}.{table}", TableUsageStats()),
+                messages.append if self.buffer_output else UI.print,
+            )
+            schema_sync.tables.append(_PendingTable(table, future, messages))
+
+        if not self.buffer_output:
+            self._finish_schema(self.pending_schemas.pop())
+
+    def _finish_schema(self, schema_sync: _SchemaSync) -> None:
+        """Apply the rendered tables of a schema in table order."""
+        schema = schema_sync.schema
+        schema_errors = 0
+        for pending in schema_sync.tables:
+            rendered = pending.future.result()
+            for message in pending.messages:
+                UI.print(message)
+            schema_errors += rendered.errors
+            if rendered.columns is None:
+                self.failed_tables.add((schema, pending.name))
+            self.state.add_table(schema, pending.name, rendered.columns)
+        self.total_errors += schema_errors
+
+        self.progress.update(
+            schema_sync.table_task,
+            description=f"    [cyan]{schema}[/cyan]",
+        )
+        if schema_sync.tables:
+            schema_dur = _fmt_duration(time.monotonic() - schema_sync.start)
+            error_suffix = f" [red]({schema_errors} errors)[/red]" if schema_errors else ""
+            UI.print(
+                f"  [green]✓ {schema}[/green] [dim]— {len(schema_sync.tables)} tables synced "
+                f"in {schema_dur}{error_suffix}[/dim]"
+            )
+
+        if schema_sync.semantic_views:
+            _write_semantic_views(schema_sync, self.state)
+
+        self.progress.update(self.schema_task, advance=1)
+
+
+@dataclass
+class _RenderedTable:
+    columns: list[dict[str, Any]] | None
+    errors: int
+
+
+@dataclass
+class _PendingTable:
+    name: str
+    future: Future[_RenderedTable]
+    messages: list[str]
+
+
+@dataclass
+class _SchemaSync:
+    schema: str
+    schema_path: Path
+    semantic_views: list[dict[str, str]]
+    table_task: TaskID
+    start: float
+    tables: list[_PendingTable] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _TableRenderer:
+    """Renders every configured template for one table; safe to call from worker threads."""
+
+    db_config: AnyDatabaseConfig
+    conn: BaseBackend
+    engine: TemplateEngine
+    templates: list[str]
+    nao_ctx: NaoContext | None
+    progress: Progress
+
+    def render(
+        self,
+        schema: str,
+        table: str,
+        table_path: Path,
+        table_task: TaskID,
+        table_usage: TableUsageStats,
+        log: Callable[[str], None],
+    ) -> _RenderedTable:
+        db_config = self.db_config
+        table_path.mkdir(parents=True, exist_ok=True)
+        ensure_annotations_file(table_path)
+
+        self.progress.update(
+            table_task,
+            description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
+        )
+
+        ctx = db_config.create_context(self.conn, schema, table)
+        ctx.set_exclude_columns(db_config.exclude_columns)
+        ctx.set_preview_max_value_length(db_config.preview_max_value_length)
+        has_profiling = DatabaseTemplate.PROFILING in db_config.templates
+        has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
+        profiling_due = has_profiling and _should_refresh(
+            table_path / "profiling.md",
+            db_config.profiling,
+        )
+        summary_due = has_ai_summary and _should_refresh(
+            table_path / "ai_summary.md",
+            db_config.ai_summary,
+        )
+        profiling_data = ctx.profiling() if profiling_due or summary_due else None
+
+        errors = 0
+        for template_name in self.templates:
+            output_filename = Path(template_name).stem
+            tpl_name = output_filename.replace(".md", "")
+            output_file = table_path / output_filename
+
+            extra_ctx: dict[str, Any] = {}
+            if tpl_name == "query_history":
+                extra_ctx["usage_stats"] = table_usage
+
+            if tpl_name == "profiling":
+                if not profiling_due:
+                    log(
+                        f"    [dim]⏭ {schema}.{table} profiling skipped "
+                        f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
+                    )
+                    continue
+                extra_ctx["profiling"] = profiling_data
+            if tpl_name == "ai_summary":
+                if not summary_due:
+                    log(
+                        f"    [dim]⏭ {schema}.{table} ai_summary skipped "
+                        f"(policy: {db_config.ai_summary.refresh_policy.value})[/dim]"
+                    )
+                    continue
+                extra_ctx["profiling"] = profiling_data
+                extra_ctx["computed_at"] = datetime.now(timezone.utc).isoformat()
+
+            t_render = time.monotonic()
+            try:
+                content: str | None = self.engine.render(
+                    template_name,
+                    db=ctx,
+                    table_name=table,
+                    dataset=schema,
+                    **({"nao": self.nao_ctx} if self.nao_ctx else {}),
+                    **extra_ctx,
+                )
+                render_dur = time.monotonic() - t_render
+                if render_dur > 5:
+                    log(
+                        f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
+                        f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
+                    )
+            except Exception as e:
+                render_dur = time.monotonic() - t_render
+                errors += 1
+                log(
+                    f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
+                    f"[red]{tpl_name}[/red] [dim]failed after "
+                    f"{_fmt_duration(render_dur)}:[/dim] {_fmt_error(e)}"
+                )
+                content = _placeholder_for_failed_render(table, tpl_name, output_file, e, log)
+
+            if content is not None:
+                output_file.write_text(with_generated_marker(content))
+
+        columns = ctx.all_columns()
+        self.progress.update(table_task, advance=1)
+        return _RenderedTable(columns=columns, errors=errors)
+
+
+def _run_inline(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future[Any]:
+    future: Future[Any] = Future()
+    future.set_result(fn(*args, **kwargs))
+    return future
+
+
+def _write_semantic_views(schema_sync: _SchemaSync, state: DatabaseSyncState) -> None:
+    for sv in schema_sync.semantic_views:
+        sv_path = schema_sync.schema_path / f"semantic_view={sv['name']}"
+        sv_path.mkdir(parents=True, exist_ok=True)
+        content_parts = [f"# {sv['name']}\n"]
+        content_parts.append(
+            "This is a Snowflake **semantic view** — use this to understand the intended way to query and aggregate data.\n"
+        )
+        if sv.get("comment"):
+            content_parts.append(f"{sv['comment']}\n")
+        if sv.get("definition"):
+            content_parts.append("## Definition\n")
+            content_parts.append(f"```sql\n{sv['definition']}\n```\n")
+        (sv_path / "definition.md").write_text(with_generated_marker("\n".join(content_parts)))
+        state.add_table(schema_sync.schema, sv["name"])
+    UI.print(
+        f"  [green]✓ {schema_sync.schema}[/green] [dim]— {len(schema_sync.semantic_views)} semantic views synced[/dim]"
+    )
+
+
+def _start_on_pool(executor: ThreadPoolExecutor, db: Any, *args: Any, **kwargs: Any) -> Callable[[], DatabaseSyncState]:
+    """Start a database sync on a shared pool and return a function that waits for its state.
+
+    Databases that support it submit one task per table, so one large database
+    uses the whole pool. Other databases run as a single task, so their
+    connection never serves two tables at once.
+    """
+    if db.supports_parallel_table_sync is not True:
+        return executor.submit(sync_database, db, *args, **kwargs).result
+    try:
+        job = start_database_sync(db, *args, **kwargs, submit=executor.submit)
+    except Exception as error:
+        return partial(_raise, error)
+    return job.finish
+
+
+def _raise(error: Exception) -> DatabaseSyncState:
+    raise error
 
 
 class DatabaseSyncProvider(SyncProvider):
@@ -551,7 +740,7 @@ class DatabaseSyncProvider(SyncProvider):
         for db in items:
             template_names = [t.value for t in db.templates]
             UI.print(f"[dim]{escape(db.name)}:[/dim] {', '.join(template_names)}")
-        if threads > 1 and len(items) > 1:
+        if threads > 1:
             UI.print(f"[dim]Threads:[/dim] {threads}")
         if select:
             UI.print(f"[dim]Select:[/dim] {', '.join(select)} [dim](stale cleanup skipped)[/dim]")
@@ -571,57 +760,34 @@ class DatabaseSyncProvider(SyncProvider):
         ) as progress:
             configured_databases = self._nao_config.databases if self._nao_config else items
             db_folders = _database_folders_for(items, configured_databases)
-            if threads <= 1 or len(items) == 1:
+            sync_args = (output_path, progress, project_path, llm_config)
+            sync_kwargs: dict[str, Any] = {"nao_ctx": nao_ctx, "select": select}
+
+            def record(db: Any, run: Callable[[], DatabaseSyncState]) -> None:
+                try:
+                    sync_states.append(run())
+                except Exception as e:
+                    error = _fmt_error(e)
+                    database_name = escape(db.name)
+                    failures.append(f"{database_name}: {error}")
+                    UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+
+            if threads <= 1:
                 for db, db_folder in zip(items, db_folders, strict=False):
-                    try:
-                        state = sync_database(
-                            db,
-                            output_path,
-                            progress,
-                            project_path,
-                            llm_config,
-                            db_folder=db_folder,
-                            nao_ctx=nao_ctx,
-                            select=select,
-                        )
-                        sync_states.append(state)
-                        total_datasets += state.schemas_synced
-                        total_tables += state.tables_synced
-                        total_render_errors += state.render_errors
-                    except Exception as e:
-                        error = _fmt_error(e)
-                        database_name = escape(db.name)
-                        failures.append(f"{database_name}: {error}")
-                        UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                    record(db, partial(sync_database, db, *sync_args, db_folder=db_folder, **sync_kwargs))
             else:
-                with ThreadPoolExecutor(max_workers=min(threads, len(items))) as executor:
-                    futures = {
-                        executor.submit(
-                            sync_database,
-                            db,
-                            output_path,
-                            progress,
-                            project_path,
-                            llm_config,
-                            db_folder=db_folder,
-                            nao_ctx=nao_ctx,
-                            select=select,
-                        ): db
+                with ThreadPoolExecutor(max_workers=threads, thread_name_prefix="nao-sync") as executor:
+                    finishers = [
+                        (db, _start_on_pool(executor, db, *sync_args, db_folder=db_folder, **sync_kwargs))
                         for db, db_folder in zip(items, db_folders, strict=False)
-                    }
-                    for future in as_completed(futures):
-                        db = futures[future]
-                        try:
-                            state = future.result()
-                            sync_states.append(state)
-                            total_datasets += state.schemas_synced
-                            total_tables += state.tables_synced
-                            total_render_errors += state.render_errors
-                        except Exception as e:
-                            error = _fmt_error(e)
-                            database_name = escape(db.name)
-                            failures.append(f"{database_name}: {error}")
-                            UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                    ]
+                    for db, finish in finishers:
+                        record(db, finish)
+
+        for state in sync_states:
+            total_datasets += state.schemas_synced
+            total_tables += state.tables_synced
+            total_render_errors += state.render_errors
 
         if not select:
             for state in sync_states:
