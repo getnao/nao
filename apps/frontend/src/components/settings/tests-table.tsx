@@ -30,7 +30,15 @@ export function TestsTable({
 	const allSelected = tests.every((test) => selectedPaths.has(test.path));
 
 	const toggleAll = () => {
-		onSelectedPathsChange(allSelected ? new Set() : new Set(tests.map((test) => test.path)));
+		const next = new Set(selectedPaths);
+		for (const test of tests) {
+			if (allSelected) {
+				next.delete(test.path);
+			} else {
+				next.add(test.path);
+			}
+		}
+		onSelectedPathsChange(next);
 	};
 
 	const toggleTest = (path: string) => {

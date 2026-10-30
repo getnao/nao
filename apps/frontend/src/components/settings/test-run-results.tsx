@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, CircleCheck, CircleX, MessageSquare, X } fro
 import { Fragment, useState } from 'react';
 
 import type { TestRunResult, TestRunWithResults } from '@/components/settings/test-run-types';
-import { formatCost, formatPassRate, isActiveRun } from '@/components/settings/test-run-types';
+import { formatCost, formatPassRate, isActiveRun, onEnterOrSpace } from '@/components/settings/test-run-types';
 import { TestRunStatusBadge } from '@/components/settings/test-runs-table';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Button } from '@/components/ui/button';
@@ -113,7 +113,13 @@ function ResultRow({ result, showAttempt, isExpanded, onToggle }: ResultRowProps
 	const Icon = result.passed ? CircleCheck : CircleX;
 
 	return (
-		<TableRow className='cursor-pointer' onClick={onToggle}>
+		<TableRow
+			className='cursor-pointer'
+			tabIndex={0}
+			aria-expanded={isExpanded}
+			onClick={onToggle}
+			onKeyDown={onEnterOrSpace(onToggle)}
+		>
 			<TableCell>
 				<Chevron className='size-3.5 text-muted-foreground' />
 			</TableCell>
