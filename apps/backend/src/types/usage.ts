@@ -210,6 +210,7 @@ export interface UsageRecord {
 	adminMessageCount: number;
 	mcpMessageCount: number;
 	contextRecommendationsMessageCount: number;
+	testMessageCount: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

@@ -117,6 +117,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotQuickQuestionChat(),
+				isNotTestChat(),
 			),
 		)
 		.orderBy(desc(s.chat.updatedAt))
@@ -154,6 +155,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
+				isNotTestChat(),
 				ne(s.chat.userId, userId),
 				or(
 					and(
@@ -930,6 +932,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
 				isNotQuickQuestionChat(),
+				isNotTestChat(),
 				caseInsensitiveLike(s.chat.title, searchPattern),
 			),
 		)
@@ -958,6 +961,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
 				isNotQuickQuestionChat(),
+				isNotTestChat(),
 				caseInsensitiveLike(s.messagePart.text, searchPattern),
 			),
 		)
@@ -1047,6 +1051,14 @@ const isNotOnboardingChat = () => {
 		select 1 from ${s.chatMessage}
 		where ${s.chatMessage.chatId} = ${s.chat.id}
 		and ${s.chatMessage.source} = 'onboarding'
+	)`;
+};
+
+export const isNotTestChat = () => {
+	return sql`not exists (
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} = 'test'
 	)`;
 };
 

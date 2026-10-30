@@ -7,7 +7,7 @@ import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
 import { getErrorMessage } from '../utils/utils';
-import { AgentRunResult, AgentService } from './agent';
+import { AgentChat, AgentRunResult, AgentService } from './agent';
 import { runSqlOverQueryResults } from './duckdb.service';
 import { buildVerificationMessages } from './test-agent-verification';
 
@@ -62,6 +62,31 @@ export class TestAgentService extends AgentService {
 
 		const agent = await this.create(tempChat, modelSelection, testRunAgent, { attributeUsageToChat: false });
 		return agent.generate([userMessage], { costs });
+	}
+
+	/**
+	 * Run a test prompt in a persisted chat, so the attempt can be replayed like any conversation.
+	 * The chat must already hold the user message.
+	 */
+	async runTestInChat(
+		chat: AgentChat,
+		messages: UIMessage[],
+		modelSelection: LlmSelectedModel,
+		options: { billingAccessVerifiedProjectId?: string; abortSignal?: AbortSignal } = {},
+	): Promise<AgentRunResult> {
+		const agent = await this.create(chat, modelSelection, testRunAgent, {
+			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+		});
+		const stopAgent = () => agent.stop();
+		options.abortSignal?.addEventListener('abort', stopAgent, { once: true });
+		try {
+			if (options.abortSignal?.aborted) {
+				agent.stop();
+			}
+			return await agent.streamToCompletion(messages);
+		} finally {
+			options.abortSignal?.removeEventListener('abort', stopAgent);
+		}
 	}
 
 	/**

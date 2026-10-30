@@ -221,7 +221,7 @@ describe('usage query results', () => {
 		).resolves.toHaveLength(13);
 	});
 
-	it('counts messages by source, including context recommendations', async () => {
+	it('counts messages by source, including context recommendations and tests', async () => {
 		const sources = [
 			'web',
 			'slack',
@@ -233,6 +233,7 @@ describe('usage query results', () => {
 			'admin',
 			'mcp',
 			'contextRecommendations',
+			'test',
 		] as const;
 		const now = new Date();
 		await db.insert(s.chatMessage).values(
@@ -249,7 +250,7 @@ describe('usage query results', () => {
 		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
-			messageCount: 10,
+			messageCount: 11,
 			webMessageCount: 1,
 			slackMessageCount: 1,
 			teamsMessageCount: 1,
@@ -260,6 +261,7 @@ describe('usage query results', () => {
 			adminMessageCount: 1,
 			mcpMessageCount: 1,
 			contextRecommendationsMessageCount: 1,
+			testMessageCount: 1,
 		});
 	});
 
