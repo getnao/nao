@@ -9,8 +9,9 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { isCloudBillingEnabled } from '../env';
+import { isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from '../env';
 import { CLOUD_TRIAL_PROVISIONING_JOB_NAME } from '../types/billing';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME } from '../types/email';
 import type { CreditGrantType } from '../types/managed-ai-usage';
 import { ManagedCreditsExhaustedError } from '../utils/error';
 import { startOrganizationTrial } from './billing.queries';
@@ -228,6 +229,9 @@ function startSqliteTrialForOrganizationSetupGrant(transaction: DBTransaction, i
 	const started = startOrganizationTrial(input.orgId, new Date(), transaction) as boolean;
 	if (started) {
 		enqueueOnceJob(cloudTrialProvisioningJob(input.orgId), transaction);
+		if (isCloudWelcomeEmailEnabled() && hasSqliteCreditGrant(transaction, input.idempotencyKey)) {
+			enqueueOnceJob(cloudTrialWelcomeEmailJob(input.orgId), transaction);
+		}
 	}
 }
 
@@ -240,6 +244,9 @@ async function startPostgresTrialForOrganizationSetupGrant(
 	}
 	if (await startOrganizationTrial(input.orgId, new Date(), transaction)) {
 		await enqueueOnceJob(cloudTrialProvisioningJob(input.orgId), transaction);
+		if (isCloudWelcomeEmailEnabled() && (await hasPostgresCreditGrant(transaction, input.idempotencyKey))) {
+			await enqueueOnceJob(cloudTrialWelcomeEmailJob(input.orgId), transaction);
+		}
 	}
 }
 
@@ -277,6 +284,34 @@ function cloudTrialProvisioningJob(organizationId: string) {
 		payload: { organizationId },
 		uniqueKey: `billing-cloud-provision-trial:${organizationId}`,
 	};
+}
+
+function cloudTrialWelcomeEmailJob(organizationId: string) {
+	return {
+		name: CLOUD_WELCOME_EMAIL_JOB_NAME,
+		payload: { kind: 'trial', organizationId },
+		uniqueKey: `email-cloud-welcome-trial:${organizationId}`,
+	};
+}
+
+function hasSqliteCreditGrant(transaction: DBTransaction, idempotencyKey: string): boolean {
+	return Boolean(
+		transaction
+			.select({ id: s.creditLedger.id })
+			.from(s.creditLedger)
+			.where(eq(s.creditLedger.idempotencyKey, idempotencyKey))
+			.get(),
+	);
+}
+
+async function hasPostgresCreditGrant(transaction: DBTransaction, idempotencyKey: string): Promise<boolean> {
+	const [grant] = await transaction
+		.select({ id: s.creditLedger.id })
+		.from(s.creditLedger)
+		.where(eq(s.creditLedger.idempotencyKey, idempotencyKey))
+		.limit(1)
+		.execute();
+	return Boolean(grant);
 }
 
 function setSqliteCreditPurchaseMovement(transaction: DBTransaction, input: CreditPurchaseMovement): boolean {

@@ -7,11 +7,59 @@ import { ForgotPassword } from '../components/email/forgot-password';
 import { NotificationEmail } from '../components/email/notification-email';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
+import { TrialStarted } from '../components/email/trial-started';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { VerifyEmail } from '../components/email/verify-email';
+import { Welcome } from '../components/email/welcome';
 import { env } from '../env';
+import { CLOUD_BILLING_TRIAL_DAYS } from '../types/billing';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
 import { type EmailBranding, resolveEmailBranding } from './email-branding';
+
+const DOCS_URL = 'https://docs.getnao.io';
+const SLACK_URL = 'https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ';
+
+export async function buildWelcomeEmail(user: { name: string }): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	return createEmail(
+		`Welcome to ${branding.appName} Cloud`,
+		Welcome({
+			userName: user.name,
+			appUrl: env.BETTER_AUTH_URL,
+			docsUrl: DOCS_URL,
+			slackUrl: SLACK_URL,
+			branding,
+		}),
+		branding,
+	);
+}
+
+export async function buildTrialStartedEmail(
+	user: { name: string },
+	creditAmountMicroUsd: number,
+	trialEndsAt: Date,
+	userJoinCreditAmountMicroUsd?: number,
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	return createEmail(
+		`Your ${branding.appName} Cloud trial and credits are ready`,
+		TrialStarted({
+			userName: user.name,
+			appUrl: env.BETTER_AUTH_URL,
+			docsUrl: DOCS_URL,
+			slackUrl: SLACK_URL,
+			creditAmount: formatCreditAmount(creditAmountMicroUsd),
+			userJoinCreditAmount:
+				userJoinCreditAmountMicroUsd === undefined
+					? undefined
+					: formatCreditAmount(userJoinCreditAmountMicroUsd),
+			trialDays: CLOUD_BILLING_TRIAL_DAYS,
+			trialEndDate: new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(trialEndsAt),
+			branding,
+		}),
+		branding,
+	);
+}
 
 export async function buildSharedItemEmail(
 	user: { name: string },
@@ -147,4 +195,13 @@ function createEmail(
 	const html = `<!DOCTYPE html>${renderToString(element)}`;
 	const attachments = [...(branding.logo ? [branding.logo] : []), ...extraAttachments];
 	return attachments.length > 0 ? { subject, html, attachments } : { subject, html };
+}
+
+function formatCreditAmount(amountMicroUsd: number): string {
+	return new Intl.NumberFormat('en-US', {
+		style: 'currency',
+		currency: 'USD',
+		minimumFractionDigits: amountMicroUsd % 1_000_000 === 0 ? 0 : 2,
+		maximumFractionDigits: 2,
+	}).format(amountMicroUsd / 1_000_000);
 }

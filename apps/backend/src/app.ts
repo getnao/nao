@@ -9,13 +9,14 @@ import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
-import { env, isCloud, isCloudBillingEnabled } from './env';
+import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
 	cloudTrialProvisioningHandler,
 } from './handlers/cloud-trial-provisioning.handler';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler } from './handlers/cloud-welcome-email.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
@@ -560,6 +561,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 			cron: '0 * * * *',
 			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
 		});
+	}
+	if (isCloudWelcomeEmailEnabled()) {
+		registerJob(CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler);
 	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
