@@ -6,13 +6,24 @@ vi.mock('../src/db/db', () => ({ db: {} }));
 import { getTools } from '../src/agents/tools';
 import { createCodemodeTool } from '../src/agents/tools/codemode';
 import { createMcpFunctions, toScriptValue } from '../src/services/codemode/mcp-functions';
-import { type CodemodeFunction, type CodemodeResult, runCodemode } from '../src/services/codemode/sandbox';
+import {
+	type CodemodeFunction,
+	type CodemodeLimits,
+	type CodemodeResult,
+	runCodemode,
+} from '../src/services/codemode/sandbox';
 import { McpArgsValidationError, mcpService } from '../src/services/mcp';
 import { McpAuthRequiredError } from '../src/services/mcp-oauth';
 import type { ToolContext } from '../src/types/tools';
 
-const MEMORY_LIMIT_BYTES = 32 * 1024 * 1024;
-const MAX_LOG_CHARS = 10_000;
+const LIMITS: CodemodeLimits = {
+	timeoutMs: 5_000,
+	memoryLimitBytes: 32 * 1024 * 1024,
+	maxLogChars: 10_000,
+	maxCalls: 100,
+	maxCallArgsChars: 100_000,
+	maxConcurrentCalls: 10,
+};
 const GROUP_ACCESS: McpAccess = { mode: 'restricted', grants: [{ kind: 'server', server: 'linear' }] };
 
 afterEach(() => {
@@ -93,13 +104,13 @@ describe('runCodemode', () => {
 	});
 
 	it('stops a synchronous infinite loop at the timeout', async () => {
-		const result = await run('while (true) {}', [], 300);
+		const result = await run('while (true) {}', [], { timeoutMs: 300 });
 
 		expect(errorOf(result).kind).toBe('timeout');
 	});
 
 	it('stops an infinite microtask loop at the timeout', async () => {
-		const result = await run('while (true) await null;', [], 300);
+		const result = await run('while (true) await null;', [], { timeoutMs: 300 });
 
 		expect(errorOf(result).kind).toBe('timeout');
 	});
@@ -124,13 +135,11 @@ describe('runCodemode', () => {
 	});
 
 	it('drops logs past the log limit inside the sandbox', async () => {
-		const result = await runCodemode({
-			code: 'for (let i = 0; i < 100000; i++) console.log(i % 2 ? "" : "0123456789"); return "done"',
-			functions: [],
-			timeoutMs: 5_000,
-			memoryLimitBytes: MEMORY_LIMIT_BYTES,
-			maxLogChars: 100,
-		});
+		const result = await run(
+			'for (let i = 0; i < 100000; i++) console.log(i % 2 ? "" : "0123456789"); return "done"',
+			[],
+			{ maxLogChars: 100 },
+		);
 
 		expect(result).toMatchObject({ ok: true, value: 'done' });
 		expect(result.logs.length).toBeLessThan(20);
@@ -138,19 +147,87 @@ describe('runCodemode', () => {
 	});
 
 	it('keeps the log limit when the script patches the built-ins the console relies on', async () => {
-		const result = await runCodemode({
-			code: `const big = "x".repeat(1000000);
+		const result = await run(
+			`const big = "x".repeat(1000000);
 			Array.prototype.join = () => ({ length: 0, toString: () => big });
 			for (let i = 0; i < 1000; i++) console.log(i);
 			return "done"`,
-			functions: [],
-			timeoutMs: 5_000,
-			memoryLimitBytes: MEMORY_LIMIT_BYTES,
-			maxLogChars: 100,
-		});
+			[],
+			{ maxLogChars: 100 },
+		);
 
 		expect(result).toMatchObject({ ok: true, value: 'done' });
 		expect(result.logs.join('').length).toBeLessThan(200);
+	});
+
+	it('reports a script error when the script reshapes the error it throws', async () => {
+		const result = await run('Object.prototype.toJSON = () => null; throw new Error("boom")');
+
+		expect(result).toMatchObject({ ok: false, error: { kind: 'script', message: 'The script failed.' } });
+	});
+
+	it('rejects the calls past the call limit without reaching the host', async () => {
+		const execute = vi.fn(() => 'ok');
+		const ping: CodemodeFunction = { path: ['mcp', 'test', 'ping'], execute };
+
+		const result = await run(
+			`const results = [];
+			for (let i = 0; i < 5; i++) {
+				try { results.push(await mcp.test.ping({})) } catch (e) { results.push(e.message) }
+			}
+			return results`,
+			[ping],
+			{ maxCalls: 3 },
+		);
+
+		expect(result.ok && result.value).toEqual([
+			'ok',
+			'ok',
+			'ok',
+			'The script reached the limit of 3 calls: process fewer items per script.',
+			'The script reached the limit of 3 calls: process fewer items per script.',
+		]);
+		expect(execute).toHaveBeenCalledTimes(3);
+	});
+
+	it('rejects the calls past the call arguments budget without reaching the host', async () => {
+		const execute = vi.fn(() => 'ok');
+		const ping: CodemodeFunction = { path: ['mcp', 'test', 'ping'], execute };
+
+		const result = await run(
+			'await mcp.test.ping({ text: "small" }); return await mcp.test.ping({ text: "x".repeat(1000) })',
+			[ping],
+			{ maxCallArgsChars: 100 },
+		);
+
+		expect(errorOf(result).message).toContain('limit of 100 characters of call arguments');
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+
+	it('runs at most the concurrent call limit at a time', async () => {
+		let running = 0;
+		let maxRunning = 0;
+		const slow: CodemodeFunction = {
+			path: ['mcp', 'test', 'slow'],
+			execute: async () => {
+				running++;
+				maxRunning = Math.max(maxRunning, running);
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				running--;
+				return 'done';
+			},
+		};
+
+		const result = await run(
+			'return await Promise.all(Array.from({ length: 6 }, () => mcp.test.slow({})))',
+			[slow],
+			{
+				maxConcurrentCalls: 2,
+			},
+		);
+
+		expect(result).toMatchObject({ ok: true, value: Array(6).fill('done') });
+		expect(maxRunning).toBe(2);
 	});
 
 	it('fails a script that exceeds the memory limit', async () => {
@@ -176,9 +253,7 @@ describe('runCodemode', () => {
 		const result = await runCodemode({
 			code: 'return await mcp.slow.wait({})',
 			functions: [hanging],
-			timeoutMs: 5_000,
-			memoryLimitBytes: MEMORY_LIMIT_BYTES,
-			maxLogChars: MAX_LOG_CHARS,
+			limits: LIMITS,
 			signal: controller.signal,
 		});
 
@@ -308,6 +383,22 @@ describe('codemode tool', () => {
 		expect(getCallableTools).not.toHaveBeenCalled();
 	});
 
+	it('tells the model when a script only declares a function that nothing calls', async () => {
+		const tool = createCodemodeTool({ mcpServers: false });
+
+		const output = await tool.execute!(
+			{ description: 'Sum', code: 'async function main() { return 1 }' },
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext() },
+		);
+		const modelOutput = tool.toModelOutput!({
+			toolCallId: 'call-1',
+			input: undefined as never,
+			output: output as never,
+		});
+
+		expect((modelOutput as { value: string }).value).toContain('a function it declares (e.g. `main`) never runs');
+	});
+
 	it('only exposes the MCP tools the user groups grant', async () => {
 		const getCallableTools = vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([]);
 		const tool = createCodemodeTool({ mcpServers: ['linear'] });
@@ -320,22 +411,33 @@ describe('codemode tool', () => {
 		expect(getCallableTools).toHaveBeenCalledWith('project-1', ['linear'], GROUP_ACCESS);
 	});
 
-	it('is only exposed behind the experimental setting', () => {
+	it('is exposed by default and can be turned off in the experimental settings', () => {
 		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue([]);
 
-		expect(getTools(null)).not.toHaveProperty('codemode');
-		expect(getTools({ experimental: { codemode: true } })).toHaveProperty('codemode');
+		expect(getTools(null)).toHaveProperty('codemode');
+		expect(getTools({ experimental: {} })).toHaveProperty('codemode');
+		expect(getTools({ experimental: { codemode: false } })).not.toHaveProperty('codemode');
+	});
+
+	it('points mcp_call to codemode only when codemode is available', () => {
+		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(['linear']);
+
+		const withCodemode = getTools(null);
+		const withoutCodemode = getTools({ experimental: { codemode: false } });
+		const excluded = getTools(null, undefined, { excludeBuiltinTools: ['codemode'] });
+
+		expect(withCodemode.mcp_call.description).toContain('write one `codemode` script instead');
+		expect(withoutCodemode.mcp_call.description).not.toContain('codemode');
+		expect(excluded.mcp_call.description).not.toContain('codemode');
 	});
 });
 
-function run(code: string, functions: CodemodeFunction[] = [], timeoutMs = 5_000): Promise<CodemodeResult> {
-	return runCodemode({
-		code,
-		functions,
-		timeoutMs,
-		memoryLimitBytes: MEMORY_LIMIT_BYTES,
-		maxLogChars: MAX_LOG_CHARS,
-	});
+function run(
+	code: string,
+	functions: CodemodeFunction[] = [],
+	limits: Partial<CodemodeLimits> = {},
+): Promise<CodemodeResult> {
+	return runCodemode({ code, functions, limits: { ...LIMITS, ...limits } });
 }
 
 function errorOf(result: CodemodeResult) {

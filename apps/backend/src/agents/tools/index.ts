@@ -126,9 +126,10 @@ export const getTools = (
 		(options.mcpServers == null
 			? grantedServers.size > 0
 			: options.mcpServers.some((server) => grantedServers.has(server)));
+	const includeCodemode = agentSettings?.experimental?.codemode !== false && isBuiltinToolKept('codemode', options);
 	const mcpTools: Record<string, Tool> = includeMcp
 		? {
-				mcp_call: createMcpCallTool(options.mcpServers ?? null),
+				mcp_call: createMcpCallTool(options.mcpServers ?? null, { codemode: includeCodemode }),
 				mcp_connect: createMcpConnectTool(options.mcpServers ?? null),
 			}
 		: {};
@@ -182,7 +183,7 @@ export const getTools = (
 			restart_onboarding: restartOnboardingTool,
 		}),
 		...mcpTools,
-		...(agentSettings?.experimental?.codemode && {
+		...(includeCodemode && {
 			codemode: createCodemodeTool({ mcpServers: includeMcp ? (options.mcpServers ?? null) : false }),
 		}),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
@@ -226,6 +227,14 @@ export const getTools = (
 	}
 
 	return result;
+};
+
+const isBuiltinToolKept = (
+	name: string,
+	options: { builtinToolAllowlist?: string[]; excludeBuiltinTools?: string[] },
+): boolean => {
+	const allowed = !options.builtinToolAllowlist || options.builtinToolAllowlist.includes(name);
+	return allowed && !options.excludeBuiltinTools?.includes(name);
 };
 
 const keepTools = <T extends Record<string, unknown>>(

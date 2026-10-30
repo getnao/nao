@@ -41,14 +41,24 @@ export type CodemodeResult =
 	| (CodemodeOutcome & { ok: true; value: unknown })
 	| (CodemodeOutcome & { ok: false; error: CodemodeError });
 
-export interface CodemodeRunOptions {
-	/** Body of an async function: top-level `await` and `return` work. */
-	code: string;
-	functions: CodemodeFunction[];
+export interface CodemodeLimits {
 	timeoutMs: number;
 	memoryLimitBytes: number;
 	/** Logs past this many characters are dropped before they leave the worker, so a logging loop cannot flood the host. */
 	maxLogChars: number;
+	/** Calls past this count are rejected before they leave the worker. */
+	maxCalls: number;
+	/** Budget for the serialized arguments of all the calls of a run; calls past it are rejected before they leave the worker. */
+	maxCallArgsChars: number;
+	/** Calls past this many in flight wait for one to finish. */
+	maxConcurrentCalls: number;
+}
+
+export interface CodemodeRunOptions {
+	/** Body of an async function: top-level `await` and `return` work. */
+	code: string;
+	functions: CodemodeFunction[];
+	limits: CodemodeLimits;
 	signal?: AbortSignal;
 }
 
@@ -61,8 +71,10 @@ export function runCodemode(options: CodemodeRunOptions): Promise<CodemodeResult
 	return new CodemodeExecution(options).result;
 }
 
+type CallMessage = { type: 'call'; id: number; index: number; args: string | undefined };
+
 type WorkerMessage =
-	| { type: 'call'; id: number; index: number; args: string | undefined }
+	| CallMessage
 	| { type: 'log'; text: string }
 	| { type: 'done'; ok: boolean; payload: string | undefined }
 	| { type: 'crash'; message: string };
@@ -81,16 +93,19 @@ class CodemodeExecution {
 	private readonly _logs: string[] = [];
 	private readonly _calls: CodemodeCall[] = [];
 	private readonly _pending = new Map<number, PendingCall>();
+	private readonly _waitingForSlot: Array<() => void> = [];
+	private _runningCalls = 0;
 	private readonly _timer: ReturnType<typeof setTimeout>;
 	private _finished = false;
 
 	constructor(private readonly _options: CodemodeRunOptions) {
+		const { timeoutMs } = _options.limits;
 		this.result = new Promise((resolve) => {
 			this._resolve = resolve;
 		});
 		this._timer = setTimeout(() => {
-			this._finish({ kind: 'timeout', message: `The script did not finish within ${_options.timeoutMs} ms.` });
-		}, _options.timeoutMs);
+			this._finish({ kind: 'timeout', message: `The script did not finish within ${timeoutMs} ms.` });
+		}, timeoutMs);
 
 		if (_options.signal?.aborted) {
 			this._onAbort();
@@ -109,6 +124,7 @@ class CodemodeExecution {
 		if (this._finished) {
 			return;
 		}
+		const { memoryLimitBytes, maxLogChars, maxCalls, maxCallArgsChars } = this._options.limits;
 		try {
 			this._worker = new Worker(workerSpecifier(), {
 				workerData: {
@@ -116,8 +132,10 @@ class CodemodeExecution {
 					prelude: PRELUDE_SOURCE,
 					functionPaths: this._options.functions.map((fn) => fn.path),
 					wasm,
-					memoryLimitBytes: this._options.memoryLimitBytes,
-					maxLogChars: this._options.maxLogChars,
+					memoryLimitBytes,
+					maxLogChars,
+					maxCalls,
+					maxCallArgsChars,
 					interrupt: this._interrupt,
 				},
 			});
@@ -158,29 +176,52 @@ class CodemodeExecution {
 		}
 	}
 
+	/** The payload is built inside the VM, where the script can reshape it (e.g. by patching `toJSON`). */
 	private _handleDone({ ok, payload }: Extract<WorkerMessage, { type: 'done' }>): void {
-		if (ok) {
-			this._finish(undefined, payload === undefined ? undefined : JSON.parse(payload));
-			return;
+		try {
+			if (ok) {
+				this._finish(undefined, payload === undefined ? undefined : JSON.parse(payload));
+				return;
+			}
+			this._finish(parseScriptError(payload));
+		} catch (error) {
+			this._finish({
+				kind: 'sandbox',
+				message: `The script settled with an unreadable result: ${messageOf(error)}`,
+			});
 		}
-		const error = JSON.parse(payload ?? '{}') as { name?: string; message?: string; stack?: string };
-		this._finish({ kind: 'script', message: error.message ?? 'The script failed.', stack: error.stack });
 	}
 
-	private async _handleCall({ id, index, args }: Extract<WorkerMessage, { type: 'call' }>): Promise<void> {
-		const fn = this._options.functions[index];
+	private async _handleCall(message: CallMessage): Promise<void> {
+		const fn = this._options.functions[message.index];
 		const call: CodemodeCall = { name: fn?.path.join('.') ?? 'unknown', status: 'cancelled', durationMs: 0 };
 		const pending: PendingCall = { call, startedAt: performance.now(), controller: new AbortController() };
 		this._calls.push(call);
-		this._pending.set(id, pending);
+		this._pending.set(message.id, pending);
+
+		await this._acquireCallSlot();
+		try {
+			await this._executeCall(message, pending);
+		} finally {
+			this._releaseCallSlot();
+		}
+	}
+
+	private async _executeCall({ id, index, args }: CallMessage, pending: PendingCall): Promise<void> {
+		const { call, controller } = pending;
+		if (controller.signal.aborted) {
+			return;
+		}
+		pending.startedAt = performance.now();
 
 		let reply: { id: number; ok: boolean; payload: string | undefined };
 		try {
+			const fn = this._options.functions[index];
 			if (!fn) {
 				throw new Error(`Unknown function #${index}.`);
 			}
 			const value = await fn.execute(args === undefined ? undefined : JSON.parse(args), {
-				signal: pending.controller.signal,
+				signal: controller.signal,
 			});
 			reply = { id, ok: true, payload: value === undefined ? undefined : JSON.stringify(value) };
 			call.status = 'ok';
@@ -196,6 +237,23 @@ class CodemodeExecution {
 		}
 		call.durationMs = performance.now() - pending.startedAt;
 		this._worker?.postMessage(reply);
+	}
+
+	private async _acquireCallSlot(): Promise<void> {
+		if (this._runningCalls < this._options.limits.maxConcurrentCalls) {
+			this._runningCalls++;
+			return;
+		}
+		await new Promise<void>((resolve) => this._waitingForSlot.push(resolve));
+	}
+
+	private _releaseCallSlot(): void {
+		const next = this._waitingForSlot.shift();
+		if (next) {
+			next();
+			return;
+		}
+		this._runningCalls--;
 	}
 
 	private _finish(error: CodemodeError | undefined, value?: unknown): void {
@@ -238,6 +296,17 @@ class CodemodeExecution {
 function workerSpecifier(): string | URL {
 	const isCompiledBinary = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
 	return isCompiledBinary ? './src/services/codemode/worker.mjs' : new URL('./worker.mjs', import.meta.url);
+}
+
+function parseScriptError(payload: string | undefined): CodemodeError {
+	const details: unknown = JSON.parse(payload ?? '{}');
+	const { message, stack } =
+		typeof details === 'object' && details !== null ? (details as Record<string, unknown>) : {};
+	return {
+		kind: 'script',
+		message: typeof message === 'string' ? message : 'The script failed.',
+		stack: typeof stack === 'string' ? stack : undefined,
+	};
 }
 
 function messageOf(error: unknown): string {

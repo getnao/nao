@@ -5,7 +5,7 @@ export const InputSchema = z.object({
 	code: z
 		.string()
 		.describe(
-			'Raw JavaScript, run as the body of an async function: top-level `await` and `return` work. Not JSON, not wrapped in markdown fences.',
+			'Raw JavaScript, run as-is as the body of an async function: top-level `await` and `return` work, and a declared function such as `main` is never called for you. Not JSON, not wrapped in markdown fences.',
 		),
 });
 

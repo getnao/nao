@@ -3,6 +3,7 @@
  * the server's event loop. Plain JavaScript so Bun, Bun compiled binaries and Node can all start it.
  * The host terminates the worker once the script settles, times out, or is aborted.
  */
+import { setImmediate } from 'node:timers';
 import { parentPort, workerData } from 'node:worker_threads';
 
 import { JSException, MAX_STACK_SIZE, QuickJS } from 'quickjs-wasi';
@@ -10,6 +11,8 @@ import { JSException, MAX_STACK_SIZE, QuickJS } from 'quickjs-wasi';
 const LOG_LIMIT_NOTICE = '... [log limit reached, later logs dropped]';
 
 let remainingLogChars = workerData.maxLogChars;
+let remainingCalls = workerData.maxCalls;
+let remainingCallArgsChars = workerData.maxCallArgsChars;
 
 main(workerData).catch(reportCrash);
 
@@ -24,7 +27,7 @@ async function main({ code, prelude, functionPaths, wasm, memoryLimitBytes, inte
 	});
 
 	const bridge = vm.newFunction('bridge', (kind, first, second, third) => {
-		forwardToHost(kind.toString(), first, second, third);
+		forwardToHost(kind.toString(), first, second, third, settleCall);
 		return vm.undefined;
 	});
 	const api = vm.callFunction(
@@ -42,7 +45,7 @@ async function main({ code, prelude, functionPaths, wasm, memoryLimitBytes, inte
 		vm.callFunction(stalled, api).dispose();
 	};
 
-	parentPort.on('message', ({ id, ok, payload }) => {
+	const settleCall = ({ id, ok, payload }) => {
 		try {
 			vm.withScope(() => {
 				vm.callFunction(
@@ -57,7 +60,8 @@ async function main({ code, prelude, functionPaths, wasm, memoryLimitBytes, inte
 		} catch (error) {
 			reportCrash(error);
 		}
-	});
+	};
+	parentPort.on('message', settleCall);
 
 	let script;
 	try {
@@ -74,15 +78,10 @@ async function main({ code, prelude, functionPaths, wasm, memoryLimitBytes, inte
 	drainJobs();
 }
 
-function forwardToHost(kind, first, second, third) {
+function forwardToHost(kind, first, second, third, settleCall) {
 	switch (kind) {
 		case 'call':
-			parentPort.postMessage({
-				type: 'call',
-				id: first.toNumber(),
-				index: second.toNumber(),
-				args: optionalString(third),
-			});
+			forwardCall(first.toNumber(), second.toNumber(), optionalString(third), settleCall);
 			return;
 		case 'log':
 			forwardLog(first);
@@ -109,6 +108,32 @@ function forwardLog(handle) {
 	}
 	remainingLogChars -= cost;
 	parentPort.postMessage({ type: 'log', text });
+}
+
+/**
+ * Call budgets live here for the same reason as the log budget. A rejected call is settled on a later
+ * turn, since the bridge runs while the VM is still executing the script.
+ */
+function forwardCall(id, index, args, settleCall) {
+	const rejection = consumeCallBudget(args);
+	if (rejection) {
+		setImmediate(() => settleCall({ id, ok: false, payload: rejection }));
+		return;
+	}
+	parentPort.postMessage({ type: 'call', id, index, args });
+}
+
+function consumeCallBudget(args) {
+	if (remainingCalls === 0) {
+		return `The script reached the limit of ${workerData.maxCalls} calls: process fewer items per script.`;
+	}
+	const argsChars = args?.length ?? 0;
+	if (argsChars > remainingCallArgsChars) {
+		return `The script reached the limit of ${workerData.maxCallArgsChars} characters of call arguments.`;
+	}
+	remainingCalls--;
+	remainingCallArgsChars -= argsChars;
+	return undefined;
 }
 
 function optionalString(handle) {

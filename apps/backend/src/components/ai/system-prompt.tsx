@@ -909,10 +909,21 @@ function McpServersBlock({ servers, canUseCodemode }: { servers: string[]; canUs
 				<Br />
 				{canUseCodemode && (
 					<>
-						When a task needs several calls — chaining them, looping over results, running them in parallel
-						or filtering a large result — write one script with the <Bold>codemode</Bold> tool instead,
-						where each tool is <Bold>{'await mcp.<server>.<operationId>(arguments)'}</Bold>. Only what the
-						script logs or returns reaches you. Keep <Bold>mcp_call</Bold> for single calls.
+						Prefer the <Bold>codemode</Bold> tool as soon as more than one MCP call is involved: write one
+						script where each tool is <Bold>{'await mcp.<server>.<operationId>(arguments)'}</Bold>. Only
+						what the script logs or returns reaches you. Switch to codemode, even after a first{' '}
+						<Bold>mcp_call</Bold>, when:
+						<Br />
+						<List>
+							<ListItem>the next call needs the result of the previous one;</ListItem>
+							<ListItem>you would call a tool once per item of a list;</ListItem>
+							<ListItem>calls are independent and can run in parallel;</ListItem>
+							<ListItem>
+								you only need part of a large result: filter or aggregate it in the script.
+							</ListItem>
+						</List>
+						<Br />
+						Keep <Bold>mcp_call</Bold> for a single call whose full result you need.
 						<Br />
 					</>
 				)}

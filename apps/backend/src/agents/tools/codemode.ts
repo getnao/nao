@@ -1,17 +1,28 @@
 import { codemode } from '@nao/shared/tools';
 
 import { createMcpFunctions, MCP_NAMESPACE } from '../../services/codemode/mcp-functions';
-import { type CodemodeFunction, type CodemodeResult, runCodemode } from '../../services/codemode/sandbox';
+import {
+	type CodemodeFunction,
+	type CodemodeLimits,
+	type CodemodeResult,
+	runCodemode,
+} from '../../services/codemode/sandbox';
 import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 import { truncateMiddle } from '../../utils/utils';
 import { authRequiredText } from './mcp-call';
 
-const TIMEOUT_MS = 120_000;
-const MEMORY_LIMIT_BYTES = 128 * 1024 * 1024;
 const MAX_RESULT_CHARS = 12_000;
 const MAX_LOGS_CHARS = 8_000;
-const MAX_COLLECTED_LOGS_CHARS = 100_000;
+
+const LIMITS: CodemodeLimits = {
+	timeoutMs: 120_000,
+	memoryLimitBytes: 128 * 1024 * 1024,
+	maxLogChars: 100_000,
+	maxCalls: 500,
+	maxCallArgsChars: 10_000_000,
+	maxConcurrentCalls: 10,
+};
 
 export interface CodemodeToolOptions {
 	/** MCP servers scripts may call (null for every enabled server), or false when MCP is off for the run. */
@@ -29,14 +40,7 @@ export const createCodemodeTool = (options: CodemodeToolOptions) =>
 			const functions = await createFunctions(options, context, (server) => {
 				authRequiredServer ??= server;
 			});
-			const result = await runCodemode({
-				code,
-				functions,
-				timeoutMs: TIMEOUT_MS,
-				memoryLimitBytes: MEMORY_LIMIT_BYTES,
-				maxLogChars: MAX_COLLECTED_LOGS_CHARS,
-				signal: abortSignal,
-			});
+			const result = await runCodemode({ code, functions, limits: LIMITS, signal: abortSignal });
 			return toOutput(result, performance.now() - startedAt, authRequiredServer);
 		},
 		toModelOutput: ({ output }) => ({ type: 'text', value: formatForModel(output) }),
@@ -49,18 +53,20 @@ function buildDescription(mcpEnabled: boolean): string {
 		'or aggregate large results down to what you need. Only what the script logs or returns comes back',
 		'to you, not the intermediate results. Also useful for plain computation on data you already have.',
 		'',
-		'- `code` is the body of an async function: top-level `await` and `return` work. Return a',
-		'  JSON-serializable value.',
+		'- `code` is the body of an async function, run as-is: write the statements directly with',
+		'  top-level `await`, and `return` a JSON-serializable value. Nothing calls a function the script',
+		'  declares: do not wrap the script in `async function main() { ... }`.',
 		'- The sandbox has no network, file system, Node APIs, modules or timers: it only reaches the',
 		'  outside world through the functions listed below.',
 		'- `console.log(...)` output and the returned value come back to you. They are truncated past',
 		`  ~${(MAX_RESULT_CHARS + MAX_LOGS_CHARS) / 1000}k characters: aggregate or filter before returning.`,
-		`- Scripts are stopped after ${TIMEOUT_MS / 1000} seconds.`,
+		`- Scripts are stopped after ${LIMITS.timeoutMs / 1000} seconds.`,
 	];
 	if (mcpEnabled) {
 		lines.push(
 			'',
-			`MCP tools are available as \`await ${MCP_NAMESPACE}.<server>.<tool>(args)\`:`,
+			`MCP tools are available as \`await ${MCP_NAMESPACE}.<server>.<tool>(args)\`, e.g. a whole script:`,
+			`\`const ticket = await ${MCP_NAMESPACE}.linear.get_ticket({ id: "ENG-1" }); return ticket.title;\``,
 			'- <server> is a folder under /agent/mcps/ and <tool> the operationId of one of its OpenAPI files.',
 			'  Discover tools as usual (list, then read or grep the spec) before using them in a script.',
 			'- `args` is one object matching the request body schema of the spec.',
@@ -69,6 +75,7 @@ function buildDescription(mcpEnabled: boolean): string {
 			'- A call resolves to the structured content of the result, else to its text parsed as JSON when',
 			'  possible, else to the text. A failing call rejects with an Error: catch it to carry on.',
 			'- Calls are real and their side effects are not undone when the script fails afterwards.',
+			`- A script makes at most ${LIMITS.maxCalls} calls, ${LIMITS.maxConcurrentCalls} at a time: the others wait.`,
 			'- An AUTH_REQUIRED error means the user must connect their account: stop and ask them to.',
 			'- A server with an empty folder has no tools yet: run `mcp_connect` on it first.',
 		);
@@ -128,11 +135,22 @@ function formatForModel(output: codemode.Output): string {
 		sections.push(`Logs:\n${output.logs.join('\n')}`);
 	}
 	if (output.ok) {
-		sections.push(output.result === undefined ? 'The script returned nothing.' : `Result:\n${output.result}`);
+		sections.push(output.result === undefined ? emptyResultText(output) : `Result:\n${output.result}`);
 	} else if (output.error) {
 		sections.push(formatError(output.error, output.calls.length));
 	}
 	return sections.join('\n\n');
+}
+
+function emptyResultText(output: codemode.Output): string {
+	if (output.logs.length > 0 || output.calls.length > 0) {
+		return 'The script returned nothing.';
+	}
+	return [
+		'The script returned nothing, logged nothing and made no call.',
+		'`code` runs as the body of an async function: a function it declares (e.g. `main`) never runs unless',
+		'the script calls it. Write the statements directly and `return` the value at the top level.',
+	].join(' ');
 }
 
 function formatError(error: NonNullable<codemode.Output['error']>, callCount: number): string {

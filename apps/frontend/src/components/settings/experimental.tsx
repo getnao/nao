@@ -22,7 +22,7 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 		}),
 	);
 
-	const codemodeEnabled = agentSettings.data?.experimental?.codemode ?? false;
+	const codemodeEnabled = agentSettings.data?.experimental?.codemode ?? true;
 	const sandboxAvailable = agentSettings.data?.capabilities?.sandbox ?? true;
 	const dangerouslyWritePermEnabled = agentSettings.data?.sql?.dangerouslyWritePermEnabled ?? false;
 	const sandboxesEnabled = agentSettings.data?.experimental?.sandboxes ?? false;
