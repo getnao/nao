@@ -4,6 +4,7 @@ import path from 'node:path';
 import { TRPCError } from '@trpc/server';
 
 import type { DBProject } from '../db/abstractSchema';
+import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
@@ -83,6 +84,10 @@ export async function startProjectSync(project: DBProject): Promise<ProjectSyncR
 }
 
 async function getUnavailableReason(project: DBProject): Promise<string | null> {
+	if (env.NAO_MODE !== 'cloud') {
+		return 'Project sync in UI is only available in cloud mode.';
+	}
+
 	if (!project.path || !fs.existsSync(project.path)) {
 		return 'Project files are unavailable.';
 	}
