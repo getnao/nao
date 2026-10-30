@@ -435,7 +435,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 						onChange={(borderColor) => update('block', { borderColor })}
 					/>
 					<BorderWidthRow
-						description='Of blocks, the filter panel and tabs. 0 draws no border.'
+						description='Of blocks, the filter panel and tabs. 0 draws no border, except a hairline on filters and tabs when blocks share the page colour.'
 						value={variant.block.borderWidth}
 						onChange={(borderWidth) => update('block', { borderWidth })}
 					/>
