@@ -9,6 +9,8 @@ export function storyBrandStyles(scope = ''): string {
 const KPI_TILE = ':is(.nao-kpi,.story-block:has(.nao-kpi-card))';
 const WASHED_CARD = 'color-mix(in srgb,var(--story-kpi-wash,var(--card)) var(--story-kpi-tint,0%),var(--card))';
 const HEADING_SCALE = 'var(--story-heading-scale,1)';
+/** Filter panels and folder tabs are outlined like blocks, so one border setting governs them all. */
+const BLOCK_BORDER_WIDTH = 'var(--story-block-border-width,1px)';
 /** The chart hover band (7% of the ink over the block), reused so every hover takes the theme's own tint. */
 const INK_VEIL = 'color-mix(in srgb,var(--foreground) 7%,var(--card))';
 
@@ -93,7 +95,10 @@ const BRAND_RULES: [string[], string][] = [
 	],
 	[['.nao-chips'], 'display:flex;flex-wrap:wrap;align-items:center;gap:8px'],
 	/** The markdown story filter bar: a block-shaped panel whose controls take the brand's button shape. */
-	[['.nao-filter-bar'], 'background:var(--card);border-color:var(--border);border-radius:var(--radius)'],
+	[
+		['.nao-filter-bar'],
+		`background:var(--card);border:${BLOCK_BORDER_WIDTH} solid var(--border);border-radius:var(--radius)`,
+	],
 	[
 		['.nao-filter__control', '.nao-filter__clear'],
 		'border-radius:var(--story-control-radius,8px);transition:border-color .15s,background-color .15s',
@@ -109,12 +114,14 @@ const BRAND_RULES: [string[], string][] = [
 	/** The same folder tabs markdown stories draw: the active one opens onto the page. */
 	[
 		['[role=tablist]'],
-		'display:flex;align-items:flex-end;gap:4px;padding-top:4px;overflow-x:auto;background:color-mix(in srgb,var(--muted) 30%,transparent);border-bottom:1px solid var(--border)',
+		`display:flex;align-items:flex-end;gap:4px;padding-top:4px;overflow-x:auto;background:color-mix(in srgb,var(--muted) 30%,transparent);border-bottom:${BLOCK_BORDER_WIDTH} solid var(--border)`,
 	],
 	[
 		['[role=tab]'],
-		'display:inline-flex;align-items:center;height:36px;margin-bottom:-1px;padding:0 12px;white-space:nowrap;color:var(--muted-foreground);background:transparent;border:1px solid transparent;border-bottom:0;border-radius:var(--radius-md,6px) var(--radius-md,6px) 0 0;cursor:pointer;transition:background-color .15s,color .15s',
+		`display:inline-flex;align-items:center;height:36px;margin-bottom:calc(-1 * ${BLOCK_BORDER_WIDTH});padding:0 12px;white-space:nowrap;color:var(--muted-foreground);background:transparent;border:${BLOCK_BORDER_WIDTH} solid transparent;border-bottom:0;border-radius:var(--radius-md,6px) var(--radius-md,6px) 0 0;cursor:pointer;transition:background-color .15s,color .15s`,
 	],
+	[['.nao-story-tabs__rule'], `height:${BLOCK_BORDER_WIDTH}`],
+	[['.nao-story-tabs__tab'], `border-width:${BLOCK_BORDER_WIDTH};border-bottom-width:0`],
 	[['[role=tab]:hover'], 'color:var(--foreground);background:color-mix(in srgb,var(--background) 50%,transparent)'],
 	[
 		['[role=tab][aria-selected=true]'],

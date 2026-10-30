@@ -417,7 +417,11 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					/>
 				</SettingsCard>
 
-				<SettingsCard title='Blocks' description='KPI tiles and charts share these.' divide>
+				<SettingsCard
+					title='Blocks'
+					description='KPI tiles, charts, the filter panel and tabs share these.'
+					divide
+				>
 					<ColorRow
 						label='Background'
 						description='Same as the page for a flat look.'
@@ -426,11 +430,12 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					/>
 					<ColorRow
 						label='Border colour'
-						description='Also used for rules and inputs.'
+						description='Also used for tabs, rules and inputs.'
 						value={variant.block.borderColor}
 						onChange={(borderColor) => update('block', { borderColor })}
 					/>
 					<BorderWidthRow
+						description='Of blocks, the filter panel and tabs. 0 draws no border.'
 						value={variant.block.borderWidth}
 						onChange={(borderWidth) => update('block', { borderWidth })}
 					/>
