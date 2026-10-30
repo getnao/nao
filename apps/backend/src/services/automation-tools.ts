@@ -1,4 +1,5 @@
 import type { DateFormatSettings } from '@nao/shared/date';
+import { getInvalidSlackChannels, getSlackChannelError, parseSlackChannels } from '@nao/shared/slack-channels';
 import { extractQueryIds } from '@nao/shared/story-segments';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import { z } from 'zod/v4';
@@ -195,9 +196,82 @@ function createSlackTools(
 		return {};
 	}
 
+	const channels = parseSlackChannels(config.channelId);
+	const deliverableChannels = channels.filter((channel) => getSlackChannelError(channel) === null);
+	const malformedDeliveries = getInvalidSlackChannels(channels).map(
+		(channel): SlackChannelDelivery => ({ channel, ok: false, error: getSlackChannelError(channel) ?? undefined }),
+	);
 	// Charts/stories accumulate across the run; track which ones were already
-	// uploaded so multiple thread replies don't re-attach the same files.
-	const uploadedArtifacts = new Set<string>();
+	// uploaded to each channel so multiple thread replies don't re-attach the same files.
+	const uploadedArtifactsByChannel = new Map<string, Set<string>>();
+	// The agent only sees one threadId per headline; it maps to the matching thread in every channel.
+	const channelThreadsByThreadId = new Map<string, SlackChannelThread[]>();
+
+	async function deliverToChannel(
+		target: SlackChannelThread,
+		text: string,
+		attachments: GeneratedArtifactAttachment[],
+		linkChat: boolean,
+	): Promise<SlackChannelDelivery> {
+		let threadId: string;
+		try {
+			const result = await slackService.postMessage(projectId, target.channel, text, {
+				chatId: linkChat ? chatId : undefined,
+				threadId: target.threadId,
+			});
+			threadId = result.threadId;
+		} catch (error) {
+			return { channel: target.channel, ok: false, error: getErrorMessage(error) };
+		}
+		const upload = await uploadArtifactsToThread(target.channel, threadId, attachments);
+		return { channel: target.channel, ok: true, threadId, ...upload };
+	}
+
+	async function uploadArtifactsToThread(
+		channel: string,
+		threadId: string,
+		attachments: GeneratedArtifactAttachment[],
+	): Promise<{ attachments: string[]; attachmentError?: string }> {
+		const uploadedArtifacts = uploadedArtifactsByChannel.get(channel) ?? new Set<string>();
+		uploadedArtifactsByChannel.set(channel, uploadedArtifacts);
+		const pendingAttachments = attachments.filter((attachment) => !uploadedArtifacts.has(attachment.filename));
+		const uploadedAttachments: string[] = [];
+		for (const [index, attachment] of pendingAttachments.entries()) {
+			try {
+				await slackService.uploadFiles(projectId, threadId, [toSlackFileUpload(attachment)]);
+				uploadedArtifacts.add(attachment.filename);
+				uploadedAttachments.push(attachment.filename);
+			} catch (error) {
+				const errorMessage = getErrorMessage(error);
+				logger.warn(`Slack automation attachment upload failed: ${errorMessage}`, {
+					source: 'system',
+					projectId,
+					context: {
+						threadId,
+						attachments: pendingAttachments.slice(index).map((pending) => pending.filename),
+					},
+				});
+				return {
+					attachments: uploadedAttachments,
+					attachmentError: `Files could not be uploaded: ${errorMessage}`,
+				};
+			}
+		}
+		return { attachments: uploadedAttachments };
+	}
+
+	function resolveTargets(threadId: string | undefined): SlackChannelThread[] {
+		if (!threadId) {
+			return deliverableChannels.map((channel) => ({ channel }));
+		}
+		const targets = channelThreadsByThreadId.get(threadId);
+		if (!targets) {
+			throw new Error(
+				`Unknown thread_id "${threadId}". Reuse the threadId returned by a previous call, or omit thread_id to post a new headline.`,
+			);
+		}
+		return targets;
+	}
 
 	return {
 		send_automation_slack_message: createTool({
@@ -212,46 +286,77 @@ function createSlackTools(
 					),
 			}),
 			execute: async ({ text, thread_id }, context: ToolContext) => {
-				const result = await slackService.postMessage(projectId, config.channelId, text, {
-					chatId,
-					threadId: thread_id,
-				});
-				const attachments = (await buildGeneratedArtifactAttachments(projectId, context)).filter(
-					(attachment) => !uploadedArtifacts.has(attachment.filename),
-				);
-				const uploadedAttachments: string[] = [];
-				for (const [index, attachment] of attachments.entries()) {
-					try {
-						await slackService.uploadFiles(projectId, result.threadId, [toSlackFileUpload(attachment)]);
-						uploadedArtifacts.add(attachment.filename);
-						uploadedAttachments.push(attachment.filename);
-					} catch (error) {
-						const errorMessage = getErrorMessage(error);
-						const attachmentError = `Files could not be uploaded: ${errorMessage}`;
-						logger.warn(`Slack automation attachment upload failed: ${errorMessage}`, {
-							source: 'system',
-							projectId,
-							context: {
-								threadId: result.threadId,
-								attachments: attachments.slice(index).map((attachment) => attachment.filename),
-							},
-						});
-						return { ok: true, ...result, attachments: uploadedAttachments, attachmentError };
-					}
+				const targets = resolveTargets(thread_id);
+				const attachments = await buildGeneratedArtifactAttachments(projectId, context);
+				const deliveries: SlackChannelDelivery[] = [];
+				let isChatLinked = Boolean(thread_id);
+				for (const target of targets) {
+					const delivery = await deliverToChannel(target, text, attachments, !isChatLinked);
+					isChatLinked ||= delivery.ok;
+					deliveries.push(delivery);
 				}
-				return { ok: true, ...result, attachments: uploadedAttachments };
+
+				const allDeliveries = thread_id ? deliveries : [...deliveries, ...malformedDeliveries];
+				const delivered = deliveries.filter((delivery) => delivery.ok && delivery.threadId);
+				const threadId = thread_id ?? delivered[0]?.threadId;
+				if (!threadId || delivered.length === 0) {
+					throw new Error(
+						`Slack message was not delivered to any channel. ${formatDeliveryErrors(allDeliveries)}`,
+					);
+				}
+
+				if (!thread_id) {
+					channelThreadsByThreadId.set(
+						threadId,
+						delivered.map((delivery) => ({ channel: delivery.channel, threadId: delivery.threadId })),
+					);
+				}
+				const attachmentError = delivered.find((delivery) => delivery.attachmentError)?.attachmentError;
+				return {
+					ok: true,
+					threadId,
+					attachments: [...new Set(delivered.flatMap((delivery) => delivery.attachments ?? []))],
+					...(attachmentError && { attachmentError }),
+					deliveries: allDeliveries,
+				};
 			},
 		}),
 	};
+}
+
+type SlackChannelThread = {
+	channel: string;
+	threadId?: string;
+};
+
+export type SlackChannelDelivery = {
+	channel: string;
+	ok: boolean;
+	error?: string;
+	threadId?: string;
+	attachments?: string[];
+	attachmentError?: string;
+};
+
+function formatDeliveryErrors(deliveries: SlackChannelDelivery[]): string {
+	if (deliveries.length === 0) {
+		return 'No Slack channel is configured for this automation.';
+	}
+	return deliveries.map((delivery) => `${delivery.channel}: ${delivery.error}`).join(' ');
 }
 
 function getEmailToolDescription(): string {
 	return `Send an email to a list of recipients. Provide html (preferred) or text, and optionally a subject. If you generated charts with display_chart or maps with display_map, they will be embedded as images. If you generated a story, it will be attached as a PDF.`;
 }
 
-function getSlackToolDescription(channelId: string): string {
+function getSlackToolDescription(channelIds: string): string {
+	const channels = parseSlackChannels(channelIds);
+	const destination =
+		channels.length > 1
+			? `every one of the Slack channels ${channels.join(', ')} (one call delivers to all of them)`
+			: `the Slack channel ${channels[0] ?? channelIds}`;
 	return [
-		`Post a message in the Slack channel ${channelId}. Provide the markdown-friendly text to post. Use @slack-handle to mention a Slack user.`,
+		`Post a message in ${destination}. Provide the markdown-friendly text to post. Use @slack-handle to mention a Slack user.`,
 		'To avoid cluttering the channel, post a single short headline message first (no thread_id), then reply with the full report inside its thread by passing the returned threadId as thread_id.',
 		'The call returns a threadId; reuse it as thread_id for every follow-up message so they stay in the same thread.',
 		'Generated charts, maps and stories are uploaded to the thread automatically.',
