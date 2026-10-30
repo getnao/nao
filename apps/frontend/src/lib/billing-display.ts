@@ -112,10 +112,6 @@ export function getBillingManagementDescription(status: string | null, hasDefaul
 	}
 }
 
-export function getBillingPortalButtonLabel(status: string | null): string {
-	return isTerminalBillingStatus(status) ? 'Open billing history' : 'Manage subscription';
-}
-
 export function formatBillingPrice(amount: number, currency: string): string {
 	const normalizedCurrency = currency.toUpperCase();
 	const { maximumFractionDigits: minorUnitDigits = 2 } = new Intl.NumberFormat(undefined, {

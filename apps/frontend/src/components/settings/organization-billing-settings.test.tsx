@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
 	invoiceKind: 'subscription' as 'trial' | 'subscription' | 'no_charge',
 	invoicePromotionCodes: [] as string[],
 	invoiceTotal: 100_000,
+	paymentMethodManagementAvailable: false,
+	portalAvailable: false,
 	freeTierEnabled: false,
 	cloudTrialActive: false,
 	cloudPaidPlanSelected: true,
@@ -35,6 +37,8 @@ const mocks = vi.hoisted(() => ({
 	cloudConfirmPlanChange: vi.fn(),
 	cloudPreviewPlanChange: vi.fn(),
 	localTrialActive: false,
+	openPaymentMethodPortal: vi.fn(),
+	openPortal: vi.fn(),
 	openTrialCheckout: vi.fn(),
 	resubscribe: vi.fn(),
 	selectedBillingInterval: 'monthly' as 'monthly' | 'yearly',
@@ -83,6 +87,8 @@ beforeEach(() => {
 	mocks.invoiceKind = 'subscription';
 	mocks.invoicePromotionCodes = [];
 	mocks.invoiceTotal = 100_000;
+	mocks.paymentMethodManagementAvailable = false;
+	mocks.portalAvailable = false;
 	mocks.freeTierEnabled = false;
 	mocks.cloudTrialActive = false;
 	mocks.cloudPaidPlanSelected = true;
@@ -221,6 +227,22 @@ it('describes a trial invoice as a no-charge trial event', () => {
 	expect(screen.getByText(/\$0 charged during trial/)).toBeTruthy();
 	expect(screen.queryByText(/\$0 · Paid/)).toBeNull();
 	expect(screen.queryByText('Code EARLY50')).toBeNull();
+});
+
+it('uses one Stripe portal action for subscription and payment management', () => {
+	mocks.hasStripeSubscription = true;
+	mocks.status = 'active';
+	mocks.paymentMethodManagementAvailable = true;
+	mocks.portalAvailable = true;
+
+	render(<OrganizationBillingSettings search={{ tab: 'invoices' }} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Manage billing in Stripe' }));
+
+	expect(mocks.openPortal).toHaveBeenCalledOnce();
+	expect(mocks.openPaymentMethodPortal).not.toHaveBeenCalled();
+	expect(screen.queryByRole('button', { name: 'Manage payment method' })).toBeNull();
+	expect(screen.queryByRole('button', { name: 'Manage subscription' })).toBeNull();
 });
 
 it('shows the Stripe-calculated next payment separately from the list price', () => {
@@ -594,12 +616,12 @@ function billingState(): BillingState {
 		hasDefaultPaymentMethod: false,
 		hasStripeSubscription: mocks.hasStripeSubscription,
 		invoiceHistoryAvailable: mocks.invoiceHistoryAvailable,
-		paymentMethodManagementAvailable: false,
+		paymentMethodManagementAvailable: mocks.paymentMethodManagementAvailable,
 		needsPaidPlanSelection,
 		paidPlanSelected,
 		plan: paidPlanSelected ? plan : null,
 		planKey: paidPlanSelected ? plan.key : null,
-		portalAvailable: false,
+		portalAvailable: mocks.portalAvailable,
 		resubscribeAvailable:
 			(!mocks.hasStripeSubscription && !mocks.localTrialActive) ||
 			(mocks.stripeTrialPlaceholder && mocks.trialEndsAt !== null && mocks.trialEndsAt.getTime() <= Date.now()) ||
@@ -662,8 +684,8 @@ function billingState(): BillingState {
 		isResumePending: false,
 		isTrialCheckoutPending: false,
 		managementError: null,
-		openPaymentMethodPortal: vi.fn(),
-		openPortal: vi.fn(),
+		openPaymentMethodPortal: mocks.openPaymentMethodPortal,
+		openPortal: mocks.openPortal,
 		openTrialCheckout: mocks.openTrialCheckout,
 		plan,
 		portalFeedback: null,

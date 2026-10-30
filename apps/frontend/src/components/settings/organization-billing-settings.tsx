@@ -1,3 +1,4 @@
+import { RefreshCwIcon } from 'lucide-react';
 import { useState } from 'react';
 
 import type {
@@ -29,7 +30,6 @@ import {
 	formatBillingStatus,
 	formatInvoiceLabel,
 	getBillingManagementDescription,
-	getBillingPortalButtonLabel,
 } from '@/lib/billing-display';
 import { cn } from '@/lib/utils';
 
@@ -982,10 +982,9 @@ function BillingManagementCard({ billingState }: { billingState: BillingState })
 		return null;
 	}
 
-	const hasManagementAction =
-		billing.data.portalAvailable ||
-		billing.data.paymentMethodManagementAvailable ||
-		billing.data.resubscribeAvailable;
+	const shouldResume = status === 'paused' && billing.data.hasDefaultPaymentMethod === true;
+	const canOpenPortal = billing.data.portalAvailable || billing.data.paymentMethodManagementAvailable;
+	const hasManagementAction = billing.data.resubscribeAvailable || shouldResume || canOpenPortal;
 
 	return (
 		<SettingsCard title='Billing management'>
@@ -1011,39 +1010,34 @@ function BillingManagementCard({ billingState }: { billingState: BillingState })
 										Start new subscription
 									</Button>
 								)}
-								{billing.data.paymentMethodManagementAvailable && (
-									<Button
-										variant={billing.data.resubscribeAvailable ? 'secondary' : 'default'}
-										onClick={billingState.openPaymentMethodPortal}
-										isLoading={billingState.isPaymentMethodPortalPending}
-									>
-										Manage payment method
-									</Button>
-								)}
-								{billing.data.portalAvailable && (
-									<Button
-										variant='secondary'
-										onClick={billingState.openPortal}
-										isLoading={billingState.isPortalPending}
-									>
-										{getBillingPortalButtonLabel(status)}
-									</Button>
-								)}
-								{status === 'paused' && (
-									<Button
-										variant='secondary'
-										onClick={billingState.resume}
-										isLoading={billingState.isResumePending}
-									>
+								{!billing.data.resubscribeAvailable && shouldResume && (
+									<Button onClick={billingState.resume} isLoading={billingState.isResumePending}>
 										Resume subscription
+									</Button>
+								)}
+								{!billing.data.resubscribeAvailable && !shouldResume && canOpenPortal && (
+									<Button
+										onClick={
+											billing.data.portalAvailable
+												? billingState.openPortal
+												: billingState.openPaymentMethodPortal
+										}
+										isLoading={
+											billingState.isPortalPending || billingState.isPaymentMethodPortalPending
+										}
+									>
+										Manage billing in Stripe
 									</Button>
 								)}
 								<Button
 									variant='secondary'
+									size='icon'
 									onClick={billingState.syncBilling}
 									isLoading={billingState.isBillingSyncPending}
+									aria-label='Refresh billing details'
+									title='Refresh billing details'
 								>
-									Refresh billing details
+									{!billingState.isBillingSyncPending && <RefreshCwIcon />}
 								</Button>
 							</div>
 							{status === 'trialing' && (
