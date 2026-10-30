@@ -199,6 +199,8 @@ def run_test(
     model: ModelConfig,
     email: str | None = None,
     password: str | None = None,
+    api_key: str | None = None,
+    project_name: str | None = None,
     costs: ModelCosts | None = None,
     comparison: ComparisonConfig | None = None,
 ) -> TestRunResult:
@@ -206,7 +208,7 @@ def run_test(
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
     UI.print(f"[dim]  Prompt: {test_case.prompt}[/dim]")
 
-    client = get_client(email=email, password=password)
+    client = get_client(email=email, password=password, api_key=api_key, project_name=project_name)
 
     try:
         result = client.run_test(test_case, provider=model.provider, model_id=model.model_id, costs=costs)
@@ -585,6 +587,13 @@ def test(
             help="Password for authentication. Falls back to NAO_PASSWORD env var.",
         ),
     ] = None,
+    api_key: Annotated[
+        str | None,
+        Parameter(
+            name=["--api-key"],
+            help="Organization API key for authentication, replaces the login. Falls back to NAO_API_KEY env var.",
+        ),
+    ] = None,
 ):
     """Run tests from the tests/ folder.
 
@@ -599,9 +608,11 @@ def test(
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
+        nao test --api-key nao_xxx
     """
     email = username or os.environ.get("NAO_USERNAME")
     pwd = password or os.environ.get("NAO_PASSWORD")
+    key = api_key or os.environ.get("NAO_API_KEY")
 
     UI.info("\n🧪 Running nao tests...\n")
 
@@ -675,6 +686,8 @@ def test(
                 model,
                 email=email,
                 password=pwd,
+                api_key=key,
+                project_name=config.project_name,
                 costs=resolve_model_costs(config, model),
                 comparison=test_config.comparison,
             )
@@ -692,6 +705,8 @@ def test(
                     m,
                     email=email,
                     password=pwd,
+                    api_key=key,
+                    project_name=config.project_name,
                     costs=resolve_model_costs(config, m),
                     comparison=test_config.comparison,
                 ): (index, attempt)

@@ -77,10 +77,14 @@ class AgentClient:
         backend_url: str = BACKEND_URL,
         email: str | None = None,
         password: str | None = None,
+        api_key: str | None = None,
+        project_name: str | None = None,
     ):
         self.backend_url = backend_url
         self._email = email
         self._password = password
+        self._api_key = api_key
+        self._project_name = project_name
         self._session: requests.Session | None = None
         self._auth_lock = threading.Lock()
         self._auth_generation = 0
@@ -90,15 +94,24 @@ class AgentClient:
         """Get or create an authenticated session, with its auth generation."""
         with self._auth_lock:
             if self._session is None:
-                self._session = get_auth_session(
-                    self.backend_url,
-                    email=self._email,
-                    password=self._password,
-                )
+                self._session = self._create_session()
             return self._session, self._auth_generation
+
+    def _create_session(self) -> requests.Session:
+        if not self._api_key:
+            return get_auth_session(self.backend_url, email=self._email, password=self._password)
+
+        session = requests.Session()
+        session.headers["Authorization"] = f"Bearer {self._api_key}"
+        if self._project_name:
+            session.headers["x-nao-project-name"] = self._project_name
+        return session
 
     def _handle_auth_retry(self, generation: int) -> bool:
         """Handle 401 by re-authenticating. Only one thread re-authenticates at a time."""
+        if self._api_key:
+            return False
+
         with self._auth_lock:
             if self._auth_generation != generation:
                 return True
@@ -156,7 +169,9 @@ class AgentClient:
         if response.status_code == 401:
             if retry_auth and self._handle_auth_retry(auth_generation):
                 return self.run_test(test_case, provider, model_id, costs=costs, retry_auth=False)
-            raise AgentClientError("Unauthorized. Please check your credentials.")
+            raise AgentClientError(
+                "Invalid API key." if self._api_key else "Unauthorized. Please check your credentials."
+            )
 
         if response.status_code != 200:
             raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
@@ -176,11 +191,22 @@ class AgentClient:
 _client: AgentClient | None = None
 
 
-def get_client(email: str | None = None, password: str | None = None) -> AgentClient:
+def get_client(
+    email: str | None = None,
+    password: str | None = None,
+    api_key: str | None = None,
+    project_name: str | None = None,
+) -> AgentClient:
     """Get or create the module-level agent client."""
     global _client
     if _client is None:
-        _client = AgentClient(BACKEND_URL, email=email, password=password)
+        _client = AgentClient(
+            BACKEND_URL,
+            email=email,
+            password=password,
+            api_key=api_key,
+            project_name=project_name,
+        )
     return _client
 
 
