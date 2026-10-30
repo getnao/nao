@@ -1542,7 +1542,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		search: { tab: 'stories' },
 		section: 'Stories',
 		title: 'Blocks',
-		description: 'Background, border and radius shared by KPI tiles, charts, filters and tabs.',
+		description: 'Background, border and radius shared by KPI tiles, charts and filters; tabs share the border.',
 		keywords: [
 			'block',
 			'card',

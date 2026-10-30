@@ -419,7 +419,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 
 				<SettingsCard
 					title='Blocks'
-					description='KPI tiles, charts, the filter panel and tabs share these.'
+					description='KPI tiles, charts and the filter panel share these; tabs share the border.'
 					divide
 				>
 					<ColorRow
