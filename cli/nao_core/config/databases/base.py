@@ -5,7 +5,7 @@ import re
 import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import questionary
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -103,6 +103,10 @@ class DatabaseConfig(BaseModel, ABC):
     """Base configuration for all database backends."""
 
     model_config = ConfigDict(populate_by_name=True)
+
+    supports_parallel_table_sync: ClassVar[bool] = False
+    """Whether `nao sync` may sync tables concurrently, calling `create_context` and the contexts from several
+    threads over one shared connection."""
 
     type: str  # Narrowed to Literal in each subclass for discriminated union
     name: str = Field(description="A friendly name for this connection")
