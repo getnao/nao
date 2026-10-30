@@ -61,7 +61,7 @@ function findLatestRelevantStoryPartState(messages: UIMessage[], storySlug: stri
 
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p];
-			if (part.type !== 'tool-story') {
+			if (part.type !== 'tool-story' || part.output?.story_chat_id) {
 				continue;
 			}
 
@@ -91,7 +91,12 @@ function findLatestStoryOutputVersion(messages: UIMessage[], storySlug: string) 
 
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p];
-			if (part.type !== 'tool-story' || !part.output?.success || !isStoryIdMatch(storySlug, part.output.id)) {
+			if (
+				part.type !== 'tool-story' ||
+				!part.output?.success ||
+				part.output.story_chat_id ||
+				!isStoryIdMatch(storySlug, part.output.id)
+			) {
 				continue;
 			}
 

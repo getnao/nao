@@ -74,7 +74,7 @@ export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDra
 
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p];
-			if (part.type !== 'tool-story' || part.state === 'output-error') {
+			if (part.type !== 'tool-story' || part.state === 'output-error' || part.output?.story_chat_id) {
 				continue;
 			}
 

@@ -8,7 +8,7 @@ import {
 	customStoryAuthoringError,
 	isCustomStoriesEnabled,
 	readStoryMountFile,
-	storyMountOwnerChatId,
+	storyMountFileLockKey,
 	writeStoryMountFile,
 } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
@@ -66,7 +66,7 @@ type Edit = Omit<strReplace.Input, 'file_path'>;
 type Edited = Omit<strReplace.Output, '_version'>;
 
 const editStoryFile = async (filePath: string, edit: Edit, context: ToolContext): Promise<Edited> => {
-	return withKeyedLock(`str-replace:story:${storyMountOwnerChatId(context, filePath)}:${filePath}`, async () => {
+	return withKeyedLock(`str-replace:story:${await storyMountFileLockKey(context, filePath)}`, async () => {
 		const current = await readStoryMountFile(context, filePath);
 		const { content, replacements } = strReplace.applyReplacement(current, edit);
 		return { ...(await writeStoryMountFile(context, filePath, content)), replacements };

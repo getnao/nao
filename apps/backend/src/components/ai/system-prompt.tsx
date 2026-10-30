@@ -214,7 +214,13 @@ export function SystemPrompt({
 			{customStoriesEnabled && hasTool('story') && hasTool('write') && (
 				<CustomStoriesBlock canReplace={hasTool('str_replace')} />
 			)}
-			{hasStoryLibrary && <ExistingStoriesBlock trustedStories={trustedStories} canGrep={hasTool('grep')} />}
+			{hasStoryLibrary && (
+				<ExistingStoriesBlock
+					trustedStories={trustedStories}
+					canGrep={hasTool('grep')}
+					canEditCustomStories={customStoriesEnabled && hasTool('story') && hasTool('write')}
+				/>
+			)}
 			{hasTool('execute_sql') && (
 				<LocalDatabaseBlock
 					canSaveResults={hasTool('write') && savedFilesEnabled}
@@ -652,7 +658,15 @@ function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
 	);
 }
 
-function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: StorySummary[]; canGrep: boolean }) {
+function ExistingStoriesBlock({
+	trustedStories,
+	canGrep,
+	canEditCustomStories,
+}: {
+	trustedStories: StorySummary[];
+	canGrep: boolean;
+	canEditCustomStories: boolean;
+}) {
 	const library = `/${STORY_LIBRARY_MOUNT}`;
 	return (
 		<Block>
@@ -685,7 +699,11 @@ function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: Sto
 					To show or build on its data, re-run its SQL with execute_sql and say which story you built on.
 				</ListItem>
 				<ListItem>
-					These stories are read-only here; to change one, the user opens it from its own chat.
+					Stories marked editable can be changed from here when the user asks: pass the story id to the story
+					tool, the new version lands on the story itself.
+					{canEditCustomStories &&
+						' The draft files of an editable custom story are under /stories/<story id>/.'}{' '}
+					Every other story is read-only here.
 				</ListItem>
 			</List>
 			{trustedStories.length > 0 && (

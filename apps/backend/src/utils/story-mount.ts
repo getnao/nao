@@ -2,15 +2,16 @@ import { randomUUID } from 'node:crypto';
 
 /**
  * Top-level folder of the virtual tree exposing the draft files of the chat's
- * custom stories, one folder per story slug: `/stories/<slug>/app.jsx`.
+ * custom stories, one folder per story: `/stories/<slug>/app.jsx`. A story of another chat the user
+ * can edit is reached under its id instead: `/stories/<id>/app.jsx`.
  * The name is reserved like `home`: a project folder called `stories` is never exposed.
  */
 export const STORIES_MOUNT = 'stories';
 
 export type StoryMountPath =
 	| { kind: 'root' }
-	| { kind: 'story'; slug: string }
-	| { kind: 'file'; slug: string; filePath: string };
+	| { kind: 'story'; folder: string }
+	| { kind: 'file'; folder: string; filePath: string };
 
 /** True when a virtual path addresses the stories mount: `/stories` or anything below it. */
 export const isStoriesPath = (virtualPath: string | undefined | null): boolean => {
@@ -21,7 +22,7 @@ export const isStoriesPath = (virtualPath: string | undefined | null): boolean =
 	return trimmed === STORIES_MOUNT || trimmed.startsWith(`${STORIES_MOUNT}/`);
 };
 
-/** Splits a stories virtual path into its story slug and the path inside that story. */
+/** Splits a stories virtual path into its story folder and the path inside that story. */
 export const parseStoriesPath = (virtualPath: string): StoryMountPath => {
 	if (!isStoriesPath(virtualPath)) {
 		throw new Error(`Path '${virtualPath}' is not under /${STORIES_MOUNT}`);
@@ -30,8 +31,8 @@ export const parseStoriesPath = (virtualPath: string): StoryMountPath => {
 	if (inside === '') {
 		return { kind: 'root' };
 	}
-	const [slug, ...rest] = inside.split('/');
-	return rest.length === 0 ? { kind: 'story', slug } : { kind: 'file', slug, filePath: rest.join('/') };
+	const [folder, ...rest] = inside.split('/');
+	return rest.length === 0 ? { kind: 'story', folder } : { kind: 'file', folder, filePath: rest.join('/') };
 };
 
 const STORY_SLUG = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/;
@@ -52,14 +53,14 @@ export const generateStorySlug = (title: string): string => {
 };
 
 /** Virtual path of a story folder, or of a file inside it. */
-export const toStoriesVirtualPath = (slug?: string, filePath?: string): string => {
-	const segments = [STORIES_MOUNT, slug, filePath].filter((segment) => segment && segment !== '');
+export const toStoriesVirtualPath = (folder?: string, filePath?: string): string => {
+	const segments = [STORIES_MOUNT, folder, filePath].filter((segment) => segment && segment !== '');
 	return `/${segments.join('/')}`;
 };
 
-/** The path relative to the mount root, as matched by glob patterns: `stories/<slug>/<file>`. */
-export const toStoriesMountRelativePath = (slug: string, filePath: string): string => {
-	return `${STORIES_MOUNT}/${slug}/${filePath}`;
+/** The path relative to the mount root, as matched by glob patterns: `stories/<folder>/<file>`. */
+export const toStoriesMountRelativePath = (folder: string, filePath: string): string => {
+	return `${STORIES_MOUNT}/${folder}/${filePath}`;
 };
 
 const trimSlashes = (value: string): string => {

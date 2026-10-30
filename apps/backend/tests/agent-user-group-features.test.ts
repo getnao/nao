@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
-	getLatestVersionByChatAndSlug: vi.fn(),
+	getLatestVersionByStoryId: vi.fn(),
 	createStoryVersion: vi.fn(),
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/queries/story.queries', () => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
-	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
+	getLatestVersionByStoryId: mocks.getLatestVersionByStoryId,
 	createStoryVersion: mocks.createStoryVersion,
 }));
 vi.mock('../src/queries/chart-image', () => ({
@@ -91,8 +91,13 @@ describe('agent user group feature tools', () => {
 			expectedCode: '# Replaced',
 		},
 	])('allows restricted users to run Story $action', async ({ action, input, expectedCode }) => {
-		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', slug: 'existing-story', format: 'classic' });
-		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+		mocks.getStoryByChatAndSlug.mockResolvedValue({
+			id: 'story-1',
+			chatId: 'chat-id',
+			slug: 'existing-story',
+			format: 'classic',
+		});
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
 			code: '# Old',
 			version: 1,
 			title: 'Existing Story',

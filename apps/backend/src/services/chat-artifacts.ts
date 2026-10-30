@@ -49,8 +49,7 @@ export function hasChatArtifacts(artifacts: ChatArtifacts): boolean {
 
 /**
  * Story tool outputs in the history shrink to a one-line placeholder: the artifacts carry the
- * current content of every live story, so repeating each version is waste. A story missing from
- * the artifacts has been archived, and its placeholder says so.
+ * current content of every live story, so repeating each version is waste.
  */
 export function collapseStoryToolOutputs<T extends MessageLike>(messages: T[], artifacts: ChatArtifacts): T[] {
 	const liveStoryIds = new Set(artifacts.stories.map((story) => story.id));
@@ -60,8 +59,10 @@ export function collapseStoryToolOutputs<T extends MessageLike>(messages: T[], a
 			if (!isStoryToolPart(part)) {
 				return part;
 			}
-			const isArchived = !liveStoryIds.has(part.output.id);
-			return { ...part, output: { ...part.output, _stale: true, _archived: isArchived, code: '' } };
+			return {
+				...part,
+				output: { ...part.output, _stale: true, _inArtifacts: liveStoryIds.has(part.output.id), code: '' },
+			};
 		}),
 	}));
 }

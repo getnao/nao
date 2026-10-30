@@ -18,7 +18,7 @@ export const InputSchema = z.object({
 	id: z
 		.string()
 		.describe(
-			'Unique identifier for this story. Use a short, descriptive kebab-case slug (e.g. "revenue-dashboard").',
+			'For "create": a new kebab-case slug (e.g. "revenue-dashboard"). For any other action: the story to act on, either its slug if it belongs to this conversation, or its id if it belongs to another one.',
 		),
 	title: z.string().optional().describe('A concise, descriptive title for the story. Required for "create".'),
 	format: z
@@ -72,7 +72,13 @@ export const OutputSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Only set when the story is edited from a quick question: the chat holding its versions, where the UI opens it.',
+			'Only set when the story belongs to another conversation: the chat holding its versions, where the UI opens it.',
+		),
+	story_id: z
+		.string()
+		.optional()
+		.describe(
+			'Only set when the story belongs to another conversation: the id to pass as "id" to keep editing the story from here.',
 		),
 });
 
