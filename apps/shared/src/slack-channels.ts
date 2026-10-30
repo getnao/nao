@@ -1,3 +1,5 @@
+import { pluralize } from './pluralize';
+
 const CHANNEL_SEPARATOR_PATTERN = /[,;\n]/;
 const CHANNEL_ID_PATTERN = /^[CGD][A-Z0-9]{8,11}$/;
 const CHANNEL_NAME_PATTERN = /^#[a-z0-9][a-z0-9_-]{0,79}$/;
@@ -22,6 +24,16 @@ export function mergeSlackChannels(channels: string[], additions: string[]): str
 
 export function hasSlackChannelSeparator(text: string): boolean {
 	return CHANNEL_SEPARATOR_PATTERN.test(text);
+}
+
+/** Splits typed text into the channels closed by a separator and the channel still being typed. */
+export function splitSlackChannelDraft(text: string): { channels: string[]; remainder: string } {
+	const parts = text.split(CHANNEL_SEPARATOR_PATTERN);
+	const remainder = parts.pop() ?? '';
+	return {
+		channels: parseSlackChannels(parts.join(',')),
+		remainder: parts.length > 0 ? remainder.trimStart() : remainder,
+	};
 }
 
 /** Slack accepts public channel names (`#sales`) or conversation IDs (`C…` public, `G…` private, `D…` DM). */
@@ -53,6 +65,5 @@ export function getSlackChannelsSaveError(channels: string[]): string | null {
 	if (invalidCount === 0) {
 		return null;
 	}
-	const noun = invalidCount === 1 ? 'channel' : 'channels';
-	return `Fix or remove ${invalidCount} malformed Slack ${noun} before saving.`;
+	return `Fix or remove ${invalidCount} malformed Slack ${pluralize('channel', invalidCount)} before saving.`;
 }

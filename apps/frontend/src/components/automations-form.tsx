@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Check, Copy, Github, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
+import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
 import type { McpServerStatus } from '@nao/shared';
 import type { LlmProvider } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
@@ -30,7 +31,6 @@ import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useSession } from '@/lib/auth-client';
-import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@/lib/slack-channels';
 import { trpc } from '@/main';
 
 type IntegrationConfig = {

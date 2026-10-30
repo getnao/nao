@@ -1,8 +1,5 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { CircleAlert, Hash, X } from 'lucide-react';
-import type { ClipboardEvent, KeyboardEvent } from 'react';
-import { NakedInput } from '@/components/ui/input';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	getInvalidSlackChannels,
 	getSlackChannelError,
@@ -10,7 +7,11 @@ import {
 	mergeSlackChannels,
 	parseSlackChannels,
 	SLACK_CHANNEL_EXAMPLE,
-} from '@/lib/slack-channels';
+	splitSlackChannelDraft,
+} from '@nao/shared/slack-channels';
+import type { ClipboardEvent, KeyboardEvent } from 'react';
+import { NakedInput } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 type SlackChannelsInputProps = {
@@ -23,9 +24,10 @@ type SlackChannelsInputProps = {
 export function SlackChannelsInput({ channels, saveError, disabled, onChange }: SlackChannelsInputProps) {
 	const [draft, setDraft] = useState('');
 	const inputRef = useRef<HTMLInputElement>(null);
+	const feedbackId = useId();
 	const tokens = getCommittedChannels(channels, draft);
-	const invalidChannels = getInvalidSlackChannels(saveError ? channels : tokens);
-	const feedbackId = 'automation-slack-channels-feedback';
+	const feedbackChannels = saveError ? channels : tokens;
+	const invalidChannels = getInvalidSlackChannels(feedbackChannels);
 
 	/** The draft is always part of `channels` so a save shortcut pressed mid-typing keeps it. */
 	function update(nextTokens: string[], nextDraft: string) {
@@ -34,17 +36,12 @@ export function SlackChannelsInput({ channels, saveError, disabled, onChange }: 
 	}
 
 	function handleDraftChange(text: string) {
-		if (!hasSlackChannelSeparator(text)) {
-			update(tokens, text);
-			return;
-		}
-		const parts = text.split(/[,;\n]/);
-		const remainder = parts.pop() ?? '';
-		update(mergeSlackChannels(tokens, parseSlackChannels(parts.join(','))), remainder.trimStart());
+		const { channels: completedChannels, remainder } = splitSlackChannelDraft(text);
+		update(mergeSlackChannels(tokens, completedChannels), remainder);
 	}
 
 	function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-		if ((event.key === 'Enter' || event.key === 'Tab') && draft.trim()) {
+		if (event.key === 'Enter' && draft.trim()) {
 			event.preventDefault();
 			setDraft('');
 			return;
@@ -115,7 +112,7 @@ export function SlackChannelsInput({ channels, saveError, disabled, onChange }: 
 			</div>
 			<SlackChannelsFeedback
 				id={feedbackId}
-				channels={saveError ? channels : tokens}
+				channels={feedbackChannels}
 				invalidChannels={invalidChannels}
 				saveError={saveError}
 			/>

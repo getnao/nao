@@ -7,7 +7,8 @@ import {
 	getSlackChannelsSaveError,
 	mergeSlackChannels,
 	parseSlackChannels,
-} from './slack-channels';
+	splitSlackChannelDraft,
+} from '../src/slack-channels';
 
 describe('parseSlackChannels', () => {
 	it('splits on commas, semicolons and new lines and trims each channel', () => {
@@ -25,6 +26,20 @@ describe('parseSlackChannels', () => {
 	it('round-trips through the stored comma-separated value', () => {
 		const channels = ['C04RVN7XK2P', '#sales'];
 		expect(parseSlackChannels(formatSlackChannels(channels))).toEqual(channels);
+	});
+});
+
+describe('splitSlackChannelDraft', () => {
+	it('keeps text without a separator as the draft', () => {
+		expect(splitSlackChannelDraft('#sal')).toEqual({ channels: [], remainder: '#sal' });
+	});
+
+	it('closes every channel before the last separator', () => {
+		expect(splitSlackChannelDraft('#sales, C04RVN7XK2P, #da')).toEqual({
+			channels: ['#sales', 'C04RVN7XK2P'],
+			remainder: '#da',
+		});
+		expect(splitSlackChannelDraft('#sales,')).toEqual({ channels: ['#sales'], remainder: '' });
 	});
 });
 
