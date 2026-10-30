@@ -35,6 +35,26 @@ describe('evaluateTestVerdict', () => {
 		expect(verdict).toEqual({ passed: false, message: 'missing tool_call: clarification', comparison: null });
 	});
 
+	it('compares the data with the given tolerances and reports the differences', () => {
+		const verification = { ...matchingVerification, data: [{ total: 1.04 }], expectedData: [{ total: 1 }] };
+
+		const strict = evaluateTestVerdict({ assertions: [], toolCalls: [], hasReferenceSql: true, verification });
+		const lenient = evaluateTestVerdict({
+			assertions: [],
+			toolCalls: [],
+			hasReferenceSql: true,
+			verification,
+			tolerances: { rtol: 0.1, atol: 0, decimals: 2 },
+		});
+
+		expect(strict).toEqual({
+			passed: false,
+			message: 'values differ',
+			comparison: 'row 0, total: actual=1.04, expected=1',
+		});
+		expect(lenient).toEqual({ passed: true, message: 'match (approximate)', comparison: null });
+	});
+
 	it('combines data verification and assertions', () => {
 		const verdict = evaluateTestVerdict({
 			assertions: [executeSql],

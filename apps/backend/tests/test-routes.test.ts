@@ -82,7 +82,7 @@ describe('test routes', () => {
 	it('returns the verdict computed from the assertions and the verified data', async () => {
 		mocks.executeQuery.mockResolvedValue({ data: [{ total: 10 }], columns: ['total'] });
 		mocks.runVerification.mockResolvedValue({ data: [{ total: '10' }], sql: 'SELECT total FROM q1', error: null });
-		mocks.extractToolCalls.mockReturnValue([{ toolName: 'execute_sql', toolCallId: '1', args: {} }] as never);
+		mocks.extractToolCalls.mockReturnValueOnce([{ toolName: 'execute_sql', toolCallId: '1', args: {} }] as never);
 
 		const reply = await runExpectedQuery({
 			prompt: 'Question',

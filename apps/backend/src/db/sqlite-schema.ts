@@ -1245,7 +1245,13 @@ export const testRun = sqliteTable(
 		startedAt: integer('started_at', { mode: 'timestamp_ms' }),
 		completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
 	},
-	(t) => [index('test_run_projectId_idx').on(t.projectId), index('test_run_status_idx').on(t.status)],
+	(t) => [
+		index('test_run_projectId_idx').on(t.projectId),
+		index('test_run_status_idx').on(t.status),
+		uniqueIndex('test_run_active_project_idx')
+			.on(t.projectId)
+			.where(sql`${t.status} IN ('queued', 'running')`),
+	],
 );
 
 export const testRunResult = sqliteTable(

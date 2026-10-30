@@ -99,6 +99,16 @@ describe('compareTestData', () => {
 		expect(verdict.message).toBe('missing columns: country');
 	});
 
+	it('fails on columns of the expected rows missing from the answer when the column list is unknown', () => {
+		const verdict = compareTestData({
+			actual: [{ total: 1 }],
+			expected: [{ total: 1, country: 'FR' }],
+			expectedColumns: [],
+		});
+
+		expect(verdict.message).toBe('missing columns: country');
+	});
+
 	it('fails on a row count difference', () => {
 		const verdict = compareTestData({
 			actual: [{ total: 1 }],
@@ -156,6 +166,9 @@ describe('normalizeFormattedNumber', () => {
 		['1.234.567,89', 1234567.89],
 		['1.234.567', 1234567],
 		['$1,234.50', 1234.5],
+		['-$1,234.50', -1234.5],
+		['12,5', 12.5],
+		['1,23', 1.23],
 		[52123123, 52123123],
 		['not a number', 'not a number'],
 		['', ''],

@@ -18,9 +18,9 @@ export interface TestDataComparisonInput {
 
 const MAX_REPORTED_DIFFERENCES = 20;
 
-const CURRENCY_PREFIX = /^[$€£¥₹]/;
+const CURRENCY_PREFIX = /^([+-]?)\s*[$€£¥₹]/;
 const WHITESPACE = /[\s\u00a0\u202f]/g;
-const US_NUMBER = /^[\d,]*\d[\d,]*(\.\d+)?$/;
+const US_NUMBER = /^\d{1,3}(,\d{3})+(\.\d+)?$/;
 const PLAIN_NUMBER = /^\d+(\.\d+)?$/;
 const EU_NUMBER = /^[\d.]+,\d+$/;
 const EU_THOUSANDS = /^\d{1,3}(\.\d{3})+$/;
@@ -51,7 +51,7 @@ export function compareTestData(
 		return failed('expected is empty');
 	}
 
-	const columns = expectedColumns.length > 0 ? expectedColumns : actualColumns;
+	const columns = expectedColumns.length > 0 ? expectedColumns : expectedDataColumns;
 	const missingColumns = columns.filter((column) => !actualColumns.includes(column));
 	if (missingColumns.length > 0) {
 		return failed(`missing columns: ${missingColumns.join(', ')}`);
@@ -90,7 +90,7 @@ export function normalizeFormattedNumber(value: unknown): unknown {
 	if (!text) {
 		return value;
 	}
-	const cleaned = text.replace(CURRENCY_PREFIX, '').trim().replace(WHITESPACE, '');
+	const cleaned = text.replace(CURRENCY_PREFIX, '$1').trim().replace(WHITESPACE, '');
 	return parseNumericString(cleaned) ?? value;
 }
 
