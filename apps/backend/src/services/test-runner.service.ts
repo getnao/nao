@@ -43,6 +43,8 @@ export interface StartTestRunInput {
 	tags?: string[];
 	models?: LlmSelectedModel[];
 	attempts?: number;
+	/** Tests to run instead of the ones of the production context, such as a draft being edited. */
+	tests?: TestDefinition[];
 }
 
 interface TestRunPlan {
@@ -72,7 +74,7 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 	const run = await testRunQueries.createRunUnlessActive({
 		projectId: input.projectId,
 		triggeredByUserId: input.userId,
-		trigger: 'manual',
+		trigger: input.tests ? 'draft' : 'manual',
 		models: plan.models,
 		attempts: plan.attempts,
 		selection: plan.tests.map((test) => test.path),
@@ -97,7 +99,7 @@ export async function cancelTestRun(run: DBTestRun): Promise<boolean> {
 }
 
 async function planTestRun(input: StartTestRunInput, projectFolder: string): Promise<TestRunPlan> {
-	const suite = discoverTests(projectFolder);
+	const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(projectFolder);
 	const invalidFiles = selectInvalidFiles(suite.invalidFiles, input.paths);
 	if (invalidFiles.length > 0) {
 		throw new TestRunInputError(

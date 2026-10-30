@@ -24,6 +24,7 @@ import {
 	BUILT_IN_EXCLUSION_GLOBS,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
+	type NaoignoreOptions,
 	shouldExcludeEntry,
 	toRealPath,
 	toVirtualPath,
@@ -36,6 +37,8 @@ const MAX_SEARCH_FILES = 200;
 export const MAX_CONTEXT_FILE_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FRONTMATTER_READ_SIZE = 8 * 1024;
+/** Context admins manage tests here, while .naoignore keeps them away from the agent. */
+const EXPLORER_NAOIGNORE_OPTIONS: NaoignoreOptions = { naoignoreExemptFolders: ['tests'] };
 
 export interface FileEditability {
 	isEditable: boolean;
@@ -82,7 +85,7 @@ export async function readFileContent(
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
 	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
 	const readPath =
-		repo && trackedPaths.has(normalizeProjectPath(filePath))
+		repo && (trackedPaths.has(normalizeProjectPath(filePath)) || isWorktreeDraft(filePath, livePath, repo))
 			? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
 			: livePath;
 	const contentBuffer = await readValidatedFile(readPath, filePath);
@@ -187,10 +190,61 @@ export function getFileEditability(
 			actionLabel: 'Open nao_config.yaml',
 		});
 	}
-	if (!repo || !trackedPaths.has(projectPath)) {
+	if (!repo || (!trackedPaths.has(projectPath) && !isWorktreeDraft(filePath, realPath, repo))) {
 		return readOnly('not-tracked', guidanceForReason('not-tracked'));
 	}
 	return { isEditable: true, reason: null, guidance: null };
+}
+
+/**
+ * Creates a file that exists neither in the live context nor in the user's worktree.
+ * It lands in the worktree only, so it reaches the context through the usual commit and review flow.
+ */
+export async function createDraftFile(
+	filePath: string,
+	content: string,
+	access: ContextExplorerFileAccess,
+): Promise<FileWriteResponse> {
+	if (access.git.status === 'unavailable') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
+	}
+	const contentBuffer = Buffer.from(content, 'utf-8');
+	validateContentBuffer(contentBuffer);
+
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(access.git.repo));
+	assertFileDoesNotExist(livePath, filePath);
+	assertFileDoesNotExist(realPath, filePath);
+
+	try {
+		fsSync.mkdirSync(path.dirname(realPath), { recursive: true });
+		writeFileAtomically({
+			beforeRename: () => assertFileDoesNotExist(realPath, filePath),
+			content,
+			displayPath: filePath,
+			root,
+			target: realPath,
+		});
+	} catch (error) {
+		throw toFileError(error, filePath);
+	}
+
+	return { hash: hashContent(contentBuffer) };
+}
+
+/** A file the user created in their worktree that the live context does not have yet. */
+function isWorktreeDraft(filePath: string, livePath: string, repo: ResolvedContextRepo): boolean {
+	if (fsSync.existsSync(livePath)) {
+		return false;
+	}
+	const worktreePath = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath;
+	return fsSync.lstatSync(worktreePath, { throwIfNoEntry: false })?.isFile() ?? false;
+}
+
+function assertFileDoesNotExist(filePath: string, displayPath: string): void {
+	if (fsSync.lstatSync(filePath, { throwIfNoEntry: false })) {
+		throw new TRPCError({ code: 'CONFLICT', message: `A file already exists at ${displayPath}.` });
+	}
 }
 
 export function assertFileEditable(
@@ -210,12 +264,41 @@ export function assertFileEditable(
 	});
 }
 
+/**
+ * Searches the context with its `.naoignore` rules, then each exempt folder without them, so search
+ * shows the same files as the explorer tree.
+ */
 export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
-	const args = buildSearchArguments(query, projectFolder);
-	return runContentSearch(getRipgrepPath(), args, projectFolder);
+	const exemptFolders = (EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? []).filter((folder) =>
+		fsSync.existsSync(path.join(projectFolder, folder)),
+	);
+	const [contextSearch, ...exemptFolderSearches] = await Promise.all([
+		runContentSearch(
+			getRipgrepPath(),
+			buildSearchArguments(query, projectFolder, loadNaoignorePatterns(projectFolder)),
+			projectFolder,
+		),
+		...exemptFolders.map((folder) =>
+			runContentSearch(
+				getRipgrepPath(),
+				buildSearchArguments(query, path.join(projectFolder, folder), []),
+				projectFolder,
+			),
+		),
+	]);
+	const results = [
+		...contextSearch.results.filter((result) => !isInFolders(result.path, exemptFolders)),
+		...exemptFolderSearches.flatMap((search) => search.results),
+	];
+	return {
+		results: results.slice(0, MAX_SEARCH_FILES),
+		truncated:
+			results.length > MAX_SEARCH_FILES ||
+			[contextSearch, ...exemptFolderSearches].some((search) => search.truncated),
+	};
 }
 
-function buildSearchArguments(query: string, projectFolder: string): string[] {
+function buildSearchArguments(query: string, searchPath: string, naoignorePatterns: string[]): string[] {
 	const args = [
 		'--json',
 		'--no-heading',
@@ -237,15 +320,19 @@ function buildSearchArguments(query: string, projectFolder: string): string[] {
 		args.push('--glob', exclusionGlob);
 	}
 
-	for (const ignorePattern of loadNaoignorePatterns(projectFolder)) {
+	for (const ignorePattern of naoignorePatterns) {
 		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
 		args.push('--glob', `!${cleanPattern}`);
 		args.push('--glob', `!${cleanPattern}/**`);
 	}
 
 	args.push('--regexp', query);
-	args.push('--', projectFolder);
+	args.push('--', searchPath);
 	return args;
+}
+
+function isInFolders(virtualPath: string, folders: string[]): boolean {
+	return folders.some((folder) => virtualPath === `/${folder}` || virtualPath.startsWith(`/${folder}/`));
 }
 
 function runContentSearch(
@@ -294,11 +381,11 @@ function runContentSearch(
 				}
 
 				const filePath = entry.data.path.text;
-				if (!isWithinProjectFolder(filePath, projectFolder)) {
+				if (!isWithinProjectFolder(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS)) {
 					return;
 				}
 
-				const virtualPath = toVirtualPath(filePath, projectFolder);
+				const virtualPath = toVirtualPath(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS);
 				const existing = results.get(virtualPath);
 				if (existing) {
 					existing.count += entry.data.submatches.length;
@@ -365,7 +452,9 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 	const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
 
 	const parentRelativePath = path.relative(projectFolder, dirPath);
-	const filtered = dirEntries.filter((entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder));
+	const filtered = dirEntries.filter(
+		(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS),
+	);
 
 	const entries: FileTreeEntry[] = [];
 
@@ -403,7 +492,7 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
-		const realPath = toRealPath(virtualPath, root, { resolveSymlinks: false });
+		const realPath = toRealPath(virtualPath, root, { ...EXPLORER_NAOIGNORE_OPTIONS, resolveSymlinks: false });
 		assertNoSymlinkInWritePath(root, realPath, virtualPath);
 		return { realPath, root };
 	} catch (error) {
