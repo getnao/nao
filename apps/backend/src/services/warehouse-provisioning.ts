@@ -46,9 +46,9 @@ import { saveProjectWarehouseEnvVars } from './warehouse-credentials';
 const PREPARE_TIMEOUT_MS = 30_000;
 const INIT_TIMEOUT_MS = 15 * 60_000;
 const DEBUG_TIMEOUT_MS = 5 * 60_000;
-const SYNC_TIMEOUT_MS = 30 * 60_000;
 const COMMAND_OUTPUT_LIMIT = 8000;
 const COMMAND_LOG_UPDATE_MS = 300;
+const COMMAND_CANCELLATION_CHECK_MS = 5_000;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 const JOB_LEASE_MS = 5 * 60_000;
 const JOB_HEARTBEAT_MS = 30_000;
@@ -88,6 +88,7 @@ const COMMAND_FAILURE_PATTERN = /^nao (init|debug|sync) (failed|timed out)\b/i;
 interface CommandLogs {
 	redactor: WarehouseLogRedactor;
 	publish: (logs: string) => Promise<unknown>;
+	assertNotCancelled: () => Promise<void>;
 }
 
 const preparedWarehouseSchema = z.object({
@@ -704,6 +705,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		const commandLogs: CommandLogs = {
 			redactor: createWarehouseLogRedactor(provisionConfig.env_vars),
 			publish: (logs) => updateJob(jobId, { logs }),
+			assertNotCancelled: () => assertJobNotCancelled(jobId),
 		};
 		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, commandLogs);
 
@@ -713,13 +715,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, commandLogs);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
-		await runNaoCommand(
-			['sync', '--provider', 'databases'],
-			projectDir,
-			commandEnvironment,
-			SYNC_TIMEOUT_MS,
-			commandLogs,
-		);
+		await runNaoCommand(['sync', '--provider', 'databases'], projectDir, commandEnvironment, null, commandLogs);
 
 		const projectId = crypto.randomUUID();
 		registeredProjectId = projectId;
@@ -943,7 +939,7 @@ function runNaoCommand(
 	args: string[],
 	cwd: string,
 	env: NodeJS.ProcessEnv,
-	timeoutMs: number,
+	timeoutMs: number | null,
 	logs: CommandLogs,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
@@ -972,9 +968,13 @@ function runNaoCommand(
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			clearTimers();
 			child.kill('SIGTERM');
 			reject(error);
+		};
+		const clearTimers = () => {
+			clearTimeout(timeout);
+			clearInterval(cancellationCheck);
 		};
 		const flushOutput = async () => {
 			if (logUpdate) {
@@ -995,21 +995,36 @@ function runNaoCommand(
 		};
 		child.stdout.on('data', captureOutput);
 		child.stderr.on('data', captureOutput);
-		const timeout = setTimeout(() => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill('SIGTERM');
-			void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
-		}, timeoutMs);
+		const timeout =
+			timeoutMs === null
+				? undefined
+				: setTimeout(() => {
+						if (settled) {
+							return;
+						}
+						settled = true;
+						clearTimers();
+						child.kill('SIGTERM');
+						void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
+					}, timeoutMs);
+		const cancellationCheck = setInterval(() => {
+			void logs.assertNotCancelled().catch((error) => {
+				if (error instanceof WarehouseSetupCancelledError) {
+					stopCommand(error);
+					return;
+				}
+				logger.warn(`Could not check whether warehouse setup was cancelled: ${String(error)}`, {
+					source: 'system',
+				});
+			});
+		}, COMMAND_CANCELLATION_CHECK_MS);
 
 		child.once('error', async (error) => {
 			if (settled) {
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			clearTimers();
 			await flushOutput();
 			reject(new Error(`Could not start nao ${args[0]}: ${error.message}`));
 		});
@@ -1018,7 +1033,7 @@ function runNaoCommand(
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			clearTimers();
 			await flushOutput();
 			if (code === 0) {
 				resolve();
@@ -1237,6 +1252,13 @@ async function updateJob(
 	}
 	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(jobId);
 	throw job?.status === 'cancelled' ? new WarehouseSetupCancelledError() : new Error('Warehouse setup job not found');
+}
+
+async function assertJobNotCancelled(jobId: string): Promise<void> {
+	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(jobId);
+	if (job?.status === 'cancelled') {
+		throw new WarehouseSetupCancelledError();
+	}
 }
 
 /**
