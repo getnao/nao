@@ -490,7 +490,7 @@ export const chatMessage = pgTable(
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: boolean('isForked'),
-		citation: jsonb('citation').$type<CitationData>(),
+		citations: jsonb('citations').$type<CitationData[]>(),
 		discordMessageId: text('discord_message_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 

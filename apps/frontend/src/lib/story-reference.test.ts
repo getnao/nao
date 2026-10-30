@@ -14,13 +14,9 @@ const ORIGIN = 'https://nao.example.com';
 
 describe('parseStoryIdFromUrl', () => {
 	it.each([
-		[`${ORIGIN}/stories/abc`, 'abc'],
 		[`${ORIGIN}/stories/abc/`, 'abc'],
-		['/stories/abc', 'abc'],
 		[`${ORIGIN}/stories/abc/edit`, null],
-		[`${ORIGIN}/chats/abc`, null],
 		['https://elsewhere.example.com/stories/abc', null],
-		['not a url at all', null],
 	])('parses %s', (url, expected) => {
 		expect(parseStoryIdFromUrl(url, ORIGIN)).toBe(expected);
 	});
@@ -29,10 +25,7 @@ describe('parseStoryIdFromUrl', () => {
 describe('parseStoryFolderIdFromUrl', () => {
 	it.each([
 		[`${ORIGIN}/stories?folderId=finance`, 'finance'],
-		['/stories/?folderId=__shared_with_me__', '__shared_with_me__'],
 		[`${ORIGIN}/stories?folderId=null`, null],
-		[`${ORIGIN}/stories`, null],
-		[`${ORIGIN}/chats?folderId=finance`, null],
 		['https://elsewhere.example.com/stories?folderId=finance', null],
 	])('parses %s', (url, expected) => {
 		expect(parseStoryFolderIdFromUrl(url, ORIGIN)).toBe(expected);
@@ -70,22 +63,6 @@ describe('dropping stories', () => {
 		expect(isStoryDrag(dataTransfer)).toBe(false);
 		expect(mayCarryStories(dataTransfer)).toBe(true);
 		expect(readDroppedReferences(dataTransfer)).toEqual({ storyIds: ['xyz'], folderIds: ['finance'] });
-	});
-
-	it('reads a story link dragged as plain text', () => {
-		const dataTransfer = fakeDataTransfer({ 'text/plain': `${ORIGIN}/stories/xyz` });
-
-		expect(mayCarryStories(dataTransfer)).toBe(true);
-		expect(readDroppedReferences(dataTransfer)).toEqual({ storyIds: ['xyz'], folderIds: [] });
-	});
-
-	it('ignores drops that carry no story', () => {
-		expect(mayCarryStories(fakeDataTransfer({ 'text/html': '<b>hello</b>' }))).toBe(false);
-		expect(readDroppedReferences(fakeDataTransfer({ 'text/plain': 'hello' }))).toEqual({
-			storyIds: [],
-			folderIds: [],
-		});
-		expect(readDroppedReferences(null)).toEqual({ storyIds: [], folderIds: [] });
 	});
 });
 

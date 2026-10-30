@@ -8,19 +8,22 @@ import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryAccessError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryElementPicker } from '@/components/story-element-picker';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { STORY_ASK_BAR_INSET_STYLE, StoryAskBar } from '@/components/story-ask-bar';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { Spinner } from '@/components/ui/spinner';
 import { SelectionProvider } from '@/contexts/text-selection';
-import { requestAskAboutSelection } from '@/stores/ask-bar';
+import { requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 import { trpc } from '@/main';
 
 export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 	const navigate = useNavigate();
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 	const queryClient = useQueryClient();
 
 	const storyQuery = useQuery(trpc.story.getStandalone.queryOptions({ storyId }));
@@ -81,20 +84,34 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 						: undefined
 				}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+				elementSelection={
+					isArchived
+						? undefined
+						: { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+				}
 			/>
 			<div className='relative flex min-h-0 flex-1 flex-col'>
 				<SelectionProvider key={storyId}>
-					<HighlightBubble onAsk={requestAskAboutSelection} disabled={isArchived} />
-					<StandaloneStoryContent
-						code={story.code}
-						queryData={story.queryData as QueryDataMap | null}
-						theme={storyTheme}
-						chatId={story.chatId}
-						storySlug={story.slug}
+					<HighlightBubble
+						onAsk={(selection) => requestAskAboutSelection(selection, story.slug)}
+						disabled={isArchived}
 					/>
-				</SelectionProvider>
+					<StoryElementPicker
+						isPicking={!isArchived && isSelectingElements}
+						storySlug={story.slug}
+						onPick={(ask) => requestAskAboutElement(ask, story.slug)}
+					>
+						<StandaloneStoryContent
+							code={story.code}
+							queryData={story.queryData as QueryDataMap | null}
+							theme={storyTheme}
+							chatId={story.chatId}
+							storySlug={story.slug}
+						/>
+					</StoryElementPicker>
 
-				{!isArchived && <StoryAskBar storyId={storyId} isOwner />}
+					{!isArchived && <StoryAskBar storyId={storyId} isOwner />}
+				</SelectionProvider>
 			</div>
 
 			<AssetAnalyticsDialog
@@ -194,6 +211,7 @@ function StandaloneStoryContent({
 	return (
 		<StoryTabbedContent
 			code={code}
+			storySlug={storySlug}
 			baselineQueryData={queryData}
 			theme={theme}
 			filterApi={filterApi}

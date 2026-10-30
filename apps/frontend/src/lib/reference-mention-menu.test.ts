@@ -98,7 +98,6 @@ function story(storyId: string, title: string): ReferenceableStory {
 		storyId,
 		title,
 		chatId: null,
-		chatTitle: null,
 		format: 'classic',
 		authorName: 'Owner',
 		isPinned: false,

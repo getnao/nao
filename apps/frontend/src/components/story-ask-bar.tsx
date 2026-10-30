@@ -3,14 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CSSProperties } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
 
-import type { AskSelection } from '@/stores/ask-bar';
 import { AskBar } from '@/components/ask-bar';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
 
 const STORY_QUERY_KEYS = [[['story']], [['storyShare']], [['customStoryViewer']]];
-const MAX_SELECTION_TEXT_LENGTH = 4_000;
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -37,13 +35,10 @@ export function StoryAskBar({
 		forgetHandedOverQuestion(storyId);
 	}, [storyId]);
 
-	const askStory = async (selection?: AskSelection) => {
-		const { chatId, hasAttachedStoryChat } = await askMutation.mutateAsync({
-			storyId,
-			selectionText: selection && toSelectionText(selection).slice(0, MAX_SELECTION_TEXT_LENGTH),
-		});
+	const askStory = async () => {
+		const { chatId, hasAttachedStoryChat } = await askMutation.mutateAsync({ storyId });
 		if (hasAttachedStoryChat) {
-			handOverQuestion(storyId, { chatId, selection });
+			handOverQuestion(storyId, { chatId });
 		}
 		return chatId;
 	};
@@ -90,12 +85,4 @@ function hasStoryEdit(message: UIMessage | undefined): boolean {
 		message?.role === 'assistant' &&
 		message.parts.some((part) => part.type === 'tool-story' && part.state === 'output-available')
 	);
-}
-
-/** What the agent reads about the selection: the selected text, or the block of a custom story. */
-function toSelectionText({ text, block }: AskSelection): string {
-	if (!block) {
-		return text;
-	}
-	return block.title ? `The ${block.kind} "${block.title}"` : `This ${block.kind}`;
 }

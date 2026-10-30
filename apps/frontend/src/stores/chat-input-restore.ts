@@ -7,7 +7,7 @@ export type ChatInputRestore = {
 	text: string;
 	images: { url: string; mediaType: string }[];
 	documents: DocumentAttachment[];
-	citation?: CitationData;
+	citations?: CitationData[];
 };
 
 const RESTORE_KEY = 'restore';

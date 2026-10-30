@@ -30,7 +30,13 @@ export function Block({ kind, queryId, title, description, className, style, edi
 	const canViewQuery = queryId !== undefined && !isStoryExport() && !isPrintMode();
 	const [showQuery, setShowQuery] = useState(false);
 	return (
-		<section className={joinClassNames('nao-block', `nao-${kind}`, className)} style={style}>
+		<section
+			className={joinClassNames('nao-block', `nao-${kind}`, className)}
+			style={style}
+			data-nao-block-kind={kind}
+			data-nao-block-title={title}
+			data-nao-block-query={queryId}
+		>
 			{(title || description || editingEnabled || canViewQuery) && (
 				<header className='nao-block__header'>
 					<div className='nao-block__heading'>

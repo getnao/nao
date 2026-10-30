@@ -289,7 +289,7 @@ const aggregateChatMessagParts = (
 					feedback: row.message_feedback ?? undefined,
 					source: row.chat_message.source ?? undefined,
 					isForked: row.chat_message.isForked ?? undefined,
-					citation: row.chat_message.citation ?? undefined,
+					citations: row.chat_message.citations ?? undefined,
 					stopReason: row.chat_message.stopReason ?? undefined,
 					llmProvider: row.chat_message.llmProvider ?? undefined,
 					createdAt: row.chat_message.createdAt?.getTime(),
@@ -538,7 +538,7 @@ export const createChat = async (
 	newUserMessage: {
 		text: string;
 		source?: UIMessage['source'];
-		citation?: CitationData;
+		citations?: CitationData[];
 	},
 	additionalParts: UIMessagePart[] = [],
 ): Promise<[DBChat, DBChatMessage]> => {
@@ -554,7 +554,7 @@ export const createChat = async (
 				senderUserId: savedChat.userId,
 				role: 'user',
 				source: newUserMessage.source,
-				citation: newUserMessage.citation ?? null,
+				citations: newUserMessage.citations ?? null,
 				versionGroupId: messageId,
 			})
 			.returning()
@@ -640,7 +640,7 @@ export const upsertMessage = async (
 			llmModelId: message.llmModelId,
 			source: message.source,
 			isForked: message.isForked,
-			citation: message.citation ?? null,
+			citations: message.citations ?? null,
 			versionGroupId: message.versionGroupId ?? (message.role === 'user' ? messageId : undefined),
 			...message.tokenUsage,
 		};

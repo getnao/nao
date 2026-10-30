@@ -10,6 +10,7 @@ import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { compactionService } from '../services/compaction';
 import { attachChatToStandaloneStory } from '../services/standalone-story';
 import { forkStoryIntoChat } from '../services/story-fork';
+import { isCustomStoriesEnabled } from '../services/story-mount';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataMessages } from '../utils/chat-message-story';
@@ -150,6 +151,9 @@ export const chatForkRoutes = {
 		const { story, projectId, user } = ctx;
 		if (story.ownerId !== user.id) {
 			await assertUserGroupFeatureForTrpc(projectId, user.id, 'storyCreation');
+		}
+		if (story.format === 'custom') {
+			await assertCustomStoryForkAllowed(projectId, user.id);
 		}
 		const { chatId } = await forkStoryIntoChat(story, { userId: user.id, projectId });
 		logStoryFork({ ...story, projectId }, user.id, chatId, 'full');
@@ -368,4 +372,12 @@ function buildStoryContextMessage(slug: string, title: string, code: string): Om
 			} as UIMessagePart,
 		],
 	};
+}
+
+/** A custom fork is built and published like any custom story, so it needs the same rights as authoring one. */
+async function assertCustomStoryForkAllowed(projectId: string, userId: string): Promise<void> {
+	if (!isCustomStoriesEnabled()) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Custom stories are disabled on this instance.' });
+	}
+	await assertUserGroupFeatureForTrpc(projectId, userId, 'customStoryCreation');
 }

@@ -1,30 +1,52 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, X } from 'lucide-react';
+import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
+import type { MentionOption, PromptHandle } from 'prompt-mentions';
 import type { UIMessage } from '@nao/backend/chat';
 
+import type { CitationData } from '@nao/shared/types';
+import type { SelectionData } from '@/components/highlight-bubble';
 import type { AskQuestion, AskSelection } from '@/stores/ask-bar';
+import type { PendingCitation } from '@/stores/chat-pending-citation';
 import { ChatInputAnimatedBorder } from '@/components/chat-input-animated-border';
+import { ChatPrompt } from '@/components/chat-input-prompt';
 import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
-import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
+import { CitationPillPreview } from '@/components/citation-pill-preview';
+import { HighlightBubble } from '@/components/highlight-bubble';
 import { Button } from '@/components/ui/button';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { SetChatInputCallbackProvider, useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { SelectionProvider } from '@/contexts/text-selection';
 import { ChatIdContext, useChatId } from '@/hooks/use-chat-id';
+import { useCitationPills } from '@/hooks/use-citation-pills';
+import { useIsPromptMultiline } from '@/hooks/use-is-prompt-multiline';
+import { useOpenCitation } from '@/hooks/use-open-citation';
+import { capCitationText, isSameCitation, toContextMentions } from '@/lib/citation-mention';
 import { cn } from '@/lib/utils';
-import { useAskRequest } from '@/stores/ask-bar';
+import { toAskCitation, useAskRequest } from '@/stores/ask-bar';
+import { toMessageCitations } from '@/stores/chat-pending-citation';
 
 type AskSession = {
 	chatId: string | null;
-	selection?: AskSelection;
+	/** What the next message quotes: each Ask on the page or in the answers adds one, as a pill in the input. */
+	citations: PendingCitation[];
 	pendingText?: string;
+	pendingCitations?: CitationData[];
+	pendingMentions?: MentionOption[];
 	isPanelOpen: boolean;
 };
 
-const NO_SESSION: AskSession = { chatId: null, isPanelOpen: false };
+interface AskMessage {
+	text: string;
+	citations: CitationData[];
+	mentions: MentionOption[];
+}
+
+const NO_SESSION: AskSession = { chatId: null, citations: [], isPanelOpen: false };
 const ASK_ERROR_MESSAGE = "Couldn't ask this question. Try again.";
 
 /**
@@ -48,48 +70,72 @@ export function AskBar({
 	/** A question to reopen with its panel open as the bar mounts. */
 	resumedQuestion?: AskQuestion;
 	/** Creates the chat of a new question and returns its id. */
-	onAsk: (selection?: AskSelection) => Promise<string>;
+	onAsk: (citations: CitationData[]) => Promise<string>;
 	onEnd?: () => void;
 	/** Rendered within the agent of the question, to react to its answers. */
 	children?: ReactNode;
 }) {
 	const [session, setSession] = useState<AskSession>(() =>
-		resumedQuestion ? { ...resumedQuestion, isPanelOpen: true } : NO_SESSION,
+		resumedQuestion ? { ...resumedQuestion, citations: [], isPanelOpen: true } : NO_SESSION,
 	);
-	const inputRef = useRef<HTMLTextAreaElement>(null);
+	const inputRef = useRef<PromptHandle>(null);
 	const request = useAskRequest();
 	const requestIdAtMount = useRef(request?.id);
+
+	const cite = (selection: AskSelection) => setSession((current) => withCitation(current, toAskCitation(selection)));
 
 	useEffect(() => {
 		if (!request || request.id === requestIdAtMount.current) {
 			return;
 		}
-		if (request.chatId || request.selection) {
-			setSession({ chatId: request.chatId, selection: request.selection, isPanelOpen: !!request.chatId });
+		const { chatId, selection } = request;
+		if (chatId) {
+			setSession({ chatId, citations: [], isPanelOpen: true });
+		} else if (selection) {
+			setSession((current) => withCitation(current, toAskCitation(selection)));
 		}
 		inputRef.current?.focus();
 	}, [request]);
 
-	const startSession = async (text: string) => {
-		const chatId = await onAsk(session.selection);
-		setSession((current) => ({ ...current, chatId, pendingText: text, isPanelOpen: true }));
+	const startSession = async (message: AskMessage) => {
+		const chatId = await onAsk(message.citations);
+		setSession((current) => ({
+			...current,
+			chatId,
+			pendingText: message.text,
+			pendingCitations: message.citations,
+			pendingMentions: message.mentions,
+			citations: [],
+			isPanelOpen: true,
+		}));
 	};
 	const setPanelOpen = (isPanelOpen: boolean) => setSession((current) => ({ ...current, isPanelOpen }));
+	const removeCitation = (id: string) =>
+		setSession((current) => ({
+			...current,
+			citations: current.citations.filter((citation) => citation.id !== id),
+		}));
+	const clearCitations = () => setSession((current) => ({ ...current, citations: [] }));
 	const endSession = () => {
 		onEnd?.();
 		setSession(NO_SESSION);
+	};
+	const citationControls = {
+		citations: session.citations,
+		onRemoveCitation: removeCitation,
+		onCitationsSent: clearCitations,
 	};
 
 	if (!session.chatId) {
 		return (
 			<FloatingBar isHidden={isInputHidden}>
 				<AskInput
-					inputRef={inputRef}
+					promptRef={inputRef}
 					placeholder={placeholder}
-					selection={session.selection}
+					citations={session.citations}
 					isSending={isAsking}
 					error={hasAskFailed ? ASK_ERROR_MESSAGE : undefined}
-					onClearSelection={endSession}
+					onRemoveCitation={removeCitation}
 					onSubmit={startSession}
 				/>
 			</FloatingBar>
@@ -102,20 +148,30 @@ export function AskBar({
 				<AgentProvider disableNavigation>
 					<PendingMessageSender
 						pendingText={session.pendingText}
-						onSent={() => setSession((current) => ({ ...current, pendingText: undefined }))}
+						pendingCitations={session.pendingCitations}
+						pendingMentions={session.pendingMentions}
+						onSent={() =>
+							setSession((current) => ({
+								...current,
+								pendingText: undefined,
+								pendingCitations: undefined,
+								pendingMentions: undefined,
+							}))
+						}
 					/>
 					{children}
 					{session.isPanelOpen ? (
 						<AskPanel
+							{...citationControls}
 							placeholder={placeholder}
-							selection={session.selection}
+							onCite={cite}
 							onCollapse={() => setPanelOpen(false)}
 							onClose={endSession}
 						/>
 					) : (
 						<FloatingBar isHidden={isInputHidden}>
 							<AskStatus onOpen={() => setPanelOpen(true)} onClose={endSession} />
-							<SessionInput inputRef={inputRef} placeholder={placeholder} />
+							<SessionInput {...citationControls} promptRef={inputRef} placeholder={placeholder} />
 						</FloatingBar>
 					)}
 				</AgentProvider>
@@ -139,8 +195,18 @@ function FloatingBar({ isHidden, children }: { isHidden: boolean; children: Reac
 }
 
 /** Sends the first message once the new quick question is mounted. */
-function PendingMessageSender({ pendingText, onSent }: { pendingText?: string; onSent: () => void }) {
-	const { queueOrSendMessage } = useAgentContext();
+function PendingMessageSender({
+	pendingText,
+	pendingCitations,
+	pendingMentions,
+	onSent,
+}: {
+	pendingText?: string;
+	pendingCitations?: CitationData[];
+	pendingMentions?: MentionOption[];
+	onSent: () => void;
+}) {
+	const { queueOrSendMessage, setMentions } = useAgentContext();
 	const sentText = useRef<string | null>(null);
 
 	useEffect(() => {
@@ -149,8 +215,9 @@ function PendingMessageSender({ pendingText, onSent }: { pendingText?: string; o
 		}
 		sentText.current = pendingText;
 		onSent();
-		void queueOrSendMessage({ text: pendingText });
-	}, [pendingText, onSent, queueOrSendMessage]);
+		setMentions(pendingMentions ?? []);
+		void queueOrSendMessage({ text: pendingText, citations: nonEmpty(pendingCitations) });
+	}, [pendingText, pendingCitations, pendingMentions, onSent, queueOrSendMessage, setMentions]);
 
 	return null;
 }
@@ -190,72 +257,104 @@ function AskStatus({ onOpen, onClose }: { onOpen: () => void; onClose: () => voi
 	);
 }
 
+interface CitationControls {
+	citations: PendingCitation[];
+	onRemoveCitation: (id: string) => void;
+	onCitationsSent: () => void;
+}
+
 function SessionInput({
-	inputRef,
+	promptRef,
 	placeholder,
-}: {
-	inputRef: RefObject<HTMLTextAreaElement | null>;
+	citations,
+	onRemoveCitation,
+	onCitationsSent,
+}: CitationControls & {
+	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
 }) {
-	const { queueOrSendMessage, isRunning } = useAgentContext();
+	const { isRunning } = useAgentContext();
+	const send = useSendWithCitations(onCitationsSent);
 	return (
 		<AskInput
-			inputRef={inputRef}
+			promptRef={promptRef}
 			placeholder={placeholder}
+			citations={citations}
 			isSending={isRunning}
-			onSubmit={(text) => void queueOrSendMessage({ text })}
+			onRemoveCitation={onRemoveCitation}
+			onSubmit={send}
 		/>
 	);
 }
 
-/** The whole quick question beside the content, rendered like any chat, with its own input. */
+/** A follow-up quotes the citations added since the last message, then the input starts without any. */
+function useSendWithCitations(onCitationsSent: () => void) {
+	const { queueOrSendMessage, setMentions } = useAgentContext();
+	return ({ text, citations, mentions }: AskMessage) => {
+		setMentions(mentions);
+		void queueOrSendMessage({ text, citations: nonEmpty(citations) });
+		onCitationsSent();
+	};
+}
+
+/**
+ * The whole quick question beside the content, rendered like any chat, with its own input.
+ * Text selected in its answers can be asked about too, like text on the page.
+ */
 function AskPanel({
 	placeholder,
-	selection,
+	citations,
+	onRemoveCitation,
+	onCitationsSent,
+	onCite,
 	onCollapse,
 	onClose,
-}: {
+}: CitationControls & {
 	placeholder: string;
-	selection?: AskSelection;
+	onCite: (selection: AskSelection) => void;
 	onCollapse: () => void;
 	onClose: () => void;
 }) {
-	const panelInputRef = useRef<HTMLTextAreaElement>(null);
-	const { queueOrSendMessage, isRunning } = useAgentContext();
+	const panelInputRef = useRef<PromptHandle>(null);
+	const { isRunning } = useAgentContext();
+	const send = useSendWithCitations(onCitationsSent);
 
 	useEffect(() => {
 		panelInputRef.current?.focus();
 	}, []);
 
 	return (
-		<AskPanelFrame selection={selection} onCollapse={onCollapse} onClose={onClose}>
-			<Conversation className='min-h-0'>
-				<ConversationContent className='gap-0 px-4 py-3 md:px-4 md:py-3'>
-					<ChatMessagesContent />
-				</ConversationContent>
-				<ConversationScrollButton />
-			</Conversation>
-			<div className='border-t p-3'>
+		<AskPanelFrame onCollapse={onCollapse} onClose={onClose}>
+			<SelectionProvider>
+				<HighlightBubble onAsk={({ text }: SelectionData) => onCite({ text })} />
+				<Conversation className='min-h-0'>
+					<ConversationContent className='gap-0 px-4 py-3 md:px-4 md:py-3'>
+						<ChatMessagesContent />
+					</ConversationContent>
+					<ConversationScrollButton />
+				</Conversation>
+			</SelectionProvider>
+			<div className='border-t p-3' data-selection-ignore>
 				<AskInput
-					inputRef={panelInputRef}
+					promptRef={panelInputRef}
 					placeholder={placeholder}
+					citations={citations}
 					isSending={isRunning}
 					fillsFromFollowUps
-					onSubmit={(text) => void queueOrSendMessage({ text })}
+					onRemoveCitation={onRemoveCitation}
+					onSubmit={send}
 				/>
 			</div>
 		</AskPanelFrame>
 	);
 }
 
-/** The panel beside the content, headed by its controls and the part of the page the question is about. */
+/** The panel beside the content, headed by its controls. The page's own selection leaves it out. */
 function AskPanelFrame({
-	selection,
 	onCollapse,
 	onClose,
 	children,
 }: {
-	selection?: AskSelection;
 	onCollapse?: () => void;
 	onClose: () => void;
 	children: ReactNode;
@@ -266,11 +365,6 @@ function AskPanelFrame({
 			className='absolute inset-y-3 right-3 z-30 flex w-[min(420px,calc(100%-1.5rem))] flex-col overflow-hidden rounded-2xl border bg-background shadow-xl'
 		>
 			<AskPanelHeader onCollapse={onCollapse} onClose={onClose} />
-			{selection && (
-				<div className='mt-3 px-4'>
-					<SelectionCard selection={selection} />
-				</div>
-			)}
 			{children}
 		</aside>
 	);
@@ -323,69 +417,88 @@ function AskPanelHeader({ onCollapse, onClose }: { onCollapse?: () => void; onCl
 }
 
 function AskInput({
-	inputRef,
+	promptRef,
 	placeholder,
-	selection,
+	citations,
 	isSending,
 	fillsFromFollowUps = false,
 	error,
-	onClearSelection,
+	onRemoveCitation,
 	onSubmit,
 }: {
-	inputRef: RefObject<HTMLTextAreaElement | null>;
+	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
-	selection?: AskSelection;
+	citations: PendingCitation[];
 	isSending: boolean;
 	/** Follow-up suggestions of the conversation fill the input, as they do in a chat. */
 	fillsFromFollowUps?: boolean;
 	error?: string;
-	onClearSelection?: () => void;
+	onRemoveCitation: (id: string) => void;
 	/** The input keeps the text when the submit fails, so the question can be sent again. */
-	onSubmit: (text: string) => void | Promise<void>;
+	onSubmit: (message: AskMessage) => void | Promise<void>;
 }) {
-	const [text, setText] = useState('');
+	const formRef = useRef<HTMLFormElement>(null);
+	const [value, setValue] = useState('');
+	const citationPills = useCitationPills({
+		promptRef,
+		containerRef: formRef,
+		citations,
+		onRemove: onRemoveCitation,
+	});
+	const hasText = value.trim().length > 0;
+	const isMultiline = useIsPromptMultiline(formRef);
+	const openCitation = useOpenCitation();
+	const findCitation = useCallback((id: string) => citations.find((citation) => citation.id === id), [citations]);
 
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
-		const trimmed = text.trim();
-		if (!trimmed || isSending) {
+		const text = value.trim();
+		if (!text || isSending) {
 			return;
 		}
-		Promise.resolve(onSubmit(trimmed))
-			.then(() => setText(''))
+		const mentions = toContextMentions(promptRef.current?.getMentions() ?? []);
+		Promise.resolve(onSubmit({ ...toMessageCitations(citations, text), mentions }))
+			.then(() => {
+				promptRef.current?.clear();
+				setValue('');
+			})
 			.catch(() => undefined);
+	};
+
+	const fill = (text: string) => {
+		promptRef.current?.clear();
+		promptRef.current?.insertText(text);
+		setValue(text);
 	};
 
 	return (
 		<form
+			ref={formRef}
 			onSubmit={submit}
 			className={cn(
-				'relative flex w-full flex-col gap-1.5 bg-background p-3 shadow-lg',
-				selection ? 'rounded-2xl' : 'rounded-full',
+				'relative flex w-full items-end gap-2 bg-background p-2 pl-3 shadow-lg',
+				citations.length > 0 || isMultiline ? 'rounded-2xl' : 'rounded-full',
 			)}
 		>
 			<ChatInputAnimatedBorder isStatic />
-			{fillsFromFollowUps && <FollowUpFiller onFill={setText} />}
-			{selection && <SelectionCard selection={selection} onClear={onClearSelection} />}
-			<div className='flex items-center gap-2'>
-				<textarea
-					ref={inputRef}
-					value={text}
-					rows={1}
+			{fillsFromFollowUps && <FollowUpFiller onFill={fill} />}
+			<CitationPillPreview containerRef={formRef} findCitation={findCitation} onOpen={openCitation} />
+			<div className='flex min-w-0 flex-1 items-end gap-2'>
+				<ChatPrompt
+					promptRef={promptRef}
 					placeholder={placeholder}
-					onChange={(event) => setText(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Enter' && !event.shiftKey) {
-							submit(event);
-						}
-					}}
-					className='max-h-32 min-h-8 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground'
+					compact
+					storyCreationEnabled={false}
+					citationOptions={citationPills.options}
+					onChange={(nextValue) => setValue(nextValue)}
+					onEnter={() => submit()}
+					onMentionDeleted={citationPills.handleMentionDeleted}
 				/>
 				<Button
 					type='submit'
 					size='icon-sm'
-					className={cn('shrink-0 rounded-full', !text.trim() && 'opacity-50')}
-					disabled={!text.trim() || isSending}
+					className={cn('mb-0.75 shrink-0 rounded-full', !hasText && 'opacity-50')}
+					disabled={!hasText || isSending}
 					aria-label='Send'
 				>
 					{isSending ? <Loader2 className='animate-spin' /> : <ArrowUp />}
@@ -400,32 +513,6 @@ function AskInput({
 	);
 }
 
-/** The part of the page the question is about, quoted like a selection asked about in a chat. */
-function SelectionCard({ selection, onClear }: { selection: AskSelection; onClear?: () => void }) {
-	return (
-		<div className='relative rounded-xl border bg-sidebar px-4 py-3'>
-			<SelectionCitationExcerpt
-				text={selection.text}
-				start={selection.start}
-				end={selection.end}
-				block={selection.block}
-			/>
-			{onClear && (
-				<Button
-					type='button'
-					variant='ghost'
-					size='icon-xs'
-					className='absolute right-2 top-2 rounded-full'
-					onClick={onClear}
-					aria-label='Remove the selection'
-				>
-					<X />
-				</Button>
-			)}
-		</div>
-	);
-}
-
 function FollowUpFiller({ onFill }: { onFill: (text: string) => void }) {
 	useRegisterSetChatInputCallback(onFill);
 	return null;
@@ -434,4 +521,17 @@ function FollowUpFiller({ onFill }: { onFill: (text: string) => void }) {
 /** Messages carried over from another chat are left out: the user never wrote them here. */
 function countQuestions(messages: UIMessage[]): number {
 	return messages.filter((message) => message.role === 'user' && !message.isForked).length;
+}
+
+function withCitation(session: AskSession, incoming: CitationData): AskSession {
+	const citation = capCitationText(incoming);
+	const isDuplicate = session.citations.some((cited) => isSameCitation(cited, citation));
+	if (isDuplicate || session.citations.length >= MAX_CITATIONS_PER_MESSAGE) {
+		return session;
+	}
+	return { ...session, citations: [...session.citations, { ...citation, id: crypto.randomUUID() }] };
+}
+
+function nonEmpty(citations: CitationData[] | undefined): CitationData[] | undefined {
+	return citations && citations.length > 0 ? citations : undefined;
 }
