@@ -882,4 +882,10 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=port,
+        reload=True,
+        reload_dirs=[str(fastapi_path), str(cli_path / "nao_core")],
+    )
