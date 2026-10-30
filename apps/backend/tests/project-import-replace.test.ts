@@ -18,6 +18,7 @@ vi.mock('../src/handlers/context-recommendations.handler', () => ({
 }));
 vi.mock('../src/services/project.service', () => ({
 	createProject: mocks.createProject,
+	getMissingProjectEnvVars: vi.fn().mockResolvedValue([]),
 	touchProjectUpdatedAt: mocks.touchProjectUpdatedAt,
 }));
 

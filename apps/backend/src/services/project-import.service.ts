@@ -8,7 +8,7 @@ import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
-import { createProject, touchProjectUpdatedAt } from './project.service';
+import { createProject, getMissingProjectEnvVars, touchProjectUpdatedAt } from './project.service';
 
 export function createTempProjectDir(prefix: string): string {
 	const dir = path.resolve(env.NAO_PROJECTS_DIR, `.${prefix}-${crypto.randomUUID()}`);
@@ -104,7 +104,12 @@ export async function createNewProject({
 	}
 
 	await ensureContextRecommendationsScheduleForNewProject(project.id);
-	return { projectId: project.id, projectName, status: 'created' as const };
+	return {
+		projectId: project.id,
+		projectName,
+		status: 'created' as const,
+		missingEnvVars: await getMissingProjectEnvVars(project),
+	};
 }
 
 export async function replaceExistingProject({
@@ -139,5 +144,10 @@ export async function replaceExistingProject({
 	}
 
 	await touchProjectUpdatedAt(project.id);
-	return { projectId: project.id, projectName, status: 'updated' as const };
+	return {
+		projectId: project.id,
+		projectName,
+		status: 'updated' as const,
+		missingEnvVars: await getMissingProjectEnvVars(project),
+	};
 }

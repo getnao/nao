@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { ImportedProject } from '@/components/settings/import-provider-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
@@ -12,8 +13,10 @@ import {
 	isDeployStepReached,
 	isOnboardingComplete,
 	OnboardingProgress,
+	useOnboardingMissingEnvVars,
 	useOnboardingProgress,
 } from '@/components/onboarding-progress';
+import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
@@ -105,7 +108,7 @@ function OnboardingPage() {
 	});
 	const warehouseJobId = latestWarehouseJob.data?.id ?? messageWarehouseJobId;
 	const warehouseJob = useWarehouseProvisioningJob(warehouseJobId);
-	const { isOrgAdmin } = usePermissions();
+	const { isAdmin, isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const waitingForDeployment = isDeployStepReached(progress);
@@ -132,6 +135,8 @@ function OnboardingPage() {
 		refetchOnWindowFocus: 'always',
 	});
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
+	const missingEnvVars = useOnboardingMissingEnvVars(progress, currentProject.data != null);
+	const showEnvVarsCard = (missingEnvVars?.length ?? 0) > 0;
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const billingAccess = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
@@ -144,7 +149,7 @@ function OnboardingPage() {
 	const activatedProjectIdRef = useRef<string | null>(null);
 	const hasMessages = messages.length > 0;
 	const inputAreaHeight = useHeight(inputAreaRef, [hasMessages]);
-	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step]);
+	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step, showEnvVarsCard]);
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const githubStatus = useQuery({
 		...trpc.github.getStatus.queryOptions(),
@@ -161,7 +166,12 @@ function OnboardingPage() {
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
 	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
-	const onboardingComplete = isOnboardingComplete(onboardingProject != null, progress, warehouseReady);
+	const onboardingComplete = isOnboardingComplete(
+		onboardingProject != null,
+		progress,
+		warehouseReady,
+		missingEnvVars?.length === 0,
+	);
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
 	const setupStatus = latestWarehouseJob.data?.status;
 	const isSetupInProgress = setupStatus !== undefined && setupStatus !== 'ready' && !isStoppedStatus(setupStatus);
@@ -326,14 +336,37 @@ function OnboardingPage() {
 									pickerDialogStyle={importDialogStyle}
 									Picker={GitHubRepoPicker}
 									onImported={(project) =>
-										queueOrSendMessage({
-											text: `GitHub repository imported successfully as "${project.projectName}".`,
-										}).catch(console.error)
+										queueOrSendMessage({ text: formatImportedMessage(project) }).catch(
+											console.error,
+										)
 									}
 								/>
 							) : (
 								<p className='text-sm text-muted-foreground'>
 									GitHub OAuth is not configured for this nao instance.
+								</p>
+							)}
+						</div>
+					)}
+					{showEnvVarsCard && (
+						<div
+							ref={actionAreaRef}
+							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 max-h-[50vh] w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 overflow-y-auto rounded-xl border border-violet/20 bg-background p-5 shadow-lg'
+						>
+							{isAdmin ? (
+								<EnvVarsSection
+									isAdmin
+									unstyled
+									onSaved={(savedEnvVars) =>
+										queueOrSendMessage({
+											text: formatSavedEnvVarsMessage(missingEnvVars ?? [], savedEnvVars),
+										}).catch(console.error)
+									}
+								/>
+							) : (
+								<p className='text-sm text-muted-foreground'>
+									A project admin must set these environment variables before nao can connect:{' '}
+									<span className='font-mono text-foreground'>{missingEnvVars?.join(', ')}</span>
 								</p>
 							)}
 						</div>
@@ -425,4 +458,20 @@ function OnboardingPage() {
 			)}
 		</div>
 	);
+}
+
+function formatImportedMessage(project: ImportedProject): string {
+	const imported = `GitHub repository imported successfully as "${project.projectName}".`;
+	if (project.missingEnvVars.length === 0) {
+		return imported;
+	}
+	return `${imported} Missing environment variables: ${project.missingEnvVars.join(', ')}.`;
+}
+
+function formatSavedEnvVarsMessage(missingEnvVars: string[], savedEnvVars: Record<string, string>): string {
+	const stillMissing = missingEnvVars.filter((name) => !savedEnvVars[name]?.trim());
+	if (stillMissing.length === 0) {
+		return 'I saved all the environment variables.';
+	}
+	return `I saved the environment variables. Still missing environment variables: ${stillMissing.join(', ')}.`;
 }

@@ -37,7 +37,7 @@ import { MattermostConnectionError, validateMattermostConnection } from '../serv
 import { mcpService } from '../services/mcp';
 import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
+import { getMissingProjectEnvVars, reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -1309,6 +1309,8 @@ export const projectRoutes = {
 
 			return usage;
 		}),
+
+	getMissingEnvVars: projectProtectedProcedure.query(({ ctx }) => getMissingProjectEnvVars(ctx.project)),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {
 		const [storedVars, warehouseCredentials] = await Promise.all([
