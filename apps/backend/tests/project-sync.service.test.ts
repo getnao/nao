@@ -4,17 +4,16 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/queries/project-warehouse-credentials.queries', () => ({
-	getProjectWarehouseCredentials: vi.fn(),
+vi.mock('../src/env', () => ({ env: { NAO_MODE: 'cloud' } }));
+vi.mock('../src/utils/context-repo', () => ({
+	getWorktreeProjectRoot: (repo: { worktreeRoot: string }) => repo.worktreeRoot,
 }));
-vi.mock('../src/queries/project.queries', () => ({
-	touchProjectUpdatedAt: vi.fn(),
+vi.mock('../src/services/context-explorer-git.service', () => ({
+	requireContextExplorerGit: vi.fn(),
+	resolveContextExplorerGitSafely: vi.fn(),
 }));
 vi.mock('../src/services/project-runtime-env', () => ({
 	getProjectRuntimeEnvVars: vi.fn(),
-}));
-vi.mock('../src/services/managed-github-repository', () => ({
-	publishManagedGithubRepositoryUpdate: vi.fn(),
 }));
 vi.mock('../src/services/nao-command.service', () => ({
 	createNaoCommandEnvironment: vi.fn((env) => env),
@@ -29,9 +28,11 @@ vi.mock('../src/utils/logger', () => ({
 }));
 
 import type { DBProject } from '../src/db/abstractSchema';
-import * as projectQueries from '../src/queries/project.queries';
-import * as warehouseCredentialQueries from '../src/queries/project-warehouse-credentials.queries';
-import { publishManagedGithubRepositoryUpdate } from '../src/services/managed-github-repository';
+import {
+	type ContextExplorerGitContext,
+	requireContextExplorerGit,
+	resolveContextExplorerGitSafely,
+} from '../src/services/context-explorer-git.service';
 import { NaoCommandExitError, runNaoCommand } from '../src/services/nao-command.service';
 import { getProjectRuntimeEnvVars } from '../src/services/project-runtime-env';
 import {
@@ -40,133 +41,101 @@ import {
 	startProjectSync,
 } from '../src/services/project-sync.service';
 
-let projectDirectory: string;
-let project: DBProject;
+const project = { id: 'project-1', name: 'Sales', path: '/live/project-1' } as DBProject;
+
+let worktreeRoot: string;
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	__resetProjectSyncRunsForTesting();
-	projectDirectory = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'project-sync-test-')), 'project');
-	fs.mkdirSync(projectDirectory);
-	fs.writeFileSync(path.join(projectDirectory, 'nao_config.yaml'), 'project_name: Sales\n');
-	project = { id: 'project-1', name: 'Sales', path: projectDirectory } as DBProject;
-	vi.mocked(warehouseCredentialQueries.getProjectWarehouseCredentials).mockResolvedValue({
-		projectId: project.id,
-		provider: 'postgres',
-		encryptedCredentials: 'encrypted',
-	} as never);
+	worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-sync-test-'));
+	fs.writeFileSync(path.join(worktreeRoot, 'nao_config.yaml'), 'project_name: edited in the editor\n');
+	const resolution = { status: 'available', repo: { worktreeRoot }, context: {} } as never;
+	vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue(resolution);
+	vi.mocked(requireContextExplorerGit).mockResolvedValue(resolution);
 	vi.mocked(getProjectRuntimeEnvVars).mockResolvedValue({ POSTGRES_PASSWORD: 'super-secret' });
-	vi.mocked(publishManagedGithubRepositoryUpdate).mockResolvedValue({
-		repoFullName: 'nao-org/nao-sales-project-1',
-		published: true,
-	});
 });
 
 afterEach(() => {
-	fs.rmSync(path.dirname(projectDirectory), { recursive: true, force: true });
+	fs.rmSync(worktreeRoot, { recursive: true, force: true });
 });
 
 describe('project sync', () => {
-	it('runs a database sync and exposes redacted logs', async () => {
-		const existingDatabasesPath = path.join(projectDirectory, 'databases');
-		fs.mkdirSync(existingDatabasesPath);
-		fs.writeFileSync(path.join(existingDatabasesPath, 'old.txt'), 'old');
+	it("runs nao sync in the user's editor worktree and leaves the results there", async () => {
 		vi.mocked(runNaoCommand).mockImplementation(async (_args, cwd, _env, _timeout, onOutput) => {
-			const databasesPath = path.join(cwd, 'databases');
-			fs.rmSync(databasesPath, { recursive: true, force: true });
-			fs.mkdirSync(databasesPath);
-			fs.writeFileSync(path.join(databasesPath, 'new.txt'), 'new');
+			fs.mkdirSync(path.join(cwd, 'databases'));
+			fs.writeFileSync(path.join(cwd, 'databases', 'sales.md'), 'synced');
 			await onOutput?.('Connecting with super-secret\n');
 		});
 
-		const run = await startProjectSync(project);
+		const run = await startProjectSync(project, gitContext('user-1'));
+		await waitForStatus('user-1', 'succeeded');
 
-		await vi.waitFor(async () => {
-			expect((await getProjectSyncState(project)).run?.status).toBe('succeeded');
-		});
-
-		const state = await getProjectSyncState(project);
+		const state = await getProjectSyncState(project, gitContext('user-1'));
 		expect(run.status).toBe('queued');
-		expect(state.run?.logs).toContain('Connecting with [REDACTED:POSTGRES_PASSWORD]');
-		expect(state.run?.logs).toContain('✓ Published synced context');
 		expect(runNaoCommand).toHaveBeenCalledWith(
 			['sync'],
-			expect.stringContaining('.project-sync-'),
+			worktreeRoot,
 			{ POSTGRES_PASSWORD: 'super-secret' },
 			30 * 60_000,
 			expect.any(Function),
 		);
-		expect(fs.existsSync(path.join(existingDatabasesPath, 'old.txt'))).toBe(false);
-		expect(fs.readFileSync(path.join(existingDatabasesPath, 'new.txt'), 'utf8')).toBe('new');
-		expect(publishManagedGithubRepositoryUpdate).toHaveBeenCalledWith({
-			projectId: project.id,
-			projectName: project.name,
-			projectDir: projectDirectory,
-			paths: ['databases'],
-			message: 'Sync database context',
-		});
-		expect(projectQueries.touchProjectUpdatedAt).toHaveBeenCalledWith(project.id);
+		expect(state.run?.logs).toContain('Connecting with [REDACTED:POSTGRES_PASSWORD]');
+		expect(state.run?.logs).toContain('✓ Synced files are ready to review in your changes');
+		expect(fs.readFileSync(path.join(worktreeRoot, 'databases', 'sales.md'), 'utf8')).toBe('synced');
+		expect((await getProjectSyncState(project, gitContext('user-2'))).run).toBeNull();
 	});
 
-	it('keeps the existing database context when publishing fails', async () => {
-		const existingFile = path.join(projectDirectory, 'databases', 'existing.txt');
-		fs.mkdirSync(path.dirname(existingFile));
-		fs.writeFileSync(existingFile, 'existing');
+	it('keeps what synced and fails the run when one source fails, like the CLI', async () => {
 		vi.mocked(runNaoCommand).mockImplementation(async (_args, cwd) => {
-			const databasesPath = path.join(cwd, 'databases');
-			fs.rmSync(databasesPath, { recursive: true, force: true });
-			fs.mkdirSync(databasesPath);
-			fs.writeFileSync(path.join(databasesPath, 'new.txt'), 'new');
-		});
-		vi.mocked(publishManagedGithubRepositoryUpdate).mockRejectedValue(new Error('GitHub push failed'));
-
-		await startProjectSync(project);
-
-		await vi.waitFor(async () => {
-			expect((await getProjectSyncState(project)).run?.status).toBe('failed');
-		});
-
-		expect(fs.readFileSync(existingFile, 'utf8')).toBe('existing');
-		expect(projectQueries.touchProjectUpdatedAt).not.toHaveBeenCalled();
-	});
-
-	it('applies everything that synced when one source fails, like the CLI', async () => {
-		const databasesPath = path.join(projectDirectory, 'databases');
-		fs.mkdirSync(path.join(databasesPath, 'sales'), { recursive: true });
-		fs.mkdirSync(path.join(databasesPath, 'finance'), { recursive: true });
-		fs.writeFileSync(path.join(databasesPath, 'sales', 'table.md'), 'old sales');
-		fs.writeFileSync(path.join(databasesPath, 'finance', 'table.md'), 'old finance');
-		vi.mocked(runNaoCommand).mockImplementation(async (_args, cwd) => {
-			fs.writeFileSync(path.join(cwd, 'databases', 'sales', 'table.md'), 'new sales');
-			fs.mkdirSync(path.join(cwd, 'docs', 'notion'), { recursive: true });
-			fs.writeFileSync(path.join(cwd, 'docs', 'notion', 'page.md'), 'notion page');
+			fs.writeFileSync(path.join(cwd, 'sales.md'), 'synced');
 			throw new NaoCommandExitError('nao sync failed: Failed to sync 1 database: finance');
 		});
 
-		await startProjectSync(project);
+		await startProjectSync(project, gitContext('user-1'));
+		await waitForStatus('user-1', 'failed');
 
-		await vi.waitFor(async () => {
-			expect((await getProjectSyncState(project)).run?.status).toBe('failed');
-		});
-
-		const state = await getProjectSyncState(project);
+		const state = await getProjectSyncState(project, gitContext('user-1'));
 		expect(state.run?.error).toBe('nao sync failed: Failed to sync 1 database: finance');
-		expect(state.run?.logs).toContain('Updated the context that synced successfully');
-		expect(fs.readFileSync(path.join(databasesPath, 'sales', 'table.md'), 'utf8')).toBe('new sales');
-		expect(fs.readFileSync(path.join(databasesPath, 'finance', 'table.md'), 'utf8')).toBe('old finance');
-		expect(fs.readFileSync(path.join(projectDirectory, 'docs', 'notion', 'page.md'), 'utf8')).toBe('notion page');
-		expect(fs.readdirSync(path.dirname(projectDirectory)).some((name) => name.startsWith('.project-sync'))).toBe(
-			false,
-		);
-		expect(projectQueries.touchProjectUpdatedAt).toHaveBeenCalledWith(project.id);
+		expect(fs.readFileSync(path.join(worktreeRoot, 'sales.md'), 'utf8')).toBe('synced');
 	});
 
-	it('is unavailable without stored warehouse credentials', async () => {
-		vi.mocked(warehouseCredentialQueries.getProjectWarehouseCredentials).mockResolvedValue(null);
+	it('is unavailable when the editor has no Git access to the project', async () => {
+		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
+			status: 'unavailable',
+			reason: 'no-repo',
+			message: 'Connect a repository first.',
+			repo: null,
+		});
 
-		await expect(getProjectSyncState(project)).resolves.toMatchObject({
+		await expect(getProjectSyncState(project, gitContext('user-1'))).resolves.toMatchObject({
 			available: false,
-			unavailableReason: 'Database sync is only available for projects created with Connect my data.',
+			unavailableReason: 'Connect a repository first.',
+		});
+	});
+
+	it('is unavailable when the worktree has no nao_config.yaml', async () => {
+		fs.rmSync(path.join(worktreeRoot, 'nao_config.yaml'));
+
+		await expect(getProjectSyncState(project, gitContext('user-1'))).resolves.toMatchObject({
+			available: false,
+			unavailableReason: 'This project has no nao_config.yaml.',
 		});
 	});
 });
+
+function gitContext(userId: string): ContextExplorerGitContext {
+	return {
+		projectId: project.id,
+		projectFolder: project.path!,
+		userId,
+		user: { name: 'Leo', email: 'leo@example.com' },
+		token: 'github-token',
+	};
+}
+
+async function waitForStatus(userId: string, status: 'succeeded' | 'failed'): Promise<void> {
+	await vi.waitFor(async () => {
+		expect((await getProjectSyncState(project, gitContext(userId))).run?.status).toBe(status);
+	});
+}

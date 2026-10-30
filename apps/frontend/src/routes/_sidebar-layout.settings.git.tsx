@@ -830,6 +830,7 @@ async function invalidateRepositoryQueries(queryClient: QueryClient): Promise<vo
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.getRepo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.gitlab.getProjectGitInfo.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.projectSync.getStatus.queryKey() }),
 	]);
 }
 

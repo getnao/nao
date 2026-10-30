@@ -5,10 +5,15 @@ import { TRPCError } from '@trpc/server';
 
 import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
-import * as projectQueries from '../queries/project.queries';
+import { getWorktreeProjectRoot } from '../utils/context-repo';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { redactSecretValues } from '../utils/sandbox-secrets';
+import {
+	type ContextExplorerGitContext,
+	requireContextExplorerGit,
+	resolveContextExplorerGitSafely,
+} from './context-explorer-git.service';
 import { createNaoCommandEnvironment, NaoCommandExitError, runNaoCommand } from './nao-command.service';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 
@@ -34,23 +39,30 @@ export interface ProjectSyncState {
 
 const runs = new Map<string, ProjectSyncRun>();
 
-export async function getProjectSyncState(project: DBProject): Promise<ProjectSyncState> {
-	const unavailableReason = await getUnavailableReason(project);
+export async function getProjectSyncState(
+	project: DBProject,
+	gitContext: ContextExplorerGitContext,
+): Promise<ProjectSyncState> {
+	const unavailableReason = await getUnavailableReason(gitContext);
 	return {
 		available: unavailableReason === null,
 		unavailableReason,
-		run: runs.get(project.id) ?? null,
+		run: runs.get(getRunKey(project.id, gitContext.userId)) ?? null,
 	};
 }
 
-export async function startProjectSync(project: DBProject): Promise<ProjectSyncRun> {
-	return withKeyedLock(`project-sync:start:${project.id}`, async () => {
-		const unavailableReason = await getUnavailableReason(project);
+export async function startProjectSync(
+	project: DBProject,
+	gitContext: ContextExplorerGitContext,
+): Promise<ProjectSyncRun> {
+	const runKey = getRunKey(project.id, gitContext.userId);
+	return withKeyedLock(`project-sync:start:${runKey}`, async () => {
+		const unavailableReason = await getUnavailableReason(gitContext);
 		if (unavailableReason) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: unavailableReason });
 		}
 
-		const current = runs.get(project.id);
+		const current = runs.get(runKey);
 		if (current?.status === 'queued' || current?.status === 'running') {
 			return current;
 		}
@@ -64,11 +76,11 @@ export async function startProjectSync(project: DBProject): Promise<ProjectSyncR
 			startedAt: null,
 			finishedAt: null,
 		};
-		runs.set(project.id, run);
+		runs.set(runKey, run);
 		setImmediate(() => {
-			void runProjectSync(project, run.id).catch((error) => {
+			void runProjectSync(project, gitContext, runKey, run.id).catch((error) => {
 				const message = error instanceof Error ? error.message : 'Project sync failed.';
-				updateRun(project.id, run.id, {
+				updateRun(runKey, run.id, {
 					status: 'failed',
 					error: message,
 					finishedAt: new Date(),
@@ -83,33 +95,33 @@ export async function startProjectSync(project: DBProject): Promise<ProjectSyncR
 	});
 }
 
-async function getUnavailableReason(project: DBProject): Promise<string | null> {
+async function getUnavailableReason(gitContext: ContextExplorerGitContext): Promise<string | null> {
 	if (env.NAO_MODE !== 'cloud') {
 		return 'Project sync in UI is only available in cloud mode.';
 	}
-
-	if (!project.path || !fs.existsSync(project.path)) {
-		return 'Project files are unavailable.';
+	const git = await resolveContextExplorerGitSafely(gitContext);
+	if (git.status === 'unavailable') {
+		return git.message;
 	}
-
-	if (!fs.existsSync(path.join(project.path, 'nao_config.yaml'))) {
+	if (!fs.existsSync(path.join(getWorktreeProjectRoot(git.repo), 'nao_config.yaml'))) {
 		return 'This project has no nao_config.yaml.';
 	}
-	// if (!(await warehouseCredentialQueries.getProjectWarehouseCredentials(project.id))) {
-	// 	return 'Database sync is only available for projects created with Connect my data.';
-	// }
-	//this is because i wanted to try it only with connected database first
 	return null;
 }
 
-async function runProjectSync(project: DBProject, runId: string): Promise<void> {
-	await withKeyedLock(`project-sync:run:${project.id}`, async () => {
-		updateRun(project.id, runId, {
+// ponytail: the editor's Git actions don't take this lock, so switching branches mid-sync mixes outputs; lock on the worktree if that bites.
+async function runProjectSync(
+	project: DBProject,
+	gitContext: ContextExplorerGitContext,
+	runKey: string,
+	runId: string,
+): Promise<void> {
+	await withKeyedLock(`project-sync:run:${runKey}`, async () => {
+		updateRun(runKey, runId, {
 			status: 'running',
 			startedAt: new Date(),
 		});
 
-		const projectPath = project.path!;
 		const projectEnvVars = await getProjectRuntimeEnvVars(project.id);
 		const redact = (value: string) =>
 			redactSecretValues(
@@ -118,49 +130,30 @@ async function runProjectSync(project: DBProject, runId: string): Promise<void> 
 					.filter(([, secret]) => secret.length >= 4)
 					.map(([name, value]) => ({ name, value })),
 			);
-		const stagingPath = fs.mkdtempSync(path.join(path.dirname(projectPath), '.project-sync-'));
 
 		try {
-			fs.cpSync(projectPath, stagingPath, { recursive: true });
-			const syncError = await runNaoSync(stagingPath, projectEnvVars, async (logs) => {
-				updateRun(project.id, runId, { logs: redact(logs) });
+			const { repo } = await requireContextExplorerGit(gitContext);
+			const syncError = await runNaoSync(getWorktreeProjectRoot(repo), projectEnvVars, async (logs) => {
+				updateRun(runKey, runId, { logs: redact(logs) });
 			});
-			// await publishDatabaseContext(stagingPath, projectPath, async () => {
-			// 	appendRunLog(project.id, runId, 'Publishing synced context...');
-			// 	const result = await publishManagedGithubRepositoryUpdate({
-			// 		projectId: project.id,
-			// 		projectName: project.name,
-			// 		projectDir: projectPath,
-			// 		paths: ['databases'],
-			// 		message: 'Sync database context',
-			// 	});
-			// 	if (!result) {
-			// 		appendRunLog(project.id, runId, '✓ Updated local context');
-			// 	} else if (result.published) {
-			// 		appendRunLog(project.id, runId, '✓ Published synced context');
-			// 	} else {
-			// 		appendRunLog(project.id, runId, '✓ Synced context is already up to date');
-			// 	}
-			// });
-			await applyStagedProject(stagingPath, projectPath, async () => {
-				appendRunLog(
-					project.id,
-					runId,
-					syncError ? 'Updated the context that synced successfully' : '✓ Updated your project context',
-				);
-			});
-			await projectQueries.touchProjectUpdatedAt(project.id);
+			appendRunLog(
+				runKey,
+				runId,
+				syncError
+					? 'Files that synced are ready to review in your changes'
+					: '✓ Synced files are ready to review in your changes',
+			);
 			if (syncError) {
 				throw syncError;
 			}
-			updateRun(project.id, runId, {
+			updateRun(runKey, runId, {
 				status: 'succeeded',
 				error: null,
 				finishedAt: new Date(),
 			});
 		} catch (error) {
 			const message = redact(error instanceof Error ? error.message : 'Project sync failed.');
-			updateRun(project.id, runId, {
+			updateRun(runKey, runId, {
 				status: 'failed',
 				error: message,
 				finishedAt: new Date(),
@@ -169,21 +162,19 @@ async function runProjectSync(project: DBProject, runId: string): Promise<void> 
 				source: 'system',
 				context: { projectId: project.id, runId },
 			});
-		} finally {
-			fs.rmSync(stagingPath, { recursive: true, force: true });
 		}
 	});
 }
 
 async function runNaoSync(
-	stagingPath: string,
+	projectPath: string,
 	projectEnvVars: Record<string, string>,
 	onOutput: (logs: string) => Promise<void>,
 ): Promise<NaoCommandExitError | null> {
 	try {
 		await runNaoCommand(
 			['sync'],
-			stagingPath,
+			projectPath,
 			createNaoCommandEnvironment(projectEnvVars),
 			SYNC_TIMEOUT_MS,
 			onOutput,
@@ -197,40 +188,25 @@ async function runNaoSync(
 	}
 }
 
-// ponytail: swaps the whole folder, so files written to the live project while a sync runs are lost; lock project writes during sync if that becomes real.
-async function applyStagedProject(
-	stagingPath: string,
-	projectPath: string,
-	publish: () => Promise<void>,
-): Promise<void> {
-	const backupPath = path.join(path.dirname(projectPath), `.project-sync-backup-${crypto.randomUUID()}`);
-	fs.renameSync(projectPath, backupPath);
-	try {
-		fs.renameSync(stagingPath, projectPath);
-		await publish();
-	} catch (error) {
-		fs.rmSync(projectPath, { recursive: true, force: true });
-		fs.renameSync(backupPath, projectPath);
-		throw error;
-	}
-	fs.rmSync(backupPath, { recursive: true, force: true });
+function getRunKey(projectId: string, userId: string): string {
+	return `${projectId}:${userId}`;
 }
 
-function appendRunLog(projectId: string, runId: string, message: string): void {
-	const current = runs.get(projectId);
+function appendRunLog(runKey: string, runId: string, message: string): void {
+	const current = runs.get(runKey);
 	if (!current || current.id !== runId) {
 		return;
 	}
 	const separator = current.logs && !current.logs.endsWith('\n') ? '\n' : '';
-	updateRun(projectId, runId, { logs: `${current.logs}${separator}${message}\n` });
+	updateRun(runKey, runId, { logs: `${current.logs}${separator}${message}\n` });
 }
 
-function updateRun(projectId: string, runId: string, changes: Partial<ProjectSyncRun>): void {
-	const current = runs.get(projectId);
+function updateRun(runKey: string, runId: string, changes: Partial<ProjectSyncRun>): void {
+	const current = runs.get(runKey);
 	if (!current || current.id !== runId) {
 		return;
 	}
-	runs.set(projectId, { ...current, ...changes });
+	runs.set(runKey, { ...current, ...changes });
 }
 
 export function __resetProjectSyncRunsForTesting(): void {

@@ -360,7 +360,7 @@ async function createStrictFileAccess(
 	};
 }
 
-async function createGitContext(
+export async function createGitContext(
 	projectId: string,
 	projectPath: string | null,
 	user: { id: string; name: string; email: string },
