@@ -18,6 +18,8 @@ export type CompiledSemanticQuery = {
 	dialect: string;
 };
 
+type SemanticLayerContext = Pick<ToolContext, 'projectFolder' | 'envVars'>;
+
 /**
  * The semantic layer routing mode in effect for a run, or null when the project
  * declares no `semantic_layer` in nao_config.yaml. The repo decides whether a layer
@@ -49,27 +51,45 @@ export function isWarehouseSqlEnabled(mode: SemanticLayerMode | null | undefined
 /** Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql. */
 export async function compileSemanticQuery(
 	query: SemanticQuery,
-	context: Pick<ToolContext, 'projectFolder' | 'envVars'>,
+	context: SemanticLayerContext,
 ): Promise<CompiledSemanticQuery> {
-	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/semantic_layer/compile`, {
+	const response = await postToSemanticLayer('compile', query, context);
+	if (!response.ok) {
+		const message = `Error compiling semantic query: ${await readErrorDetail(response)}`;
+		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
+	}
+	return (await response.json()) as CompiledSemanticQuery;
+}
+
+/** Lists the metrics and dimensions the project's semantic layer exposes. */
+export async function describeSemanticLayer(context: SemanticLayerContext): Promise<executeSemanticQuery.Catalog> {
+	const response = await postToSemanticLayer('catalog', {}, context);
+	if (!response.ok) {
+		throw new Error(`Error describing the semantic layer: ${await readErrorDetail(response)}`);
+	}
+	return (await response.json()) as executeSemanticQuery.Catalog;
+}
+
+function postToSemanticLayer(
+	endpoint: 'compile' | 'catalog',
+	body: object,
+	context: SemanticLayerContext,
+): Promise<Response> {
+	return fetch(`http://localhost:${env.FASTAPI_PORT}/semantic_layer/${endpoint}`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
 			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
 		},
 		body: JSON.stringify({
-			...query,
+			...body,
 			nao_project_folder: context.projectFolder,
 			...(Object.keys(context.envVars).length > 0 && { env_vars: context.envVars }),
 		}),
 	});
+}
 
-	if (!response.ok) {
-		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-		const detail = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
-		const message = `Error compiling semantic query: ${detail}`;
-		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
-	}
-
-	return (await response.json()) as CompiledSemanticQuery;
+async function readErrorDetail(response: Response): Promise<string> {
+	const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+	return typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
 }

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
 	buildToolContext: vi.fn(),
 	compileSemanticQuery: vi.fn(),
+	describeSemanticLayer: vi.fn(),
 	executeQuery: vi.fn(),
 	getLatestExecuteSqlByQueryId: vi.fn(),
 	updateExecuteSqlPart: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 vi.mock('../src/services/semantic-layer.service', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/services/semantic-layer.service')>()),
 	compileSemanticQuery: mocks.compileSemanticQuery,
+	describeSemanticLayer: mocks.describeSemanticLayer,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(async () => false),
@@ -143,6 +145,28 @@ describe('semantic query edit routes', () => {
 		await expect(
 			createCaller().sql.updateSemanticQuery({ queryId: 'query_1', query: { metrics: [] } }),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+	});
+
+	it("describes the semantic layer of the query's project without billing", async () => {
+		const catalog = {
+			metrics: [{ name: 'revenue', label: 'Revenue', description: null, dimensions: ['metric_time'] }],
+			dimensions: [],
+		};
+		mocks.describeSemanticLayer.mockResolvedValue(catalog);
+
+		await expect(createCaller().sql.semanticLayerCatalog({ queryId: 'query_1' })).resolves.toEqual(catalog);
+
+		expect(mocks.buildToolContext).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'project-id' }));
+		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it("refuses to describe the semantic layer behind another user's query", async () => {
+		mocks.getLatestExecuteSqlByQueryId.mockResolvedValue({ ...existingSemanticQuery, userId: 'someone-else' });
+
+		await expect(createCaller().sql.semanticLayerCatalog({ queryId: 'query_1' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.describeSemanticLayer).not.toHaveBeenCalled();
 	});
 });
 

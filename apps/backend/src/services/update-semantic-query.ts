@@ -8,13 +8,21 @@ import {
 	updateSemanticQueryPart,
 } from '../queries/execute-sql.queries';
 import { buildToolContext } from './agent';
-import { type CompiledSemanticQuery, compileSemanticQuery, SemanticQueryCompileError } from './semantic-layer.service';
+import {
+	type CompiledSemanticQuery,
+	compileSemanticQuery,
+	describeSemanticLayer,
+	SemanticQueryCompileError,
+} from './semantic-layer.service';
 
-type SemanticQueryEditOptions = {
+type StoredSemanticQueryOptions = {
 	queryId: string;
-	query: executeSemanticQuery.SemanticQuery;
 	userId: string;
 	existing: LatestExecuteSqlRow | null;
+};
+
+type SemanticQueryEditOptions = StoredSemanticQueryOptions & {
+	query: executeSemanticQuery.SemanticQuery;
 };
 
 type SemanticQueryUpdate = {
@@ -46,7 +54,24 @@ export async function compileSemanticQueryInChat(opts: SemanticQueryEditOptions)
 	return withCompileErrorsAsBadRequest(() => compileSemanticQuery(query, context));
 }
 
+/** The metrics and dimensions the query's project exposes, to help edit it. */
+export async function describeSemanticLayerForQuery(
+	opts: StoredSemanticQueryOptions,
+): Promise<executeSemanticQuery.Catalog> {
+	const { context } = await resolveStoredSemanticQuery(opts);
+	return describeSemanticLayer(context);
+}
+
 async function prepareSemanticQueryEditContext(opts: SemanticQueryEditOptions) {
+	const { existing, context } = await resolveStoredSemanticQuery(opts);
+	const input: executeSemanticQuery.Input = {
+		...executeSemanticQuery.SemanticQuerySchema.parse(opts.query),
+		name: existing.toolInput.name,
+	};
+	return { existing, context, input };
+}
+
+async function resolveStoredSemanticQuery(opts: StoredSemanticQueryOptions) {
 	const existing = opts.existing;
 	if (!existing) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Query ${opts.queryId} not found.` });
@@ -65,12 +90,7 @@ async function prepareSemanticQueryEditContext(opts: SemanticQueryEditOptions) {
 		adminMode: existing.adminMode,
 	});
 
-	const input: executeSemanticQuery.Input = {
-		...executeSemanticQuery.SemanticQuerySchema.parse(opts.query),
-		name: existing.toolInput.name,
-	};
-
-	return { existing, context, input };
+	return { existing, context };
 }
 
 async function withCompileErrorsAsBadRequest<T>(run: () => Promise<T>): Promise<T> {

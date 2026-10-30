@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 import { getLatestExecuteSqlByQueryId, type LatestExecuteSqlRow } from '../queries/execute-sql.queries';
 import {
 	compileSemanticQueryInChat,
+	describeSemanticLayerForQuery,
 	previewSemanticQueryInChat,
 	updateSemanticQueryInChat,
 } from '../services/update-semantic-query';
@@ -89,6 +90,14 @@ export const sqlRoutes = {
 		return compileSemanticQueryInChat({
 			queryId: input.queryId,
 			query: input.query,
+			userId: ctx.user.id,
+			existing: ctx.existingSqlQuery,
+		});
+	}),
+
+	semanticLayerCatalog: storedQueryProcedure.query(async ({ input, ctx }) => {
+		return describeSemanticLayerForQuery({
+			queryId: input.queryId,
 			userId: ctx.user.id,
 			existing: ctx.existingSqlQuery,
 		});

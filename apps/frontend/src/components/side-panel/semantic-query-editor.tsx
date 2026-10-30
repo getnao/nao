@@ -6,10 +6,13 @@ import type { executeSemanticQuery, executeSql } from '@nao/shared/tools';
 import type { SemanticSourceQuery } from '@/lib/execute-sql-messages';
 import type { SavedSemanticQuery, SemanticQueryFreshness } from '@/hooks/use-semantic-query-freshness';
 import type { SemanticQueryDraft } from '@/lib/semantic-query-draft';
+import type { CompletionOptions } from '@/components/ui/completion-input';
+import type { SemanticQueryListField } from '@/lib/semantic-query-completions';
 
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { usePublishSavedQuery } from '@/hooks/use-publish-saved-query';
 import { useQueryRowsSource, useServerPaginatedRows } from '@/hooks/use-query-rows';
+import { useSemanticLayerCatalog } from '@/hooks/use-semantic-layer-catalog';
 import {
 	describeSemanticQueryFreshness,
 	useRecheckSemanticQueryFreshness,
@@ -20,10 +23,12 @@ import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { SqlQueryDisplay } from '@/components/tool-calls/sql-query-display';
 import { Button } from '@/components/ui/button';
+import { CompletionInput } from '@/components/ui/completion-input';
 import { Input } from '@/components/ui/input';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { areStructurallyEqual } from '@/lib/ai';
 import { applySemanticQueryResultToMessages } from '@/lib/execute-sql-messages';
+import { getSemanticQueryCompletions } from '@/lib/semantic-query-completions';
 import {
 	fromSemanticQueryDraft,
 	hasInvalidLimit,
@@ -102,6 +107,7 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 	const isDirty = !areStructurallyEqual(draftQuery, saved.semanticQuery);
 	const freshness = useSemanticQueryFreshness(canEdit ? saved : null);
 	const recheckFreshness = useRecheckSemanticQueryFreshness();
+	const catalog = useSemanticLayerCatalog(canEdit ? queryId : null);
 
 	const previewMutation = useMutation(trpc.sql.previewSemanticQuery.mutationOptions());
 	const saveMutation = useMutation(trpc.sql.updateSemanticQuery.mutationOptions());
@@ -230,7 +236,7 @@ export function SemanticQueryEditor({ sourceQuery, editable = false, onOutputCha
 
 			<ResizablePanelGroup orientation='vertical' className='min-h-0 flex-1'>
 				<ResizablePanel id='definition' minSize={DEFINITION_MIN_HEIGHT} style={PANEL_SCROLL_Y}>
-					<SemanticQueryForm draft={draft} onChange={setDraft} readOnly={!canEdit} />
+					<SemanticQueryForm draft={draft} onChange={setDraft} readOnly={!canEdit} catalog={catalog} />
 				</ResizablePanel>
 
 				<ResizableSeparator withHandle />
@@ -298,11 +304,21 @@ interface SemanticQueryFormProps {
 	draft: SemanticQueryDraft;
 	onChange: (draft: SemanticQueryDraft) => void;
 	readOnly: boolean;
+	catalog?: executeSemanticQuery.Catalog;
 }
 
-function SemanticQueryForm({ draft, onChange, readOnly }: SemanticQueryFormProps) {
+type RowCompletions = (rowIndex: number, value: string, cursor: number) => CompletionOptions;
+
+function SemanticQueryForm({ draft, onChange, readOnly, catalog }: SemanticQueryFormProps) {
 	const update = (patch: Partial<SemanticQueryDraft>) => onChange({ ...draft, ...patch });
 	const isLimitInvalid = hasInvalidLimit(draft);
+	const completionsFor = (field: SemanticQueryListField): RowCompletions | undefined => {
+		if (readOnly || !catalog) {
+			return undefined;
+		}
+		return (rowIndex, value, cursor) =>
+			getSemanticQueryCompletions({ field, value, cursor, rowIndex, draft, catalog });
+	};
 
 	return (
 		<div className='@container flex flex-col gap-5 p-4'>
@@ -311,6 +327,7 @@ function SemanticQueryForm({ draft, onChange, readOnly }: SemanticQueryFormProps
 					label='Metrics'
 					values={draft.metrics}
 					onChange={(metrics) => update({ metrics })}
+					getCompletions={completionsFor('metrics')}
 					placeholder='revenue'
 					addLabel='Add metric'
 					readOnly={readOnly}
@@ -320,6 +337,7 @@ function SemanticQueryForm({ draft, onChange, readOnly }: SemanticQueryFormProps
 					label='Group by'
 					values={draft.group_by}
 					onChange={(group_by) => update({ group_by })}
+					getCompletions={completionsFor('group_by')}
 					placeholder='metric_time__month'
 					addLabel='Add dimension'
 					readOnly={readOnly}
@@ -328,6 +346,7 @@ function SemanticQueryForm({ draft, onChange, readOnly }: SemanticQueryFormProps
 					label='Where'
 					values={draft.where}
 					onChange={(where) => update({ where })}
+					getCompletions={completionsFor('where')}
 					placeholder="{{ Dimension('customer__region') }} = 'EMEA'"
 					addLabel='Add filter'
 					readOnly={readOnly}
@@ -336,6 +355,7 @@ function SemanticQueryForm({ draft, onChange, readOnly }: SemanticQueryFormProps
 					label='Order by'
 					values={draft.order_by}
 					onChange={(order_by) => update({ order_by })}
+					getCompletions={completionsFor('order_by')}
 					placeholder='-revenue'
 					addLabel='Add sort'
 					readOnly={readOnly}
@@ -373,14 +393,30 @@ interface ValueListFieldProps {
 	label: string;
 	values: string[];
 	onChange: (values: string[]) => void;
+	getCompletions?: RowCompletions;
 	placeholder: string;
 	addLabel: string;
 	readOnly: boolean;
 	required?: boolean;
 }
 
-function ValueListField({ label, values, onChange, placeholder, addLabel, readOnly, required }: ValueListFieldProps) {
+function ValueListField({
+	label,
+	values,
+	onChange,
+	getCompletions,
+	placeholder,
+	addLabel,
+	readOnly,
+	required,
+}: ValueListFieldProps) {
+	const [addedRow, setAddedRow] = useState<number | null>(null);
 	const isMissing = required && nonEmptyValues(values).length === 0;
+
+	const addRow = () => {
+		setAddedRow(values.length);
+		onChange([...values, '']);
+	};
 
 	return (
 		<div className='grid content-start gap-2'>
@@ -392,7 +428,7 @@ function ValueListField({ label, values, onChange, placeholder, addLabel, readOn
 						size='sm'
 						variant='outline'
 						className='h-7 rounded-full text-xs'
-						onClick={() => onChange([...values, ''])}
+						onClick={addRow}
 					>
 						<Plus className='size-3.5' /> {addLabel}
 					</Button>
@@ -400,15 +436,15 @@ function ValueListField({ label, values, onChange, placeholder, addLabel, readOn
 			</div>
 			{values.map((value, index) => (
 				<div key={index} className='flex items-center gap-2'>
-					<Input
+					<CompletionInput
 						value={value}
 						readOnly={readOnly}
+						autoFocus={index === addedRow}
 						aria-label={`${label} ${index + 1}`}
 						placeholder={placeholder}
 						className='h-8 bg-panel font-mono text-xs'
-						onChange={(event) =>
-							onChange(values.map((current, i) => (i === index ? event.target.value : current)))
-						}
+						getCompletions={getCompletions && ((current, cursor) => getCompletions(index, current, cursor))}
+						onValueChange={(next) => onChange(values.map((current, i) => (i === index ? next : current)))}
 					/>
 					{!readOnly && (
 						<Button

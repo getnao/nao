@@ -43,3 +43,25 @@ export const OutputSchema = ExecuteSqlOutputSchema.extend({
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
 export type SemanticQuery = z.infer<typeof SemanticQuerySchema>;
+
+/** The metrics and dimensions a semantic query can reference, as the semantic layer describes them. */
+export type Catalog = {
+	metrics: CatalogMetric[];
+	dimensions: CatalogDimension[];
+};
+
+export type CatalogMetric = {
+	name: string;
+	label: string | null;
+	description: string | null;
+	/** Granularity-free names of the dimensions this metric can be grouped or filtered by. */
+	dimensions: string[];
+};
+
+export type CatalogDimension = {
+	name: string;
+	type: string;
+	/** Finest time granularity of a time dimension. */
+	granularity: string | null;
+	description: string | null;
+};
