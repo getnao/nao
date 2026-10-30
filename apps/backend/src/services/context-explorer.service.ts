@@ -58,8 +58,18 @@ type RipgrepMatchEntry = {
 	};
 };
 
-export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[]> {
-	return readDirectoryRecursive(projectFolder, projectFolder);
+export async function getFileTree(access: ContextExplorerFileAccess | string): Promise<FileTreeEntry[]> {
+	if (typeof access === 'string') {
+		return readDirectoryRecursive(access, access);
+	}
+	const liveEntries = await readDirectoryRecursive(access.projectFolder, access.projectFolder);
+	const repo = availableRepo(access.git);
+	if (!repo) {
+		return liveEntries;
+	}
+	const worktreeRoot = getWorktreeProjectRoot(repo);
+	const worktreeEntries = await readDirectoryRecursive(worktreeRoot, worktreeRoot);
+	return mergeFileTrees(worktreeEntries, withoutTrackedFiles(liveEntries, getCommittedProjectPaths(repo)));
 }
 
 export async function readFileContent(
@@ -80,11 +90,12 @@ export async function readFileContent(
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const repo = availableRepo(access.git);
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
-	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
+	const worktreePath = repo ? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath : null;
 	const readPath =
-		repo && trackedPaths.has(normalizeProjectPath(filePath))
-			? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
+		worktreePath && (trackedPaths.has(normalizeProjectPath(filePath)) || fsSync.existsSync(worktreePath))
+			? worktreePath
 			: livePath;
+	const editability = getFileEditability(filePath, readPath, access, repo, trackedPaths);
 	const contentBuffer = await readValidatedFile(readPath, filePath);
 	return {
 		content: decodeTextContent(contentBuffer),
@@ -390,20 +401,52 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 		}
 	}
 
-	entries.sort((a, b) => {
+	return sortFileTreeEntries(entries);
+}
+
+function sortFileTreeEntries(entries: FileTreeEntry[]): FileTreeEntry[] {
+	return entries.sort((a, b) => {
 		if (a.type === b.type) {
 			return a.name.localeCompare(b.name);
 		}
 		return a.type === 'directory' ? -1 : 1;
 	});
-
-	return entries;
 }
 
-export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
+function mergeFileTrees(primary: FileTreeEntry[], secondary: FileTreeEntry[]): FileTreeEntry[] {
+	const merged = new Map(primary.map((entry) => [entry.path, entry]));
+	for (const entry of secondary) {
+		const existing = merged.get(entry.path);
+		if (!existing) {
+			merged.set(entry.path, entry);
+		} else if (existing.type === 'directory' && entry.type === 'directory') {
+			merged.set(entry.path, {
+				...existing,
+				children: mergeFileTrees(existing.children ?? [], entry.children ?? []),
+			});
+		}
+	}
+	return sortFileTreeEntries([...merged.values()]);
+}
+
+function withoutTrackedFiles(entries: FileTreeEntry[], trackedPaths: Set<string>): FileTreeEntry[] {
+	return entries.flatMap((entry) => {
+		if (entry.type === 'file') {
+			return trackedPaths.has(normalizeProjectPath(entry.path)) ? [] : [entry];
+		}
+		const children = withoutTrackedFiles(entry.children ?? [], trackedPaths);
+		return children.length > 0 ? [{ ...entry, children }] : [];
+	});
+}
+
+export function resolveAndValidatePath(
+	virtualPath: string,
+	projectFolder: string,
+	options: { allowGeneratedMetadata?: boolean } = {},
+): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
-		const realPath = toRealPath(virtualPath, root, { resolveSymlinks: false });
+		const realPath = toRealPath(virtualPath, root, { ...options, resolveSymlinks: false });
 		assertNoSymlinkInWritePath(root, realPath, virtualPath);
 		return { realPath, root };
 	} catch (error) {

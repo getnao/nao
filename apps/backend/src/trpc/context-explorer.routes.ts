@@ -175,8 +175,8 @@ export const contextExplorerRoutes = {
 	}),
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const entries = await getFileTree(requireProjectPath(ctx.project.path));
-		return { entries };
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		return { entries: await getFileTree(access) };
 	}),
 
 	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {

@@ -34,6 +34,8 @@ import type { ContextExplorerGitContext, ContextLineCounts, ParsedContextChanged
 import { COMMIT_PATTERN } from './types';
 import { requireContextExplorerGit, resolveContextExplorerGit } from './worktree.service';
 
+const GIT_PATH_OPTIONS = { resolveSymlinks: false, allowGeneratedMetadata: true };
+
 export async function getChangedContextFiles(context: ContextExplorerGitContext): Promise<ContextChangedFile[]> {
 	try {
 		const resolution = await resolveContextExplorerGit(context);
@@ -183,7 +185,7 @@ async function discardPath(repo: ResolvedContextRepo, projectFolder: string, fil
 
 function resolveDiscardTarget(repo: ResolvedContextRepo, filePath: string): { root: string; target: string } {
 	const root = canonicalizeWriteRoot(getWorktreeProjectRoot(repo));
-	const target = toRealPath(filePath, root, { resolveSymlinks: false });
+	const target = toRealPath(filePath, root, GIT_PATH_OPTIONS);
 	assertNoSymlinkInWritePath(root, path.dirname(target), filePath);
 	return { root, target };
 }
@@ -199,8 +201,14 @@ export function readStatus(repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'pro
 	]);
 }
 
+export function isGeneratedMetadataPath(projectPath: string): boolean {
+	return projectPath.startsWith('/.meta/');
+}
+
 function readChangedFiles(repo: ResolvedContextRepo): ContextChangedFile[] {
-	const files = parseChangedFiles(readStatus(repo), repo);
+	const allFiles = parseChangedFiles(readStatus(repo), repo);
+	const visibleFiles = allFiles.filter((file) => !isGeneratedMetadataPath(file.path));
+	const files = visibleFiles.length > 0 ? visibleFiles : allFiles;
 	const lineCounts = readChangedLineCounts(repo, files);
 	return files.map((file) => ({
 		...file,
@@ -331,7 +339,7 @@ function readWorkingTreeHash(repo: ResolvedContextRepo, filePath: string): strin
 }
 
 function hashRawWorkingTreeFile(repo: ResolvedContextRepo, filePath: string): string {
-	const { realPath } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
+	const { realPath } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo), GIT_PATH_OPTIONS);
 	let fileDescriptor: number | null = null;
 	try {
 		fileDescriptor = fs.openSync(realPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -354,12 +362,12 @@ function hashRawWorkingTreeFile(repo: ResolvedContextRepo, filePath: string): st
 }
 
 function readWorkingTreeContent(repo: ResolvedContextRepo, filePath: string): Buffer {
-	const { realPath } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
+	const { realPath } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo), GIT_PATH_OPTIONS);
 	return readValidatedContextFileSync(realPath, filePath);
 }
 
 export function validateWorktreePath(repo: ResolvedContextRepo, filePath: string): void {
-	toRealPath(filePath, getWorktreeProjectRoot(repo), { resolveSymlinks: false });
+	toRealPath(filePath, getWorktreeProjectRoot(repo), GIT_PATH_OPTIONS);
 }
 
 export function assertCleanWorktree(repo: ResolvedContextRepo): void {

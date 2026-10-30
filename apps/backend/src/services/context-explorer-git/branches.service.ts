@@ -13,6 +13,7 @@ import { REVIEW_REQUEST_PROVIDERS } from '../review-request-provider';
 import {
 	assertCleanWorktree,
 	isCleanWorktree,
+	isGeneratedMetadataPath,
 	parseChangedFiles,
 	readStatus,
 	validateWorktreePath,
@@ -280,9 +281,16 @@ async function commitSelectedChanges(
 		validateWorktreePath(repo, filePath);
 		return toRepoPath(repo, filePath);
 	});
+	const metadataRepoPaths = [...changedPaths]
+		.filter(isGeneratedMetadataPath)
+		.map((filePath) => toRepoPath(repo, filePath));
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	const author = await provider.getUserGitIdentity({ token: context.token, user: context.user });
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...repoPaths]);
+	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+		'add',
+		'--',
+		...new Set([...repoPaths, ...metadataRepoPaths]),
+	]);
 	if (tryRunGit(repo.worktreeRoot, ['diff', '--cached', '--quiet'])) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The selected files have no changes to commit.' });
 	}

@@ -1773,6 +1773,54 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
+	it('shows the working copy in the file tree while keeping live-only files', async () => {
+		const fixture = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: test\n',
+			'context.md': 'repository content\n',
+			'dropped.md': 'old table\n',
+		});
+		fs.writeFileSync(path.join(fixture.live, 'live-only.md'), 'not in the repository\n');
+		const access = await fileAccess(fixture.context);
+		const worktreeRoot = path.join(fixture.root, '.nao', 'worktrees', 'project-id', 'user-1');
+		fs.mkdirSync(path.join(worktreeRoot, 'databases'));
+		fs.writeFileSync(path.join(worktreeRoot, 'databases', 'new_table.md'), 'synced table\n');
+		fs.rmSync(path.join(worktreeRoot, 'dropped.md'));
+
+		const tree = await getFileTree(access);
+
+		expect(tree.map((entry) => entry.path)).toEqual([
+			'/databases',
+			'/context.md',
+			'/live-only.md',
+			'/nao_config.yaml',
+		]);
+		expect(tree[0].children?.map((entry) => entry.path)).toEqual(['/databases/new_table.md']);
+		expect((await readFileContent('/databases/new_table.md', access)).content).toBe('synced table\n');
+		expect((await readFileContent('/live-only.md', access)).content).toBe('not in the repository\n');
+	});
+
+	it('hides generated .meta changes behind visible changes and commits them alongside', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'synced\n', file.hash, access);
+		const worktreeRoot = path.join(fixture.root, '.nao', 'worktrees', 'project-id', 'user-1');
+		fs.mkdirSync(path.join(worktreeRoot, '.meta', 'databases'), { recursive: true });
+		fs.writeFileSync(path.join(worktreeRoot, '.meta', 'databases', 'columns.json'), '{"version":1}\n');
+
+		expect((await getChangedContextFiles(fixture.context)).map((entry) => entry.path)).toEqual(['/context.md']);
+
+		await createContextBranchAndCommit(fixture.context, { paths: ['/context.md'], message: 'Sync' });
+
+		expect(runGit(worktreeRoot, ['show', 'HEAD:.meta/databases/columns.json']).toString()).toBe('{"version":1}\n');
+		expect(await getChangedContextFiles(fixture.context)).toEqual([]);
+
+		fs.writeFileSync(path.join(worktreeRoot, '.meta', 'databases', 'columns.json'), '{"version":2}\n');
+		expect((await getChangedContextFiles(fixture.context)).map((entry) => entry.path)).toEqual([
+			'/.meta/databases/columns.json',
+		]);
+	});
+
 	it('uses the logged-in nao user as the commit identity', async () => {
 		const fixture = createFixture(temporaryRoots);
 		fixture.context.user = { name: 'Nao Account', email: 'nao-account@example.com' };

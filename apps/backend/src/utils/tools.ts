@@ -295,6 +295,8 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 type ToRealPathOptions = {
 	/** Set to false when the caller applies its own symlink policy (e.g. `assertNoSymlinkInWritePath`). */
 	resolveSymlinks?: boolean;
+	/** Git actions (commit, diff, discard) may touch generated `.meta` files that stay hidden from file tools. */
+	allowGeneratedMetadata?: boolean;
 };
 
 /**
@@ -317,7 +319,7 @@ export const toRealPath = (virtualPath: string, projectFolder: string, options: 
 
 	// Resolve and normalize (this handles .. and .)
 	const resolvedPath = path.resolve(normalizedFolder, relativePath);
-	assertAllowedProjectPath(resolvedPath, normalizedFolder, virtualPath);
+	assertAllowedProjectPath(resolvedPath, normalizedFolder, virtualPath, options);
 
 	if (options.resolveSymlinks === false) {
 		return resolvedPath;
@@ -325,13 +327,18 @@ export const toRealPath = (virtualPath: string, projectFolder: string, options: 
 
 	const realPath = resolveSymlinks(resolvedPath);
 	if (realPath !== resolvedPath) {
-		assertAllowedProjectPath(realPath, resolveSymlinks(normalizedFolder), virtualPath);
+		assertAllowedProjectPath(realPath, resolveSymlinks(normalizedFolder), virtualPath, options);
 	}
 
 	return resolvedPath;
 };
 
-const assertAllowedProjectPath = (absolutePath: string, projectFolder: string, virtualPath: string): void => {
+const assertAllowedProjectPath = (
+	absolutePath: string,
+	projectFolder: string,
+	virtualPath: string,
+	options: ToRealPathOptions,
+): void => {
 	const withinFolder = absolutePath === projectFolder || absolutePath.startsWith(projectFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
@@ -347,7 +354,7 @@ const assertAllowedProjectPath = (absolutePath: string, projectFolder: string, v
 		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
 	}
 
-	if (isInExcludedDir(absolutePath)) {
+	if (!options.allowGeneratedMetadata && isInExcludedDir(absolutePath)) {
 		throw new Error(`Access denied: path '${virtualPath}' is in an excluded directory`);
 	}
 

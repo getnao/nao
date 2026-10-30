@@ -76,6 +76,16 @@ describe('toRealPath', () => {
 			expect(() => toRealPath('/.meta/something', '/home/user/project')).toThrow('excluded directory');
 		});
 
+		it('allows generated .meta files for Git actions but keeps .git and .env protected', async () => {
+			const { toRealPath } = await loadTools('posix');
+			const options = { resolveSymlinks: false, allowGeneratedMetadata: true };
+			expect(toRealPath('/.meta/databases/columns.json', '/home/user/project', options)).toBe(
+				'/home/user/project/.meta/databases/columns.json',
+			);
+			expect(() => toRealPath('/.git/config', '/home/user/project', options)).toThrow('protected .git metadata');
+			expect(() => toRealPath('/.env', '/home/user/project', options)).toThrow('protected environment file');
+		});
+
 		it('rejects protected paths regardless of case', async () => {
 			const { toRealPath } = await loadTools('posix');
 			expect(() => toRealPath('/.GIT/config', '/home/user/project')).toThrow('protected .git metadata');

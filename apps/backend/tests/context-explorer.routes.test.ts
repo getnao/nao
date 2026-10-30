@@ -186,20 +186,19 @@ describe('context explorer file access', () => {
 		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
 	});
 
-	it('returns the source file tree without resolving Git', async () => {
+	it("builds the file tree from the user's context access", async () => {
 		const entries = [
 			{ name: 'folder', path: '/folder', type: 'directory', children: [] },
 			{ name: 'nao_config.yaml', path: '/nao_config.yaml', type: 'file' },
 		];
+		const git = { status: 'unavailable', reason: 'git-unavailable', message: 'Unavailable', repo: null };
 		mocks.getFileTree.mockResolvedValue(entries);
-		mocks.resolveContextExplorerGit.mockRejectedValue(new Error('clone failed'));
-		mocks.resolveContextExplorerGitSafely.mockRejectedValue(new Error('clone failed'));
+		mocks.resolveContextExplorerGitSafely.mockResolvedValue(git);
 
 		await expect(createCaller().getFileTree()).resolves.toEqual({ entries });
 
-		expect(mocks.getFileTree).toHaveBeenCalledWith('/tmp/nao-project');
+		expect(mocks.getFileTree).toHaveBeenCalledWith({ projectFolder: '/tmp/nao-project', git });
 		expect(mocks.resolveContextExplorerGit).not.toHaveBeenCalled();
-		expect(mocks.resolveContextExplorerGitSafely).not.toHaveBeenCalled();
 	});
 
 	it('uses safe Git resolution for reads and strict resolution for writes', async () => {
