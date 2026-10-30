@@ -1,8 +1,11 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
-import { generateText, type ModelMessage, Output } from 'ai';
+import { generateText, type ModelMessage, Output, stepCountIs, tool } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import type { AgentRunResult } from '../src/services/agent';
+import { TestAgentService } from '../src/services/test-agent.service';
 import { buildVerificationMessages } from '../src/services/test-agent-verification';
 import type { QueryResult } from '../src/types/tools';
 
@@ -145,6 +148,72 @@ describe('buildVerificationMessages', () => {
 		expect(JSON.stringify(sentBodies[0])).toContain('reasoningContent');
 	});
 });
+
+describe('TestAgentService.extractToolCalls', () => {
+	it('returns the error of a failed tool call alongside the successful results', async () => {
+		const result = await generateText({
+			model: queryingModel(['SELECT 1', 'SELECT * FROM missing_table']),
+			tools: {
+				execute_sql: tool({
+					inputSchema: z.object({ sql_query: z.string() }),
+					execute: async ({ sql_query }) => {
+						if (sql_query.includes('missing_table')) {
+							throw new Error('Table "missing_table" does not exist');
+						}
+						return { rows: 1 };
+					},
+				}),
+			},
+			stopWhen: stepCountIs(2),
+			prompt: 'go',
+		});
+
+		const toolCalls = TestAgentService.extractToolCalls({ steps: result.steps } as unknown as AgentRunResult);
+
+		expect(toolCalls).toEqual([
+			{
+				toolName: 'execute_sql',
+				toolCallId: 'call_1',
+				args: { sql_query: 'SELECT 1' },
+				result: { rows: 1 },
+				error: undefined,
+			},
+			{
+				toolName: 'execute_sql',
+				toolCallId: 'call_2',
+				args: { sql_query: 'SELECT * FROM missing_table' },
+				result: undefined,
+				error: 'Table "missing_table" does not exist',
+			},
+		]);
+	});
+});
+
+/** A model that answers each step with the next `execute_sql` query. */
+function queryingModel(queries: string[]) {
+	let callIndex = 0;
+	return new MockLanguageModelV3({
+		doGenerate: async () => {
+			callIndex += 1;
+			return {
+				content: [
+					{
+						type: 'tool-call',
+						toolCallId: `call_${callIndex}`,
+						toolName: 'execute_sql',
+						input: JSON.stringify({ sql_query: queries[callIndex - 1] }),
+					},
+				],
+				finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+				usage: {
+					inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+					outputTokens: { total: 1, text: 1, reasoning: 0 },
+				},
+				warnings: [],
+			};
+		},
+	});
+}
 
 async function captureBedrockBody(messages: ModelMessage[]): Promise<unknown[]> {
 	const bodies: unknown[] = [];

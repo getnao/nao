@@ -6,6 +6,7 @@ import { db } from '../db/db';
 import { env } from '../env';
 import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
+import { updateProjectSettings } from './project-settings.queries';
 
 function toLlmSelectedModel(
 	provider: string | null | undefined,
@@ -81,27 +82,13 @@ export const updateProjectTeamsModel = async (
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
 ): Promise<void> => {
-	await db.transaction(async (tx) => {
-		const project = await takeFirstOrThrow(
-			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
-			`Project not found: ${projectId}`,
-		);
-		const existing = project.teamsSettings;
-
-		await tx
-			.update(s.project)
-			.set({
-				teamsSettings: {
-					teamsAppId: existing?.teamsAppId ?? '',
-					teamsAppPassword: existing?.teamsAppPassword ?? '',
-					teamsTenantId: existing?.teamsTenantId ?? '',
-					teamsLlmProvider: modelProvider ?? '',
-					teamsLlmModelId: modelId ?? '',
-				},
-			})
-			.where(eq(s.project.id, projectId))
-			.execute();
-	});
+	await updateProjectSettings(projectId, 'teamsSettings', (existing) => ({
+		teamsAppId: existing?.teamsAppId ?? '',
+		teamsAppPassword: existing?.teamsAppPassword ?? '',
+		teamsTenantId: existing?.teamsTenantId ?? '',
+		teamsLlmProvider: modelProvider ?? '',
+		teamsLlmModelId: modelId ?? '',
+	}));
 };
 
 export const deleteProjectTeamsConfig = async (projectId: string): Promise<void> => {

@@ -12,6 +12,7 @@ import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
 import type { CitationData, LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import {
+	type ContentPart,
 	convertToModelMessages,
 	createUIMessageStream,
 	FinishReason,
@@ -25,6 +26,7 @@ import {
 	type StopCondition,
 	StreamTextResult,
 	ToolLoopAgent,
+	type ToolSet,
 	UIMessageStreamWriter,
 } from 'ai';
 
@@ -131,6 +133,7 @@ export interface AgentRunResult {
 	steps: ReadonlyArray<{
 		toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: unknown }>;
 		toolResults: ReadonlyArray<{ toolCallId: string; output?: unknown }>;
+		content: ReadonlyArray<ContentPart<ToolSet>>;
 	}>;
 	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
 	responseParts: UIMessagePart[];

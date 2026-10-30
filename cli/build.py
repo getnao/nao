@@ -352,7 +352,6 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
 
     packages_to_copy: list[tuple[str, str]] = [
         ("@duckdb/node-bindings", "@duckdb/node-bindings"),
-        ("@pydantic/monty", "@pydantic/monty"),
     ]
 
     # boxlite has no native win32 binaries (works on Windows only through WSL)
@@ -360,22 +359,6 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
         packages_to_copy.insert(0, ("@boxlite-ai/boxlite", "@boxlite-ai/boxlite"))
     else:
         print("   Skipping @boxlite-ai/boxlite (no native win32 binaries — use WSL for sandbox support)")
-
-    # monty's platform package may be nested inside its own node_modules
-    monty_platform_pkg = f"@pydantic/monty-{suffix}"
-    monty_nested = nm_root / "@pydantic" / "monty" / "node_modules" / monty_platform_pkg
-    monty_hoisted = nm_root / monty_platform_pkg
-
-    if monty_nested.exists():
-        # Keep the nested structure so require() resolves correctly
-        packages_to_copy.append(
-            (
-                str(monty_nested.relative_to(nm_root)),
-                f"@pydantic/monty/node_modules/{monty_platform_pkg}",
-            )
-        )
-    elif monty_hoisted.exists():
-        packages_to_copy.append((monty_platform_pkg, monty_platform_pkg))
 
     packages_to_copy += [(name, name) for name in sharp_packages(suffix)]
 
@@ -402,6 +385,20 @@ def sharp_packages(suffix: str) -> list[str]:
     if sys.platform != "win32":
         packages.append(f"@img/sharp-libvips-{node_suffix}")
     return packages
+
+
+def bundle_quickjs_wasm(project_root: Path, output_dir: Path) -> None:
+    """Copy quickjs.wasm next to the binary, where the backend looks for it in standalone mode."""
+    candidates = [
+        project_root / "node_modules" / "quickjs-wasi" / "quickjs.wasm",
+        project_root / "apps" / "backend" / "node_modules" / "quickjs-wasi" / "quickjs.wasm",
+    ]
+    wasm_src = next((path for path in candidates if path.exists()), None)
+    if wasm_src is None:
+        print("   ⚠️  quickjs-wasi not found — the codemode tool will not work in standalone mode")
+        return
+    shutil.copy2(wasm_src, output_dir / "quickjs.wasm")
+    print(f"   QuickJS wasm: {output_dir / 'quickjs.wasm'}")
 
 
 def build_server(project_root: Path, output_dir: Path) -> None:
@@ -545,9 +542,13 @@ def build_server(project_root: Path, output_dir: Path) -> None:
         print("   ⚠️  No ripgrep binary found (grep tool will not work in standalone mode)")
         print("   Run 'npm install @vscode/ripgrep' in the backend or root directory")
 
-    # Step 10: Bundle native NAPI addons (boxlite, monty)
+    # Step 10: Bundle native NAPI addons (boxlite, duckdb)
     print("\n📦 Bundling native addons...")
     bundle_native_packages(project_root, output_dir)
+
+    # Step 10b: The codemode tool runs scripts in QuickJS, compiled from this wasm at runtime
+    print("\n📦 Bundling QuickJS wasm...")
+    bundle_quickjs_wasm(project_root, output_dir)
 
     # Step 11: Record the engines the CLI downloads instead of bundling
     print("\n📦 Writing native download manifest...")
@@ -624,6 +625,7 @@ def build(
     assets_dir = output_dir / "assets"
     rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
     rg_path = output_dir / rg_binary_name
+    quickjs_wasm_path = output_dir / "quickjs.wasm"
 
     # Bump version if requested
     if bump:
@@ -644,6 +646,7 @@ def build(
         or not postgres_migrations_dir.exists()
         or not fastapi_dir.exists()
         or not rg_path.exists()
+        or not quickjs_wasm_path.exists()
         or not build_info_path.exists()
     )
 
