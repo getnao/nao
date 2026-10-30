@@ -39,3 +39,17 @@ OPTIONS (require_partition_filter = true);
 INSERT INTO {public_dataset}.events VALUES
 (1, DATE('2026-01-15'), 'click'),
 (2, DATE('2026-01-15'), 'view');
+
+CREATE TABLE {public_dataset}.recent_events (
+id INT64 NOT NULL,
+event_date DATE NOT NULL,
+referrer STRING
+)
+PARTITION BY event_date;
+
+INSERT INTO {public_dataset}.recent_events VALUES
+(1, DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY), 'google'),
+(2, DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY), 'google'),
+(3, DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), NULL),
+(4, DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), NULL),
+(5, DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), 'newsletter');
