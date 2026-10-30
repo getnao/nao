@@ -1415,7 +1415,7 @@ describe('cloud subscription projection', () => {
 		});
 	});
 
-	it('projects a trial placeholder with its cancellation and Customer payment method', async () => {
+	it('projects a trial placeholder expiry separately from paid cancellation', async () => {
 		const cancellationEndsAt = 1_800_000_000;
 		stripeMocks.retrieveCustomer.mockResolvedValue({
 			deleted: false,
@@ -1433,7 +1433,7 @@ describe('cloud subscription projection', () => {
 			stripeSubscriptionScheduleId: null,
 			pendingBillingPlan: null,
 			pendingSeatQuantity: null,
-			cancellationScheduled: true,
+			cancellationScheduled: false,
 			hasDefaultPaymentMethod: true,
 			billingAccessEndsAt: new Date(cancellationEndsAt * 1_000),
 		});
@@ -1546,6 +1546,39 @@ describe('cloud billing recovery', () => {
 				items: [{ id: 'si_team', price: 'price_unlimited_monthly', quantity: 1 }],
 				payment_behavior: 'error_if_incomplete',
 				proration_behavior: 'always_invoice',
+			}),
+			expect.anything(),
+		);
+	});
+
+	it('clears a scheduled Free switch when changing a paid plan during trial', async () => {
+		const subscription = cloudSubscription({
+			status: 'trialing',
+			cancel_at_period_end: true,
+			trial_end: TRIAL_END_TIMESTAMP,
+			items: {
+				data: [{ id: 'si_team', price: teamMonthlyPrice(), quantity: 4 }],
+			} as Stripe.Subscription['items'],
+		});
+		stripeMocks.updateSubscription.mockResolvedValue(subscription);
+
+		await updateCloudSubscriptionPlan({
+			organizationId: 'org-id',
+			subscription,
+			targetPlanKey: 'cloud_unlimited_monthly_v1',
+			targetQuantity: 1,
+			prorationDate: new Date('2026-10-30T12:00:00.000Z'),
+			requestId: 'request-id',
+			chargeImmediately: false,
+		});
+
+		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
+			'sub_cloud',
+			expect.objectContaining({
+				cancel_at_period_end: false,
+				items: [{ id: 'si_team', price: 'price_unlimited_monthly', quantity: 1 }],
+				proration_behavior: 'none',
+				trial_end: TRIAL_END_TIMESTAMP,
 			}),
 			expect.anything(),
 		);

@@ -14,6 +14,7 @@ import {
 	isTerminalBillingStatus,
 	isTrialAvailable,
 	LEGACY_CLOUD_BILLING_PLANS,
+	TEAM_MAX_SEATS,
 	TEAM_MIN_SEATS,
 } from './billing';
 
@@ -156,6 +157,7 @@ describe('cloud billing catalogue', () => {
 	it('defines capacity constants and tier ordering', () => {
 		expect(FREE_TIER_SEAT_LIMIT).toBe(3);
 		expect(TEAM_MIN_SEATS).toBe(4);
+		expect(TEAM_MAX_SEATS).toBe(40);
 		expect(CLOUD_BILLING_TIER_ORDER).toEqual(['free', 'team', 'unlimited']);
 	});
 });

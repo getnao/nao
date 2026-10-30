@@ -13,6 +13,7 @@ import { CloudBillingChangeDialog } from '@/components/settings/cloud-billing-ch
 import { CloudBillingPlanComparison } from '@/components/settings/cloud-billing-plan-comparison';
 import { CloudBillingSeatsCard } from '@/components/settings/cloud-billing-seats-card';
 import { CloudBillingSwitchToFreeDialog } from '@/components/settings/cloud-billing-switch-to-free-dialog';
+import { CloudBillingTeamSeatsDialog } from '@/components/settings/cloud-billing-team-seats-dialog';
 import { OrganizationCreditsContent } from '@/components/settings/credits-wallet-content';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -129,6 +130,7 @@ function CloudOrganizationBillingSettings({
 		() => async () => null,
 	);
 	const [switchToFreeOpen, setSwitchToFreeOpen] = useState(false);
+	const [selectedTeamPlan, setSelectedTeamPlan] = useState<CloudPlanOffer | null>(null);
 	const data = billingState.billing.data;
 	if (!data || !('access' in data)) {
 		return (
@@ -141,18 +143,15 @@ function CloudOrganizationBillingSettings({
 	const plans = data.availablePlans as CloudPlanOffer[];
 	const currentPlanEndsAt =
 		data.access.tier === 'trial' ? (data.access.trialEndsAt ?? data.currentPeriodEndsAt) : data.currentPeriodEndsAt;
-	const previewPlan = async (plan: CloudPlanOffer) => {
+	const previewPlan = async (plan: CloudPlanOffer, seatQuantity?: number) => {
 		billingState.setSelectedBillingTier(plan.tier);
 		const runPreview = () =>
-			billingState.previewPlanChange(
-				plan.planKey,
-				plan.tier === 'team' ? Math.max(4, data.access.seatUserCount) : undefined,
-			);
+			billingState.previewPlanChange(plan.planKey, plan.tier === 'team' ? seatQuantity : undefined);
 		if (!data.current) {
 			if (data.trialAvailable || data.needsPaidPlanSelection) {
-				billingState.openTrialCheckoutForPlan(plan.planKey);
+				billingState.openTrialCheckoutForPlan(plan.planKey, seatQuantity);
 			} else {
-				billingState.resubscribeForPlan(plan.planKey);
+				billingState.resubscribeForPlan(plan.planKey, seatQuantity);
 			}
 			return;
 		}
@@ -174,11 +173,18 @@ function CloudOrganizationBillingSettings({
 				<BillingFeedback billingState={billingState} />
 				{activeTab === 'plans' && (
 					<>
-						<CloudCurrentPlanCard data={data} />
+						<CloudCurrentPlanCard
+							data={data}
+							disabled={billingState.isPlanSelectionPending}
+							onKeepPlan={() => void billingState.keepPlan()}
+							onCancelPendingChange={() => void billingState.cancelPendingPlanChange()}
+						/>
 						<CloudBillingPlanComparison
 							plans={plans}
 							currentTier={data.access.tier}
 							currentPlanKey={data.current?.planKey ?? null}
+							pendingPlanKey={data.pending?.planKey ?? null}
+							cancellationScheduled={data.cancellationScheduled}
 							interval={billingState.selectedBillingInterval}
 							seatUserCount={data.access.seatUserCount}
 							seatQuantity={data.access.seatQuantity}
@@ -188,68 +194,21 @@ function CloudOrganizationBillingSettings({
 									? data.recommendation
 									: null
 							}
-							disabled={billingState.isBillingCommandPending}
+							disabled={
+								billingState.isPlanSelectionPending ||
+								data.scheduleConflict ||
+								(data.access.tier !== 'trial' && data.cancellationScheduled)
+							}
 							onIntervalChange={billingState.setSelectedBillingInterval}
-							onChoose={(plan) => void previewPlan(plan)}
-						/>
-						{data.current?.legacy && (
-							<p className='text-sm text-muted-foreground'>
-								Legacy Unlimited keeps its existing price and terms.
-							</p>
-						)}
-						{data.pending && (
-							<SettingsCard title='Pending plan change'>
-								<p className='text-sm text-muted-foreground'>
-									{data.pending.tier === 'team' ? 'Team' : 'Unlimited'} starts{' '}
-									{formatBillingDate(data.pending.effectiveAt)}.
-								</p>
-								<Button
-									className='mt-3'
-									variant='secondary'
-									onClick={() => void billingState.cancelPendingPlanChange()}
-								>
-									Cancel change
-								</Button>
-							</SettingsCard>
-						)}
-						{data.cancellationScheduled ? (
-							<SettingsCard
-								title={
-									data.access.tier === 'trial'
-										? 'Free after trial scheduled'
-										: 'Switch to Free scheduled'
+							onChoose={(plan) => {
+								if (plan.tier === 'team') {
+									setSelectedTeamPlan(plan);
+									return;
 								}
-							>
-								<p className='text-sm text-muted-foreground'>
-									{data.access.tier === 'trial'
-										? `Your trial remains active through ${formatBillingDate(currentPlanEndsAt)}. You will move to Free afterward.`
-										: `Your current plan remains active through ${formatBillingDate(currentPlanEndsAt)}.`}
-								</p>
-								<Button className='mt-3' onClick={() => void billingState.keepPlan()}>
-									{data.access.tier === 'trial' ? 'Keep paid plan after trial' : 'Keep my plan'}
-								</Button>
-							</SettingsCard>
-						) : (
-							data.current && (
-								<SettingsCard
-									title={data.access.tier === 'trial' ? 'Use Free after trial' : 'Switch to Free'}
-								>
-									<p className='text-sm text-muted-foreground'>
-										{data.access.tier === 'trial'
-											? 'Cancel the paid plan that is set to start after your trial. Your organization and data stay intact.'
-											: 'Capacity changes at the end of the current billing period. Nobody or their data is removed.'}
-									</p>
-									<Button
-										className='mt-3'
-										variant='secondary'
-										disabled={data.scheduleConflict}
-										onClick={() => setSwitchToFreeOpen(true)}
-									>
-										{data.access.tier === 'trial' ? 'Use Free after trial' : 'Switch to Free'}
-									</Button>
-								</SettingsCard>
-							)
-						)}
+								void previewPlan(plan);
+							}}
+							onChooseFree={data.current ? () => setSwitchToFreeOpen(true) : undefined}
+						/>
 					</>
 				)}
 				{activeTab === 'seats' && (
@@ -313,6 +272,16 @@ function CloudOrganizationBillingSettings({
 				}}
 				onFixPayment={billingState.openPaymentMethodPortal}
 			/>
+			<CloudBillingTeamSeatsDialog
+				open={selectedTeamPlan !== null}
+				plan={selectedTeamPlan}
+				seatUserCount={data.access.seatUserCount}
+				trialing={data.access.tier === 'trial'}
+				redirectsToCheckout={!data.current}
+				disabled={billingState.isPlanSelectionPending}
+				onOpenChange={(open) => !open && setSelectedTeamPlan(null)}
+				onConfirm={previewPlan}
+			/>
 			<CloudBillingSwitchToFreeDialog
 				open={switchToFreeOpen}
 				onOpenChange={setSwitchToFreeOpen}
@@ -375,7 +344,17 @@ function getActiveBillingTab(search: OrganizationBillingSearch, seatsAvailable: 
 	return requestedTab === 'seats' && !seatsAvailable ? 'plans' : requestedTab;
 }
 
-function CloudCurrentPlanCard({ data }: { data: CloudBillingData }) {
+function CloudCurrentPlanCard({
+	data,
+	disabled,
+	onKeepPlan,
+	onCancelPendingChange,
+}: {
+	data: CloudBillingData;
+	disabled: boolean;
+	onKeepPlan: () => void;
+	onCancelPendingChange: () => void;
+}) {
 	const tier = data.access.tier;
 	const trialing = tier === 'trial';
 	const trialEndsAt = data.access.trialEndsAt ?? data.trialEndsAt;
@@ -389,46 +368,105 @@ function CloudCurrentPlanCard({ data }: { data: CloudBillingData }) {
 					: 'Free';
 	const description =
 		tier === 'trial'
-			? `Full nao Cloud access${trialEndsAt ? ` through ${formatBillingDate(trialEndsAt)}` : ''}.`
+			? 'Full nao Cloud access for everyone while you try nao.'
 			: tier === 'team'
 				? `${data.access.seatQuantity ?? data.access.seatLimit ?? '—'} seats for people who need full access. Viewers are free.`
 				: tier === 'unlimited' || tier === 'bypass'
 					? 'Full access for everyone in your organization.'
 					: `${data.access.seatLimit ?? 3} full-access seats and unlimited viewers.`;
+	const keyDate = trialing
+		? { label: 'Trial ends', value: trialEndsAt }
+		: data.cancellationScheduled
+			? { label: 'Paid plan ends', value: data.currentPeriodEndsAt }
+			: data.pending
+				? { label: 'Plan changes', value: data.currentPeriodEndsAt }
+				: { label: 'Renews', value: data.currentPeriodEndsAt };
+	const nextStep = getCloudNextStep(data, onKeepPlan, onCancelPendingChange);
 
 	return (
-		<SettingsCard title='Current plan' description='What your organization is using right now.'>
+		<SettingsCard title='Current plan'>
 			<div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
 				<div>
-					<div className='flex flex-wrap items-center gap-2'>
-						<p className='text-lg font-semibold text-foreground'>{planName}</p>
-						<Badge variant='secondary'>Current plan</Badge>
-					</div>
+					<p className='text-2xl font-semibold text-foreground'>{planName}</p>
 					<p className='mt-1 text-sm text-muted-foreground'>{description}</p>
+					{data.current?.legacy && (
+						<p className='mt-1 text-xs text-muted-foreground'>
+							Legacy Unlimited keeps its existing price and terms.
+						</p>
+					)}
 				</div>
-				{trialing && trialEndsAt && (
+				{tier !== 'free' && keyDate.value && (
 					<div className='shrink-0 rounded-lg bg-muted/60 px-3 py-2 sm:text-right'>
-						<p className='text-xs text-muted-foreground'>Trial ends</p>
-						<p className='text-sm font-medium text-foreground'>{formatBillingDate(trialEndsAt)}</p>
+						<p className='text-xs text-muted-foreground'>{keyDate.label}</p>
+						<p className='text-sm font-medium text-foreground'>{formatBillingDate(keyDate.value)}</p>
 					</div>
 				)}
 			</div>
-			{trialing && (
-				<div className='rounded-lg border border-border bg-muted/30 px-3 py-3'>
-					<p className='text-sm font-medium text-foreground'>
-						{data.current
-							? `${data.current.tier === 'team' ? 'Team' : 'Unlimited'} starts after your trial`
-							: 'Choose what happens after your trial'}
-					</p>
-					<p className='mt-1 text-sm text-muted-foreground'>
-						{data.current
-							? `${data.current.interval === 'monthly' ? 'Monthly' : 'Yearly'} billing begins when the trial ends. Until then, Free trial remains your current plan.`
-							: 'Choose Team or Unlimited below. If you do not choose a paid plan, your organization moves to Free and keeps all of its data.'}
-					</p>
+			{nextStep && (
+				<div className='flex flex-col gap-3 rounded-lg border border-border bg-muted/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between'>
+					<div>
+						<p className='text-sm font-medium text-foreground'>{nextStep.title}</p>
+						<p className='mt-1 text-sm text-muted-foreground'>{nextStep.description}</p>
+					</div>
+					{nextStep.action && (
+						<Button
+							className='shrink-0'
+							variant='secondary'
+							size='sm'
+							disabled={disabled}
+							onClick={nextStep.action.onClick}
+						>
+							{nextStep.action.label}
+						</Button>
+					)}
 				</div>
 			)}
 		</SettingsCard>
 	);
+}
+
+function getCloudNextStep(
+	data: CloudBillingData,
+	onKeepPlan: () => void,
+	onCancelPendingChange: () => void,
+): { title: string; description: string; action?: { label: string; onClick: () => void } } | null {
+	const trialing = data.access.tier === 'trial';
+	const currentTierName = data.current?.tier === 'team' ? 'Team' : 'Unlimited';
+	if (trialing && data.cancellationScheduled) {
+		return {
+			title: 'Free after your trial',
+			description: 'Your organization moves to Free when the trial ends and keeps all of its data.',
+			action: { label: 'Keep paid plan after trial', onClick: onKeepPlan },
+		};
+	}
+	if (trialing && data.current) {
+		return {
+			title: `${currentTierName} starts after your trial`,
+			description: `${data.current.interval === 'monthly' ? 'Monthly' : 'Yearly'} billing begins when the trial ends.`,
+		};
+	}
+	if (trialing) {
+		return {
+			title: 'Free after your trial',
+			description:
+				'Choose Team or Unlimited below to keep full access for everyone. Otherwise your organization moves to Free and keeps all of its data.',
+		};
+	}
+	if (data.cancellationScheduled) {
+		return {
+			title: 'Switching to Free',
+			description: `Your current plan stays active through ${formatBillingDate(data.currentPeriodEndsAt)}. Nobody or their data is removed.`,
+			action: { label: 'Keep my plan', onClick: onKeepPlan },
+		};
+	}
+	if (data.pending) {
+		return {
+			title: `${data.pending.tier === 'team' ? 'Team' : 'Unlimited'} starts ${formatBillingDate(data.pending.effectiveAt)}`,
+			description: 'Your current plan stays active until then.',
+			action: { label: 'Cancel change', onClick: onCancelPendingChange },
+		};
+	}
+	return null;
 }
 
 function BillingFeedback({ billingState }: { billingState: BillingState }) {

@@ -150,8 +150,8 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 				...(freeTierEnabled ? { planKey: selectedPlanKey } : { billingInterval: selectedBillingInterval }),
 				currency: selectedBillingCurrency,
 			}),
-		openTrialCheckoutForPlan: (planKey: CloudBillingPlanKey) =>
-			trialCheckout.mutate({ planKey, currency: selectedBillingCurrency }),
+		openTrialCheckoutForPlan: (planKey: CloudBillingPlanKey, seatQuantity?: number) =>
+			trialCheckout.mutate({ planKey, seatQuantity, currency: selectedBillingCurrency }),
 		openPortal: () => portal.mutate({ requestId: crypto.randomUUID() }),
 		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: crypto.randomUUID() }),
 		resubscribe: () =>
@@ -159,8 +159,8 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 				...(freeTierEnabled ? { planKey: selectedPlanKey } : { billingInterval: selectedBillingInterval }),
 				currency: selectedBillingCurrency,
 			}),
-		resubscribeForPlan: (planKey: CloudBillingPlanKey) =>
-			resubscribe.mutate({ planKey, currency: selectedBillingCurrency }),
+		resubscribeForPlan: (planKey: CloudBillingPlanKey, seatQuantity?: number) =>
+			resubscribe.mutate({ planKey, seatQuantity, currency: selectedBillingCurrency }),
 		previewSeatChange: (targetQuantity: number) => previewSeatChange.mutateAsync({ targetQuantity }),
 		confirmSeatChange: (previewToken: string) =>
 			changeSeatQuantity.mutateAsync({ previewToken, requestId: crypto.randomUUID() }),
@@ -177,6 +177,12 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			changePlan.isPending ||
 			selectSeats.isPending ||
 			switchToFree.isPending ||
+			keepPlan.isPending ||
+			cancelPendingPlanChange.isPending,
+		isPlanSelectionPending:
+			trialCheckout.isPending ||
+			resubscribe.isPending ||
+			changePlan.isPending ||
 			keepPlan.isPending ||
 			cancelPendingPlanChange.isPending,
 		resume: () => resumeSubscription.mutate({ requestId: crypto.randomUUID() }),

@@ -53,6 +53,8 @@ import {
 	isTerminalBillingStatus,
 	isTrialAvailable,
 	LEGACY_CLOUD_BILLING_PLANS,
+	TEAM_MAX_SEATS,
+	TEAM_MIN_SEATS,
 } from '../types/billing';
 import { HandlerError, type HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
@@ -119,6 +121,7 @@ const billingStatusInput = z.object({ currency: currencyInput }).optional();
 const checkoutInput = z.object({
 	billingInterval: z.enum(['monthly', 'yearly']).optional(),
 	planKey: z.enum(Object.keys(CLOUD_BILLING_PLANS) as [CloudBillingPlanKey, ...CloudBillingPlanKey[]]).optional(),
+	seatQuantity: z.number().int().min(TEAM_MIN_SEATS).max(TEAM_MAX_SEATS).optional(),
 	currency: currencyInput.default('usd'),
 });
 const previewTokenInput = z.object({ previewToken: z.string().min(1), requestId: z.uuid() });
@@ -197,7 +200,7 @@ export const billingRoutes = {
 			trialStartedAt: billing?.trialStartedAt ?? null,
 			trialEndsAt: billing?.trialEndsAt ?? null,
 			currentPeriodEndsAt: billing?.currentPeriodEndsAt ?? null,
-			cancellationScheduled: billing?.cancellationScheduled ?? null,
+			cancellationScheduled: Boolean(billing?.billingPlan && billing.cancellationScheduled),
 			hasDefaultPaymentMethod: billing?.hasDefaultPaymentMethod ?? null,
 			billingAccessEndsAt: billing?.billingAccessEndsAt ?? null,
 			canManageBilling: true,
@@ -221,6 +224,7 @@ export const billingRoutes = {
 			const url = await createCloudTrialCheckoutForAdmin({
 				billingInterval: input.billingInterval,
 				planKey: input.planKey,
+				seatQuantity: input.seatQuantity,
 				currency: input.currency,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
@@ -328,6 +332,7 @@ export const billingRoutes = {
 			const url = await createCloudResubscribeForAdmin({
 				billingInterval: input.billingInterval,
 				planKey: input.planKey,
+				seatQuantity: input.seatQuantity,
 				currency: input.currency,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
@@ -599,7 +604,7 @@ async function getCanonicalBillingStatus(
 		billingUpdatedAt: billing?.billingUpdatedAt ?? null,
 		currentPeriodStartsAt: billing?.currentPeriodStartsAt ?? null,
 		currentPeriodEndsAt: billing?.currentPeriodEndsAt ?? null,
-		cancellationScheduled: billing?.cancellationScheduled ?? false,
+		cancellationScheduled: Boolean(billing?.billingPlan && billing.cancellationScheduled),
 		scheduleConflict: Boolean(billing?.stripeSubscriptionScheduleId),
 		current: currentDefinition
 			? {

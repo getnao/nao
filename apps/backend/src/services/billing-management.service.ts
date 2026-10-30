@@ -20,6 +20,7 @@ import {
 	isCloudBillingPlanKey,
 	isTerminalBillingStatus,
 	isTrialAvailable,
+	TEAM_MAX_SEATS,
 	TEAM_MIN_SEATS,
 } from '../types/billing';
 import type { OrgRole } from '../types/organization';
@@ -67,6 +68,7 @@ interface AdminBillingRequestInput extends AdminBillingInput {
 interface AdminBillingCheckoutInput extends AdminBillingInput {
 	billingInterval?: CloudBillingInterval;
 	planKey?: CloudBillingPlanKey;
+	seatQuantity?: number;
 	currency: CloudBillingCurrency;
 }
 
@@ -116,8 +118,7 @@ export async function createCloudTrialCheckoutForAdmin(input: AdminBillingChecko
 	if (isCloudFreeTierEnabled()) {
 		return withOrganizationBillingLock(input.organizationId, async () => {
 			await requireOrganizationAdmin(input);
-			const seatUserCount = await organizationQueries.countOrgSeatUsers(input.organizationId);
-			const { planKey, quantity } = validateCheckoutPlan(input.planKey, seatUserCount);
+			const { planKey, quantity } = validateCheckoutPlan(input.planKey, input.seatQuantity);
 			const organization = await loadReconciledCloudBillingOrganizationUnderLock(input.organizationId);
 			const trialWithoutPaidPlanActive = isActiveTrialWithoutPaidPlan(organization.billing);
 			if (!isTrialAvailable(organization.billing) && !trialWithoutPaidPlanActive) {
@@ -272,8 +273,7 @@ export async function createCloudResubscribeForAdmin(input: AdminBillingCheckout
 	if (isCloudFreeTierEnabled()) {
 		return withOrganizationBillingLock(input.organizationId, async () => {
 			await requireOrganizationAdmin(input);
-			const seatUserCount = await organizationQueries.countOrgSeatUsers(input.organizationId);
-			const { planKey, quantity } = validateCheckoutPlan(input.planKey, seatUserCount);
+			const { planKey, quantity } = validateCheckoutPlan(input.planKey, input.seatQuantity);
 			const organization = await loadReconciledCloudBillingOrganizationUnderLock(input.organizationId);
 			const billing = organization.billing;
 			const isMissingSubscriptionRecovery =
@@ -340,9 +340,7 @@ export async function previewCloudSeatChangeForAdmin(
 		if (!state.billing.billingPlan.startsWith('cloud_team_')) {
 			throw new CloudBillingManagementInputError('Seat quantity can only be changed on Team');
 		}
-		if (input.targetQuantity < TEAM_MIN_SEATS) {
-			throw new CloudBillingManagementInputError(`Team requires at least ${TEAM_MIN_SEATS} seats`);
-		}
+		validateTeamQuantity(input.targetQuantity);
 		assertNoBillingCommandConflict(state.billing);
 		const targetPlanKey = requireCurrentPlanKey(state.billing.billingPlan);
 		return createBillingChangePreview(state, {
@@ -383,7 +381,7 @@ export async function previewCloudPlanChangeForAdmin(
 	return withOrganizationBillingLock(input.organizationId, async () => {
 		await requireOrganizationAdmin(input);
 		const state = await loadCurrentPaidState(input.organizationId);
-		assertNoBillingCommandConflict(state.billing);
+		assertNoBillingCommandConflict(state.billing, state.subscription.status === 'trialing');
 		const target = CLOUD_BILLING_PLANS[input.targetPlanKey];
 		const targetSeatQuantity = target.tier === 'team' ? validateTeamQuantity(input.targetSeatQuantity) : null;
 		const immediate =
@@ -601,10 +599,8 @@ export async function previewCloudMemberSeatPurchaseForAdmin(
 		}
 		assertNoBillingCommandConflict(state.billing);
 		const memberFingerprint = await createMemberFingerprint(input.organizationId, user.id, input.requestedRole);
-		const targetSeatQuantity = await getMemberSeatTargetQuantity(
-			input.organizationId,
-			user.id,
-			state.billing.seatQuantity,
+		const targetSeatQuantity = validateTeamQuantity(
+			await getMemberSeatTargetQuantity(input.organizationId, user.id, state.billing.seatQuantity),
 		);
 		return createBillingChangePreview(state, {
 			operation: 'add_member_with_seat',
@@ -948,21 +944,31 @@ async function getMemberSeatTargetQuantity(
 
 function validateCheckoutPlan(
 	planKey: CloudBillingPlanKey | undefined,
-	seatUserCount: number,
+	seatQuantity: number | undefined,
 ): { planKey: CloudBillingPlanKey; quantity: number } {
 	if (!planKey) {
 		throw new CloudBillingManagementInputError('A billing plan is required');
 	}
 	const plan = CLOUD_BILLING_PLANS[planKey];
-	if (plan.tier === 'team' && seatUserCount < TEAM_MIN_SEATS) {
-		throw new CloudBillingManagementInputError(`Team requires at least ${TEAM_MIN_SEATS} seat users`);
+	if (plan.tier === 'team') {
+		return { planKey, quantity: validateTeamQuantity(seatQuantity) };
 	}
-	return { planKey, quantity: plan.tier === 'team' ? seatUserCount : 1 };
+	if (seatQuantity !== undefined) {
+		throw new CloudBillingManagementInputError('Seat quantity is only available for Team');
+	}
+	return { planKey, quantity: 1 };
 }
 
 function validateTeamQuantity(quantity: number | undefined): number {
-	if (!Number.isInteger(quantity) || quantity === undefined || quantity < TEAM_MIN_SEATS) {
-		throw new CloudBillingManagementInputError(`Team requires at least ${TEAM_MIN_SEATS} seats`);
+	if (
+		!Number.isInteger(quantity) ||
+		quantity === undefined ||
+		quantity < TEAM_MIN_SEATS ||
+		quantity > TEAM_MAX_SEATS
+	) {
+		throw new CloudBillingManagementInputError(
+			`Team requires between ${TEAM_MIN_SEATS} and ${TEAM_MAX_SEATS} seats`,
+		);
 	}
 	return quantity;
 }
@@ -983,8 +989,11 @@ function isImmediatePlanChange(currentPlanKey: CloudBillingPlanKey, targetPlanKe
 	return current.interval === 'month' && target.interval === 'year';
 }
 
-function assertNoBillingCommandConflict(billing: CurrentPaidState['billing']): void {
-	if (billing.cancellationScheduled) {
+function assertNoBillingCommandConflict(
+	billing: CurrentPaidState['billing'],
+	allowCancellationScheduled = false,
+): void {
+	if (billing.cancellationScheduled && !allowCancellationScheduled) {
 		throw new CloudBillingManagementConflictError('Keep your plan before making another billing change');
 	}
 	if (billing.stripeSubscriptionScheduleId) {

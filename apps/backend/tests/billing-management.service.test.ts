@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertAccess: vi.fn(),
+	freeTierEnabled: false,
 	getOrganizationWithBilling: vi.fn(),
 	attachCustomer: vi.fn(),
 	reconcileCustomer: vi.fn(),
@@ -25,6 +26,11 @@ const mocks = vi.hoisted(() => ({
 	updateSubscriptionPlan: vi.fn(),
 	updateSubscriptionQuantity: vi.fn(),
 	getUser: vi.fn(),
+}));
+
+vi.mock('../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/env')>()),
+	isCloudFreeTierEnabled: () => mocks.freeTierEnabled,
 }));
 
 vi.mock('../src/queries/user.queries', () => ({
@@ -106,6 +112,7 @@ const adminInput = { userId: 'user-id', organizationId: 'org-id' };
 describe('billing management organization loading', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.freeTierEnabled = false;
 	});
 
 	it('returns the joined organization and billing state', async () => {
@@ -155,6 +162,76 @@ describe('billing management organization loading', () => {
 			initiatingUserId: 'user-id',
 			requestId: 'request-id',
 		});
+	});
+
+	it('opens Team trial Checkout with explicit paid capacity below current occupancy', async () => {
+		mocks.freeTierEnabled = true;
+		mocks.getMember.mockResolvedValue({ role: 'admin' });
+		mocks.getUser.mockResolvedValue({ id: 'user-id', email: 'admin@example.com' });
+		mocks.getOrganizationWithBilling.mockResolvedValue({
+			id: 'org-id',
+			name: 'Organization',
+			billing: null,
+		});
+		mocks.createCustomer.mockResolvedValue({ id: 'cus_cloud' });
+		mocks.attachCustomer.mockResolvedValue({ stripeCustomerId: 'cus_cloud' });
+		mocks.createCheckout.mockResolvedValue('https://checkout.example.com');
+		mocks.listSeatCandidates.mockResolvedValue(Array.from({ length: 8 }, (_, index) => ({ id: `user-${index}` })));
+
+		await expect(
+			createCloudTrialCheckoutForAdmin({
+				...adminInput,
+				planKey: 'cloud_team_monthly_v1',
+				seatQuantity: 4,
+				currency: 'usd',
+			}),
+		).resolves.toBe('https://checkout.example.com');
+
+		expect(mocks.createCheckout).toHaveBeenCalledWith({
+			planKey: 'cloud_team_monthly_v1',
+			quantity: 4,
+			currency: 'usd',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			trialDays: 14,
+		});
+	});
+
+	it('requires valid explicit capacity only for Team Checkout', async () => {
+		mocks.freeTierEnabled = true;
+		mocks.getMember.mockResolvedValue({ role: 'admin' });
+
+		await expect(
+			createCloudTrialCheckoutForAdmin({
+				...adminInput,
+				planKey: 'cloud_team_monthly_v1',
+				currency: 'usd',
+			}),
+		).rejects.toThrow('Team requires between 4 and 40 seats');
+		await expect(
+			createCloudTrialCheckoutForAdmin({
+				...adminInput,
+				planKey: 'cloud_team_monthly_v1',
+				seatQuantity: 3,
+				currency: 'usd',
+			}),
+		).rejects.toThrow('Team requires between 4 and 40 seats');
+		await expect(
+			createCloudTrialCheckoutForAdmin({
+				...adminInput,
+				planKey: 'cloud_team_monthly_v1',
+				seatQuantity: 41,
+				currency: 'usd',
+			}),
+		).rejects.toThrow('Team requires between 4 and 40 seats');
+		await expect(
+			createCloudTrialCheckoutForAdmin({
+				...adminInput,
+				planKey: 'cloud_unlimited_monthly_v1',
+				seatQuantity: 4,
+				currency: 'usd',
+			}),
+		).rejects.toThrow('Seat quantity is only available for Team');
 	});
 
 	it('reconciles a Stripe Customer before allowing initial Checkout', async () => {
@@ -273,6 +350,7 @@ describe('Phase 6 billing commands', () => {
 	beforeEach(() => {
 		vi.useRealTimers();
 		vi.clearAllMocks();
+		mocks.freeTierEnabled = false;
 		mocks.getMember.mockResolvedValue({ role: 'admin' });
 		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization());
 		mocks.getBilling.mockResolvedValue(teamOrganization().billing);
@@ -372,11 +450,13 @@ describe('Phase 6 billing commands', () => {
 		expect(mocks.getBilling).not.toHaveBeenCalled();
 	});
 
-	it('applies trial plan changes without immediate payment', async () => {
+	it('reselects a paid trial plan after Free was scheduled without immediate payment', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization({ cancellationScheduled: true }));
 		mocks.getSubscription.mockResolvedValue({
 			id: 'sub_team',
 			status: 'trialing',
 			currency: 'usd',
+			cancel_at_period_end: true,
 			trial_end: 1_800_000_000,
 		});
 		const preview = await previewCloudPlanChangeForAdmin({

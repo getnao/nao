@@ -31,6 +31,7 @@ export {
 	isTerminalBillingStatus,
 	isTrialAvailable,
 	LEGACY_CLOUD_BILLING_PLANS,
+	TEAM_MAX_SEATS,
 	TEAM_MIN_SEATS,
 } from '@nao/shared/billing';
 

@@ -88,7 +88,7 @@ export function getCloudBillingAccessEndsAt(entitlement: CloudBillingEntitlement
 			if (entitlement.stripeSubscriptionId === null) {
 				return getLocalTrialAccessEndsAt(entitlement);
 			}
-			if (entitlement.hasDefaultPaymentMethod && !entitlement.cancellationScheduled) {
+			if (entitlement.billingPlan && entitlement.hasDefaultPaymentMethod && !entitlement.cancellationScheduled) {
 				return addGrace(entitlement.trialEndsAt);
 			}
 			return earlierDate(entitlement.trialEndsAt, entitlement.billingAccessEndsAt);

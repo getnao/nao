@@ -83,6 +83,7 @@ describe('cloud billing access entitlement', () => {
 		[
 			'paying trial within conversion grace',
 			entitlement('trialing', {
+				billingPlan: 'cloud_monthly_v2',
 				stripeSubscriptionId: 'sub_trial',
 				trialEndsAt: recentlyPast,
 				billingAccessEndsAt: recentlyPast,
@@ -177,7 +178,7 @@ describe('cloud billing access entitlement', () => {
 		expect(isActiveTrialWithoutPaidPlan(unconfirmedTrial, now.getTime())).toBe(false);
 	});
 
-	it('matches paying trial expiration to the conversion-grace access window', () => {
+	it('does not extend a trial placeholder because its Customer has a payment method', () => {
 		const withinGrace = entitlement('trialing', {
 			stripeSubscriptionId: 'sub_trial',
 			trialEndsAt: recentlyPast,
@@ -191,7 +192,7 @@ describe('cloud billing access entitlement', () => {
 			hasDefaultPaymentMethod: true,
 		});
 
-		expect(isExpiredTrialWithoutPaidPlan(withinGrace, now.getTime())).toBe(false);
+		expect(isExpiredTrialWithoutPaidPlan(withinGrace, now.getTime())).toBe(true);
 		expect(isExpiredTrialWithoutPaidPlan(afterGrace, now.getTime())).toBe(true);
 	});
 

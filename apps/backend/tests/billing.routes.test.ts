@@ -237,6 +237,7 @@ describe('billing.getStatus', () => {
 		testState.membership = membership({
 			billingStatus: 'trialing',
 			billingAccessEndsAt: trialEndsAt,
+			cancellationScheduled: true,
 			stripeCustomerId: 'cus_cloud',
 			stripePriceId: 'price_cloud_trial',
 			stripeSubscriptionId: 'sub_cloud_trial',
@@ -247,6 +248,7 @@ describe('billing.getStatus', () => {
 			hasStripeSubscription: true,
 			needsPaidPlanSelection: true,
 			paidPlanSelected: false,
+			cancellationScheduled: false,
 			paymentMethodManagementAvailable: false,
 			plan: null,
 			resubscribeAvailable: false,
@@ -407,6 +409,39 @@ describe('billing.createTrialCheckoutSession', () => {
 			stripeCustomerId: 'cus_cloud',
 			trialDays: 14,
 		});
+	});
+
+	it('opens Team trial Checkout with an explicit minimum quantity regardless of membership count', async () => {
+		testState.freeTierEnabled = true;
+
+		await expect(
+			caller().billing.createTrialCheckoutSession({
+				planKey: 'cloud_team_monthly_v1',
+				seatQuantity: 4,
+				currency: 'usd',
+			}),
+		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
+		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
+			planKey: 'cloud_team_monthly_v1',
+			quantity: 4,
+			currency: 'usd',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			trialDays: 14,
+		});
+	});
+
+	it.each([3, 41])('rejects a Team checkout quantity outside the paid range: %s', async (seatQuantity) => {
+		testState.freeTierEnabled = true;
+
+		await expect(
+			caller().billing.createTrialCheckoutSession({
+				planKey: 'cloud_team_monthly_v1',
+				seatQuantity,
+				currency: 'usd',
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
 	});
 
 	it('uses the remaining local trial when an admin chooses a plan', async () => {

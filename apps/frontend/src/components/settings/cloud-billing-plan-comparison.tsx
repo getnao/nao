@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router';
 import { Check } from 'lucide-react';
 import type { CloudBillingInterval, CloudBillingPlanKey, PaidCloudBillingTier } from '@nao/shared/billing';
 
@@ -17,10 +16,26 @@ export type CloudPlanOffer = {
 	perSeat: boolean;
 };
 
+type PlanStatus = 'current' | 'after-trial' | 'scheduled';
+
+const planStatusBadge: Record<PlanStatus, { label: string; variant: 'success' | 'secondary' }> = {
+	current: { label: 'Current plan', variant: 'success' },
+	'after-trial': { label: 'After trial', variant: 'secondary' },
+	scheduled: { label: 'Scheduled', variant: 'secondary' },
+};
+
+const planStatusActionLabel: Record<PlanStatus, string> = {
+	current: 'Current plan',
+	'after-trial': 'Starts after trial',
+	scheduled: 'Scheduled',
+};
+
 export function CloudBillingPlanComparison({
 	plans,
 	currentTier,
 	currentPlanKey,
+	pendingPlanKey,
+	cancellationScheduled,
 	interval,
 	seatUserCount,
 	seatQuantity,
@@ -29,10 +44,13 @@ export function CloudBillingPlanComparison({
 	disabled,
 	onIntervalChange,
 	onChoose,
+	onChooseFree,
 }: {
 	plans: CloudPlanOffer[];
 	currentTier: string;
 	currentPlanKey: string | null;
+	pendingPlanKey: string | null;
+	cancellationScheduled: boolean;
 	interval: CloudBillingInterval;
 	seatUserCount: number;
 	seatQuantity: number | null;
@@ -41,6 +59,7 @@ export function CloudBillingPlanComparison({
 	disabled?: boolean;
 	onIntervalChange: (interval: CloudBillingInterval) => void;
 	onChoose: (plan: CloudPlanOffer) => void;
+	onChooseFree?: () => void;
 }) {
 	const selectedPlans = plans.filter((plan) => plan.interval === interval);
 	const team = selectedPlans.find((plan) => plan.tier === 'team');
@@ -50,28 +69,40 @@ export function CloudBillingPlanComparison({
 		plans.find((plan) => plan.tier === 'team' && plan.interval === 'yearly'),
 	);
 	const currency = team?.currency ?? unlimited?.currency ?? 'usd';
-	const requiredTeamSeats = Math.max(4, seatUserCount);
 	const intervalLabel = interval === 'monthly' ? 'month' : 'year';
-	const teamStatus =
-		currentTier === 'team'
+	const trialing = currentTier === 'trial';
+	const paidStatus = (plan: CloudPlanOffer): PlanStatus | undefined =>
+		currentTier === plan.tier && currentPlanKey === plan.planKey
 			? 'current'
-			: currentTier === 'trial' && currentPlanKey === team?.planKey
+			: trialing && currentPlanKey === plan.planKey && !cancellationScheduled
 				? 'after-trial'
-				: undefined;
-	const unlimitedStatus =
-		currentTier === 'unlimited'
+				: pendingPlanKey === plan.planKey
+					? 'scheduled'
+					: undefined;
+	const teamStatus = team ? paidStatus(team) : undefined;
+	const unlimitedStatus = unlimited ? paidStatus(unlimited) : undefined;
+	const teamTotal = team
+		? `${formatBillingPrice(team.unitAmount * (seatQuantity ?? 4), team.currency)} total for ${seatQuantity ?? 4} seats / ${intervalLabel}`
+		: '';
+	const freeStatus: PlanStatus | undefined =
+		currentTier === 'free'
 			? 'current'
-			: currentTier === 'trial' && currentPlanKey === unlimited?.planKey
+			: trialing && (currentPlanKey === null || cancellationScheduled)
 				? 'after-trial'
-				: undefined;
+				: cancellationScheduled
+					? 'scheduled'
+					: undefined;
 
 	return (
 		<SettingsCard
 			title='Compare plans'
 			description='All plans include every nao feature. Choose how much full-access capacity you need.'
-		>
-			<div className='mb-4 flex flex-wrap items-center gap-3'>
-				<div className='inline-flex rounded-lg bg-muted p-1' role='group' aria-label='Billing interval'>
+			action={
+				<div
+					className='inline-flex shrink-0 rounded-lg bg-muted p-1'
+					role='group'
+					aria-label='Billing interval'
+				>
 					{(['monthly', 'yearly'] as const).map((value) => (
 						<Button
 							key={value}
@@ -81,36 +112,46 @@ export function CloudBillingPlanComparison({
 							onClick={() => onIntervalChange(value)}
 							disabled={disabled}
 						>
-							{value === 'monthly' ? 'Monthly' : 'Yearly'}
+							{value === 'monthly'
+								? 'Monthly'
+								: yearlyDiscount
+									? `Yearly · Save ${yearlyDiscount}`
+									: 'Yearly'}
 						</Button>
 					))}
 				</div>
-				{yearlyDiscount !== null && <Badge variant='success'>Save {yearlyDiscount} yearly</Badge>}
-			</div>
+			}
+		>
 			<div className='grid gap-4 lg:grid-cols-3'>
 				<PlanCard
 					name='Free'
 					price={formatBillingPrice(0, currency)}
 					priceSuffix='forever'
 					supportingText='No card required'
-					status={currentTier === 'free' ? 'current' : undefined}
+					status={freeStatus}
 					features={[
 						'3 full-access seats included',
 						'Unlimited viewers',
 						'Use your own model keys or nao credits',
 					]}
-					notice={
-						currentTier === 'trial'
-							? 'You will move to Free after your trial if no paid plan starts.'
-							: undefined
+					actionLabel={
+						freeStatus
+							? planStatusActionLabel[freeStatus]
+							: onChooseFree
+								? trialing
+									? 'Use Free after trial'
+									: 'Switch to Free'
+								: undefined
 					}
+					actionDisabled={disabled || freeStatus !== undefined}
+					onAction={onChooseFree}
 				/>
 				{team && (
 					<PlanCard
 						name='Team'
 						price={formatBillingPrice(team.unitAmount, team.currency)}
 						priceSuffix={`per seat / ${intervalLabel}`}
-						supportingText={`${formatBillingPrice(team.unitAmount * requiredTeamSeats, team.currency)} total for ${requiredTeamSeats} seats / ${intervalLabel}`}
+						supportingText={teamStatus === 'current' ? teamTotal : 'Choose 4–40 paid seats'}
 						status={teamStatus}
 						recommended={recommendation === 'team'}
 						features={[
@@ -121,20 +162,9 @@ export function CloudBillingPlanComparison({
 						notice={
 							currentTier === 'team'
 								? `${seatUserCount} using seats · ${seatQuantity ?? '—'} purchased · ${availableSeats ?? '—'} available`
-								: seatUserCount < 4
-									? `Add ${4 - seatUserCount} more full-access ${4 - seatUserCount === 1 ? 'user' : 'users'} to choose Team.`
-									: undefined
+								: undefined
 						}
-						actionLabel={
-							teamStatus === 'current'
-								? 'Current plan'
-								: teamStatus === 'after-trial'
-									? 'Starts after trial'
-									: seatUserCount < 4
-										? 'Manage members'
-										: 'Choose Team'
-						}
-						actionHref={seatUserCount < 4 && !teamStatus ? '/settings/organization/members' : undefined}
+						actionLabel={teamStatus ? planStatusActionLabel[teamStatus] : 'Choose Team'}
 						actionDisabled={disabled || teamStatus !== undefined}
 						onAction={() => onChoose(team)}
 					/>
@@ -148,13 +178,7 @@ export function CloudBillingPlanComparison({
 						status={unlimitedStatus}
 						recommended={recommendation === 'unlimited'}
 						features={['Unlimited full-access users', 'Unlimited viewers', 'No seat management']}
-						actionLabel={
-							unlimitedStatus === 'current'
-								? 'Current plan'
-								: unlimitedStatus === 'after-trial'
-									? 'Starts after trial'
-									: 'Choose Unlimited'
-						}
+						actionLabel={unlimitedStatus ? planStatusActionLabel[unlimitedStatus] : 'Choose Unlimited'}
 						actionDisabled={disabled || unlimitedStatus !== undefined}
 						onAction={() => onChoose(unlimited)}
 					/>
@@ -174,7 +198,6 @@ function PlanCard({
 	recommended,
 	notice,
 	actionLabel,
-	actionHref,
 	actionDisabled,
 	onAction,
 }: {
@@ -183,11 +206,10 @@ function PlanCard({
 	priceSuffix: string;
 	supportingText: string;
 	features: string[];
-	status?: 'current' | 'after-trial';
+	status?: PlanStatus;
 	recommended?: boolean;
 	notice?: string;
 	actionLabel?: string;
-	actionHref?: '/settings/organization/members';
 	actionDisabled?: boolean;
 	onAction?: () => void;
 }) {
@@ -195,14 +217,15 @@ function PlanCard({
 		<section
 			className={cn(
 				'flex min-w-0 flex-col gap-4 rounded-xl border p-5',
-				status ? 'border-primary/50 bg-primary/[0.03]' : 'border-border',
+				status === 'current' && 'border-primary bg-primary/[0.03]',
+				status && status !== 'current' && 'border-dashed border-primary/50',
+				!status && 'border-border',
 			)}
 			aria-label={`${name} plan`}
 		>
 			<div className='flex flex-wrap items-center gap-2'>
 				<h3 className='font-semibold'>{name}</h3>
-				{status === 'current' && <Badge variant='success'>Current plan</Badge>}
-				{status === 'after-trial' && <Badge variant='secondary'>After trial</Badge>}
+				{status && <Badge variant={planStatusBadge[status].variant}>{planStatusBadge[status].label}</Badge>}
 				{recommended && !status && <Badge>Recommended</Badge>}
 			</div>
 			<div>
@@ -224,18 +247,11 @@ function PlanCard({
 				))}
 			</ul>
 			{notice && <p className='rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground'>{notice}</p>}
-			{actionLabel &&
-				(actionHref ? (
-					<Button variant='secondary' asChild>
-						<Link to={actionHref}>{actionLabel}</Link>
-					</Button>
-				) : (
-					onAction && (
-						<Button variant='secondary' disabled={actionDisabled} onClick={onAction}>
-							{actionLabel}
-						</Button>
-					)
-				))}
+			{actionLabel && (
+				<Button variant='secondary' disabled={actionDisabled} onClick={onAction}>
+					{actionLabel}
+				</Button>
+			)}
 		</section>
 	);
 }

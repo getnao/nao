@@ -517,7 +517,7 @@ export async function updateCloudSubscriptionPlan(input: {
 			proration_date: stripeTimestamp(input.prorationDate),
 			...(paidUpgrade ? { payment_behavior: 'error_if_incomplete' as const } : {}),
 			...(input.subscription.status === 'trialing' && input.subscription.trial_end
-				? { trial_end: input.subscription.trial_end }
+				? { cancel_at_period_end: false, trial_end: input.subscription.trial_end }
 				: {}),
 		},
 		{
@@ -889,8 +889,6 @@ async function cloudTrialPlaceholderProjection(
 	}
 	const trialEndsAt = stripeDate(subscription.trial_end);
 	const cancellationEndsAt = stripeDate(subscription.cancel_at);
-	const cancellationScheduled =
-		billingStatus !== 'canceled' && (subscription.cancel_at_period_end || cancellationEndsAt !== null);
 	const billingAccessEndsAt =
 		billingStatus === 'trialing' ? earlierStripeDate(trialEndsAt, cancellationEndsAt) : null;
 	const hasDefaultPaymentMethod = await hasCloudDefaultPaymentMethod(stripeCustomerId(subscription.customer));
@@ -909,7 +907,7 @@ async function cloudTrialPlaceholderProjection(
 		trialEndsAt,
 		currentPeriodStartsAt: stripeDate(item.current_period_start),
 		currentPeriodEndsAt: stripeDate(item.current_period_end),
-		cancellationScheduled,
+		cancellationScheduled: false,
 		hasDefaultPaymentMethod,
 		billingAccessEndsAt,
 	};

@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { TEAM_MAX_SEATS, TEAM_MIN_SEATS } from '@nao/shared/billing';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team/types';
@@ -24,8 +25,6 @@ export type CloudSeatCandidate = {
 };
 
 type BillingPreview = React.ComponentProps<typeof CloudBillingChangeDialog>['preview'];
-
-const MIN_TEAM_SEATS = 4;
 
 export function seatCandidateToTeamMember(candidate: CloudSeatCandidate): TeamMember {
 	return {
@@ -75,12 +74,12 @@ export function CloudBillingSeatsCard({
 	onConfirmSeatChange?: (token: string) => Promise<unknown>;
 	onSaveSeatSelection?: (selectedUserIds: string[]) => Promise<unknown>;
 }) {
-	const [quantity, setQuantity] = useState(seatQuantity ?? MIN_TEAM_SEATS);
+	const [quantity, setQuantity] = useState(Math.min(TEAM_MAX_SEATS, seatQuantity ?? TEAM_MIN_SEATS));
 	const [preview, setPreview] = useState<BillingPreview>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [accessError, setAccessError] = useState<string | null>(null);
 
-	useEffect(() => setQuantity(seatQuantity ?? MIN_TEAM_SEATS), [seatQuantity]);
+	useEffect(() => setQuantity(Math.min(TEAM_MAX_SEATS, seatQuantity ?? TEAM_MIN_SEATS)), [seatQuantity]);
 
 	const seatedMembers = candidates.filter(({ isSeated }) => isSeated);
 	const capacity = tier === 'team' ? seatQuantity : tier === 'free' ? (seatLimit ?? 3) : null;
@@ -155,8 +154,8 @@ export function CloudBillingSeatsCard({
 						<div>
 							<p className='text-sm font-medium text-foreground'>Paid capacity</p>
 							<p className='mt-1 text-xs text-muted-foreground'>
-								Team starts at {MIN_TEAM_SEATS} seats. You will review the price before any billing
-								change is applied.
+								Team supports {TEAM_MIN_SEATS} to {TEAM_MAX_SEATS} seats. You will review the price
+								before any billing change is applied.
 							</p>
 						</div>
 						<div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
@@ -164,13 +163,20 @@ export function CloudBillingSeatsCard({
 								Number of seats
 								<Input
 									type='number'
-									min={MIN_TEAM_SEATS}
+									min={TEAM_MIN_SEATS}
+									max={TEAM_MAX_SEATS}
 									value={quantity}
 									onChange={(event) =>
 										setQuantity(
 											Number.isFinite(event.target.valueAsNumber)
-												? Math.max(MIN_TEAM_SEATS, event.target.valueAsNumber)
-												: MIN_TEAM_SEATS,
+												? Math.min(
+														TEAM_MAX_SEATS,
+														Math.max(
+															TEAM_MIN_SEATS,
+															Math.trunc(event.target.valueAsNumber),
+														),
+													)
+												: TEAM_MIN_SEATS,
 										)
 									}
 									className='w-full sm:w-28'

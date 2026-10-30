@@ -63,6 +63,7 @@ export function calculateCreditTopUp(creditAmountCents: number): {
 export const CLOUD_BILLING_TRIAL_DAYS = 14;
 export const FREE_TIER_SEAT_LIMIT = 3;
 export const TEAM_MIN_SEATS = 4;
+export const TEAM_MAX_SEATS = 40;
 
 export const CLOUD_BILLING_PLANS = {
 	cloud_team_monthly_v1: {
