@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { OrganizationBillingSettings } from './organization-billing-settings';
 
+import type * as ReactRouter from '@tanstack/react-router';
 import type { CloudSeatCandidate } from '@/components/settings/cloud-billing-seats-card';
 import type { useOrganizationBilling } from '@/hooks/use-organization-billing';
 import { getBillingStatusView } from '@/lib/billing-display';
@@ -56,8 +57,17 @@ vi.mock('@/components/settings/credits-wallet-content', () => ({
 	OrganizationCreditsContent: () => null,
 }));
 
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+	...(await importOriginal<typeof ReactRouter>()),
+	Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
+}));
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	vi.stubGlobal(
+		'ResizeObserver',
+		vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn() })),
+	);
 	mocks.cancellationScheduled = false;
 	mocks.hasStripeSubscription = false;
 	mocks.isCheckoutPolling = false;
@@ -80,7 +90,10 @@ beforeEach(() => {
 	mocks.yearlyPlanAmount = 2_000_000;
 });
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.unstubAllGlobals();
+});
 
 it('offers a paid recovery Checkout when a recorded trial has no Stripe subscription', () => {
 	render(<OrganizationBillingSettings search={{}} />);
@@ -304,7 +317,8 @@ it('shows unlimited seat availability during a trial', () => {
 	render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
 
 	expect(screen.getByText('Available seats').parentElement?.textContent).toContain('Unlimited');
-	expect(screen.getByText('No seat limit during the trial')).toBeTruthy();
+	expect(screen.queryByText(/No seat limit/)).toBeNull();
+	expect(screen.queryByRole('progressbar', { name: 'Seat usage' })).toBeNull();
 });
 
 it('opens a URL-selected billing tab and emits top-level tab changes', () => {
@@ -347,13 +361,21 @@ it('opens a URL-selected billing tab and emits top-level tab changes', () => {
 
 	expect(screen.getByText('Available seats').parentElement?.textContent).toContain('0');
 	expect(screen.getByText('4 purchased seats')).toBeTruthy();
-	expect(screen.getByText('Seated members')).toBeTruthy();
-	expect(screen.getByText('admin@example.com')).toBeTruthy();
-	expect(screen.getByText('employee@example.com')).toBeTruthy();
+	const usageBar = screen.getByRole('progressbar', { name: 'Seat usage' });
+	expect(usageBar.getAttribute('aria-valuenow')).toBe('2');
+	expect(usageBar.getAttribute('aria-valuemax')).toBe('4');
+	expect(screen.getByRole('link', { name: 'Manage members' }).getAttribute('href')).toBe(
+		'/settings/organization/members',
+	);
+	expect(screen.getByRole('row', { name: /admin@example.com/ }).textContent).toContain('Seated');
+	expect(screen.getByRole('row', { name: /project@example.com/ }).textContent).toContain('Read-only');
 	expect(screen.getByLabelText('Number of seats')).toHaveProperty('value', '4');
-	expect(screen.queryByRole('checkbox', { name: /Assign seat/ })).toBeNull();
-	expect(screen.queryByText('project@example.com')).toBeNull();
+	expect(screen.queryByRole('button', { name: 'Actions for Admin' })).toBeNull();
 	expect(screen.queryByText('Compare plans')).toBeNull();
+
+	fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Employee' }), { button: 0, ctrlKey: false });
+	fireEvent.click(screen.getByRole('menuitem', { name: 'Make read-only' }));
+	expect(mocks.cloudSaveSeatSelection).toHaveBeenCalledWith([]);
 
 	fireEvent.click(screen.getByRole('tab', { name: 'Credits' }));
 	expect(onTabChange).toHaveBeenCalledWith('credits');

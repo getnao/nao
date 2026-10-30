@@ -8,6 +8,7 @@ import type { UserRole } from '@nao/shared/types';
 import type { TeamMember } from '@/components/settings/team';
 import type { CloudSeatCandidate } from '@/components/settings/cloud-billing-seats-card';
 import type { MemberAccessState } from '@/components/settings/member-access-badge';
+import { getNextSeatSelection, seatCandidateToTeamMember } from '@/components/settings/cloud-billing-seats-card';
 import {
 	AddMemberDialog,
 	EditMemberDialog,
@@ -77,16 +78,9 @@ export function OrgMembers() {
 			? billingStatus.data
 			: undefined;
 	const seatCandidates: CloudSeatCandidate[] = cloudBillingStatus?.seatCandidates ?? [];
-	const projectMembers: TeamMember[] = seatCandidates
+	const projectMembers = seatCandidates
 		.filter((candidate) => candidate.membershipClass === 'project_only')
-		.map((candidate) => ({
-			id: candidate.userId,
-			name: candidate.name,
-			email: candidate.email,
-			role: candidate.storedProjectRoles?.find((role) => role !== 'viewer') ?? 'user',
-			status: 'active',
-			membershipSource: 'project',
-		}));
+		.map(seatCandidateToTeamMember);
 	const members = [...organizationMembers, ...projectMembers];
 	const accessByUserId: Record<string, MemberAccessState> | undefined = cloudBillingStatus
 		? Object.fromEntries(
@@ -167,17 +161,11 @@ export function OrgMembers() {
 			return;
 		}
 
-		const selectedUserIds = seatCandidates
-			.filter(({ storedOrgRole, isSeated }) => storedOrgRole !== 'admin' && isSeated)
-			.map(({ userId }) => userId);
-		const nextSelectedUserIds =
-			access === 'seated'
-				? [...new Set([...selectedUserIds, member.id])]
-				: selectedUserIds.filter((userId) => userId !== member.id);
-
 		setSeatAccessError(null);
 		try {
-			await selectSeats.mutateAsync({ selectedUserIds: nextSelectedUserIds });
+			await selectSeats.mutateAsync({
+				selectedUserIds: getNextSeatSelection(seatCandidates, member.id, access),
+			});
 			await invalidateMembers();
 		} catch (error) {
 			setSeatAccessError(error instanceof Error ? error.message : 'Unable to update seat access.');

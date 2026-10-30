@@ -264,12 +264,17 @@ function CloudOrganizationBillingSettings({
 							seatQuantity={data.access.seatQuantity}
 							seatLimit={data.access.seatLimit}
 							availableSeats={data.access.availableSeats}
-							seatedMembers={data.seatCandidates.filter(({ isSeated }) => isSeated)}
+							candidates={data.seatCandidates}
 							disabled={billingState.isBillingCommandPending || data.scheduleConflict}
 							onPreviewSeatChange={
 								data.access.tier === 'team' ? billingState.previewSeatChange : undefined
 							}
 							onConfirmSeatChange={billingState.confirmSeatChange}
+							onSaveSeatSelection={
+								data.access.tier === 'unlimited' || data.access.tier === 'bypass'
+									? undefined
+									: billingState.saveSeatSelection
+							}
 						/>
 					</>
 				)}
