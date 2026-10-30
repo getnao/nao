@@ -23,16 +23,25 @@ type SlackChannelsInputProps = {
 
 export function SlackChannelsInput({ channels, saveError, disabled, onChange }: SlackChannelsInputProps) {
 	const [draft, setDraft] = useState('');
+	const [isDraftAppended, setIsDraftAppended] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const feedbackId = useId();
-	const tokens = getCommittedChannels(channels, draft);
+	const tokens = isDraftAppended && channels.at(-1) === draft.trim() ? channels.slice(0, -1) : channels;
 	const feedbackChannels = saveError ? channels : tokens;
 	const invalidChannels = getInvalidSlackChannels(feedbackChannels);
 
-	/** The draft is always part of `channels` so a save shortcut pressed mid-typing keeps it. */
+	/** A new draft channel is appended to `channels` so a save shortcut pressed mid-typing keeps it. */
 	function update(nextTokens: string[], nextDraft: string) {
+		const draftChannel = nextDraft.trim();
+		const appendsDraft = draftChannel !== '' && !nextTokens.includes(draftChannel);
 		setDraft(nextDraft);
-		onChange(mergeSlackChannels(nextTokens, parseSlackChannels(nextDraft)));
+		setIsDraftAppended(appendsDraft);
+		onChange(appendsDraft ? [...nextTokens, draftChannel] : nextTokens);
+	}
+
+	function commitDraft() {
+		setDraft('');
+		setIsDraftAppended(false);
 	}
 
 	function handleDraftChange(text: string) {
@@ -43,7 +52,7 @@ export function SlackChannelsInput({ channels, saveError, disabled, onChange }: 
 	function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
 		if (event.key === 'Enter' && draft.trim()) {
 			event.preventDefault();
-			setDraft('');
+			commitDraft();
 			return;
 		}
 		if (event.key === 'Backspace' && draft === '' && tokens.length > 0) {
@@ -107,7 +116,7 @@ export function SlackChannelsInput({ channels, saveError, disabled, onChange }: 
 					onChange={(event) => handleDraftChange(event.target.value)}
 					onKeyDown={handleKeyDown}
 					onPaste={handlePaste}
-					onBlur={() => setDraft('')}
+					onBlur={commitDraft}
 				/>
 			</div>
 			<SlackChannelsFeedback
@@ -217,14 +226,6 @@ function SlackChannelsFeedback({
 			<p className='text-muted-foreground'>{getDeliverySummary(validCount, invalidChannels.length)}</p>
 		</div>
 	);
-}
-
-function getCommittedChannels(channels: string[], draft: string): string[] {
-	const draftChannel = draft.trim();
-	if (draftChannel && channels.at(-1) === draftChannel) {
-		return channels.slice(0, -1);
-	}
-	return channels;
 }
 
 function getDeliverySummary(validCount: number, invalidCount: number): string {
