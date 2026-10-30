@@ -3,10 +3,11 @@ import { createPrivateKey } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { TRPCError } from '@trpc/server';
 import { SignJWT } from 'jose';
 
 import { env } from '../env';
-import { NAO_CO_AUTHOR } from '../utils/git-identity';
+import { type GitIdentity, NAO_CO_AUTHOR } from '../utils/git-identity';
 import { getGitOAuthCredential, runGitWithOAuthAsync } from '../utils/git-oauth';
 import { describeError, logger } from '../utils/logger';
 
@@ -29,6 +30,14 @@ interface ManagedRepository {
 	repoFullName: string;
 	url: string;
 	created: boolean;
+}
+
+interface ManagedRepositoryUpdateInput {
+	projectDir: string;
+	repoFullName: string;
+	paths: string[];
+	message: string;
+	author: GitIdentity;
 }
 
 interface ManagedGithubConfig {
@@ -105,6 +114,77 @@ export async function deleteManagedGithubRepository(repoFullName: string): Promi
 
 	const token = await createInstallationToken(config);
 	await deleteRepository(repoFullName, token);
+}
+
+export async function readManagedGithubRepositoryFullName(projectDir: string): Promise<string | null> {
+	const org = env.CLOUD_GITHUB_PROJECT_ORG;
+	if (!org || !isGitRepository(projectDir)) {
+		return null;
+	}
+	const origin = await runGit(projectDir, ['remote', 'get-url', 'origin']).catch(() => '');
+	const repoFullName = origin.trim().match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\.git$/)?.[1];
+	return repoFullName?.toLowerCase().startsWith(`${org.toLowerCase()}/`) ? repoFullName : null;
+}
+
+export async function assertRepositoryEditable(projectPath: string | null): Promise<void> {
+	if (projectPath && (await readManagedGithubRepositoryFullName(projectPath))) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: "This project's repository is managed by nao and can't be changed yet.",
+		});
+	}
+}
+
+export async function publishManagedGithubRepositoryUpdate(input: ManagedRepositoryUpdateInput): Promise<boolean> {
+	const config = getManagedGithubConfig();
+	if (!config) {
+		throw new ManagedGithubConfigurationError('Managed GitHub publishing is not configured');
+	}
+
+	const previousCommit = (await runGit(input.projectDir, ['rev-parse', 'HEAD'])).trim();
+	let committed = false;
+
+	try {
+		await runGit(input.projectDir, ['add', '--', ...input.paths]);
+		const stagedFiles = (
+			await runGit(input.projectDir, ['diff', '--cached', '--name-only', '--', ...input.paths])
+		).trim();
+		if (!stagedFiles) {
+			return false;
+		}
+
+		assertNoSecrets(stagedFiles);
+		await runGit(input.projectDir, ['commit', '-m', input.message, '--', ...input.paths], {
+			GIT_AUTHOR_NAME: input.author.name,
+			GIT_AUTHOR_EMAIL: input.author.email,
+			GIT_COMMITTER_NAME: NAO_CO_AUTHOR.name,
+			GIT_COMMITTER_EMAIL: NAO_CO_AUTHOR.email,
+		});
+		committed = true;
+
+		const token = await createInstallationToken(config);
+		await pushRepositoryWithAuthenticationRetry(
+			input.projectDir,
+			input.repoFullName,
+			token,
+			config,
+			() => undefined,
+		);
+		return true;
+	} catch (error) {
+		try {
+			if (committed) {
+				await runGit(input.projectDir, ['reset', '--soft', previousCommit]);
+			}
+			await runGit(input.projectDir, ['reset', previousCommit, '--', ...input.paths]);
+		} catch (rollbackError) {
+			throw new Error(
+				`Managed repository update failed: ${getErrorMessage(error)}; the local commit could not be rolled back: ${getErrorMessage(rollbackError)}`,
+				{ cause: new AggregateError([error, rollbackError]) },
+			);
+		}
+		throw error;
+	}
 }
 
 /** Publishing only runs at the end of a warehouse setup, so a broken configuration is reported when the server starts. */

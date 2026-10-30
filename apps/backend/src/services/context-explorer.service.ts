@@ -18,6 +18,9 @@ import fs from 'fs/promises';
 
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
 import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
+import type { GitIdentity } from '../utils/git-identity';
+import { withKeyedLock } from '../utils/keyed-lock';
+import { logger, serializeError } from '../utils/logger';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -29,6 +32,7 @@ import {
 	toVirtualPath,
 } from '../utils/tools';
 import type { ContextExplorerGitResolution } from './context-explorer-git.service';
+import { publishManagedGithubRepositoryUpdate } from './managed-github-repository';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
@@ -46,6 +50,8 @@ export interface FileEditability {
 export interface ContextExplorerFileAccess {
 	projectFolder: string;
 	git: ContextExplorerGitResolution;
+	/** Projects in nao's GitHub org are edited in place and every save is pushed straight to main. */
+	managedRepository?: { repoFullName: string; author: GitIdentity } | null;
 }
 
 type RipgrepMatchEntry = {
@@ -89,7 +95,11 @@ export async function readFileContent(
 	}
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const repo = availableRepo(access.git);
-	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
+	const trackedPaths = repo
+		? getCommittedProjectPaths(repo)
+		: access.managedRepository
+			? getLiveCommittedPaths(access.projectFolder)
+			: new Set<string>();
 	const worktreePath = repo ? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath : null;
 	const readPath =
 		worktreePath && (trackedPaths.has(normalizeProjectPath(filePath)) || fsSync.existsSync(worktreePath))
@@ -119,6 +129,9 @@ export async function writeFileContent(
 	const contentBuffer = Buffer.from(content, 'utf-8');
 	validateContentBuffer(contentBuffer);
 
+	if (access.managedRepository) {
+		return writeManagedFile(filePath, content, expectedHash, access, access.managedRepository);
+	}
 	if (access.git.status === 'unavailable') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
@@ -155,7 +168,7 @@ export function getFileEditability(
 	repo: ResolvedContextRepo | null,
 	trackedPaths: Set<string>,
 ): FileEditability {
-	if (access.git.status === 'unavailable') {
+	if (access.git.status === 'unavailable' && !access.managedRepository) {
 		return unavailableGitEditability(access.git.reason, access.git.message, access.git.repo?.provider);
 	}
 
@@ -198,7 +211,7 @@ export function getFileEditability(
 			actionLabel: 'Open nao_config.yaml',
 		});
 	}
-	if (!repo || !trackedPaths.has(projectPath)) {
+	if (!trackedPaths.has(projectPath)) {
 		return readOnly('not-tracked', guidanceForReason('not-tracked'));
 	}
 	return { isEditable: true, reason: null, guidance: null };
@@ -219,6 +232,54 @@ export function assertFileEditable(
 		code: 'FORBIDDEN',
 		message: editability.guidance?.message ?? 'This file is read-only.',
 	});
+}
+
+async function writeManagedFile(
+	filePath: string,
+	content: string,
+	expectedHash: string,
+	access: ContextExplorerFileAccess,
+	managedRepository: { repoFullName: string; author: GitIdentity },
+): Promise<FileWriteResponse> {
+	const { realPath, root } = resolveAndValidatePath(filePath, access.projectFolder);
+	assertFileEditable(filePath, realPath, access, null, getLiveCommittedPaths(access.projectFolder));
+	return withKeyedLock(`managed-context-write:${root}`, async () => {
+		const previousContent = await readValidatedFile(realPath, filePath);
+		assertExpectedHash(previousContent, expectedHash);
+		const writeContent = (nextContent: string) => {
+			writeFileAtomically({ content: nextContent, displayPath: filePath, root, target: realPath });
+		};
+		try {
+			writeContent(content);
+		} catch (error) {
+			throw toFileError(error, filePath);
+		}
+		const projectPath = normalizeProjectPath(filePath);
+		try {
+			await publishManagedGithubRepositoryUpdate({
+				projectDir: access.projectFolder,
+				repoFullName: managedRepository.repoFullName,
+				paths: [projectPath],
+				message: `Update ${projectPath}`,
+				author: managedRepository.author,
+			});
+		} catch (error) {
+			writeContent(previousContent.toString('utf-8'));
+			logger.error(`Failed to publish context file ${projectPath}`, {
+				source: 'system',
+				context: { repoFullName: managedRepository.repoFullName, error: serializeError(error) },
+			});
+			throw new TRPCError({
+				code: 'INTERNAL_SERVER_ERROR',
+				message: 'Your change could not be published, so it was not saved. Please try again.',
+			});
+		}
+		return { hash: hashContent(Buffer.from(content, 'utf-8')) };
+	});
+}
+
+function getLiveCommittedPaths(projectFolder: string): Set<string> {
+	return getCommittedProjectPaths({ worktreeRoot: projectFolder, projectPrefix: '' });
 }
 
 export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {

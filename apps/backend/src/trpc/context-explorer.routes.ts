@@ -16,6 +16,7 @@ import {
 	commitContextChanges,
 	connectContextRepository,
 	type ContextExplorerGitContext,
+	type ContextExplorerGitResolution,
 	createContextBranch,
 	createContextBranchAndCommit,
 	discardAllContextChanges,
@@ -34,6 +35,7 @@ import {
 	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
+import { assertRepositoryEditable, readManagedGithubRepositoryFullName } from '../services/managed-github-repository';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
 import {
@@ -76,7 +78,12 @@ const pullPayloadSchema = z.object({
 
 export const contextExplorerRoutes = {
 	getRepositoryStatus: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		const context = await createGitContext(ctx.project.id, ctx.project.path, ctx.user);
+		const status = await getContextRepositoryStatus(context);
+		const isManagedRepository =
+			status.gitUnavailableReason === 'no-repo' &&
+			(await readManagedGithubRepositoryFullName(context.projectFolder)) !== null;
+		return { ...status, isManagedRepository };
 	}),
 
 	getLiveContextPullHistory: contextAdminProtectedProcedure.query(async ({ ctx }) => {
@@ -149,6 +156,7 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertRepositoryEditable(ctx.project.path);
 			const projectFolder = requireProjectPath(ctx.project.path);
 			const context: ContextExplorerGitContext = {
 				projectId: ctx.project.id,
@@ -167,6 +175,7 @@ export const contextExplorerRoutes = {
 		}),
 
 	disconnectRepository: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		await assertRepositoryEditable(ctx.project.path);
 		return disconnectContextRepository({
 			projectId: ctx.project.id,
 			projectFolder: requireProjectPath(ctx.project.path),
@@ -176,7 +185,7 @@ export const contextExplorerRoutes = {
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-		return { entries: await getFileTree(access) };
+		return { entries: await getFileTree(access), isManagedRepository: Boolean(access.managedRepository) };
 	}),
 
 	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {
@@ -342,9 +351,11 @@ async function createSafeFileAccess(
 	user: { id: string; name: string; email: string },
 ): Promise<ContextExplorerFileAccess> {
 	const context = await createGitContext(projectId, projectPath, user);
+	const git = await resolveContextExplorerGitSafely(context);
 	return {
 		projectFolder: context.projectFolder,
-		git: await resolveContextExplorerGitSafely(context),
+		git,
+		managedRepository: await resolveManagedRepository(git, context),
 	};
 }
 
@@ -354,10 +365,23 @@ async function createStrictFileAccess(
 	user: { id: string; name: string; email: string },
 ): Promise<ContextExplorerFileAccess> {
 	const context = await createGitContext(projectId, projectPath, user);
+	const git = await resolveContextExplorerGit(context);
 	return {
 		projectFolder: context.projectFolder,
-		git: await resolveContextExplorerGit(context),
+		git,
+		managedRepository: await resolveManagedRepository(git, context),
 	};
+}
+
+async function resolveManagedRepository(
+	git: ContextExplorerGitResolution,
+	context: ContextExplorerGitContext,
+): Promise<ContextExplorerFileAccess['managedRepository']> {
+	if (git.status !== 'unavailable' || git.reason !== 'no-repo') {
+		return null;
+	}
+	const repoFullName = await readManagedGithubRepositoryFullName(context.projectFolder);
+	return repoFullName ? { repoFullName, author: context.user } : null;
 }
 
 async function createGitContext(

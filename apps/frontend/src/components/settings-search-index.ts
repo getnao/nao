@@ -710,6 +710,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/git',
 		pageLabel: 'Git',
+		title: 'Managed by nao',
+		description: 'See how nao stores and versions the context files of your project.',
+		keywords: ['git', 'github', 'repository', 'managed', 'versioned', 'publish', 'context files'],
+		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
 		title: 'Update context files',
 		description: 'Pull the configured deployment branch into this nao instance.',
 		keywords: ['git pull', 'pull latest', 'refresh context', 'deployment branch', 'update context'],
