@@ -38,6 +38,8 @@ def test_lists_metrics_with_their_dimensions(manifest_path: Path) -> None:
     assert metrics["revenue"].semantic_models == ["orders"]
     assert "order__status" in metrics["revenue"].dimensions
     assert "metric_time" in metrics["revenue"].dimensions
+    assert metrics["revenue"].meta["context"]["owner"] == "Finance Analytics"
+    assert metrics["orders"].meta == {}
     assert metrics["average_order_value"].type == "ratio"
     assert metrics["average_order_value"].input_metrics == ["revenue", "orders"]
 
