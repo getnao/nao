@@ -116,7 +116,7 @@ def spec(db_config, temp_datasets):
     return SyncTestSpec(
         db_type="bigquery",
         primary_schema=db_config.dataset_id,
-        primary_table_count=3,
+        primary_table_count=4,
         users_column_assertions=(
             "# users",
             f"**Dataset:** `{db_config.dataset_id}`",
@@ -288,3 +288,35 @@ class TestBigQueryPartitionFilter:
             assert ctx.active_partition_filter() is None
         finally:
             conn.disconnect()
+
+
+class TestBigQueryPartitionedProfiling:
+    """Verify column stats and their total_count cover the same partition window."""
+
+    def test_profiling_stats_share_the_partition_filter_scope(self, db_config, temp_datasets):
+        conn = db_config.connect()
+        try:
+            ctx = db_config.create_context(conn, temp_datasets["public"], "recent_events")
+            result = ctx.profiling()
+        finally:
+            conn.disconnect()
+
+        assert result["scope"]["profiled_row_count"] == 3
+        assert result["scope"]["table_row_count"] == 5
+        assert "INTERVAL 30 DAY" in result["scope"]["partition_filter"]
+        profiles = {profile["column"]: profile for profile in result["columns"]}
+        assert profiles["referrer"]["total_count"] == 3
+        assert profiles["referrer"]["null_count"] == 2
+        assert profiles["referrer"]["null_percentage"] == 66.67
+        assert profiles["id"]["distinct_count"] == profiles["id"]["total_count"]
+
+    def test_non_partitioned_profiling_has_no_scope(self, db_config, temp_datasets):
+        conn = db_config.connect()
+        try:
+            ctx = db_config.create_context(conn, temp_datasets["public"], "users")
+            result = ctx.profiling()
+        finally:
+            conn.disconnect()
+
+        assert "scope" not in result
+        assert all(profile["total_count"] == 3 for profile in result["columns"])

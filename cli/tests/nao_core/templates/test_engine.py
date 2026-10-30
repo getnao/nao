@@ -182,9 +182,81 @@ class TestTemplateEngine:
         assert "do NOT infer data quality" in instruction
         assert "Profiling statistics (JSON)" in instruction
         assert '"distinct_count": 100' in instruction
+        assert "Profiling scope" not in instruction
         assert "**Computed at:** `2026-07-15T13:00:00+00:00`" in result
         mock_db.preview.assert_called_once_with(limit=10)
         mock_db.profiling.assert_not_called()
+
+    def test_ai_summary_states_partition_scope_of_profiling(self):
+        llm_config = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(llm_config=llm_config)
+        mock_db = MagicMock()
+        mock_db.columns.return_value = [{"name": "match_id", "type": "STRING", "description": None}]
+        mock_db.description.return_value = None
+        mock_db.preview.return_value = []
+        partition_filter = "`expected_pickup_time` >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
+        profiling = {
+            "computed_at": "2026-07-15T12:00:00+00:00",
+            "clustering_columns": [],
+            "columns": [{"column": "match_id", "total_count": 500000, "distinct_count": 500000}],
+            "scope": {
+                "partition_filter": partition_filter,
+                "profiled_row_count": 500000,
+                "table_row_count": 18700000,
+            },
+        }
+
+        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+            engine.render(
+                "databases/ai_summary.md.j2",
+                table_name="trips",
+                dataset="marts",
+                db=mock_db,
+                profiling=profiling,
+            )
+
+        instruction = mock_generate.call_args.args[1]
+        assert (
+            f"these statistics cover only the 500000 rows matching the partition filter `` {partition_filter} ``, "
+            "not the full table (18700000 rows)"
+        ) in instruction
+        assert "never compare these statistics against the full-table row count" in instruction
+
+    def test_profiling_template_shows_scope_when_filtered(self):
+        engine = TemplateEngine()
+        profiling = {
+            "computed_at": "2026-07-15T12:00:00+00:00",
+            "clustering_columns": [],
+            "columns": [{"column": "match_id", "total_count": 500000}],
+            "scope": {
+                "partition_filter": "`d` >= CURRENT_DATE()",
+                "profiled_row_count": 500000,
+                "table_row_count": 900,
+            },
+        }
+
+        result = engine.render(
+            "databases/profiling.md.j2", table_name="t", dataset="d", db=MagicMock(), profiling=profiling
+        )
+
+        assert "**Scope:** 500000 rows matching `` `d` >= CURRENT_DATE() `` (out of 900 in the full table)" in result
+
+    def test_profiling_template_omits_scope_when_unfiltered(self):
+        engine = TemplateEngine()
+        profiling = {
+            "computed_at": "2026-07-15T12:00:00+00:00",
+            "clustering_columns": [],
+            "columns": [{"column": "match_id", "total_count": 500000}],
+        }
+
+        result = engine.render(
+            "databases/profiling.md.j2", table_name="t", dataset="d", db=MagicMock(), profiling=profiling
+        )
+
+        assert "**Scope:**" not in result
 
     def test_ai_summary_skips_quality_claims_without_profiling(self):
         llm_config = LLMConfig(

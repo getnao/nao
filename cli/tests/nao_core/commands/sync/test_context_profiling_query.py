@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from nao_core.config.databases.athena import AthenaDatabaseContext
-from nao_core.config.databases.bigquery import BigQueryDatabaseContext
+from nao_core.config.databases.bigquery import BigQueryDatabaseContext, TablePartitionMetadata
 from nao_core.config.databases.context import DatabaseContext
 from nao_core.config.databases.databricks import DatabricksDatabaseContext
 from nao_core.config.databases.mssql import MssqlDatabaseContext
@@ -594,3 +594,154 @@ class TestMssqlTopValuesQuery:
         sql = ctx._build_top_values_query(STR_COL)
         assert "[status]" in sql
         assert "[my_schema].[my_table]" in sql
+
+
+TRIP_COLUMNS = [
+    {"name": "match_id", "type": "STRING"},
+    {"name": "cancel_reason", "type": "STRING"},
+]
+TABLE_ROW_COUNT = 18_700_000
+PROFILED_ROW_COUNT = 500_000
+COLUMN_STATS = {
+    "match_id": (0, 500_000),
+    "cancel_reason": (350_000, 120),
+}
+
+
+def make_scoped_context(cls, partition_cols=None, clustering_cols=None):
+    """Context whose connection answers the scoped COUNT(*) and per-column profiling queries."""
+    if cls is BigQueryDatabaseContext:
+        metadata = TablePartitionMetadata(
+            partition_column=(partition_cols or [None])[0],
+            partition_column_type="TIMESTAMP",
+            last_partition_id=None,
+            total_rows=TABLE_ROW_COUNT,
+        )
+        ctx = cls(MagicMock(), "my_schema", "trips", project_id="test-project", partition_metadata=metadata)
+    else:
+        ctx = cls(MagicMock(), "my_schema", "trips")
+    ctx.partition_columns = MagicMock(return_value=partition_cols or [])
+    ctx.columns = MagicMock(return_value=TRIP_COLUMNS)
+    ctx.clustering_columns = MagicMock(return_value=clustering_cols or [])
+    ctx.row_count = MagicMock(return_value=TABLE_ROW_COUNT)
+    ctx._conn.raw_sql = MagicMock(side_effect=lambda sql: sql)
+    ctx._fetchone = MagicMock(side_effect=answer_profiling_query)
+    ctx._fetchall = MagicMock(return_value=[])
+    return ctx
+
+
+def answer_profiling_query(sql: str) -> tuple:
+    if sql.startswith("SELECT COUNT(*) FROM"):
+        return (PROFILED_ROW_COUNT,)
+    column = next(name for name in COLUMN_STATS if name in sql)
+    return COLUMN_STATS[column]
+
+
+def executed_queries(ctx) -> list[str]:
+    return [normalize(call.args[0]) for call in ctx._conn.raw_sql.call_args_list]
+
+
+def profile_by_column(result: dict) -> dict[str, dict]:
+    return {profile["column"]: profile for profile in result["columns"]}
+
+
+class TestProfilingScope:
+    """Column stats and their total_count must be computed over the same rows."""
+
+    BIGQUERY_FILTER = "`expected_pickup_time` >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
+
+    def test_bigquery_partitioned_total_count_matches_filtered_scope(self):
+        ctx = make_scoped_context(BigQueryDatabaseContext, partition_cols=["expected_pickup_time"])
+
+        profiles = profile_by_column(ctx.profiling())
+
+        assert profiles["match_id"]["total_count"] == PROFILED_ROW_COUNT
+        assert profiles["match_id"]["distinct_count"] == PROFILED_ROW_COUNT
+        assert profiles["cancel_reason"]["total_count"] == PROFILED_ROW_COUNT
+        assert profiles["cancel_reason"]["null_percentage"] == 70.0
+
+    def test_bigquery_partitioned_scope_is_reported(self):
+        ctx = make_scoped_context(BigQueryDatabaseContext, partition_cols=["expected_pickup_time"])
+
+        result = ctx.profiling()
+
+        assert result["scope"] == {
+            "partition_filter": self.BIGQUERY_FILTER,
+            "profiled_row_count": PROFILED_ROW_COUNT,
+            "table_row_count": TABLE_ROW_COUNT,
+        }
+
+    def test_bigquery_count_and_column_queries_share_the_filter(self):
+        ctx = make_scoped_context(BigQueryDatabaseContext, partition_cols=["expected_pickup_time"])
+
+        ctx.profiling()
+
+        queries = executed_queries(ctx)
+        assert f"SELECT COUNT(*) FROM `my_schema`.`trips` WHERE {self.BIGQUERY_FILTER}" in queries
+        assert all(f"WHERE {self.BIGQUERY_FILTER}" in query for query in queries)
+
+    def test_complex_column_null_percentage_uses_filtered_scope(self):
+        ctx = make_scoped_context(BigQueryDatabaseContext, partition_cols=["expected_pickup_time"])
+        ctx.columns = MagicMock(return_value=[{"name": "props", "type": "JSON"}])
+        ctx._fetchone = MagicMock(side_effect=[(PROFILED_ROW_COUNT,), (100_000,), (12,)])
+
+        profile = ctx.profiling()["columns"][0]
+
+        assert profile["total_count"] == PROFILED_ROW_COUNT
+        assert profile["null_percentage"] == 20.0
+
+    @pytest.mark.parametrize(
+        ("cls", "partition_cols", "clustering_cols", "expected_filter"),
+        [
+            (
+                SnowflakeDatabaseContext,
+                [],
+                ["CREATED_AT"],
+                '"CREATED_AT" >= DATEADD(day, -30, CURRENT_DATE())',
+            ),
+            (
+                DatabricksDatabaseContext,
+                ["event_date"],
+                [],
+                "`event_date` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)",
+            ),
+        ],
+    )
+    def test_other_filtered_warehouses_use_filtered_scope(self, cls, partition_cols, clustering_cols, expected_filter):
+        ctx = make_scoped_context(cls, partition_cols=partition_cols, clustering_cols=clustering_cols)
+
+        result = ctx.profiling()
+
+        assert result["scope"]["partition_filter"] == expected_filter
+        assert result["scope"]["profiled_row_count"] == PROFILED_ROW_COUNT
+        assert profile_by_column(result)["cancel_reason"]["null_percentage"] == 70.0
+        assert all(f"WHERE {expected_filter}" in query for query in executed_queries(ctx))
+
+    def test_table_row_count_is_none_when_full_count_fails(self):
+        ctx = make_scoped_context(BigQueryDatabaseContext, partition_cols=["expected_pickup_time"])
+        ctx.row_count = MagicMock(side_effect=RuntimeError("boom"))
+
+        result = ctx.profiling()
+
+        assert result["scope"]["table_row_count"] is None
+        assert profile_by_column(result)["cancel_reason"]["total_count"] == PROFILED_ROW_COUNT
+
+    def test_profiling_unavailable_when_scoped_count_fails(self):
+        ctx = make_scoped_context(BigQueryDatabaseContext, partition_cols=["expected_pickup_time"])
+        ctx._fetchone = MagicMock(side_effect=RuntimeError("boom"))
+
+        assert ctx.profiling() is None
+
+    @pytest.mark.parametrize("cls", [DatabaseContext, BigQueryDatabaseContext, DatabricksDatabaseContext])
+    def test_unpartitioned_table_keeps_full_table_scope(self, cls):
+        ctx = make_scoped_context(cls)
+        ctx._fetchone = MagicMock(side_effect=lambda sql: COLUMN_STATS[next(n for n in COLUMN_STATS if n in sql)])
+
+        result = ctx.profiling()
+
+        assert set(result) == {"computed_at", "clustering_columns", "columns"}
+        assert profile_by_column(result)["cancel_reason"]["total_count"] == TABLE_ROW_COUNT
+        assert profile_by_column(result)["cancel_reason"]["null_percentage"] == round(
+            350_000 / TABLE_ROW_COUNT * 100, 2
+        )
+        assert not any(query.startswith("SELECT COUNT(*) FROM") for query in executed_queries(ctx))
