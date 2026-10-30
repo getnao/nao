@@ -49,7 +49,8 @@ export async function listRuns(
 
 /**
  * Attempt counts of each test in the latest completed run that included it, one row per test, run and
- * file hash. Active, failed and cancelled runs are left out because their results are partial.
+ * file hash. Active, failed and cancelled runs are left out because their results are partial, and
+ * draft runs because they ran content that is not in the context.
  */
 export async function listLatestCompletedOutcomes(projectId: string, testPaths: string[]) {
 	if (testPaths.length === 0) {
@@ -58,6 +59,7 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 	const completedResults = and(
 		eq(s.testRun.projectId, projectId),
 		eq(s.testRun.status, 'completed'),
+		eq(s.testRun.trigger, 'manual'),
 		inArray(s.testRunResult.testPath, testPaths),
 	);
 	const latestRunByTest = db.$with('latest_run_by_test').as(

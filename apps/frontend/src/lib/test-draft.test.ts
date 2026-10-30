@@ -24,6 +24,22 @@ describe('getTestDraft', () => {
 		});
 	});
 
+	it('skips queries on the local database, which read results of this chat only', () => {
+		const messages = [
+			userMessage('u1', 'Revenue per month, as a share of the total?'),
+			assistantMessage('a1', [
+				sqlPart('select month, sum(amount) from orders group by 1', 'output-available', 'warehouse'),
+				sqlPart(
+					'select month, total / sum(total) over () from query_ab12cd34',
+					'output-available',
+					'duckdb_local',
+				),
+			]),
+		];
+
+		expect(getTestDraft(messages, messages[1])?.sql).toBe('select month, sum(amount) from orders group by 1');
+	});
+
 	it('returns nothing when the answer ran no SQL', () => {
 		const messages = [userMessage('u1', 'Hello'), assistantMessage('a1', [{ type: 'text', text: 'Hi!' }])];
 

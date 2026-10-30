@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { getLatestOutcomesByTest } from '../src/services/test-history.service';
-import type { TestDefinition, TestRunStatus } from '../src/types/test-run';
+import type { TestDefinition, TestRunStatus, TestRunTrigger } from '../src/types/test-run';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -84,6 +84,15 @@ describe('getLatestOutcomesByTest', () => {
 		});
 	});
 
+	it('ignores draft runs, which ran content that is not in the context', async () => {
+		await insertRun('run-1', PREVIOUS_RUN_AT, 'completed', [['revenue.yml', 'hash-revenue', true]]);
+		await insertRun('run-2', LATEST_RUN_AT, 'completed', [['revenue.yml', 'draft-hash', false]], 'draft');
+
+		const outcomes = await getLatestOutcomesByTest(PROJECT_ID, [testDefinition('revenue.yml', 'hash-revenue')]);
+
+		expect(outcomes['revenue.yml']).toMatchObject({ runId: 'run-1', passedAttempts: 1, isOutdated: false });
+	});
+
 	it('flags outcomes of tests edited since, and ignores tests that no longer exist', async () => {
 		await insertRun('run-1', LATEST_RUN_AT, 'completed', [
 			['revenue.yml', 'old-hash', true],
@@ -102,10 +111,11 @@ async function insertRun(
 	createdAt: Date,
 	status: TestRunStatus,
 	results: [testPath: string, testHash: string, passed: boolean][],
+	trigger: TestRunTrigger = 'manual',
 ) {
 	await db
 		.insert(s.testRun)
-		.values({ id, projectId: PROJECT_ID, status, createdAt, models: [], totalAttempts: results.length });
+		.values({ id, projectId: PROJECT_ID, status, trigger, createdAt, models: [], totalAttempts: results.length });
 	await db.insert(s.testRunResult).values(
 		results.map(([testPath, testHash, passed], index) => ({
 			runId: id,

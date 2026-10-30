@@ -23,6 +23,13 @@ import { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS } from '../types/test-run';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
+const draftTestFileSchema = z.object({
+	path: z.string(),
+	content: z.string().refine((content) => Buffer.byteLength(content, 'utf8') <= MAX_CONTEXT_FILE_SIZE, {
+		message: `The test file must be at most ${MAX_CONTEXT_FILE_SIZE} bytes.`,
+	}),
+});
+
 export const testRunRoutes = {
 	listTests: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const projectFolder = requireProjectFolder(ctx.project.path);
@@ -58,26 +65,22 @@ export const testRunRoutes = {
 		return { ...run, results: await testRunQueries.listResults(run.id) };
 	}),
 
-	validateTestFile: contextAdminProtectedProcedure
-		.input(z.object({ path: z.string(), content: z.string().max(MAX_CONTEXT_FILE_SIZE) }))
-		.query(({ input }) => {
-			const parsed = parseDraftTest(input.path, input.content);
-			return isInvalidTestFile(parsed) ? { test: null, error: parsed.error } : { test: parsed, error: null };
-		}),
+	validateTestFile: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(({ input }) => {
+		const parsed = parseDraftTest(input.path, input.content);
+		return isInvalidTestFile(parsed) ? { test: null, error: parsed.error } : { test: parsed, error: null };
+	}),
 
-	startDraftRun: cloudBillingContextAdminProcedure
-		.input(z.object({ path: z.string(), content: z.string().max(MAX_CONTEXT_FILE_SIZE) }))
-		.mutation(async ({ ctx, input }) => {
-			const parsed = parseDraftTest(input.path, input.content);
-			if (isInvalidTestFile(parsed)) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error });
-			}
-			try {
-				return await startTestRun({ projectId: ctx.project.id, userId: ctx.user.id, tests: [parsed] });
-			} catch (error) {
-				throw toTestRunTrpcError(error);
-			}
-		}),
+	startDraftRun: cloudBillingContextAdminProcedure.input(draftTestFileSchema).mutation(async ({ ctx, input }) => {
+		const parsed = parseDraftTest(input.path, input.content);
+		if (isInvalidTestFile(parsed)) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error });
+		}
+		try {
+			return await startTestRun({ projectId: ctx.project.id, userId: ctx.user.id, tests: [parsed] });
+		} catch (error) {
+			throw toTestRunTrpcError(error);
+		}
+	}),
 
 	createTestFile: cloudBillingContextAdminProcedure
 		.input(

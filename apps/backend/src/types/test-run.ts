@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 export const TEST_RUN_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const;
 export type TestRunStatus = (typeof TEST_RUN_STATUSES)[number];
 
-export const TEST_RUN_TRIGGERS = ['manual'] as const;
+export const TEST_RUN_TRIGGERS = ['manual', 'draft'] as const;
 export type TestRunTrigger = (typeof TEST_RUN_TRIGGERS)[number];
 
 export const MAX_TEST_RUN_ATTEMPTS = 10;

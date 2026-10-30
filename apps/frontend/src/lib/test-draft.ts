@@ -1,3 +1,4 @@
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 
 const MAX_DEFAULT_NAME_LENGTH = 80;
@@ -9,7 +10,10 @@ export interface TestDraft {
 	databaseId: string | null;
 }
 
-/** Turns an answer into a test: the question that led to it, checked against the last SQL it ran. */
+/**
+ * Turns an answer into a test: the question that led to it, checked against the last warehouse SQL it ran.
+ * Queries on nao's local database are skipped, since they read results that only exist in this chat.
+ */
 export function getTestDraft(messages: UIMessage[], answer: UIMessage): TestDraft | null {
 	const sqlQuery = findLastExecutedSql(answer);
 	const prompt = findQuestionBefore(messages, answer);
@@ -30,7 +34,11 @@ function findLastExecutedSql(message: UIMessage): { sql: string; databaseId: str
 			continue;
 		}
 		const toolPart = part as UIToolPart<'execute_sql'>;
-		if (toolPart.state === 'output-available' && toolPart.input?.sql_query) {
+		if (
+			toolPart.state === 'output-available' &&
+			toolPart.input?.sql_query &&
+			toolPart.input.database_id !== LOCAL_DATABASE_ID
+		) {
 			return { sql: toolPart.input.sql_query, databaseId: toolPart.input.database_id ?? null };
 		}
 	}

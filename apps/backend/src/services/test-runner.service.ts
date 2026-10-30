@@ -74,7 +74,7 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 	const run = await testRunQueries.createRunUnlessActive({
 		projectId: input.projectId,
 		triggeredByUserId: input.userId,
-		trigger: 'manual',
+		trigger: input.tests ? 'draft' : 'manual',
 		models: plan.models,
 		attempts: plan.attempts,
 		selection: plan.tests.map((test) => test.path),
