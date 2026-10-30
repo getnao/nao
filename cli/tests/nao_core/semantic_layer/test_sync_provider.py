@@ -68,6 +68,39 @@ def test_sync_writes_manifest_copy_and_docs(tmp_path: Path) -> None:
         assert f"| {parameter} |" in readme
 
 
+def test_metric_doc_renders_meta_section(tmp_path: Path) -> None:
+    project = _project_with_manifest(tmp_path)
+    semantic_layer = SemanticLayerConfig(manifest_path="dbt/target/semantic_manifest.json")
+    output = project / "semantics"
+
+    SemanticLayerSyncProvider().sync([semantic_layer], output, project_path=project)
+
+    revenue_doc = (output / "metrics" / "revenue.md").read_text()
+    meta_section = revenue_doc.split("## Meta\n\n")[1].split("\n\n## Dimensions")[0]
+    assert meta_section.splitlines() == [
+        "- `context`:",
+        "  - `owner`: Finance Analytics",
+        "  - `purpose`: Total revenue from completed orders, net of refunds",
+        "- `decisions`:",
+        "  - `when_this_drops`:",
+        '    - {"action": "Page finance-oncall", "threshold": 0.92}',
+        '    - {"action": "Escalate to VP Finance", "threshold": 0.89}',
+        "- `expectations`:",
+        "  - `healthy_range`: [0.94, 0.99]",
+        "  - `seasonality`: Peaks in late November",
+    ]
+
+
+def test_metric_doc_without_meta_has_no_meta_section(tmp_path: Path) -> None:
+    project = _project_with_manifest(tmp_path)
+    semantic_layer = SemanticLayerConfig(manifest_path="dbt/target/semantic_manifest.json")
+    output = project / "semantics"
+
+    SemanticLayerSyncProvider().sync([semantic_layer], output, project_path=project)
+
+    assert "## Meta" not in (output / "metrics" / "orders.md").read_text()
+
+
 def test_sync_keeps_last_good_manifest_when_source_is_broken(tmp_path: Path) -> None:
     project = _project_with_manifest(tmp_path)
     semantic_layer = SemanticLayerConfig(manifest_path="dbt/target/semantic_manifest.json")
