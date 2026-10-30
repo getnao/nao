@@ -882,10 +882,11 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
 
 
 if __name__ == "__main__":
+    should_reload = "--reload" in sys.argv[1:]
     uvicorn.run(
         "main:app",
         host="127.0.0.1",
         port=port,
-        reload=True,
-        reload_dirs=[str(fastapi_path), str(cli_path / "nao_core")],
+        reload=should_reload,
+        reload_dirs=[str(fastapi_path), str(cli_path / "nao_core")] if should_reload else None,
     )
