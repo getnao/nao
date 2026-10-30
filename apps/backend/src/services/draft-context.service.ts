@@ -32,6 +32,8 @@ const DIFF_STATUS_KINDS: Record<string, TestContextChange['kind']> = { A: 'added
 
 /** The user's File Explorer changes, relative to the production context they started from. */
 export interface DraftContext {
+	/** A git worktree when the project has a context repository, the drafts nao keeps otherwise. */
+	storage: 'git' | 'nao';
 	branch: string | null;
 	/** The production commit the changes are compared with. */
 	productionCommit: string | null;
@@ -42,6 +44,12 @@ export interface DraftContext {
 	outdatedPaths: string[];
 }
 
+export interface DraftSource {
+	context: DraftContext;
+	/** Returns null when the changed file cannot be read as a regular file. */
+	readChangedFile: (projectPath: string) => Buffer | null;
+}
+
 export interface DraftContextSnapshot extends DraftContext {
 	folder: string;
 }
@@ -49,6 +57,14 @@ export interface DraftContextSnapshot extends DraftContext {
 /** Users who never opened the File Explorer have no worktree, so no changes, and no clone should be made for them. */
 export function hasContextWorktree(projectId: string, projectFolder: string, userId: string): boolean {
 	return fs.existsSync(getContextWorktreePath(projectId, projectFolder, userId));
+}
+
+export function readGitDraft(repo: ResolvedContextRepo, projectFolder: string): DraftSource {
+	const draftRoot = getWorktreeProjectRoot(repo);
+	return {
+		context: readDraftContext(repo, projectFolder),
+		readChangedFile: (projectPath) => readRegularFile(draftRoot, projectPath),
+	};
 }
 
 export function readDraftContext(repo: ResolvedContextRepo, projectFolder: string): DraftContext {
@@ -61,6 +77,7 @@ export function readDraftContext(repo: ResolvedContextRepo, projectFolder: strin
 	);
 	const changes = allChanges.filter((change) => !isProductionOnly(change.path));
 	return {
+		storage: 'git',
 		branch: readCurrentBranch(repo),
 		productionCommit,
 		changes,
@@ -79,18 +96,26 @@ export function readDraftContext(repo: ResolvedContextRepo, projectFolder: strin
 export function createDraftContextSnapshot(input: {
 	projectId: string;
 	projectFolder: string;
-	repo: ResolvedContextRepo;
+	draft: DraftSource;
 }): DraftContextSnapshot {
-	const draft = readDraftContext(input.repo, input.projectFolder);
 	const folder = path.join(getSnapshotsRoot(input.projectFolder, input.projectId), randomUUID());
 	try {
 		copyContextFolder(path.resolve(input.projectFolder), folder);
-		applyChanges(draft.changes, getWorktreeProjectRoot(input.repo), folder);
+		applyChanges(input.draft, folder);
 	} catch (error) {
 		removeContextSnapshot(folder);
 		throw error;
 	}
-	return { ...draft, folder };
+	return { ...input.draft.context, folder };
+}
+
+export function isProductionOnly(projectPath: string): boolean {
+	return PRODUCTION_ONLY_PATHS.some((pattern) => pattern.test(projectPath));
+}
+
+export function readRegularFile(root: string, projectPath: string): Buffer | null {
+	const filePath = resolveWritePath(root, projectPath);
+	return fs.lstatSync(filePath, { throwIfNoEntry: false })?.isFile() ? fs.readFileSync(filePath) : null;
 }
 
 export function removeContextSnapshot(folder: string): void {
@@ -197,10 +222,6 @@ function readPathsChangedBetween(
 		});
 }
 
-function isProductionOnly(projectPath: string): boolean {
-	return PRODUCTION_ONLY_PATHS.some((pattern) => pattern.test(projectPath));
-}
-
 function getSnapshotsRoot(projectFolder: string, projectId: string): string {
 	if (!PROJECT_ID_PATTERN.test(projectId)) {
 		throw new Error('Invalid project id for a context snapshot path.');
@@ -226,18 +247,18 @@ function copyContextFolder(source: string, target: string): void {
 	}
 }
 
-function applyChanges(changes: TestContextChange[], draftRoot: string, snapshotFolder: string): void {
-	for (const change of changes) {
+function applyChanges(draft: DraftSource, snapshotFolder: string): void {
+	for (const change of draft.context.changes) {
 		const target = resolveWritePath(snapshotFolder, change.path);
 		assertNoSymlinkInWritePath(snapshotFolder, path.dirname(target), change.path);
 		fs.rmSync(target, { force: true });
 		if (change.kind === 'deleted') {
 			continue;
 		}
-		const source = resolveWritePath(draftRoot, change.path);
-		if (fs.lstatSync(source, { throwIfNoEntry: false })?.isFile()) {
+		const content = draft.readChangedFile(change.path);
+		if (content) {
 			fs.mkdirSync(path.dirname(target), { recursive: true });
-			fs.copyFileSync(source, target);
+			fs.writeFileSync(target, content);
 		}
 	}
 }

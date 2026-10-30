@@ -26,6 +26,7 @@ export async function createSafeFileAccess(
 	return {
 		projectFolder: context.projectFolder,
 		git: await resolveContextExplorerGitSafely(context),
+		draftOwner: { projectId, userId: user.id },
 	};
 }
 
@@ -38,6 +39,7 @@ export async function createStrictFileAccess(
 	return {
 		projectFolder: context.projectFolder,
 		git: await resolveContextExplorerGit(context),
+		draftOwner: { projectId, userId: user.id },
 	};
 }
 

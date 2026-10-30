@@ -90,6 +90,7 @@ describe('context explorer worktree writes', () => {
 		access = {
 			projectFolder: live,
 			git: await resolveContextExplorerGit(context),
+			draftOwner: { projectId: 'project-id', userId: 'user-1' },
 		};
 	});
 
@@ -148,35 +149,6 @@ describe('context explorer worktree writes', () => {
 		await expect(readFileContent('/private/notes.md', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
 		expect(search.results.map((result) => result.path)).toEqual(['/tests/revenue.yml']);
 		expect(isIgnoredByNaoignore('tests/revenue.yml', live)).toBe(true);
-	});
-
-	it('browses the live project read-only when no repository is connected', async () => {
-		const readOnlyAccess: ContextExplorerFileAccess = {
-			projectFolder: live,
-			git: await resolveContextExplorerGit({
-				projectId: 'project-id',
-				projectFolder: live,
-				userId: 'user-1',
-				user: { name: 'Test User', email: 'test@example.com' },
-				token: 'token',
-				configOverride: null,
-				integrationAvailableOverride: true,
-				providerOverride: provider(bare),
-			}),
-		};
-		const tree = await getFileTree(live);
-		const file = await readFileContent('/context.md', readOnlyAccess);
-
-		expect(tree.map((entry) => entry.name)).toContain('context.md');
-		expect(file).toMatchObject({
-			content: 'live content\n',
-			isEditable: false,
-			reason: 'no-repo',
-		});
-		await expect(writeFileContent('/context.md', 'changed\n', file.hash, readOnlyAccess)).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-		});
-		expectLiveUnchanged();
 	});
 
 	it('returns every editability reason with actionable guidance in precedence order', async () => {

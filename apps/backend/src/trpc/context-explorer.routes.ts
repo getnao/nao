@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as activityQueries from '../queries/activity.queries';
+import type { DraftOwner } from '../queries/context-draft.queries';
 import {
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
@@ -36,6 +37,14 @@ import {
 	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
+import {
+	discardAllNaoDraftFiles,
+	discardNaoDraftFile,
+	getNaoDraftFileDiff,
+	getNaoDraftFileTree,
+	hasContextRepository,
+	listNaoDraftChanges,
+} from '../services/nao-draft.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
 import { ContextProjectResolutionError } from '../utils/context-repo';
@@ -173,7 +182,10 @@ export const contextExplorerRoutes = {
 	}),
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const entries = await getFileTree(requireProjectPath(ctx.project.path));
+		const projectFolder = requireProjectPath(ctx.project.path);
+		const entries = (await hasContextRepository(ctx.project.id))
+			? await getFileTree(projectFolder)
+			: await getNaoDraftFileTree(draftOwnerOf(ctx), projectFolder);
 		return { entries };
 	}),
 
@@ -208,10 +220,16 @@ export const contextExplorerRoutes = {
 		.query(({ ctx, input }) => searchFileContents(input.query, requireProjectPath(ctx.project.path))),
 
 	getChangedFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		if (!(await hasContextRepository(ctx.project.id))) {
+			return listNaoDraftChanges(draftOwnerOf(ctx));
+		}
 		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
 	getFileDiff: contextAdminProtectedProcedure.input(fileDiffInputSchema).query(async ({ ctx, input }) => {
+		if (!input.from && !(await hasContextRepository(ctx.project.id))) {
+			return getNaoDraftFileDiff(draftOwnerOf(ctx), requireProjectPath(ctx.project.path), input.path);
+		}
 		return getContextFileDiff(
 			await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
 			input.path,
@@ -284,6 +302,9 @@ export const contextExplorerRoutes = {
 	discardLocalChange: cloudBillingContextAdminProcedure
 		.input(z.object({ path: z.string() }))
 		.mutation(async ({ ctx, input }) => {
+			if (!(await hasContextRepository(ctx.project.id))) {
+				return discardNaoDraftFile(draftOwnerOf(ctx), requireProjectPath(ctx.project.path), input.path);
+			}
 			return discardContextFileChange(
 				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.path,
@@ -291,6 +312,9 @@ export const contextExplorerRoutes = {
 		}),
 
 	discardAllChanges: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		if (!(await hasContextRepository(ctx.project.id))) {
+			return discardAllNaoDraftFiles(draftOwnerOf(ctx));
+		}
 		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
@@ -332,6 +356,10 @@ function logPullHistoryFailure(message: string, projectId: string, activityId: s
 		source: 'system',
 		context: { projectId, activityId, error: serializeError(error) },
 	});
+}
+
+function draftOwnerOf(ctx: { project: { id: string }; user: { id: string } }): DraftOwner {
+	return { projectId: ctx.project.id, userId: ctx.user.id };
 }
 
 function requireProjectPath(projectPath: string | null): string {

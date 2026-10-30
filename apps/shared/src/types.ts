@@ -291,7 +291,8 @@ export type FileEditabilityReason =
 	| 'generated'
 	| 'rendered-template'
 	| 'synced-source'
-	| 'not-tracked';
+	| 'not-tracked'
+	| 'production-only';
 
 export type FileEditabilityGuidance =
 	| {

@@ -16,6 +16,8 @@ import { TRPCError } from '@trpc/server';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
+import type { DraftOwner } from '../queries/context-draft.queries';
+import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
 import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
 import { getRipgrepPath } from '../utils/ripgrep';
@@ -30,6 +32,7 @@ import {
 	toVirtualPath,
 } from '../utils/tools';
 import type { ContextExplorerGitResolution } from './context-explorer-git.service';
+import { isProductionOnly } from './draft-context.service';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
@@ -39,6 +42,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FRONTMATTER_READ_SIZE = 8 * 1024;
 /** Context admins manage tests here, while .naoignore keeps them away from the agent. */
 const EXPLORER_NAOIGNORE_OPTIONS: NaoignoreOptions = { naoignoreExemptFolders: ['tests'] };
+const EDITABLE: FileEditability = { isEditable: true, reason: null, guidance: null };
 
 export interface FileEditability {
 	isEditable: boolean;
@@ -49,6 +53,8 @@ export interface FileEditability {
 export interface ContextExplorerFileAccess {
 	projectFolder: string;
 	git: ContextExplorerGitResolution;
+	/** Whose nao draft receives the edits when the project has no context repository. */
+	draftOwner: DraftOwner;
 }
 
 type RipgrepMatchEntry = {
@@ -79,6 +85,9 @@ export async function readFileContent(
 			reason: 'no-repo',
 			guidance: guidanceForReason('no-repo'),
 		};
+	}
+	if (isNaoDraftAccess(access)) {
+		return readNaoDraftFileContent(filePath, access);
 	}
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const repo = availableRepo(access.git);
@@ -111,6 +120,9 @@ export async function writeFileContent(
 	const contentBuffer = Buffer.from(content, 'utf-8');
 	validateContentBuffer(contentBuffer);
 
+	if (isNaoDraftAccess(access)) {
+		return writeNaoDraftFile(filePath, contentBuffer, expectedHash, access);
+	}
 	if (access.git.status === 'unavailable') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
@@ -150,7 +162,18 @@ export function getFileEditability(
 	if (access.git.status === 'unavailable') {
 		return unavailableGitEditability(access.git.reason, access.git.message, access.git.repo?.provider);
 	}
+	const sourceEditability = getSourceEditability(filePath, realPath);
+	if (sourceEditability) {
+		return sourceEditability;
+	}
+	if (!repo || (!trackedPaths.has(normalizeProjectPath(filePath)) && !isWorktreeDraft(filePath, realPath, repo))) {
+		return readOnly('not-tracked', guidanceForReason('not-tracked'));
+	}
+	return EDITABLE;
+}
 
+/** Files that another source produces, so editing them here would be overwritten. */
+function getSourceEditability(filePath: string, realPath: string): FileEditability | null {
 	const projectPath = normalizeProjectPath(filePath);
 	if (hasGeneratedFrontmatter(realPath)) {
 		const annotationsPath = siblingPathIfExists(filePath, realPath, 'annotations.md');
@@ -190,10 +213,7 @@ export function getFileEditability(
 			actionLabel: 'Open nao_config.yaml',
 		});
 	}
-	if (!repo || (!trackedPaths.has(projectPath) && !isWorktreeDraft(filePath, realPath, repo))) {
-		return readOnly('not-tracked', guidanceForReason('not-tracked'));
-	}
-	return { isEditable: true, reason: null, guidance: null };
+	return null;
 }
 
 /**
@@ -205,11 +225,14 @@ export async function createDraftFile(
 	content: string,
 	access: ContextExplorerFileAccess,
 ): Promise<FileWriteResponse> {
+	const contentBuffer = Buffer.from(content, 'utf-8');
+	validateContentBuffer(contentBuffer);
+	if (isNaoDraftAccess(access)) {
+		return addNaoDraftFile(filePath, contentBuffer, access);
+	}
 	if (access.git.status === 'unavailable') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
-	const contentBuffer = Buffer.from(content, 'utf-8');
-	validateContentBuffer(contentBuffer);
 
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(access.git.repo));
@@ -230,6 +253,88 @@ export async function createDraftFile(
 	}
 
 	return { hash: hashContent(contentBuffer) };
+}
+
+function isNaoDraftAccess(access: ContextExplorerFileAccess): boolean {
+	return access.git.status === 'unavailable' && access.git.reason === 'no-repo';
+}
+
+async function readNaoDraftFileContent(
+	filePath: string,
+	access: ContextExplorerFileAccess,
+): Promise<FileContentResponse> {
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	const draftFile = await contextDraftQueries.getDraftFile(access.draftOwner, normalizeProjectPath(filePath));
+	const contentBuffer = draftFile
+		? Buffer.from(draftFile.content, 'utf-8')
+		: await readValidatedFile(livePath, filePath);
+	const editability = getNaoDraftEditability(filePath, livePath);
+	return {
+		content: decodeTextContent(contentBuffer),
+		hash: hashContent(contentBuffer),
+		isEditable: editability.isEditable,
+		reason: editability.reason,
+		guidance: editability.guidance ?? undefined,
+	};
+}
+
+/** Saving the production content again removes the file from the draft. */
+async function writeNaoDraftFile(
+	filePath: string,
+	contentBuffer: Buffer,
+	expectedHash: string,
+	access: ContextExplorerFileAccess,
+): Promise<FileWriteResponse> {
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	assertEditability(getNaoDraftEditability(filePath, livePath));
+	const projectPath = normalizeProjectPath(filePath);
+	const draftFile = await contextDraftQueries.getDraftFile(access.draftOwner, projectPath);
+	const liveContent = fsSync.existsSync(livePath) ? await readValidatedFile(livePath, filePath) : null;
+	const currentContent = draftFile ? Buffer.from(draftFile.content, 'utf-8') : liveContent;
+	if (!currentContent) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `File not found: ${filePath}` });
+	}
+	assertExpectedHash(currentContent, expectedHash);
+
+	if (liveContent?.equals(contentBuffer)) {
+		await contextDraftQueries.deleteDraftFile(access.draftOwner, projectPath);
+	} else {
+		await contextDraftQueries.saveDraftFile(access.draftOwner, {
+			path: projectPath,
+			content: contentBuffer.toString('utf-8'),
+			baseHash: liveContent ? hashContent(liveContent) : null,
+		});
+	}
+	return { hash: hashContent(contentBuffer) };
+}
+
+async function addNaoDraftFile(
+	filePath: string,
+	contentBuffer: Buffer,
+	access: ContextExplorerFileAccess,
+): Promise<FileWriteResponse> {
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	assertEditability(getNaoDraftEditability(filePath, livePath));
+	assertFileDoesNotExist(livePath, filePath);
+	const added = await contextDraftQueries.addDraftFile(access.draftOwner, {
+		path: normalizeProjectPath(filePath),
+		content: contentBuffer.toString('utf-8'),
+	});
+	if (!added) {
+		throw new TRPCError({ code: 'CONFLICT', message: `A file already exists at ${filePath}.` });
+	}
+	return { hash: hashContent(contentBuffer) };
+}
+
+function getNaoDraftEditability(filePath: string, livePath: string): FileEditability {
+	const sourceEditability = getSourceEditability(filePath, livePath);
+	if (sourceEditability) {
+		return sourceEditability;
+	}
+	if (isProductionOnly(normalizeProjectPath(filePath))) {
+		return readOnly('production-only', guidanceForReason('production-only'));
+	}
+	return EDITABLE;
 }
 
 /** A file the user created in their worktree that the live context does not have yet. */
@@ -254,7 +359,10 @@ export function assertFileEditable(
 	repo: ResolvedContextRepo | null,
 	trackedPaths: Set<string>,
 ): void {
-	const editability = getFileEditability(filePath, realPath, access, repo, trackedPaths);
+	assertEditability(getFileEditability(filePath, realPath, access, repo, trackedPaths));
+}
+
+function assertEditability(editability: FileEditability): void {
 	if (editability.isEditable) {
 		return;
 	}
@@ -479,14 +587,16 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 		}
 	}
 
-	entries.sort((a, b) => {
-		if (a.type === b.type) {
-			return a.name.localeCompare(b.name);
-		}
-		return a.type === 'directory' ? -1 : 1;
-	});
+	entries.sort(compareTreeEntries);
 
 	return entries;
+}
+
+export function compareTreeEntries(a: FileTreeEntry, b: FileTreeEntry): number {
+	if (a.type === b.type) {
+		return a.name.localeCompare(b.name);
+	}
+	return a.type === 'directory' ? -1 : 1;
 }
 
 export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
@@ -698,6 +808,13 @@ function guidanceForReason(
 		'not-tracked': {
 			message:
 				"This file can't be edited because it isn't in the connected repository. Add it there to make it editable.",
+			actionKind: null,
+			actionPath: null,
+			actionLabel: null,
+		},
+		'production-only': {
+			message:
+				'This file holds connections or credentials, so tests always run with the production version. Change it where the project is deployed.',
 			actionKind: null,
 			actionPath: null,
 			actionLabel: null,
