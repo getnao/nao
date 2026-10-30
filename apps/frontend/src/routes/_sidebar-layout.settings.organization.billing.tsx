@@ -11,6 +11,8 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/bil
 			search.checkout === 'success' || search.checkout === 'subscribed' || search.checkout === 'canceled'
 				? search.checkout
 				: undefined,
+		checkoutPlan:
+			search.checkoutPlan === 'team' || search.checkoutPlan === 'unlimited' ? search.checkoutPlan : undefined,
 		portal: search.portal === 'returned' ? search.portal : undefined,
 		creditCheckout:
 			typeof search.creditCheckout === 'string' &&

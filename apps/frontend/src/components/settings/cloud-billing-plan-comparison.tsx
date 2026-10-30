@@ -64,9 +64,13 @@ export function CloudBillingPlanComparison({
 	const selectedPlans = plans.filter((plan) => plan.interval === interval);
 	const team = selectedPlans.find((plan) => plan.tier === 'team');
 	const unlimited = selectedPlans.find((plan) => plan.tier === 'unlimited');
-	const yearlyDiscount = getYearlyDiscount(
+	const teamYearlyDiscount = getYearlyDiscount(
 		plans.find((plan) => plan.tier === 'team' && plan.interval === 'monthly'),
 		plans.find((plan) => plan.tier === 'team' && plan.interval === 'yearly'),
+	);
+	const unlimitedYearlyDiscount = getYearlyDiscount(
+		plans.find((plan) => plan.tier === 'unlimited' && plan.interval === 'monthly'),
+		plans.find((plan) => plan.tier === 'unlimited' && plan.interval === 'yearly'),
 	);
 	const currency = team?.currency ?? unlimited?.currency ?? 'usd';
 	const intervalLabel = interval === 'monthly' ? 'month' : 'year';
@@ -112,11 +116,7 @@ export function CloudBillingPlanComparison({
 							onClick={() => onIntervalChange(value)}
 							disabled={disabled}
 						>
-							{value === 'monthly'
-								? 'Monthly'
-								: yearlyDiscount
-									? `Yearly · Save ${yearlyDiscount}`
-									: 'Yearly'}
+							{value === 'monthly' ? 'Monthly' : 'Yearly'}
 						</Button>
 					))}
 				</div>
@@ -153,7 +153,7 @@ export function CloudBillingPlanComparison({
 						priceSuffix={`per seat / ${intervalLabel}`}
 						supportingText={teamStatus === 'current' ? teamTotal : 'Choose 4–40 paid seats'}
 						status={teamStatus}
-						recommended={recommendation === 'team'}
+						discount={interval === 'yearly' ? teamYearlyDiscount : null}
 						features={[
 							'Starts at 4 full-access seats',
 							'Viewers are free',
@@ -177,6 +177,7 @@ export function CloudBillingPlanComparison({
 						supportingText='One price for your whole organization'
 						status={unlimitedStatus}
 						recommended={recommendation === 'unlimited'}
+						discount={interval === 'yearly' ? unlimitedYearlyDiscount : null}
 						features={['Unlimited full-access users', 'Unlimited viewers', 'No seat management']}
 						actionLabel={unlimitedStatus ? planStatusActionLabel[unlimitedStatus] : 'Choose Unlimited'}
 						actionDisabled={disabled || unlimitedStatus !== undefined}
@@ -196,6 +197,7 @@ function PlanCard({
 	features,
 	status,
 	recommended,
+	discount,
 	notice,
 	actionLabel,
 	actionDisabled,
@@ -208,6 +210,7 @@ function PlanCard({
 	features: string[];
 	status?: PlanStatus;
 	recommended?: boolean;
+	discount?: string | null;
 	notice?: string;
 	actionLabel?: string;
 	actionDisabled?: boolean;
@@ -227,6 +230,7 @@ function PlanCard({
 				<h3 className='font-semibold'>{name}</h3>
 				{status && <Badge variant={planStatusBadge[status].variant}>{planStatusBadge[status].label}</Badge>}
 				{recommended && !status && <Badge>Recommended</Badge>}
+				{discount && <Badge>{discount} off</Badge>}
 			</div>
 			<div>
 				<p className='flex flex-wrap items-baseline gap-x-1.5'>

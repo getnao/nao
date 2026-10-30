@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { isTerminalBillingStatus } from '@nao/shared/billing';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -9,7 +9,7 @@ import { OrganizationBillingSettings } from './organization-billing-settings';
 import type * as ReactRouter from '@tanstack/react-router';
 import type { CloudSeatCandidate } from '@/components/settings/cloud-billing-seats-card';
 import type { useOrganizationBilling } from '@/hooks/use-organization-billing';
-import { getBillingStatusView } from '@/lib/billing-display';
+import { formatBillingDate, getBillingStatusView } from '@/lib/billing-display';
 
 type BillingState = ReturnType<typeof useOrganizationBilling>;
 type BillingData = NonNullable<BillingState['billing']['data']>;
@@ -27,10 +27,12 @@ const mocks = vi.hoisted(() => ({
 	cloudPaidPlanSelected: true,
 	cloudCancellationScheduled: false,
 	cloudSeatUserCount: 4,
+	cloudSeatQuantity: 4,
 	cloudSeatCandidates: [] as CloudSeatCandidate[],
 	cloudSaveSeatSelection: vi.fn(),
 	cloudKeepPlan: vi.fn(),
 	cloudOpenTrialCheckoutForPlan: vi.fn(),
+	cloudConfirmPlanChange: vi.fn(),
 	cloudPreviewPlanChange: vi.fn(),
 	localTrialActive: false,
 	openTrialCheckout: vi.fn(),
@@ -86,10 +88,12 @@ beforeEach(() => {
 	mocks.cloudPaidPlanSelected = true;
 	mocks.cloudCancellationScheduled = false;
 	mocks.cloudSeatUserCount = 4;
+	mocks.cloudSeatQuantity = 4;
 	mocks.cloudSeatCandidates = [];
 	mocks.cloudSaveSeatSelection.mockReset();
 	mocks.cloudKeepPlan.mockReset();
 	mocks.cloudOpenTrialCheckoutForPlan.mockReset();
+	mocks.cloudConfirmPlanChange.mockReset();
 	mocks.cloudPreviewPlanChange.mockReset();
 	mocks.localTrialActive = false;
 	mocks.selectedBillingInterval = 'monthly';
@@ -177,15 +181,14 @@ it('uses neutral trial copy when billing history has no recorded trial', () => {
 	expect(screen.queryByText('Already used')).toBeNull();
 });
 
-it('disables recovery Checkout while subscription confirmation is polling', () => {
+it('replaces stale billing details with a focused activation state after Checkout', () => {
 	mocks.isCheckoutPolling = true;
 
-	render(<OrganizationBillingSettings search={{}} />);
+	render(<OrganizationBillingSettings search={{ checkout: 'success', checkoutPlan: 'team' }} />);
 
-	const button = screen.getByRole('button', { name: 'Subscribe in Stripe' }) as HTMLButtonElement;
-	expect(button.disabled).toBe(true);
-	fireEvent.click(button);
-	expect(mocks.resubscribe).not.toHaveBeenCalled();
+	expect(screen.getByRole('status', { name: 'Activating your Team plan…' })).toBeTruthy();
+	expect(screen.getByText('Activating your Team plan…')).toBeTruthy();
+	expect(screen.queryByText('Current plan')).toBeNull();
 });
 
 it('shows a promotion code on the invoice it discounted', () => {
@@ -215,7 +218,7 @@ it('describes a trial invoice as a no-charge trial event', () => {
 
 	render(<OrganizationBillingSettings search={{ tab: 'invoices' }} />);
 
-	expect(screen.getByText(/No charge during trial/)).toBeTruthy();
+	expect(screen.getByText(/\$0 charged during trial/)).toBeTruthy();
 	expect(screen.queryByText(/\$0 · Paid/)).toBeNull();
 	expect(screen.queryByText('Code EARLY50')).toBeNull();
 });
@@ -232,8 +235,9 @@ it('shows the Stripe-calculated next payment separately from the list price', ()
 	render(<OrganizationBillingSettings search={{}} />);
 
 	expect(screen.getByText(/\$2,000 per month, before discounts/)).toBeTruthy();
-	expect(screen.getByText('Next payment estimate from Stripe')).toBeTruthy();
+	expect(screen.getByText('Estimated first payment after trial')).toBeTruthy();
 	expect(screen.getByText(/\$1,000 on/)).toBeTruthy();
+	expect(screen.getByText(/This is a preview, not a paid invoice/)).toBeTruthy();
 	expect(screen.getByText('Code EARLY50')).toBeTruthy();
 });
 
@@ -309,14 +313,37 @@ it('renders the backend-priced Free, Team, and Unlimited comparison when enabled
 	expect(screen.queryByText('4 purchased seats')).toBeNull();
 });
 
-it('shows the free trial as current and the selected paid plan as starting afterward', () => {
+it('shows yearly discounts on paid plan cards without recommending Team', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudPaidPlanSelected = false;
+	mocks.selectedBillingInterval = 'yearly';
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByRole('button', { name: 'Monthly' })).toBeTruthy();
+	expect(screen.getByRole('button', { name: 'Yearly' }).getAttribute('aria-pressed')).toBe('true');
+	expect(screen.getByRole('region', { name: 'Team plan' }).textContent).toContain('17% off');
+	expect(screen.getByRole('region', { name: 'Team plan' }).textContent).not.toContain('Recommended');
+	expect(screen.getByRole('region', { name: 'Unlimited plan' }).textContent).toContain('17% off');
+});
+
+it('shows the selected Team capacity and first payment after the free trial', () => {
 	mocks.freeTierEnabled = true;
 	mocks.cloudTrialActive = true;
+	mocks.cloudSeatQuantity = 6;
+	mocks.upcomingInvoice = {
+		amountDue: 30_000,
+		currency: 'usd',
+		nextPaymentAt: new Date('2099-10-01T00:00:00.000Z'),
+		promotionCodes: [],
+	};
 
 	render(<OrganizationBillingSettings search={{}} />);
 
 	expect(screen.getByText('Free trial')).toBeTruthy();
-	expect(screen.getByText('Team starts after your trial')).toBeTruthy();
+	expect(screen.getByText('Team (6 seats) starts after your trial')).toBeTruthy();
+	expect(screen.getByText('Estimated first payment after trial')).toBeTruthy();
+	expect(screen.getByText(`$300 on ${formatBillingDate(new Date('2099-10-08T00:00:00.000Z'))}`)).toBeTruthy();
 	expect(screen.getByRole('region', { name: 'Team plan' }).textContent).toContain('After trial');
 	expect(screen.getByRole('button', { name: 'Starts after trial' })).toBeTruthy();
 
@@ -391,6 +418,41 @@ it('reviews an existing subscription Team change after seat selection', () => {
 	fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
 
 	expect(mocks.cloudPreviewPlanChange).toHaveBeenCalledWith('cloud_team_yearly_v1', 6);
+});
+
+it('shows the focused activation state during an immediate in-app plan change', async () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudPreviewPlanChange.mockResolvedValue({
+		amountDue: 100,
+		subtotal: 100,
+		tax: 0,
+		discount: 0,
+		currency: 'usd',
+		lines: [],
+		previewToken: 'preview-token',
+		expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+		effective: 'immediate',
+		effectiveAt: new Date('2026-10-30T00:00:00.000Z'),
+		readOnlyUsersAfterChange: [],
+	});
+	let finishChange = () => {};
+	mocks.cloudConfirmPlanChange.mockImplementation(
+		() =>
+			new Promise<void>((resolve) => {
+				finishChange = resolve;
+			}),
+	);
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
+	fireEvent.click(await screen.findByRole('button', { name: 'Confirm change' }));
+
+	expect(await screen.findByRole('status', { name: 'Activating your Unlimited plan…' })).toBeTruthy();
+	expect(mocks.cloudConfirmPlanChange).toHaveBeenCalledWith('preview-token');
+
+	await act(async () => finishChange());
+	await waitFor(() => expect(screen.queryByText('Activating your Unlimited plan…')).toBeNull());
 });
 
 it('keeps paid choices editable when Free was scheduled during an active trial', () => {
@@ -644,7 +706,7 @@ function cloudBillingState(): BillingState {
 				interval: 'monthly' as const,
 				legacy: false,
 				currency: 'usd',
-				seatQuantity: 4,
+				seatQuantity: mocks.cloudSeatQuantity,
 			}
 		: null;
 	const plans = [
@@ -684,6 +746,11 @@ function cloudBillingState(): BillingState {
 	return {
 		...billingStateDefaults(),
 		freeTierEnabled: true,
+		canLoadUpcomingInvoice:
+			currentPlan !== null &&
+			!mocks.cloudCancellationScheduled &&
+			(cloudStatus === 'trialing' || cloudStatus === 'active'),
+		status: cloudStatus,
 		billing: {
 			data: {
 				access: {
@@ -734,7 +801,11 @@ function cloudBillingState(): BillingState {
 function billingStateDefaults(): Partial<BillingState> {
 	return {
 		invoices: { data: [], isError: false, isLoading: false } as BillingState['invoices'],
-		upcomingInvoice: { data: null, isError: false, isLoading: false } as BillingState['upcomingInvoice'],
+		upcomingInvoice: {
+			data: mocks.upcomingInvoice,
+			isError: false,
+			isLoading: false,
+		} as BillingState['upcomingInvoice'],
 		selectedBillingInterval: mocks.selectedBillingInterval,
 		setSelectedBillingInterval: mocks.setSelectedBillingInterval,
 		selectedBillingTier: 'team',
@@ -742,7 +813,7 @@ function billingStateDefaults(): Partial<BillingState> {
 		isBillingCommandPending: false,
 		isPlanSelectionPending: false,
 		previewPlanChange: mocks.cloudPreviewPlanChange,
-		confirmPlanChange: vi.fn(),
+		confirmPlanChange: mocks.cloudConfirmPlanChange,
 		previewSeatChange: vi.fn(),
 		confirmSeatChange: vi.fn(),
 		saveSeatSelection: mocks.cloudSaveSeatSelection,

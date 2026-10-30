@@ -11,6 +11,7 @@ export type OrganizationBillingTab = 'plans' | 'seats' | 'credits' | 'invoices';
 
 export type OrganizationBillingSearch = {
 	checkout?: 'success' | 'subscribed' | 'canceled';
+	checkoutPlan?: 'team' | 'unlimited';
 	portal?: 'returned';
 	creditCheckout?: string;
 	creditsTab?: 'history' | 'usage';
@@ -65,8 +66,7 @@ export function useOrganizationBillingSync(
 			: search.checkout === 'success'
 				? paidPlanSelected
 				: false;
-	const canSyncStripeBilling =
-		billing.data?.canManageBilling === true && billing.data.paymentMethodManagementAvailable;
+	const canSyncStripeBilling = billing.data?.canManageBilling === true;
 	const shouldAutoSyncStripeBilling =
 		canSyncStripeBilling &&
 		(search.portal === 'returned' || search.checkout === 'success' || search.checkout === 'subscribed');

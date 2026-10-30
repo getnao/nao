@@ -341,7 +341,7 @@ async function createSubscriptionCheckoutSession(input: {
 							}
 						: {}),
 			},
-			success_url: `${billingUrl}?checkout=${input.kind === 'initial' ? 'success' : 'subscribed'}`,
+			success_url: `${billingUrl}?checkout=${input.kind === 'initial' ? 'success' : 'subscribed'}&checkoutPlan=${plan.tier}`,
 			cancel_url: `${billingUrl}?checkout=canceled`,
 		},
 		{
@@ -395,13 +395,21 @@ export async function createCloudPaymentMethodSession(input: {
 }
 
 export async function listCloudInvoices(stripeCustomerId: string): Promise<CloudInvoice[]> {
+	const placeholderSubscriptionIds = new Set(
+		(await listCloudSubscriptions(stripeCustomerId))
+			.filter(({ kind }) => kind === 'trial-placeholder')
+			.map(({ subscription }) => subscription.id),
+	);
 	const invoices: Stripe.Invoice[] = [];
 	for await (const invoice of getStripeClient().invoices.list({
 		customer: stripeCustomerId,
 		expand: ['data.discounts.promotion_code'],
 		limit: 100,
 	})) {
-		invoices.push(invoice);
+		const subscriptionId = invoiceSubscriptionId(invoice);
+		if (!subscriptionId || !placeholderSubscriptionIds.has(subscriptionId)) {
+			invoices.push(invoice);
+		}
 	}
 	return invoices.map((invoice) => ({
 		id: invoice.id,
@@ -1405,6 +1413,13 @@ function invoicePromotionCodes(invoice: Pick<Stripe.Invoice, 'discounts'>): stri
 		}
 		return [discount.promotion_code.code];
 	});
+}
+
+function invoiceSubscriptionId(invoice: Pick<Stripe.Invoice, 'parent'>): string | null {
+	if (invoice.parent?.type !== 'subscription_details' || !invoice.parent.subscription_details) {
+		return null;
+	}
+	return stripeId(invoice.parent.subscription_details.subscription);
 }
 
 function cloudPaidProductItem(subscription: Stripe.Subscription): CloudPaidProductItem | null {

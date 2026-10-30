@@ -668,6 +668,7 @@ describe('cloud Checkout', () => {
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({
 				line_items: [{ price: 'price_team_monthly', quantity: 6 }],
+				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=success&checkoutPlan=team',
 				metadata: expect.objectContaining({
 					nao_plan_key: 'cloud_team_monthly_v1',
 					nao_quantity: '6',
@@ -1144,7 +1145,8 @@ describe('cloud Checkout', () => {
 				subscription_data: {
 					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
 				},
-				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed',
+				success_url:
+					'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed&checkoutPlan=unlimited',
 			}),
 			{ idempotencyKey: 'cloud-checkout-resubscribe-v12:org-id:cloud_monthly_v2:usd:sub_cloud' },
 		);
@@ -1688,6 +1690,10 @@ describe('cloud billing recovery', () => {
 				id: 'in_trial',
 				number: 'NAO-0002',
 				billing_reason: 'subscription_create',
+				parent: {
+					type: 'subscription_details',
+					subscription_details: { subscription: 'sub_cloud' },
+				},
 				status: 'paid',
 				created: 1_794_000_000,
 				subtotal: 0,
@@ -1728,7 +1734,25 @@ describe('cloud billing recovery', () => {
 				hosted_invoice_url: 'https://invoice.stripe.com/in_discounted_resubscription',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_discounted_resubscription/pdf',
 			},
+			{
+				id: 'in_placeholder_trial',
+				number: 'NAO-0005',
+				billing_reason: 'subscription_create',
+				parent: {
+					type: 'subscription_details',
+					subscription_details: { subscription: 'sub_cloud_trial' },
+				},
+				status: 'paid',
+				created: 1_791_000_000,
+				subtotal: 0,
+				total: 0,
+				currency: 'usd',
+				discounts: [],
+				hosted_invoice_url: 'https://invoice.stripe.com/in_placeholder_trial',
+				invoice_pdf: 'https://pay.stripe.com/invoice/in_placeholder_trial/pdf',
+			},
 		];
+		stripeMocks.listSubscriptions.mockReturnValue(paginatedList([cloudSubscription(), cloudTrialSubscription()]));
 		stripeMocks.listInvoices.mockReturnValue({
 			data: stripeInvoices.slice(0, 1),
 			async *[Symbol.asyncIterator]() {
@@ -1789,6 +1813,11 @@ describe('cloud billing recovery', () => {
 		expect(stripeMocks.listInvoices).toHaveBeenCalledWith({
 			customer: 'cus_cloud',
 			expand: ['data.discounts.promotion_code'],
+			limit: 100,
+		});
+		expect(stripeMocks.listSubscriptions).toHaveBeenCalledWith({
+			customer: 'cus_cloud',
+			status: 'all',
 			limit: 100,
 		});
 	});
