@@ -34,9 +34,10 @@ export function storyKitGuideItems(): ReactElement[] {
 			"compact" | "percent" with fractions | "currency"), <Bold>currency</Bold>, <Bold>decimals</Bold>. Charts:{' '}
 			<Bold>xKey</Bold>, <Bold>series</Bold> (names or {'{ key, label?, type?, axis? }'}), <Bold>height</Bold>,{' '}
 			<Bold>stacked</Bold>, <Bold>percent</Bold>, <Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line),{' '}
-			<Bold>showDataLabels</Bold>. KpiCard: <Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous
-			row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold> (caps the rows shown; tables already paginate,
-			starting at 10 rows per page and showing more when their grid row leaves room, with a rows-per-page picker),{' '}
+			<Bold>showDataLabels</Bold>, <Bold>showLegend</Bold> (defaults to shown for pies and multi-series charts).
+			KpiCard: <Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous row. DataTable:{' '}
+			<Bold>columns</Bold>, <Bold>maxRows</Bold> (caps the rows shown; tables already paginate, starting at 10
+			rows per page and showing more when their grid row leaves room, with a rows-per-page picker),{' '}
 			<Bold>conditionalFormats</Bold> (column → the same rule display_chart's conditional_formats takes) to colour
 			cells.
 		</ListItem>,

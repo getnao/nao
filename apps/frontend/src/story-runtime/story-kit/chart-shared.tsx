@@ -28,7 +28,6 @@ export { seriesColor };
 
 export interface ChartProps extends BlockProps, BlockDataSource, ChartOptions {
 	height?: number;
-	showLegend?: boolean;
 	showGrid?: boolean;
 }
 
@@ -49,7 +48,6 @@ export function ChartBlock({
 	queryId,
 	data,
 	height = DEFAULT_CHART_HEIGHT,
-	showLegend,
 	showGrid = true,
 	title,
 	description,
@@ -88,7 +86,7 @@ export function ChartBlock({
 							xAxisKey={resolved.xAxisKey}
 							series={toSeriesConfigs(resolved.series, options)}
 							height={height}
-							showLegend={showLegend ?? (isPieChart(chartType) || resolved.series.length > 1)}
+							showLegend={options.showLegend ?? (isPieChart(chartType) || resolved.series.length > 1)}
 							showGrid={showGrid}
 							options={options}
 						/>
