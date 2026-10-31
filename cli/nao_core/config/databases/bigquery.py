@@ -11,6 +11,8 @@ from pydantic import Field, PrivateAttr, field_validator
 from nao_core.ui import ask_select, ask_text
 
 if TYPE_CHECKING:
+    from concurrent.futures import Executor
+
     import pandas as pd
     from ibis import BaseBackend
 
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TablePartitionMetadata:
-    """Partition metadata for a single BigQuery table, fetched in a batch per schema."""
+    """Metadata for a single BigQuery table, fetched in a batch per schema."""
 
     partition_column: str | None
     partition_column_type: str | None  # DATE, TIMESTAMP, DATETIME, INTEGER, etc.
@@ -30,6 +32,8 @@ class TablePartitionMetadata:
     total_rows: int | None  # from INFORMATION_SCHEMA.PARTITIONS
     require_partition_filter: bool = False
     clustering_columns: list[str] = field(default_factory=list)
+    columns: list[dict[str, Any]] | None = None
+    description: str | None = None
 
 
 def _bq_escape_quoted_identifier(name: object) -> str:
@@ -69,8 +73,11 @@ class BigQueryDatabaseContext(DatabaseContext):
         self._custom_partition_filter = custom_partition_filter
 
     def partition_columns(self) -> list[str]:
-        if self._partition_metadata is not None and self._partition_metadata.partition_column is not None:
-            return self._filter_excluded_names([self._partition_metadata.partition_column])
+        if self._partition_metadata is not None:
+            if self._partition_metadata.partition_column is not None:
+                return self._filter_excluded_names([self._partition_metadata.partition_column])
+            if self._partition_metadata.columns is not None:
+                return []
         try:
             return self._filter_excluded_names(
                 _get_bq_partition_only_columns(self._conn, self._project_id, self._schema, self._table_name)
@@ -81,7 +88,10 @@ class BigQueryDatabaseContext(DatabaseContext):
 
     def clustering_columns(self) -> list[str]:
         if self._partition_metadata is not None:
-            return self._filter_excluded_names(list(self._partition_metadata.clustering_columns))
+            if self._partition_metadata.clustering_columns:
+                return self._filter_excluded_names(list(self._partition_metadata.clustering_columns))
+            if self._partition_metadata.columns is not None:
+                return []
         try:
             return self._filter_excluded_names(
                 _get_bq_clustering_only_columns(self._conn, self._project_id, self._schema, self._table_name)
@@ -91,6 +101,8 @@ class BigQueryDatabaseContext(DatabaseContext):
             return []
 
     def description(self) -> str | None:
+        if self._partition_metadata is not None and self._partition_metadata.columns is not None:
+            return self._partition_metadata.description
         try:
             table_name_literal = _bq_string_literal(self._table_name)
             table_options_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "TABLE_OPTIONS")
@@ -107,6 +119,11 @@ class BigQueryDatabaseContext(DatabaseContext):
         return None
 
     def columns(self) -> list[dict[str, Any]]:
+        if self._partition_metadata is not None and self._partition_metadata.columns is not None:
+            if self._columns_cache is None:
+                self._columns_cache = [dict(column) for column in self._partition_metadata.columns]
+            return self._filter_excluded_columns(self._columns_cache)
+
         cols = super().columns()
         try:
             native_types, descriptions = self._fetch_column_metadata()
@@ -159,6 +176,13 @@ class BigQueryDatabaseContext(DatabaseContext):
 
         For non-partitioned tables: uses standard ibis COUNT(*).
         """
+        if (
+            self._partition_metadata is not None
+            and self._partition_metadata.columns is not None
+            and self._partition_metadata.total_rows is not None
+        ):
+            return self._partition_metadata.total_rows
+
         if not self.is_partitioned():
             try:
                 return super().row_count()
@@ -237,7 +261,9 @@ class BigQueryDatabaseContext(DatabaseContext):
         if self._custom_partition_filter:
             return self._custom_partition_filter
         if self._partition_metadata:
-            return self._build_partition_filter(self._partition_metadata)
+            if self._partition_metadata.partition_column is not None:
+                return self._build_partition_filter(self._partition_metadata)
+            return None
         return self._fetch_safe_partition_filter()
 
     def _fetch_safe_partition_filter(self) -> str | None:
@@ -590,6 +616,31 @@ class BigQueryConfig(DatabaseConfig):
             custom_partition_filter=custom_filter,
         )
 
+    def prepare_sync_metadata(
+        self,
+        conn: BaseBackend,
+        schema_tables: dict[str, list[str]],
+        pool: Executor | None = None,
+    ) -> None:
+        """Fetch all selected table metadata once per schema before table rendering starts."""
+        selected_schemas = [(schema, tables) for schema, tables in schema_tables.items() if tables]
+        if pool is None:
+            self._schema_metadata = {
+                schema: _fetch_schema_partition_metadata(conn, self.project_id, schema, tables)
+                for schema, tables in selected_schemas
+            }
+            return
+
+        futures = {
+            schema: pool.submit(_fetch_schema_partition_metadata, conn, self.project_id, schema, tables)
+            for schema, tables in selected_schemas
+        }
+        self._schema_metadata = {schema: future.result() for schema, future in futures.items()}
+
+    def clear_sync_metadata(self) -> None:
+        self._schema_metadata = {}
+        self._schema_metadata_locks = {}
+
     def _get_table_metadata(self, conn: BaseBackend, schema: str, table_name: str) -> TablePartitionMetadata | None:
         """Return cached partition metadata for a table, fetching the full schema batch on first call.
 
@@ -634,71 +685,131 @@ class BigQueryConfig(DatabaseConfig):
 
 
 def _fetch_schema_partition_metadata(
-    conn: BaseBackend, project_id: str, schema: str
+    conn: BaseBackend,
+    project_id: str,
+    schema: str,
+    table_names: list[str] | None = None,
 ) -> dict[str, TablePartitionMetadata]:
-    """Fetch partition and clustering metadata for all tables in a schema in batch queries."""
+    """Fetch table metadata for a schema in a small, fixed number of queries."""
+    selected_tables = set(table_names or [])
+    columns_map: dict[str, list[dict[str, Any]]] = {}
     partition_columns: dict[str, tuple[str, str]] = {}  # table -> (column_name, column_type)
     last_partition_ids: dict[str, str] = {}
     total_rows_map: dict[str, int] = {}
     require_filter_tables: set[str] = set()
-    clustering_map: dict[str, list[str]] = {}
+    clustering_map: dict[str, list[tuple[int, str]]] = {}
+    descriptions: dict[str, str] = {}
+
+    table_filter = ""
+    if selected_tables:
+        values = ", ".join(_bq_string_literal(table) for table in sorted(selected_tables))
+        table_filter = f" AND c.table_name IN ({values})"
 
     try:
         column_query = f"""
-            SELECT table_name, column_name, data_type
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMNS`
-            WHERE is_partitioning_column = 'YES'
-        """
-        for row in conn.raw_sql(column_query):  # type: ignore[union-attr]
-            partition_columns[row[0]] = (row[1], row[2])
-    except Exception:
-        logger.debug("Failed to fetch partition column types for schema %s", schema)
-
-    try:
-        partitions_query = f"""
             SELECT
+                c.table_name,
+                c.column_name,
+                c.data_type,
+                c.is_nullable,
+                p.description AS column_description,
+                c.is_partitioning_column,
+                c.clustering_ordinal_position,
+                c.is_hidden,
+                o.description AS table_description,
+                o.require_partition_filter
+            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMNS` AS c
+            LEFT JOIN `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS` AS p
+                ON c.table_catalog = p.table_catalog
+                AND c.table_schema = p.table_schema
+                AND c.table_name = p.table_name
+                AND c.column_name = p.column_name
+                AND p.field_path = p.column_name
+            LEFT JOIN (
+                SELECT
+                    table_name,
+                    MAX(IF(option_name = 'description', option_value, NULL)) AS description,
+                    LOGICAL_OR(
+                        option_name = 'require_partition_filter' AND LOWER(option_value) = 'true'
+                    ) AS require_partition_filter
+                FROM `{project_id}.{schema}.INFORMATION_SCHEMA.TABLE_OPTIONS`
+                WHERE option_name IN ('description', 'require_partition_filter')
+                GROUP BY table_name
+            ) AS o ON c.table_name = o.table_name
+            WHERE TRUE{table_filter}
+            ORDER BY c.table_name, c.ordinal_position
+        """
+        rows = list(conn.raw_sql(column_query))  # type: ignore[union-attr]
+        for row in rows:
+            (
                 table_name,
-                ARRAY_AGG(partition_id ORDER BY partition_id DESC LIMIT 2) AS recent_partitions,
-                SUM(total_rows) AS total_rows
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.PARTITIONS`
-            WHERE partition_id != '__NULL__'
-            GROUP BY table_name
-        """
-        for row in conn.raw_sql(partitions_query):  # type: ignore[union-attr]
-            partitions = row[1] or []
-            if partitions:
-                # Use 2nd newest if available (guaranteed closed), otherwise the only one
-                safe_partition = partitions[1] if len(partitions) >= 2 else partitions[0]
-                last_partition_ids[row[0]] = str(safe_partition)
-            if row[2] is not None:
-                total_rows_map[row[0]] = int(row[2])
+                column_name,
+                data_type,
+                is_nullable,
+                column_description,
+                is_partitioning,
+                clustering_position,
+                is_hidden,
+                table_description,
+                require_partition_filter,
+            ) = row
+            column_type = str(data_type)
+            table_columns = columns_map.setdefault(table_name, [])
+            if is_hidden == "NO":
+                nullable = is_nullable == "YES" or column_type.upper().startswith("ARRAY<")
+                table_columns.append(
+                    {
+                        "name": column_name,
+                        "type": column_type if nullable else f"{column_type} NOT NULL",
+                        "nullable": nullable,
+                        "description": str(column_description) if column_description else None,
+                    }
+                )
+            if is_partitioning == "YES":
+                partition_columns[table_name] = (column_name, column_type)
+            if clustering_position is not None:
+                clustering_map.setdefault(table_name, []).append((int(clustering_position), column_name))
+            if table_description:
+                descriptions[table_name] = str(table_description).strip().strip('"')
+            if require_partition_filter:
+                require_filter_tables.add(table_name)
     except Exception:
-        logger.debug("Failed to fetch partition IDs for schema %s", schema)
+        logger.debug("Failed to fetch column metadata for schema %s", schema)
+        return {}
 
-    try:
-        require_filter_query = f"""
-            SELECT table_name
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.TABLE_OPTIONS`
-            WHERE option_name = 'require_partition_filter' AND option_value = 'true'
-        """
-        for row in conn.raw_sql(require_filter_query):  # type: ignore[union-attr]
-            require_filter_tables.add(row[0])
-    except Exception:
-        logger.debug("Failed to fetch require_partition_filter flags for schema %s", schema)
+    partition_batches = [sorted(selected_tables)[i : i + 1000] for i in range(0, len(selected_tables), 1000)]
+    if not partition_batches:
+        partition_batches = [[]]
+    for batch in partition_batches:
+        partition_filter = ""
+        if batch:
+            values = ", ".join(_bq_string_literal(table) for table in batch)
+            partition_filter = f"WHERE table_name IN ({values})"
+        try:
+            partitions_query = f"""
+                SELECT
+                    table_name,
+                    ARRAY_AGG(
+                        IF(partition_id NOT IN ('__NULL__', '__UNPARTITIONED__'), partition_id, NULL)
+                        IGNORE NULLS ORDER BY partition_id DESC LIMIT 2
+                    ) AS recent_partitions,
+                    SUM(total_rows) AS total_rows
+                FROM `{project_id}.{schema}.INFORMATION_SCHEMA.PARTITIONS`
+                {partition_filter}
+                GROUP BY table_name
+            """
+            rows = list(conn.raw_sql(partitions_query))  # type: ignore[union-attr]
+            for row in rows:
+                table_name, partitions, total_rows = row
+                partitions = partitions or []
+                if partitions:
+                    safe_partition = partitions[1] if len(partitions) >= 2 else partitions[0]
+                    last_partition_ids[table_name] = str(safe_partition)
+                total_rows_map[table_name] = int(total_rows or 0)
+        except Exception:
+            logger.debug("Failed to fetch partition IDs and row counts for schema %s", schema)
 
-    try:
-        clustering_query = f"""
-            SELECT table_name, column_name
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMNS`
-            WHERE clustering_ordinal_position IS NOT NULL
-            ORDER BY table_name, clustering_ordinal_position
-        """
-        for row in conn.raw_sql(clustering_query):  # type: ignore[union-attr]
-            clustering_map.setdefault(row[0], []).append(row[1])
-    except Exception:
-        logger.debug("Failed to fetch clustering columns for schema %s", schema)
-
-    all_tables = set(partition_columns) | set(last_partition_ids) | set(clustering_map)
+    all_tables = selected_tables or set(columns_map)
     result: dict[str, TablePartitionMetadata] = {}
     for table in all_tables:
         col_info = partition_columns.get(table)
@@ -708,6 +819,8 @@ def _fetch_schema_partition_metadata(
             last_partition_id=last_partition_ids.get(table),
             total_rows=total_rows_map.get(table),
             require_partition_filter=table in require_filter_tables,
-            clustering_columns=clustering_map.get(table, []),
+            clustering_columns=[name for _, name in sorted(clustering_map.get(table, []))],
+            columns=columns_map.get(table),
+            description=descriptions.get(table),
         )
     return result
