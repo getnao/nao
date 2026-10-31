@@ -17,7 +17,7 @@ from nao_core.ui import UI, ask_confirm, ask_select
 
 from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
-from .error_handler import format_all_validation_errors
+from .error_handler import format_all_validation_errors, format_validation_error
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .metabase import MetabaseConfig
@@ -252,20 +252,20 @@ class NaoConfig(BaseModel):
             if not isinstance(data, dict):
                 raise
 
-            dropped: dict[str, str] = {}
+            dropped: dict[str, list[str]] = {}
             for error in e.errors():
                 section = error["loc"][0] if error["loc"] else None
                 if not isinstance(section, str) or section not in OPTIONAL_SECTIONS:
                     raise
-                dropped.setdefault(section, str(error["msg"]))
+                dropped.setdefault(section, []).append(format_validation_error(error, cls))
 
             config = cls.model_validate({**data, **{section: None for section in dropped}})
-            for section, reason in dropped.items():
+            for section, reasons in dropped.items():
                 hint = ""
                 if cls._missing_secrets:
                     hint = f" (unset environment variables: {', '.join(cls._missing_secrets)})"
                 UI.warn(
-                    f"Ignoring invalid `{section}` config for this command: {reason}{hint}. "
+                    f"Ignoring invalid `{section}` config for this command: {'; '.join(reasons)}{hint}. "
                     f"Commands that use `{section}` will keep failing until it validates."
                 )
             return config
