@@ -99,6 +99,15 @@ def _table_pool_for(db_config: AnyDatabaseConfig, pool: Executor) -> Executor | 
     return None if db_config.type == "duckdb" else pool
 
 
+def _database_executor_for(
+    db_config: AnyDatabaseConfig,
+    pool: Executor,
+    coordinator_pool: Executor,
+) -> Executor:
+    """Count a sequential DuckDB database as one worker while other databases coordinate table tasks separately."""
+    return pool if db_config.type == "duckdb" else coordinator_pool
+
+
 def _fmt_duration(seconds: float) -> str:
     """Format seconds into a human-readable duration."""
     if seconds < 1:
@@ -654,7 +663,7 @@ class DatabaseSyncProvider(SyncProvider):
                     ThreadPoolExecutor(max_workers=min(threads, len(items))) as coordinator_pool,
                 ):
                     database_futures = [
-                        coordinator_pool.submit(
+                        _database_executor_for(db, pool, coordinator_pool).submit(
                             sync_database,
                             db,
                             output_path,

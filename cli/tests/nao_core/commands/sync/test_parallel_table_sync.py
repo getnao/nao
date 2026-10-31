@@ -98,6 +98,16 @@ def test_databases_share_one_pool(tmp_path: Path):
     assert run.result.items_synced == TABLE_COUNT * len(databases)
 
 
+def test_mixed_databases_do_not_exceed_the_worker_limit(tmp_path: Path):
+    configs = _configs(["local"], database_type="duckdb") + _configs(["warehouse"])
+
+    run = _run_sync(tmp_path, configs, threads=4)
+
+    assert 1 < run.recorder.max_active <= 4
+    assert run.recorder.max_active_by_database["local"] == 1
+    assert run.result.items_synced == TABLE_COUNT * 2
+
+
 def test_sequential_sync_renders_one_table_at_a_time(tmp_path: Path):
     run = _run_sync(tmp_path, _configs(["warehouse", "lake"]), threads=1)
 
