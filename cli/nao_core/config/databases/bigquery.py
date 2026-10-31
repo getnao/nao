@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, PrivateAttr, field_validator
 
@@ -408,9 +408,6 @@ def _get_bq_clustering_only_columns(conn: BaseBackend, project_id: str, schema: 
 
 class BigQueryConfig(DatabaseConfig):
     """BigQuery-specific configuration."""
-
-    supports_parallel_table_sync: ClassVar[bool] = True
-    """The BigQuery client is thread-safe and each metadata lookup is an independent job."""
 
     type: Literal["bigquery"] = "bigquery"
     project_id: str = Field(description="GCP project ID")

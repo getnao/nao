@@ -14,7 +14,6 @@ from nao_core.commands.sync.providers.base import SyncResult
 from nao_core.commands.sync.providers.databases.provider import DatabaseSyncProvider
 from nao_core.config.databases.base import DatabaseTemplate
 from nao_core.config.databases.bigquery import BigQueryConfig
-from nao_core.config.databases.duckdb import DuckDBConfig
 
 SCHEMA_TABLES = {
     "sales": ["orders", "customers", "refunds", "invoices"],
@@ -52,7 +51,7 @@ class SyncRun:
 
 
 def test_parallel_sync_matches_sequential_output(tmp_path: Path):
-    databases = {"warehouse": True, "lake": False}
+    databases = ["warehouse", "lake"]
     sequential = _run_sync(tmp_path / "sequential", _configs(databases), threads=1, failing_table="refunds")
     parallel = _run_sync(tmp_path / "parallel", _configs(databases), threads=4, failing_table="refunds")
 
@@ -65,14 +64,14 @@ def test_parallel_sync_matches_sequential_output(tmp_path: Path):
 
 
 def test_one_large_database_uses_the_whole_pool(tmp_path: Path):
-    run = _run_sync(tmp_path, _configs({"warehouse": True}), threads=TABLE_COUNT)
+    run = _run_sync(tmp_path, _configs(["warehouse"]), threads=TABLE_COUNT)
 
     assert run.recorder.max_active > 1
     assert run.result.items_synced == TABLE_COUNT
 
 
 def test_small_parallel_databases_run_together(tmp_path: Path):
-    configs = _configs({f"warehouse_{index}": True for index in range(4)})
+    configs = _configs([f"warehouse_{index}" for index in range(4)])
     for config in configs:
         config.get_schemas.return_value = ["sales"]
         config.connect.return_value.list_tables.side_effect = lambda database: ["orders"] if database == "sales" else []
@@ -84,31 +83,23 @@ def test_small_parallel_databases_run_together(tmp_path: Path):
 
 
 def test_databases_share_one_pool(tmp_path: Path):
-    databases = {"warehouse": True, "events": True, "lake": False, "local": False}
+    databases = ["warehouse", "events", "lake", "local"]
 
     run = _run_sync(tmp_path, _configs(databases), threads=4)
 
     assert 1 < run.recorder.max_active <= 4
-    assert run.recorder.max_active_by_database["lake"] == 1
-    assert run.recorder.max_active_by_database["local"] == 1
     assert run.result.items_synced == TABLE_COUNT * len(databases)
 
 
-def test_unsafe_database_renders_one_table_at_a_time(tmp_path: Path):
-    run = _run_sync(tmp_path, _configs({"lake": False}), threads=4)
-
-    assert run.recorder.max_active == 1
-
-
 def test_sequential_sync_renders_one_table_at_a_time(tmp_path: Path):
-    run = _run_sync(tmp_path, _configs({"warehouse": True, "lake": False}), threads=1)
+    run = _run_sync(tmp_path, _configs(["warehouse", "lake"]), threads=1)
 
     assert run.recorder.max_active == 1
 
 
 @pytest.mark.parametrize("threads", [1, 4])
 def test_table_failure_outside_templates_fails_only_its_database(tmp_path: Path, threads: int):
-    configs = _configs({"warehouse": True, "events": True})
+    configs = _configs(["warehouse", "events"])
     configs[0].create_context.side_effect = lambda _conn, _schema, table: _context(
         "warehouse", table, broken=table == "leads"
     )
@@ -119,11 +110,6 @@ def test_table_failure_outside_templates_fails_only_its_database(tmp_path: Path,
     assert run.result.items_synced == TABLE_COUNT
     for config in configs:
         config.connect.return_value.disconnect.assert_called_once()
-
-
-def test_only_bigquery_opts_into_parallel_table_sync():
-    assert BigQueryConfig.supports_parallel_table_sync is True
-    assert DuckDBConfig.supports_parallel_table_sync is False
 
 
 def test_bigquery_fetches_schema_metadata_once_across_threads():
@@ -173,18 +159,17 @@ def _render(recorder: ConcurrencyRecorder, template: str, failing_table: str | N
     return f"# {database}.{kwargs['dataset']}.{table}\n\n{template}\n"
 
 
-def _configs(databases: dict[str, bool]) -> list[MagicMock]:
-    return [_database_config(name, supports_parallel) for name, supports_parallel in databases.items()]
+def _configs(databases: list[str]) -> list[MagicMock]:
+    return [_database_config(name) for name in databases]
 
 
-def _database_config(name: str, supports_parallel: bool) -> MagicMock:
+def _database_config(name: str) -> MagicMock:
     config = MagicMock()
     config.name = name
-    config.type = "bigquery" if supports_parallel else "duckdb"
+    config.type = "bigquery"
     config.templates = [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
     config.exclude_columns = []
     config.preview_max_value_length = 100
-    config.supports_parallel_table_sync = supports_parallel
     config.get_database_name.return_value = name
     config.get_schemas.return_value = list(SCHEMA_TABLES)
     config.matches_pattern.return_value = True

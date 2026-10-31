@@ -269,8 +269,7 @@ def sync_database(
     synced (applied on top of the config include/exclude filters).
 
     When `pool` is provided, tables render on it concurrently and their results
-    are applied in table order. Only pass a pool for databases with
-    `supports_parallel_table_sync`.
+    are applied in table order.
     """
     engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
@@ -645,17 +644,12 @@ class DatabaseSyncProvider(SyncProvider):
                         failures.append(f"{database_name}: {error}")
                         UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
             else:
-                # Parallel-safe databases need a coordinator outside the shared
-                # worker pool: their coordinator submits table work to that pool
-                # and waits for it, which would deadlock if every pool worker were
-                # itself coordinating a database. The coordinators also let
-                # connection and table-discovery work overlap across databases.
                 with (
                     ThreadPoolExecutor(max_workers=threads) as pool,
                     ThreadPoolExecutor(max_workers=min(threads, len(items))) as coordinator_pool,
                 ):
                     database_futures = [
-                        (coordinator_pool if db.supports_parallel_table_sync is True else pool).submit(
+                        coordinator_pool.submit(
                             sync_database,
                             db,
                             output_path,
@@ -665,7 +659,7 @@ class DatabaseSyncProvider(SyncProvider):
                             db_folder=db_folder,
                             nao_ctx=nao_ctx,
                             select=select,
-                            **({"pool": pool} if db.supports_parallel_table_sync is True else {}),
+                            pool=pool,
                         )
                         for db, db_folder in zip(items, db_folders, strict=False)
                     ]
