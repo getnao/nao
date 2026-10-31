@@ -24,6 +24,7 @@ const POINTER_PATH = 'M4 3l6.5 17 2.4-7.1L20 10.5z';
 
 const BLOCKS_SHIFT_ON_SCREEN = 'translate(-8.2px, 1.7px)';
 const FLAT_THUMBNAIL_FRAME = 'overflow-hidden bg-background';
+const TOOL_PART_SHEET_SIZE = 'h-[150px] w-[196px]';
 
 const CLICKS = [
 	{ x: 112.9, y: 24.2, atSeconds: 0.6 },
@@ -179,26 +180,32 @@ function ScreenshotSheet({
 					<div className='absolute top-0 -left-[9px] h-[88px] w-[210px] origin-top-left scale-[0.73]'>
 						<div
 							className={cn(
-								'absolute top-[27%] left-[15%] h-auto w-[196px] max-w-none origin-top-left aspect-[8/5] bg-secondary',
+								'absolute top-[27%] left-[15%] origin-top-left bg-secondary',
+								TOOL_PART_SHEET_SIZE,
 								SHEET_VISUAL,
 							)}
 							style={{ transform: SHEET_TRANSFORM }}
 						/>
-						<img
-							src={src}
-							alt=''
-							loading='lazy'
-							decoding='async'
-							fetchPriority='low'
-							onLoad={onLoad}
-							onError={onError}
+						<div
 							className={cn(
-								'absolute top-[26%] left-[16%] h-auto w-[196px] max-w-none origin-top-left aspect-[8/5] object-cover object-top-left bg-background',
+								'absolute top-[26%] left-[16%] origin-top-left overflow-hidden bg-background',
+								TOOL_PART_SHEET_SIZE,
 								SHEET_VISUAL,
 								'border-t border-r border-border/40',
 							)}
 							style={{ transform: SHEET_TRANSFORM }}
-						/>
+						>
+							<img
+								src={src}
+								alt=''
+								loading='lazy'
+								decoding='async'
+								fetchPriority='low'
+								onLoad={onLoad}
+								onError={onError}
+								className='block h-auto w-full max-w-none aspect-[8/5] object-cover object-top-left bg-background'
+							/>
+						</div>
 					</div>
 				</StoryThemeProvider>
 			</div>
@@ -268,15 +275,13 @@ function AppIllustration({ isToolPart, theme }: { isToolPart: boolean; theme: St
 }
 
 function AppSheet({ isToolPart }: { isToolPart: boolean }) {
-	const sheetSize = isToolPart ? 'h-[150px] w-[196px]' : 'h-[400px] w-[480px]';
-
 	if (isToolPart) {
 		return (
 			<>
 				<div
 					className={cn(
 						'absolute top-[27%] left-[15%] origin-top-left bg-secondary',
-						sheetSize,
+						TOOL_PART_SHEET_SIZE,
 						SHEET_VISUAL,
 					)}
 					style={{ transform: SHEET_TRANSFORM }}
@@ -284,7 +289,7 @@ function AppSheet({ isToolPart }: { isToolPart: boolean }) {
 				<div
 					className={cn(
 						'absolute top-[26%] left-[16%] origin-top-left overflow-hidden',
-						sheetSize,
+						TOOL_PART_SHEET_SIZE,
 						'bg-background',
 						SHEET_VISUAL,
 						'border-t border-r',
