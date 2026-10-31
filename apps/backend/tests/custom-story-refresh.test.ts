@@ -38,7 +38,7 @@ vi.mock('../src/services/live-story', () => ({
 	refreshStoryData: mocks.refreshStoryData,
 }));
 
-import { getCustomStoryQueryData, getCustomStoryVersion } from '../src/services/custom-story';
+import { getCustomStoryNarratives, getCustomStoryQueryData, getCustomStoryVersion } from '../src/services/custom-story';
 
 const CACHED_ORDERS = { columns: ['id'], data: [{ id: 1 }] };
 const CHAT_ORDERS = { columns: ['id'], data: [{ id: 2 }] };
@@ -113,5 +113,30 @@ describe('custom story background refresh', () => {
 			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { deferRefresh: true }),
 		).resolves.toEqual(REFRESHED_ORDERS);
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
+	});
+});
+
+describe('custom story narratives once the story is not live', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', format: 'custom', isLive: false });
+	});
+
+	it('serves the narratives frozen into a copy of a live story', async () => {
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+			querySources: null,
+			analysisResults: { summary: 'Frozen narrative' },
+		});
+
+		await expect(getCustomStoryNarratives('chat-1', 'orders')).resolves.toEqual({ summary: 'Frozen narrative' });
+	});
+
+	it('ignores the narratives left over from its own live refreshes', async () => {
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+			querySources: { query_orders: { sqlQuery: 'select 1' } },
+			analysisResults: { summary: 'Old live narrative' },
+		});
+
+		await expect(getCustomStoryNarratives('chat-1', 'orders')).resolves.toEqual({});
 	});
 });

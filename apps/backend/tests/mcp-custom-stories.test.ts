@@ -228,8 +228,45 @@ describe('MCP custom stories through create_story and update_story', () => {
 		expect(updateWithContent.isError).toBe(true);
 	});
 
-	it('requires the ask_nao chat a custom story reads its queries from', async () => {
-		const result = await call('create_story', { format: 'custom', title: 'No chat', files: APP_FILES });
+	it('creates a standalone custom story without a chat, with the rows passed in `query_data`', async () => {
+		const queryRows = { columns: ['value'], data: [{ value: 1 }] };
+		const result = await call('create_story', {
+			format: 'custom',
+			title: 'No chat',
+			files: [...APP_FILES, { path: 'data.js', content: 'export const id = "query_revenue";' }],
+			query_data: { query_revenue: queryRows },
+		});
+
+		expect(result.isError).toBeUndefined();
+		expect(result.structuredContent).toMatchObject({ title: 'No chat', format: 'custom', version: 1 });
+		const [story] = await db.select().from(s.story);
+		expect(story).toMatchObject({ chatId: null, projectId: 'project-1', userId: 'user-1', slug: 'no-chat' });
+		const [cache] = await db.select().from(s.storyDataCache);
+		expect(cache).toMatchObject({ storyId: story.id, queryData: { query_revenue: queryRows } });
+		expect(await db.select().from(s.storyFolderItem)).toHaveLength(1);
+	});
+
+	it('updates a standalone custom story as a new version', async () => {
+		const created = await call('create_story', { format: 'custom', title: 'No chat', files: APP_FILES });
+		const storyId = (created.structuredContent as { id: string }).id;
+
+		const result = await call('update_story', {
+			story_id: storyId,
+			files: [{ path: 'app.jsx', content: 'export default function App() { return "v2"; }' }],
+		});
+
+		expect(result.isError).toBeUndefined();
+		expect(result.structuredContent).toMatchObject({ id: storyId, version: 2 });
+	});
+
+	it('refuses `query_data` for a custom story attached to a chat', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'In chat',
+			files: APP_FILES,
+			query_data: { query_revenue: { columns: ['value'], data: [] } },
+		});
 
 		expect(result.isError).toBe(true);
 		expect(await db.select().from(s.story)).toHaveLength(0);

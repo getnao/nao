@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 /**
  * Top-level folder of the virtual tree exposing the draft files of the chat's
  * custom stories, one folder per story slug: `/stories/<slug>/app.jsx`.
@@ -38,6 +40,15 @@ export const STORY_SLUG_RULE = 'up to 100 letters, digits, dashes or underscores
 /** A custom story slug names a single folder of the mount, so it must never contain `/` or `@`. */
 export const isValidStorySlug = (slug: string): boolean => {
 	return STORY_SLUG.test(slug);
+};
+
+export const generateStorySlug = (title: string): string => {
+	return (
+		title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-|-$/g, '') || `untitled-${randomUUID().slice(0, 8)}`
+	);
 };
 
 /** Virtual path of a story folder, or of a file inside it. */

@@ -19,18 +19,17 @@ interface StoryOwner {
 	projectId: string;
 }
 
-export async function createCustomStoryDraft(data: {
-	chatId: string;
+export async function createCustomStoryDraft({
+	files: requestedFiles,
+	...storyData
+}: storyQueries.StoryOwnership & {
 	slug: string;
 	title: string;
 	files: StoryFileInput[];
 }): Promise<{ story: DBStory; files: string[] }> {
-	const initialFiles = scaffoldCustomStoryFiles(data.title, await formatStoryFiles(data.files));
+	const initialFiles = scaffoldCustomStoryFiles(storyData.title, await formatStoryFiles(requestedFiles));
 	return db.transaction(async (tx) => {
-		const story = await storyQueries.createCustomStory(
-			{ chatId: data.chatId, slug: data.slug, title: data.title },
-			tx,
-		);
+		const story = await storyQueries.createCustomStory(storyData, tx);
 		const files = await storyFileQueries.seedDraftFiles(story.id, initialFiles, tx);
 		return { story, files: files.map((file) => file.path) };
 	});
@@ -81,6 +80,9 @@ export async function publishCustomStoryDraft(
 		}
 		return cut;
 	});
+	if (version.version > 1) {
+		await storyQueries.clearFrozenStoryNarratives(story.id);
+	}
 	queueCustomStoryThumbnail(story.id, version.id);
 	return { ok: true, version: version.version, files: files.map((file) => file.path) };
 }

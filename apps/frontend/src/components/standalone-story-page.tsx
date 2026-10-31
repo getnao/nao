@@ -1,5 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -15,30 +14,20 @@ import { StoryPageHeader } from '@/components/story-page-header';
 import { Spinner } from '@/components/ui/spinner';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { requestAskAboutSelection } from '@/stores/ask-bar';
+import { useOpenStandaloneStoryInChat } from '@/hooks/use-open-standalone-story-in-chat';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { trpc } from '@/main';
 
 export function StandaloneStoryPage({ storyId }: { storyId: string }) {
-	const navigate = useNavigate();
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-	const queryClient = useQueryClient();
 
 	const storyQuery = useQuery(trpc.story.getStandalone.queryOptions({ storyId }));
 	const story = storyQuery.data;
 	const storyTheme = useStoryThemeForCurrentMode(story?.theme);
+	const openInChat = useOpenStandaloneStoryInChat(storyId, story?.slug);
 
 	useTrackViewDuration({ assetType: 'story', storyId, versionNumber: story?.version });
 
-	const openStandaloneMutation = useMutation(
-		trpc.chatFork.openStandalone.mutationOptions({
-			onSuccess: ({ chatId }) => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.resolve.queryKey({ storyId }) });
-				navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: story?.slug } });
-			},
-		}),
-	);
 	if (storyQuery.isLoading) {
 		return (
 			<div className='flex flex-1 items-center justify-center'>
@@ -64,8 +53,8 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 					storyId,
 					isOwner: true,
 					canChat: !isArchived,
-					onOpenInChat: story.chatId ? undefined : () => openStandaloneMutation.mutate({ storyId }),
-					isOpeningInChat: openStandaloneMutation.isPending,
+					onOpenInChat: story.chatId ? undefined : openInChat.open,
+					isOpeningInChat: openInChat.isOpening,
 				}}
 				canDuplicate={!isArchived}
 				download={{ storyId, isOwner: true }}
