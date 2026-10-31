@@ -76,6 +76,8 @@ Watch your whole company grow into analysts.
 
 nao ships [skills](skills/) that teach Claude Code, Codex, Cursor or any skills-compatible agent how to build a nao project end to end: scope the tables, write `nao_config.yaml`, sync, write `RULES.md` and create tests.
 
+> Coding agents can discover the complete documentation through [`llms.txt`](https://docs.getnao.io/llms.txt). Each entry links to a Markdown version of the page.
+
 **1. Install the nao CLI and the nao skills** in the folder where you want your project:
 
 ```bash
@@ -177,6 +179,19 @@ nao test server
 
 - **Self-hosted**: run the Docker image below, or follow the [deployment guide](https://docs.getnao.io/nao-agent/self-hosting/deployment-guide) (for example on Cloud Run with PostgreSQL, or with the [Helm chart](helm/)).
 - **Continuous deployment**: the `deploy-context` skill sets up a GitHub Action that runs `nao deploy` on every push to `main`.
+
+### Connect an MCP client
+
+Enable the MCP endpoint from **Settings → Integrations & MCP → nao MCP**, then choose who drives the analysis:
+
+| Mode              | Who reasons and runs the workflow                                                         | nao-side LLM required |
+| ----------------- | ----------------------------------------------------------------------------------------- | --------------------- |
+| **Sub-agent**     | `ask_nao` delegates the question to the nao agent and saves its trace as a nao chat.      | Yes                   |
+| **Context layer** | Claude, Codex or another external agent browses nao context and calls SQL tools directly. | No                    |
+
+The selected mode does not determine the complete tool count. Story and chart tools are available with either mode, and project admins also receive observability tools. Enabling the endpoint does not make it anonymous: clients must still authenticate with a bearer token or OAuth.
+
+See the [nao MCP guide](https://docs.getnao.io/nao-agent/connectors/mcp) for the exact tools, authentication options and client configuration.
 
 ### 🐳 Docker
 
