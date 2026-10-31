@@ -10,13 +10,14 @@ import { CSS } from '@dnd-kit/utilities';
 import { ChevronDown, CornerDownLeft, GripVertical, Pencil, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import type { DragEndEvent } from '@dnd-kit/core';
+import type { QueuedMessage } from '@/types/chat-message-queue';
 import { useMessageQueueStore } from '@/hooks/use-message-queue-store';
 import { useChatId } from '@/hooks/use-chat-id';
 import { cn } from '@/lib/utils';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 
 interface ChatInputMessageQueueProps {
-	onEditMessage?: (text: string) => void;
+	onEditMessage?: (message: QueuedMessage) => void;
 	onSubmitNow?: (messageId: string) => Promise<void>;
 }
 
@@ -65,8 +66,7 @@ export const ChatInputMessageQueue = ({ onEditMessage, onSubmitNow }: ChatInputM
 								<SortableQueuedMessageRow
 									key={qm.id}
 									chatId={chatId}
-									messageId={qm.id}
-									text={qm.text}
+									message={qm}
 									isFirst={idx === 0}
 									isDraggable={queuedMessages.length > 1}
 									onEdit={onEditMessage}
@@ -83,21 +83,20 @@ export const ChatInputMessageQueue = ({ onEditMessage, onSubmitNow }: ChatInputM
 
 function SortableQueuedMessageRow({
 	chatId,
-	messageId,
-	text,
+	message,
 	isFirst,
 	isDraggable,
 	onEdit,
 	onSubmitNow,
 }: {
 	chatId: string | undefined;
-	messageId: string;
-	text: string;
+	message: QueuedMessage;
 	isFirst: boolean;
 	isDraggable: boolean;
-	onEdit?: (text: string) => void;
+	onEdit?: (message: QueuedMessage) => void;
 	onSubmitNow?: (messageId: string) => Promise<void>;
 }) {
+	const { id: messageId, text } = message;
 	const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
 		id: messageId,
 	});
@@ -156,7 +155,7 @@ function SortableQueuedMessageRow({
 						type='button'
 						onClick={() => {
 							messageQueueStore.remove(chatId, messageId);
-							onEdit?.(text);
+							onEdit?.(message);
 						}}
 					>
 						<Pencil className='size-3' />

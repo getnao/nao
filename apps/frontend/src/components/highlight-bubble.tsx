@@ -1,8 +1,9 @@
-import { MessageCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { MessageCircleQuestionIcon } from 'lucide-react';
 import { Button } from './ui/button';
 
 import { useSelection } from '@/contexts/text-selection';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTrackedBubbleRect } from '@/hooks/use-tracked-bubble-rect';
 
 export interface SelectionData {
@@ -40,6 +41,14 @@ function BubbleContent({ onAsk }: { onAsk: (data: SelectionData) => void }) {
 		window.getSelection()?.removeAllRanges();
 	};
 
+	useKeyboardShortcuts({
+		'add-selection-to-chat': () => {
+			if (selection && isStillSelected(selection.range)) {
+				handleAsk();
+			}
+		},
+	});
+
 	if (!selection || !position) {
 		return null;
 	}
@@ -55,14 +64,26 @@ function BubbleContent({ onAsk }: { onAsk: (data: SelectionData) => void }) {
 			}}
 			onMouseDown={(e) => e.stopPropagation()}
 		>
-			<Button
-				type='button'
-				onClick={handleAsk}
-				className='inline-flex items-center gap-1.5 rounded-lg border border-border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground'
-			>
-				<MessageCircle className='size-3.5' />
-				Ask
+			<Button type='button' variant='outline' size='sm' className='shadow-none' onClick={handleAsk}>
+				<span className='flex items-center gap-2'>
+					<span className='size-4'>
+						<MessageCircleQuestionIcon className='size-4' />
+					</span>
+					<span>Ask</span>
+				</span>
 			</Button>
 		</div>
+	);
+}
+
+function isStillSelected(range: Range): boolean {
+	const current = window.getSelection();
+	if (!current || current.isCollapsed || current.rangeCount === 0) {
+		return false;
+	}
+	const live = current.getRangeAt(0);
+	return (
+		live.compareBoundaryPoints(Range.START_TO_START, range) === 0 &&
+		live.compareBoundaryPoints(Range.END_TO_END, range) === 0
 	);
 }

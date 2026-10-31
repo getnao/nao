@@ -1237,7 +1237,6 @@ function toReferenceableStoryItem(story: storyReferenceQueries.ReferenceableStor
 	return {
 		storyId: story.storyId,
 		chatId: story.chatId,
-		chatTitle: story.chatTitle,
 		title: story.title,
 		format: story.format,
 		authorName: story.authorName,

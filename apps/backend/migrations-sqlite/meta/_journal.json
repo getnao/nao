@@ -659,6 +659,13 @@
       "when": 1793281514563,
       "tag": "0093_log_user",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1793284241859,
+      "tag": "0094_chat_message_citations",
+      "breakpoints": true
     }
   ]
 }

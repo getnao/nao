@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from 'react';
-import type { ChatPendingCitationData } from '@/stores/chat-pending-citation';
-import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import type { ChatPendingCitationStore, PendingCitation } from '@/stores/chat-pending-citation';
 
-const EMPTY = null;
+const EMPTY: PendingCitation[] = [];
 
-export const useChatPendingCitation = (chatId: string | undefined): ChatPendingCitationData | null => {
-	const citation = useSyncExternalStore(chatPendingCitationStore.subscribe, chatPendingCitationStore.getSnapshot);
-	return citation?.chatId === chatId ? citation : EMPTY;
+export const useChatPendingCitations = (
+	store: ChatPendingCitationStore,
+	chatId: string | undefined,
+): PendingCitation[] => {
+	const pending = useSyncExternalStore(store.subscribe, store.getSnapshot);
+	return pending && pending.chatId === chatId ? pending.citations : EMPTY;
 };

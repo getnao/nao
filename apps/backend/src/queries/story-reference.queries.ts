@@ -24,7 +24,6 @@ import { sharedStoryGrantsUser } from './shared-story.queries';
 export type ReferenceableStoryListing = {
 	storyId: string;
 	chatId: string | null;
-	chatTitle: string | null;
 	slug: string;
 	title: string;
 	format: StoryFormat;
@@ -152,7 +151,6 @@ function listingColumns() {
 	return {
 		storyId: s.story.id,
 		chatId: s.story.chatId,
-		chatTitle: s.chat.title,
 		slug: s.story.slug,
 		title: s.story.title,
 		format: s.story.format,
