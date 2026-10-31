@@ -94,6 +94,11 @@ def _database_folders_for(items: list[Any], configured_databases: list[Any]) -> 
     return [folders[configured_databases.index(db)] for db in items]
 
 
+def _table_pool_for(db_config: AnyDatabaseConfig, pool: Executor) -> Executor | None:
+    """Keep DuckDB tables sequential because one Ibis backend exposes one mutable cursor."""
+    return None if db_config.type == "duckdb" else pool
+
+
 def _fmt_duration(seconds: float) -> str:
     """Format seconds into a human-readable duration."""
     if seconds < 1:
@@ -659,7 +664,7 @@ class DatabaseSyncProvider(SyncProvider):
                             db_folder=db_folder,
                             nao_ctx=nao_ctx,
                             select=select,
-                            pool=pool,
+                            pool=_table_pool_for(db, pool),
                         )
                         for db, db_folder in zip(items, db_folders, strict=False)
                     ]

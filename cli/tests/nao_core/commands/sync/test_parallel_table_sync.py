@@ -70,6 +70,13 @@ def test_one_large_database_uses_the_whole_pool(tmp_path: Path):
     assert run.result.items_synced == TABLE_COUNT
 
 
+def test_duckdb_renders_one_table_at_a_time(tmp_path: Path):
+    run = _run_sync(tmp_path, _configs(["local"], database_type="duckdb"), threads=TABLE_COUNT)
+
+    assert run.recorder.max_active == 1
+    assert run.result.items_synced == TABLE_COUNT
+
+
 def test_small_parallel_databases_run_together(tmp_path: Path):
     configs = _configs([f"warehouse_{index}" for index in range(4)])
     for config in configs:
@@ -159,14 +166,14 @@ def _render(recorder: ConcurrencyRecorder, template: str, failing_table: str | N
     return f"# {database}.{kwargs['dataset']}.{table}\n\n{template}\n"
 
 
-def _configs(databases: list[str]) -> list[MagicMock]:
-    return [_database_config(name) for name in databases]
+def _configs(databases: list[str], database_type: str = "bigquery") -> list[MagicMock]:
+    return [_database_config(name, database_type) for name in databases]
 
 
-def _database_config(name: str) -> MagicMock:
+def _database_config(name: str, database_type: str) -> MagicMock:
     config = MagicMock()
     config.name = name
-    config.type = "bigquery"
+    config.type = database_type
     config.templates = [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
     config.exclude_columns = []
     config.preview_max_value_length = 100
