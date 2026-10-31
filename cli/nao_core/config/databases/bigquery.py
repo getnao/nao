@@ -167,10 +167,12 @@ class BigQueryDatabaseContext(DatabaseContext):
                 # Table is partitioned but metadata wasn't fetched — fall through
 
         try:
+            partitions_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "PARTITIONS")
+            table_name_literal = _bq_string_literal(self._table_name)
             query = f"""
                 SELECT SUM(total_rows)
-                FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.PARTITIONS`
-                WHERE table_name = '{self._table_name}'
+                FROM {partitions_path}
+                WHERE table_name = {table_name_literal}
             """
             row = next(iter(self._conn.raw_sql(query)), None)  # type: ignore[union-attr]
             if row is not None and row[0] is not None:
@@ -180,9 +182,8 @@ class BigQueryDatabaseContext(DatabaseContext):
         return 0
 
     def _run_filtered_preview(self, filter_expr: str, limit: int) -> list[dict[str, Any]]:
-        query = (
-            f"SELECT * FROM `{self._project_id}.{self._schema}.{self._table_name}` WHERE {filter_expr} LIMIT {limit}"
-        )
+        table_path = _bq_path(self._project_id, self._schema, self._table_name)
+        query = f"SELECT * FROM {table_path} WHERE {filter_expr} LIMIT {limit}"
         col_names = list(self.table.schema().keys())
         try:
             return [
@@ -246,10 +247,13 @@ class BigQueryDatabaseContext(DatabaseContext):
         Uses the 2nd newest partition (closed/stable) when available, otherwise the newest.
         """
         try:
+            partitions_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "PARTITIONS")
+            columns_path = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMNS")
+            table_name_literal = _bq_string_literal(self._table_name)
             part_query = f"""
                 SELECT ARRAY_AGG(partition_id ORDER BY partition_id DESC LIMIT 2)
-                FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.PARTITIONS`
-                WHERE table_name = '{self._table_name}' AND partition_id != '__NULL__'
+                FROM {partitions_path}
+                WHERE table_name = {table_name_literal} AND partition_id != '__NULL__'
             """
             first_row = next(iter(self._conn.raw_sql(part_query)), None)  # type: ignore[union-attr]
             partitions = first_row[0] if first_row and first_row[0] else []
@@ -257,8 +261,8 @@ class BigQueryDatabaseContext(DatabaseContext):
 
             col_query = f"""
                 SELECT column_name, data_type
-                FROM `{self._project_id}.{self._schema}.INFORMATION_SCHEMA.COLUMNS`
-                WHERE table_name = '{self._table_name}' AND is_partitioning_column = 'YES'
+                FROM {columns_path}
+                WHERE table_name = {table_name_literal} AND is_partitioning_column = 'YES'
                 LIMIT 1
             """
             col_row = next(iter(self._conn.raw_sql(col_query)), None)  # type: ignore[union-attr]
@@ -304,7 +308,7 @@ class BigQueryDatabaseContext(DatabaseContext):
         return native_types, descriptions
 
     def _quote(self, name: str) -> str:
-        return f"`{name}`"
+        return _bq_path(name)
 
     def _cast_float(self, expr: str) -> str:
         return f"CAST({expr} AS FLOAT64)"
@@ -630,6 +634,9 @@ def _fetch_schema_partition_metadata(
     conn: BaseBackend, project_id: str, schema: str
 ) -> dict[str, TablePartitionMetadata]:
     """Fetch partition and clustering metadata for all tables in a schema in batch queries."""
+    columns_path = _bq_path(project_id, schema, "INFORMATION_SCHEMA", "COLUMNS")
+    partitions_path = _bq_path(project_id, schema, "INFORMATION_SCHEMA", "PARTITIONS")
+    table_options_path = _bq_path(project_id, schema, "INFORMATION_SCHEMA", "TABLE_OPTIONS")
     partition_columns: dict[str, tuple[str, str]] = {}  # table -> (column_name, column_type)
     last_partition_ids: dict[str, str] = {}
     total_rows_map: dict[str, int] = {}
@@ -639,7 +646,7 @@ def _fetch_schema_partition_metadata(
     try:
         column_query = f"""
             SELECT table_name, column_name, data_type
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMNS`
+            FROM {columns_path}
             WHERE is_partitioning_column = 'YES'
         """
         for row in conn.raw_sql(column_query):  # type: ignore[union-attr]
@@ -653,7 +660,7 @@ def _fetch_schema_partition_metadata(
                 table_name,
                 ARRAY_AGG(partition_id ORDER BY partition_id DESC LIMIT 2) AS recent_partitions,
                 SUM(total_rows) AS total_rows
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.PARTITIONS`
+            FROM {partitions_path}
             WHERE partition_id != '__NULL__'
             GROUP BY table_name
         """
@@ -671,7 +678,7 @@ def _fetch_schema_partition_metadata(
     try:
         require_filter_query = f"""
             SELECT table_name
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.TABLE_OPTIONS`
+            FROM {table_options_path}
             WHERE option_name = 'require_partition_filter' AND option_value = 'true'
         """
         for row in conn.raw_sql(require_filter_query):  # type: ignore[union-attr]
@@ -682,7 +689,7 @@ def _fetch_schema_partition_metadata(
     try:
         clustering_query = f"""
             SELECT table_name, column_name
-            FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMNS`
+            FROM {columns_path}
             WHERE clustering_ordinal_position IS NOT NULL
             ORDER BY table_name, clustering_ordinal_position
         """
