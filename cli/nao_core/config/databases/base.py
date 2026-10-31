@@ -342,6 +342,16 @@ class DatabaseConfig(BaseModel, ABC):
             preview_max_value_length=self.preview_max_value_length,
         )
 
+    def prepare_sync_metadata(
+        self,
+        conn: BaseBackend,
+        schema_tables: dict[str, list[str]],
+    ) -> None:
+        """Preload metadata needed by table contexts. Backends can override this with a bulk path."""
+
+    def clear_sync_metadata(self) -> None:
+        """Discard metadata preloaded for one sync."""
+
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""
         return []
