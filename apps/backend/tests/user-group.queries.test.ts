@@ -44,6 +44,7 @@ import {
 	listUserGroupSsoMemberships,
 	resolveUserGroupAccess,
 	setUserGroupMembership,
+	setUserGroupMemberships,
 	updateProjectRowSecurity,
 	updateUserGroup,
 	validateAssignableUserGroupIds,
@@ -1381,6 +1382,39 @@ describe('user group queries', () => {
 
 		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
+	});
+
+	it('adds and removes several users at once while keeping SSO memberships', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		const defaultGroup = (await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.isDefault)!;
+		const analystMemberships = async () =>
+			(await db.select().from(userGroupMember).where(eq(userGroupMember.groupId, analysts.id)))
+				.map((membership) => `${membership.userId}:${membership.provider}`)
+				.sort();
+
+		await setUserGroupMemberships(
+			PROJECT_ID,
+			analysts.id,
+			[DIRECT_USER_ID, INHERITED_USER_ID, DIRECT_USER_ID],
+			true,
+		);
+		await setUserGroupMemberships(PROJECT_ID, analysts.id, [DIRECT_USER_ID, BOTH_USER_ID], true);
+		expect(await analystMemberships()).toEqual(
+			[`${BOTH_USER_ID}:manual`, `${DIRECT_USER_ID}:manual`, `${INHERITED_USER_ID}:manual`].sort(),
+		);
+
+		await db.insert(userGroupMember).values({ groupId: analysts.id, userId: BOTH_USER_ID, provider: 'oidc' });
+		await setUserGroupMemberships(PROJECT_ID, analysts.id, [DIRECT_USER_ID, BOTH_USER_ID], false);
+		const remainingMemberships = [`${BOTH_USER_ID}:oidc`, `${INHERITED_USER_ID}:manual`].sort();
+		expect(await analystMemberships()).toEqual(remainingMemberships);
+
+		await expect(
+			setUserGroupMemberships(PROJECT_ID, analysts.id, [INHERITED_USER_ID, OUTSIDER_USER_ID], false),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(await analystMemberships()).toEqual(remainingMemberships);
+		await expect(
+			setUserGroupMemberships(PROJECT_ID, defaultGroup.id, [DIRECT_USER_ID], true),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 	});
 
 	it('resolves effective names from All Users, manual, and SSO memberships within the project', async () => {
