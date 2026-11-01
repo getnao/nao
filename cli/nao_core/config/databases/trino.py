@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 EXCLUDED_SCHEMAS = {"information_schema", "default", "sys", "pg_catalog", "test"}
 
@@ -51,9 +51,9 @@ class TrinoDatabaseContext(DatabaseContext):
         query = f"""
             SELECT comment
             FROM system.metadata.table_comments
-            WHERE catalog_name = '{catalog}'
-                AND schema_name = '{self._schema}'
-                AND table_name = '{self._table_name}'
+            WHERE catalog_name = '{quote_sql_literal(catalog)}'
+                AND schema_name = '{quote_sql_literal(self._schema)}'
+                AND table_name = '{quote_sql_literal(self._table_name)}'
         """.strip()
         try:
             row = cast(Any, self._conn).raw_sql(query).fetchone()
