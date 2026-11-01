@@ -137,6 +137,7 @@ vi.mock('@/main', () => ({
 				queryKey: vi.fn(() => ['effective-microsoft-env-mappings']),
 			},
 			setMembership: { mutationOptions: vi.fn() },
+			setMemberships: { mutationOptions: vi.fn() },
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
 			delete: { mutationOptions: vi.fn() },
@@ -580,6 +581,27 @@ describe('UserGroupsTable', () => {
 		expect(groups.map((group) => group.id)).toEqual(['aardvark', 'zulu', 'all-users', 'beta', 'analysts']);
 	});
 
+	it('filters groups by name and shows an empty state when nothing matches', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [allUsers, analysts, { ...analysts, id: 'finance', name: 'Finance' }] },
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+		const search = screen.getByRole('searchbox', { name: 'Search groups' });
+
+		fireEvent.change(search, { target: { value: '  fin ' } });
+		expect(screen.getByRole('row', { name: /Finance/ })).toBeTruthy();
+		expect(screen.queryByRole('row', { name: /Analysts/ })).toBeNull();
+		expect(screen.queryByRole('row', { name: /All Users/ })).toBeNull();
+
+		fireEvent.change(search, { target: { value: 'marketing' } });
+		expect(screen.getByText('No groups match your search.')).toBeTruthy();
+
+		fireEvent.change(search, { target: { value: '' } });
+		expect(screen.getAllByRole('row')).toHaveLength(4);
+	});
+
 	it('navigates from a group row and the create action', () => {
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
@@ -828,10 +850,11 @@ describe('UserGroupsTable', () => {
 
 		expect(table.classList.contains('table-fixed')).toBe(true);
 		expect(table.classList.contains('min-w-3xl')).toBe(true);
-		expect(headers[0]?.classList.contains('w-[36%]')).toBe(true);
-		expect(headers[1]?.classList.contains('w-1/5')).toBe(true);
-		expect(headers[2]?.classList.contains('w-[38%]')).toBe(true);
-		expect(projectUserCells[2]?.classList.contains('overflow-hidden')).toBe(true);
+		expect(headers[0]?.classList.contains('w-10')).toBe(true);
+		expect(headers[1]?.classList.contains('w-[32%]')).toBe(true);
+		expect(headers[2]?.classList.contains('w-1/5')).toBe(true);
+		expect(headers[3]?.classList.contains('w-[38%]')).toBe(true);
+		expect(projectUserCells[3]?.classList.contains('overflow-hidden')).toBe(true);
 		expect(groupsButton.classList.contains('w-full')).toBe(true);
 		expect(groupsButton.classList.contains('min-w-0')).toBe(true);
 	});

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ReadOnlyProjectUsers, ProjectUsersTable } from './project-users-table';
@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	invalidateUserGroupQueries: vi.fn(),
 	useQuery: vi.fn(),
 	setMembership: vi.fn(),
+	setMemberships: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -25,7 +26,8 @@ vi.mock('@tanstack/react-query', () => ({
 			'remove-user': mocks.removeUser,
 			'reset-password': mocks.resetPassword,
 		}[options.mutationKey[0]];
-		return { mutateAsync, mutate: mocks.setMembership, isPending: false };
+		const mutate = options.mutationKey[0] === 'set-memberships' ? mocks.setMemberships : mocks.setMembership;
+		return { mutateAsync, mutate, reset: vi.fn(), isPending: false };
 	},
 	useQuery: mocks.useQuery,
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
@@ -84,6 +86,7 @@ vi.mock('@/main', () => ({
 		},
 		userGroup: {
 			setMembership: { mutationOptions: () => ({ mutationKey: ['set-membership'] }) },
+			setMemberships: { mutationOptions: () => ({ mutationKey: ['set-memberships'] }) },
 		},
 	},
 }));
@@ -91,6 +94,7 @@ vi.mock('@/main', () => ({
 const groups = [
 	{ id: 'all-users', name: 'All Users', isDefault: true },
 	{ id: 'analysts', name: 'Analysts', isDefault: false },
+	{ id: 'finance', name: 'Finance', isDefault: false },
 ];
 const admin = {
 	id: 'admin-id',
@@ -276,16 +280,124 @@ describe('ReadOnlyProjectUsers', () => {
 	});
 });
 
-function renderTable() {
+describe('ProjectUsersTable filtering and bulk group assignment', () => {
+	beforeEach(() => {
+		Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+	});
+
+	it('searches users by name or email across both sections', () => {
+		renderTable();
+		const search = screen.getByRole('searchbox', { name: 'Search users' });
+
+		fireEvent.change(search, { target: { value: ' ORGANIZATION@ ' } });
+		expect(screen.getByText('Organisation User')).toBeTruthy();
+		expect(screen.queryByText('Project User')).toBeNull();
+		expect(screen.queryByText('Project Team')).toBeNull();
+
+		fireEvent.change(search, { target: { value: 'admin' } });
+		expect(screen.getByRole('link', { name: 'Admin' })).toBeTruthy();
+		expect(screen.queryByText('Organisation Members')).toBeNull();
+
+		fireEvent.change(search, { target: { value: 'nobody' } });
+		expect(screen.getByText('No users match your filters.')).toBeTruthy();
+	});
+
+	it('filters users by group and finds users without a custom group', () => {
+		renderTable();
+
+		selectGroupFilter('Analysts');
+		expect(screen.getByText('Project User')).toBeTruthy();
+		expect(screen.queryByRole('link', { name: 'Admin' })).toBeNull();
+		expect(screen.queryByText('Organisation User')).toBeNull();
+
+		selectGroupFilter('No custom group');
+		expect(screen.queryByText('Project User')).toBeNull();
+		expect(screen.getByRole('link', { name: 'Admin' })).toBeTruthy();
+		expect(screen.getByText('Organisation User')).toBeTruthy();
+	});
+
+	it('adds several selected users to a group at once without opening them', async () => {
+		const onOpenUser = vi.fn();
+		renderTable(onOpenUser);
+
+		expect(screen.queryByRole('toolbar', { name: 'Bulk group actions' })).toBeNull();
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Admin' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Organisation User' }));
+		expect(onOpenUser).not.toHaveBeenCalled();
+		expect(screen.getByText('2 users selected')).toBeTruthy();
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: 'Add to group' }), { button: 0, ctrlKey: false });
+		expect(screen.queryByRole('menuitem', { name: 'All Users' })).toBeNull();
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Finance' }));
+
+		expect(mocks.setMemberships).toHaveBeenCalledWith(
+			{ groupId: 'finance', userIds: ['admin-id', 'organization-user'], isMember: true },
+			expect.objectContaining({ onSuccess: expect.any(Function) }),
+		);
+		await act(() => mocks.setMemberships.mock.calls[0][1].onSuccess());
+		expect(mocks.invalidateUserGroupQueries).toHaveBeenCalledOnce();
+		expect(screen.queryByText(/selected/)).toBeNull();
+	});
+
+	it('selects only the users visible through the current filters', () => {
+		renderTable();
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Admin' }));
+		fireEvent.change(screen.getByRole('searchbox', { name: 'Search users' }), { target: { value: 'project' } });
+		expect(screen.queryByText(/selected/)).toBeNull();
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select all users' }));
+		expect(screen.getByText('1 user selected')).toBeTruthy();
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: 'Remove from group' }), { button: 0, ctrlKey: false });
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Analysts' }));
+
+		expect(mocks.setMemberships).toHaveBeenCalledWith(
+			{ groupId: 'analysts', userIds: ['project-user'], isMember: false },
+			expect.anything(),
+		);
+	});
+
+	it('clears the selection from the bulk toolbar', () => {
+		renderTable();
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select all users' }));
+		expect(screen.getByText('3 users selected')).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'Select all users' }).getAttribute('data-state')).toBe('checked');
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Admin' }));
+		expect(screen.getByRole('checkbox', { name: 'Select all users' }).getAttribute('data-state')).toBe(
+			'indeterminate',
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+		expect(screen.queryByText(/selected/)).toBeNull();
+		expect(mocks.setMemberships).not.toHaveBeenCalled();
+	});
+});
+
+function selectGroupFilter(optionName: string) {
+	fireEvent.keyDown(screen.getByRole('combobox', { name: 'Filter by group' }), { key: 'Enter' });
+	fireEvent.click(screen.getByRole('option', { name: optionName }));
+}
+
+function renderTable(onOpenUser = vi.fn()) {
 	return render(
 		<ProjectUsersTable
 			canManage
 			projectUsers={[admin, projectUser]}
 			organizationUsers={[organizationUser]}
 			groups={groups}
-			membershipKeys={new Set(['all-users:admin-id', 'all-users:project-user', 'all-users:organization-user'])}
+			membershipKeys={
+				new Set([
+					'all-users:admin-id',
+					'all-users:project-user',
+					'all-users:organization-user',
+					'analysts:project-user',
+				])
+			}
 			ssoMembershipKeys={new Set()}
-			onOpenUser={vi.fn()}
+			onOpenUser={onOpenUser}
 		/>,
 	);
 }
