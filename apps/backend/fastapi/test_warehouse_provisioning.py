@@ -32,6 +32,7 @@ BIGQUERY_CREDENTIALS_JSON = {
     "client_email": "nao@nao-analytics.iam.gserviceaccount.com",
     "token_uri": "https://oauth2.googleapis.com/token",
 }
+SNOWFLAKE_PRIVATE_KEY = "-----BEGIN ENCRYPTED PRIVATE KEY-----\nprivate-key\n-----END ENCRYPTED PRIVATE KEY-----\n"
 
 SCALAR_WAREHOUSE_CASES = [
     pytest.param(
@@ -128,6 +129,27 @@ SCALAR_WAREHOUSE_CASES = [
         id="snowflake",
     ),
     pytest.param(
+        "snowflake",
+        {
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "private_key": SNOWFLAKE_PRIVATE_KEY,
+            "passphrase": "key-passphrase",
+        },
+        id="snowflake-key-pair",
+    ),
+    pytest.param(
+        "snowflake",
+        {
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "token": "programmatic-access-token",
+        },
+        id="snowflake-programmatic-access-token",
+    ),
+    pytest.param(
         "starrocks",
         {
             "host": "starrocks.example.com",
@@ -197,6 +219,38 @@ def test_prepare_postgres_warehouse_config():
 )
 def test_infer_warehouse_error_fields(provider, message, expected):
     assert infer_warehouse_error_fields(provider, ValueError(message)) == expected
+
+
+@pytest.mark.parametrize(
+    ("credentials", "expected"),
+    [
+        pytest.param(
+            {"username": "nao", "password": "secret"},
+            ["username", "password"],
+            id="password",
+        ),
+        pytest.param(
+            {
+                "username": "nao",
+                "private_key": SNOWFLAKE_PRIVATE_KEY,
+                "passphrase": "pass",
+            },
+            ["username", "private_key", "passphrase"],
+            id="key-pair",
+        ),
+        pytest.param(
+            {"username": "nao", "token": "programmatic-access-token"},
+            ["username", "token"],
+            id="programmatic-access-token",
+        ),
+    ],
+)
+def test_infer_snowflake_error_fields_from_the_chosen_authentication(
+    credentials, expected
+):
+    error = ValueError("Incorrect username or password was specified.")
+
+    assert infer_warehouse_error_fields("snowflake", error, credentials) == expected
 
 
 @pytest.mark.parametrize(("provider", "credentials"), SCALAR_WAREHOUSE_CASES)
@@ -303,6 +357,33 @@ def test_prepare_nested_bigquery_credentials_round_trip(tmp_path):
             id="redshift-server-ssh-key",
         ),
         pytest.param(
+            "snowflake",
+            {"username": "nao", "account_id": "xy12345.us-east-1"},
+            ["password", "private_key", "token"],
+            id="snowflake-missing-authentication",
+        ),
+        pytest.param(
+            "snowflake",
+            {
+                "username": "nao",
+                "account_id": "xy12345.us-east-1",
+                "private_key_path": "/root/.ssh/rsa_key.p8",
+            },
+            ["password", "private_key", "private_key_path", "token"],
+            id="snowflake-server-private-key-file",
+        ),
+        pytest.param(
+            "snowflake",
+            {
+                "username": "nao",
+                "account_id": "xy12345.us-east-1",
+                "authenticator": "externalbrowser",
+                "password": "secret",
+            },
+            ["authenticator"],
+            id="snowflake-client-authenticator",
+        ),
+        pytest.param(
             "mssql",
             {
                 "host": "mssql.example.com",
@@ -338,6 +419,47 @@ def test_prepare_pins_server_independent_auth_mode():
 
     assert env_vars["NAO_ONBOARDING_REDSHIFT_AUTH_MODE"] == json.dumps("password")
     assert "auth_mode" in database_config
+
+
+def test_prepare_snowflake_programmatic_access_token_sets_authenticator():
+    database_config, env_vars = prepare_warehouse_config(
+        provider="snowflake",
+        credentials={
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "token": "programmatic-access-token",
+        },
+    )
+
+    assert env_vars["NAO_ONBOARDING_SNOWFLAKE_AUTHENTICATOR"] == json.dumps(
+        "programmatic_access_token"
+    )
+    assert "programmatic-access-token" not in json.dumps(database_config)
+
+
+def test_prepare_snowflake_private_key_round_trip(tmp_path):
+    database_config, env_vars = prepare_warehouse_config(
+        provider="snowflake",
+        credentials={
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "private_key": SNOWFLAKE_PRIVATE_KEY,
+        },
+    )
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text(
+        yaml.safe_dump(
+            {"project_name": "Analytics", "databases": [database_config]},
+            sort_keys=False,
+        )
+    )
+
+    loaded_config = NaoConfig.load(tmp_path, extra_env=env_vars)
+
+    assert loaded_config.databases[0].private_key == SNOWFLAKE_PRIVATE_KEY
+    assert loaded_config.databases[0].authenticator is None
 
 
 def test_validate_warehouse_endpoint_rejects_ambient_credentials():

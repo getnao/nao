@@ -840,7 +840,9 @@ async def validate_warehouse(request: PrepareWarehouseRequest):
             status_code=422,
             detail={
                 "code": "warehouse_connection_failed",
-                "fields": infer_warehouse_error_fields(request.provider, error),
+                "fields": infer_warehouse_error_fields(
+                    request.provider, error, request.credentials
+                ),
             },
         ) from error
 
