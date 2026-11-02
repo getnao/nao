@@ -25,6 +25,7 @@ interface TeamMembersListProps {
 	extraActions?: (member: TeamMember) => React.ReactNode;
 	accessByUserId?: Record<string, MemberAccessState>;
 	accessDisabledByUserId?: Record<string, boolean>;
+	accessChangesDisabled?: boolean;
 	accessSummary?: string;
 	onAccessChange?: (member: TeamMember, access: 'seated' | 'read-only') => void;
 }
@@ -38,6 +39,7 @@ export function TeamMembersList({
 	extraActions,
 	accessByUserId,
 	accessDisabledByUserId,
+	accessChangesDisabled = false,
 	accessSummary,
 	onAccessChange,
 }: TeamMembersListProps) {
@@ -46,27 +48,28 @@ export function TeamMembersList({
 	}
 
 	const hasActions = isAdmin && (onEdit || onRemove || extraActions || onAccessChange);
+	const orderedMembers = [...members].sort(compareTeamMembers);
 
 	return (
-		<Table>
+		<Table className='min-w-3xl table-fixed'>
 			<TableHeader>
 				<TableRow>
-					<TableHead>Name</TableHead>
-					<TableHead>Email</TableHead>
-					<TableHead>Role</TableHead>
+					<TableHead className='w-[28%]'>Name</TableHead>
+					<TableHead className='w-[38%]'>Email</TableHead>
+					<TableHead className='w-[14%]'>Role</TableHead>
 					{accessByUserId && (
-						<TableHead>
+						<TableHead className='w-[14%]'>
 							Access
 							{accessSummary && (
 								<span className='ml-1 font-normal text-muted-foreground'>{accessSummary}</span>
 							)}
 						</TableHead>
 					)}
-					{hasActions && <TableHead className='w-0' />}
+					{hasActions && <TableHead className='w-[6%]' />}
 				</TableRow>
 			</TableHeader>
 			<TableBody>
-				{members.map((member) => {
+				{orderedMembers.map((member) => {
 					const isCurrentUser = member.id === currentUserId;
 					return (
 						<TableRow key={member.id}>
@@ -105,6 +108,7 @@ export function TeamMembersList({
 											}
 											access={accessByUserId?.[member.id]}
 											accessDisabled={accessDisabledByUserId?.[member.id] ?? false}
+											accessChangesDisabled={accessChangesDisabled}
 											onAccessChange={onAccessChange}
 										/>
 									)}
@@ -125,6 +129,7 @@ function MemberActions({
 	extraActions,
 	access,
 	accessDisabled,
+	accessChangesDisabled,
 	onAccessChange,
 }: {
 	member: TeamMember;
@@ -133,6 +138,7 @@ function MemberActions({
 	extraActions?: (member: TeamMember) => React.ReactNode;
 	access?: MemberAccessState;
 	accessDisabled: boolean;
+	accessChangesDisabled: boolean;
 	onAccessChange?: (member: TeamMember, access: 'seated' | 'read-only') => void;
 }) {
 	const nextAccess = access === 'seated' ? 'read-only' : 'seated';
@@ -144,7 +150,12 @@ function MemberActions({
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant='ghost' size='icon-sm' aria-label={`Actions for ${member.name}`}>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					aria-label={`Actions for ${member.name}`}
+					disabled={accessChangesDisabled && !onEdit && !onRemove && !extraActions}
+				>
 					<EllipsisVertical className='size-4' />
 				</Button>
 			</DropdownMenuTrigger>
@@ -153,7 +164,10 @@ function MemberActions({
 					{onEdit && <DropdownMenuItem onSelect={() => onEdit(member)}>Edit user</DropdownMenuItem>}
 					{extraActions?.(member)}
 					{canChangeAccess && (
-						<DropdownMenuItem onSelect={() => onAccessChange(member, nextAccess)}>
+						<DropdownMenuItem
+							disabled={accessChangesDisabled}
+							onSelect={() => onAccessChange(member, nextAccess)}
+						>
 							{nextAccess === 'seated' ? 'Assign seat' : 'Make read-only'}
 						</DropdownMenuItem>
 					)}
@@ -165,5 +179,13 @@ function MemberActions({
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+function compareTeamMembers(left: TeamMember, right: TeamMember): number {
+	return (
+		left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }) ||
+		left.email.localeCompare(right.email, undefined, { sensitivity: 'base' }) ||
+		left.id.localeCompare(right.id)
 	);
 }

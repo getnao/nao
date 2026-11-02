@@ -107,7 +107,7 @@ export function OrgMembers() {
 	const accessDisabledByUserId = Object.fromEntries(
 		seatCandidates.map((candidate) => [
 			candidate.userId,
-			candidate.storedOrgRole === 'admin' || !assignmentsEditable || selectSeats.isPending,
+			candidate.storedOrgRole === 'admin' || !assignmentsEditable,
 		]),
 	);
 
@@ -248,6 +248,7 @@ export function OrgMembers() {
 							onRemove={setRemoveMember}
 							accessByUserId={accessByUserId}
 							accessDisabledByUserId={accessDisabledByUserId}
+							accessChangesDisabled={selectSeats.isPending}
 							accessSummary={accessSummary}
 							onAccessChange={
 								assignmentsEditable

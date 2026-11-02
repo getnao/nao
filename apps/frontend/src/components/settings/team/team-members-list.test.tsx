@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { TeamMembersList } from './team-members-list';
 
+import type { TeamMember } from './types';
+
 beforeEach(() => {
 	vi.stubGlobal(
 		'ResizeObserver',
@@ -62,6 +64,7 @@ it('edits seat access for organization and project-only users while locking admi
 		/>,
 	);
 
+	expect(screen.getByRole('table').classList.contains('table-fixed')).toBe(true);
 	expect(screen.getByText('2/3')).toBeTruthy();
 	expect(screen.queryByRole('checkbox')).toBeNull();
 	expect(screen.getByText('Project only')).toBeTruthy();
@@ -75,9 +78,65 @@ it('edits seat access for organization and project-only users while locking admi
 	expect(onAccessChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'project-1' }), 'read-only');
 });
 
+it('keeps row order independent of seat assignment order', () => {
+	const alice = member('alice', 'Alice');
+	const bob = member('bob', 'Bob');
+	const { rerender } = render(
+		<TeamMembersList
+			members={[bob, alice]}
+			isAdmin={false}
+			accessByUserId={{ alice: 'read-only', bob: 'seated' }}
+		/>,
+	);
+
+	expect(memberNames()).toEqual(['Alice', 'Bob']);
+
+	rerender(
+		<TeamMembersList
+			members={[alice, bob]}
+			isAdmin={false}
+			accessByUserId={{ alice: 'seated', bob: 'read-only' }}
+		/>,
+	);
+
+	expect(memberNames()).toEqual(['Alice', 'Bob']);
+});
+
+it('keeps the access action button in place while an assignment is pending', () => {
+	render(
+		<TeamMembersList
+			members={[member('member-1', 'Member')]}
+			isAdmin
+			accessByUserId={{ 'member-1': 'seated' }}
+			accessChangesDisabled
+			onAccessChange={vi.fn()}
+		/>,
+	);
+
+	expect(screen.getByRole('button', { name: 'Actions for Member' })).toHaveProperty('disabled', true);
+});
+
 function openActions(name: string) {
 	fireEvent.pointerDown(screen.getByRole('button', { name: `Actions for ${name}` }), {
 		button: 0,
 		ctrlKey: false,
 	});
+}
+
+function member(id: string, name: string): TeamMember {
+	return {
+		id,
+		name,
+		email: `${id}@example.com`,
+		role: 'user',
+		status: 'active',
+		membershipSource: 'organization',
+	};
+}
+
+function memberNames(): string[] {
+	return screen
+		.getAllByRole('row')
+		.slice(1)
+		.map((row) => row.children[0]?.textContent ?? '');
 }

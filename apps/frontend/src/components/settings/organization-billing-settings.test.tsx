@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
 	cloudTrialActive: false,
 	cloudPaidPlanSelected: true,
 	cloudCancellationScheduled: false,
+	cloudPendingPlan: null as { tier: 'team' | 'unlimited'; seatQuantity: number | null } | null,
 	cloudSeatUserCount: 4,
 	cloudSeatQuantity: 4,
 	cloudSeatCandidates: [] as CloudSeatCandidate[],
@@ -93,6 +94,7 @@ beforeEach(() => {
 	mocks.cloudTrialActive = false;
 	mocks.cloudPaidPlanSelected = true;
 	mocks.cloudCancellationScheduled = false;
+	mocks.cloudPendingPlan = null;
 	mocks.cloudSeatUserCount = 4;
 	mocks.cloudSeatQuantity = 4;
 	mocks.cloudSeatCandidates = [];
@@ -363,6 +365,8 @@ it('shows the selected Team capacity and first payment after the free trial', ()
 	render(<OrganizationBillingSettings search={{}} />);
 
 	expect(screen.getByText('Plan overview')).toBeTruthy();
+	expect(screen.getByText('Now')).toBeTruthy();
+	expect(screen.getAllByText('After trial')).toHaveLength(2);
 	expect(screen.getByText('Free trial')).toBeTruthy();
 	expect(screen.getByText('Team · 6 seats')).toBeTruthy();
 	expect(screen.getByText('$300')).toBeTruthy();
@@ -414,6 +418,29 @@ it('keeps post-trial plan and interval selection enabled for the default Free de
 
 	fireEvent.click(screen.getByRole('button', { name: 'Continue to Stripe' }));
 	expect(mocks.cloudOpenTrialCheckoutForPlan).toHaveBeenCalledWith('cloud_team_monthly_v1', 4);
+});
+
+it('shows the current paid plan flowing into the same plan at renewal', () => {
+	mocks.freeTierEnabled = true;
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByText('Plan overview')).toBeTruthy();
+	expect(screen.getByText('Now')).toBeTruthy();
+	expect(screen.getByText('At renewal')).toBeTruthy();
+	expect(screen.getAllByText('Team · 4 seats')).toHaveLength(2);
+	expect(screen.getByText('Renews')).toBeTruthy();
+});
+
+it('shows a scheduled plan change as the next subscription', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudPendingPlan = { tier: 'unlimited', seatQuantity: null };
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByText('Team · 4 seats')).toBeTruthy();
+	expect(screen.getByText('Unlimited starts')).toBeTruthy();
+	expect(screen.getByRole('button', { name: 'Cancel change' })).toBeTruthy();
 });
 
 it('allows Team capacity below trial occupancy and explains the read-only outcome', () => {
@@ -504,7 +531,9 @@ it('marks Free as the next plan and offers to keep the paid plan when a switch i
 
 	render(<OrganizationBillingSettings search={{}} />);
 
-	expect(screen.getByText('Paid plan ends')).toBeTruthy();
+	expect(screen.getByText('Current plan ends')).toBeTruthy();
+	expect(screen.getByText('At renewal')).toBeTruthy();
+	expect(screen.getByText('Free starts')).toBeTruthy();
 	expect(screen.getByRole('region', { name: 'Free plan' }).textContent).toContain('Scheduled');
 	expect(screen.queryByRole('button', { name: 'Switch to Free' })).toBeNull();
 	expect((screen.getByRole('button', { name: 'Choose Unlimited' }) as HTMLButtonElement).disabled).toBe(true);
@@ -567,9 +596,7 @@ it('opens a URL-selected billing tab and emits top-level tab changes', () => {
 	const usageBar = screen.getByRole('progressbar', { name: 'Seat usage' });
 	expect(usageBar.getAttribute('aria-valuenow')).toBe('2');
 	expect(usageBar.getAttribute('aria-valuemax')).toBe('4');
-	expect(screen.getByRole('link', { name: 'Manage members' }).getAttribute('href')).toBe(
-		'/settings/organization/members',
-	);
+	expect(screen.queryByRole('link', { name: 'Manage members' })).toBeNull();
 	expect(screen.getByRole('row', { name: /admin@example.com/ }).textContent).toContain('Seated');
 	expect(screen.getByRole('row', { name: /project@example.com/ }).textContent).toContain('Read-only');
 	expect(screen.getByLabelText('Number of seats')).toHaveProperty('value', '4');
@@ -803,7 +830,18 @@ function cloudBillingState(): BillingState {
 				availablePlans: plans,
 				seatCandidates: mocks.cloudSeatCandidates,
 				current: currentPlan,
-				pending: null,
+				pending: mocks.cloudPendingPlan
+					? {
+							planKey:
+								mocks.cloudPendingPlan.tier === 'team'
+									? ('cloud_team_yearly_v1' as const)
+									: ('cloud_unlimited_yearly_v1' as const),
+							tier: mocks.cloudPendingPlan.tier,
+							interval: 'yearly' as const,
+							seatQuantity: mocks.cloudPendingPlan.seatQuantity,
+							effectiveAt: new Date('2026-11-01T00:00:00.000Z'),
+						}
+					: null,
 				recommendation: 'team',
 				cancellationScheduled: mocks.cloudCancellationScheduled,
 				scheduleConflict: false,

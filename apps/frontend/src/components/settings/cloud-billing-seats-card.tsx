@@ -1,5 +1,3 @@
-import { Link } from '@tanstack/react-router';
-import { Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { TEAM_MAX_SEATS, TEAM_MIN_SEATS } from '@nao/shared/billing';
 import type { UserRole } from '@nao/shared/types';
@@ -87,7 +85,7 @@ export function CloudBillingSeatsCard({
 		candidates.map(({ userId, isSeated }) => [userId, isSeated ? 'seated' : 'read-only'] as const),
 	);
 	const accessDisabledByUserId = Object.fromEntries(
-		candidates.map(({ userId, storedOrgRole }) => [userId, storedOrgRole === 'admin' || Boolean(disabled)]),
+		candidates.map(({ userId, storedOrgRole }) => [userId, storedOrgRole === 'admin']),
 	);
 
 	const changeAccess = async (member: TeamMember, access: 'seated' | 'read-only') => {
@@ -132,20 +130,12 @@ export function CloudBillingSeatsCard({
 				title='Seat usage'
 				description='Seats give people full access. Viewers and read-only members are always free.'
 			>
-				<div className='flex flex-wrap items-start justify-between gap-x-10 gap-y-4'>
-					<div className='flex flex-wrap gap-x-10 gap-y-4'>
-						<SeatStat label='Seats in use' value={seatedMembers.length} />
-						<SeatStat label='Available seats' value={availableSeats ?? 'Unlimited'} />
-						{capacity !== null && (
-							<SeatStat label={tier === 'team' ? 'Purchased' : 'Included'} value={capacity} />
-						)}
-					</div>
-					<Button variant='secondary' size='sm' asChild>
-						<Link to='/settings/organization/members'>
-							<Users />
-							Manage members
-						</Link>
-					</Button>
+				<div className='flex flex-wrap gap-x-10 gap-y-4'>
+					<SeatStat label='Seats in use' value={seatedMembers.length} />
+					<SeatStat label='Available seats' value={availableSeats ?? 'Unlimited'} />
+					{capacity !== null && (
+						<SeatStat label={tier === 'team' ? 'Purchased' : 'Included'} value={capacity} />
+					)}
 				</div>
 				{capacity !== null && <SeatUsageBar used={seatedMembers.length} capacity={capacity} />}
 				{seatsSummary && <p className='text-xs text-muted-foreground'>{seatsSummary}</p>}
@@ -213,6 +203,7 @@ export function CloudBillingSeatsCard({
 					isAdmin
 					accessByUserId={accessByUserId}
 					accessDisabledByUserId={accessDisabledByUserId}
+					accessChangesDisabled={disabled}
 					accessSummary={capacity !== null ? `${seatedMembers.length}/${capacity}` : undefined}
 					onAccessChange={
 						onSaveSeatSelection ? (member, access) => void changeAccess(member, access) : undefined
