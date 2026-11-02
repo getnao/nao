@@ -238,6 +238,7 @@ export const organizationBilling = pgTable('organization_billing', {
 	stripeSubscriptionScheduleId: text('stripe_subscription_schedule_id'),
 	pendingBillingPlan: text('pending_billing_plan'),
 	pendingSeatQuantity: integer('pending_seat_quantity'),
+	pendingFreeSeatUserIds: jsonb('pending_free_seat_user_ids').$type<string[]>(),
 	currentPeriodStartsAt: timestamp('current_period_starts_at'),
 	currentPeriodEndsAt: timestamp('current_period_ends_at'),
 	cancellationScheduled: boolean('cancellation_scheduled'),
@@ -280,7 +281,7 @@ export const organizationSeatState = pgTable(
 			.references(() => organization.id),
 		userId: text('user_id')
 			.notNull()
-			.references(() => user.id),
+			.references(() => user.id, { onDelete: 'cascade' }),
 		selectedAt: timestamp('selected_at'),
 		isReadOnly: boolean('is_read_only').default(false).notNull(),
 		stateChangedAt: timestamp('state_changed_at'),

@@ -8,10 +8,11 @@ import {
 	claimOrganizationSeatEmailNotification,
 	listOrganizationSeatStates,
 	releaseOrganizationSeatEmailNotification,
+	setOrganizationSeatSelection,
 	syncOrganizationSeatState,
 } from '../queries/organization-seat-state.queries';
 import * as userQueries from '../queries/user.queries';
-import { isTerminalBillingStatus } from '../types/billing';
+import { FREE_TIER_SEAT_LIMIT, isTerminalBillingStatus } from '../types/billing';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger, serializeError } from '../utils/logger';
 import { type CloudEntitlement, resolveCloudEntitlement } from './cloud-billing-access.service';
@@ -171,6 +172,13 @@ async function syncReconciledOrganizationSeatState(
 	};
 	const before = resolveCloudEntitlement({ ...entitlementInput, billing: beforeBilling });
 	const after = resolveCloudEntitlement({ ...entitlementInput, billing: afterBilling });
+	if (
+		after.tier === 'free' &&
+		beforeBilling.pendingFreeSeatUserIds !== null &&
+		beforeBilling.pendingFreeSeatUserIds !== undefined
+	) {
+		return applyPendingFreeSeatSelection(organizationId, beforeBilling.pendingFreeSeatUserIds);
+	}
 	if (after.tier === 'trial') {
 		const changedAt = new Date();
 		await Promise.all(
@@ -198,6 +206,42 @@ async function syncReconciledOrganizationSeatState(
 		),
 	]);
 	return newlyReadOnlyUserIds;
+}
+
+async function applyPendingFreeSeatSelection(organizationId: string, selectedUserIds: string[]): Promise<string[]> {
+	const candidates = await organizationQueries.listOrgSeatCandidates(organizationId);
+	const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+	const admins = candidates.filter(({ membershipClass }) => membershipClass === 'org_admin');
+	const selected = selectedUserIds.flatMap((userId) => {
+		const candidate = candidatesById.get(userId);
+		return candidate && candidate.membershipClass !== 'org_admin' ? [candidate] : [];
+	});
+	const seatedIds = new Set([...admins, ...selected].slice(0, FREE_TIER_SEAT_LIMIT).map(({ id }) => id));
+	const selectedAt = Date.now();
+	const changedAt = new Date();
+	await Promise.all([
+		...candidates
+			.filter(({ membershipClass }) => membershipClass !== 'org_admin')
+			.map(({ id }) =>
+				setOrganizationSeatSelection(
+					organizationId,
+					id,
+					seatedIds.has(id) ? new Date(selectedAt + selectedUserIds.indexOf(id)) : null,
+				),
+			),
+		...candidates.map(({ id }) =>
+			syncOrganizationSeatState({
+				orgId: organizationId,
+				userId: id,
+				isReadOnly: !seatedIds.has(id),
+				changedAt,
+			}),
+		),
+	]);
+	await billingQueries.setPendingFreeSeatSelection(organizationId, null);
+	return candidates
+		.filter(({ id, storedReadOnly }) => !seatedIds.has(id) && storedReadOnly !== true)
+		.map(({ id }) => id);
 }
 
 async function readOnlyUserIds(organizationId: string, entitlement: CloudEntitlement): Promise<Set<string>> {

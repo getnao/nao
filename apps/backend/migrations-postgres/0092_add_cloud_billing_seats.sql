@@ -15,6 +15,7 @@ ALTER TABLE "organization_billing" ADD COLUMN "seat_quantity" integer;--> statem
 ALTER TABLE "organization_billing" ADD COLUMN "stripe_subscription_schedule_id" text;--> statement-breakpoint
 ALTER TABLE "organization_billing" ADD COLUMN "pending_billing_plan" text;--> statement-breakpoint
 ALTER TABLE "organization_billing" ADD COLUMN "pending_seat_quantity" integer;--> statement-breakpoint
+ALTER TABLE "organization_billing" ADD COLUMN "pending_free_seat_user_ids" jsonb;--> statement-breakpoint
 ALTER TABLE "organization_seat_state" ADD CONSTRAINT "organization_seat_state_org_id_organization_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organization"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "organization_seat_state" ADD CONSTRAINT "organization_seat_state_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "organization_seat_state" ADD CONSTRAINT "organization_seat_state_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "organization_seat_state_userId_idx" ON "organization_seat_state" USING btree ("user_id");

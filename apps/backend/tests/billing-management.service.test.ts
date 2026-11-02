@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 	getUpcomingInvoice: vi.fn(),
 	getPlanChangeSchedule: vi.fn(),
 	listSeatCandidates: vi.fn(),
+	listSeatStates: vi.fn(),
 	listInvoices: vi.fn(),
 	previewSubscriptionChange: vi.fn(),
 	putMember: vi.fn(),
@@ -30,6 +31,9 @@ const mocks = vi.hoisted(() => ({
 	resumeSubscription: vi.fn(),
 	setSubscriptionCancellation: vi.fn(),
 	setPendingBillingChange: vi.fn(),
+	setPendingFreeSeatSelection: vi.fn(),
+	setSeatSelection: vi.fn(),
+	syncSeatState: vi.fn(),
 	attachSubscriptionSchedule: vi.fn(),
 	clearPendingBillingChange: vi.fn(),
 	updateSubscriptionPlan: vi.fn(),
@@ -53,6 +57,13 @@ vi.mock('../src/queries/billing.queries', () => ({
 	getOrganizationBilling: mocks.getBilling,
 	getOrganizationWithBilling: mocks.getOrganizationWithBilling,
 	setPendingBillingChange: mocks.setPendingBillingChange,
+	setPendingFreeSeatSelection: mocks.setPendingFreeSeatSelection,
+}));
+
+vi.mock('../src/queries/organization-seat-state.queries', () => ({
+	listOrganizationSeatStates: mocks.listSeatStates,
+	setOrganizationSeatSelection: mocks.setSeatSelection,
+	syncOrganizationSeatState: mocks.syncSeatState,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
@@ -379,6 +390,7 @@ describe('Phase 6 billing commands', () => {
 			currency: 'usd',
 		});
 		mocks.listSeatCandidates.mockResolvedValue([]);
+		mocks.listSeatStates.mockResolvedValue([]);
 		mocks.findPromotionCode.mockResolvedValue(null);
 		mocks.getProrationDate.mockResolvedValue(new Date());
 		mocks.previewSubscriptionChange.mockResolvedValue({
@@ -900,6 +912,43 @@ describe('Phase 6 billing commands', () => {
 			2,
 			expect.objectContaining({ cancelAtPeriodEnd: false }),
 		);
+		expect(mocks.setPendingFreeSeatSelection).toHaveBeenCalledWith('org-id', null);
+	});
+
+	it('keeps paid seat access while saving the selection for Free', async () => {
+		mocks.listSeatCandidates.mockResolvedValue([
+			{
+				id: 'user-id',
+				name: 'Admin',
+				email: 'admin@example.com',
+				membershipClass: 'org_admin',
+				orgRole: 'admin',
+				projectRoles: [],
+				joinedAt: new Date(),
+				selectedAt: null,
+				storedReadOnly: false,
+			},
+			{
+				id: 'member-id',
+				name: 'Member',
+				email: 'member@example.com',
+				membershipClass: 'org_member',
+				orgRole: 'user',
+				projectRoles: [],
+				joinedAt: new Date(),
+				selectedAt: null,
+				storedReadOnly: false,
+			},
+		]);
+
+		await switchCloudSubscriptionToFreeForAdmin({
+			...adminInput,
+			selectedUserIds: ['member-id'],
+		});
+
+		expect(mocks.setPendingFreeSeatSelection).toHaveBeenCalledWith('org-id', ['member-id']);
+		expect(mocks.setSeatSelection).not.toHaveBeenCalled();
+		expect(mocks.syncSeatState).not.toHaveBeenCalled();
 	});
 
 	it('does not apply a Free seat selection while scheduling Free after a trial', async () => {

@@ -6,7 +6,11 @@ const mocks = vi.hoisted(() => ({
 	tier: 'free' as 'free' | 'trial' | 'unlimited' | 'bypass' | 'team',
 	orgMembers: new Map<string, 'admin' | 'user' | 'viewer'>(),
 	projectMembers: new Map<string, 'admin' | 'context_admin' | 'user' | 'viewer'>(),
-	seatCandidates: [] as Array<{ id: string }>,
+	seatCandidates: [] as Array<{
+		id: string;
+		membershipClass?: 'org_admin' | 'org_member' | 'project_only';
+		storedReadOnly?: boolean | null;
+	}>,
 	addOrgMember: vi.fn(),
 	addOrgMemberIfMissing: vi.fn(),
 	addProjectMember: vi.fn(),
@@ -54,6 +58,11 @@ vi.mock('../src/queries/organization.queries', () => ({
 	getOrganizationById: mocks.getOrganizationById,
 	listOrgProjectsForContextCleanup: vi.fn(async () => []),
 	listOrgSeatCandidates: vi.fn(async () => mocks.seatCandidates),
+	resolveSeatedOrgUserIds: (candidates: typeof mocks.seatCandidates, seatLimit: number | null): string[] =>
+		candidates
+			.filter(({ membershipClass, storedReadOnly }) => membershipClass === 'org_admin' || storedReadOnly !== true)
+			.slice(0, seatLimit === null ? undefined : Math.max(0, seatLimit))
+			.map(({ id }) => id),
 	removeOrgMember: mocks.removeOrgMember,
 	removeOrgMemberFromProjects: mocks.removeOrgMemberFromProjects,
 	updateOrgMemberRole: vi.fn(async (_orgId, userId, role) => {
@@ -87,12 +96,13 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	getOrganizationCloudEntitlement: vi.fn(async () => {
 		const count = mocks.seatCandidates.length;
+		const readOnlyCount = mocks.seatCandidates.filter(({ storedReadOnly }) => storedReadOnly === true).length;
 		return {
 			tier: mocks.tier,
 			seatUserCount: count,
 			seatQuantity: mocks.tier === 'team' ? mocks.seatLimit : null,
 			seatLimit: mocks.seatLimit,
-			availableSeats: mocks.seatLimit === null ? null : Math.max(0, mocks.seatLimit - count),
+			availableSeats: mocks.seatLimit === null ? null : Math.max(0, mocks.seatLimit - (count - readOnlyCount)),
 			overCapacity: mocks.seatLimit !== null && count > mocks.seatLimit,
 		};
 	}),
@@ -233,6 +243,28 @@ describe('membership service', () => {
 			outcome: { status: 'activated', usedExistingSeat: true },
 		});
 		expect(mocks.stripeUpdate).not.toHaveBeenCalled();
+	});
+
+	it('preserves an explicit read-only assignment when adding a member', async () => {
+		mocks.freeTierEnabled = true;
+		mocks.seatCandidates = [
+			{ id: 'existing-1' },
+			{ id: 'existing-2' },
+			{ id: 'explicit-read-only', storedReadOnly: true },
+		];
+		mocks.listOrganizationSeatStates.mockResolvedValue([{ userId: 'explicit-read-only', isReadOnly: true }]);
+
+		await expect(addOrganizationMember(member('new-member'))).resolves.toMatchObject({
+			role: 'user',
+			outcome: { status: 'activated' },
+		});
+
+		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'explicit-read-only', isReadOnly: true }),
+		);
+		expect(mocks.syncOrganizationSeatState).not.toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'new-member', isReadOnly: true }),
+		);
 	});
 
 	it('stores a new non-purchasing addition as viewer when capacity is full', async () => {

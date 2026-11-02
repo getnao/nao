@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
 	subscriptionProjection: vi.fn(),
 	syncOrganizationSeatState: vi.fn(),
 	releaseSeatEmail: vi.fn(),
+	setPendingFreeSeatSelection: vi.fn(),
+	setSeatSelection: vi.fn(),
 	updatePaymentMethod: vi.fn(),
 	updatePaidTrialEnd: vi.fn(),
 	updateSubscription: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: mocks.attachCustomer,
 	claimBillingSync: mocks.claimSync,
 	getOrganizationBillingByStripeCustomerId: mocks.getBillingByCustomer,
+	setPendingFreeSeatSelection: mocks.setPendingFreeSeatSelection,
 	updatePaymentMethodProjection: mocks.updatePaymentMethod,
 	updateSubscriptionProjection: mocks.updateSubscription,
 }));
@@ -49,6 +52,7 @@ vi.mock('../src/queries/organization-seat-state.queries', () => ({
 	claimOrganizationSeatEmailNotification: mocks.claimSeatEmail,
 	listOrganizationSeatStates: mocks.listSeatStates,
 	releaseOrganizationSeatEmailNotification: mocks.releaseSeatEmail,
+	setOrganizationSeatSelection: mocks.setSeatSelection,
 	syncOrganizationSeatState: mocks.syncOrganizationSeatState,
 }));
 
@@ -94,6 +98,8 @@ describe('cloud billing reconciliation', () => {
 		mocks.listReadOnlyOrgUsers.mockResolvedValue([]);
 		mocks.listSeatStates.mockResolvedValue([]);
 		mocks.syncOrganizationSeatState.mockResolvedValue({ changed: true });
+		mocks.setPendingFreeSeatSelection.mockResolvedValue(undefined);
+		mocks.setSeatSelection.mockResolvedValue({});
 		mocks.cancelPlaceholder.mockResolvedValue(undefined);
 		mocks.subscriptionProjection.mockResolvedValue({
 			billingPlan: 'cloud_team_monthly_v1',
@@ -346,6 +352,47 @@ describe('cloud billing reconciliation', () => {
 		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledWith(
 			expect.objectContaining({ orgId: 'org-id', userId: 'user-3', isReadOnly: true }),
 		);
+	});
+
+	it('applies a pending Free seat selection only after paid access ends', async () => {
+		const billing = buildBilling({
+			billingPlan: 'cloud_team_monthly_v1',
+			billingStatus: 'active',
+			cancellationScheduled: true,
+			billingAccessEndsAt: new Date('2026-01-31T00:00:00.000Z'),
+			pendingFreeSeatUserIds: ['user-3'],
+		});
+		mocks.getBillingByCustomer.mockResolvedValue(billing);
+		mocks.claimSync.mockResolvedValue({ billing, token: 'sync-token' });
+		mocks.isCloudFreeTierEnabled.mockReturnValue(true);
+		mocks.getOrganizationById.mockResolvedValue({ id: 'org-id', bypassBilling: false });
+		mocks.countOrgSeatUsers.mockResolvedValue(4);
+		mocks.listSubscriptions.mockResolvedValue([buildSubscription({ status: 'canceled' })]);
+		mocks.subscriptionProjection.mockResolvedValue({
+			...subscriptionProjection(),
+			billingStatus: 'canceled',
+			cancellationScheduled: false,
+			billingAccessEndsAt: null,
+		});
+		mocks.listOrgSeatCandidates.mockResolvedValue([
+			{ id: 'user-1', membershipClass: 'org_admin', storedReadOnly: false },
+			{ id: 'user-2', membershipClass: 'org_member', storedReadOnly: false },
+			{ id: 'user-3', membershipClass: 'org_member', storedReadOnly: true },
+			{ id: 'user-4', membershipClass: 'org_member', storedReadOnly: false },
+		]);
+
+		await expect(reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' })).resolves.toMatchObject({
+			newlyReadOnlyUserIds: ['user-2', 'user-4'],
+		});
+
+		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledWith(
+			expect.objectContaining({ orgId: 'org-id', userId: 'user-3', isReadOnly: false }),
+		);
+		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledWith(
+			expect.objectContaining({ orgId: 'org-id', userId: 'user-2', isReadOnly: true }),
+		);
+		expect(mocks.setSeatSelection).toHaveBeenCalledWith('org-id', 'user-3', expect.any(Date));
+		expect(mocks.setPendingFreeSeatSelection).toHaveBeenCalledWith('org-id', null);
 	});
 
 	it('restores full access when a trial has a stale read-only assignment', async () => {

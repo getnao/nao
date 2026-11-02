@@ -359,12 +359,13 @@ async function syncMembershipSeatState(orgId: string): Promise<void> {
 	if (!entitlement) {
 		return;
 	}
+	const seatedIds = new Set(orgQueries.resolveSeatedOrgUserIds(candidates, entitlement.seatLimit));
 	const readOnlyIds =
 		entitlement.tier === 'team' && entitlement.seatQuantity === null
 			? new Set(candidates.map(({ id }) => id))
 			: new Set(
 					entitlement.overCapacity && entitlement.seatLimit !== null
-						? candidates.slice(entitlement.seatLimit).map(({ id }) => id)
+						? candidates.filter(({ id }) => !seatedIds.has(id)).map(({ id }) => id)
 						: [],
 				);
 	const userIds = new Set([...readOnlyIds, ...states.map(({ userId }) => userId)]);

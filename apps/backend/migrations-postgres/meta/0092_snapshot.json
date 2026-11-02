@@ -6677,6 +6677,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "pending_free_seat_user_ids": {
+          "name": "pending_free_seat_user_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "current_period_starts_at": {
           "name": "current_period_starts_at",
           "type": "timestamp",
@@ -6852,7 +6858,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

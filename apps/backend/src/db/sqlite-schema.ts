@@ -250,6 +250,7 @@ export const organizationBilling = sqliteTable('organization_billing', {
 	stripeSubscriptionScheduleId: text('stripe_subscription_schedule_id'),
 	pendingBillingPlan: text('pending_billing_plan'),
 	pendingSeatQuantity: integer('pending_seat_quantity'),
+	pendingFreeSeatUserIds: text('pending_free_seat_user_ids', { mode: 'json' }).$type<string[]>(),
 	currentPeriodStartsAt: integer('current_period_starts_at', { mode: 'timestamp_ms' }),
 	currentPeriodEndsAt: integer('current_period_ends_at', { mode: 'timestamp_ms' }),
 	cancellationScheduled: integer('cancellation_scheduled', { mode: 'boolean' }),
@@ -296,7 +297,7 @@ export const organizationSeatState = sqliteTable(
 			.references(() => organization.id),
 		userId: text('user_id')
 			.notNull()
-			.references(() => user.id),
+			.references(() => user.id, { onDelete: 'cascade' }),
 		selectedAt: integer('selected_at', { mode: 'timestamp_ms' }),
 		isReadOnly: integer('is_read_only', { mode: 'boolean' }).default(false).notNull(),
 		stateChangedAt: integer('state_changed_at', { mode: 'timestamp_ms' }),

@@ -6117,6 +6117,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "pending_free_seat_user_ids": {
+          "name": "pending_free_seat_user_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "current_period_starts_at": {
           "name": "current_period_starts_at",
           "type": "integer",
@@ -6296,7 +6303,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

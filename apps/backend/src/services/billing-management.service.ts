@@ -508,14 +508,25 @@ export async function switchCloudSubscriptionToFreeForAdmin(
 			throw new CloudBillingManagementConflictError('Cancel the pending plan change first');
 		}
 		if (input.selectedUserIds && state.subscription.status !== 'trialing') {
-			await saveSeatSelection(input.organizationId, input.selectedUserIds, 3);
+			await validateSeatSelection(input.organizationId, input.selectedUserIds, 3);
+			await billingQueries.setPendingFreeSeatSelection(input.organizationId, input.selectedUserIds);
 		}
-		await setCloudSubscriptionCancellation({
-			organizationId: input.organizationId,
-			subscription: state.subscription,
-			cancelAtPeriodEnd: true,
-			requestId: input.requestId ?? randomUUID(),
-		});
+		try {
+			await setCloudSubscriptionCancellation({
+				organizationId: input.organizationId,
+				subscription: state.subscription,
+				cancelAtPeriodEnd: true,
+				requestId: input.requestId ?? randomUUID(),
+			});
+		} catch (error) {
+			if (input.selectedUserIds && state.subscription.status !== 'trialing') {
+				await billingQueries.setPendingFreeSeatSelection(
+					input.organizationId,
+					state.billing.pendingFreeSeatUserIds,
+				);
+			}
+			throw error;
+		}
 		return reconcileAndLoadCommandState(state.billing.stripeCustomerId, input.organizationId);
 	});
 }
@@ -533,6 +544,7 @@ export async function keepCloudSubscriptionForAdmin(input: AdminBillingInput & {
 			cancelAtPeriodEnd: false,
 			requestId: input.requestId ?? randomUUID(),
 		});
+		await billingQueries.setPendingFreeSeatSelection(input.organizationId, null);
 		return reconcileAndLoadCommandState(state.billing.stripeCustomerId, input.organizationId);
 	});
 }
@@ -976,18 +988,8 @@ async function reconcileAndLoadCommandState(stripeCustomerId: string, organizati
 }
 
 async function saveSeatSelection(organizationId: string, selectedUserIds: string[], seatLimit: number): Promise<void> {
-	const candidates = await organizationQueries.listOrgSeatCandidates(organizationId);
-	const admins = candidates.filter(({ membershipClass }) => membershipClass === 'org_admin');
+	const { candidates, selectedIds } = await validateSeatSelection(organizationId, selectedUserIds, seatLimit);
 	const selectable = candidates.filter(({ membershipClass }) => membershipClass !== 'org_admin');
-	const selectableIds = new Set(selectable.map(({ id }) => id));
-	const selectedIds = new Set(selectedUserIds);
-	if (selectedIds.size !== selectedUserIds.length || selectedUserIds.some((userId) => !selectableIds.has(userId))) {
-		throw new CloudBillingManagementInputError('Seat selection contains an ineligible user');
-	}
-	const availableSelectionSlots = Math.max(0, seatLimit - admins.length);
-	if (selectedIds.size > availableSelectionSlots) {
-		throw new CloudBillingManagementInputError('Too many users were selected for the available seats');
-	}
 	const selectedAt = Date.now();
 	await Promise.all(
 		selectable.map(({ id }, index) =>
@@ -1015,6 +1017,29 @@ async function saveSeatSelection(organizationId: string, selectedUserIds: string
 			}),
 		),
 	);
+}
+
+async function validateSeatSelection(
+	organizationId: string,
+	selectedUserIds: string[],
+	seatLimit: number,
+): Promise<{
+	candidates: Awaited<ReturnType<typeof organizationQueries.listOrgSeatCandidates>>;
+	selectedIds: Set<string>;
+}> {
+	const candidates = await organizationQueries.listOrgSeatCandidates(organizationId);
+	const admins = candidates.filter(({ membershipClass }) => membershipClass === 'org_admin');
+	const selectable = candidates.filter(({ membershipClass }) => membershipClass !== 'org_admin');
+	const selectableIds = new Set(selectable.map(({ id }) => id));
+	const selectedIds = new Set(selectedUserIds);
+	if (selectedIds.size !== selectedUserIds.length || selectedUserIds.some((userId) => !selectableIds.has(userId))) {
+		throw new CloudBillingManagementInputError('Seat selection contains an ineligible user');
+	}
+	const availableSelectionSlots = Math.max(0, seatLimit - admins.length);
+	if (selectedIds.size > availableSelectionSlots) {
+		throw new CloudBillingManagementInputError('Too many users were selected for the available seats');
+	}
+	return { candidates, selectedIds };
 }
 
 async function loadSeatCandidates(organizationId: string, seatLimit: number | null, trialing = false) {

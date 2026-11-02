@@ -276,6 +276,17 @@ export async function clearPendingBillingChange(orgId: string): Promise<void> {
 		.execute();
 }
 
+export async function setPendingFreeSeatSelection(
+	orgId: string,
+	pendingFreeSeatUserIds: string[] | null,
+): Promise<void> {
+	await db
+		.update(s.organizationBilling)
+		.set({ pendingFreeSeatUserIds, billingUpdatedAt: new Date() })
+		.where(eq(s.organizationBilling.orgId, orgId))
+		.execute();
+}
+
 export async function insertStripeWebhookEvent(event: NewStripeWebhookEvent): Promise<DBStripeWebhookEvent | null> {
 	const [inserted] = await db.insert(s.stripeWebhookEvent).values(event).onConflictDoNothing().returning().execute();
 	return inserted ?? null;

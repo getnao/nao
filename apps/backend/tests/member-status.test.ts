@@ -118,6 +118,7 @@ describe('expired invitation cleanup', () => {
 			},
 		]);
 		await db.insert(s.exampleChatAllowance).values({ userId: EXPIRED_ID, scope: 'example' });
+		await db.insert(s.organizationSeatState).values({ orgId: 'cleanup-org', userId: EXPIRED_ID, isReadOnly: true });
 		await db.insert(s.session).values({
 			id: 'session-onboarding',
 			token: 'token-onboarding',
@@ -148,6 +149,9 @@ describe('expired invitation cleanup', () => {
 		expect(remainingIds).not.toContain(EXPIRED_ID);
 		await expect(
 			db.select().from(s.exampleChatAllowance).where(eq(s.exampleChatAllowance.userId, EXPIRED_ID)),
+		).resolves.toHaveLength(0);
+		await expect(
+			db.select().from(s.organizationSeatState).where(eq(s.organizationSeatState.userId, EXPIRED_ID)),
 		).resolves.toHaveLength(0);
 		expect(remainingIds).toEqual(
 			expect.arrayContaining([
