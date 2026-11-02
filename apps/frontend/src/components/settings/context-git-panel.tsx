@@ -50,6 +50,7 @@ interface ContextGitPanelProps {
 	onDiscarded: (path: string) => Promise<void>;
 	onDiscardAll: () => Promise<void>;
 	onRepositoryChanged: () => void;
+	onOpenTests: () => void;
 }
 
 type ReviewRequestLink = { kind: 'created'; url: string } | { kind: 'link'; url: string; apiRefused?: boolean };
@@ -62,6 +63,7 @@ export function ContextGitPanel({
 	onDiscarded,
 	onDiscardAll,
 	onRepositoryChanged,
+	onOpenTests,
 }: ContextGitPanelProps) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
@@ -248,7 +250,6 @@ export function ContextGitPanel({
 	};
 
 	const openGitSettings = () => navigate({ to: '/settings/git' });
-	const openTests = () => navigate({ to: '/settings/tests', search: { run: undefined } });
 
 	const togglePath = (path: string) => {
 		setSelectedPaths((current) => {
@@ -421,7 +422,7 @@ export function ContextGitPanel({
 								discardAllChanges.reset();
 								setIsDiscardAllOpen(true);
 							}}
-							onTest={openTests}
+							onTest={onOpenTests}
 							onSetup={openGitSettings}
 						/>
 					) : !isGitAvailable ? (
@@ -526,7 +527,7 @@ export function ContextGitPanel({
 												size='sm'
 												className='h-6 gap-1 px-1.5 text-[11px]'
 												title='Run the tests on your changes and on production side by side'
-												onClick={openTests}
+												onClick={onOpenTests}
 											>
 												<FlaskConical className='size-3' />
 												test

@@ -59,8 +59,16 @@ export function DraftComparisonCard({ draft, testCount, isStarting, isDisabled, 
 				))}
 				{hiddenCount > 0 && <span className='text-muted-foreground'>+{hiddenCount} more</span>}
 			</div>
+			<DraftContextWarnings draft={draft} />
+		</div>
+	);
+}
+
+export function DraftContextWarnings({ draft, className }: { draft: DraftContext; className?: string }) {
+	return (
+		<>
 			{draft.outdatedPaths.length > 0 && (
-				<Callout variant='warning'>
+				<Callout variant='warning' className={className}>
 					Production changed {draft.outdatedPaths.join(', ')} since your changes started, so the comparison
 					would also undo those updates.{' '}
 					{draft.storage === 'git'
@@ -69,11 +77,11 @@ export function DraftComparisonCard({ draft, testCount, isStarting, isDisabled, 
 				</Callout>
 			)}
 			{draft.excludedChanges.length > 0 && (
-				<Callout>
+				<Callout className={className}>
 					Changes to {draft.excludedChanges.map((change) => change.path).join(', ')} are not tested:
 					connections, MCP servers and skills always come from production.
 				</Callout>
 			)}
-		</div>
+		</>
 	);
 }

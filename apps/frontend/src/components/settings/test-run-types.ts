@@ -15,9 +15,34 @@ export type TestComparisonRow = TestComparison['tests'][number];
 export type TestComparisonChange = TestComparisonRow['change'];
 export type DraftContextStatus = TestRunOutputs['getDraftContext'];
 export type DraftContext = Extract<DraftContextStatus, { status: 'available' }>;
+export type TestHistoryRun = TestRunOutputs['getTestHistory'][number];
+export type TestDataDiff = NonNullable<TestRunResult['dataDiff']>;
+export type TestDataDiffRow = TestDataDiff['rows'][number];
+export type TestFileValidation = TestRunOutputs['validateTestFile'];
 
 export function isActiveRun(run: Pick<TestRunSummary, 'status'>): boolean {
 	return run.status === 'queued' || run.status === 'running';
+}
+
+/** The changed files that are context, as edited tests alone answer the same on production and on the draft. */
+export function getContextChanges(draft: DraftContext | null): DraftContext['changes'] {
+	return draft?.changes.filter((change) => !change.path.startsWith('tests/')) ?? [];
+}
+
+export function toExplorerTestPath(testPath: string): string {
+	return `/tests/${testPath}`;
+}
+
+/** Whether the explorer path is a test definition, mirroring the files `nao test` discovers. */
+export function isTestFilePath(filePath: string): boolean {
+	const segments = filePath.replaceAll('\\', '/').replace(/^\/+/, '').split('/');
+	const fileName = segments.at(-1) ?? '';
+	return (
+		segments.length > 1 &&
+		segments[0] === 'tests' &&
+		!segments.slice(1, -1).includes('outputs') &&
+		/\.ya?ml$/.test(fileName)
+	);
 }
 
 export function formatPassRate(passed: number, total: number): string {

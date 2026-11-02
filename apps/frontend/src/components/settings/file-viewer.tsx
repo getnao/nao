@@ -10,7 +10,6 @@ import type { FileEditabilityGuidance } from '@nao/shared/types';
 import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
-import { isTestFilePath, TestFileToolbar } from '@/components/settings/test-file-toolbar';
 import { UserGroupPicker } from '@/components/settings/user-group-picker';
 import {
 	AlertDialog,
@@ -65,6 +64,8 @@ interface FileViewerProps {
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
 	onDirtyChange: (isDirty: boolean) => void;
+	/** Follows the content in the editor, saved or not. */
+	onDraftChange?: (path: string, content: string) => void;
 	onOpenGuidancePath: (path: string, kind: 'file' | 'route') => void;
 	onReload: () => Promise<FileContents | undefined>;
 	rulesPreviewGroups: RulesPreviewGroupsState;
@@ -88,6 +89,7 @@ export function FileViewer({
 	searchQuery,
 	sourceAutoOpenRequestId,
 	onDirtyChange,
+	onDraftChange,
 	onOpenGuidancePath,
 	onReload,
 	rulesPreviewGroups,
@@ -128,6 +130,7 @@ export function FileViewer({
 			searchQuery={searchQuery}
 			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
 			onDirtyChange={onDirtyChange}
+			onDraftChange={onDraftChange}
 			onOpenGuidancePath={onOpenGuidancePath}
 			onReload={onReload}
 			rulesPreviewGroups={rulesPreviewGroups}
@@ -144,6 +147,7 @@ function EditableFileViewer({
 	searchQuery,
 	sourceAutoOpenRequestId,
 	onDirtyChange,
+	onDraftChange,
 	onOpenGuidancePath,
 	onReload,
 	rulesPreviewGroups,
@@ -157,6 +161,7 @@ function EditableFileViewer({
 	| 'searchQuery'
 	| 'sourceAutoOpenRequestId'
 	| 'onDirtyChange'
+	| 'onDraftChange'
 	| 'onOpenGuidancePath'
 	| 'onReload'
 	| 'rulesPreviewGroups'
@@ -225,6 +230,10 @@ function EditableFileViewer({
 			setIsSourceAutoOpened(false);
 		}
 	}, [searchQuery]);
+
+	useEffect(() => {
+		onDraftChange?.(filePath, draft);
+	}, [filePath, draft, onDraftChange]);
 
 	useEffect(() => {
 		onDirtyChange(isDirty);
@@ -374,7 +383,6 @@ function EditableFileViewer({
 					onSelectedGroupIdsChange={setSelectedGroupIds}
 				/>
 			)}
-			{isTestFilePath(filePath) && <TestFileToolbar filePath={filePath} content={draft} />}
 			{!isEditable && editabilityGuidance && (
 				<ReadOnlyNote guidance={editabilityGuidance} onOpenPath={onOpenGuidancePath} />
 			)}
