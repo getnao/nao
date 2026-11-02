@@ -28,9 +28,12 @@ import type { ChartEditorQuerySource } from './chart-editor-data-panel';
 import type { ColumnValueKind } from '@/lib/chart-selection-summary';
 import type { SourceQuery } from '@/lib/execute-sql-messages';
 import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { executeSql } from '@nao/shared/tools';
 import type { ChartType } from '@nao/shared/chart-types';
+import type { StoryTheme } from '@nao/shared/story-theme';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { acceptNumericKind, useColumnDropTarget, useDraggedColumnKind } from '@/hooks/use-column-drag';
 import { describeSemanticQueryFreshness, useSemanticQueryFreshness } from '@/hooks/use-semantic-query-freshness';
 import { isSemanticSourceQuery } from '@/lib/execute-sql-messages';
@@ -122,6 +125,7 @@ interface ChartConfigEditDialogProps extends Omit<
 	description?: string;
 	sourceQuery?: SourceQuery | null;
 	initialView?: ChartEditorView;
+	previewTheme?: StoryTheme;
 }
 
 export type ChartEditorView = 'chart' | 'query';
@@ -153,6 +157,7 @@ export function ChartConfigEditDialog({
 	description = 'Tweak the chart parameters.',
 	sourceQuery,
 	initialView = 'chart',
+	previewTheme,
 	...form
 }: ChartConfigEditDialogProps) {
 	const formId = useId();
@@ -264,13 +269,15 @@ export function ChartConfigEditDialog({
 									className='flex flex-col'
 									style={PANEL_OVERFLOW_HIDDEN}
 								>
-									<ChartEditorPreview
-										draft={draft}
-										data={data}
-										columns={columns}
-										summary={summary}
-										palette={form.palette}
-									/>
+									<ThemedPreview theme={previewTheme}>
+										<ChartEditorPreview
+											draft={draft}
+											data={data}
+											columns={columns}
+											summary={summary}
+											palette={form.palette}
+										/>
+									</ThemedPreview>
 								</ResizablePanel>
 							</ResizablePanelGroup>
 						</div>
@@ -285,6 +292,18 @@ export function ChartConfigEditDialog({
 				/>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+/** Only wraps when a theme is given, so a chart already inside a themed story keeps the style it inherits. */
+function ThemedPreview({ theme, children }: { theme?: StoryTheme; children: ReactNode }) {
+	if (!theme) {
+		return children;
+	}
+	return (
+		<StoryThemeProvider theme={theme} className='flex flex-col'>
+			{children}
+		</StoryThemeProvider>
 	);
 }
 

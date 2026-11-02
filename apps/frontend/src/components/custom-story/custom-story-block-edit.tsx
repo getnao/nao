@@ -1,4 +1,3 @@
-import { ChartStyleContext } from '@nao/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
@@ -41,19 +40,17 @@ interface CustomStoryBlockEditDialogProps {
 
 export function CustomStoryBlockEditDialog({ target, theme, onClose }: CustomStoryBlockEditDialogProps) {
 	const edit = useChartConfigEdit(target);
-	const chartStyle = useMemo(() => ({ barRadius: theme.charts.barRadius }), [theme]);
 	if (!edit) {
 		return null;
 	}
 	return (
-		<ChartStyleContext.Provider value={chartStyle}>
-			<ChartConfigEditDialog
-				{...edit}
-				open
-				onOpenChange={closeOnDismiss(onClose)}
-				description={BLOCK_EDIT_DESCRIPTION}
-			/>
-		</ChartStyleContext.Provider>
+		<ChartConfigEditDialog
+			{...edit}
+			open
+			onOpenChange={closeOnDismiss(onClose)}
+			description={BLOCK_EDIT_DESCRIPTION}
+			previewTheme={theme}
+		/>
 	);
 }
 
